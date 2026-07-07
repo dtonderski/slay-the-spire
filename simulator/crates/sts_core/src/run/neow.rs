@@ -105,6 +105,14 @@ pub fn generate_neow_options(numeric_seed: i64, player_max_hp: i32) -> Vec<Gener
         .collect()
 }
 
+pub fn generate_neow_options_rng_counter(numeric_seed: i64, player_max_hp: i32) -> u32 {
+    let mut rng = StsRng::new(numeric_seed);
+    for slot in 0..4 {
+        generate_neow_option(slot, player_max_hp, &mut rng);
+    }
+    rng.counter()
+}
+
 pub fn generate_neow_card_reward(numeric_seed: i64, reward: NeowRewardType) -> NeowCardReward {
     let mut rng = StsRng::new(numeric_seed);
     for slot in 0..4 {

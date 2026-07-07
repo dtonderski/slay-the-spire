@@ -532,6 +532,13 @@ where
         {
             return Ok((self.finish_auto_play(session_id, actions_sent)?, false));
         }
+        self.refresh_fidelity(session_id)?;
+        if let Some(blocked) = self.block_if_automation_fidelity_not_ok(
+            session_id,
+            "automation requires fidelity ok before auto-play planning",
+        )? {
+            return Ok((blocked, false));
+        }
 
         let planned = if self.bind_existing_automation_plan_to_latest_state(session_id)? {
             self.set_automation_state(session_id, AutomationState::ReadyToSend)?;
@@ -636,9 +643,17 @@ where
 
     pub fn refresh_fidelity(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
         let path = self.session(session_id)?.trace_writer.path().to_path_buf();
-        let fidelity = self.fidelity.check_trace(&path)?;
+        let (fidelity, sim_run_state) = self.fidelity.check_trace_with_sim_state(&path)?;
         let session = self.session_mut(session_id)?;
         session.fidelity = fidelity;
+        if let (Some(state), Some(sim_run_state)) = (session.latest_state.as_mut(), sim_run_state) {
+            if let Some(raw) = state.raw.as_object_mut() {
+                raw.insert(
+                    "sim_run_state".to_owned(),
+                    serde_json::to_value(sim_run_state)?,
+                );
+            }
+        }
         if !matches!(
             session.lifecycle,
             SessionLifecycle::Blocked | SessionLifecycle::Ended

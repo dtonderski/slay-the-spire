@@ -8,9 +8,17 @@ use std::{
     io::{BufRead, BufReader},
     path::Path,
 };
+use sts_core::RunState;
 
 pub trait FidelityChecker {
     fn check_trace(&self, path: &Path) -> LiveResult<FidelityStatus>;
+
+    fn check_trace_with_sim_state(
+        &self,
+        path: &Path,
+    ) -> LiveResult<(FidelityStatus, Option<RunState>)> {
+        self.check_trace(path).map(|status| (status, None))
+    }
 }
 
 enum TraceMode {
@@ -22,19 +30,27 @@ pub struct TraceFidelityChecker;
 
 impl FidelityChecker for TraceFidelityChecker {
     fn check_trace(&self, path: &Path) -> LiveResult<FidelityStatus> {
+        self.check_trace_with_sim_state(path)
+            .map(|(status, _)| status)
+    }
+
+    fn check_trace_with_sim_state(
+        &self,
+        path: &Path,
+    ) -> LiveResult<(FidelityStatus, Option<RunState>)> {
         if !path.exists() {
-            return Ok(FidelityStatus::unknown());
+            return Ok((FidelityStatus::unknown(), None));
         }
 
         let records = read_live_trace(path)?;
         if let Some(status) = explicit_live_status(&records) {
-            return Ok(status);
+            return Ok((status, None));
         }
 
         let seed_start_trace = communication_mod_trace(&records, TraceMode::SeedStart)?;
         if has_run_config(&records) && seed_start_trace.has_start {
             if seed_start_trace.transitions == 0 {
-                return Ok(FidelityStatus {
+                return Ok((FidelityStatus {
                     kind: FidelityKind::Unknown,
                     first_divergent_step: None,
                     compact_diff: Vec::new(),
@@ -42,34 +58,40 @@ impl FidelityChecker for TraceFidelityChecker {
                         "waiting for a recorded state-action-state transition before strict seed-start replay is meaningful"
                             .to_owned(),
                     ),
-                });
+                }, None));
             }
             return verify_seed_start_trace(&seed_start_trace.jsonl);
         }
 
         if seed_start_trace.states == 0 {
-            return Ok(FidelityStatus::unknown());
+            return Ok((FidelityStatus::unknown(), None));
         }
         if !has_run_config(&records) || !seed_start_trace.has_start {
-            return Ok(FidelityStatus {
+            return Ok((
+                FidelityStatus {
+                    kind: FidelityKind::Unknown,
+                    first_divergent_step: None,
+                    compact_diff: Vec::new(),
+                    message: Some(
+                        "strict seed-start replay requires recorded run config and START command"
+                            .to_owned(),
+                    ),
+                },
+                None,
+            ));
+        }
+        Ok((
+            FidelityStatus {
                 kind: FidelityKind::Unknown,
                 first_divergent_step: None,
                 compact_diff: Vec::new(),
                 message: Some(
-                    "strict seed-start replay requires recorded run config and START command"
+                    "waiting for strict seed-start replay to reach a supported verifier boundary"
                         .to_owned(),
                 ),
-            });
-        }
-        Ok(FidelityStatus {
-            kind: FidelityKind::Unknown,
-            first_divergent_step: None,
-            compact_diff: Vec::new(),
-            message: Some(
-                "waiting for strict seed-start replay to reach a supported verifier boundary"
-                    .to_owned(),
-            ),
-        })
+            },
+            None,
+        ))
     }
 }
 

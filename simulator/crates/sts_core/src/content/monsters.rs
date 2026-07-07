@@ -314,8 +314,10 @@ const BANDIT_BEAR_A2_LUNGE_DAMAGE: i32 = 10;
 const BANDIT_BEAR_LUNGE_BLOCK: i32 = 9;
 const BANDIT_POINTY_DAMAGE: i32 = 5;
 const BANDIT_POINTY_HITS: i32 = 2;
-const BANDIT_LEADER_STAB_DAMAGE: i32 = 10;
-const BANDIT_LEADER_A2_STAB_DAMAGE: i32 = 12;
+const BANDIT_LEADER_SLASH_DAMAGE: i32 = 15;
+const BANDIT_LEADER_A2_SLASH_DAMAGE: i32 = 17;
+const BANDIT_LEADER_AGONIZE_DAMAGE: i32 = 10;
+const BANDIT_LEADER_A2_AGONIZE_DAMAGE: i32 = 12;
 const BANDIT_LEADER_WEAK: i32 = 2;
 const CHAMP_HEAVY_SLASH_DAMAGE: i32 = 16;
 const CHAMP_A4_HEAVY_SLASH_DAMAGE: i32 = 18;
@@ -569,6 +571,12 @@ pub const BYRD_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(25, 31);
 pub const BYRD_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(26, 33);
 pub const CHOSEN_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(95, 99);
 pub const CHOSEN_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(98, 103);
+pub const BANDIT_POINTY_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(30, 30);
+pub const BANDIT_POINTY_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(34, 34);
+pub const BANDIT_LEADER_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(35, 39);
+pub const BANDIT_LEADER_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(37, 41);
+pub const BANDIT_BEAR_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(38, 42);
+pub const BANDIT_BEAR_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(40, 44);
 pub const SHELLED_PARASITE_A0_HP_RANGE: MonsterHpRange = MonsterHpRange::new(68, 72);
 pub const SHELLED_PARASITE_A7_HP_RANGE: MonsterHpRange = MonsterHpRange::new(70, 75);
 pub const SPHERIC_GUARDIAN_HP_RANGE: MonsterHpRange = MonsterHpRange::new(20, 20);
@@ -1063,7 +1071,7 @@ pub const BANDIT_LEADER_A0: MonsterDefinition = MonsterDefinition {
     content_id: BANDIT_LEADER_ID,
     name: "Romeo",
     hp: 37,
-    attack_damage: BANDIT_LEADER_STAB_DAMAGE,
+    attack_damage: BANDIT_LEADER_SLASH_DAMAGE,
     ritual_amount: 0,
     enrage_weak_on_skill: 0,
     starting_spikes: 0,
@@ -2668,6 +2676,27 @@ pub fn target_monster_hp_range_for_content_id(
                 CHOSEN_A7_HP_RANGE
             } else {
                 CHOSEN_A0_HP_RANGE
+            }
+        }
+        BANDIT_POINTY_ID => {
+            if ascension >= 7 {
+                BANDIT_POINTY_A7_HP_RANGE
+            } else {
+                BANDIT_POINTY_A0_HP_RANGE
+            }
+        }
+        BANDIT_LEADER_ID => {
+            if ascension >= 7 {
+                BANDIT_LEADER_A7_HP_RANGE
+            } else {
+                BANDIT_LEADER_A0_HP_RANGE
+            }
+        }
+        BANDIT_BEAR_ID => {
+            if ascension >= 7 {
+                BANDIT_BEAR_A7_HP_RANGE
+            } else {
+                BANDIT_BEAR_A0_HP_RANGE
             }
         }
         SHELLED_PARASITE_ID => {
@@ -5576,15 +5605,9 @@ fn shelled_parasite_fell_damage(ascension: u8) -> i32 {
 }
 
 fn shelled_parasite_fell_intent(ascension: u8) -> MonsterIntent {
-    if ascension >= 17 {
-        MonsterIntent::AttackApplyPlayerFrail {
-            damage: shelled_parasite_fell_damage(ascension),
-            frail: SHELLED_PARASITE_FELL_FRAIL,
-        }
-    } else {
-        MonsterIntent::Attack {
-            damage: shelled_parasite_fell_damage(ascension),
-        }
+    MonsterIntent::AttackApplyPlayerFrail {
+        damage: shelled_parasite_fell_damage(ascension),
+        frail: SHELLED_PARASITE_FELL_FRAIL,
     }
 }
 
@@ -6652,53 +6675,65 @@ fn public_backlog_monster_intent(
     ascension: u8,
 ) -> MonsterIntent {
     match content_id {
-        BANDIT_BEAR_ID => match moves_executed % 3 {
-            0 => MonsterIntent::Attack {
+        BANDIT_BEAR_ID => {
+            if moves_executed == 0 {
+                return MonsterIntent::SiphonPlayer {
+                    strength: 0,
+                    dexterity: if ascension >= 17 { 4 } else { 2 },
+                };
+            }
+            if moves_executed % 2 == 1 {
+                return MonsterIntent::AttackAndBlock {
+                    damage: asc_damage(
+                        ascension,
+                        BANDIT_BEAR_LUNGE_DAMAGE,
+                        BANDIT_BEAR_A2_LUNGE_DAMAGE,
+                        2,
+                    ),
+                    block: BANDIT_BEAR_LUNGE_BLOCK,
+                };
+            }
+            MonsterIntent::Attack {
                 damage: asc_damage(
                     ascension,
                     BANDIT_BEAR_MAUL_DAMAGE,
                     BANDIT_BEAR_A2_MAUL_DAMAGE,
                     2,
                 ),
-            },
-            1 => MonsterIntent::SiphonPlayer {
-                strength: if ascension >= 17 { 4 } else { 2 },
-                dexterity: if ascension >= 17 { 4 } else { 2 },
-            },
-            _ => MonsterIntent::AttackAndBlock {
-                damage: asc_damage(
-                    ascension,
-                    BANDIT_BEAR_LUNGE_DAMAGE,
-                    BANDIT_BEAR_A2_LUNGE_DAMAGE,
-                    2,
-                ),
-                block: BANDIT_BEAR_LUNGE_BLOCK,
-            },
-        },
+            }
+        }
         BANDIT_POINTY_ID => MonsterIntent::AttackMultiple {
             damage: BANDIT_POINTY_DAMAGE,
             hits: BANDIT_POINTY_HITS,
         },
-        BANDIT_LEADER_ID => match moves_executed % 3 {
-            0 => MonsterIntent::Stun,
-            1 => MonsterIntent::AttackApplyPlayerWeak {
+        BANDIT_LEADER_ID => {
+            if moves_executed == 0 {
+                return MonsterIntent::Stun;
+            }
+            if moves_executed % 2 == 1 {
+                return MonsterIntent::AttackApplyPlayerWeak {
+                    damage: asc_damage(
+                        ascension,
+                        BANDIT_LEADER_AGONIZE_DAMAGE,
+                        BANDIT_LEADER_A2_AGONIZE_DAMAGE,
+                        2,
+                    ),
+                    weak: if ascension >= 17 {
+                        3
+                    } else {
+                        BANDIT_LEADER_WEAK
+                    },
+                };
+            }
+            MonsterIntent::Attack {
                 damage: asc_damage(
                     ascension,
-                    BANDIT_LEADER_STAB_DAMAGE,
-                    BANDIT_LEADER_A2_STAB_DAMAGE,
+                    BANDIT_LEADER_SLASH_DAMAGE,
+                    BANDIT_LEADER_A2_SLASH_DAMAGE,
                     2,
                 ),
-                weak: BANDIT_LEADER_WEAK,
-            },
-            _ => MonsterIntent::Attack {
-                damage: asc_damage(
-                    ascension,
-                    BANDIT_LEADER_STAB_DAMAGE,
-                    BANDIT_LEADER_A2_STAB_DAMAGE,
-                    2,
-                ),
-            },
-        },
+            }
+        }
         CHAMP_ID => match moves_executed % 6 {
             0 => MonsterIntent::Attack {
                 damage: asc_damage(
@@ -9393,7 +9428,8 @@ pub fn apply_monster_intent_with_card_rng(
         } => {
             upgrade_burns_and_add_upgraded_to_discard(piles, count);
             let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
-            let effective_hits = apply_multi_hit_thorns(monster, total_thorns, hits);
+            let effective_hits =
+                apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
             monster.intent = MonsterIntent::AttackMultipleUpgradeBurns {
                 damage,
                 hits: effective_hits,
@@ -9404,7 +9440,8 @@ pub fn apply_monster_intent_with_card_rng(
         }
         MonsterIntent::AttackMultiple { damage, hits } => {
             let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
-            let effective_hits = apply_multi_hit_thorns(monster, total_thorns, hits);
+            let effective_hits =
+                apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
             monster.intent = MonsterIntent::AttackMultiple {
                 damage,
                 hits: effective_hits,
@@ -9443,19 +9480,33 @@ pub fn apply_monster_intent_with_card_rng(
     damage
 }
 
-fn apply_multi_hit_thorns(monster: &mut MonsterState, total_thorns: i32, hits: i32) -> i32 {
+fn apply_multi_hit_thorns(
+    monster: &mut MonsterState,
+    total_thorns: i32,
+    hits: i32,
+    hit_damage: i32,
+    player_before: &crate::PlayerState,
+) -> i32 {
     let hit_count = hits.max(1);
     if total_thorns <= 0 {
         return hit_count;
     }
 
     let mut effective_hits = 0;
+    let mut remaining_block = player_before.block;
+    let mut remaining_hp = player_before.hp;
     for _ in 0..hit_count {
         if !monster.alive {
             break;
         }
         effective_hits += 1;
-        crate::combat::damage::deal_unmodified_damage_to_monster(monster, total_thorns);
+        let blocked = remaining_block.min(hit_damage.max(0));
+        remaining_block -= blocked;
+        remaining_hp -= hit_damage.saturating_sub(blocked);
+        let player_survives_hit = hit_damage <= 0 || remaining_hp > 0;
+        if player_survives_hit {
+            crate::combat::damage::deal_unmodified_damage_to_monster(monster, total_thorns);
+        }
     }
     effective_hits
 }
@@ -9563,6 +9614,36 @@ fn take_random_card_of_rarity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guardian_multi_hit_thorns_counts_hits_absorbed_by_block() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.hp = 40;
+        monster.powers.weak = 5;
+        monster.intent = MonsterIntent::AttackMultiple {
+            damage: GUARDIAN_WHIRLWIND_DAMAGE,
+            hits: GUARDIAN_WHIRLWIND_HITS,
+        };
+        let mut player = state.player.clone();
+        player.hp = 11;
+        player.block = 8;
+        player.powers.thorns = 3;
+        let player_before = player.clone();
+
+        let damage = apply_monster_intent(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            0,
+            &player_before,
+            &[],
+        );
+
+        assert_eq!(damage, 12);
+        assert_eq!(monster.hp, 28);
+        assert_eq!(player.hp, 11);
+    }
 
     #[test]
     fn gremlin_nob_a18_ignores_roll_and_uses_source_history_guards() {
@@ -10171,6 +10252,15 @@ mod tests {
             }
         );
         assert_eq!(a17_rng.counter(), 1);
+
+        let mut followup_rng = StsRng::new(123);
+        assert_eq!(
+            target_shelled_parasite_next_intent_from_roll(&[3], 0, &mut followup_rng, 0),
+            MonsterIntent::AttackApplyPlayerFrail {
+                damage: SHELLED_PARASITE_FELL_DAMAGE,
+                frail: SHELLED_PARASITE_FELL_FRAIL,
+            }
+        );
     }
 
     #[test]

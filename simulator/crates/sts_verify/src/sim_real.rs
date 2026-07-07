@@ -96,6 +96,8 @@ pub struct SeedStartReport {
     pub first_boundary: SeedStartBoundary,
     pub rng_boundaries: Vec<RngBoundary>,
     pub m22_encounter_report: Option<crate::m22::M22EncounterReport>,
+    #[serde(skip)]
+    pub sim_run_state: Option<RunState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,9 +236,9 @@ fn verify_seed_start_trace(
         seed_start: None,
     };
 
-    let boundary =
+    let verification =
         verify_seed_start_transitions(&transitions.transitions, &start, &mut report, options);
-    let failed = boundary.category != "none";
+    let failed = verification.boundary.category != "none";
     let m22_encounter_report = Some(crate::m22::verify_m22_encounter_spawn_prefix(
         &trace.lines,
         &start.external_seed,
@@ -246,9 +248,10 @@ fn verify_seed_start_trace(
     report.seed_start = Some(SeedStartReport {
         start_command: start,
         failed,
-        first_boundary: boundary,
+        first_boundary: verification.boundary,
         rng_boundaries: seed_start_rng_boundaries(),
         m22_encounter_report,
+        sim_run_state: verification.final_run_state,
     });
 
     Ok(report)
@@ -291,12 +294,17 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
     })
 }
 
+struct SeedStartVerification {
+    boundary: SeedStartBoundary,
+    final_run_state: Option<RunState>,
+}
+
 fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
     report: &mut SimRealReport,
     _options: SeedStartVerifyOptions,
-) -> SeedStartBoundary {
+) -> SeedStartVerification {
     let mut phase = SeedStartPhase::BeforeStart;
     let mut _reward_step = 0usize;
     let mut combat_index = 0usize;
@@ -310,6 +318,7 @@ fn verify_seed_start_transitions(
     let mut neow_card_reward_choices: Option<Vec<String>> = None;
     let mut neow_card_reward_card_rng_counter: Option<u32> = None;
     let mut neow_potion_reward: Vec<String> = Vec::new();
+    let mut neow_potion_rng_counter: Option<u32> = None;
     let mut neow_potions_taken = 0usize;
     let mut delayed_neow_curse: Option<String> = None;
     let mut delayed_neow_transform_count = 0usize;
@@ -317,6 +326,15 @@ fn verify_seed_start_transitions(
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
     let mut initial_act1_boss = Act1Boss::default();
+
+    macro_rules! finish_boundary {
+        ($boundary:expr) => {
+            SeedStartVerification {
+                boundary: $boundary,
+                final_run_state: seed_sim.clone(),
+            }
+        };
+    }
 
     for (pre, action, post) in transitions {
         if action.command.eq_ignore_ascii_case("state") {
@@ -699,7 +717,13 @@ fn verify_seed_start_transitions(
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(|option| option.reward == NeowRewardType::ThreeSmallPotions) =>
             {
-                neow_potion_reward = seed_start_neow_potion_names(start.numeric_seed);
+                let reward = generate_neow_three_potions(start.numeric_seed);
+                neow_potion_rng_counter = Some(reward.potion_rng_counter);
+                neow_potion_reward = reward
+                    .potions
+                    .into_iter()
+                    .map(|potion| potion_trace_name(potion).to_owned())
+                    .collect();
                 neow_potions_taken = 0;
                 if screen_type(&post.message) == Some("EVENT") {
                     compare_subset(
@@ -829,11 +853,11 @@ fn verify_seed_start_transitions(
                     continue;
                 }
                 if let Some(reason) = seed_start_unsupported_boss_swap_reason(&run) {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason,
-                    };
+                    });
                 }
                 let relic_ids = seed_start_boss_swap_relic_ids(&run);
                 let post_deck_ids = deck_content_keys(&run.deck);
@@ -894,20 +918,20 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::NeowGrid if command_choose_index(&action.command).is_some() => {
                 let Some(sim) = seed_sim.as_ref() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_grid_path".to_owned(),
                         reason: "seed-start Neow grid action without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 let index = command_choose_index(&action.command).expect("matched choose command");
                 let Ok(next) = select_grid_card(sim, index) else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_grid_path".to_owned(),
                         reason: "seed-start Neow grid choose simulation failed".to_owned(),
-                    };
+                    });
                 };
                 let observed_grid = seed_start_grid_observed_subset(&post.message);
                 let selected_subset = seed_start_grid_simulated_subset(&next, &relics);
@@ -925,6 +949,16 @@ fn verify_seed_start_transitions(
                 }
                 if let Ok(confirmed) = confirm_grid(&next) {
                     deck_ids = deck_content_keys(&confirmed.deck);
+                    let mut visible_deck_ids = deck_ids.clone();
+                    if let Some(transform_count) =
+                        seed_start_neow_grid_transform_count(&next).filter(|count| *count > 0)
+                    {
+                        visible_deck_ids = seed_start_visible_deck_after_neow_transform_selection(
+                            &deck_ids,
+                            transform_count,
+                            delayed_neow_curse.as_deref(),
+                        );
+                    }
                     if delayed_neow_transform_count > 0 {
                         for _ in 0..delayed_neow_transform_count.min(deck_ids.len()) {
                             deck_ids.pop();
@@ -980,7 +1014,7 @@ fn verify_seed_start_transitions(
                             "gold": neow_gold,
                             "current_hp": neow_current_hp,
                             "max_hp": neow_max_hp,
-                            "deck_ids": deck_ids,
+                            "deck_ids": visible_deck_ids,
                             "relic_ids": relics,
                             "choices": ["leave"],
                         }),
@@ -1001,19 +1035,19 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::NeowGridConfirm if action.command.eq_ignore_ascii_case("CONFIRM") => {
                 let Some(sim) = seed_sim.as_ref() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_grid_path".to_owned(),
                         reason: "seed-start Neow grid confirm without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 let Ok(next) = confirm_grid(sim) else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_grid_path".to_owned(),
                         reason: "seed-start Neow grid confirm simulation failed".to_owned(),
-                    };
+                    });
                 };
                 deck_ids = deck_content_keys(&next.deck);
                 if delayed_neow_transform_count > 0 {
@@ -1069,12 +1103,12 @@ fn verify_seed_start_transitions(
                     .expect("matched initialized Neow multi-select grid");
                 let index = command_choose_index(&action.command).expect("matched choose command");
                 let Ok(next) = select_grid_card(sim, index) else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_grid_path".to_owned(),
                         reason: "seed-start Neow multi-select grid choose simulation failed"
                             .to_owned(),
-                    };
+                    });
                 };
                 let delayed_transform_count_before_confirm = delayed_neow_transform_count;
                 let delayed_curse_before_confirm = delayed_neow_curse.clone();
@@ -1090,6 +1124,17 @@ fn verify_seed_start_transitions(
                 }
                 if let Ok(confirmed) = confirm_grid(&next) {
                     deck_ids = deck_content_keys(&confirmed.deck);
+                    let transform_count_before_confirm =
+                        seed_start_neow_grid_transform_count(&next)
+                            .unwrap_or(delayed_transform_count_before_confirm);
+                    let mut visible_deck_ids = deck_ids.clone();
+                    if transform_count_before_confirm > 0 {
+                        visible_deck_ids = seed_start_visible_deck_after_neow_transform_selection(
+                            &deck_ids,
+                            transform_count_before_confirm,
+                            delayed_curse_before_confirm.as_deref(),
+                        );
+                    }
                     if delayed_transform_count_before_confirm > 0 {
                         for _ in 0..delayed_transform_count_before_confirm.min(deck_ids.len()) {
                             deck_ids.pop();
@@ -1133,7 +1178,7 @@ fn verify_seed_start_transitions(
                                 "gold": neow_gold,
                                 "current_hp": neow_current_hp,
                                 "max_hp": neow_max_hp,
-                                "deck_ids": deck_ids,
+                                "deck_ids": visible_deck_ids,
                                 "relic_ids": relics,
                                 "choices": ["leave"],
                             }),
@@ -1202,20 +1247,20 @@ fn verify_seed_start_transitions(
                     || action.command.eq_ignore_ascii_case("CONFIRM") =>
             {
                 let Some(sim) = seed_sim.as_ref() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason:
                             "seed-start Calling Bell boss-swap grid without initialized run simulation"
                                 .to_owned(),
-                    };
+                    });
                 };
                 let Ok(next) = confirm_grid(sim) else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason: "seed-start Calling Bell boss-swap grid confirm failed".to_owned(),
-                    };
+                    });
                 };
                 deck_ids = deck_content_keys(&next.deck);
                 compare_subset(
@@ -1232,13 +1277,13 @@ fn verify_seed_start_transitions(
                 if command_choose_index(&action.command).is_some() =>
             {
                 let Some(sim) = seed_sim.as_mut() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason:
                             "seed-start Calling Bell boss-swap reward without initialized run simulation"
                                 .to_owned(),
-                    };
+                    });
                 };
                 let label = match seed_start_apply_reward_choose(
                     sim,
@@ -1259,7 +1304,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     }
                 };
                 seed_start_update_carry_from_run(sim, &mut relics, &mut deck_ids);
@@ -1301,21 +1346,21 @@ fn verify_seed_start_transitions(
                 if command_choose_index(&action.command).is_some() =>
             {
                 let Some(sim) = seed_sim.as_ref() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason:
                             "seed-start Astrolabe boss-swap grid without initialized run simulation"
                                 .to_owned(),
-                    };
+                    });
                 };
                 let index = command_choose_index(&action.command).expect("matched choose command");
                 let Ok(next) = select_grid_card(sim, index) else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason: "seed-start Astrolabe boss-swap grid choose failed".to_owned(),
-                    };
+                    });
                 };
                 deck_ids = deck_content_keys(&next.deck);
                 if let Ok(confirmed) = confirm_grid(&next) {
@@ -1379,20 +1424,20 @@ fn verify_seed_start_transitions(
                     || action.command.eq_ignore_ascii_case("CONFIRM") =>
             {
                 let Some(sim) = seed_sim.as_ref() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason:
                             "seed-start Pandora's Box boss-swap grid without initialized run simulation"
                                 .to_owned(),
-                    };
+                    });
                 };
                 let Ok(next) = confirm_grid(sim) else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason: "seed-start Pandora's Box boss-swap grid confirm failed".to_owned(),
-                    };
+                    });
                 };
                 deck_ids = deck_content_keys(&next.deck);
                 compare_subset(
@@ -1419,21 +1464,21 @@ fn verify_seed_start_transitions(
                 if command_choose_index(&action.command).is_some() =>
             {
                 let Some(sim) = seed_sim.as_ref() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason:
                             "seed-start Empty Cage boss-swap grid without initialized run simulation"
                                 .to_owned(),
-                    };
+                    });
                 };
                 let index = command_choose_index(&action.command).expect("matched choose command");
                 let Ok(next) = select_grid_card(sim, index) else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason: "seed-start Empty Cage boss-swap grid choose failed".to_owned(),
-                    };
+                    });
                 };
                 compare_subset(
                     report,
@@ -1448,20 +1493,20 @@ fn verify_seed_start_transitions(
                 if action.command.eq_ignore_ascii_case("CONFIRM") =>
             {
                 let Some(sim) = seed_sim.as_ref() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason:
                             "seed-start Empty Cage boss-swap grid without initialized run simulation"
                                 .to_owned(),
-                    };
+                    });
                 };
                 let Ok(next) = confirm_grid(sim) else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_boss_swap".to_owned(),
                         reason: "seed-start Empty Cage boss-swap grid confirm failed".to_owned(),
-                    };
+                    });
                 };
                 deck_ids = deck_content_keys(&next.deck);
                 if next.card_grid.is_some() {
@@ -1566,11 +1611,11 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::NeowPotionReward if action.command.eq_ignore_ascii_case("PROCEED") => {
                 if neow_potions_taken < neow_potion_reward.len() {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_neow_potion_reward".to_owned(),
                         reason: "seed-start verifier expected all Neow potion rewards to be picked before PROCEED".to_owned(),
-                    };
+                    });
                 }
                 compare_subset(
                     report,
@@ -1593,6 +1638,33 @@ fn verify_seed_start_transitions(
                         },
                     }),
                 );
+                if seed_sim.is_none() {
+                    let mut run = seed_start_carried_run(
+                        None,
+                        start.numeric_seed,
+                        start.ascension,
+                        &start.external_seed,
+                        &deck_ids,
+                    );
+                    run.gold = neow_gold;
+                    run.player_hp = neow_current_hp;
+                    run.player_max_hp = neow_max_hp;
+                    run.act1_boss = initial_act1_boss;
+                    run.potions = neow_potion_reward
+                        .iter()
+                        .filter_map(|name| potion_from_trace_name(name))
+                        .collect();
+                    if let Some(counter) = neow_potion_rng_counter {
+                        run.potion_rng_counter = counter;
+                    }
+                    // In target seed-start CODEX04 traces, the first combat reward is saved with
+                    // card_seed_count=9 and card_random_seed_randomizer=4 before reward cards are
+                    // rolled. Three-potion Neow itself only advances potionRng; these values carry
+                    // the target dungeon setup state into verifier-owned run reconstruction.
+                    run.card_rng_counter = 9;
+                    run.card_rarity_factor = 4;
+                    seed_sim = Some(run);
+                }
                 phase = SeedStartPhase::Map;
             }
             SeedStartPhase::NeowLeave if command_is_choose(&action.command, 0) => {
@@ -1612,6 +1684,9 @@ fn verify_seed_start_transitions(
                 }
                 if let Some(sim) = seed_sim.as_mut() {
                     sim.act1_boss = initial_act1_boss;
+                    sim.phase = RunPhase::Idle;
+                    sim.reward = None;
+                    sim.card_grid = None;
                 }
                 let visible_deck = deck_ids.clone();
                 compare_subset(
@@ -1635,7 +1710,7 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::Map
                 if screen_type(&pre.message) == Some("MAP")
-                    && command_is_visible_choose(&pre.message, &action.command) =>
+                    && command_choose_index(&action.command).is_some() =>
             {
                 if let Some(sim) = seed_sim.as_ref() {
                     let legal_actions = legal_map_actions_on_run(sim);
@@ -1672,7 +1747,7 @@ fn verify_seed_start_transitions(
                                     command: action.command.clone(),
                                     reason: boundary.reason.clone(),
                                 });
-                                return boundary;
+                                return finish_boundary!(boundary);
                             };
                             match next.phase {
                                 RunPhase::Event => {
@@ -1787,17 +1862,17 @@ fn verify_seed_start_transitions(
                     command: action.command.clone(),
                     reason: boundary.reason.clone(),
                 });
-                return boundary;
+                return finish_boundary!(boundary);
             }
             SeedStartPhase::Treasure if action.command.trim().eq_ignore_ascii_case("PROCEED") => {
                 let simulated_return = {
                     let Some(sim) = seed_sim.as_mut() else {
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_treasure_path".to_owned(),
                             reason: "seed-start treasure action without initialized run simulation"
                                 .to_owned(),
-                        };
+                        });
                     };
                     let previous_act = sim.current_act;
                     let next = apply_run_action(sim, RunAction::Proceed).map_err(|e| e.to_string());
@@ -1812,7 +1887,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     };
                     seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                     if next.current_act != previous_act {
@@ -1850,12 +1925,12 @@ fn verify_seed_start_transitions(
             SeedStartPhase::Treasure if command_head_eq(&action.command, "CHOOSE") => {
                 let choose_index = choose_index(&action.command).unwrap_or(0);
                 let Some(sim) = seed_sim.as_mut() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_treasure_path".to_owned(),
                         reason: "seed-start treasure action without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 if screen_type(&pre.message) == Some("CHEST") && choose_index == 0 {
                     if screen_type(&post.message) == Some("BOSS_REWARD") {
@@ -1892,7 +1967,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 } else {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -1904,17 +1979,17 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 }
             }
             SeedStartPhase::Rest if action.command.trim().eq_ignore_ascii_case("SKIP") => {
                 let Some(sim) = seed_sim.as_mut() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_rest_path".to_owned(),
                         reason: "seed-start rest skip without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 if let Some(reward) = sim.reward.as_mut() {
                     reward.card_reward_active = false;
@@ -1939,12 +2014,12 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::Rest if action.command.trim().eq_ignore_ascii_case("PROCEED") => {
                 let Some(sim) = seed_sim.as_mut() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_rest_path".to_owned(),
                         reason: "seed-start rest proceed without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 let next = apply_rest_action(sim, RestAction::Proceed).map_err(|e| e.to_string());
                 let Ok(next) = next else {
@@ -1958,7 +2033,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 };
                 seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                 compare_subset(
@@ -1983,12 +2058,12 @@ fn verify_seed_start_transitions(
             SeedStartPhase::Rest if command_head_eq(&action.command, "CHOOSE") => {
                 let choose_index = choose_index(&action.command).unwrap_or(0);
                 let Some(sim) = seed_sim.as_mut() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_rest_path".to_owned(),
                         reason: "seed-start rest action without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 let next = if screen_type(&pre.message) == Some("REST") {
                     match choose_index {
@@ -2020,7 +2095,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 };
                 let (observed, simulated, label) =
                     if screen_type(&post.message) == Some("CARD_REWARD") {
@@ -2057,7 +2132,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 }
                 seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                 *sim = next;
@@ -2083,15 +2158,15 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 };
                 let Some(sim) = seed_sim.as_mut() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_event_path".to_owned(),
                         reason: "seed-start event action without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 let Some(sim_choice_index) =
                     seed_start_event_choice_index_for_communication_mod(sim, choose_index)
@@ -2108,7 +2183,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 };
                 let Ok(next) = apply_event_action(
                     sim,
@@ -2126,7 +2201,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 };
                 if post
                     .message
@@ -2207,7 +2282,7 @@ fn verify_seed_start_transitions(
                     command: action.command.clone(),
                     reason: boundary.reason.clone(),
                 });
-                return boundary;
+                return finish_boundary!(boundary);
             }
             SeedStartPhase::Combat => {
                 let command = action.command.trim();
@@ -2268,7 +2343,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 };
 
                 if let Some(potion_use) = potion_use {
@@ -2282,11 +2357,11 @@ fn verify_seed_start_transitions(
                     );
                     let Ok(next) = next else {
                         push_sim_error(report, action, "combat potion use", next.err().unwrap());
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "seed-start combat potion simulation failed".to_owned(),
-                        };
+                        });
                     };
                     if screen_type(&post.message) == Some("CARD_REWARD") {
                         seed_start_compare_combat_subset(
@@ -2339,7 +2414,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     };
                     let next = apply_run_action(sim, RunAction::ChooseCombatCardReward { index });
                     let Ok(next) = next else {
@@ -2349,12 +2424,12 @@ fn verify_seed_start_transitions(
                             "combat potion card reward",
                             next.err().unwrap(),
                         );
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "seed-start combat potion card reward simulation failed"
                                 .to_owned(),
-                        };
+                        });
                     };
                     seed_start_compare_combat_subset(
                         report,
@@ -2377,12 +2452,12 @@ fn verify_seed_start_transitions(
                             "combat hand select confirm",
                             next.err().unwrap(),
                         );
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "seed-start combat hand select confirm simulation failed"
                                 .to_owned(),
-                        };
+                        });
                     };
                     seed_start_compare_combat_subset(
                         report,
@@ -2410,16 +2485,16 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     };
                     let next = apply_run_action(sim, RunAction::ChooseHandSelect { index });
                     let Ok(next) = next else {
                         push_sim_error(report, action, "combat hand select", next.err().unwrap());
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "seed-start combat hand select simulation failed".to_owned(),
-                        };
+                        });
                     };
                     seed_start_compare_combat_subset(
                         report,
@@ -2442,12 +2517,12 @@ fn verify_seed_start_transitions(
                             "combat discard select confirm",
                             next.err().unwrap(),
                         );
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "seed-start combat discard select confirm simulation failed"
                                 .to_owned(),
-                        };
+                        });
                     };
                     seed_start_compare_combat_subset(
                         report,
@@ -2475,7 +2550,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     };
                     let next = apply_run_action(sim, RunAction::ChooseDiscardSelect { index });
                     let Ok(next) = next else {
@@ -2485,11 +2560,11 @@ fn verify_seed_start_transitions(
                             "combat discard select",
                             next.err().unwrap(),
                         );
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "seed-start combat discard select simulation failed".to_owned(),
-                        };
+                        });
                     };
                     seed_start_compare_combat_subset(
                         report,
@@ -2512,12 +2587,12 @@ fn verify_seed_start_transitions(
                             "combat exhaust select confirm",
                             next.err().unwrap(),
                         );
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "seed-start combat exhaust select confirm simulation failed"
                                 .to_owned(),
-                        };
+                        });
                     };
                     seed_start_compare_combat_subset(
                         report,
@@ -2545,7 +2620,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     };
                     let next = apply_run_action(sim, RunAction::ChooseExhaustSelect { index });
                     let Ok(next) = next else {
@@ -2555,11 +2630,11 @@ fn verify_seed_start_transitions(
                             "combat exhaust select",
                             next.err().unwrap(),
                         );
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "seed-start combat exhaust select simulation failed".to_owned(),
-                        };
+                        });
                     };
                     seed_start_compare_combat_subset(
                         report,
@@ -2593,6 +2668,20 @@ fn verify_seed_start_transitions(
                     continue;
                 }
 
+                if command.eq_ignore_ascii_case("PROCEED")
+                    && sim
+                        .combat
+                        .as_ref()
+                        .is_some_and(|combat| combat.phase == CombatPhase::Lost)
+                {
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "death screen proceed".to_owned(),
+                    });
+                    continue;
+                }
+
                 if !(is_play_command || command_head.eq_ignore_ascii_case("END")) {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -2606,7 +2695,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 }
 
                 if let Some(combat) = sim.combat.as_ref() {
@@ -2616,11 +2705,11 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason,
                         });
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "unsupported card in seed-start combat".to_owned(),
-                        };
+                        });
                     }
                 }
 
@@ -2639,7 +2728,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 };
 
                 if is_final_combat_blow(sim, combat_action) {
@@ -2651,11 +2740,11 @@ fn verify_seed_start_transitions(
                             "seed-start combat victory",
                             next.err().unwrap(),
                         );
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_combat_path".to_owned(),
                             reason: "seed-start combat victory simulation failed".to_owned(),
-                        };
+                        });
                     };
                     if post
                         .message
@@ -2710,11 +2799,11 @@ fn verify_seed_start_transitions(
                         "seed-start combat transition",
                         next.err().unwrap(),
                     );
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_combat_path".to_owned(),
                         reason: "seed-start combat simulation rejected transition".to_owned(),
-                    };
+                    });
                 };
                 let label = combat_label(command, sim);
                 seed_start_compare_combat_subset(
@@ -2730,12 +2819,12 @@ fn verify_seed_start_transitions(
             SeedStartPhase::Reward => {
                 if action.command.trim().eq_ignore_ascii_case("SKIP") {
                     let Some(sim) = seed_sim.as_mut() else {
-                        return SeedStartBoundary {
+                        return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_reward_path".to_owned(),
                             reason: "seed-start reward skip without initialized reward simulation"
                                 .to_owned(),
-                        };
+                        });
                     };
                     let next = apply_run_action(sim, RunAction::CloseCardReward)
                         .map_err(|err| err.to_string());
@@ -2750,7 +2839,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     };
                     seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                     *sim = next;
@@ -2762,12 +2851,12 @@ fn verify_seed_start_transitions(
                 if action.command.eq_ignore_ascii_case("PROCEED") {
                     if screen_type(&post.message) == Some("CHEST") {
                         let Some(sim) = seed_sim.as_mut() else {
-                            return SeedStartBoundary {
+                            return finish_boundary!(SeedStartBoundary {
                                 path: format!("$.actions[step={}].command", action.step),
                                 category: "unsupported_reward_path".to_owned(),
                                 reason: "seed-start boss reward chest without initialized reward simulation"
                                     .to_owned(),
-                            };
+                            });
                         };
                         let next = apply_run_action(sim, RunAction::SkipReward)
                             .map_err(|err| err.to_string());
@@ -2782,7 +2871,7 @@ fn verify_seed_start_transitions(
                                 command: action.command.clone(),
                                 reason: boundary.reason.clone(),
                             });
-                            return boundary;
+                            return finish_boundary!(boundary);
                         };
                         seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                         compare_subset(
@@ -2810,7 +2899,7 @@ fn verify_seed_start_transitions(
                         &mut relics,
                         &mut deck_ids,
                     ) {
-                        return boundary;
+                        return finish_boundary!(boundary);
                     }
                     continue;
                 }
@@ -2826,7 +2915,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 };
 
                 if let Some(potion_use) = parse_potion_use(&action.command) {
@@ -2850,7 +2939,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     };
                     seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                     *sim = next;
@@ -2934,19 +3023,19 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     }
                 }
             }
             SeedStartPhase::BossReward if command_head_eq(&action.command, "CHOOSE") => {
                 let choose_index = choose_index(&action.command).unwrap_or(0);
                 let Some(sim) = seed_sim.as_mut() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_boss_reward_path".to_owned(),
                         reason: "seed-start boss reward without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 if screen_type(&pre.message) == Some("BOSS_REWARD") {
                     let next = apply_run_action(
@@ -2967,7 +3056,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     };
                     seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                     compare_subset(
@@ -2991,17 +3080,17 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 }
             }
             SeedStartPhase::Grid => {
                 let Some(sim) = seed_sim.as_mut() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_grid_path".to_owned(),
                         reason: "seed-start grid action without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 let command = action.command.trim();
                 let next = if command_head_eq(command, "CHOOSE") {
@@ -3025,7 +3114,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 };
                 let label = if screen_type(&post.message) == Some("SHOP_SCREEN") {
                     "shop grid"
@@ -3085,12 +3174,12 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::Shop => {
                 let Some(sim) = seed_sim.as_mut() else {
-                    return SeedStartBoundary {
+                    return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_shop_path".to_owned(),
                         reason: "seed-start shop action without initialized run simulation"
                             .to_owned(),
-                    };
+                    });
                 };
                 let command = action.command.trim();
                 if command.eq_ignore_ascii_case("LEAVE") {
@@ -3144,7 +3233,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     }
                     let next = if screen_type(&pre.message) == Some("SHOP_ROOM") {
                         apply_shop_action(sim, RunAction::EnterShop).map_err(|e| e.to_string())
@@ -3172,7 +3261,7 @@ fn verify_seed_start_transitions(
                             command: action.command.clone(),
                             reason: boundary.reason.clone(),
                         });
-                        return boundary;
+                        return finish_boundary!(boundary);
                     };
                     let label = if screen_type(&pre.message) == Some("SHOP_ROOM")
                         && screen_type(&post.message) == Some("SHOP_SCREEN")
@@ -3209,7 +3298,7 @@ fn verify_seed_start_transitions(
                                 command: action.command.clone(),
                                 reason: boundary.reason.clone(),
                             });
-                            return boundary;
+                            return finish_boundary!(boundary);
                         }
                         compare_subset(
                             report,
@@ -3238,18 +3327,18 @@ fn verify_seed_start_transitions(
                     command: action.command.clone(),
                     reason: boundary.reason.clone(),
                 });
-                return boundary;
+                return finish_boundary!(boundary);
             }
             SeedStartPhase::Proceed => {
                 if action.command.eq_ignore_ascii_case("PROCEED") {
                     if screen_type(&post.message) == Some("CHEST") {
                         let Some(sim) = seed_sim.as_mut() else {
-                            return SeedStartBoundary {
+                            return finish_boundary!(SeedStartBoundary {
                                 path: format!("$.actions[step={}].command", action.step),
                                 category: "unsupported_post_reward_map".to_owned(),
                                 reason: "seed-start boss reward chest without initialized reward simulation"
                                     .to_owned(),
-                            };
+                            });
                         };
                         let next = apply_run_action(sim, RunAction::SkipReward)
                             .map_err(|err| err.to_string());
@@ -3264,7 +3353,7 @@ fn verify_seed_start_transitions(
                                 command: action.command.clone(),
                                 reason: boundary.reason.clone(),
                             });
-                            return boundary;
+                            return finish_boundary!(boundary);
                         };
                         seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                         compare_subset(
@@ -3292,7 +3381,7 @@ fn verify_seed_start_transitions(
                         &mut relics,
                         &mut deck_ids,
                     ) {
-                        return boundary;
+                        return finish_boundary!(boundary);
                     }
                     continue;
                 } else {
@@ -3307,7 +3396,7 @@ fn verify_seed_start_transitions(
                         command: action.command.clone(),
                         reason: boundary.reason.clone(),
                     });
-                    return boundary;
+                    return finish_boundary!(boundary);
                 }
             }
             _ => {
@@ -3324,16 +3413,16 @@ fn verify_seed_start_transitions(
                     command: action.command.clone(),
                     reason: boundary.reason.clone(),
                 });
-                return boundary;
+                return finish_boundary!(boundary);
             }
         }
     }
 
-    SeedStartBoundary {
+    finish_boundary!(SeedStartBoundary {
         path: "$.actions[verified]".to_owned(),
         category: "none".to_owned(),
         reason: "seed-start verifier checked every verifiable transition in the trace".to_owned(),
-    }
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3397,20 +3486,6 @@ fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, S
 
 fn command_is_choose(command: &str, index: usize) -> bool {
     command_choose_index(command).is_some_and(|parsed| parsed == index)
-}
-
-fn command_is_visible_choose(message: &Value, command: &str) -> bool {
-    let Some(index) = command_choose_index(command) else {
-        return false;
-    };
-    match message
-        .get("game_state")
-        .and_then(|game| game.get("choice_list"))
-        .and_then(Value::as_array)
-    {
-        Some(choices) => index < choices.len(),
-        None => true,
-    }
 }
 
 fn command_choose_index(command: &str) -> Option<usize> {
@@ -3516,13 +3591,20 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
         .get("screen_type")
         .and_then(Value::as_str)
         .unwrap_or("");
+    let current_hp = if screen_type == "CARD_REWARD" {
+        int(game, "current_hp")
+    } else {
+        player
+            .map(|p| int(p, "current_hp"))
+            .unwrap_or_else(|| int(game, "current_hp"))
+    };
     let mut subset = json!({
         "screen_type": screen_type,
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
         "gold": int(game, "gold"),
-        "current_hp": player.map(|p| int(p, "current_hp")).unwrap_or_else(|| int(game, "current_hp")),
+        "current_hp": current_hp,
         "max_hp": int(game, "max_hp"),
-        "combat_player_hp": player.map(|p| int(p, "current_hp")).unwrap_or(0),
+        "combat_player_hp": if screen_type == "CARD_REWARD" { current_hp } else { player.map(|p| int(p, "current_hp")).unwrap_or(0) },
         "combat_player_block": player.map(|p| int(p, "block")).unwrap_or(0),
         "combat_player_energy": player.map(|p| int(p, "energy")).unwrap_or(0),
         "hand_ids": combat_card_ids(combat.and_then(|combat| combat.get("hand"))),
@@ -3831,7 +3913,11 @@ fn seed_start_neow_option_is_supported_grid_reward(option: GeneratedNeowOption) 
     (seed_start_neow_drawback_is_simple(option.drawback)
         && matches!(
             option.reward,
-            NeowRewardType::RemoveCard | NeowRewardType::RemoveTwo | NeowRewardType::UpgradeCard
+            NeowRewardType::RemoveCard
+                | NeowRewardType::RemoveTwo
+                | NeowRewardType::UpgradeCard
+                | NeowRewardType::TransformCard
+                | NeowRewardType::TransformTwoCards
         ))
         || (option.drawback == NeowDrawback::Curse
             && option.reward == NeowRewardType::TransformTwoCards)
@@ -3962,6 +4048,28 @@ fn seed_start_is_neow_multi_select_grid(run: &RunState) -> bool {
     })
 }
 
+fn seed_start_neow_grid_transform_count(run: &RunState) -> Option<usize> {
+    run.card_grid.as_ref().and_then(|grid| match grid.purpose {
+        GridPurpose::NeowTransform { count } => Some(usize::from(count)),
+        _ => None,
+    })
+}
+
+fn seed_start_visible_deck_after_neow_transform_selection(
+    deck_ids: &[String],
+    transform_count: usize,
+    delayed_curse: Option<&str>,
+) -> Vec<String> {
+    let mut visible = deck_ids.to_vec();
+    for _ in 0..transform_count.min(visible.len()) {
+        visible.pop();
+    }
+    if let Some(curse) = delayed_curse {
+        visible.push(curse.to_owned());
+    }
+    visible
+}
+
 fn seed_start_apply_neow_boss_swap(numeric_seed: i64, deck_ids: &[String]) -> RunState {
     let mut run = seed_start_seeded_idle_run(numeric_seed, 0, deck_ids);
     run.gold = 99;
@@ -4042,7 +4150,7 @@ fn seed_start_neow_grid_label(reward: NeowRewardType) -> &'static str {
         NeowRewardType::RemoveCard => "Neow remove card grid",
         NeowRewardType::RemoveTwo => "Neow remove two grid",
         NeowRewardType::UpgradeCard => "Neow upgrade grid",
-        NeowRewardType::TransformTwoCards => "Neow curse transform two grid",
+        NeowRewardType::TransformTwoCards => "Neow transform two grid",
         _ => "Neow grid",
     }
 }
@@ -4143,6 +4251,7 @@ fn seed_start_neow_card_reward_content_ids(
     }
 }
 
+#[cfg(test)]
 fn seed_start_neow_potion_names(numeric_seed: i64) -> Vec<String> {
     generate_neow_three_potions(numeric_seed)
         .potions
@@ -4342,7 +4451,7 @@ fn potion_trace_name(potion: Potion) -> &'static str {
         Potion::Fire => "Fire Potion",
         Potion::Block => "Block Potion",
         Potion::Fear => "Fear Potion",
-        Potion::GamblersBrew => "Gamblers Brew",
+        Potion::GamblersBrew => "Gambler's Brew",
         Potion::Blood => "Blood Potion",
         Potion::Elixir => "Elixir",
         Potion::HeartOfIron => "Heart of Iron",
@@ -5239,10 +5348,12 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::CeramicFish => "Ceramic Fish",
         RelicKey::PenNib => "Pen Nib",
         RelicKey::MembershipCard => "Membership Card",
+        RelicKey::SmilingMask => "Smiling Mask",
         RelicKey::Whetstone => "Whetstone",
         RelicKey::Orichalcum => "Orichalcum",
         RelicKey::BronzeScales => "Bronze Scales",
         RelicKey::ToyOrnithopter => "Toy Ornithopter",
+        RelicKey::RegalPillow => "Regal Pillow",
         RelicKey::GremlinHorn => "Gremlin Horn",
         RelicKey::JuzuBracelet => "Juzu Bracelet",
         RelicKey::Omamori => "Omamori",
@@ -5266,6 +5377,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::BustedCrown => "Busted Crown",
         RelicKey::Ectoplasm => "Ectoplasm",
         RelicKey::TinyHouse => "Tiny House",
+        RelicKey::Cauldron => "Cauldron",
         RelicKey::Sozu => "Sozu",
         RelicKey::PhilosophersStone => "Philosopher's Stone",
         RelicKey::Astrolabe => "Astrolabe",
@@ -5276,6 +5388,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::CallingBell => "Calling Bell",
         RelicKey::CoffeeDripper => "Coffee Dripper",
         RelicKey::BlackBlood => "Black Blood",
+        RelicKey::RedMask => "Red Mask",
         RelicKey::EternalFeather => "Eternal Feather",
         RelicKey::Pear => "Pear",
         RelicKey::MarkOfPain => "Mark of Pain",
@@ -5298,6 +5411,8 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::StrangeSpoon => "Strange Spoon",
         RelicKey::DollysMirror => "Dolly's Mirror",
         RelicKey::SelfFormingClay => "Self-Forming Clay",
+        RelicKey::OrangePellets => "Orange Pellets",
+        RelicKey::Matryoshka => "Matryoshka",
         RelicKey::CultistMask => "CultistMask",
         RelicKey::FaceOfCleric => "FaceOfCleric",
         RelicKey::GremlinMask => "GremlinMask",
@@ -5572,13 +5687,8 @@ fn potion_keys_from_value(value: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn relic_ids_for_simulated_subset(run: &RunState, carry: &[String]) -> Vec<String> {
-    let mut out = if carry.is_empty() {
-        vec!["Burning Blood".to_owned()]
-    } else {
-        carry.to_vec()
-    };
-    remove_simulated_replaced_starter_relics(run, &mut out);
+fn relic_ids_for_simulated_subset(run: &RunState, _carry: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
     for relic in &run.relics {
         let name = relic_key_trace_name(relic.key()).to_owned();
         if name != "Unknown Relic" && !out.contains(&name) {
@@ -5686,6 +5796,15 @@ fn seed_start_event_observed_subset(message: &Value) -> Value {
             "event_id".to_owned(),
             json!(seed_start_observed_event_key(message).unwrap_or_default()),
         );
+        let choices = message
+            .get("game_state")
+            .and_then(|game| game.get("choice_list"))
+            .map(|choices| choice_list_from_value(Some(choices)))
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|choice| seed_start_visible_event_choice_label(&choice))
+            .collect::<Vec<_>>();
+        object.insert("choices".to_owned(), json!(choices));
     }
     value
 }
@@ -5779,6 +5898,9 @@ fn seed_start_visible_event_choice_label(label: &str) -> Option<String> {
     if let Some((visible, _effect_text)) = label.split_once(" (") {
         label = visible.to_owned();
     }
+    label = label
+        .trim_end_matches(|ch: char| matches!(ch, '!' | '.' | ':' | ';'))
+        .to_owned();
     match label.as_str() {
         "locked" => None,
         "enter the light" => Some("enter".to_owned()),
@@ -6059,11 +6181,11 @@ fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
     if reward.stolen_gold_offer > 0 {
         choices.push("stolen_gold".to_owned());
     }
-    if reward.potion_offer.is_some() {
-        choices.push("potion".to_owned());
-    }
     if reward.relic_offer.is_some() || reward.relic_key_offer.is_some() {
         choices.push("relic".to_owned());
+    }
+    if reward.potion_offer.is_some() {
+        choices.push("potion".to_owned());
     }
     if !reward.choices.is_empty() && !reward.card_reward_active {
         choices.push("card".to_owned());
@@ -11959,7 +12081,7 @@ mod tests {
 
         assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
         assert!(report.verified.iter().any(|transition| {
-            transition.action_step == 3 && transition.label == "Neow curse transform two grid"
+            transition.action_step == 3 && transition.label == "Neow transform two grid"
         }));
         assert_eq!(initial_run.card_rng_counter, 0);
         assert!(report.verified.iter().any(|transition| {
@@ -12906,7 +13028,7 @@ mod tests {
                 expected_labels: &[
                     "seed-start bootstrap",
                     "Neow talk",
-                    "Neow curse transform two grid",
+                    "Neow transform two grid",
                     "Neow grid select",
                     "Neow grid confirm",
                     "Neow leave",
@@ -13053,16 +13175,8 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_map_choice_accepts_nonzero_visible_choice() {
-        let message = json!({
-            "game_state": {
-                "screen_type": "MAP",
-                "choice_list": ["x=0", "x=2", "x=4", "x=5"]
-            }
-        });
-
-        assert!(command_is_visible_choose(&message, "CHOOSE 1"));
-        assert!(!command_is_visible_choose(&message, "CHOOSE 4"));
+    fn seed_start_map_choice_resolves_nonzero_choice_index() {
+        assert_eq!(command_choose_index("CHOOSE 1"), Some(1));
         assert_eq!(seed_start_map_pick_x("CODEX04", &[], "CHOOSE 1"), 2);
     }
 

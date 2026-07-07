@@ -292,6 +292,42 @@ fn fire_potion_deals_twenty_damage_and_is_consumed() {
 }
 
 #[test]
+fn toy_ornithopter_heals_when_attack_potion_opens_combat_card_reward() {
+    let mut run = RunState::combat_fixture();
+    run.relics.push(Relic::ToyOrnithopter);
+    run.player_hp = 57;
+    let combat = run.combat.as_mut().expect("combat");
+    combat.player.hp = 57;
+    combat.relics = run.relics.clone();
+    run.potions.push(Potion::Attack);
+    let hp_before = run.player_hp;
+
+    let run = apply_run_action(
+        &run,
+        RunAction::UsePotion {
+            slot: 0,
+            target: None,
+        },
+    )
+    .expect("use attack potion");
+
+    let combat = run.combat.as_ref().expect("combat continues");
+    assert_eq!(combat.player.hp, hp_before);
+    assert_eq!(run.player_hp, hp_before);
+    assert!(combat.potion_card_reward.is_some());
+    assert!(run.potions.is_empty());
+
+    let run = apply_run_action(&run, RunAction::ChooseCombatCardReward { index: 0 })
+        .expect("choose attack potion card");
+
+    let combat = run.combat.expect("combat continues");
+    assert_eq!(combat.player.hp, hp_before + 5);
+    assert_eq!(run.player_hp, hp_before + 5);
+    assert!(combat.potion_card_reward.is_none());
+    assert!(run.potions.is_empty());
+}
+
+#[test]
 fn lethal_fire_potion_enters_reward_phase() {
     let mut run = RunState::combat_fixture();
     run.potions.push(Potion::Fire);

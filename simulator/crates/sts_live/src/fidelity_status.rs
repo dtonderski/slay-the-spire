@@ -1,15 +1,27 @@
 use crate::model::{FidelityKind, FidelityStatus, LiveResult};
+use sts_core::RunState;
 use sts_verify::{verify_communication_mod_trace_with_mode, VerificationMode};
 
-pub(super) fn verify_seed_start_trace(jsonl: &str) -> LiveResult<FidelityStatus> {
+pub(super) fn verify_seed_start_trace(
+    jsonl: &str,
+) -> LiveResult<(FidelityStatus, Option<RunState>)> {
     match verify_communication_mod_trace_with_mode(jsonl, VerificationMode::SeedStart) {
-        Ok(report) => Ok(seed_start_status(&report)),
-        Err(err) => Ok(FidelityStatus {
-            kind: FidelityKind::Unknown,
-            first_divergent_step: None,
-            compact_diff: vec![err.to_string()],
-            message: Some("seed-start replay could not be completed".to_owned()),
-        }),
+        Ok(report) => {
+            let sim_run_state = report
+                .seed_start
+                .as_ref()
+                .and_then(|seed_start| seed_start.sim_run_state.clone());
+            Ok((seed_start_status(&report), sim_run_state))
+        }
+        Err(err) => Ok((
+            FidelityStatus {
+                kind: FidelityKind::Unknown,
+                first_divergent_step: None,
+                compact_diff: vec![err.to_string()],
+                message: Some("seed-start replay could not be completed".to_owned()),
+            },
+            None,
+        )),
     }
 }
 
@@ -25,7 +37,7 @@ fn seed_start_status(report: &sts_verify::SimRealReport) -> FidelityStatus {
     if !report.unexpected_diffs.is_empty() {
         return unexpected_diff_status(report);
     }
-    if seed_start.expected_failure {
+    if seed_start.failed {
         if seed_start
             .first_boundary
             .reason
@@ -93,6 +105,7 @@ mod tests {
         let status = unexpected_diff_status(&SimRealReport {
             mode: VerificationMode::SeedStart,
             total_actions: 1,
+            ignored_tail_actions: 0,
             verified: Vec::new(),
             unsupported: Vec::new(),
             unexpected_diffs: vec![diff],
@@ -109,6 +122,7 @@ mod tests {
         let status = seed_start_status(&SimRealReport {
             mode: VerificationMode::SeedStart,
             total_actions: 2,
+            ignored_tail_actions: 0,
             verified: Vec::new(),
             unsupported: Vec::new(),
             unexpected_diffs: vec![UnexpectedDiff {
@@ -125,7 +139,7 @@ mod tests {
                     external_seed: "CODEX04".to_owned(),
                     numeric_seed: 22_079_335_079,
                 },
-                expected_failure: true,
+                failed: true,
                 first_boundary: SeedStartBoundary {
                     path: "$.actions[step=51].command".to_owned(),
                     category: "unexpected_seed_start_command".to_owned(),
@@ -134,6 +148,7 @@ mod tests {
                 },
                 rng_boundaries: Vec::new(),
                 m22_encounter_report: None,
+                sim_run_state: None,
             }),
         });
 

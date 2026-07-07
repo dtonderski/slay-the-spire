@@ -135,6 +135,8 @@ pub struct RunState {
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub pen_nib_attacks_played: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub ink_bottle_cards_played: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub tiny_chest_counter: u32,
     #[serde(default = "default_event_room_monster_chance")]
     pub event_room_monster_chance: u32,
@@ -160,6 +162,10 @@ pub struct RunState {
     pub misc_rng_seed: u64,
     #[serde(default)]
     pub misc_rng_counter: u32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub pending_event_combat_gold_offer: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_event_combat_relic_key_offer: Option<RelicKey>,
     #[serde(default)]
     pub monster_rng_seed: u64,
     #[serde(default)]
@@ -541,6 +547,9 @@ impl RunState {
         if self.relics.contains(&Relic::PenNib) {
             combat.relic_counters.pen_nib_attacks_played = self.pen_nib_attacks_played;
         }
+        if self.relics.contains(&Relic::InkBottle) {
+            combat.relic_counters.ink_bottle_cards_played = self.ink_bottle_cards_played;
+        }
         apply_start_of_combat_relics(&mut combat, &self.relics);
         if self.relics.contains(&Relic::Enchiridion) {
             add_enchiridion_power_to_hand(&mut combat);
@@ -584,6 +593,9 @@ impl RunState {
         }
         if self.relics.contains(&Relic::PenNib) {
             self.pen_nib_attacks_played = combat.relic_counters.pen_nib_attacks_played;
+        }
+        if self.relics.contains(&Relic::InkBottle) {
+            self.ink_bottle_cards_played = combat.relic_counters.ink_bottle_cards_played;
         }
         if self.relics.contains(&Relic::Toolbox) || self.relics.contains(&Relic::Enchiridion) {
             if let Some(rng) = combat.card_random_rng.as_ref() {
@@ -679,6 +691,7 @@ impl RunState {
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
             pen_nib_attacks_played: 0,
+            ink_bottle_cards_played: 0,
             tiny_chest_counter: 0,
             event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
             event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
@@ -692,6 +705,8 @@ impl RunState {
             event_rng_counter: 0,
             misc_rng_seed: 0,
             misc_rng_counter: 0,
+            pending_event_combat_gold_offer: 0,
+            pending_event_combat_relic_key_offer: None,
             monster_rng_seed: 0,
             monster_rng_counter: 0,
             normal_encounter_list: Vec::new(),
@@ -763,6 +778,7 @@ impl RunState {
             matryoshka_chests_opened: 0,
             incense_burner_counter: 0,
             pen_nib_attacks_played: 0,
+            ink_bottle_cards_played: 0,
             tiny_chest_counter: 0,
             event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
             event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
@@ -776,6 +792,8 @@ impl RunState {
             event_rng_counter: 0,
             misc_rng_seed: 0,
             misc_rng_counter: 0,
+            pending_event_combat_gold_offer: 0,
+            pending_event_combat_relic_key_offer: None,
             monster_rng_seed: 0,
             monster_rng_counter: 0,
             normal_encounter_list: Vec::new(),
@@ -1337,6 +1355,7 @@ impl RunState {
             | Relic::PrismaticShard
             | Relic::GoldenIdol
             | Relic::BloodyIdol
+            | Relic::RedMask
             | Relic::Necronomicon
             | Relic::Enchiridion
             | Relic::NilrysCodex
@@ -1666,6 +1685,7 @@ impl Relic {
             Relic::LizardTail => RelicKey::LizardTail,
             Relic::Pocketwatch => RelicKey::Pocketwatch,
             Relic::HandDrill => RelicKey::HandDrill,
+            Relic::RedMask => RelicKey::RedMask,
             Relic::Circlet => RelicKey::Circlet,
             Relic::RedCirclet => RelicKey::RedCirclet,
             Relic::CultistMask => RelicKey::CultistMask,
@@ -1828,6 +1848,7 @@ impl Relic {
             RelicKey::NilrysCodex => Some(Relic::NilrysCodex),
             RelicKey::GoldenIdol => Some(Relic::GoldenIdol),
             RelicKey::BloodyIdol => Some(Relic::BloodyIdol),
+            RelicKey::RedMask => Some(Relic::RedMask),
             RelicKey::Circlet => Some(Relic::Circlet),
             RelicKey::RedCirclet => Some(Relic::RedCirclet),
             RelicKey::CultistMask => Some(Relic::CultistMask),

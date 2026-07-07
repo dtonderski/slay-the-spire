@@ -169,6 +169,7 @@ fn enter_boss_combat(run: &mut RunState) {
 }
 
 fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
+    run.reset_card_random_rng_for_combat();
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut card_random_rng = Some(run.card_random_rng());

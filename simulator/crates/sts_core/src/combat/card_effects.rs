@@ -2971,6 +2971,7 @@ fn havoc_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
+        InternalAction::ConsumeRandomLivingMonsterTarget,
         InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card: true,
@@ -3884,7 +3885,7 @@ fn limit_break_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainStrength {
-            amount: state.player.powers.strength,
+            amount: state.player.powers.strength + state.player.temp_strength,
         },
         InternalAction::MoveCard {
             card_id,

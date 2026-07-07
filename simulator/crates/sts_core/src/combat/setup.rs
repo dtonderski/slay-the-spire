@@ -42,17 +42,20 @@ pub fn initialize_combat_piles_with_relics(
     let mut shuffled = order_deck_for_combat_shuffle(deck);
     JavaRng::new(shuffle_rng.random_long()).collections_shuffle(&mut shuffled);
 
-    let mut hand: Vec<_> = shuffled
+    let mut draw_pile: Vec<_> = shuffled
         .iter()
-        .filter(|card| card_starts_in_opening_hand(card))
+        .filter(|card| !card_starts_in_opening_hand(card))
         .cloned()
         .collect();
-    let mut draw_pile: Vec<_> = shuffled
-        .into_iter()
-        .filter(|card| !card_starts_in_opening_hand(card))
-        .collect();
+    draw_pile.extend(
+        shuffled
+            .into_iter()
+            .filter(|card| card_starts_in_opening_hand(card)),
+    );
 
-    let draw_count = opening_hand_size(relics).saturating_sub(hand.len());
+    let mut hand = Vec::new();
+
+    let draw_count = opening_hand_size(relics);
     let split_at = draw_pile.len().saturating_sub(draw_count);
     let mut opening_draw = draw_pile.split_off(split_at);
     opening_draw.reverse();

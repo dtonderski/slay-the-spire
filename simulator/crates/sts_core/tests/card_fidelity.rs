@@ -316,6 +316,34 @@ fn limit_break_plus_doubles_current_strength_without_exhausting() {
 }
 
 #[test]
+fn limit_break_counts_temporary_flex_strength() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.temp_strength = 2;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::LIMIT_BREAK_PLUS_ID,
+    )];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Limit Break+ plays after Flex");
+
+    assert_eq!(next.player.powers.strength, 2);
+    assert_eq!(next.player.temp_strength, 2);
+
+    let mut after_turn = next.clone();
+    start_player_turn(&mut after_turn);
+    assert_eq!(after_turn.player.powers.strength, 2);
+    assert_eq!(after_turn.player.temp_strength, 0);
+}
+
+#[test]
 fn offering_plus_loses_six_hp_gains_two_energy_draws_five_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.hp = 50;
@@ -3540,8 +3568,8 @@ fn top_draw_purity_plus_exhausts_up_to_five_hand_cards() {
         .expect("top-draw Purity+ opens exhaust selection");
     assert!(next.exhaust_select.is_some());
 
-    for ui_index in 0..5 {
-        choose_exhaust_select(&mut next, ui_index).expect("select next hand card");
+    for _ in 0..5 {
+        choose_exhaust_select(&mut next, 0).expect("select next hand card");
     }
     confirm_exhaust_select(&mut next).expect("confirm Purity+ exhaust selection");
 

@@ -416,6 +416,8 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
         let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
         card.temp_cost_turn_only = true;
         combat.piles.hand.push(card);
+        crate::relic::apply_potion_use_relics_to_combat(combat);
+        next.player_hp = combat.player.hp;
     } else if let Some(choices) = combat.discovery_card_reward.take() {
         let choice = choices[index];
         let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
@@ -444,6 +446,8 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
         close_discovery_card_reward_source(combat)?;
     } else {
         combat.potion_card_reward = None;
+        crate::relic::apply_potion_use_relics_to_combat(combat);
+        next.player_hp = combat.player.hp;
     }
     Ok(next)
 }
@@ -502,6 +506,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
         RunAction::UsePotion { slot, target } => {
             let potion = next.take_potion_slot(slot)?;
             let multiplier = potion_multiplier(&next);
+            let mut defer_potion_use_relics = false;
             match potion {
                 Potion::Fire => {
                     let target = target.expect("validated fire potion target");
@@ -735,6 +740,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     next.potion_rng_counter = rng.counter();
                 }
                 Potion::Attack | Potion::Skill | Potion::Colorless | Potion::Power => {
+                    defer_potion_use_relics = true;
                     let mut combat = next.combat.take().expect("validated combat state");
                     let mut rng = combat
                         .card_random_rng
@@ -823,7 +829,11 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     ));
                 }
             }
-            if let Some(combat) = next.combat.as_mut() {
+            if defer_potion_use_relics {
+                if let Some(combat) = next.combat.as_ref() {
+                    next.player_hp = combat.player.hp;
+                }
+            } else if let Some(combat) = next.combat.as_mut() {
                 crate::relic::apply_potion_use_relics_to_combat(combat);
                 next.player_hp = combat.player.hp;
             } else {

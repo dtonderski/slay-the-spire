@@ -4,9 +4,7 @@ use crate::{
         apply_combat_action_with_events, finish_monster_turn_after_player_revival,
         start_player_turn, CombatPhase,
     },
-    content::cards::{
-        upgrade_content_id, ANGER_ID, CLEAVE_ID, FEED_ID, REAPER_ID, SHRUG_IT_OFF_ID,
-    },
+    content::cards::{upgrade_content_id, ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
     content::encounters::{
         generate_beyond_encounter_lists_with_rng, generate_city_encounter_lists_with_rng,
     },
@@ -14,7 +12,7 @@ use crate::{
     content::reward_pool::{
         ironclad_reward_card_rarity, random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES,
     },
-    content::shop_pool::shop_card_content_id,
+    content::shop_pool::{ironclad_combat_discovery_pool, shop_card_content_id},
     ids::{CardId, ContentId},
     map::{generate_target_fixed_map, RoomKind, TargetMapAct},
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
@@ -1078,7 +1076,11 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         .as_ref()
         .map(|combat| suppress_gold_for_all_escaped_monsters(&combat.monsters))
         .unwrap_or(false);
-    let gold_offer = if all_monsters_escaped {
+    let pending_event_gold_offer = std::mem::take(&mut run.pending_event_combat_gold_offer);
+    let pending_event_relic_key_offer = run.pending_event_combat_relic_key_offer.take();
+    let gold_offer = if pending_event_gold_offer > 0 {
+        combat_gold_offer_with_relics(run, pending_event_gold_offer)
+    } else if all_monsters_escaped {
         0
     } else {
         let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
@@ -1087,18 +1089,28 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
         gold_offer
     };
+    let (relic_offer, relic_key_offer) = pending_event_relic_key_offer
+        .map(split_relic_offer)
+        .unwrap_or((None, None));
 
     let potion_offer = if run.can_gain_potions() {
         let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
         let potion_capacity = run.potion_capacity();
-        let potion_offer = target_potion_reward_offer(
-            &mut potion_rng,
-            &mut run.potion_chance,
-            1,
-            run.potions.len(),
-            potion_capacity,
-            run.relics.contains(&Relic::WhiteBeastStatue),
-        );
+        let potion_offer = if all_monsters_escaped && !run.relics.contains(&Relic::WhiteBeastStatue)
+        {
+            let _ = potion_rng.random_int(99);
+            run.potion_chance += 10;
+            None
+        } else {
+            target_potion_reward_offer(
+                &mut potion_rng,
+                &mut run.potion_chance,
+                1,
+                run.potions.len(),
+                potion_capacity,
+                run.relics.contains(&Relic::WhiteBeastStatue),
+            )
+        };
         run.store_rng_counter(RunRngStream::Potion, &potion_rng);
         potion_offer
     } else {
@@ -1118,8 +1130,8 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         gold_offer,
         stolen_gold_offer: 0,
         potion_offer,
-        relic_offer: None,
-        relic_key_offer: None,
+        relic_offer,
+        relic_key_offer,
         pending_relic_offer: None,
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
@@ -1452,6 +1464,9 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     if next.relics.contains(&Relic::PenNib) {
         next.pen_nib_attacks_played = next_combat.relic_counters.pen_nib_attacks_played;
     }
+    if next.relics.contains(&Relic::InkBottle) {
+        next.ink_bottle_cards_played = next_combat.relic_counters.ink_bottle_cards_played;
+    }
 
     if next_combat.phase == CombatPhase::Won {
         if next.current_room_kind() == Some(crate::map::RoomKind::Boss) {
@@ -1594,17 +1609,7 @@ fn apply_dead_branch_for_exhaust_count_with_placement(
 }
 
 fn dead_branch_card_pool() -> Vec<ContentId> {
-    [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare]
-        .into_iter()
-        .flat_map(|rarity| {
-            IRONCLAD_REWARD_ENTRIES
-                .iter()
-                .filter(move |entry| entry.rarity == rarity)
-                .rev()
-                .map(|entry| entry.content_id)
-        })
-        .filter(|content_id| *content_id != FEED_ID && *content_id != REAPER_ID)
-        .collect()
+    ironclad_combat_discovery_pool().to_vec()
 }
 
 fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatState) -> bool {
@@ -1938,8 +1943,8 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{
-            FIRE_BREATHING_ID, HEADBUTT_ID, METALLICIZE_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
-            SWIFT_STRIKE_ID, THUNDERCLAP_ID, WARCRY_ID,
+            FIRE_BREATHING_ID, HEADBUTT_ID, METALLICIZE_ID, SHOCKWAVE_PLUS_ID, SPOT_WEAKNESS_ID,
+            STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID, WARCRY_ID,
         },
         content::monsters::DARKLING_ID,
         run::{
@@ -2061,6 +2066,39 @@ mod tests {
                 .relic_counters
                 .pen_nib_attacks_played,
             0
+        );
+    }
+
+    #[test]
+    fn ink_bottle_counter_persists_between_run_and_combat() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![Relic::InkBottle];
+        run.ink_bottle_cards_played = 9;
+
+        let mut combat = CombatState::initial_fixture();
+        combat.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        combat.piles.draw_pile = vec![CardInstance::new(CardId::new(2), SHOCKWAVE_PLUS_ID)];
+        combat.relics = run.relics.clone();
+        combat.relic_counters.ink_bottle_cards_played = run.ink_bottle_cards_played;
+        run.combat = Some(combat);
+
+        let next = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("strike plays");
+
+        let combat = next.combat.as_ref().expect("combat remains active");
+        assert_eq!(next.ink_bottle_cards_played, 0);
+        assert_eq!(combat.relic_counters.ink_bottle_cards_played, 0);
+        assert_eq!(
+            combat.piles.hand.last().map(|card| card.content_id),
+            Some(SHOCKWAVE_PLUS_ID)
         );
     }
 

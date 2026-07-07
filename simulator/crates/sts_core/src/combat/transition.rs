@@ -1,7 +1,7 @@
 use super::card_effects;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
-    card::{CardRarity, CardType},
+    card::CardType,
     combat::{
         apply_burning_blood,
         damage::{
@@ -22,30 +22,29 @@ use crate::{
         DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID,
         DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_PLUS_ID,
         ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, ENTRENCH_PLUS_ID, EXHUME_ID,
-        EXHUME_PLUS_ID, FEED_ID, FINESSE_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID,
-        FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, HEAVY_BLADE_ID,
-        HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID,
-        IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
-        MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
-        OFFERING_ID, PAIN_ID, PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID,
-        PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
-        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
-        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID,
-        SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
-        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
-        SENTINEL_ID, SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
-        THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WILD_STRIKE_ID,
-        WILD_STRIKE_PLUS_ID, WOUND_ID,
+        EXHUME_PLUS_ID, FINESSE_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID,
+        FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID,
+        HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID, INTIMIDATE_ID,
+        INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID,
+        MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID, PAIN_ID,
+        PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID,
+        PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID,
+        PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID,
+        RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID, SADISTIC_NATURE_ID,
+        SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECRET_TECHNIQUE_ID,
+        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SENTINEL_ID,
+        SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
+        THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
         get_monster_definition, guardian_on_hp_damage, release_stasis_card_on_death,
         wake_lagavulin_on_damage, GUARDIAN_ID,
     },
-    content::reward_pool::IRONCLAD_REWARD_ENTRIES,
-    content::shop_pool::colorless_discovery_pool,
+    content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
     power::{
         apply_monster_vulnerable, apply_monster_weak, apply_player_vulnerable, calculate_block,
@@ -181,7 +180,10 @@ fn process_internal_queue(
         let follow_ups = apply_internal_action(&mut next, internal_action)?;
         event_log.push(internal_action);
         for follow_up in follow_ups {
-            if matches!(follow_up, InternalAction::CardExhausted { .. }) {
+            if matches!(
+                follow_up,
+                InternalAction::CardExhausted { .. } | InternalAction::GainMonsterBlock { .. }
+            ) {
                 queue.push_front(follow_up);
             } else {
                 queue.push_back(follow_up);
@@ -268,6 +270,19 @@ fn apply_internal_action(
                 crate::relic::apply_on_card_play_relics(state, definition.card_type);
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
             Ok(follow_ups)
+        }
+        InternalAction::ConsumeRandomLivingMonsterTarget => {
+            let living_count = state
+                .monsters
+                .iter()
+                .filter(|monster| monster.alive)
+                .count();
+            if living_count > 0 {
+                if let Some(rng) = state.card_random_rng.as_mut() {
+                    rng.random_int((living_count - 1) as i32);
+                }
+            }
+            Ok(Vec::new())
         }
         InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
         | InternalAction::EndCopiedCardEffects => Ok(Vec::new()),
@@ -636,6 +651,40 @@ fn apply_internal_action(
         }
         InternalAction::DealDamageAll { source, amount } => {
             let (_, follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
+            Ok(follow_ups)
+        }
+        InternalAction::DealDamageAllRepeated {
+            source,
+            amount,
+            times,
+        } => {
+            let initial_malleable = state
+                .monsters
+                .iter()
+                .map(|monster| (monster.id, monster.powers.malleable))
+                .collect::<Vec<_>>();
+            let mut follow_ups = Vec::new();
+            for _ in 0..times {
+                let (_, hit_follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
+                follow_ups.extend(hit_follow_ups.into_iter().filter(|follow_up| {
+                    !matches!(follow_up, InternalAction::GainMonsterBlock { .. })
+                }));
+            }
+            for (target, malleable) in initial_malleable {
+                if malleable <= 0 {
+                    continue;
+                }
+                if let Some(monster) = living_monster_mut_opt(state, target) {
+                    if monster.powers.malleable > malleable {
+                        monster.powers.malleable = malleable + times;
+                        let block = (0..times).map(|offset| malleable + offset).sum();
+                        follow_ups.push(InternalAction::GainMonsterBlock {
+                            target,
+                            amount: block,
+                        });
+                    }
+                }
+            }
             Ok(follow_ups)
         }
         InternalAction::DealDamageAllAndHealUnblocked { source, amount } => {
@@ -1445,17 +1494,7 @@ fn dead_branch_follow_up(state: &mut CombatState) -> Option<InternalAction> {
 }
 
 fn dead_branch_card_pool() -> Vec<ContentId> {
-    [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare]
-        .into_iter()
-        .flat_map(|rarity| {
-            IRONCLAD_REWARD_ENTRIES
-                .iter()
-                .filter(move |entry| entry.rarity == rarity)
-                .rev()
-                .map(|entry| entry.content_id)
-        })
-        .filter(|content_id| *content_id != FEED_ID && *content_id != REAPER_ID)
-        .collect()
+    ironclad_combat_discovery_pool().to_vec()
 }
 
 pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) {
@@ -2085,6 +2124,18 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::DealDamageAllAndHealUnblocked {
                 source: card_id,
                 amount: definition.values.damage.unwrap_or(0),
+            });
+        }
+        WHIRLWIND_ID | WHIRLWIND_PLUS_ID => {
+            let chemical_x_bonus = if state.relics.contains(&Relic::ChemicalX) {
+                crate::relic::CHEMICAL_X_BONUS_X
+            } else {
+                0
+            };
+            follow_ups.push(InternalAction::DealDamageAllRepeated {
+                source: card_id,
+                amount: definition.values.damage.unwrap_or(0),
+                times: state.player.energy + chemical_x_bonus,
             });
         }
         DEFEND_R_ID => {
@@ -3640,7 +3691,9 @@ fn upgrade_combat_cards(state: &mut CombatState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::monsters::{monster_state, FUNGI_BEAST_A0, JAW_WORM_A0};
+    use crate::content::cards::{DUAL_WIELD_ID, HAVOC_PLUS_ID};
+    use crate::content::monsters::{monster_state, FUNGI_BEAST_A0, JAW_WORM_A0, SNAKE_PLANT_A0};
+    use crate::rng::StsRng;
 
     #[test]
     fn spore_cloud_releases_only_when_battle_is_not_ending() {
@@ -3696,6 +3749,75 @@ mod tests {
 
         assert_eq!(next.piles.hand.len(), 2);
         assert_eq!(next.piles.draw_pile.len(), 2);
+    }
+
+    #[test]
+    fn copied_attack_resolves_malleable_block_before_second_hit() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SNAKE_PLANT_A0, target)];
+        state.monsters[0].hp = 71;
+        state.monsters[0].block = 3;
+        state.monsters[0].powers.malleable = 4;
+        state.monsters[0].powers.malleable_base = 3;
+        state.player.energy = 2;
+        state.double_tap_pending = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HEAVY_BLADE_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Heavy Blade should play");
+
+        assert_eq!(next.monsters[0].hp, 50);
+        assert_eq!(next.monsters[0].block, 5);
+        assert_eq!(next.monsters[0].powers.malleable, 6);
+    }
+
+    #[test]
+    fn havoc_played_whirlwind_uses_current_energy_for_x_without_spending_it() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SNAKE_PLANT_A0, target)];
+        state.monsters[0].hp = 50;
+        state.monsters[0].block = 0;
+        state.monsters[0].powers.malleable = 3;
+        state.monsters[0].powers.malleable_base = 3;
+        state.player.energy = 4;
+        state.player.powers.weak = 2;
+        state.relics = vec![Relic::DeadBranch];
+        state.card_random_rng = Some(StsRng::with_counter(22_079_335_132, 1));
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), WHIRLWIND_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ should play top-deck Whirlwind");
+
+        assert_eq!(next.player.energy, 4);
+        assert_eq!(next.monsters[0].hp, 38);
+        assert_eq!(next.monsters[0].block, 18);
+        assert_eq!(next.monsters[0].powers.malleable, 7);
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, WHIRLWIND_ID);
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, HAVOC_PLUS_ID);
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, DUAL_WIELD_ID);
     }
 
     #[test]

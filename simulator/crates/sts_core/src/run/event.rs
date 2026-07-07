@@ -8,7 +8,8 @@ use crate::{
     },
     content::{
         monsters::{
-            monster_state_for_ascension, record_target_move, MonsterDefinition, BANDIT_BEAR_A0,
+            monster_state_for_ascension, record_target_move,
+            target_monster_hp_range_for_content_id, MonsterDefinition, BANDIT_BEAR_A0,
             BANDIT_LEADER_A0, BANDIT_POINTY_A0, GREMLIN_NOB_A0, SLAVER_BLUE_A0, SLAVER_RED_A0,
             TASKMASTER_A0,
         },
@@ -57,6 +58,7 @@ pub const GOLDEN_SHRINE_GOLD: i32 = 100;
 pub const GOLDEN_SHRINE_DESECRATE_GOLD: i32 = 275;
 pub const WORLD_OF_GOOP_DAMAGE: i32 = 11;
 pub const WORLD_OF_GOOP_GOLD: i32 = 75;
+const WE_MEET_AGAIN_NO_POTION_SLOT: u32 = u32::MAX;
 pub const WORLD_OF_GOOP_MIN_GOLD_LOSS: i32 = 20;
 pub const WORLD_OF_GOOP_MAX_GOLD_LOSS: i32 = 50;
 pub const WORLD_OF_GOOP_A15_MIN_GOLD_LOSS: i32 = 35;
@@ -838,6 +840,45 @@ fn world_of_goop_choices(stage: u32, gold_loss: i32) -> Vec<EventChoice> {
     }
 }
 
+fn we_meet_again_choices(stage: u32, potion_slot: Option<usize>) -> Vec<EventChoice> {
+    if stage > 0 {
+        return labeled_choices(&["Leave"]);
+    }
+
+    let potion_label = if potion_slot.is_some() {
+        "Give Potion"
+    } else {
+        "No Potion"
+    };
+    labeled_choices(&[potion_label, "Give Gold", "Give Card", "Attack"])
+}
+
+fn we_meet_again_random_potion_slot(run: &mut RunState) -> Option<usize> {
+    let mut slots: Vec<_> = run
+        .occupied_potion_slots()
+        .into_iter()
+        .map(|(slot, _)| slot)
+        .collect();
+    if slots.is_empty() {
+        return None;
+    }
+
+    let mut misc_rng = run.rng_for_stream(RunRngStream::Misc);
+    let shuffle_seed = misc_rng.random_long();
+    run.store_rng_counter(RunRngStream::Misc, &misc_rng);
+    JavaRng::new(shuffle_seed).collections_shuffle(&mut slots);
+    slots.first().copied()
+}
+
+fn we_meet_again_event_data_for_potion_slot(slot: Option<usize>) -> u32 {
+    slot.and_then(|slot| u32::try_from(slot).ok())
+        .unwrap_or(WE_MEET_AGAIN_NO_POTION_SLOT)
+}
+
+fn we_meet_again_potion_slot_from_event_data(event_data: u32) -> Option<usize> {
+    (event_data != WE_MEET_AGAIN_NO_POTION_SLOT).then_some(event_data as usize)
+}
+
 fn labeled_choices(labels: &[&str]) -> Vec<EventChoice> {
     labels
         .iter()
@@ -1286,7 +1327,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         }
         Event::TheLibrary => make_event_screen(event, labeled_choices(&["Read", "Sleep"]), 0),
         Event::TheMausoleum => {
-            make_event_screen(event, labeled_choices(&["Open the coffin", "Leave"]), 0)
+            make_event_screen(event, labeled_choices(&["Open coffin", "Leave"]), 0)
         }
         Event::Vampires => make_event_screen(event, vampires_choices(false), 0),
         Event::CursedTome => make_event_screen(event, cursed_tome_choices(0, 0), 0),
@@ -1301,6 +1342,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::DrugDealer => make_event_screen(event, drug_dealer_choices(0, false), 0),
         Event::Lab => make_event_screen(event, labeled_choices(&["Search"]), 0),
         Event::WheelOfChange => make_event_screen(event, wheel_of_change_choices(0, 0), 0),
+        Event::WeMeetAgain => make_event_screen(event, we_meet_again_choices(0, None), 0),
         _ => make_event_screen(
             event,
             vec![EventChoice {
@@ -1339,6 +1381,15 @@ fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> EventScreen
                 choices: world_of_goop_choices(0, gold_loss),
                 stage: 0,
                 event_data: gold_loss as u32,
+            }
+        }
+        Event::WeMeetAgain => {
+            let potion_slot = we_meet_again_random_potion_slot(run);
+            EventScreen {
+                event,
+                choices: we_meet_again_choices(0, potion_slot),
+                stage: 0,
+                event_data: we_meet_again_event_data_for_potion_slot(potion_slot),
             }
         }
         _ => event_screen_for_run(run, event),
@@ -1749,6 +1800,43 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
         },
+        Event::WeMeetAgain => match screen.stage {
+            0 if choice_index == 0 => {
+                let Some(slot) = we_meet_again_potion_slot_from_event_data(screen.event_data)
+                else {
+                    return Err(SimError::IllegalAction(
+                        "We Meet Again potion option is unavailable",
+                    ));
+                };
+                next.take_potion_slot(slot)?;
+                let act = i32::from(next.current_act);
+                let key = roll_event_relic_reward(&mut next, act);
+                next.gain_relic_key(key);
+                next.event = Some(EventScreen {
+                    event: Event::WeMeetAgain,
+                    choices: we_meet_again_choices(1, None),
+                    stage: 1,
+                    event_data: screen.event_data,
+                });
+            }
+            0 if choice_index == 3 => {
+                next.event = Some(EventScreen {
+                    event: Event::WeMeetAgain,
+                    choices: we_meet_again_choices(1, None),
+                    stage: 1,
+                    event_data: screen.event_data,
+                });
+            }
+            1 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for We Meet Again",
+                ));
+            }
+        },
         Event::DeadAdventurer => match screen.stage {
             0 if choice_index == 1 => {
                 next.event = Some(EventScreen {
@@ -1991,16 +2079,28 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
         },
-        Event::BackToBasics if choice_index == 1 => {
-            upgrade_starter_strikes_and_defends(&mut next);
+        Event::BackToBasics if screen.stage > 0 && choice_index == 0 => {
             next.phase = RunPhase::Idle;
             next.event = None;
+        }
+        Event::BackToBasics if choice_index == 1 => {
+            upgrade_starter_strikes_and_defends(&mut next);
+            next.event = Some(EventScreen {
+                event: Event::BackToBasics,
+                choices: labeled_choices(&["Leave"]),
+                stage: 1,
+                event_data: 0,
+            });
         }
         Event::BackToBasics if choice_index == 0 => {
             open_event_remove_grid(&mut next);
             if next.card_grid.is_none() {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(EventScreen {
+                    event: Event::BackToBasics,
+                    choices: labeled_choices(&["Leave"]),
+                    stage: 1,
+                    event_data: 0,
+                });
             }
         }
         Event::LivingWall if screen.stage > 0 && choice_index == 0 => {
@@ -2040,18 +2140,25 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         Event::TheMausoleum | Event::Vampires
             if choice_index == screen.choices.len().saturating_sub(1) =>
         {
+            if screen.event == Event::TheMausoleum {
+                next.flush_pending_obtain_cards();
+            }
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        Event::TheMausoleum if choice_index == 0 => {
+        Event::TheMausoleum if screen.stage == 0 && choice_index == 0 => {
             if roll_mausoleum_curses_player(&mut next) {
-                next.gain_deck_card(WRITHE_ID);
+                next.queue_pending_obtain_card(WRITHE_ID);
             }
             let act = i32::from(next.current_act);
             let key = super::reward::roll_event_relic_reward(&mut next, act);
             next.gain_relic_key(key);
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            next.event = Some(EventScreen {
+                event: Event::TheMausoleum,
+                choices: labeled_choices(&["Leave"]),
+                stage: 1,
+                event_data: 0,
+            });
         }
         Event::Vampires if choice_index == 0 => {
             let loss = vampires_max_hp_loss(next.player_max_hp);
@@ -2411,9 +2518,18 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             0 if choice_index == 1 => {
+                let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
+                next.pending_event_combat_gold_offer = misc_rng.random_int_range(25, 35);
+                next.store_rng_counter(RunRngStream::Misc, &misc_rng);
+                next.pending_event_combat_relic_key_offer =
+                    Some(if has_relic_key(&next, RelicKey::RedMask) {
+                        RelicKey::Circlet
+                    } else {
+                        RelicKey::RedMask
+                    });
                 enter_event_combat(
                     &mut next,
-                    &[&BANDIT_POINTY_A0, &BANDIT_BEAR_A0, &BANDIT_LEADER_A0],
+                    &[&BANDIT_POINTY_A0, &BANDIT_LEADER_A0, &BANDIT_BEAR_A0],
                 );
             }
             1 | 2 if choice_index == 0 => {
@@ -2641,10 +2757,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
 
 fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
-    let monster_hp_rng = StsRng::with_counter(
-        run.event_rng_seed as i64 + i64::from(run.current_floor),
-        definitions.len() as u32,
-    );
+    let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
     let mut card_random_rng = Some(run.card_random_rng());
     let mut combat = CombatState::initial_fixture();
@@ -2652,7 +2765,19 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
         .iter()
         .enumerate()
         .map(|(index, definition)| {
-            monster_state_for_ascension(definition, MonsterId::new(index as u64 + 1), run.ascension)
+            let mut monster = monster_state_for_ascension(
+                definition,
+                MonsterId::new(index as u64 + 1),
+                run.ascension,
+            );
+            if let Some(range) =
+                target_monster_hp_range_for_content_id(definition.content_id, run.ascension)
+            {
+                let max_hp = range.roll(&mut monster_hp_rng);
+                monster.hp = max_hp;
+                monster.max_hp = max_hp;
+            }
+            monster
         })
         .collect();
     for monster in &mut combat.monsters {

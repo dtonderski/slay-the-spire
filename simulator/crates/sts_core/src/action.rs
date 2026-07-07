@@ -34,6 +34,7 @@ pub enum InternalAction {
     PlayCardCopy {
         card_id: CardId,
     },
+    ConsumeRandomLivingMonsterTarget,
     SkipCopiedCardEffectsIfTargetDead {
         target: MonsterId,
     },
@@ -77,6 +78,11 @@ pub enum InternalAction {
     DealDamageAll {
         source: CardId,
         amount: i32,
+    },
+    DealDamageAllRepeated {
+        source: CardId,
+        amount: i32,
+        times: i32,
     },
     DealDamageAllAndHealUnblocked {
         source: CardId,

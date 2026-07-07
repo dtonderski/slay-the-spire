@@ -817,7 +817,6 @@ fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
 }
 
 #[test]
-#[ignore = "known-red strict seed-start parity trace; run explicitly while working M28/M35 parity"]
 fn test_seed_start_m28_shop_entry_parity() {
     let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
@@ -1115,7 +1114,6 @@ fn test_m33_m290005_selected_neow_remove_card_grid_prefix() {
 }
 
 #[test]
-#[ignore = "strict retained seed-start parity trace; run explicitly while working retained-trace parity"]
 fn test_seed_start_boss_relic_retained_trace() {
     let Some(content) = load_corpus_file("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl")
     else {
@@ -1156,7 +1154,6 @@ fn test_seed_start_boss_relic_retained_trace() {
 }
 
 #[test]
-#[ignore = "strict retained manifest parity gate; run explicitly while working M35 parity"]
 fn m35_act1_manifest_entries_pass_seed_start() {
     let Some(manifest_content) = load_corpus_file("act1_a0_ironclad.json") else {
         return;
@@ -1257,6 +1254,57 @@ fn live_regression_manifest_entries_pass_seed_start() {
 }
 
 #[test]
+fn codex10_neow_transform_two_trace_verifies_through_first_map_node() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-07-06T16-59-52-285Z.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert_eq!(report.mode, VerificationMode::SeedStart);
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:?}",
+        report.unexpected_diffs
+    );
+    assert!(
+        report.unsupported.is_empty(),
+        "unsupported transitions: {:?}",
+        report.unsupported
+    );
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(
+        !seed_start.failed,
+        "boundary: {:?}",
+        seed_start.first_boundary
+    );
+    assert_eq!(seed_start.start_command.external_seed, "CODEX10");
+    assert_eq!(seed_start.start_command.numeric_seed, 22_079_335_110);
+    assert_eq!(seed_start.first_boundary.category, "none");
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    for expected in [
+        "seed-start bootstrap",
+        "Neow talk",
+        "Neow transform two grid",
+        "Neow grid select",
+        "Neow grid confirm",
+        "Neow leave",
+        "map first monster node",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing verified label {expected}; labels: {labels:?}"
+        );
+    }
+}
+
+#[test]
 fn seed_start_random_rare_neow_reward_carries_into_first_combat() {
     let Some(content) =
         load_corpus_file("permanent_traces/live-regression-2026-07-02T23-24-13-178Z.jsonl")
@@ -1314,7 +1362,6 @@ fn seed_start_wing_statue_filters_locked_choice_list() {
 }
 
 #[test]
-#[ignore = "known-red permanent trace parity gate; run explicitly while working strict corpus parity"]
 fn permanent_trace_entries_pass_seed_start() {
     let dir = corpus_path("permanent_traces");
     if !dir.exists() {

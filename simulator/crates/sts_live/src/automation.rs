@@ -6,7 +6,10 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use sts_core::{
     apply_combat_action_on_run, apply_run_action,
-    content::{cards::get_card_definition, monsters::get_monster_definition},
+    content::{
+        cards::{get_card_definition, HAVOC_ID, HAVOC_PLUS_ID},
+        monsters::get_monster_definition,
+    },
     legal_combat_actions, validate_potion_action, CardId, CombatAction, CombatPhase, CombatState,
     ContentId, MonsterId, MonsterIntent, RunAction, RunPhase, RunState,
 };
@@ -522,6 +525,11 @@ fn expected_command(state: &LiveState, run: &RunState, action: &PlannerAction) -
                 .iter()
                 .position(|card| card.id == *card_id)?;
             let hand_slot = live_hand_slot(state, hand_position).unwrap_or(hand_position);
+            if combat.piles.hand[hand_position].content_id == HAVOC_ID
+                || combat.piles.hand[hand_position].content_id == HAVOC_PLUS_ID
+            {
+                return Some(format!("PLAY {hand_slot}"));
+            }
             match target {
                 Some(target) => {
                     let target_slot = live_monster_slot(state, combat, *target)?;
@@ -775,5 +783,57 @@ pub(super) fn blocked(reason_code: &str, message: &str) -> BlockedState {
     BlockedState {
         reason_code: reason_code.to_owned(),
         message: message.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{LivePhase, LiveState};
+    use serde_json::json;
+    use sts_core::{
+        content::cards::{HAVOC_PLUS_ID, STRIKE_R_ID},
+        CardInstance,
+    };
+
+    #[test]
+    fn havoc_live_command_uses_havoc_card_slot_without_top_card_target() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let target = combat
+            .monsters
+            .iter()
+            .find(|monster| monster.alive)
+            .expect("living monster")
+            .id;
+        combat.piles.hand = vec![CardInstance::new(CardId::new(42), HAVOC_PLUS_ID)];
+        combat.piles.draw_pile = vec![CardInstance::new(CardId::new(43), STRIKE_R_ID)];
+
+        let state = LiveState {
+            sequence: 1,
+            phase: LivePhase::Combat,
+            legal_actions: Vec::new(),
+            raw: json!({
+                "summary": {
+                    "combat": {
+                        "hand": [
+                            { "index": 2 }
+                        ],
+                        "monsters": [
+                            { "index": 0 }
+                        ]
+                    }
+                }
+            }),
+        };
+        let action = PlannerAction::Combat(CombatAction::PlayCard {
+            card_id: CardId::new(42),
+            target: Some(target),
+        });
+
+        assert_eq!(
+            expected_command(&state, &run, &action),
+            Some("PLAY 2".to_owned())
+        );
     }
 }

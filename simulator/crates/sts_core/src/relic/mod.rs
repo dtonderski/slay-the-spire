@@ -428,6 +428,8 @@ pub const BURNING_BLOOD_ID: ContentId = ContentId::new(394);
 pub const CIRCLET_ID: ContentId = ContentId::new(395);
 /// Content id for [Relic::RedCirclet].
 pub const RED_CIRCLET_ID: ContentId = ContentId::new(396);
+/// Content id for [Relic::RedMask].
+pub const RED_MASK_ID: ContentId = ContentId::new(397);
 /// Content id for [Relic::CultistMask].
 pub const CULTIST_MASK_ID: ContentId = ContentId::new(430);
 /// Content id for [Relic::FaceOfCleric].
@@ -760,6 +762,7 @@ pub enum RelicKey {
     WarpedTongs,
     GoldenIdol,
     BloodyIdol,
+    RedMask,
     Circlet,
     RedCirclet,
     CultistMask,
@@ -1204,6 +1207,7 @@ pub enum Relic {
     LizardTail,
     Pocketwatch,
     HandDrill,
+    RedMask,
     Circlet,
     RedCirclet,
     CultistMask,
@@ -1361,6 +1365,7 @@ impl Relic {
             Relic::LizardTail => LIZARD_TAIL_ID,
             Relic::Pocketwatch => POCKETWATCH_ID,
             Relic::HandDrill => HAND_DRILL_ID,
+            Relic::RedMask => RED_MASK_ID,
             Relic::Circlet => CIRCLET_ID,
             Relic::RedCirclet => RED_CIRCLET_ID,
             Relic::CultistMask => CULTIST_MASK_ID,
@@ -1518,6 +1523,7 @@ impl Relic {
             id if id == LIZARD_TAIL_ID => Some(Relic::LizardTail),
             id if id == POCKETWATCH_ID => Some(Relic::Pocketwatch),
             id if id == HAND_DRILL_ID => Some(Relic::HandDrill),
+            id if id == RED_MASK_ID => Some(Relic::RedMask),
             id if id == CIRCLET_ID => Some(Relic::Circlet),
             id if id == RED_CIRCLET_ID => Some(Relic::RedCirclet),
             id if id == CULTIST_MASK_ID => Some(Relic::CultistMask),
@@ -1627,6 +1633,11 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::WarpedTongs => {}
             Relic::GoldenIdol => {}
             Relic::BloodyIdol => {}
+            Relic::RedMask => {
+                for monster in combat.monsters.iter_mut().filter(|monster| monster.alive) {
+                    crate::power::apply_monster_weak(&mut monster.powers, 1);
+                }
+            }
             Relic::Necronomicon => {}
             Relic::Enchiridion => {}
             Relic::NilrysCodex => {}

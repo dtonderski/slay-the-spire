@@ -408,7 +408,7 @@ fn backend_auto_play_start_marks_running_without_sending_immediately() {
 }
 
 #[test]
-fn backend_auto_play_tick_defers_fidelity_until_combat_finishes() {
+fn backend_auto_play_tick_checks_fidelity_before_planning_and_after_finish() {
     let root = temp_dir("auto-fidelity-count");
     let checks = Rc::new(Cell::new(0));
     let mut store = SessionStore::new(
@@ -430,7 +430,37 @@ fn backend_auto_play_tick_defers_fidelity_until_combat_finishes() {
         .automation_auto_play_tick(&started.session_id, 0)
         .unwrap();
 
-    assert_eq!(checks.get(), 1);
+    assert_eq!(checks.get(), 2);
+    assert_eq!(ticked.automation.executed_actions.len(), 1);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn backend_auto_play_tick_uses_sim_state_from_fidelity_replay() {
+    let root = temp_dir("auto-fidelity-sim-state");
+    let mut store = SessionStore::new(
+        SimCombatBridge::default().without_embedded_sim_state(),
+        SimStateFidelity {
+            run: RunState::combat_fixture(),
+        },
+        &root,
+    );
+    let started = store
+        .start_run(BridgeId("bridge".to_owned()), run_config())
+        .unwrap();
+    assert!(started
+        .latest_state
+        .as_ref()
+        .is_some_and(|state| state.raw.get("sim_run_state").is_none()));
+    store
+        .automation_start_auto_play(&started.session_id)
+        .unwrap();
+
+    let (ticked, _) = store
+        .automation_auto_play_tick(&started.session_id, 0)
+        .unwrap();
+
+    assert_ne!(ticked.automation.state, AutomationState::Blocked);
     assert_eq!(ticked.automation.executed_actions.len(), 1);
     fs::remove_dir_all(root).ok();
 }
@@ -577,6 +607,29 @@ impl FidelityChecker for CountingOkFidelity {
     }
 }
 
+struct SimStateFidelity {
+    run: RunState,
+}
+
+impl FidelityChecker for SimStateFidelity {
+    fn check_trace(&self, _path: &std::path::Path) -> LiveResult<FidelityStatus> {
+        Ok(FidelityStatus {
+            kind: FidelityKind::Ok,
+            first_divergent_step: None,
+            compact_diff: Vec::new(),
+            message: Some("test fidelity ok".to_owned()),
+        })
+    }
+
+    fn check_trace_with_sim_state(
+        &self,
+        path: &std::path::Path,
+    ) -> LiveResult<(FidelityStatus, Option<RunState>)> {
+        self.check_trace(path)
+            .map(|status| (status, Some(self.run.clone())))
+    }
+}
+
 #[derive(Default)]
 struct AmbiguousCardBridge {
     state: Option<LiveState>,
@@ -670,6 +723,7 @@ struct SimCombatBridge {
     run: RunState,
     sequence: u64,
     live_index_offset: usize,
+    include_sim_state: bool,
 }
 
 impl Default for SimCombatBridge {
@@ -678,6 +732,7 @@ impl Default for SimCombatBridge {
             run: RunState::combat_fixture(),
             sequence: 1,
             live_index_offset: 0,
+            include_sim_state: true,
         }
     }
 }
@@ -695,7 +750,13 @@ impl SimCombatBridge {
             run,
             sequence: 1,
             live_index_offset: 0,
+            include_sim_state: true,
         }
+    }
+
+    fn without_embedded_sim_state(mut self) -> Self {
+        self.include_sim_state = false;
+        self
     }
 
     fn live_state(&self) -> LiveState {
@@ -704,15 +765,18 @@ impl SimCombatBridge {
         } else {
             LivePhase::Reward
         };
+        let mut raw = json!({
+            "screen": if phase == LivePhase::Combat { "combat" } else { "reward" },
+            "summary": self.live_summary(),
+        });
+        if self.include_sim_state {
+            raw["sim_run_state"] = json!(self.run);
+        }
         LiveState {
             sequence: self.sequence,
             phase: phase.clone(),
             legal_actions: self.legal_actions(),
-            raw: json!({
-                "screen": if phase == LivePhase::Combat { "combat" } else { "reward" },
-                "sim_run_state": self.run,
-                "summary": self.live_summary(),
-            }),
+            raw,
         }
     }
 
