@@ -569,6 +569,217 @@ fn communication_bridge_rejects_observed_update_timeout_instead_of_returning_sta
 }
 
 #[test]
+fn communication_bridge_fetches_state_when_observed_update_has_no_payload() {
+    let root = temp_dir("tcp-observed-empty-update");
+    write_bridge_files(&root, neow_summary());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let server_received = Arc::clone(&received);
+    let server = thread::spawn(move || {
+        let responses = [
+            json!({"ok": true, "owner_token": "owner-1"}),
+            json!({
+                "ok": true,
+                "observed_update": {
+                    "ok": true,
+                    "accepted_state_id": "state-1",
+                    "accepted_state_seq": 2,
+                    "observed_changed": true,
+                    "application_status": "applied"
+                }
+            }),
+            json!({"ok": true, "released": true}),
+            json!({
+                "ok": true,
+                "status": {"status": "ready"},
+                "summary": menu_summary(),
+                "state": {
+                    "message": {
+                        "available_commands": ["start", "state"],
+                        "game_state": {"screen_type": "NONE"}
+                    }
+                }
+            }),
+        ];
+        for response in responses {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            server_received
+                .lock()
+                .unwrap()
+                .push(serde_json::from_str::<serde_json::Value>(&line).unwrap());
+            serde_json::to_writer(&mut stream, &response).unwrap();
+            stream.write_all(b"\n").unwrap();
+        }
+    });
+    fs::write(
+        root.join("status.json"),
+        serde_json::to_vec(&json!({
+            "step": 1,
+            "client_pid": 1234,
+            "status": "ready",
+            "trace_path": "trace.jsonl",
+            "control": {
+                "host": "127.0.0.1",
+                "port": port,
+                "protocol": "tcp-jsonl"
+            },
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut bridge = bridge(&root, false);
+    let action = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseNeow,
+        label: "Talk".to_owned(),
+        enabled: true,
+        command: json!({
+            "transport": "communication_mod",
+            "command": "CHOOSE 0",
+            "source_state_id": "state-1",
+        }),
+        disabled_reason: None,
+    };
+
+    let state = bridge
+        .send_action(&BridgeId("communication-mod".to_owned()), &action)
+        .unwrap();
+
+    server.join().unwrap();
+    assert_eq!(state.phase, LivePhase::Menu);
+    let requests = received.lock().unwrap();
+    assert_eq!(requests[0]["type"], "acquire");
+    assert_eq!(requests[1]["type"], "command");
+    assert_eq!(requests[2]["type"], "release");
+    assert_eq!(requests[3]["type"], "state");
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn communication_bridge_polls_past_stale_observed_update_payload() {
+    let root = temp_dir("tcp-observed-stale-update");
+    write_bridge_files(&root, neow_summary());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let server_received = Arc::clone(&received);
+    let server = thread::spawn(move || {
+        let mut fresh_summary = menu_summary();
+        fresh_summary["state_id"] = json!("state-2");
+        fresh_summary["state_seq"] = json!(2);
+        let responses = [
+            json!({"ok": true, "owner_token": "owner-1"}),
+            json!({
+                "ok": true,
+                "observed_update": {
+                    "state": {
+                        "status": {"status": "ready"},
+                        "summary": neow_summary(),
+                        "state": {
+                            "state_id": "state-1",
+                            "state_seq": 1,
+                            "message": {
+                                "available_commands": ["choose", "state"],
+                                "game_state": {"screen_type": "NONE"}
+                            }
+                        }
+                    }
+                }
+            }),
+            json!({"ok": true, "released": true}),
+            json!({
+                "ok": true,
+                "status": {"status": "ready"},
+                "summary": neow_summary(),
+                "state": {
+                    "state_id": "state-1",
+                    "state_seq": 1,
+                    "message": {
+                        "available_commands": ["choose", "state"],
+                        "game_state": {"screen_type": "NONE"}
+                    }
+                }
+            }),
+            json!({
+                "ok": true,
+                "status": {"status": "ready"},
+                "summary": fresh_summary,
+                "state": {
+                    "state_id": "state-2",
+                    "state_seq": 2,
+                    "message": {
+                        "available_commands": ["start", "state"],
+                        "game_state": {"screen_type": "NONE"}
+                    }
+                }
+            }),
+        ];
+        for response in responses {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            server_received
+                .lock()
+                .unwrap()
+                .push(serde_json::from_str::<serde_json::Value>(&line).unwrap());
+            serde_json::to_writer(&mut stream, &response).unwrap();
+            stream.write_all(b"\n").unwrap();
+        }
+    });
+    fs::write(
+        root.join("status.json"),
+        serde_json::to_vec(&json!({
+            "step": 1,
+            "client_pid": 1234,
+            "status": "ready",
+            "trace_path": "trace.jsonl",
+            "control": {
+                "host": "127.0.0.1",
+                "port": port,
+                "protocol": "tcp-jsonl"
+            },
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut bridge = bridge(&root, false);
+    let action = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseNeow,
+        label: "Talk".to_owned(),
+        enabled: true,
+        command: json!({
+            "transport": "communication_mod",
+            "command": "CHOOSE 0",
+            "source_state_id": "state-1",
+        }),
+        disabled_reason: None,
+    };
+
+    let state = bridge
+        .send_action(&BridgeId("communication-mod".to_owned()), &action)
+        .unwrap();
+
+    server.join().unwrap();
+    assert_eq!(state.phase, LivePhase::Menu);
+    assert_eq!(state.sequence, 2);
+    let requests = received.lock().unwrap();
+    assert_eq!(requests[0]["type"], "acquire");
+    assert_eq!(requests[1]["type"], "command");
+    assert_eq!(requests[2]["type"], "release");
+    assert_eq!(requests[3]["type"], "state");
+    assert_eq!(requests[4]["type"], "state");
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn communication_bridge_file_command_fallback_is_opt_in() {
     let root = temp_dir("file-fallback");
     write_bridge_files(&root, menu_summary());

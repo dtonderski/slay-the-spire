@@ -294,6 +294,35 @@ fn successful_request_state_unblocks_transient_bridge_error() {
 }
 
 #[test]
+fn send_action_waits_for_state_newer_than_action_source() {
+    let root = temp_dir("send-action-fresh-state");
+    let mut store = SessionStore::new(StaleActionBridge::default(), TraceFidelityChecker, &root);
+    let snapshot = store
+        .start_run(
+            BridgeId("bridge".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+
+    let next = store
+        .send_action(&snapshot.session_id, &ActionId("choose-0".to_owned()))
+        .unwrap();
+
+    let raw = &next.latest_state.as_ref().unwrap().raw;
+    assert_eq!(
+        raw.pointer("/summary/state_id")
+            .and_then(serde_json::Value::as_str),
+        Some("state-2")
+    );
+    assert_eq!(next.latest_state.as_ref().unwrap().sequence, 2);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn recovers_existing_sessions_from_trace_root() {
     let root = temp_dir("recover");
     {
@@ -668,6 +697,93 @@ impl FidelityChecker for FlipToLostFidelity {
 
 struct PendingCommandBridge {
     state: LiveState,
+}
+
+#[derive(Default)]
+struct StaleActionBridge {
+    state: Option<LiveState>,
+}
+
+impl StaleActionBridge {
+    fn state_with_id(state_id: &str, sequence: u64, actions: Vec<LegalAction>) -> LiveState {
+        LiveState {
+            sequence,
+            phase: LivePhase::Event,
+            legal_actions: actions,
+            raw: json!({
+                "summary": {
+                    "state_id": state_id,
+                    "state_seq": sequence,
+                    "available_commands": ["choose", "state"],
+                    "in_game": true,
+                    "screen_type": "EVENT",
+                },
+                "current_state": {
+                    "state_id": state_id,
+                    "state_seq": sequence,
+                }
+            }),
+        }
+    }
+
+    fn choice_action() -> LegalAction {
+        LegalAction {
+            id: ActionId("choose-0".to_owned()),
+            kind: LegalActionKind::EventChoice,
+            label: "Choose".to_owned(),
+            enabled: true,
+            command: json!({
+                "transport": "communication_mod",
+                "command": "CHOOSE 0",
+                "source_state_id": "state-1",
+            }),
+            disabled_reason: None,
+        }
+    }
+}
+
+impl BridgeManager for StaleActionBridge {
+    fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>> {
+        Ok(vec![BridgeStatus {
+            id: BridgeId("bridge".to_owned()),
+            process_id: Some(1234),
+            client_id: Some("stale-action-test".to_owned()),
+            connected: true,
+            last_heartbeat_ms: None,
+        }])
+    }
+
+    fn start_run(&mut self, _bridge_id: &BridgeId, _config: &RunConfig) -> LiveResult<LiveState> {
+        let state = Self::state_with_id("state-1", 1, vec![Self::choice_action()]);
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn abandon_run(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn request_state(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        let state = Self::state_with_id("state-2", 2, vec![request_state_action()]);
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn send_action(
+        &mut self,
+        _bridge_id: &BridgeId,
+        _action: &LegalAction,
+    ) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn kill_bridge(&mut self, _bridge_id: &BridgeId) -> LiveResult<()> {
+        Ok(())
+    }
+
+    fn kill_all(&mut self) -> LiveResult<usize> {
+        Ok(0)
+    }
 }
 
 impl Default for PendingCommandBridge {

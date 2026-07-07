@@ -4,8 +4,8 @@ use crate::{
     fidelity::FidelityChecker,
     model::{
         ActionId, AutomationConfig, AutomationJobSnapshot, AutomationState, BlockedState, BridgeId,
-        FidelityKind, FidelityStatus, LiveError, LiveResult, RunConfig, SessionId,
-        SessionLifecycle, SessionSnapshot, TraceRecord,
+        FidelityKind, FidelityStatus, LegalAction, LiveError, LiveResult, LiveState, RunConfig,
+        SessionId, SessionLifecycle, SessionSnapshot, TraceRecord,
     },
     operator_actions::{request_state_action, start_run_action},
     session_blocking::record_blocked,
@@ -20,7 +20,12 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, Seek, SeekFrom},
     path::{Path, PathBuf},
+    thread,
+    time::{Duration, Instant},
 };
+
+const ACTION_STATE_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const ACTION_STATE_POLL_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct SessionStore<B, F> {
     bridge: B,
@@ -228,6 +233,7 @@ where
                 return Err(err);
             }
         };
+        let state = self.wait_for_fresh_action_state(&bridge_id, &action, state)?;
         let advance_manual_plan = {
             let session = self.session_mut(session_id)?;
             let advance_manual_plan =
@@ -247,6 +253,34 @@ where
             self.refresh_fidelity(session_id)
         } else {
             Ok(self.session(session_id)?.snapshot())
+        }
+    }
+
+    fn wait_for_fresh_action_state(
+        &mut self,
+        bridge_id: &BridgeId,
+        action: &LegalAction,
+        initial: LiveState,
+    ) -> LiveResult<LiveState> {
+        let Some(source_state_id) = action_source_state_id(action) else {
+            return Ok(initial);
+        };
+        if !state_matches_source_state_id(&initial, source_state_id) {
+            return Ok(initial);
+        }
+
+        let deadline = Instant::now() + ACTION_STATE_POLL_TIMEOUT;
+        loop {
+            let refreshed = self.bridge.request_state(bridge_id)?;
+            if !state_matches_source_state_id(&refreshed, source_state_id) {
+                return Ok(refreshed);
+            }
+            if Instant::now() >= deadline {
+                return Err(LiveError::Bridge(
+                    "timed out waiting for the next live state after action".to_owned(),
+                ));
+            }
+            thread::sleep(ACTION_STATE_POLL_INTERVAL);
         }
     }
 
@@ -959,6 +993,26 @@ fn fidelity_loss_status_in_tail(path: &Path, start: u64) -> LiveResult<Option<Fi
         }
     }
     Ok(None)
+}
+
+fn action_source_state_id(action: &LegalAction) -> Option<&str> {
+    action
+        .command
+        .get("source_state_id")
+        .and_then(serde_json::Value::as_str)
+}
+
+fn state_matches_source_state_id(state: &LiveState, source_state_id: &str) -> bool {
+    state_state_id(state).is_some_and(|state_id| state_id == source_state_id)
+}
+
+fn state_state_id(state: &LiveState) -> Option<&str> {
+    state
+        .raw
+        .pointer("/summary/state_id")
+        .or_else(|| state.raw.pointer("/current_state/state_id"))
+        .or_else(|| state.raw.pointer("/current_state/message/state_id"))
+        .and_then(serde_json::Value::as_str)
 }
 
 fn session_number(session_id: &SessionId) -> Option<u64> {

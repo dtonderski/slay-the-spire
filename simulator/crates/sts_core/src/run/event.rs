@@ -21,7 +21,7 @@ use crate::{
     rng::{JavaRng, StsRng},
     run::{
         grid::{
-            open_event_obtain_card_grid, open_event_remove_grid,
+            open_event_obtain_card_return_to_event_grid, open_event_remove_grid,
             open_event_remove_return_to_event_grid, open_event_transform_grid,
             open_event_transform_return_to_event_grid, open_event_upgrade_return_to_event_grid,
         },
@@ -153,7 +153,7 @@ fn open_the_library_read_grid(run: &mut RunState) {
     );
     run.card_rarity_factor = rarity_factor;
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
-    open_event_obtain_card_grid(run, choices);
+    open_event_obtain_card_return_to_event_grid(run, Event::TheLibrary, choices);
 }
 
 fn roll_mausoleum_curses_player(run: &mut RunState) -> bool {
@@ -2177,13 +2177,17 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.event = None;
             }
         }
-        Event::TheLibrary if choice_index == 1 => {
+        Event::TheLibrary if screen.stage > 0 && choice_index == 0 => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        Event::TheLibrary if screen.stage == 0 && choice_index == 1 => {
             let heal = the_library_heal_for_ascension(next.player_max_hp, next.ascension);
             next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        Event::TheLibrary if choice_index == 0 => {
+        Event::TheLibrary if screen.stage == 0 && choice_index == 0 => {
             open_the_library_read_grid(&mut next);
         }
         Event::TheMausoleum | Event::Vampires

@@ -3,7 +3,8 @@ use serde_json::{json, Value};
 use std::{
     io::{BufRead, BufReader, Write},
     net::{TcpStream, ToSocketAddrs},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use super::{
@@ -107,7 +108,12 @@ pub(crate) fn send_guarded_command(
         timeout,
     );
     let _ = release_control(control, &owner_token, timeout);
-    observed_response(response?, "bridge control command rejected", files)
+    let response = response?;
+    let state = observed_response(response, "bridge control command rejected", files)?;
+    if state_is_newer_than_command_source(&state, files) {
+        return Ok(state);
+    }
+    wait_for_newer_state(control, files, timeout)
 }
 
 pub(crate) fn send_abandon_run(
@@ -201,6 +207,52 @@ fn observed_response(
         return Ok(live_state_from_protocol_state(protocol_state));
     }
     Ok(live_state_from_files(fallback_files))
+}
+
+fn wait_for_newer_state(
+    control: &ControlAddress,
+    files: &BridgeFiles,
+    timeout: Duration,
+) -> LiveResult<LiveState> {
+    let deadline = Instant::now() + timeout;
+    let poll_interval = Duration::from_millis(100);
+    loop {
+        let fresh_files = request_control_files(control, &files.status, timeout)?;
+        let fresh = live_state_from_files(&fresh_files);
+        if state_is_newer_than_command_source(&fresh, files) {
+            return Ok(fresh);
+        }
+        if Instant::now() >= deadline {
+            return Err(LiveError::Bridge(
+                "timed out waiting for a newer observed state".to_owned(),
+            ));
+        }
+        thread::sleep(poll_interval);
+    }
+}
+
+fn state_is_newer_than_command_source(state: &LiveState, files: &BridgeFiles) -> bool {
+    let expected_state_id = files.summary.get("state_id").and_then(Value::as_str);
+    let actual_state_id = state
+        .raw
+        .pointer("/summary/state_id")
+        .or_else(|| state.raw.pointer("/current_state/state_id"))
+        .and_then(Value::as_str);
+    if let (Some(expected), Some(actual)) = (expected_state_id, actual_state_id) {
+        return actual != expected;
+    }
+    if actual_state_id.is_none() && state.sequence == 0 {
+        return true;
+    }
+
+    let expected_seq = files.summary.get("state_seq").and_then(Value::as_u64);
+    if let Some(expected) = expected_seq {
+        if state.sequence > 0 {
+            return state.sequence > expected;
+        }
+    }
+
+    true
 }
 
 fn now_ms() -> u64 {

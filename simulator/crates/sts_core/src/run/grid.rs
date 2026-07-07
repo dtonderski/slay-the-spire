@@ -19,6 +19,7 @@ pub enum GridPurpose {
     EventRemove,
     EventRemoveReturnToEvent { event: Event },
     EventObtainCard,
+    EventObtainCardReturnToEvent { event: Event },
     EventUpgrade,
     EventUpgradeReturnToEvent { event: Event },
     EmptyCage { remaining: u8 },
@@ -125,6 +126,23 @@ pub fn open_event_obtain_card_grid(run: &mut RunState, cards: Vec<CardInstance>)
     run.card_grid = Some(CardGridScreen {
         cards,
         purpose: GridPurpose::EventObtainCard,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+}
+
+pub fn open_event_obtain_card_return_to_event_grid(
+    run: &mut RunState,
+    event: Event,
+    cards: Vec<CardInstance>,
+) {
+    if cards.is_empty() {
+        return;
+    }
+
+    run.card_grid = Some(CardGridScreen {
+        cards,
+        purpose: GridPurpose::EventObtainCardReturnToEvent { event },
         selected: None,
         selected_indices: Vec::new(),
     });
@@ -391,7 +409,12 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     let mut next = run.clone();
     let grid = next.card_grid.as_mut().expect("grid present");
     grid.selected = Some(index);
-    if matches!(grid.purpose, GridPurpose::Bottle { .. }) {
+    if matches!(
+        grid.purpose,
+        GridPurpose::Bottle { .. }
+            | GridPurpose::EventObtainCard
+            | GridPurpose::EventObtainCardReturnToEvent { .. }
+    ) {
         return confirm_grid(&next);
     }
     Ok(next)
@@ -520,6 +543,20 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             next.card_grid = None;
             next.phase = RunPhase::Idle;
             next.event = None;
+        }
+        GridPurpose::EventObtainCardReturnToEvent { event } => {
+            let card = selected_grid_card(grid)?;
+            next.add_deck_card(card);
+            next.card_grid = None;
+            next.phase = RunPhase::Event;
+            next.event = Some(EventScreen {
+                event,
+                choices: vec![EventChoice {
+                    label: "Leave".to_owned(),
+                }],
+                stage: 2,
+                event_data: 0,
+            });
         }
         GridPurpose::EmptyCage { remaining } => {
             let card = selected_grid_card(grid)?;
