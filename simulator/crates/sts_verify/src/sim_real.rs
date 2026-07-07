@@ -3075,7 +3075,9 @@ fn verify_seed_start_transitions(
                                 .and_then(|game| game.get("deck")),
                         );
                         _reward_step += 1;
-                        if seed_start_reward_sequence_complete(sim) {
+                        if sim.card_grid.is_some() {
+                            phase = SeedStartPhase::Grid;
+                        } else if seed_start_reward_sequence_complete(sim) {
                             phase = SeedStartPhase::Proceed;
                         }
                     }
@@ -3216,6 +3218,14 @@ fn verify_seed_start_transitions(
                         seed_start_rest_observed_subset(&post.message),
                         seed_start_rest_simulated_subset(&next, &relics),
                     );
+                } else if screen_type(&post.message) == Some("COMBAT_REWARD") {
+                    compare_subset(
+                        report,
+                        action,
+                        label,
+                        seed_start_reward_observed_subset(&post.message),
+                        seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                    );
                 } else {
                     compare_subset(
                         report,
@@ -3235,6 +3245,12 @@ fn verify_seed_start_transitions(
                     phase = SeedStartPhase::Event;
                 } else if sim.phase == RunPhase::Idle {
                     phase = SeedStartPhase::Proceed;
+                } else if sim.phase == RunPhase::Reward {
+                    if seed_start_reward_sequence_complete(sim) {
+                        phase = SeedStartPhase::Proceed;
+                    } else {
+                        phase = SeedStartPhase::Reward;
+                    }
                 } else {
                     phase = SeedStartPhase::Rest;
                 }

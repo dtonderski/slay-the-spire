@@ -261,7 +261,7 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
         .filter(|monster| monster.alive)
         .count();
     let alive_gremlin_count = gremlin_leader_alive_minion_count(&combat.monsters);
-    let missing_hp = living_monster_missing_hp(&combat.monsters, combat.ascension);
+    let missing_hp = living_monster_missing_hp(&combat.monsters);
     for (index, monster) in combat.monsters.iter_mut().enumerate() {
         if !monster.alive {
             continue;

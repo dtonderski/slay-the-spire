@@ -363,7 +363,7 @@ fn run_monster_turn(state: &mut CombatState) {
                 continue;
             }
             crate::MonsterIntent::HealAllMonsters { amount } => {
-                apply_heal_all_monsters(&mut state.monsters, ascension, amount);
+                apply_heal_all_monsters(&mut state.monsters, amount);
                 state.monsters[index].moves_executed += 1;
                 prepare_next_intent_for_actor(state, actor_id);
                 continue;
@@ -936,7 +936,7 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
         .monsters
         .iter()
         .any(|monster| monster.powers.minion != 0 && !monster.alive);
-    let missing_hp = living_monster_missing_hp(&state.monsters, state.ascension);
+    let missing_hp = living_monster_missing_hp(&state.monsters);
     for (monster_index, monster) in state.monsters.iter_mut().enumerate() {
         if only_ids.is_some_and(|ids| !ids.contains(&monster.id)) {
             continue;

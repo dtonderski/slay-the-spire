@@ -5443,11 +5443,11 @@ fn healer_attack_intent(ascension: u8) -> MonsterIntent {
 }
 
 #[must_use]
-pub fn living_monster_missing_hp(monsters: &[MonsterState], ascension: u8) -> i32 {
+pub fn living_monster_missing_hp(monsters: &[MonsterState]) -> i32 {
     monsters
         .iter()
         .filter(|monster| monster.alive)
-        .map(|monster| monster_max_hp_for_current_definition(monster, ascension) - monster.hp)
+        .map(|monster| (monster.max_hp - monster.hp).max(0))
         .sum()
 }
 
@@ -7484,10 +7484,9 @@ pub fn monster_max_hp_for_current_definition(monster: &MonsterState, ascension: 
     }
 }
 
-pub fn apply_heal_all_monsters(monsters: &mut [MonsterState], ascension: u8, amount: i32) {
+pub fn apply_heal_all_monsters(monsters: &mut [MonsterState], amount: i32) {
     for monster in monsters.iter_mut().filter(|monster| monster.alive) {
-        let max_hp = monster_max_hp_for_current_definition(monster, ascension);
-        monster.hp = (monster.hp + amount).min(max_hp);
+        monster.hp = (monster.hp + amount).min(monster.max_hp);
     }
 }
 
@@ -10551,6 +10550,30 @@ mod tests {
                 frail: HEALER_FRAIL,
             }
         );
+    }
+
+    #[test]
+    fn healer_missing_hp_and_heal_caps_use_rolled_monster_max_hp() {
+        let mut centurion = monster_state(&CENTURION_A0, MonsterId::new(1));
+        centurion.max_hp = 80;
+        centurion.hp = 70;
+        let mut healer = monster_state(&HEALER_A0, MonsterId::new(2));
+        healer.max_hp = 53;
+        healer.hp = 47;
+        let mut monsters = vec![centurion, healer];
+
+        let missing_hp = living_monster_missing_hp(&monsters);
+        assert_eq!(missing_hp, 16);
+        assert_eq!(
+            target_healer_next_intent_from_roll(&[], 0, missing_hp, 0),
+            MonsterIntent::HealAllMonsters {
+                amount: HEALER_HEAL,
+            }
+        );
+
+        apply_heal_all_monsters(&mut monsters, HEALER_HEAL);
+        assert_eq!(monsters[0].hp, 80);
+        assert_eq!(monsters[1].hp, 53);
     }
 
     #[test]
