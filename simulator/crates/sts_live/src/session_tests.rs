@@ -11,7 +11,14 @@ use crate::{
 };
 use rusqlite::Connection;
 use serde_json::json;
-use std::{cell::Cell, fs, path::PathBuf, time::SystemTime};
+use std::{
+    cell::Cell,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::PathBuf,
+    rc::Rc,
+    time::SystemTime,
+};
 
 #[test]
 fn start_run_creates_recording_session_and_trace() {
@@ -148,6 +155,89 @@ fn fidelity_loss_after_action_stays_visible_without_blocking_manual_collection()
 }
 
 #[test]
+fn refresh_fidelity_reuses_cached_result_when_trace_is_unchanged() {
+    let root = temp_dir("fidelity-cache-unchanged");
+    let calls = Rc::new(Cell::new(0));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        CountingBoundaryFidelity::new(calls.clone()),
+        &root,
+    );
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+    let calls_after_start = calls.get();
+
+    store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(calls.get(), calls_after_start + 1);
+
+    store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(calls.get(), calls_after_start + 1);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn refresh_fidelity_reuses_unsupported_boundary_cache_after_trace_append() {
+    let root = temp_dir("fidelity-cache-append");
+    let calls = Rc::new(Cell::new(0));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        CountingBoundaryFidelity::new(calls.clone()),
+        &root,
+    );
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+    let calls_after_start = calls.get();
+
+    let boundary = store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(boundary.fidelity.kind, FidelityKind::Unknown);
+    assert_eq!(calls.get(), calls_after_start + 1);
+
+    append_trace_record(
+        &snapshot.trace_path,
+        &TraceRecord::Automation {
+            sequence: 999,
+            event: "test-noop".to_owned(),
+            details: json!({}),
+        },
+    );
+    let refreshed = store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(refreshed.fidelity.kind, FidelityKind::Unknown);
+    assert_eq!(calls.get(), calls_after_start + 1);
+
+    append_trace_record(
+        &snapshot.trace_path,
+        &TraceRecord::Error {
+            sequence: 1000,
+            reason_code: "fidelity_lost".to_owned(),
+            message: "tail fidelity lost".to_owned(),
+        },
+    );
+    let lost = store.refresh_fidelity(&snapshot.session_id).unwrap();
+    assert_eq!(lost.fidelity.kind, FidelityKind::Lost);
+    assert_eq!(lost.fidelity.message.as_deref(), Some("tail fidelity lost"));
+    assert_eq!(calls.get(), calls_after_start + 1);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn request_state_records_operator_command() {
     let root = temp_dir("request-state");
     let mut store = fake_store(&root);
@@ -202,6 +292,35 @@ fn successful_request_state_unblocks_transient_bridge_error() {
 
     assert_ne!(refreshed.lifecycle, SessionLifecycle::Blocked);
     assert!(refreshed.blocked.is_none());
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn send_action_waits_for_state_newer_than_action_source() {
+    let root = temp_dir("send-action-fresh-state");
+    let mut store = SessionStore::new(StaleActionBridge::default(), TraceFidelityChecker, &root);
+    let snapshot = store
+        .start_run(
+            BridgeId("bridge".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+
+    let next = store
+        .send_action(&snapshot.session_id, &ActionId("choose-0".to_owned()))
+        .unwrap();
+
+    let raw = &next.latest_state.as_ref().unwrap().raw;
+    assert_eq!(
+        raw.pointer("/summary/state_id")
+            .and_then(serde_json::Value::as_str),
+        Some("state-2")
+    );
+    assert_eq!(next.latest_state.as_ref().unwrap().sequence, 2);
     fs::remove_dir_all(root).ok();
 }
 
@@ -710,12 +829,42 @@ fn write_metadata_trace(root: &std::path::Path, session_id: &str) {
     .unwrap();
 }
 
+fn append_trace_record(path: &str, record: &TraceRecord) {
+    let mut file = OpenOptions::new().append(true).open(path).unwrap();
+    writeln!(file, "{}", serde_json::to_string(record).unwrap()).unwrap();
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
     std::env::temp_dir().join(format!("sts-live-session-{name}-{nonce}"))
+}
+
+struct CountingBoundaryFidelity {
+    calls: Rc<Cell<u32>>,
+}
+
+impl CountingBoundaryFidelity {
+    fn new(calls: Rc<Cell<u32>>) -> Self {
+        Self { calls }
+    }
+}
+
+impl FidelityChecker for CountingBoundaryFidelity {
+    fn check_trace(&self, _path: &std::path::Path) -> LiveResult<FidelityStatus> {
+        self.calls.set(self.calls.get() + 1);
+        Ok(FidelityStatus {
+            kind: FidelityKind::Unknown,
+            first_divergent_step: None,
+            compact_diff: vec!["unsupported verifier boundary".to_owned()],
+            message: Some(
+                "seed-start replay reached boundary unsupported_event_card_grid_rng_divergence: test"
+                    .to_owned(),
+            ),
+        })
+    }
 }
 
 #[derive(Default)]
@@ -816,6 +965,93 @@ fn slaythedata_raw_run_json(seed: &str) -> String {
         "victory": false
     })
     .to_string()
+}
+
+#[derive(Default)]
+struct StaleActionBridge {
+    state: Option<LiveState>,
+}
+
+impl StaleActionBridge {
+    fn state_with_id(state_id: &str, sequence: u64, actions: Vec<LegalAction>) -> LiveState {
+        LiveState {
+            sequence,
+            phase: LivePhase::Event,
+            legal_actions: actions,
+            raw: json!({
+                "summary": {
+                    "state_id": state_id,
+                    "state_seq": sequence,
+                    "available_commands": ["choose", "state"],
+                    "in_game": true,
+                    "screen_type": "EVENT",
+                },
+                "current_state": {
+                    "state_id": state_id,
+                    "state_seq": sequence,
+                }
+            }),
+        }
+    }
+
+    fn choice_action() -> LegalAction {
+        LegalAction {
+            id: ActionId("choose-0".to_owned()),
+            kind: LegalActionKind::EventChoice,
+            label: "Choose".to_owned(),
+            enabled: true,
+            command: json!({
+                "transport": "communication_mod",
+                "command": "CHOOSE 0",
+                "source_state_id": "state-1",
+            }),
+            disabled_reason: None,
+        }
+    }
+}
+
+impl BridgeManager for StaleActionBridge {
+    fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>> {
+        Ok(vec![BridgeStatus {
+            id: BridgeId("bridge".to_owned()),
+            process_id: Some(1234),
+            client_id: Some("stale-action-test".to_owned()),
+            connected: true,
+            last_heartbeat_ms: None,
+        }])
+    }
+
+    fn start_run(&mut self, _bridge_id: &BridgeId, _config: &RunConfig) -> LiveResult<LiveState> {
+        let state = Self::state_with_id("state-1", 1, vec![Self::choice_action()]);
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn abandon_run(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn request_state(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        let state = Self::state_with_id("state-2", 2, vec![request_state_action()]);
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn send_action(
+        &mut self,
+        _bridge_id: &BridgeId,
+        _action: &LegalAction,
+    ) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn kill_bridge(&mut self, _bridge_id: &BridgeId) -> LiveResult<()> {
+        Ok(())
+    }
+
+    fn kill_all(&mut self) -> LiveResult<usize> {
+        Ok(0)
+    }
 }
 
 impl Default for PendingCommandBridge {

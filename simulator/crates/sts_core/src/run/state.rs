@@ -180,6 +180,8 @@ pub struct RunState {
     pub current_act: i32,
     #[serde(default, skip_serializing_if = "Act1Boss::is_default")]
     pub act1_boss: Act1Boss,
+    #[serde(default, skip_serializing_if = "Act3Boss::is_default")]
+    pub act3_boss: Act3Boss,
     #[serde(default)]
     pub shop_remove_count: u32,
     #[serde(default)]
@@ -229,6 +231,35 @@ impl Act1Boss {
 
     fn is_default(value: &Self) -> bool {
         *value == Self::Hexaghost
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Act3Boss {
+    #[default]
+    AwakenedOne,
+    TimeEater,
+    DonuAndDeca,
+}
+
+impl Act3Boss {
+    #[must_use]
+    pub fn from_trace_name(name: &str) -> Option<Self> {
+        match name {
+            "Awakened One" | "AwakenedOne" => Some(Self::AwakenedOne),
+            "Time Eater" | "TimeEater" => Some(Self::TimeEater),
+            "Donu and Deca" | "DonuAndDeca" => Some(Self::DonuAndDeca),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn from_game_key(name: &str) -> Self {
+        Self::from_trace_name(name).unwrap_or_default()
+    }
+
+    fn is_default(value: &Self) -> bool {
+        *value == Self::AwakenedOne
     }
 }
 
@@ -714,6 +745,7 @@ impl RunState {
             current_floor: 0,
             current_act: 1,
             act1_boss: Act1Boss::default(),
+            act3_boss: Act3Boss::default(),
             shop_remove_count: 0,
             act1_event_list: Vec::new(),
             act1_shrine_list: Vec::new(),
@@ -801,6 +833,7 @@ impl RunState {
             current_floor: 0,
             current_act: 1,
             act1_boss: Act1Boss::default(),
+            act3_boss: Act3Boss::default(),
             shop_remove_count: 0,
             act1_event_list: Vec::new(),
             act1_shrine_list: Vec::new(),
@@ -833,6 +866,9 @@ impl RunState {
             &crate::content::encounters::target_exordium_act_one_boss(seed as i64),
         )
         .unwrap_or_default();
+        run.act3_boss = Act3Boss::from_game_key(
+            &crate::content::encounters::target_beyond_act_three_boss(seed as i64),
+        );
         run.relics = vec![Relic::BurningBlood];
         run.phase = RunPhase::Event;
         run.event = Some(super::event::neow_talk_screen());

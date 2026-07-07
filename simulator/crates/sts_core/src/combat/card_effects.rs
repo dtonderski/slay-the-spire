@@ -641,11 +641,11 @@ fn apply_duplication_potion_to_queue(
     queue = immediate_queue;
 
     queue.push_front(InternalAction::ConsumeDuplicationPotion);
-    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
     queue.append(&mut delayed_prevention);
     if let Some(action) = final_move {
         queue.push_back(action);
     }
+    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
 
     queue
 }
@@ -717,11 +717,10 @@ fn append_copied_card_effects(
     if let Some(target) = required_target {
         queue.push_back(InternalAction::SkipCopiedCardEffectsIfTargetDead { target });
     }
+    queue.push_back(InternalAction::SkipCopiedCardEffectsIfCombatDone);
     queue.push_back(InternalAction::PlayCardCopy { card_id });
     queue.append(duplicated_effects);
-    if required_target.is_some() {
-        queue.push_back(InternalAction::EndCopiedCardEffects);
-    }
+    queue.push_back(InternalAction::EndCopiedCardEffects);
 }
 
 fn copied_card_required_living_target(effects: &VecDeque<InternalAction>) -> Option<MonsterId> {

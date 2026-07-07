@@ -329,7 +329,7 @@ fn required<'a>(args: &'a [String], index: usize, flag: &str) -> LiveResult<&'a 
 }
 
 fn usage() -> String {
-    "usage: live-trace bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace slaythedata search [filters]|attach SESSION RUN_ID|send-next SESSION|auto-play SESSION; live-trace fidelity status SESSION; live-trace trace path SESSION".to_owned()
+    "usage: live-trace [--slaythedata-db PATH] bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace slaythedata search [filters]|attach SESSION RUN_ID|send-next SESSION|auto-play SESSION; live-trace fidelity status SESSION; live-trace trace path SESSION".to_owned()
 }
 
 #[cfg(test)]

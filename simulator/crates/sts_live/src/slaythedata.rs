@@ -5,14 +5,18 @@ use crate::model::{
 };
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Row, ToSql};
 use serde_json::json;
-use std::path::{Path, PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 use sts_verify::{
     import_slaythedata_run_json, slaythedata_replay_plan, slaythedata_replay_preflight,
     SlayTheDataBridgeDescriptor, SlayTheDataPreflightReport, SlayTheDataPreflightStatus,
     SlayTheDataPreflightStep,
 };
 
-pub const DEFAULT_SLAYTHEDATA_DB: &str = r"D:\dev\SlayTheData-index\slaythedata-chunks.sqlite3";
+pub const SLAYTHEDATA_DB_ENV: &str = "STS_LIVE_SLAYTHEDATA_DB";
+pub const DEFAULT_SLAYTHEDATA_DB: &str = "slaythedata-chunks.sqlite3";
 
 #[derive(Debug, Clone)]
 pub struct SlayTheDataIndex {
@@ -27,7 +31,11 @@ impl SlayTheDataIndex {
     }
 
     pub fn default_local() -> Self {
-        Self::new(DEFAULT_SLAYTHEDATA_DB)
+        Self::new(
+            env::var(SLAYTHEDATA_DB_ENV)
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from(DEFAULT_SLAYTHEDATA_DB)),
+        )
     }
 
     pub fn search(
@@ -548,7 +556,10 @@ mod tests {
     use super::*;
     use crate::model::{ActionId, LegalActionKind, LivePhase};
     use rusqlite::Connection;
-    use std::time::SystemTime;
+    use std::{
+        sync::{Mutex, OnceLock},
+        time::SystemTime,
+    };
 
     #[test]
     fn search_filters_exportable_supported_runs() {
@@ -626,6 +637,22 @@ mod tests {
         assert!(bind_command_to_live_action(&state, "choose 2").is_err());
     }
 
+    #[test]
+    fn default_local_uses_env_configured_database_path() {
+        let _guard = env_lock().lock().unwrap();
+        let db = temp_db("env-config");
+        let previous = std::env::var_os(SLAYTHEDATA_DB_ENV);
+        std::env::set_var(SLAYTHEDATA_DB_ENV, &db);
+
+        assert_eq!(SlayTheDataIndex::default_local().db_path, db);
+
+        if let Some(previous) = previous {
+            std::env::set_var(SLAYTHEDATA_DB_ENV, previous);
+        } else {
+            std::env::remove_var(SLAYTHEDATA_DB_ENV);
+        }
+    }
+
     fn create_locator_schema(path: &Path) {
         let conn = Connection::open(path).unwrap();
         conn.execute_batch(
@@ -661,5 +688,10 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!("sts-live-slaythedata-{name}-{nonce}.sqlite3"))
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
     }
 }

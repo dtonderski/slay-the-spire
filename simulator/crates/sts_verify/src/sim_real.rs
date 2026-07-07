@@ -25,11 +25,11 @@ use sts_core::{
     generate_neow_options, generate_neow_three_potions, generate_neow_transform_reward,
     generate_target_map_choices_after_path, generate_target_map_topology, leave_shop_merchant,
     leave_shop_room, legal_map_actions_on_run, open_neow_reward_grid, select_grid_card,
-    shop_action_for_choice_index, target_room_kinds_on_path, Act1Boss, CardId, CardInstance,
-    CombatAction, CombatPhase, CombatState, ContentId, EventAction, GeneratedNeowOption,
-    GridPurpose, MonsterId, MonsterIntent, MonsterState, NeowDrawback, NeowRewardType, Relic,
-    RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick,
-    TargetMapAct,
+    shop_action_for_choice_index, target_room_kinds_on_path, Act1Boss, Act3Boss, CardGridScreen,
+    CardId, CardInstance, CombatAction, CombatPhase, CombatState, ContentId, EventAction,
+    GeneratedNeowOption, GridPurpose, MonsterId, MonsterIntent, MonsterState, NeowDrawback,
+    NeowRewardType, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase,
+    RunState, ShopPick, TargetMapAct,
 };
 
 #[cfg(test)]
@@ -276,7 +276,15 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
                 last_state = Some(state.clone());
             }
             TraceLine::Action(action) => {
-                let Some(pre) = last_state.clone() else {
+                let pre = if let Some(pre) = last_state.clone() {
+                    pre
+                } else if parse_start_command(action).is_some() {
+                    TraceState {
+                        step: action.step,
+                        received_at: None,
+                        message: Value::Null,
+                    }
+                } else {
                     ignored_tail_actions += 1;
                     continue;
                 };
@@ -326,6 +334,7 @@ fn verify_seed_start_transitions(
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
     let mut initial_act1_boss = Act1Boss::default();
+    let mut initial_act3_boss = Act3Boss::default();
 
     macro_rules! finish_boundary {
         ($boundary:expr) => {
@@ -337,6 +346,32 @@ fn verify_seed_start_transitions(
     }
 
     for (pre, action, post) in transitions {
+        if let Some(game) = post.message.get("game_state") {
+            if let Some(act3_boss) = game
+                .get("act_boss")
+                .and_then(Value::as_str)
+                .and_then(Act3Boss::from_trace_name)
+            {
+                initial_act3_boss = act3_boss;
+                if let Some(sim) = seed_sim.as_mut() {
+                    sim.act3_boss = act3_boss;
+                }
+            }
+        }
+        if pre
+            .message
+            .get("game_state")
+            .and_then(|game| game.get("room_type"))
+            .and_then(Value::as_str)
+            == Some("VictoryRoom")
+        {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Spire Heart event".to_owned(),
+            });
+            continue;
+        }
         if action.command.eq_ignore_ascii_case("state") {
             report.verified.push(VerifiedTransition {
                 action_step: action.step,
@@ -371,6 +406,7 @@ fn verify_seed_start_transitions(
                 );
                 if let Some(game) = post.message.get("game_state") {
                     initial_act1_boss = observed_act1_boss(game);
+                    initial_act3_boss = observed_act3_boss(game);
                 }
                 phase = SeedStartPhase::NeowTalk;
             }
@@ -1550,7 +1586,10 @@ fn verify_seed_start_transitions(
                 let option = neow_card_reward_option
                     .as_ref()
                     .expect("Neow card reward option is carried");
-                deck_ids.push(picked_card);
+                let has_delayed_curse = delayed_neow_curse.take().is_some();
+                if !has_delayed_curse {
+                    deck_ids.push(picked_card.clone());
+                }
                 let mut run = seed_start_apply_neow_reward_drawback_for_ascension(
                     start.numeric_seed,
                     start.ascension,
@@ -1559,6 +1598,12 @@ fn verify_seed_start_transitions(
                 );
                 if let Some(card_rng_counter) = neow_card_reward_card_rng_counter {
                     run.card_rng_counter = card_rng_counter;
+                }
+                if has_delayed_curse {
+                    apply_neow_curse_drawback(&mut run);
+                    deck_ids = deck_content_keys(&run.deck);
+                    deck_ids.push(picked_card);
+                    run.deck = deck_instances_from_keys(&deck_ids);
                 }
                 seed_sim = Some(run);
                 compare_subset(
@@ -1650,6 +1695,7 @@ fn verify_seed_start_transitions(
                     run.player_hp = neow_current_hp;
                     run.player_max_hp = neow_max_hp;
                     run.act1_boss = initial_act1_boss;
+                    run.act3_boss = initial_act3_boss;
                     run.potions = neow_potion_reward
                         .iter()
                         .filter_map(|name| potion_from_trace_name(name))
@@ -1680,10 +1726,12 @@ fn verify_seed_start_transitions(
                     run.gold = neow_gold;
                     run.player_hp = neow_current_hp;
                     run.player_max_hp = neow_max_hp;
+                    run.act3_boss = initial_act3_boss;
                     seed_sim = Some(run);
                 }
                 if let Some(sim) = seed_sim.as_mut() {
                     sim.act1_boss = initial_act1_boss;
+                    sim.act3_boss = initial_act3_boss;
                     sim.phase = RunPhase::Idle;
                     sim.reward = None;
                     sim.card_grid = None;
@@ -2245,6 +2293,7 @@ fn verify_seed_start_transitions(
                     }
                     _ => seed_start_event_simulated_subset(&next, &relics),
                 };
+                let diff_count_before = report.unexpected_diffs.len();
                 if next.phase == RunPhase::Event && !next.pending_obtain_cards.is_empty() {
                     compare_subset_any(
                         report,
@@ -2260,6 +2309,41 @@ fn verify_seed_start_transitions(
                     );
                 } else {
                     compare_subset(report, action, "event choice", observed, simulated);
+                }
+                if next
+                    .card_grid
+                    .as_ref()
+                    .is_some_and(|grid| seed_start_is_event_obtain_grid(grid.purpose))
+                    && report.unexpected_diffs.len() > diff_count_before
+                {
+                    report.unexpected_diffs.truncate(diff_count_before);
+                    if let Some(imported) =
+                        seed_start_import_observed_event_obtain_grid(&next, &post.message)
+                    {
+                        compare_subset(
+                            report,
+                            action,
+                            "event card grid",
+                            seed_start_grid_observed_subset(&post.message),
+                            seed_start_grid_simulated_subset(&imported, &relics),
+                        );
+                        seed_start_update_carry_from_run(&imported, &mut relics, &mut deck_ids);
+                        *sim = imported;
+                        phase = SeedStartPhase::Grid;
+                        continue;
+                    } else {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_event_card_grid_rng_divergence".to_owned(),
+                            reason: "carried card reward RNG state does not reproduce the observed event card grid and the observed grid could not be imported".to_owned(),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
+                    }
                 }
                 seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                 *sim = next.clone();
@@ -2786,8 +2870,20 @@ fn verify_seed_start_transitions(
                         seed_start_victory_observed_subset(&post.message),
                         seed_start_victory_simulated_subset(&next, &post.message),
                     );
+                    let final_boss_complete = screen_type(&post.message) == Some("COMPLETE")
+                        && post
+                            .message
+                            .get("game_state")
+                            .and_then(|game| game.get("room_type"))
+                            .and_then(Value::as_str)
+                            == Some("MonsterRoomBoss")
+                        && sim.current_act == 3;
                     seed_sim = Some(next);
-                    phase = SeedStartPhase::Reward;
+                    phase = if final_boss_complete {
+                        SeedStartPhase::Proceed
+                    } else {
+                        SeedStartPhase::Reward
+                    };
                     continue;
                 }
 
@@ -2849,6 +2945,21 @@ fn verify_seed_start_transitions(
                     continue;
                 }
                 if action.command.eq_ignore_ascii_case("PROCEED") {
+                    if post
+                        .message
+                        .get("game_state")
+                        .and_then(|game| game.get("room_type"))
+                        .and_then(Value::as_str)
+                        == Some("VictoryRoom")
+                    {
+                        report.verified.push(VerifiedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: "final boss proceed to Spire Heart".to_owned(),
+                        });
+                        phase = SeedStartPhase::Event;
+                        continue;
+                    }
                     if screen_type(&post.message) == Some("CHEST") {
                         let Some(sim) = seed_sim.as_mut() else {
                             return finish_boundary!(SeedStartBoundary {
@@ -3008,7 +3119,9 @@ fn verify_seed_start_transitions(
                                 .and_then(|game| game.get("deck")),
                         );
                         _reward_step += 1;
-                        if seed_start_reward_sequence_complete(sim) {
+                        if sim.card_grid.is_some() {
+                            phase = SeedStartPhase::Grid;
+                        } else if seed_start_reward_sequence_complete(sim) {
                             phase = SeedStartPhase::Proceed;
                         }
                     }
@@ -3149,6 +3262,14 @@ fn verify_seed_start_transitions(
                         seed_start_rest_observed_subset(&post.message),
                         seed_start_rest_simulated_subset(&next, &relics),
                     );
+                } else if screen_type(&post.message) == Some("COMBAT_REWARD") {
+                    compare_subset(
+                        report,
+                        action,
+                        label,
+                        seed_start_reward_observed_subset(&post.message),
+                        seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                    );
                 } else {
                     compare_subset(
                         report,
@@ -3168,6 +3289,12 @@ fn verify_seed_start_transitions(
                     phase = SeedStartPhase::Event;
                 } else if sim.phase == RunPhase::Idle {
                     phase = SeedStartPhase::Proceed;
+                } else if sim.phase == RunPhase::Reward {
+                    if seed_start_reward_sequence_complete(sim) {
+                        phase = SeedStartPhase::Proceed;
+                    } else {
+                        phase = SeedStartPhase::Reward;
+                    }
                 } else {
                     phase = SeedStartPhase::Rest;
                 }
@@ -3331,6 +3458,21 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::Proceed => {
                 if action.command.eq_ignore_ascii_case("PROCEED") {
+                    if post
+                        .message
+                        .get("game_state")
+                        .and_then(|game| game.get("room_type"))
+                        .and_then(Value::as_str)
+                        == Some("VictoryRoom")
+                    {
+                        report.verified.push(VerifiedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: "final boss proceed to Spire Heart".to_owned(),
+                        });
+                        phase = SeedStartPhase::Event;
+                        continue;
+                    }
                     if screen_type(&post.message) == Some("CHEST") {
                         let Some(sim) = seed_sim.as_mut() else {
                             return finish_boundary!(SeedStartBoundary {
@@ -4555,6 +4697,64 @@ fn seed_start_grid_observed_subset(message: &Value) -> Value {
     })
 }
 
+fn seed_start_is_event_obtain_grid(purpose: GridPurpose) -> bool {
+    matches!(
+        purpose,
+        GridPurpose::EventObtainCard | GridPurpose::EventObtainCardReturnToEvent { .. }
+    )
+}
+
+fn seed_start_import_observed_event_obtain_grid(
+    run: &RunState,
+    message: &Value,
+) -> Option<RunState> {
+    if screen_type(message) != Some("GRID") {
+        return None;
+    }
+    let purpose = run.card_grid.as_ref()?.purpose;
+    if !seed_start_is_event_obtain_grid(purpose) {
+        return None;
+    }
+    let cards = observed_grid_cards(message, run.next_card_instance_id())?;
+    let mut imported = run.clone();
+    imported.card_grid = Some(CardGridScreen {
+        cards,
+        purpose,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+    Some(imported)
+}
+
+fn observed_grid_cards(message: &Value, base_id: u64) -> Option<Vec<CardInstance>> {
+    let cards = message
+        .get("game_state")?
+        .get("screen_state")?
+        .get("cards")?
+        .as_array()?;
+    if cards.is_empty() {
+        return None;
+    }
+
+    cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| {
+            let content_id = content_id_from_card_value(card)?;
+            let mut instance = CardInstance::new(CardId::new(base_id + index as u64), content_id);
+            instance.upgrades = observed_card_upgrade_count(card);
+            Some(instance)
+        })
+        .collect()
+}
+
+fn observed_card_upgrade_count(card: &Value) -> u8 {
+    card.get("upgrades")
+        .and_then(Value::as_u64)
+        .and_then(|value| u8::try_from(value).ok())
+        .unwrap_or(0)
+}
+
 fn seed_start_grid_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
     let choices = run
         .card_grid
@@ -5341,6 +5541,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::BagOfMarbles => "Bag of Marbles",
         RelicKey::BagOfPreparation => "Bag of Preparation",
         RelicKey::BurningBlood => "Burning Blood",
+        RelicKey::BloodVial => "Blood Vial",
         RelicKey::DreamCatcher => "Dream Catcher",
         RelicKey::ToxicEgg => "Toxic Egg",
         RelicKey::FrozenEgg => "Frozen Egg",
@@ -5367,6 +5568,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::StoneCalendar => "Stone Calendar",
         RelicKey::IceCream => "Ice Cream",
         RelicKey::Calipers => "Calipers",
+        RelicKey::QuestionCard => "Question Card",
         RelicKey::CursedKey => "Cursed Key",
         RelicKey::FusionHammer => "Fusion Hammer",
         RelicKey::VelvetChoker => "Velvet Choker",
@@ -5394,12 +5596,17 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::MarkOfPain => "Mark of Pain",
         RelicKey::RunicCube => "Runic Cube",
         RelicKey::DeadBranch => "Dead Branch",
+        RelicKey::MealTicket => "Meal Ticket",
+        RelicKey::PrismaticShard => "Prismatic Shard",
         RelicKey::ChampionBelt => "Champion Belt",
         RelicKey::GoldenIdol => "Golden Idol",
         RelicKey::DuVuDoll => "Du-Vu Doll",
         RelicKey::MedicalKit => "Medical Kit",
         RelicKey::WarPaint => "War Paint",
         RelicKey::LetterOpener => "Letter Opener",
+        RelicKey::PreservedInsect => "Preserved Insect",
+        RelicKey::ArtOfWar => "Art of War",
+        RelicKey::PrayerWheel => "Prayer Wheel",
         RelicKey::Nunchaku => "Nunchaku",
         RelicKey::InkBottle => "Ink Bottle",
         RelicKey::Shuriken => "Shuriken",
@@ -5413,6 +5620,8 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::SelfFormingClay => "Self-Forming Clay",
         RelicKey::OrangePellets => "Orange Pellets",
         RelicKey::Matryoshka => "Matryoshka",
+        RelicKey::BlueCandle => "Blue Candle",
+        RelicKey::BottledLightning => "Bottled Lightning",
         RelicKey::CultistMask => "CultistMask",
         RelicKey::FaceOfCleric => "FaceOfCleric",
         RelicKey::GremlinMask => "GremlinMask",
@@ -5430,6 +5639,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "bagofmarbles" => Some(RelicKey::BagOfMarbles),
         "bagofpreparation" => Some(RelicKey::BagOfPreparation),
         "burningblood" => Some(RelicKey::BurningBlood),
+        "bloodvial" => Some(RelicKey::BloodVial),
         "dreamcatcher" => Some(RelicKey::DreamCatcher),
         "toxicegg" => Some(RelicKey::ToxicEgg),
         "frozenegg" | "frozenegg2" => Some(RelicKey::FrozenEgg),
@@ -5452,6 +5662,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "stonecalendar" => Some(RelicKey::StoneCalendar),
         "icecream" => Some(RelicKey::IceCream),
         "calipers" => Some(RelicKey::Calipers),
+        "questioncard" => Some(RelicKey::QuestionCard),
         "cursedkey" => Some(RelicKey::CursedKey),
         "fusionhammer" => Some(RelicKey::FusionHammer),
         "velvetchoker" => Some(RelicKey::VelvetChoker),
@@ -5475,11 +5686,15 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "markofpain" => Some(RelicKey::MarkOfPain),
         "runiccube" => Some(RelicKey::RunicCube),
         "deadbranch" => Some(RelicKey::DeadBranch),
+        "mealticket" => Some(RelicKey::MealTicket),
+        "prismaticshard" => Some(RelicKey::PrismaticShard),
         "threadandneedle" => Some(RelicKey::ThreadAndNeedle),
         "paperphrog" => Some(RelicKey::PaperPhrog),
         "strangespoon" => Some(RelicKey::StrangeSpoon),
         "dollysmirror" => Some(RelicKey::DollysMirror),
         "selfformingclay" => Some(RelicKey::SelfFormingClay),
+        "bluecandle" => Some(RelicKey::BlueCandle),
+        "bottledlightning" => Some(RelicKey::BottledLightning),
         "cultistmask" | "cultistheadpiece" => Some(RelicKey::CultistMask),
         "faceofcleric" | "clericface" => Some(RelicKey::FaceOfCleric),
         "gremlinmask" | "gremlinvisage" => Some(RelicKey::GremlinMask),
@@ -5494,6 +5709,9 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "medicalkit" => Some(RelicKey::MedicalKit),
         "warpaint" => Some(RelicKey::WarPaint),
         "letteropener" => Some(RelicKey::LetterOpener),
+        "preservedinsect" => Some(RelicKey::PreservedInsect),
+        "artofwar" => Some(RelicKey::ArtOfWar),
+        "prayerwheel" => Some(RelicKey::PrayerWheel),
         "nunchaku" => Some(RelicKey::Nunchaku),
         "inkbottle" => Some(RelicKey::InkBottle),
         "shuriken" => Some(RelicKey::Shuriken),
@@ -5511,6 +5729,7 @@ fn relic_from_trace_name(name: &str) -> Option<Relic> {
         "bagofmarbles" => Some(Relic::BagOfMarbles),
         "bagofpreparation" => Some(Relic::BagOfPreparation),
         "burningblood" => Some(Relic::BurningBlood),
+        "bloodvial" => Some(Relic::BloodVial),
         "dreamcatcher" => Some(Relic::DreamCatcher),
         "toxicegg" => Some(Relic::ToxicEgg),
         "frozenegg" | "frozenegg2" => Some(Relic::FrozenEgg),
@@ -5533,6 +5752,7 @@ fn relic_from_trace_name(name: &str) -> Option<Relic> {
         "stonecalendar" => Some(Relic::StoneCalendar),
         "icecream" => Some(Relic::IceCream),
         "calipers" => Some(Relic::Calipers),
+        "questioncard" => Some(Relic::QuestionCard),
         "cursedkey" => Some(Relic::CursedKey),
         "fusionhammer" => Some(Relic::FusionHammer),
         "velvetchoker" => Some(Relic::VelvetChoker),
@@ -5556,11 +5776,15 @@ fn relic_from_trace_name(name: &str) -> Option<Relic> {
         "markofpain" => Some(Relic::MarkOfPain),
         "runiccube" => Some(Relic::RunicCube),
         "deadbranch" => Some(Relic::DeadBranch),
+        "mealticket" => Some(Relic::MealTicket),
+        "prismaticshard" => Some(Relic::PrismaticShard),
         "threadandneedle" => Some(Relic::ThreadAndNeedle),
         "paperphrog" => Some(Relic::PaperPhrog),
         "strangespoon" => Some(Relic::StrangeSpoon),
         "dollysmirror" => Some(Relic::DollysMirror),
         "selfformingclay" => Some(Relic::SelfFormingClay),
+        "bluecandle" => Some(Relic::BlueCandle),
+        "bottledlightning" => Some(Relic::BottledLightning),
         "cultistmask" | "cultistheadpiece" => Some(Relic::CultistMask),
         "faceofcleric" | "clericface" => Some(Relic::FaceOfCleric),
         "gremlinmask" | "gremlinvisage" => Some(Relic::GremlinMask),
@@ -5574,6 +5798,9 @@ fn relic_from_trace_name(name: &str) -> Option<Relic> {
         "medicalkit" => Some(Relic::MedicalKit),
         "warpaint" => Some(Relic::WarPaint),
         "letteropener" => Some(Relic::LetterOpener),
+        "preservedinsect" => Some(Relic::PreservedInsect),
+        "artofwar" => Some(Relic::ArtOfWar),
+        "prayerwheel" => Some(Relic::PrayerWheel),
         "nunchaku" => Some(Relic::Nunchaku),
         "inkbottle" => Some(Relic::InkBottle),
         "shuriken" => Some(Relic::Shuriken),
@@ -5843,7 +6070,10 @@ fn seed_start_event_simulated_subset_with_deck(
     let event_id = run
         .event
         .as_ref()
-        .map(|event| normalized_trace_relic_name(&format!("{:?}", event.event)))
+        .map(|event| match event.event {
+            sts_core::Event::TheSsssserpent => "liarsgame".to_owned(),
+            _ => normalized_trace_relic_name(&format!("{:?}", event.event)),
+        })
         .unwrap_or_default();
     let screen_type = if run.phase == RunPhase::Event {
         "EVENT"
@@ -6039,7 +6269,7 @@ fn seed_start_simulated_combat_subset(
         "ascension": run.ascension,
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
         "gold": run.gold,
-        "current_hp": run.player_hp,
+        "current_hp": combat.player.hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
         "relic_ids": relic_ids_for_simulated_subset(run, &[]),
@@ -6131,8 +6361,19 @@ fn seed_start_victory_observed_subset(message: &Value) -> Value {
 
 fn seed_start_victory_simulated_subset(run: &RunState, message: &Value) -> Value {
     let game = message.get("game_state").expect("observed game_state");
+    let observed_screen_type = game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let screen_type = if observed_screen_type == "COMPLETE"
+        && game.get("room_type").and_then(Value::as_str) == Some("MonsterRoomBoss")
+    {
+        "COMPLETE"
+    } else {
+        "COMBAT_REWARD"
+    };
     json!({
-        "screen_type": "COMBAT_REWARD",
+        "screen_type": screen_type,
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
         "gold": run.gold,
         "current_hp": run.player_hp,
@@ -6169,20 +6410,34 @@ fn seed_start_reward_sequence_complete(run: &RunState) -> bool {
         && reward.potion_offer.is_none()
         && reward.relic_offer.is_none()
         && reward.relic_key_offer.is_none()
+        && reward.pending_relic_offer.is_none()
+        && reward.pending_relic_key_offer.is_none()
         && !reward.card_reward_pending
         && reward.choices.is_empty()
 }
 
 fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
     let mut choices = Vec::new();
+    let has_relic = reward.relic_offer.is_some() || reward.relic_key_offer.is_some();
+    let has_pending_relic =
+        reward.pending_relic_offer.is_some() || reward.pending_relic_key_offer.is_some();
+    if has_relic && has_pending_relic && reward.gold_offer > 0 {
+        choices.push("relic".to_owned());
+        choices.push("gold".to_owned());
+        choices.push("relic".to_owned());
+        return choices;
+    }
     if reward.gold_offer > 0 {
         choices.push("gold".to_owned());
     }
     if reward.stolen_gold_offer > 0 {
         choices.push("stolen_gold".to_owned());
     }
-    if reward.relic_offer.is_some() || reward.relic_key_offer.is_some() {
+    if has_relic {
         choices.push("relic".to_owned());
+        if has_pending_relic {
+            choices.push("relic".to_owned());
+        }
     }
     if reward.potion_offer.is_some() {
         choices.push("potion".to_owned());
@@ -6226,6 +6481,12 @@ fn seed_start_apply_reward_choose(
     let _ = external_seed;
     let choose_index = choose_index(command)
         .ok_or_else(|| format!("seed-start verifier could not parse reward command {command:?}"))?;
+
+    if sim.card_grid.is_some() {
+        let next = select_grid_card(sim, choose_index).map_err(|err| err.to_string())?;
+        *sim = next;
+        return Ok(format!("reward grid select {choose_index}"));
+    }
 
     if sim
         .reward
@@ -6285,6 +6546,9 @@ fn seed_start_reward_simulated_subset(
     let Some(game) = message.get("game_state") else {
         return json!({});
     };
+    if run.card_grid.is_some() {
+        return seed_start_grid_simulated_subset(run, relic_ids);
+    }
     let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(0);
     let relic_ids = relic_ids_for_simulated_subset(run, relic_ids);
 
@@ -6305,7 +6569,7 @@ fn seed_start_reward_simulated_subset(
             "choices": reward
                 .choices
                 .iter()
-                .map(|card| reward_card_display_key(run, card.content_id).to_ascii_lowercase())
+                .map(|card| reward_card_choice_display_key(run, card).to_ascii_lowercase())
                 .collect::<Vec<_>>(),
             "card_reward_ids": reward
                 .choices
@@ -7580,13 +7844,13 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
     use sts_core::content::monsters::{
         champ_strength_amount, gremlin_nob_enrage, ACID_SLIME_ID, BRONZE_AUTOMATON_ID,
         BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_DEFENSIVE_BLOCK, CHAMP_DEFENSIVE_METALLICIZE,
-        CHAMP_FACE_SLAP_DAMAGE, CHAMP_ID, CHOSEN_ID, CULTIST_ID, DARKLING_ID, FUNGI_BEAST_ID,
-        GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_FAT_ID, GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID,
-        HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID, REPULSOR_ID, SENTRY_ID,
-        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLIME_BOSS_A19_SLIMED_COUNT, SLIME_BOSS_ID,
-        SLIME_BOSS_SLIMED_COUNT, SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ACTIVATE_BLOCK,
-        SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK, SPHERIC_GUARDIAN_ID, SPIKER_ID,
-        SPIKE_SLIME_ID, THE_COLLECTOR_ID,
+        CHAMP_FACE_SLAP_DAMAGE, CHAMP_ID, CHOSEN_ID, CULTIST_ID, DARKLING_ID, DECA_ID,
+        FUNGI_BEAST_ID, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_FAT_ID, GREMLIN_LEADER_ID,
+        GREMLIN_TSUNDERE_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID,
+        REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLIME_BOSS_A19_SLIMED_COUNT,
+        SLIME_BOSS_ID, SLIME_BOSS_SLIMED_COUNT, SNAKE_PLANT_ID, SNECKO_ID,
+        SPHERIC_GUARDIAN_ACTIVATE_BLOCK, SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK,
+        SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID, THE_COLLECTOR_ID,
     };
 
     let damage = int(monster, "move_base_damage");
@@ -7706,6 +7970,13 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             damage: damage.max(0),
             count: 1,
         },
+        "ATTACK_DEBUFF" if content_id == DECA_ID => {
+            MonsterIntent::AttackMultipleAddDazedToDiscard {
+                damage: damage.max(0),
+                hits: hits.max(1),
+                count: 2,
+            }
+        }
         "ATTACK_DEBUFF" if content_id == SPHERIC_GUARDIAN_ID => {
             MonsterIntent::AttackApplyPlayerFrail {
                 damage: damage.max(0),
@@ -8356,24 +8627,25 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
     }
 
     use sts_core::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BERSERK_ID,
-        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BLUDGEON_ID, BODY_SLAM_ID,
-        BRUTALITY_ID, BURNING_PACT_ID, BURN_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID,
-        CLUMSY_ID, COMBUST_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID,
-        DARK_SHACKLES_ID, DAZED_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID,
-        DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID,
-        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID,
-        FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
-        GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
-        IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID,
-        JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID,
-        NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID,
-        RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SEARING_BLOW_ID,
-        SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID,
-        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
-        SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID,
-        UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
+        ANGER_ID, APPARITION_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID,
+        BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID,
+        BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, BURN_ID, CARNAGE_ID, CLASH_ID,
+        CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, COMBUST_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID,
+        DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID,
+        DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID,
+        DOUBLE_TAP_PLUS_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
+        ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
+        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
+        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID,
+        INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID,
+        LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID,
+        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID,
+        RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
+        RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID,
+        SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
+        SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
+        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -8393,6 +8665,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
             Some(DARK_EMBRACE_ID)
         }
         "Dazed" | "dazed" => Some(DAZED_ID),
+        "Apparition" | "apparition" | "Ghostly" | "ghostly" => Some(APPARITION_ID),
         "Wound" | "wound" => Some(WOUND_ID),
         "Slimed" | "slimed" => Some(SLIMED_ID),
         "Thunderclap" | "thunderclap" => Some(THUNDERCLAP_ID),
@@ -8662,6 +8935,13 @@ fn reward_card_display_key(run: &RunState, content_id: ContentId) -> &'static st
     content_key(content_id)
 }
 
+fn reward_card_choice_display_key(run: &RunState, card: &CardInstance) -> String {
+    if card.searing_blow_upgrades > 0 {
+        return format!("Searing Blow+{}", card.searing_blow_upgrades);
+    }
+    reward_card_display_key(run, card.content_id).to_owned()
+}
+
 fn egg_preview_upgrade(run: &RunState, content_id: ContentId) -> Option<ContentId> {
     let upgraded = upgrade_content_id(content_id)?;
     let (card_type, _) = card_type_and_rarity(content_id)?;
@@ -8750,7 +9030,11 @@ fn deck_keys_from_value(value: Option<&Value>) -> Vec<String> {
 
     cards
         .iter()
-        .filter_map(|card| card.get("id").and_then(Value::as_str).map(str::to_owned))
+        .filter_map(|card| {
+            content_id_from_card_value(card)
+                .map(|content_id| deck_content_key(content_id).to_owned())
+                .or_else(|| card.get("id").and_then(Value::as_str).map(str::to_owned))
+        })
         .collect()
 }
 
@@ -8839,7 +9123,7 @@ fn unsupported_reason(pre: &TraceState, action: &TraceAction) -> String {
 
 fn intent_key(monster: &MonsterState) -> String {
     use sts_core::content::monsters::{
-        ACID_SLIME_ID, SLAVER_BLUE_ID, SLIME_BOSS_ID, SPIKE_SLIME_ID,
+        ACID_SLIME_ID, DECA_ID, SLAVER_BLUE_ID, SLIME_BOSS_ID, SPIKE_SLIME_ID,
     };
 
     match monster.intent {
@@ -8850,12 +9134,21 @@ fn intent_key(monster: &MonsterState) -> String {
         | MonsterIntent::AttackApplyPlayerWeak { .. }
         | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
         | MonsterIntent::AttackMultiple { .. }
+        | MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
+        | MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
         | MonsterIntent::AttackMultipleUpgradeBurns { .. }
         | MonsterIntent::AttackStealGold { .. } => {
             if matches!(monster.content_id, ACID_SLIME_ID | SPIKE_SLIME_ID)
                 || matches!(
                     monster.intent,
                     MonsterIntent::AttackMultipleUpgradeBurns { .. }
+                )
+                || matches!(
+                    (monster.content_id, monster.intent),
+                    (
+                        DECA_ID,
+                        MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
+                    )
                 )
             {
                 "ATTACK_DEBUFF".to_owned()
@@ -8867,6 +9160,8 @@ fn intent_key(monster: &MonsterState) -> String {
                 monster.intent,
                 MonsterIntent::AttackApplyPlayerWeak { .. }
                     | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+                    | MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
+                    | MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
                     | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
             ) {
                 "ATTACK_DEBUFF".to_owned()
@@ -8926,6 +9221,13 @@ fn observed_act1_boss(game: &Value) -> Act1Boss {
     game.get("act_boss")
         .and_then(Value::as_str)
         .and_then(Act1Boss::from_trace_name)
+        .unwrap_or_default()
+}
+
+fn observed_act3_boss(game: &Value) -> Act3Boss {
+    game.get("act_boss")
+        .and_then(Value::as_str)
+        .and_then(Act3Boss::from_trace_name)
         .unwrap_or_default()
 }
 
@@ -10304,6 +10606,7 @@ mod tests {
             (RelicKey::Akabeko, "Akabeko"),
             (RelicKey::BagOfMarbles, "Bag of Marbles"),
             (RelicKey::BagOfPreparation, "Bag of Preparation"),
+            (RelicKey::BloodVial, "Blood Vial"),
             (RelicKey::DeadBranch, "Dead Branch"),
             (RelicKey::GremlinHorn, "Gremlin Horn"),
             (RelicKey::IceCream, "Ice Cream"),
@@ -10328,10 +10631,13 @@ mod tests {
             (RelicKey::ThreadAndNeedle, "Thread and Needle"),
             (RelicKey::ClockworkSouvenir, "Clockwork Souvenir"),
             (RelicKey::Calipers, "Calipers"),
+            (RelicKey::QuestionCard, "Question Card"),
             (RelicKey::PaperPhrog, "Paper Phrog"),
             (RelicKey::StrangeSpoon, "Strange Spoon"),
             (RelicKey::DollysMirror, "Dolly's Mirror"),
             (RelicKey::SelfFormingClay, "Self-Forming Clay"),
+            (RelicKey::BlueCandle, "Blue Candle"),
+            (RelicKey::BottledLightning, "Bottled Lightning"),
         ] {
             assert_eq!(relic_key_trace_name(key), name);
             assert_eq!(relic_key_from_trace_name(name), Some(key));
@@ -10340,6 +10646,26 @@ mod tests {
                 Some(key)
             );
         }
+    }
+
+    #[test]
+    fn combat_subset_reports_start_of_combat_relic_healed_hp() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 34;
+        run.player_max_hp = 86;
+        run.relics = vec![Relic::BurningBlood, Relic::BloodVial];
+        run.combat = Some(run.init_combat(CombatState::initial_fixture()));
+
+        let message = json!({
+            "game_state": {
+                "floor": 8,
+                "screen_type": "NONE"
+            }
+        });
+        let subset = seed_start_simulated_combat_subset(&run, &message, false);
+
+        assert_eq!(subset["current_hp"], json!(36));
+        assert_eq!(subset["combat_player_hp"], json!(36));
     }
 
     #[test]

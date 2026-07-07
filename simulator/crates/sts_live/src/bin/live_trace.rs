@@ -8,7 +8,7 @@ use sts_live::{
     fidelity::TraceFidelityChecker,
     http::{serve_stream, LiveHttpApp},
     model::{BridgeId, BridgeStatus, LegalAction, LiveError, LiveResult, LiveState, RunConfig},
-    FakeBridgeManager, SessionStore,
+    FakeBridgeManager, SessionStore, SlayTheDataIndex,
 };
 
 fn main() {
@@ -17,7 +17,9 @@ fn main() {
         .unwrap_or_else(|_| PathBuf::from("live_traces"));
     let mut args = env::args().skip(1).collect::<Vec<_>>();
     let bridge = runtime_bridge(&mut args);
-    let mut store = SessionStore::new(bridge, TraceFidelityChecker, trace_root);
+    let slaythedata_index = runtime_slaythedata_index(&mut args);
+    let mut store = SessionStore::new(bridge, TraceFidelityChecker, trace_root)
+        .with_slaythedata_index(slaythedata_index);
     if let Err(err) = store.recover_existing_sessions() {
         eprintln!("{}", format_cli_error(&err));
         exit(1);
@@ -123,6 +125,16 @@ fn runtime_bridge(args: &mut Vec<String>) -> RuntimeBridge {
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
     RuntimeBridge::Communication(CommunicationModBridgeManager::new(config))
+}
+
+fn runtime_slaythedata_index(args: &mut Vec<String>) -> SlayTheDataIndex {
+    if let Some(index) = args.iter().position(|arg| arg == "--slaythedata-db") {
+        let _flag = args.remove(index);
+        if index < args.len() {
+            return SlayTheDataIndex::new(args.remove(index));
+        }
+    }
+    SlayTheDataIndex::default_local()
 }
 
 fn repo_root() -> PathBuf {

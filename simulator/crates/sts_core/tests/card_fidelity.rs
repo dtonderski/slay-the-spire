@@ -1619,6 +1619,40 @@ fn double_tap_plus_doubles_the_next_attack_and_leaves_one_pending() {
 }
 
 #[test]
+fn double_tap_copy_triggers_pain_for_copied_attack() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 3;
+    state.player.hp = 50;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::DOUBLE_TAP_ID),
+        CardInstance::new(CardId::new(2), cards::BASH_ID),
+        CardInstance::new(CardId::new(3), cards::PAIN_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Double Tap plays");
+    assert_eq!(next.player.hp, 49);
+
+    let next = apply_combat_action(
+        &next,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Bash is doubled by Double Tap");
+
+    assert_eq!(next.player.hp, 47);
+}
+
+#[test]
 fn dual_wield_plus_creates_two_temporary_copies_and_discards_source() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
@@ -3449,11 +3483,7 @@ fn havoc_panache_plus_grants_fourteen_damage_power() {
     assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::HAVOC_ID);
-    assert_eq!(next.piles.exhaust_pile.len(), 1);
-    assert_eq!(
-        next.piles.exhaust_pile[0].content_id,
-        cards::PANACHE_PLUS_ID
-    );
+    assert!(next.piles.exhaust_pile.is_empty());
 }
 
 #[test]
@@ -3482,11 +3512,7 @@ fn havoc_sadistic_nature_plus_grants_seven_damage_power() {
     assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::HAVOC_ID);
-    assert_eq!(next.piles.exhaust_pile.len(), 1);
-    assert_eq!(
-        next.piles.exhaust_pile[0].content_id,
-        cards::SADISTIC_NATURE_PLUS_ID
-    );
+    assert!(next.piles.exhaust_pile.is_empty());
 }
 
 #[test]

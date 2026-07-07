@@ -4,23 +4,30 @@ use crate::{
     fidelity::FidelityChecker,
     model::{
         ActionId, AutomationConfig, AutomationJobSnapshot, AutomationState, BlockedState, BridgeId,
-        FidelityKind, FidelityStatus, LiveError, LivePhase, LiveResult, RunConfig, SessionId,
-        SessionLifecycle, SessionSnapshot, SlayTheDataRunSummary, SlayTheDataSearchFilters,
-        TraceRecord,
+        FidelityKind, FidelityStatus, LegalAction, LiveError, LivePhase, LiveResult, LiveState,
+        RunConfig, SessionId, SessionLifecycle, SessionSnapshot, SlayTheDataRunSummary,
+        SlayTheDataSearchFilters, TraceRecord,
     },
     operator_actions::{request_state_action, start_run_action},
     session_blocking::record_blocked,
     session_recovery,
     session_response::append_bridge_response_and_state,
-    session_state::{lifecycle_for_fidelity, metadata_record, SessionData},
+    session_state::{lifecycle_for_fidelity, metadata_record, FidelityCache, SessionData},
     slaythedata::{AttachedSlayTheDataRun, SlayTheDataIndex},
     trace_writer::TraceWriter,
 };
 use serde_json::json;
 use std::{
     collections::HashMap,
+    fs::File,
+    io::{BufRead, BufReader, Seek, SeekFrom},
     path::{Path, PathBuf},
+    thread,
+    time::{Duration, Instant},
 };
+
+const ACTION_STATE_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const ACTION_STATE_POLL_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct SessionStore<B, F> {
     bridge: B,
@@ -236,6 +243,7 @@ where
                 return Err(err);
             }
         };
+        let state = self.wait_for_fresh_action_state(&bridge_id, &action, state)?;
         let advance_manual_plan = {
             let session = self.session_mut(session_id)?;
             let advance_manual_plan =
@@ -255,6 +263,34 @@ where
             self.refresh_fidelity(session_id)
         } else {
             Ok(self.session(session_id)?.snapshot())
+        }
+    }
+
+    fn wait_for_fresh_action_state(
+        &mut self,
+        bridge_id: &BridgeId,
+        action: &LegalAction,
+        initial: LiveState,
+    ) -> LiveResult<LiveState> {
+        let Some(source_state_id) = action_source_state_id(action) else {
+            return Ok(initial);
+        };
+        if !state_matches_source_state_id(&initial, source_state_id) {
+            return Ok(initial);
+        }
+
+        let deadline = Instant::now() + ACTION_STATE_POLL_TIMEOUT;
+        loop {
+            let refreshed = self.bridge.request_state(bridge_id)?;
+            if !state_matches_source_state_id(&refreshed, source_state_id) {
+                return Ok(refreshed);
+            }
+            if Instant::now() >= deadline {
+                return Err(LiveError::Bridge(
+                    "timed out waiting for the next live state after action".to_owned(),
+                ));
+            }
+            thread::sleep(ACTION_STATE_POLL_INTERVAL);
         }
     }
 
@@ -796,7 +832,61 @@ where
 
     pub fn refresh_fidelity(&mut self, session_id: &SessionId) -> LiveResult<SessionSnapshot> {
         let path = self.session(session_id)?.trace_writer.path().to_path_buf();
+        let trace_len = std::fs::metadata(&path)?.len();
+        if let Some(cached) = self.reusable_fidelity_cache(session_id, &path, trace_len)? {
+            self.apply_fidelity_result(
+                session_id,
+                cached.status.clone(),
+                cached.sim_run_state.clone(),
+                Some(cached),
+            )?;
+            return Ok(self.session(session_id)?.snapshot());
+        }
+
         let (fidelity, sim_run_state) = self.fidelity.check_trace_with_sim_state(&path)?;
+        let cache = FidelityCache {
+            trace_len,
+            reusable_after_append: fidelity_status_reusable_after_append(&fidelity),
+            status: fidelity.clone(),
+            sim_run_state: sim_run_state.clone(),
+        };
+        self.apply_fidelity_result(session_id, fidelity, sim_run_state, Some(cache))?;
+        Ok(self.session(session_id)?.snapshot())
+    }
+
+    fn reusable_fidelity_cache(
+        &self,
+        session_id: &SessionId,
+        path: &Path,
+        trace_len: u64,
+    ) -> LiveResult<Option<FidelityCache>> {
+        let Some(cache) = self.session(session_id)?.fidelity_cache.clone() else {
+            return Ok(None);
+        };
+        if cache.trace_len == trace_len {
+            return Ok(Some(cache));
+        }
+        if trace_len < cache.trace_len || !cache.reusable_after_append {
+            return Ok(None);
+        }
+        if let Some(status) = fidelity_loss_status_in_tail(path, cache.trace_len)? {
+            return Ok(Some(FidelityCache {
+                trace_len,
+                status,
+                sim_run_state: None,
+                reusable_after_append: false,
+            }));
+        }
+        Ok(Some(FidelityCache { trace_len, ..cache }))
+    }
+
+    fn apply_fidelity_result(
+        &mut self,
+        session_id: &SessionId,
+        fidelity: FidelityStatus,
+        sim_run_state: Option<sts_core::RunState>,
+        cache: Option<FidelityCache>,
+    ) -> LiveResult<()> {
         let session = self.session_mut(session_id)?;
         session.fidelity = fidelity;
         if let (Some(state), Some(sim_run_state)) = (session.latest_state.as_mut(), sim_run_state) {
@@ -807,13 +897,14 @@ where
                 );
             }
         }
+        session.fidelity_cache = cache;
         if !matches!(
             session.lifecycle,
             SessionLifecycle::Blocked | SessionLifecycle::Ended
         ) {
             session.lifecycle = lifecycle_for_fidelity(&session.fidelity);
         }
-        Ok(session.snapshot())
+        Ok(())
     }
 
     fn block_session(
@@ -841,6 +932,7 @@ where
             run_config,
             latest_state: None,
             fidelity: FidelityStatus::unknown(),
+            fidelity_cache: None,
             blocked: None,
             automation: AutomationJobSnapshot::default(),
             slaythedata: None,
@@ -1056,6 +1148,65 @@ where
             .get_mut(session_id)
             .ok_or_else(|| LiveError::NotFound(format!("session {}", session_id.0)))
     }
+}
+
+fn fidelity_status_reusable_after_append(status: &FidelityStatus) -> bool {
+    status.kind == FidelityKind::Unknown
+        && status
+            .message
+            .as_deref()
+            .is_some_and(|message| message.starts_with("seed-start replay reached boundary "))
+}
+
+fn fidelity_loss_status_in_tail(path: &Path, start: u64) -> LiveResult<Option<FidelityStatus>> {
+    let mut file = File::open(path)?;
+    file.seek(SeekFrom::Start(start))?;
+    let reader = BufReader::new(file);
+    for line in reader.lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(record) = serde_json::from_str::<TraceRecord>(&line) else {
+            continue;
+        };
+        if let TraceRecord::Error {
+            reason_code,
+            message,
+            ..
+        } = record
+        {
+            if reason_code == "fidelity_lost" {
+                return Ok(Some(FidelityStatus {
+                    kind: FidelityKind::Lost,
+                    first_divergent_step: None,
+                    compact_diff: vec![message.clone()],
+                    message: Some(message),
+                }));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn action_source_state_id(action: &LegalAction) -> Option<&str> {
+    action
+        .command
+        .get("source_state_id")
+        .and_then(serde_json::Value::as_str)
+}
+
+fn state_matches_source_state_id(state: &LiveState, source_state_id: &str) -> bool {
+    state_state_id(state).is_some_and(|state_id| state_id == source_state_id)
+}
+
+fn state_state_id(state: &LiveState) -> Option<&str> {
+    state
+        .raw
+        .pointer("/summary/state_id")
+        .or_else(|| state.raw.pointer("/current_state/state_id"))
+        .or_else(|| state.raw.pointer("/current_state/message/state_id"))
+        .and_then(serde_json::Value::as_str)
 }
 
 fn session_number(session_id: &SessionId) -> Option<u64> {

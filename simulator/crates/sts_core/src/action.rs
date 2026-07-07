@@ -37,6 +37,7 @@ pub enum InternalAction {
     SkipCopiedCardEffectsIfTargetDead {
         target: MonsterId,
     },
+    SkipCopiedCardEffectsIfCombatDone,
     EndCopiedCardEffects,
     SpendEnergy {
         amount: i32,
@@ -129,6 +130,11 @@ pub enum InternalAction {
         temp_cost: Option<u8>,
         temp_cost_turn_only: bool,
     },
+    AddGeneratedHandCardBeforePendingDraw {
+        content_id: crate::ContentId,
+        temp_cost: Option<u8>,
+        temp_cost_turn_only: bool,
+    },
     AddStatEquivalentCopyToPile {
         card: CardInstance,
         to: CardPile,
@@ -165,6 +171,9 @@ pub enum InternalAction {
         from: CardPile,
     },
     DrawCards {
+        count: usize,
+    },
+    DrawCardsFromInkBottle {
         count: usize,
     },
     ShuffleDiscardIntoDraw,
@@ -281,6 +290,9 @@ pub enum InternalAction {
         amount: i32,
     },
     CardExhausted {
+        card_id: CardId,
+    },
+    HandCardExhausted {
         card_id: CardId,
     },
     PlayTopDrawCard {

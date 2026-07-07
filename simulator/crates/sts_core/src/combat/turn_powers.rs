@@ -3,7 +3,6 @@ use crate::content::cards::{COMBUST_DAMAGE, COMBUST_HP_LOSS};
 use crate::content::monsters::{
     check_slime_boss_split, guardian_on_hp_damage, wake_lagavulin_on_damage,
 };
-use crate::power::attack_damage_with_vulnerable;
 use crate::relic::{heal_combat_player_with_relics, heal_player_in_combat_with_relics, Relic};
 use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId};
 
@@ -190,9 +189,34 @@ pub fn monster_attack_damage(monster: &MonsterState, base: i32) -> i32 {
     }
 }
 
-/// Monster attack damage after player vulnerable (1.5x floored per hit).
+/// Monster attack damage after monster Weak and player Vulnerable.
 #[must_use]
 pub fn monster_damage_to_player(player: &PlayerState, monster: &MonsterState, base: i32) -> i32 {
-    let raw = monster_attack_damage(monster, base);
-    attack_damage_with_vulnerable(raw, player.powers.vulnerable)
+    let mut damage = (base + monster.powers.strength).max(0) as f32;
+    if monster.powers.weak > 0 {
+        damage *= 0.75;
+    }
+    if player.powers.vulnerable > 0 {
+        damage *= 1.5;
+    }
+    damage as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::CombatState;
+
+    #[test]
+    fn monster_weak_and_player_vulnerable_truncate_once() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].powers.strength = 3;
+        state.monsters[0].powers.weak = 1;
+        state.player.powers.vulnerable = 1;
+
+        assert_eq!(
+            monster_damage_to_player(&state.player, &state.monsters[0], 18),
+            23
+        );
+    }
 }

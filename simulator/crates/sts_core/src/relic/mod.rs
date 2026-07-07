@@ -1025,19 +1025,19 @@ impl RelicPoolState {
             RelicTier::Common if self.common.is_empty() => {
                 return self.return_random_relic_from(RelicTier::Uncommon, context, true);
             }
-            RelicTier::Common => pop_relic(&mut self.common, from_front),
+            RelicTier::Common => pop_relic(&mut self.common, tier, from_front),
             RelicTier::Uncommon if self.uncommon.is_empty() => {
                 return self.return_random_relic_from(RelicTier::Rare, context, true);
             }
-            RelicTier::Uncommon => pop_relic(&mut self.uncommon, from_front),
+            RelicTier::Uncommon => pop_relic(&mut self.uncommon, tier, from_front),
             RelicTier::Rare if self.rare.is_empty() => RelicKey::Circlet,
-            RelicTier::Rare => pop_relic(&mut self.rare, from_front),
+            RelicTier::Rare => pop_relic(&mut self.rare, tier, from_front),
             RelicTier::Shop if self.shop.is_empty() => {
                 return self.return_random_relic_from(RelicTier::Uncommon, context, true);
             }
-            RelicTier::Shop => pop_relic(&mut self.shop, from_front),
+            RelicTier::Shop => pop_relic(&mut self.shop, tier, from_front),
             RelicTier::Boss if self.boss.is_empty() => RelicKey::RedCirclet,
-            RelicTier::Boss => pop_relic(&mut self.boss, from_front),
+            RelicTier::Boss => pop_relic(&mut self.boss, tier, from_front),
         };
 
         if relic_can_spawn(relic, context) {
@@ -1048,8 +1048,8 @@ impl RelicPoolState {
     }
 }
 
-fn pop_relic(pool: &mut Vec<RelicKey>, from_front: bool) -> RelicKey {
-    if from_front {
+fn pop_relic(pool: &mut Vec<RelicKey>, tier: RelicTier, from_front: bool) -> RelicKey {
+    if from_front || tier == RelicTier::Boss {
         pool.remove(0)
     } else {
         pool.pop().expect("pool checked non-empty")
@@ -1066,11 +1066,11 @@ fn remove_relic_from_pool(pool: &mut Vec<RelicKey>, key: RelicKey) {
 pub fn relic_can_spawn(relic: RelicKey, context: &RelicSpawnContext) -> bool {
     use RelicKey::{
         AncientTeaSet, BlackBlood, BottledFlame, BottledLightning, BottledTornado, BurningBlood,
-        CeramicFish, CrackedCore, DarkstonePeriapt, DreamCatcher, FrozenCore, FrozenEgg, Girya,
-        HolyWater, JuzuBracelet, MawBank, MealTicket, MeatOnTheBone, MoltenEgg, OldCoin, Omamori,
-        PeacePipe, PotionBelt, PrayerWheel, PreservedInsect, PureWater, QuestionCard, RegalPillow,
-        RingOfTheSerpent, RingOfTheSnake, Shovel, SingingBowl, SmilingMask, TheCourier, TinyChest,
-        ToxicEgg, WingBoots,
+        CeramicFish, CrackedCore, DarkstonePeriapt, DreamCatcher, Ectoplasm, FrozenCore, FrozenEgg,
+        Girya, HolyWater, JuzuBracelet, MawBank, MealTicket, MeatOnTheBone, MoltenEgg, OldCoin,
+        Omamori, PeacePipe, PotionBelt, PrayerWheel, PreservedInsect, PureWater, QuestionCard,
+        RegalPillow, RingOfTheSerpent, RingOfTheSnake, Shovel, SingingBowl, SmilingMask,
+        TheCourier, TinyChest, ToxicEgg, WingBoots,
     };
 
     match relic {
@@ -1080,6 +1080,7 @@ pub fn relic_can_spawn(relic: RelicKey, context: &RelicSpawnContext) -> bool {
         BlackBlood => context.owned_relics.contains(&BurningBlood),
         FrozenCore => context.owned_relics.contains(&CrackedCore),
         BurningBlood => context.owned_relics.contains(&BurningBlood),
+        Ectoplasm => context.floor_num <= 17,
         RingOfTheSerpent => context.owned_relics.contains(&RingOfTheSnake),
         HolyWater => context.owned_relics.contains(&PureWater),
         TinyChest => context.floor_num <= 35,
@@ -2149,7 +2150,7 @@ pub fn apply_on_card_play_relics(
         state.relic_counters.ink_bottle_cards_played += 1;
         if state.relic_counters.ink_bottle_cards_played >= INK_BOTTLE_THRESHOLD {
             state.relic_counters.ink_bottle_cards_played = 0;
-            follow_ups.push(InternalAction::DrawCards { count: 1 });
+            follow_ups.push(InternalAction::DrawCardsFromInkBottle { count: 1 });
         }
     }
 

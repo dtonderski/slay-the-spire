@@ -11,17 +11,17 @@ use crate::{
             monster_state_for_ascension, record_target_move,
             target_monster_hp_range_for_content_id, MonsterDefinition, BANDIT_BEAR_A0,
             BANDIT_LEADER_A0, BANDIT_POINTY_A0, GREMLIN_NOB_A0, SLAVER_BLUE_A0, SLAVER_RED_A0,
-            TASKMASTER_A0,
+            SLIME_BOSS_A0, TASKMASTER_A0,
         },
         shop_pool::random_colorless_from_pool,
     },
     ids::ContentId,
     potion::Potion,
-    relic::{Relic, RelicKey},
+    relic::{Relic, RelicKey, RelicTier},
     rng::{JavaRng, StsRng},
     run::{
         grid::{
-            open_event_obtain_card_grid, open_event_remove_grid,
+            open_event_obtain_card_return_to_event_grid, open_event_remove_grid,
             open_event_remove_return_to_event_grid, open_event_transform_grid,
             open_event_transform_return_to_event_grid, open_event_upgrade_return_to_event_grid,
         },
@@ -153,7 +153,7 @@ fn open_the_library_read_grid(run: &mut RunState) {
     );
     run.card_rarity_factor = rarity_factor;
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
-    open_event_obtain_card_grid(run, choices);
+    open_event_obtain_card_return_to_event_grid(run, Event::TheLibrary, choices);
 }
 
 fn roll_mausoleum_curses_player(run: &mut RunState) -> bool {
@@ -305,7 +305,7 @@ fn ghosts_choices(stage: u8, max_hp: i32) -> Vec<EventChoice> {
                 label: format!("Accept (lose {} max HP)", ghosts_max_hp_loss(max_hp)),
             },
             EventChoice {
-                label: "Leave".to_owned(),
+                label: "Refuse".to_owned(),
             },
         ],
         1 => labeled_choices(&["Leave"]),
@@ -621,7 +621,15 @@ pub const ACT2_SHRINES: [Event; 6] = [
     Event::UpgradeShrine,
 ];
 
-pub const ACT3_EVENTS: [Event; 1] = [Event::Lab];
+pub const ACT3_EVENTS: [Event; 7] = [
+    Event::Falling,
+    Event::MindBloom,
+    Event::MoaiHead,
+    Event::MysteriousSphere,
+    Event::SensoryStone,
+    Event::TombOfLordRedMask,
+    Event::WindingHalls,
+];
 
 pub const ACT3_SHRINES: [Event; 6] = [
     Event::MatchAndKeep,
@@ -698,6 +706,13 @@ pub enum Event {
     TheMausoleum,
     Vampires,
     Lab,
+    Falling,
+    MindBloom,
+    MoaiHead,
+    MysteriousSphere,
+    SensoryStone,
+    TombOfLordRedMask,
+    WindingHalls,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -877,6 +892,25 @@ fn we_meet_again_event_data_for_potion_slot(slot: Option<usize>) -> u32 {
 
 fn we_meet_again_potion_slot_from_event_data(event_data: u32) -> Option<usize> {
     (event_data != WE_MEET_AGAIN_NO_POTION_SLOT).then_some(event_data as usize)
+}
+
+fn tomb_of_lord_red_mask_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
+    if stage > 0 {
+        return labeled_choices(&["Leave"]);
+    }
+
+    if has_relic_key(run, RelicKey::RedMask) {
+        labeled_choices(&["Wear mask", "Leave"])
+    } else {
+        vec![
+            EventChoice {
+                label: format!("Offer: {} Gold", run.gold),
+            },
+            EventChoice {
+                label: "Leave".to_owned(),
+            },
+        ]
+    }
 }
 
 fn labeled_choices(labels: &[&str]) -> Vec<EventChoice> {
@@ -1101,6 +1135,10 @@ fn get_event(run: &mut RunState, rng: &mut StsRng) -> Event {
 fn event_is_available(run: &RunState, event: Event) -> bool {
     match event {
         Event::DeadAdventurer | Event::HypnotizingColoredMushrooms => run.current_floor > 6,
+        Event::MoaiHead => {
+            has_relic_key(run, RelicKey::GoldenIdol)
+                || (run.player_hp as f32 / run.player_max_hp as f32) <= 0.5
+        }
         Event::TheCleric => run.gold >= 35,
         Event::Beggar => run.gold >= BEGGAR_GOLD_COST,
         Event::Colosseum => current_floor_in_act(run) > 7,
@@ -1341,8 +1379,16 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::Colosseum => make_event_screen(event, colosseum_choices(0), 0),
         Event::DrugDealer => make_event_screen(event, drug_dealer_choices(0, false), 0),
         Event::Lab => make_event_screen(event, labeled_choices(&["Search"]), 0),
+        Event::TombOfLordRedMask => {
+            make_event_screen(event, labeled_choices(&["Offer", "Leave"]), 0)
+        }
         Event::WheelOfChange => make_event_screen(event, wheel_of_change_choices(0, 0), 0),
         Event::WeMeetAgain => make_event_screen(event, we_meet_again_choices(0, None), 0),
+        Event::MindBloom => make_event_screen(
+            event,
+            labeled_choices(&["I am War", "I am Awake", "I am Healthy"]),
+            0,
+        ),
         _ => make_event_screen(
             event,
             vec![EventChoice {
@@ -1368,6 +1414,9 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
             wing_statue_choices(0, has_wing_statue_attack_card(run)),
             0,
         ),
+        Event::TombOfLordRedMask => {
+            make_event_screen(event, tomb_of_lord_red_mask_choices(run, 0), 0)
+        }
         _ => event_screen(event),
     }
 }
@@ -2128,13 +2177,17 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.event = None;
             }
         }
-        Event::TheLibrary if choice_index == 1 => {
+        Event::TheLibrary if screen.stage > 0 && choice_index == 0 => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        Event::TheLibrary if screen.stage == 0 && choice_index == 1 => {
             let heal = the_library_heal_for_ascension(next.player_max_hp, next.ascension);
             next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
             next.phase = RunPhase::Idle;
             next.event = None;
         }
-        Event::TheLibrary if choice_index == 0 => {
+        Event::TheLibrary if screen.stage == 0 && choice_index == 0 => {
             open_the_library_read_grid(&mut next);
         }
         Event::TheMausoleum | Event::Vampires
@@ -2410,7 +2463,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.player_max_hp = (next.player_max_hp - loss).max(1);
                 next.player_hp = next.player_hp.min(next.player_max_hp);
                 for _ in 0..ghosts_apparition_count(next.ascension) {
-                    next.gain_deck_card(APPARITION_ID);
+                    next.queue_pending_obtain_card(APPARITION_ID);
                 }
                 next.event = Some(EventScreen {
                     event: Event::Ghosts,
@@ -2428,6 +2481,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 | 2 if choice_index == 0 => {
+                next.flush_pending_obtain_cards();
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -2741,6 +2795,32 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 pending_card_reward_count: 0,
             });
         }
+        Event::TombOfLordRedMask if screen.stage == 0 && choice_index == 0 => {
+            if has_relic_key(&next, RelicKey::RedMask) {
+                next.gain_gold(222);
+            } else {
+                next.gold = 0;
+                next.gain_relic_key(RelicKey::RedMask);
+            }
+            next.event = Some(make_event_screen(
+                Event::TombOfLordRedMask,
+                tomb_of_lord_red_mask_choices(&next, 1),
+                1,
+            ));
+        }
+        Event::TombOfLordRedMask
+            if (screen.stage == 0 && choice_index == 1)
+                || (screen.stage == 1 && choice_index == 0) =>
+        {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        Event::MindBloom if screen.stage == 0 && choice_index == 0 => {
+            next.pending_event_combat_gold_offer = 50;
+            next.pending_event_combat_relic_key_offer =
+                Some(super::reward::roll_relic_reward(&mut next, RelicTier::Rare));
+            enter_event_combat(&mut next, &[&SLIME_BOSS_A0]);
+        }
         _ if choice_index == 0 => {
             next.phase = RunPhase::Idle;
             next.event = None;
@@ -2903,6 +2983,60 @@ mod tests {
                 .filter(|card| card.content_id == INJURY_ID)
                 .count(),
             1
+        );
+        assert!(after_leave.pending_obtain_cards.is_empty());
+    }
+
+    #[test]
+    fn ghosts_accept_queues_apparitions_until_leave_screen() {
+        let mut run = RunState::placeholder_seeded_ironclad(772_776_727_775, 0);
+        run.phase = RunPhase::Event;
+        run.current_act = 2;
+        run.event = Some(EventScreen {
+            event: Event::Ghosts,
+            choices: ghosts_choices(0, run.player_max_hp),
+            stage: 0,
+            event_data: 0,
+        });
+
+        let initial_choices = run
+            .event
+            .as_ref()
+            .expect("Ghosts event is open")
+            .choices
+            .iter()
+            .map(|choice| choice.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(initial_choices[1], "Refuse");
+
+        let initial_deck_len = run.deck.len();
+        let after_accept = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Ghosts accept applies");
+        assert_eq!(
+            after_accept
+                .event
+                .as_ref()
+                .expect("Ghosts leave screen is open")
+                .choices[0]
+                .label,
+            "Leave"
+        );
+        assert_eq!(after_accept.deck.len(), initial_deck_len);
+        assert_eq!(
+            after_accept.pending_obtain_cards.len(),
+            ghosts_apparition_count(after_accept.ascension)
+        );
+
+        let after_leave =
+            apply_event_action(&after_accept, EventAction::Choose { choice_index: 0 })
+                .expect("Ghosts leave applies");
+        assert_eq!(
+            after_leave
+                .deck
+                .iter()
+                .filter(|card| card.content_id == APPARITION_ID)
+                .count(),
+            ghosts_apparition_count(after_leave.ascension)
         );
         assert!(after_leave.pending_obtain_cards.is_empty());
     }

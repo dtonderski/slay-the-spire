@@ -45,6 +45,7 @@ where
         run_config: recovered.run_config,
         latest_state: recovered.latest_state,
         fidelity,
+        fidelity_cache: None,
         blocked: recovered.blocked,
         automation: AutomationJobSnapshot::default(),
         slaythedata: None,

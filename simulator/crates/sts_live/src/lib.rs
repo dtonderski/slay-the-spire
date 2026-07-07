@@ -36,5 +36,5 @@ pub use communication::{CommunicationBridgeConfig, CommunicationModBridgeManager
 pub use fidelity::{FidelityChecker, TraceFidelityChecker};
 pub use model::*;
 pub use session::SessionStore;
-pub use slaythedata::{SlayTheDataIndex, DEFAULT_SLAYTHEDATA_DB};
+pub use slaythedata::{SlayTheDataIndex, DEFAULT_SLAYTHEDATA_DB, SLAYTHEDATA_DB_ENV};
 pub use trace_writer::{TraceRecovery, TraceWriter};

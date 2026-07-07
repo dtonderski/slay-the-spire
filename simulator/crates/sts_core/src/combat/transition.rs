@@ -16,33 +16,34 @@ use crate::{
         get_card_definition, ritual_dagger_card_damage, ritual_dagger_card_growth,
         searing_blow_card_damage, upgrade_card_instance, upgrade_content_id, ANGER_ID,
         ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLIND_PLUS_ID,
-        BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, CARNAGE_ID,
-        CARNAGE_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
+        BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BURN_ID,
+        CARNAGE_ID, CARNAGE_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
+        CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
         DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID,
         DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_PLUS_ID,
         ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, ENTRENCH_PLUS_ID, EXHUME_ID,
         EXHUME_PLUS_ID, FINESSE_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID,
         FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID,
-        HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID, INTIMIDATE_ID,
-        INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID,
-        MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID, PAIN_ID,
-        PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID,
-        PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID,
-        PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID,
-        RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID, SADISTIC_NATURE_ID,
-        SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECRET_TECHNIQUE_ID,
-        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SENTINEL_ID,
-        SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
-        THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID,
-        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
+        HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID,
+        IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
+        MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
+        OFFERING_ID, PAIN_ID, PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID,
+        PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
+        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID, RUPTURE_ID,
+        RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
+        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
+        SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID,
+        TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
         get_monster_definition, guardian_on_hp_damage, release_stasis_card_on_death,
-        wake_lagavulin_on_damage, GUARDIAN_ID,
+        wake_lagavulin_on_damage, GIANT_HEAD_ID, GUARDIAN_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -175,6 +176,21 @@ fn process_internal_queue(
             }
             continue;
         }
+        if matches!(
+            internal_action,
+            InternalAction::SkipCopiedCardEffectsIfCombatDone
+        ) {
+            event_log.push(internal_action);
+            if next.monsters.iter().all(|monster| !monster.alive) {
+                while let Some(skipped_action) = queue.pop_front() {
+                    event_log.push(skipped_action);
+                    if matches!(skipped_action, InternalAction::EndCopiedCardEffects) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
         if matches!(internal_action, InternalAction::EndCopiedCardEffects) {
             event_log.push(internal_action);
             continue;
@@ -182,14 +198,7 @@ fn process_internal_queue(
         let follow_ups = apply_internal_action(&mut next, internal_action)?;
         event_log.push(internal_action);
         for follow_up in follow_ups {
-            if matches!(
-                follow_up,
-                InternalAction::CardExhausted { .. } | InternalAction::GainMonsterBlock { .. }
-            ) {
-                queue.push_front(follow_up);
-            } else {
-                queue.push_back(follow_up);
-            }
+            push_follow_up(&mut queue, follow_up);
         }
     }
 
@@ -208,6 +217,48 @@ fn process_internal_queue(
         state: next,
         event_log,
     })
+}
+
+fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalAction) {
+    if matches!(follow_up, InternalAction::GainMonsterBlock { .. }) {
+        queue.push_front(follow_up);
+        return;
+    }
+
+    if matches!(follow_up, InternalAction::HandCardExhausted { .. }) {
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::DrawCardsFromInkBottle { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    if matches!(
+        follow_up,
+        InternalAction::AddGeneratedHandCardBeforePendingDraw { .. }
+    ) {
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::DrawCardsFromInkBottle { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    if matches!(follow_up, InternalAction::GainStrength { .. }) {
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    queue.push_back(follow_up);
 }
 
 pub fn flush_pending_player_spikes_damage_if_ready(state: &mut CombatState) {
@@ -271,9 +322,11 @@ fn apply_internal_action(
             let mut follow_ups =
                 crate::relic::apply_on_card_play_relics(state, definition.card_type);
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
+            follow_ups.extend(apply_copied_card_play_triggers(state));
             Ok(follow_ups)
         }
         InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
+        | InternalAction::SkipCopiedCardEffectsIfCombatDone
         | InternalAction::EndCopiedCardEffects => Ok(Vec::new()),
         InternalAction::SpendEnergy { amount } => {
             state.player.energy -= amount;
@@ -740,13 +793,25 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::MoveCard { card_id, from, to } => {
+            let hand_exhaust_is_attack = if from == CardPile::Hand && to == CardPile::ExhaustPile {
+                find_hand_card(state, card_id)
+                    .ok()
+                    .and_then(|card| get_card_definition(card.content_id))
+                    .is_some_and(|definition| definition.card_type == CardType::Attack)
+            } else {
+                false
+            };
             move_card(state, card_id, from, to)?;
             let mut follow_ups = Vec::new();
             if from == CardPile::Hand && state.piles.hand.is_empty() {
                 apply_unceasing_top_after_hand_emptied(state);
             }
             if to == CardPile::ExhaustPile {
-                follow_ups.push(InternalAction::CardExhausted { card_id });
+                if hand_exhaust_is_attack {
+                    follow_ups.push(InternalAction::HandCardExhausted { card_id });
+                } else {
+                    follow_ups.push(InternalAction::CardExhausted { card_id });
+                }
             }
             Ok(follow_ups)
         }
@@ -792,6 +857,20 @@ fn apply_internal_action(
             add_generated_card_to_pile(state, content_id, to, temp_cost, temp_cost_turn_only);
             Ok(Vec::new())
         }
+        InternalAction::AddGeneratedHandCardBeforePendingDraw {
+            content_id,
+            temp_cost,
+            temp_cost_turn_only,
+        } => {
+            add_generated_card_to_pile(
+                state,
+                content_id,
+                CardPile::Hand,
+                temp_cost,
+                temp_cost_turn_only,
+            );
+            Ok(Vec::new())
+        }
         InternalAction::AddStatEquivalentCopyToPile { card, to } => {
             add_stat_equivalent_copy_to_pile(state, card, to);
             Ok(Vec::new())
@@ -822,6 +901,10 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::DrawCards { count } => {
+            player_draw_cards(state, count);
+            Ok(Vec::new())
+        }
+        InternalAction::DrawCardsFromInkBottle { count } => {
             player_draw_cards(state, count);
             Ok(Vec::new())
         }
@@ -987,6 +1070,12 @@ fn apply_internal_action(
         InternalAction::CardExhausted { card_id } => {
             apply_on_exhaust_effects(state, card_id);
             Ok(dead_branch_follow_up(state).into_iter().collect())
+        }
+        InternalAction::HandCardExhausted { card_id } => {
+            apply_on_exhaust_effects(state, card_id);
+            Ok(dead_branch_follow_up_before_pending_draw(state)
+                .into_iter()
+                .collect())
         }
         InternalAction::PlayTopDrawCard {
             target,
@@ -1162,6 +1251,12 @@ fn apply_mummified_hand_on_power_play(
 fn apply_on_card_play_powers(state: &mut CombatState, card_type: CardType) -> Vec<InternalAction> {
     let mut follow_ups = Vec::new();
 
+    for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
+        if monster.content_id == GIANT_HEAD_ID || monster.powers.slow > 0 {
+            monster.powers.slow += 1;
+        }
+    }
+
     if card_type == CardType::Attack {
         let sharp_hide_damage: i32 = state
             .monsters
@@ -1214,6 +1309,19 @@ fn apply_hand_card_play_triggers(
         .hand
         .iter()
         .filter(|card| card.id != played_card_id && card.content_id == PAIN_ID)
+        .map(|card| InternalAction::LoseHp {
+            amount: 1,
+            source: HpLossSource::Card(card.id),
+        })
+        .collect()
+}
+
+fn apply_copied_card_play_triggers(state: &CombatState) -> Vec<InternalAction> {
+    state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.content_id == PAIN_ID)
         .map(|card| InternalAction::LoseHp {
             amount: 1,
             source: HpLossSource::Card(card.id),
@@ -1481,6 +1589,22 @@ fn dead_branch_follow_up(state: &mut CombatState) -> Option<InternalAction> {
         temp_cost: None,
         temp_cost_turn_only: false,
     })
+}
+
+fn dead_branch_follow_up_before_pending_draw(state: &mut CombatState) -> Option<InternalAction> {
+    match dead_branch_follow_up(state) {
+        Some(InternalAction::AddGeneratedCardToPile {
+            content_id,
+            to: CardPile::Hand,
+            temp_cost,
+            temp_cost_turn_only,
+        }) => Some(InternalAction::AddGeneratedHandCardBeforePendingDraw {
+            content_id,
+            temp_cost,
+            temp_cost_turn_only,
+        }),
+        other => other,
+    }
 }
 
 fn dead_branch_card_pool() -> Vec<ContentId> {
@@ -1876,6 +2000,18 @@ fn apply_play_top_draw_card(
             None
         }
     });
+
+    if !crate::relic::can_play_card_with_relics(state) {
+        let mut follow_ups = Vec::new();
+        if exhaust_played_card || definition.keywords.exhaust {
+            state.piles.exhaust_pile.push(card);
+            follow_ups.push(InternalAction::CardExhausted { card_id });
+        } else if !card.combat_only {
+            state.piles.discard_pile.push(card);
+        }
+        return Ok(follow_ups);
+    }
+
     card_effects::validate_havoc_target(definition, target, false)?;
     apply_enrage_on_card_type(state, definition.card_type);
     apply_rage_on_card_type(state, definition.card_type);
@@ -2104,6 +2240,18 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::DealDamageAll {
                 source: card_id,
                 amount: definition.values.damage.unwrap_or(0),
+            });
+        }
+        IMMOLATE_ID | IMMOLATE_PLUS_ID => {
+            follow_ups.push(InternalAction::DealDamageAll {
+                source: card_id,
+                amount: definition.values.damage.unwrap_or(0),
+            });
+            follow_ups.push(InternalAction::AddGeneratedCardToPile {
+                content_id: BURN_ID,
+                to: CardPile::DiscardPile,
+                temp_cost: None,
+                temp_cost_turn_only: false,
             });
         }
         THUNDERCLAP_ID | THUNDERCLAP_PLUS_ID => {
@@ -2341,6 +2489,18 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::GainEnergy { amount: 2 });
             follow_ups.push(InternalAction::DrawCards { count: 3 });
         }
+        SEEING_RED_ID | SEEING_RED_PLUS_ID => {
+            follow_ups.push(InternalAction::GainEnergy { amount: 2 });
+        }
+        RUPTURE_ID | RUPTURE_PLUS_ID => {
+            follow_ups.push(InternalAction::GainRupture {
+                amount: if definition.id == RUPTURE_PLUS_ID {
+                    2
+                } else {
+                    1
+                },
+            });
+        }
         PANACEA_ID | PANACEA_PLUS_ID => {
             let amount = if definition.id == PANACEA_PLUS_ID {
                 2
@@ -2384,10 +2544,12 @@ fn apply_play_top_draw_card(
         _ => {}
     }
 
-    if exhaust_played_card || definition.keywords.exhaust {
+    if (exhaust_played_card || definition.keywords.exhaust)
+        && definition.card_type != CardType::Power
+    {
         state.piles.exhaust_pile.push(card);
         follow_ups.push(InternalAction::CardExhausted { card_id });
-    } else if !card.combat_only {
+    } else if !card.combat_only && definition.card_type != CardType::Power {
         state.piles.discard_pile.push(card);
     }
 
