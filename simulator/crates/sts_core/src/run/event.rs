@@ -305,7 +305,7 @@ fn ghosts_choices(stage: u8, max_hp: i32) -> Vec<EventChoice> {
                 label: format!("Accept (lose {} max HP)", ghosts_max_hp_loss(max_hp)),
             },
             EventChoice {
-                label: "Leave".to_owned(),
+                label: "Refuse".to_owned(),
             },
         ],
         1 => labeled_choices(&["Leave"]),
@@ -2459,7 +2459,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.player_max_hp = (next.player_max_hp - loss).max(1);
                 next.player_hp = next.player_hp.min(next.player_max_hp);
                 for _ in 0..ghosts_apparition_count(next.ascension) {
-                    next.gain_deck_card(APPARITION_ID);
+                    next.queue_pending_obtain_card(APPARITION_ID);
                 }
                 next.event = Some(EventScreen {
                     event: Event::Ghosts,
@@ -2477,6 +2477,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 | 2 if choice_index == 0 => {
+                next.flush_pending_obtain_cards();
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -2978,6 +2979,60 @@ mod tests {
                 .filter(|card| card.content_id == INJURY_ID)
                 .count(),
             1
+        );
+        assert!(after_leave.pending_obtain_cards.is_empty());
+    }
+
+    #[test]
+    fn ghosts_accept_queues_apparitions_until_leave_screen() {
+        let mut run = RunState::placeholder_seeded_ironclad(772_776_727_775, 0);
+        run.phase = RunPhase::Event;
+        run.current_act = 2;
+        run.event = Some(EventScreen {
+            event: Event::Ghosts,
+            choices: ghosts_choices(0, run.player_max_hp),
+            stage: 0,
+            event_data: 0,
+        });
+
+        let initial_choices = run
+            .event
+            .as_ref()
+            .expect("Ghosts event is open")
+            .choices
+            .iter()
+            .map(|choice| choice.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(initial_choices[1], "Refuse");
+
+        let initial_deck_len = run.deck.len();
+        let after_accept = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Ghosts accept applies");
+        assert_eq!(
+            after_accept
+                .event
+                .as_ref()
+                .expect("Ghosts leave screen is open")
+                .choices[0]
+                .label,
+            "Leave"
+        );
+        assert_eq!(after_accept.deck.len(), initial_deck_len);
+        assert_eq!(
+            after_accept.pending_obtain_cards.len(),
+            ghosts_apparition_count(after_accept.ascension)
+        );
+
+        let after_leave =
+            apply_event_action(&after_accept, EventAction::Choose { choice_index: 0 })
+                .expect("Ghosts leave applies");
+        assert_eq!(
+            after_leave
+                .deck
+                .iter()
+                .filter(|card| card.content_id == APPARITION_ID)
+                .count(),
+            ghosts_apparition_count(after_leave.ascension)
         );
         assert!(after_leave.pending_obtain_cards.is_empty());
     }
