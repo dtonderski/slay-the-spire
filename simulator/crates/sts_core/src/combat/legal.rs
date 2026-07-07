@@ -173,7 +173,7 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
 
             if definition.id == HAVOC_ID || definition.id == HAVOC_PLUS_ID {
                 if let Some(top_definition) = top_draw_card_definition(state) {
-                    return validate_havoc_play(top_definition, target);
+                    return validate_havoc_play(state, top_definition, target);
                 }
                 if !state.piles.discard_pile.is_empty() {
                     return match target {
@@ -386,25 +386,17 @@ fn push_havoc_actions(actions: &mut Vec<CombatAction>, state: &CombatState, card
             card_id,
             target: None,
         });
-        if !state.piles.discard_pile.is_empty() {
-            actions.extend(
-                living_monster_ids(state).map(|target| CombatAction::PlayCard {
-                    card_id,
-                    target: Some(target),
-                }),
-            );
-        }
         return;
     };
 
     match top_definition.target {
         TargetRequirement::Enemy => {
-            actions.extend(
-                living_monster_ids(state).map(|target| CombatAction::PlayCard {
+            if has_living_monster(state) {
+                actions.push(CombatAction::PlayCard {
                     card_id,
-                    target: Some(target),
-                }),
-            );
+                    target: None,
+                });
+            }
         }
         TargetRequirement::AllEnemies => {
             if has_living_monster(state) {
@@ -424,17 +416,16 @@ fn push_havoc_actions(actions: &mut Vec<CombatAction>, state: &CombatState, card
 }
 
 fn validate_havoc_play(
+    state: &CombatState,
     top_definition: &CardDefinition,
     target: Option<MonsterId>,
 ) -> SimResult<()> {
     match top_definition.target {
-        TargetRequirement::Enemy => {
-            if target.is_some() {
-                Ok(())
-            } else {
-                Err(SimError::IllegalAction("Havoc top card requires a target"))
-            }
-        }
+        TargetRequirement::Enemy => match target {
+            Some(monster_id) if is_living_monster(state, monster_id) => Ok(()),
+            Some(_) => Err(SimError::IllegalAction("target is not a living monster")),
+            None => Ok(()),
+        },
         TargetRequirement::AllEnemies | TargetRequirement::None => {
             if target.is_none() {
                 Ok(())

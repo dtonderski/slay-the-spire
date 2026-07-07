@@ -34,7 +34,6 @@ pub enum InternalAction {
     PlayCardCopy {
         card_id: CardId,
     },
-    ConsumeRandomLivingMonsterTarget,
     SkipCopiedCardEffectsIfTargetDead {
         target: MonsterId,
     },
@@ -287,6 +286,7 @@ pub enum InternalAction {
     PlayTopDrawCard {
         target: Option<MonsterId>,
         exhaust_played_card: bool,
+        random_living_target: bool,
     },
     PutHandCardOnTopOfDraw {
         card_id: CardId,

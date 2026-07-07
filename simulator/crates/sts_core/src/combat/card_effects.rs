@@ -2959,7 +2959,7 @@ fn havoc_queue(
     target: Option<MonsterId>,
 ) -> SimResult<VecDeque<InternalAction>> {
     if let Some(top_definition) = top_draw_card_definition(state) {
-        validate_havoc_target(top_definition, target)?;
+        validate_havoc_target(top_definition, target, true)?;
     } else if state.piles.discard_pile.is_empty() && target.is_some() {
         return Err(SimError::IllegalAction(
             "Havoc top card cannot have a target",
@@ -2971,10 +2971,10 @@ fn havoc_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::ConsumeRandomLivingMonsterTarget,
         InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card: true,
+            random_living_target: true,
         },
         InternalAction::MoveCard {
             card_id,
@@ -3193,9 +3193,11 @@ pub fn top_draw_card_definition(state: &CombatState) -> Option<&'static CardDefi
 pub(super) fn validate_havoc_target(
     top_definition: &CardDefinition,
     target: Option<MonsterId>,
+    allow_random_enemy_target: bool,
 ) -> SimResult<()> {
     match top_definition.target {
         TargetRequirement::Enemy if target.is_some() => Ok(()),
+        TargetRequirement::Enemy if allow_random_enemy_target => Ok(()),
         TargetRequirement::Enemy => {
             Err(SimError::IllegalAction("Havoc top card requires a target"))
         }

@@ -3205,6 +3205,12 @@ fn havoc_empty_draw_shuffles_discard_then_plays_top_card() {
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
     let starting_hp = state.monsters[0].hp;
 
+    let legal_actions = legal_combat_actions(&state);
+    assert!(legal_actions.contains(&CombatAction::PlayCard {
+        card_id: CardId::new(1),
+        target: None,
+    }));
+
     let next = apply_combat_action(
         &state,
         CombatAction::PlayCard {
@@ -3212,18 +3218,7 @@ fn havoc_empty_draw_shuffles_discard_then_plays_top_card() {
             target: None,
         },
     )
-    .expect_err("Havoc still requires a target if the shuffled top card requires one");
-
-    assert!(matches!(next, sts_core::SimError::IllegalAction(_)));
-
-    let next = apply_combat_action(
-        &state,
-        CombatAction::PlayCard {
-            card_id: CardId::new(1),
-            target: Some(MonsterId::new(1)),
-        },
-    )
-    .expect("Havoc shuffles discard into draw and plays the top card");
+    .expect("Havoc shuffles discard into draw and randomly targets the top card");
 
     assert_eq!(next.player.energy, 0);
     assert_eq!(next.monsters[0].hp, starting_hp - 8);

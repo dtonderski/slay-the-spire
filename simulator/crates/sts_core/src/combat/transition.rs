@@ -1,7 +1,7 @@
 use super::card_effects;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
-    card::CardType,
+    card::{CardType, TargetRequirement},
     combat::{
         apply_burning_blood,
         damage::{
@@ -124,6 +124,7 @@ pub fn apply_play_top_draw_card_action(
         VecDeque::from([InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card: false,
+            random_living_target: false,
         }]),
     )?
     .state)
@@ -138,6 +139,7 @@ pub fn apply_play_top_draw_card_to_state(
         VecDeque::from([InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card: false,
+            random_living_target: false,
         }]),
     )?;
     *state = transition.state;
@@ -270,19 +272,6 @@ fn apply_internal_action(
                 crate::relic::apply_on_card_play_relics(state, definition.card_type);
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
             Ok(follow_ups)
-        }
-        InternalAction::ConsumeRandomLivingMonsterTarget => {
-            let living_count = state
-                .monsters
-                .iter()
-                .filter(|monster| monster.alive)
-                .count();
-            if living_count > 0 {
-                if let Some(rng) = state.card_random_rng.as_mut() {
-                    rng.random_int((living_count - 1) as i32);
-                }
-            }
-            Ok(Vec::new())
         }
         InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
         | InternalAction::EndCopiedCardEffects => Ok(Vec::new()),
@@ -1002,7 +991,8 @@ fn apply_internal_action(
         InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card,
-        } => apply_play_top_draw_card(state, target, exhaust_played_card),
+            random_living_target,
+        } => apply_play_top_draw_card(state, target, exhaust_played_card, random_living_target),
         InternalAction::PutHandCardOnTopOfDraw { card_id } => {
             let card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
             state.piles.draw_pile.insert(0, card);
@@ -1860,6 +1850,7 @@ fn apply_play_top_draw_card(
     state: &mut CombatState,
     target: Option<MonsterId>,
     exhaust_played_card: bool,
+    random_living_target: bool,
 ) -> SimResult<Vec<InternalAction>> {
     if state.piles.draw_pile.is_empty() {
         if state.piles.discard_pile.is_empty() {
@@ -1877,7 +1868,15 @@ fn apply_play_top_draw_card(
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
 
-    card_effects::validate_havoc_target(definition, target)?;
+    let random_target = random_living_target.then(|| random_living_monster_id(state));
+    let target = target.or_else(|| {
+        if definition.target == TargetRequirement::Enemy {
+            random_target.flatten()
+        } else {
+            None
+        }
+    });
+    card_effects::validate_havoc_target(definition, target, false)?;
     apply_enrage_on_card_type(state, definition.card_type);
     apply_rage_on_card_type(state, definition.card_type);
 
