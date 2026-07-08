@@ -12,10 +12,6 @@ pub fn resolve_end_of_turn_hand(state: &mut CombatState) {
     exhaust_unplayed_ethereal_cards(state);
 }
 
-pub(crate) fn resolve_end_of_turn_doubt(state: &mut CombatState) {
-    apply_doubt_and_shame_in_hand(state);
-}
-
 pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
     discard_non_retain_hand(state);
 }
@@ -46,53 +42,35 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(state: &mut CombatState, ha
                 crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
                 state.piles.discard_pile.push(card);
             }
-            _ => remaining.push(card),
-        }
-    }
-    state.piles.hand = remaining;
-}
-
-fn apply_doubt_and_shame_in_hand(state: &mut CombatState) {
-    let mut doubt_copies = 0;
-    let mut shame_copies = 0;
-    let mut remaining = Vec::with_capacity(state.piles.hand.len());
-    let mut triggered_curses = Vec::new();
-    let runic_pyramid = state.relics.contains(&crate::Relic::RunicPyramid);
-
-    for card in state.piles.hand.drain(..) {
-        match card.content_id {
             DOUBT_ID => {
-                doubt_copies += 1;
-                if runic_pyramid {
+                if state.relics.contains(&crate::Relic::RunicPyramid) {
+                    crate::relic::apply_player_weak_with_relics(
+                        &mut state.player.powers,
+                        &state.relics,
+                        1,
+                    );
                     remaining.push(card);
                 } else {
-                    triggered_curses.push(card);
+                    crate::relic::apply_player_weak_with_relics(
+                        &mut state.player.powers,
+                        &state.relics,
+                        1,
+                    );
+                    state.piles.discard_pile.push(card);
                 }
             }
             SHAME_ID => {
-                shame_copies += 1;
-                triggered_curses.push(card);
+                crate::relic::apply_player_frail_with_relics(
+                    &mut state.player.powers,
+                    &state.relics,
+                    1,
+                );
+                state.piles.discard_pile.push(card);
             }
             _ => remaining.push(card),
         }
     }
     state.piles.hand = remaining;
-
-    if doubt_copies > 0 {
-        crate::relic::apply_player_weak_with_relics(
-            &mut state.player.powers,
-            &state.relics,
-            doubt_copies,
-        );
-    }
-    if shame_copies > 0 {
-        crate::relic::apply_player_frail_with_relics(
-            &mut state.player.powers,
-            &state.relics,
-            shame_copies,
-        );
-    }
-    state.piles.discard_pile.extend(triggered_curses);
 }
 
 fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) {
@@ -144,12 +122,13 @@ mod tests {
     use crate::{content::cards::DEFEND_R_ID, ids::CardId, CardInstance};
 
     #[test]
-    fn end_turn_pseudo_play_cards_discard_in_hand_order() {
+    fn end_turn_trigger_cards_discard_in_hand_order() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
             CardInstance::new(CardId::new(1), DEFEND_R_ID),
             CardInstance::new(CardId::new(2), REGRET_ID),
             CardInstance::new(CardId::new(3), BURN_ID),
+            CardInstance::new(CardId::new(4), DOUBT_ID),
         ];
         state.piles.discard_pile.clear();
 
@@ -171,8 +150,9 @@ mod tests {
                 .iter()
                 .map(|card| card.content_id)
                 .collect::<Vec<_>>(),
-            vec![REGRET_ID, BURN_ID]
+            vec![REGRET_ID, BURN_ID, DOUBT_ID]
         );
+        assert_eq!(state.player.powers.weak, 1);
     }
 
     #[test]
@@ -184,7 +164,7 @@ mod tests {
         ];
         state.piles.discard_pile.clear();
 
-        resolve_end_of_turn_doubt(&mut state);
+        resolve_end_of_turn_hand(&mut state);
 
         assert_eq!(
             state

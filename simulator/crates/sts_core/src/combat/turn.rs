@@ -9,7 +9,7 @@ use crate::{
             draw_cards_with_sts_rng, draw_cards_without_shuffle, evolve_extra_draw_count,
             shuffle_discard_into_draw, shuffle_discard_into_draw_sts,
         },
-        hand::{discard_end_of_turn_hand, resolve_end_of_turn_doubt, resolve_end_of_turn_hand},
+        hand::{discard_end_of_turn_hand, resolve_end_of_turn_hand},
         piles::{add_cards_to_discard, add_cards_to_draw_random_spot},
     },
     combat::{CombatPhase, CombatState},
@@ -79,7 +79,6 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
     if finish_combat_if_over(&mut next, started_with_living_monster) {
         return next;
     }
-    resolve_end_of_turn_doubt(&mut next);
     crate::relic::apply_end_of_player_turn_relics(&mut next);
     if finish_combat_if_over(&mut next, started_with_living_monster) {
         return next;
