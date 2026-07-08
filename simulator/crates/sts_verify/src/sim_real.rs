@@ -5652,6 +5652,7 @@ fn relic_key_trace_name(key: RelicKey) -> &'static str {
         RelicKey::HappyFlower => "Happy Flower",
         RelicKey::IncenseBurner => "Incense Burner",
         RelicKey::ThreadAndNeedle => "Thread and Needle",
+        RelicKey::FossilizedHelix => "Fossilized Helix",
         RelicKey::PaperPhrog => "Paper Phrog",
         RelicKey::StrangeSpoon => "Strange Spoon",
         RelicKey::DollysMirror => "Dolly's Mirror",
@@ -5756,6 +5757,7 @@ fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
         "kunai" => Some(RelicKey::Kunai),
         "happyflower" => Some(RelicKey::HappyFlower),
         "incenseburner" => Some(RelicKey::IncenseBurner),
+        "fossilizedhelix" => Some(RelicKey::FossilizedHelix),
         _ => None,
     }
 }
@@ -5845,6 +5847,7 @@ fn relic_from_trace_name(name: &str) -> Option<Relic> {
         "kunai" => Some(Relic::Kunai),
         "happyflower" => Some(Relic::HappyFlower),
         "incenseburner" => Some(Relic::IncenseBurner),
+        "fossilizedhelix" => Some(Relic::FossilizedHelix),
         "warpedtongs" => Some(Relic::WarpedTongs),
         _ => None,
     }
@@ -10667,6 +10670,7 @@ mod tests {
             (RelicKey::HappyFlower, "Happy Flower"),
             (RelicKey::IncenseBurner, "Incense Burner"),
             (RelicKey::ThreadAndNeedle, "Thread and Needle"),
+            (RelicKey::FossilizedHelix, "Fossilized Helix"),
             (RelicKey::ClockworkSouvenir, "Clockwork Souvenir"),
             (RelicKey::Calipers, "Calipers"),
             (RelicKey::QuestionCard, "Question Card"),
