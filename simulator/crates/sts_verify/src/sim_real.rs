@@ -970,7 +970,15 @@ fn verify_seed_start_transitions(
                     });
                 };
                 let observed_grid = seed_start_grid_observed_subset(&post.message);
-                let selected_subset = seed_start_grid_simulated_subset(&next, &relics);
+                let selected_subset = if delayed_neow_transform_count > 0 {
+                    let mut visible_deck_ids = deck_content_keys(&next.deck);
+                    if let Some(curse) = delayed_neow_curse.as_deref() {
+                        visible_deck_ids.push(curse.to_owned());
+                    }
+                    seed_start_grid_simulated_subset_with_deck(&next, &relics, visible_deck_ids)
+                } else {
+                    seed_start_grid_simulated_subset(&next, &relics)
+                };
                 if subset_diffs(observed_grid.clone(), selected_subset.clone()).is_empty() {
                     compare_subset(
                         report,
@@ -1160,6 +1168,7 @@ fn verify_seed_start_transitions(
                 }
                 if let Ok(confirmed) = confirm_grid(&next) {
                     deck_ids = deck_content_keys(&confirmed.deck);
+                    let confirmed_deck_ids = deck_ids.clone();
                     let transform_count_before_confirm =
                         seed_start_neow_grid_transform_count(&next)
                             .unwrap_or(delayed_transform_count_before_confirm);
@@ -1172,11 +1181,15 @@ fn verify_seed_start_transitions(
                         );
                     }
                     if delayed_transform_count_before_confirm > 0 {
-                        for _ in 0..delayed_transform_count_before_confirm.min(deck_ids.len()) {
-                            deck_ids.pop();
-                        }
+                        deck_ids = visible_deck_ids.clone();
+                        let transformed_start = confirmed_deck_ids
+                            .len()
+                            .saturating_sub(delayed_transform_count_before_confirm);
+                        deck_ids.extend(confirmed_deck_ids[transformed_start..].iter().cloned());
                         if let Some(curse) = delayed_curse_before_confirm {
-                            deck_ids.push(curse);
+                            if !deck_ids.contains(&curse) {
+                                deck_ids.push(curse);
+                            }
                         }
                     }
                     if screen_type(&post.message) == Some("MAP") {
@@ -1225,12 +1238,21 @@ fn verify_seed_start_transitions(
                     }
                 }
                 if next.card_grid.is_some() {
+                    let simulated = if delayed_neow_transform_count > 0 {
+                        let mut visible_deck_ids = deck_content_keys(&next.deck);
+                        if let Some(curse) = delayed_neow_curse.as_deref() {
+                            visible_deck_ids.push(curse.to_owned());
+                        }
+                        seed_start_grid_simulated_subset_with_deck(&next, &relics, visible_deck_ids)
+                    } else {
+                        seed_start_grid_simulated_subset(&next, &relics)
+                    };
                     compare_subset(
                         report,
                         action,
                         "Neow grid select",
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next, &relics),
+                        simulated,
                     );
                     seed_sim = Some(next);
                     phase = SeedStartPhase::NeowGridConfirm;
@@ -1735,6 +1757,7 @@ fn verify_seed_start_transitions(
                     sim.phase = RunPhase::Idle;
                     sim.reward = None;
                     sim.card_grid = None;
+                    sim.deck = deck_instances_from_keys(&deck_ids);
                 }
                 let visible_deck = deck_ids.clone();
                 compare_subset(
@@ -4782,6 +4805,18 @@ fn seed_start_grid_simulated_subset(run: &RunState, relic_ids: &[String]) -> Val
         "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
         "choices": choices,
     })
+}
+
+fn seed_start_grid_simulated_subset_with_deck(
+    run: &RunState,
+    relic_ids: &[String],
+    visible_deck_ids: Vec<String>,
+) -> Value {
+    let mut subset = seed_start_grid_simulated_subset(run, relic_ids);
+    if let Some(object) = subset.as_object_mut() {
+        object.insert("deck_ids".to_owned(), json!(visible_deck_ids));
+    }
+    subset
 }
 
 fn reward_card_id_from_choose(run: &RunState, choose_index: usize) -> Option<CardId> {
@@ -12309,13 +12344,24 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let mut visible_confirm_deck = deck_content_keys(&after_confirm.deck);
+        let curse_key =
+            seed_start_neow_curse_deck_key(numeric_seed, 0).expect("generated curse key");
+        let mut first_select_deck = deck_content_keys(&initial_run.deck);
+        first_select_deck.push(curse_key.clone());
+        let first_select_deck: Vec<_> = first_select_deck
+            .into_iter()
+            .map(|id| json!({ "id": id }))
+            .collect();
+        let transformed_deck = deck_content_keys(&after_confirm.deck);
+        let mut visible_confirm_deck = transformed_deck.clone();
         for _ in 0..2 {
             visible_confirm_deck.pop();
         }
-        visible_confirm_deck
-            .push(seed_start_neow_curse_deck_key(numeric_seed, 0).expect("generated curse key"));
-        let visible_confirm_deck: Vec<_> = visible_confirm_deck
+        visible_confirm_deck.push(curse_key);
+        let mut final_map_deck = visible_confirm_deck.clone();
+        let transformed_start = transformed_deck.len().saturating_sub(2);
+        final_map_deck.extend(transformed_deck[transformed_start..].iter().cloned());
+        let final_map_deck: Vec<_> = final_map_deck
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
@@ -12380,7 +12426,7 @@ mod tests {
                 "gold": gold,
                 "current_hp": hp,
                 "max_hp": max_hp,
-                "deck": grid_deck,
+                "deck": first_select_deck,
                 "relics": [{"name": "Burning Blood"}],
                 "choice_list": second_grid_choices
             }}}),
@@ -12392,7 +12438,7 @@ mod tests {
                 "gold": gold,
                 "current_hp": hp,
                 "max_hp": max_hp,
-                "deck": visible_confirm_deck,
+                "deck": final_map_deck,
                 "relics": [{"name": "Burning Blood"}],
                 "choice_list": seed_start_first_map_choices(&seed_string)
             }}}),
