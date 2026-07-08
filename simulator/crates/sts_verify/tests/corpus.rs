@@ -1395,6 +1395,53 @@ fn permanent_trace_entries_pass_seed_start() {
     }
 }
 
+#[test]
+fn fidelity_regression_trace_entries_pass_seed_start() {
+    let dir = corpus_path("fidelity_regressions");
+    if !dir.exists() {
+        return;
+    }
+
+    let mut entries = fs::read_dir(&dir)
+        .expect("fidelity regression trace directory is readable")
+        .map(|entry| {
+            entry
+                .expect("fidelity regression trace entry is readable")
+                .path()
+        })
+        .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"))
+        .collect::<Vec<_>>();
+    entries.sort();
+
+    assert!(
+        !entries.is_empty(),
+        "fidelity regression directory should contain at least one .jsonl trace"
+    );
+
+    for path in entries {
+        let display_path = path.display().to_string();
+        let content = fs::read_to_string(&path).unwrap_or_else(|err| {
+            panic!("fidelity regression trace is readable: {display_path}: {err}")
+        });
+        let report = verify_seed_start_communication_mod_trace(&content)
+            .unwrap_or_else(|err| panic!("seed-start report for {display_path}: {err}"));
+        assert_eq!(report.mode, VerificationMode::SeedStart, "{display_path}");
+        assert!(
+            report.unexpected_diffs.is_empty(),
+            "{display_path} unexpected diffs: {:?}",
+            report.unexpected_diffs
+        );
+        let seed_start = report
+            .seed_start
+            .unwrap_or_else(|| panic!("seed-start details for {display_path}"));
+        assert!(
+            !seed_start.failed,
+            "{display_path} boundary: {:?}",
+            seed_start.first_boundary
+        );
+    }
+}
+
 fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {
     for line in content.lines().filter(|line| !line.trim().is_empty()) {
         let value: serde_json::Value = serde_json::from_str(line).expect("trace line parses");

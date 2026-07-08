@@ -925,14 +925,17 @@ fn verify_seed_start_transitions(
             {
                 let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .expect("matched generated Neow grid option");
-                let run = seed_start_open_neow_grid_run_for_ascension(
+                let mut run = seed_start_open_neow_grid_run_for_ascension(
                     start.numeric_seed,
                     start.ascension,
                     &deck_ids,
                     &option,
                 );
                 if option.drawback == NeowDrawback::Curse {
-                    delayed_neow_curse = seed_start_neow_curse_deck_key(start.numeric_seed, 0);
+                    let mut curse_run = run.clone();
+                    let curse = apply_neow_curse_drawback(&mut curse_run);
+                    delayed_neow_curse = Some(deck_content_key(curse.curse).to_owned());
+                    run.card_rng_counter = curse.card_rng_counter;
                     delayed_neow_transform_count = match option.reward {
                         NeowRewardType::TransformCard => 1,
                         NeowRewardType::TransformTwoCards => 2,
