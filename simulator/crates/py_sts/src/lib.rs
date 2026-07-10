@@ -1025,7 +1025,10 @@ fn normalize_potion_name(name: &str) -> String {
 
 fn rust_action_penalty(action: &ExactRunActionKind) -> f64 {
     match action {
-        ExactRunActionKind::Run(RunAction::UsePotion { .. }) => 5_000.0,
+        // `agent_reward_hp_equivalent` values every retained potion at eight
+        // HP, so potion cost persists in all later beam nodes without an
+        // additional one-ply action penalty.
+        ExactRunActionKind::Run(RunAction::UsePotion { .. }) => 0.0,
         ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. })
         | ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. })
         | ExactRunActionKind::Run(RunAction::ChooseDiscardSelect { .. })
@@ -1674,6 +1677,13 @@ mod tests {
             rust_run_score(&env.state, None, "terminal_tactical").expect("potion-adjusted score");
 
         assert_eq!(with_potion - base, 176.0);
+        assert_eq!(
+            rust_action_penalty(&ExactRunActionKind::Run(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            })),
+            0.0
+        );
     }
 
     #[test]

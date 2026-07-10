@@ -14,7 +14,7 @@ use sts_core::{
     ContentId, MonsterId, MonsterIntent, RunAction, RunPhase, RunState,
 };
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 enum PlannerAction {
     Combat(CombatAction),
     Potion(RunAction),
@@ -30,12 +30,21 @@ struct SearchNode {
     terminal_reason: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct CombatOutcome {
+    won: bool,
+    ending_hp: i32,
+    ending_max_hp: i32,
+    gold: i32,
+    potions: Vec<sts_core::potion::Potion>,
+}
+
 struct SearchRecommendation {
     principal_variation: Vec<PlannerAction>,
     value: f64,
     nodes: usize,
     terminal_reason: Option<String>,
-    final_hp: i32,
+    final_hp: Option<i32>,
     monster_hp: i32,
 }
 
@@ -179,7 +188,7 @@ fn plan_search_action(
     let snapshot = AutomationPlanSnapshot {
         actions: planned_actions,
         played_actions: 0,
-        predicted_final_hp: Some(recommendation.final_hp),
+        predicted_final_hp: recommendation.final_hp,
         predicted_monster_hp: Some(recommendation.monster_hp),
         value: Some(recommendation.value),
         nodes: recommendation.nodes,
@@ -237,7 +246,8 @@ fn greedy_search(state: &RunState, config: &AutomationConfig) -> SearchRecommend
     }
 
     let value = run_score(&current, terminal.as_deref());
-    let (final_hp, monster_hp) = combat_hp(&current);
+    let (_, monster_hp) = combat_hp(&current);
+    let final_hp = terminal_final_hp(&current, terminal.as_deref());
     SearchRecommendation {
         principal_variation,
         value,
@@ -263,54 +273,20 @@ fn beam_search(state: &RunState, config: &AutomationConfig) -> SearchRecommendat
     let width = config.width.max(1);
 
     for _ in 0..config.depth {
-        let mut next_frontier = Vec::new();
-        for node in std::mem::take(&mut frontier) {
-            if node.terminal_reason.is_some() {
-                if node_better(&node, &best) {
-                    best = node.clone();
-                }
-                next_frontier.push(node);
-                continue;
-            }
-            let actions = planner_actions(&node.state, config);
-            if actions.is_empty() {
-                if node_better(&node, &best) {
-                    best = node.clone();
-                }
-                next_frontier.push(node);
-                continue;
-            }
-            for action in actions {
-                let Ok(next_state) = apply_planner_action(&node.state, &action) else {
-                    continue;
-                };
-                nodes += 1;
-                let child_terminal_reason = terminal_reason(&next_state);
-                let score = run_score(&next_state, child_terminal_reason.as_deref())
-                    - action_penalty(&action)
-                    - node.actions as f64 * 0.05;
-                let mut principal_variation = node.principal_variation.clone();
-                principal_variation.push(action.clone());
-                let child = SearchNode {
-                    state: next_state,
-                    first_action: node.first_action.clone().or(Some(action)),
-                    principal_variation,
-                    actions: node.actions + 1,
-                    score,
-                    terminal_reason: child_terminal_reason,
-                };
-                if node_better(&child, &best) {
-                    best = child.clone();
-                }
-                next_frontier.push(child);
-            }
-        }
+        let next_frontier = expand_complete_turns(
+            std::mem::take(&mut frontier),
+            config,
+            width,
+            &mut nodes,
+            &mut best,
+        );
         if next_frontier.is_empty() {
             break;
         }
-        next_frontier.sort_by(node_order);
-        next_frontier.truncate(width);
         frontier = next_frontier;
+        if frontier.iter().all(|node| node.terminal_reason.is_some()) {
+            break;
+        }
     }
 
     for node in frontier {
@@ -319,7 +295,8 @@ fn beam_search(state: &RunState, config: &AutomationConfig) -> SearchRecommendat
         }
     }
 
-    let (final_hp, monster_hp) = combat_hp(&best.state);
+    let (_, monster_hp) = combat_hp(&best.state);
+    let final_hp = terminal_final_hp(&best.state, best.terminal_reason.as_deref());
     SearchRecommendation {
         principal_variation: best.principal_variation,
         value: best.score,
@@ -328,6 +305,110 @@ fn beam_search(state: &RunState, config: &AutomationConfig) -> SearchRecommendat
         final_hp,
         monster_hp,
     }
+}
+
+const MAX_ACTIONS_PER_TURN: usize = 16;
+
+fn expand_complete_turns(
+    turn_roots: Vec<SearchNode>,
+    config: &AutomationConfig,
+    width: usize,
+    nodes: &mut usize,
+    best: &mut SearchNode,
+) -> Vec<SearchNode> {
+    let mut active = turn_roots;
+    let mut completed = Vec::new();
+
+    for _ in 0..MAX_ACTIONS_PER_TURN {
+        let mut next_active = Vec::new();
+        for node in std::mem::take(&mut active) {
+            if node.terminal_reason.is_some() {
+                completed.push(node);
+                continue;
+            }
+            let actions = planner_actions(&node.state, config);
+            if actions.is_empty() {
+                completed.push(node);
+                continue;
+            }
+            for action in actions {
+                let Ok(next_state) = apply_planner_action(&node.state, &action) else {
+                    continue;
+                };
+                *nodes += 1;
+                let child_terminal_reason = terminal_reason(&next_state);
+                let score = run_score(&next_state, child_terminal_reason.as_deref())
+                    - action_penalty(&action)
+                    - node.actions as f64 * 0.05;
+                let mut principal_variation = node.principal_variation.clone();
+                principal_variation.push(action.clone());
+                let turn_ended = matches!(action, PlannerAction::Combat(CombatAction::EndTurn));
+                let child = SearchNode {
+                    state: next_state,
+                    first_action: node.first_action.clone().or_else(|| Some(action.clone())),
+                    principal_variation,
+                    actions: node.actions + 1,
+                    score,
+                    terminal_reason: child_terminal_reason,
+                };
+                if turn_ended || child.terminal_reason.is_some() {
+                    if node_better(&child, best) {
+                        *best = child.clone();
+                    }
+                    completed.push(child);
+                } else {
+                    next_active.push(child);
+                }
+            }
+        }
+        if next_active.is_empty() {
+            break;
+        }
+        active = diverse_frontier(next_active, width);
+    }
+
+    // A zero-cost loop or unusually long selection sequence may hit the inner
+    // bound. Keep it only as a fallback horizon candidate; do not pretend that
+    // it completed a turn.
+    if best.first_action.is_none() {
+        for node in active {
+            if node_better(&node, best) {
+                *best = node;
+            }
+        }
+    }
+    diverse_frontier(completed, width)
+}
+
+fn diverse_frontier(mut nodes: Vec<SearchNode>, width: usize) -> Vec<SearchNode> {
+    nodes.sort_by(node_order);
+    if nodes.len() <= width {
+        return nodes;
+    }
+
+    let mut selected = Vec::with_capacity(width);
+    let mut selected_indices = Vec::with_capacity(width);
+    let mut first_action_keys = std::collections::BTreeSet::new();
+    for (index, node) in nodes.iter().enumerate() {
+        let key = node.first_action.as_ref().map(planner_action_label);
+        if first_action_keys.insert(key) {
+            selected.push(node.clone());
+            selected_indices.push(index);
+            if selected.len() == width {
+                return selected;
+            }
+        }
+    }
+    for (index, node) in nodes.into_iter().enumerate() {
+        if !selected_indices.contains(&index) {
+            selected.push(node);
+            if selected.len() == width {
+                break;
+            }
+        }
+    }
+    selected.sort_by(node_order);
+    selected
 }
 
 fn planner_actions(state: &RunState, config: &AutomationConfig) -> Vec<PlannerAction> {
@@ -404,13 +485,19 @@ fn terminal_reason(state: &RunState) -> Option<String> {
 
 fn run_score(state: &RunState, terminal_reason: Option<&str>) -> f64 {
     let Some(combat) = state.combat.as_ref() else {
+        let persistent_value = f64::from(state.player_hp) * 25.0
+            + f64::from(state.player_max_hp) * 25.0
+            + f64::from(state.gold)
+            + state.potions.len() as f64 * 200.0;
         return match terminal_reason {
-            Some("won") => 1_000_000.0,
-            Some("lost") => -1_000_000.0,
-            _ => 0.0,
+            Some("won") => 1_000_000.0 + persistent_value,
+            Some("lost") => -1_000_000.0 + persistent_value,
+            _ => persistent_value,
         };
     };
-    let player_hp = f64::from(combat.player.hp) + f64::from(state.gold) / 25.0;
+    let player_hp = f64::from(combat.player.hp)
+        + f64::from(state.gold) / 25.0
+        + state.potions.len() as f64 * 8.0;
     let player_block = f64::from(combat.player.block);
     let player_energy = f64::from(combat.player.energy);
     let alive_monsters = combat
@@ -433,11 +520,12 @@ fn run_score(state: &RunState, terminal_reason: Option<&str>) -> f64 {
         .map(|monster| f64::from(monster.block))
         .sum::<f64>();
     let alive_count = alive_monsters.len() as f64;
-    let state_score =
-        player_hp * 25.0 - unblocked * 45.0 + useful_block * 7.5 + player_energy * 0.5
-            - monster_hp * 4.0
-            - monster_block * 0.75
-            - alive_count * 60.0;
+    let state_score = player_hp * 25.0 + f64::from(combat.player.max_hp) * 25.0 - unblocked * 45.0
+        + useful_block * 7.5
+        + player_energy * 0.5
+        - monster_hp * 4.0
+        - monster_block * 0.75
+        - alive_count * 60.0;
     match terminal_reason {
         Some("won") => 1_000_000.0 + state_score,
         Some("lost") => -1_000_000.0 + state_score,
@@ -467,10 +555,18 @@ fn intent_damage(intent: MonsterIntent) -> i32 {
 
 fn action_penalty(action: &PlannerAction) -> f64 {
     match action {
-        PlannerAction::Potion(_) => 5_000.0,
+        // Potion conservation is already represented persistently by the
+        // inventory term in `run_score`. A per-action penalty only affected
+        // the ply where the potion was used and made beam behavior depend on
+        // whether that ply survived pruning.
+        PlannerAction::Potion(_) => 0.0,
         PlannerAction::Combat(CombatAction::EndTurn) => 0.1,
         PlannerAction::Combat(CombatAction::PlayCard { .. }) => 0.0,
     }
+}
+
+fn terminal_final_hp(state: &RunState, terminal_reason: Option<&str>) -> Option<i32> {
+    terminal_reason.map(|_| combat_hp(state).0)
 }
 
 fn combat_hp(state: &RunState) -> (i32, i32) {
@@ -484,6 +580,57 @@ fn combat_hp(state: &RunState) -> (i32, i32) {
         .map(|monster| monster.hp)
         .sum();
     (combat.player.hp, monster_hp)
+}
+
+fn combat_outcome(node: &SearchNode) -> Option<CombatOutcome> {
+    let terminal = node.terminal_reason.as_deref()?;
+    let ending_hp = node
+        .state
+        .combat
+        .as_ref()
+        .map_or(node.state.player_hp, |combat| combat.player.hp);
+    let ending_max_hp = node
+        .state
+        .combat
+        .as_ref()
+        .map_or(node.state.player_max_hp, |combat| combat.player.max_hp);
+    Some(CombatOutcome {
+        won: terminal == "won",
+        ending_hp,
+        ending_max_hp,
+        gold: node.state.gold,
+        potions: node.state.potions.clone(),
+    })
+}
+
+fn outcome_dominates(left: &CombatOutcome, right: &CombatOutcome) -> bool {
+    if left.won != right.won {
+        return left.won;
+    }
+    let preserves_right_potions = potion_multiset_contains(&left.potions, &right.potions);
+    let no_worse = left.ending_hp >= right.ending_hp
+        && left.ending_max_hp >= right.ending_max_hp
+        && left.gold >= right.gold
+        && preserves_right_potions;
+    let strictly_better = left.ending_hp > right.ending_hp
+        || left.ending_max_hp > right.ending_max_hp
+        || left.gold > right.gold
+        || left.potions.len() > right.potions.len();
+    no_worse && strictly_better
+}
+
+fn potion_multiset_contains(
+    available: &[sts_core::potion::Potion],
+    required: &[sts_core::potion::Potion],
+) -> bool {
+    let mut unmatched = available.to_vec();
+    required.iter().all(|potion| {
+        unmatched
+            .iter()
+            .position(|candidate| candidate == potion)
+            .map(|index| unmatched.remove(index))
+            .is_some()
+    })
 }
 
 fn node_better(candidate: &SearchNode, best: &SearchNode) -> bool {
@@ -502,6 +649,16 @@ fn node_better(candidate: &SearchNode, best: &SearchNode) -> bool {
         && best.terminal_reason.as_deref() == Some("lost")
     {
         return true;
+    }
+    if let (Some(candidate_outcome), Some(best_outcome)) =
+        (combat_outcome(candidate), combat_outcome(best))
+    {
+        if outcome_dominates(&candidate_outcome, &best_outcome) {
+            return true;
+        }
+        if outcome_dominates(&best_outcome, &candidate_outcome) {
+            return false;
+        }
     }
     candidate.score > best.score
 }
@@ -792,7 +949,8 @@ mod tests {
     use crate::model::{LivePhase, LiveState};
     use serde_json::json;
     use sts_core::{
-        content::cards::{HAVOC_PLUS_ID, STRIKE_R_ID},
+        content::cards::{DEFEND_R_ID, HAVOC_PLUS_ID, STRIKE_R_ID},
+        potion::Potion,
         CardInstance,
     };
 
@@ -835,5 +993,116 @@ mod tests {
             expected_command(&state, &run, &action),
             Some("PLAY 2".to_owned())
         );
+    }
+
+    #[test]
+    fn beam_prefers_defend_with_unblocked_incoming_damage() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.player.energy = 3;
+        combat.piles.hand = vec![CardInstance::new(CardId::new(42), DEFEND_R_ID)];
+        combat.monsters[0].hp = 100;
+        combat.monsters[0].intent = MonsterIntent::Attack { damage: 10 };
+        let config = AutomationConfig {
+            depth: 1,
+            width: 50,
+            ..AutomationConfig::default()
+        };
+
+        let recommendation = beam_search(&run, &config);
+
+        assert!(matches!(
+            recommendation.principal_variation.first(),
+            Some(PlannerAction::Combat(CombatAction::PlayCard { card_id, .. }))
+                if *card_id == CardId::new(42)
+        ));
+        assert!(recommendation
+            .principal_variation
+            .iter()
+            .any(|action| matches!(action, PlannerAction::Combat(CombatAction::EndTurn))));
+    }
+
+    #[test]
+    fn potion_cost_is_persistent_and_proportional_to_inventory_value() {
+        let mut before = RunState::combat_fixture();
+        before.potions = vec![Potion::Block];
+        let combat = before.combat.as_mut().expect("combat fixture");
+        combat.monsters[0].intent = MonsterIntent::Attack { damage: 12 };
+
+        let mut after = before.clone();
+        after.potions.clear();
+        after.combat.as_mut().expect("combat fixture").player.block = 12;
+
+        assert!(run_score(&after, None) > run_score(&before, None));
+        assert_eq!(
+            action_penalty(&PlannerAction::Potion(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            })),
+            0.0
+        );
+    }
+
+    #[test]
+    fn final_hp_is_only_reported_for_terminal_lines() {
+        let run = RunState::combat_fixture();
+
+        assert_eq!(terminal_final_hp(&run, None), None);
+        assert_eq!(
+            terminal_final_hp(&run, Some("won")),
+            Some(run.combat.as_ref().expect("combat fixture").player.hp)
+        );
+    }
+
+    #[test]
+    fn frontier_reserves_capacity_for_distinct_first_actions() {
+        let run = RunState::combat_fixture();
+        let defend = PlannerAction::Combat(CombatAction::PlayCard {
+            card_id: CardId::new(42),
+            target: None,
+        });
+        let end_turn = PlannerAction::Combat(CombatAction::EndTurn);
+        let node = |first_action: PlannerAction, score: f64| SearchNode {
+            state: run.clone(),
+            first_action: Some(first_action),
+            principal_variation: Vec::new(),
+            actions: 1,
+            score,
+            terminal_reason: None,
+        };
+
+        let selected = diverse_frontier(
+            vec![
+                node(defend.clone(), 100.0),
+                node(defend.clone(), 90.0),
+                node(end_turn.clone(), 10.0),
+            ],
+            2,
+        );
+
+        assert!(selected
+            .iter()
+            .any(|candidate| candidate.first_action.as_ref() == Some(&defend)));
+        assert!(selected
+            .iter()
+            .any(|candidate| candidate.first_action.as_ref() == Some(&end_turn)));
+    }
+
+    #[test]
+    fn terminal_outcome_rejects_strictly_dominated_hp_line() {
+        let mut better = RunState::combat_fixture();
+        better.combat.as_mut().expect("combat fixture").player.hp = 70;
+        let mut worse = better.clone();
+        worse.combat.as_mut().expect("combat fixture").player.hp = 65;
+        let terminal_node = |state: RunState| SearchNode {
+            state,
+            first_action: Some(PlannerAction::Combat(CombatAction::EndTurn)),
+            principal_variation: vec![PlannerAction::Combat(CombatAction::EndTurn)],
+            actions: 1,
+            score: 0.0,
+            terminal_reason: Some("won".to_owned()),
+        };
+
+        assert!(node_better(&terminal_node(better), &terminal_node(worse)));
     }
 }
