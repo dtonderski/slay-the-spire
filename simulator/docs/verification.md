@@ -17,7 +17,7 @@ Verification is staged:
 The best current harness is [CommunicationMod](https://github.com/ForgottenArbiter/CommunicationMod). Its protocol sends JSON game state when the game is stable and accepts external commands. [spirecomm](https://github.com/ForgottenArbiter/spirecomm) demonstrates client-side use.
 
 For the Phase 1 live trace UI, use the manual/quarantined checklist in
-`LIVE_TRACE_REAL_GAME_SMOKE.md` when validating against a real ModTheSpire
+[`live_trace_real_game_smoke.md`](live_trace_real_game_smoke.md) when validating against a real ModTheSpire
 process. Keep that smoke out of ordinary CI.
 
 Build a verifier that can:
@@ -35,7 +35,7 @@ Current Milestone 12 observed-state replay command:
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- parity ..\verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
+cargo run -p sts_verify -- parity verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
 ```
 
 This mode restores simulator state from each observed real pre-state, applies the matching CommunicationMod action, and compares a supported canonical post-state subset. It verifies the captured trace's supported combat/reward mechanics: Bash, Strike, Defend, end turn, Cultist attack/ritual behavior where currently modeled, Burning Blood heal, gold reward pickup, and Twin Strike pickup.
@@ -52,7 +52,7 @@ Current seed-start harness command:
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
+cargo run -p sts_verify -- parity --mode seed-start verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
 ```
 
 This mode parses the real `START IRONCLAD 0 VERIFY01` command and verifies the captured Ironclad A0 trace through return to map without restoring from observed pre-state. It verifies the selected Neow path, first map choice, first Cultist encounter entry, captured Cultist combat through lethal Strike, simulation-driven reward offers, gold pickup, card reward choices, Twin Strike pickup, and post-reward `PROCEED`. For the captured trace, it reports `seed_start.expected_failure=false`, `seed_start.first_boundary.path=$.actions[complete]`, and `unexpected_diffs=0`.
@@ -61,14 +61,14 @@ The same seed-start mode also covers the captured `CODEX04` path through the fir
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
+cargo run -p sts_verify -- parity --mode seed-start verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
 ```
 
 For `CODEX04`, it verifies talk, the captured colorless-card reward choices `Deep Breath`, `Dramatic Entrance`, and `Jack Of All Trades`, picking `Dramatic Entrance`, leaving Neow with that card in the deck, entering the captured map path, simulation-driven floor-1/floor-2 reward screens (gold, card, potion skip), and replaying through floor-3 combat completion with `seed_start.expected_failure=false` and `unexpected_diffs=0`. For `CODEX03`, seed-start replay covers Neow's Lament, three normal combats, deferred card-reward RNG (rolled when the player opens the card screen), combat-entry `cardRng` advancement, simulation-driven rewards and map returns, and ends after floor-3 return-to-map with `unexpected_diffs=0`.
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- parity --mode seed-start ..\verification\corpus\communication_mod\trace-2026-06-18T16-45-23-530Z.jsonl
+cargo run -p sts_verify -- parity --mode seed-start verification\corpus\communication_mod\trace-2026-06-18T16-45-23-530Z.jsonl
 ```
 
 Seed-start output also includes `seed_start.m22_encounter_report`, which separates captured verified combat-entry spawn state from source-backed predictions: CODEX04 and CODEX03 have three captured verified combat-entry rosters, while VERIFY01 has one captured verified entry plus two source-backed predictions because the available VERIFY01 trace ends after the first combat reward.
@@ -80,19 +80,19 @@ Milestone 29 currently has a first TEST elite/boss slice rather than full elite/
 The overnight CommunicationMod collector can harvest longer traces for missing elite coverage. Validate harvested traces before promoting them:
 
 ```powershell
-node tools\communication\trace_tools.js validate verification\corpus\communication_mod\<trace>.jsonl
+node tools\communication\trace_tools.js validate simulator\verification\corpus\communication_mod\<trace>.jsonl
 ```
 
 If a run stalls after useful coverage, keep the raw trace and create a documented clean prefix:
 
 ```powershell
-node tools\communication\trace_tools.js trim-valid-prefix verification\corpus\communication_mod\<raw>.jsonl verification\corpus\communication_mod\<raw>.valid-prefix.jsonl
+node tools\communication\trace_tools.js trim-valid-prefix simulator\verification\corpus\communication_mod\<raw>.jsonl simulator\verification\corpus\communication_mod\<raw>.valid-prefix.jsonl
 ```
 
 For multi-run traces, extract the useful attempt before promoting:
 
 ```powershell
-node tools\communication\trace_tools.js extract-run verification\corpus\communication_mod\<raw>.valid-prefix.jsonl 1 verification\corpus\communication_mod\<raw>.run2.valid-prefix.jsonl
+node tools\communication\trace_tools.js extract-run simulator\verification\corpus\communication_mod\<raw>.valid-prefix.jsonl 1 simulator\verification\corpus\communication_mod\<raw>.run2.valid-prefix.jsonl
 ```
 
 `trace-2026-06-23T02-56-19-245Z.run2.valid-prefix.jsonl` is the current harvested Sentries candidate. It is structurally valid, includes the second `M290001` attempt, and reaches floor 7 Sentries. Seed-start verification currently supports its transform-card Neow branch and Sever Soul, then stops at floor-2 step 29 on a target-liveness sync boundary.
@@ -103,7 +103,7 @@ When a trace fails parity, build a prefix JSONL that reproduces the first failur
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- minimize --mode seed-start -o ..\verification\corpus\bugs\my-bug.jsonl ..\verification\corpus\communication_mod\trace.jsonl
+cargo run -p sts_verify -- minimize --mode seed-start -o verification\corpus\bugs\my-bug.jsonl verification\corpus\communication_mod\trace.jsonl
 ```
 
 `minimize` runs parity, finds the first `unexpected_diff` or expected-failure boundary, and writes metadata plus all state/action lines through that step. Summary fields go to stderr; the minimized trace goes to stdout or `-o`. Passing traces exit 0 with `minimize: trace has no unexpected diff or expected-failure boundary to minimize`.
@@ -139,7 +139,7 @@ Seed conversion status:
 
 - External seed string captured: `VERIFY01`.
 - Exact numeric seed conversion: implemented from the target `SeedHelper.getLong(String)` bytecode in the local `12-18-2022` desktop jar. Seeds are uppercased, `O` maps to `0`, and characters are parsed in base 35 using `0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ`.
-- Current evidence in this repo: `RESEARCH.md` records the target jar/class inspected and captured checks for `VERIFY01`, `CODEX03`, and `CODEX04`.
+- Current evidence in this repo: [`research.md`](../../docs/research.md) records the target jar/class inspected and captured checks for `VERIFY01`, `CODEX03`, and `CODEX04`.
 - The harness reports seed conversion as `source_backed`; broader RNG stream parity remains bounded by the later stream-specific milestones.
 
 Also inspect [silentcoder99/sts_lightspeed](https://github.com/silentcoder99/sts_lightspeed), whose repository description says it integrates `sts_lightspeed` with CommunicationMod. If it contains reusable trace ideas, document them before building our own bridge.

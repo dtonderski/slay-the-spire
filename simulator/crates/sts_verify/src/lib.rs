@@ -61,9 +61,14 @@ pub fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
-/// Path under `verification/corpus/`.
+/// Simulator workspace root (`slay-the-spire/simulator/`).
+pub fn simulator_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// Path under `simulator/verification/corpus/`.
 pub fn corpus_path(relative: impl AsRef<Path>) -> PathBuf {
-    repo_root().join("verification/corpus").join(relative)
+    simulator_root().join("verification/corpus").join(relative)
 }
 
 /// Load file contents when present; returns `None` if the path does not exist.

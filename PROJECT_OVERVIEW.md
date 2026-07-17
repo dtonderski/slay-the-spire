@@ -45,7 +45,7 @@ partially-observable A20H play.
 - Combat agents: handcrafted search agent first, RL agent later.
 - Live trace UI: a small operator console for collecting real-game traces,
   managing bridge sessions, and monitoring simulator fidelity. See
-  `LIVE_TRACE_UI_DESIGN.md`.
+  `simulator/docs/live_trace_ui_design.md`.
 - Replay/root pipeline: SlayTheData-guided high-level decisions plus simulator
   or real-game combat execution to produce validated traces and combat roots.
 - Training environments: wrappers around the simulator for omniscient and fair

@@ -1,6 +1,6 @@
 # Research Notes
 
-This file records prior art and evidence gathered before implementation. It is intentionally separate from `DESIGN.md` so future coding sessions can revisit sources without bloating the architecture document.
+This file records prior art and evidence gathered before implementation. It is intentionally separate from [`design.md`](design.md) so future coding sessions can revisit sources without bloating the architecture document.
 
 ## Key Prior Art
 
@@ -31,7 +31,7 @@ Design lessons:
 
 - We should not pretend to be first. `sts_lightspeed` should be studied carefully before implementing RNG, save loading, map generation, reward generation, and action queues.
 - We should not blindly port it. The Rust project needs stronger snapshot/replay tests, canonical diffs, and a smaller task discipline because the user wants safe vibe-coded implementation.
-- The RNG stream list in `DESIGN.md` should be upgraded from speculative examples to a known reference list, while still requiring verification against the target game version.
+- The RNG stream list in [`design.md`](design.md) should be upgraded from speculative examples to a known reference list, while still requiring verification against the target game version.
 - A future task should create `docs/prior_art/sts_lightspeed.md` or equivalent with exact behavior notes before implementing parity-sensitive systems.
 
 ### silentcoder99/sts_lightspeed

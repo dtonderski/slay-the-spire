@@ -128,5 +128,5 @@ Record the smoke as passed only when all applicable evidence is present:
 
 Keep failed traces if they contain useful evidence. If a trace exposes simulator
 divergence, preserve the JSONL and minimize it with the verifier workflow in
-`VERIFICATION.md`. Fix the generic simulator, verifier, or bridge behavior; do
+[`verification.md`](verification.md). Fix the generic simulator, verifier, or bridge behavior; do
 not add seed-specific UI/backend workarounds.

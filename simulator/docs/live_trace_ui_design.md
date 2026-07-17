@@ -282,7 +282,8 @@ Real-game smoke tests are still useful, but they should be explicit manual or
 quarantined tests. They are not a substitute for fake bridge and replay tests,
 and they should never be required for ordinary CI.
 
-The manual real-game smoke checklist lives in `LIVE_TRACE_REAL_GAME_SMOKE.md`.
+The manual real-game smoke checklist lives in
+[`live_trace_real_game_smoke.md`](live_trace_real_game_smoke.md).
 
 ## Implementation Status
 

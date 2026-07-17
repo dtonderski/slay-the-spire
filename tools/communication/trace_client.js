@@ -9,7 +9,7 @@ const readline = require("readline");
 const repoRoot = path.resolve(__dirname, "..", "..");
 const outDir = process.env.TRACE_OUT_DIR
   ? path.resolve(process.env.TRACE_OUT_DIR)
-  : path.join(repoRoot, "verification", "corpus", "communication_mod");
+  : path.join(repoRoot, "simulator", "verification", "corpus", "communication_mod");
 const sessionDir = process.env.TRACE_SESSION_DIR
   ? path.resolve(process.env.TRACE_SESSION_DIR)
   : path.join(__dirname, "session");

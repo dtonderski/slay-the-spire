@@ -1,5 +1,6 @@
 target/
 simulator/target/
+simulator/target-*/
 Cargo.lock
 
 # Local Python / build outputs
@@ -8,14 +9,6 @@ Cargo.lock
 __pycache__/
 *.py[cod]
 *.pyd
-
-# Archived MVP-generated local artifacts
-archive/**/__pycache__/
-archive/**/*.py[cod]
-archive/**/*.pyd
-archive/**/tools/communication/session/
-archive/**/verification/corpus/communication_mod/trace-*.jsonl
-archive/**/verification/corpus/communication_mod/live-regression-*.jsonl
 
 # Scratch / local handoff artifacts
 tmp/

@@ -2,9 +2,14 @@
 
 This folder contains the local bridge and helper tools for collecting Slay the Spire traces through CommunicationMod.
 
+It is not a CommunicationMod fork. CommunicationMod launches `trace_client.js`
+as its external process; that client records traces and exposes the guarded
+socket/session state consumed by the Rust `sts_live` backend. Until that bridge
+is replaced by a Rust executable, this directory is required for live runs.
+
 ## Bridge
 
-- `trace_client.js` is the stdin/stdout bridge used by CommunicationMod. It writes JSONL traces under `verification/corpus/communication_mod/` and publishes current state files under `tools/communication/session/`.
+- `trace_client.js` is the stdin/stdout bridge used by CommunicationMod. It writes JSONL traces under `simulator/verification/corpus/communication_mod/` and publishes current state files under `tools/communication/session/`.
 - `run_bridge.cmd` starts the interactive bridge.
 - `run_passive_bridge.cmd` starts the bridge in state-polling mode.
 - Fresh bridge launch scripts enable the optional localhost TCP JSONL control

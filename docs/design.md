@@ -16,7 +16,7 @@ Full fidelity is ambitious. Slay the Spire has many interacting action-queue eff
 
 ## Research Notes
 
-See `RESEARCH.md` for the full research pass. The short version:
+See [`research.md`](research.md) for the full research pass. The short version:
 
 - [CommunicationMod](https://github.com/ForgottenArbiter/CommunicationMod) is a Slay the Spire mod that launches an external process and exchanges JSON states/actions over stdin/stdout. Its README says it sends JSON whenever the game reaches a stable state and accepts commands such as play, end, click, wait, and state. This is the strongest known path for parity testing against the real game.
 - [spirecomm](https://github.com/ForgottenArbiter/spirecomm) is a Python package and simple AI built around CommunicationMod. It is useful as an example client and schema inspiration, not as an engine design to copy.

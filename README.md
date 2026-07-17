@@ -6,18 +6,20 @@ The long-term goal is to support reinforcement learning agents, planning, determ
 
 ## Repository Layout
 
-The Rust simulator lives under `simulator/` so the repository can also grow RL training code, agents, experiments, and verification tooling without making the whole repo a Rust workspace.
+The Rust simulator lives under `simulator/`, together with its verification corpus.
 
 - `simulator/`: Rust workspace for the deterministic simulator.
 - `simulator/crates/sts_core/`: core simulator library.
 - `simulator/crates/sts_live/`: live trace collection backend, CLI, HTTP API, and Stage 1 web shell.
-- root docs: project roadmap, research, design, verification, and status.
+- `simulator/verification/`: captured traces and permanent parity corpus.
+- `docs/`: project design, history, research, and literature review.
+- `tools/communication/`: required CommunicationMod client bridge and diagnostics.
+- `mods/`: small project-specific game mods.
 
 ## Current Scope
 
-The active repository is centered on the Rust simulator and verification
-corpus. Prototype Python/UI/trace tooling has been archived under
-`archive/mvp-python-ui/`.
+The active repository is centered on the Rust simulator, live collector, and
+verification corpus.
 
 ## Verification Philosophy
 
@@ -46,9 +48,9 @@ Simulator mechanics must stay separate from RL feature extraction and reward sha
 
 ## Project Documents
 
-- `RESEARCH.md`: prior-art and source notes
-- `DESIGN.md`: architecture and risk analysis
+- `docs/research.md`: prior-art and source notes
+- `docs/design.md`: architecture and risk analysis
 - `PROJECT_OVERVIEW.md`: high-level RL roadmap, phase gates, evaluation protocol, and state-visibility boundaries
-- `VERIFICATION.md`: parity and testing strategy
-- `LIVE_TRACE_UI_DESIGN.md`: design note for the replacement live trace collection UI
+- `simulator/docs/verification.md`: parity and testing strategy
+- `simulator/docs/live_trace_ui_design.md`: live trace collection UI design
 - `AGENT_RULES.md`: rules for future coding sessions
