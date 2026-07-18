@@ -44,16 +44,8 @@
       "reason": "Structurally reaches beyond Act 1; retained content verifies successfully through every verifiable transition before the former stale shop purchase snapshot."
     },
     {
-      "path": "communication_mod/trace-2026-06-23T07-42-06-085Z.best-run.jsonl",
-      "reason": "Reaches Act 1 boss combat, but does not reach boss reward; useful retained-transition coverage."
-    },
-    {
-      "path": "communication_mod/trace-2026-06-23T02-56-19-245Z.run2.cleaned.jsonl",
-      "reason": "Stops at floor 8 reward screen; useful retained-transition coverage."
-    },
-    {
       "path": "communication_mod/trace-2026-07-04T20-30-44-675Z.boss-death.jsonl",
-      "reason": "Reaches The Guardian on floor 16 and terminates in a boss-room death. Useful live regression coverage, but not a retained-transition corpus entry because seed-start parity currently has expected reward/event boundaries."
+      "reason": "Reaches The Guardian on floor 16 and terminates in a boss-room death. Useful live regression coverage, but not a successful Act 1 corpus entry."
     }
   ]
 }
