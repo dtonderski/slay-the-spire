@@ -347,6 +347,15 @@ Normal reward potion drops are driven by `GameContext::addPotionRewards`: start 
 
 `returnRandomPotion` rolls rarity with `potionRng.random(0, 99)`: `<65` common, `<90` uncommon, otherwise rare. It then repeatedly calls `getRandomPotion`, which rolls an index with `potionRng.random(PotionPool::poolSize - 1)`, until the selected potion has the requested rarity. The Ironclad pool has 33 entries in target order, beginning `BloodPotion`, `ElixirPotion`, `HeartOfIron`, `Block Potion`, `Dexterity Potion`, `Energy Potion`, `Explosive Potion`, `Fire Potion`.
 
+Lab and The Woman in Blue use a different surface. Target jar bytecode for
+`com.megacrit.cardcrawl.events.shrines.Lab.buttonEffect` and
+`com.megacrit.cardcrawl.events.shrines.WomanInBlue.buttonEffect` calls
+`PotionHelper.getRandomPotion()` once for each displayed potion. The no-argument
+`getRandomPotion()` bytecode performs exactly one inclusive pool-index draw from
+`AbstractDungeon.potionRng`; it does not roll rarity or retry. Session-5 pins
+the practical distinction at Lab: three consecutive pool draws produce
+Distilled Chaos, Cultist Potion, and Essence of Steel.
+
 ## Milestone 24 Relic Reward Evidence
 
 Source inspected: `%TEMP%\sts_lightspeed\src\game\Game.cpp`, `%TEMP%\sts_lightspeed\src\game\GameContext.cpp`, and `%TEMP%\sts_lightspeed\include\constants\RelicPools.h`.

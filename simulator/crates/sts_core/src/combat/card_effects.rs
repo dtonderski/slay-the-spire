@@ -6,17 +6,17 @@ use crate::{
         CombatState, HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, is_curse_content_id, ritual_dagger_card_damage,
-        ritual_dagger_card_growth, searing_blow_card_damage, upgrade_content_id, ANGER_ID,
+        card_instance_is_upgradeable, get_card_definition, is_curse_content_id,
+        ritual_dagger_card_damage, ritual_dagger_card_growth, searing_blow_card_damage, ANGER_ID,
         ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, APPARITION_ID, APPARITION_PLUS_ID,
         ARMAMENTS_ID, ARMAMENTS_PLUS_ID, BANDAGE_UP_ID, BANDAGE_UP_PLUS_ID, BARRICADE_ID,
         BARRICADE_PLUS_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
-        BERSERK_ID, BERSERK_PLUS_ID, BITE_ID, BLIND_ID, BLIND_PLUS_ID, BLOODLETTING_ID,
-        BLOODLETTING_PLUS_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID,
-        BODY_SLAM_PLUS_ID, BRUTALITY_ID, BRUTALITY_PLUS_ID, BURNING_PACT_ID, BURNING_PACT_PLUS_ID,
-        CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID,
-        CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID, CORRUPTION_ID,
-        CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID,
+        BERSERK_ID, BERSERK_PLUS_ID, BITE_ID, BITE_PLUS_ID, BLIND_ID, BLIND_PLUS_ID,
+        BLOODLETTING_ID, BLOODLETTING_PLUS_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID,
+        BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BRUTALITY_ID, BRUTALITY_PLUS_ID, BURNING_PACT_ID,
+        BURNING_PACT_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID,
+        CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID,
+        CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID,
         DARK_SHACKLES_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID,
         DEFEND_R_PLUS_ID, DEMON_FORM_ID, DEMON_FORM_PLUS_ID, DISARM_ID, DISARM_PLUS_ID,
         DISCOVERY_ID, DISCOVERY_PLUS_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID,
@@ -66,8 +66,8 @@ use crate::{
 };
 use std::collections::VecDeque;
 
-const DISCOVERY_ACTION_HIDDEN_GENERATIONS: usize = 3;
-const DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS: usize = 1;
+const DISCOVERY_ACTION_HIDDEN_GENERATIONS: usize = 4;
+const DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS: usize = 0;
 
 pub(super) fn play_card_queue(
     state: &CombatState,
@@ -118,7 +118,7 @@ pub(super) fn play_card_queue(
             target.expect("validated Body Slam has a target"),
             definition,
         ),
-        BITE_ID => bite_queue(
+        BITE_ID | BITE_PLUS_ID => bite_queue(
             card_id,
             target.expect("validated Bite has a target"),
             definition,
@@ -372,17 +372,21 @@ pub(super) fn play_card_queue(
     };
 
     let mut queue = queue?;
-    apply_akabeko_to_first_attack_queue(state, definition.card_type, card_id, &mut queue);
-    apply_pen_nib_to_tenth_attack_queue(state, definition.card_type, card_id, &mut queue);
     if state.duplication_potion_pending || state.duplication_potion_stacks > 0 {
         queue = apply_duplication_potion_to_queue(queue, card_id);
     }
+    apply_akabeko_to_first_attack_queue(state, definition.card_type, card_id, &mut queue);
     if should_apply_necronomicon(state, card, definition) {
         queue = apply_necronomicon_to_queue(queue, card_id);
     }
     if definition.card_type == CardType::Attack && state.double_tap_pending > 0 {
         queue = apply_double_tap_to_queue(queue, card_id);
     }
+    // Pen Nib is consumed by the original card play. Expand copied-card
+    // effects first, then modify only the original effects before its card
+    // move; otherwise Double Tap/Necronomicon clone the already-doubled
+    // damage and incorrectly receive Pen Nib too.
+    apply_pen_nib_to_tenth_attack_queue(state, definition.card_type, card_id, &mut queue);
 
     apply_effective_cost_to_played_card_queue(card, definition, &mut queue);
     apply_corruption_to_played_skill_queue(state, definition, card_id, &mut queue);
@@ -516,6 +520,9 @@ fn apply_akabeko_to_first_attack_queue(
     }
 
     for action in queue {
+        if is_card_move_for(*action, card_id) {
+            break;
+        }
         match action {
             InternalAction::DealDamage {
                 info:
@@ -568,6 +575,9 @@ fn apply_pen_nib_to_tenth_attack_queue(
     }
 
     for action in queue {
+        if is_card_move_for(*action, card_id) {
+            break;
+        }
         match action {
             InternalAction::DealDamage {
                 info:
@@ -1071,7 +1081,7 @@ fn upgradeable_other_hand_card_ids(state: &CombatState, exclude_id: CardId) -> V
         .piles
         .hand
         .iter()
-        .filter(|card| card.id != exclude_id && upgrade_content_id(card.content_id).is_some())
+        .filter(|card| card.id != exclude_id && card_instance_is_upgradeable(card))
         .map(|card| card.id)
         .collect()
 }
@@ -1127,16 +1137,16 @@ fn hemokinesis_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::LoseHp {
-            amount: 2,
-            source: HpLossSource::Card(card_id),
-        },
         InternalAction::DealDamage {
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
                 amount: definition.values.damage.unwrap_or(0),
             },
+        },
+        InternalAction::LoseHp {
+            amount: 2,
+            source: HpLossSource::Card(card_id),
         },
         InternalAction::MoveCard {
             card_id,
@@ -1301,7 +1311,7 @@ fn perfected_strike_queue(
     ]))
 }
 
-fn combat_strike_named_card_count(state: &CombatState) -> usize {
+pub(super) fn combat_strike_named_card_count(state: &CombatState) -> usize {
     state
         .piles
         .hand
@@ -1479,12 +1489,12 @@ fn infernal_blade_queue(
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
-            to: CardPile::DiscardPile,
+            to: card_move_destination(definition),
         },
     ]))
 }
 
-fn infernal_blade_generated_attack(state: &mut CombatState) -> ContentId {
+pub(crate) fn infernal_blade_generated_attack(state: &mut CombatState) -> ContentId {
     let pool = infernal_blade_modeled_attack_pool();
     let Some(rng) = state.card_random_rng.as_mut() else {
         return pool[0];
@@ -1560,6 +1570,7 @@ fn discovery_queue(
     ]))
 }
 
+#[allow(clippy::reversed_empty_ranges)]
 fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) {
     let pool = discovery_modeled_card_pool();
     let mut content_choices = Vec::with_capacity(3);
@@ -1616,13 +1627,10 @@ pub(crate) fn discovery_modeled_card_pool() -> Vec<ContentId> {
 }
 
 pub(crate) fn infernal_blade_modeled_attack_pool() -> Vec<ContentId> {
+    // RNG must use the complete target source pool even when a generated card's
+    // mechanics are not modeled yet. Filtering changes the random bound and can
+    // select a different card among otherwise supported entries.
     ironclad_combat_attack_discovery_pool()
-        .into_iter()
-        .filter(|content_id| {
-            get_card_definition(*content_id)
-                .is_some_and(|definition| definition.card_type == CardType::Attack)
-        })
-        .collect()
 }
 
 fn chrysalis_queue(
@@ -3250,16 +3258,11 @@ fn shrug_it_off_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy { amount: 1 },
+        InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainBlock {
             amount: definition.values.block.unwrap_or(0),
         },
-        InternalAction::DrawCards { count: 1 },
-        InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: CardPile::DiscardPile,
-        },
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count: 1 },
     ]))
 }
 
@@ -3319,7 +3322,7 @@ fn deep_breath_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::ShuffleDiscardIntoDraw,
+        InternalAction::DeepBreathShuffleDiscardIntoDraw,
         InternalAction::DrawCards { count },
         InternalAction::MoveCard {
             card_id,
@@ -3773,15 +3776,11 @@ fn battle_trance_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DrawCards {
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo {
+            card_id,
             count: battle_trance_draw_count(definition),
         },
         InternalAction::SetCannotDraw,
-        InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: CardPile::DiscardPile,
-        },
     ]))
 }
 

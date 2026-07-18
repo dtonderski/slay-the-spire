@@ -12,6 +12,13 @@ Verification is staged:
 4. Real-game state comparison through CommunicationMod-style exports.
 5. Distribution checks for systems where exact hidden state is not yet observable.
 
+Production live collection and permanent-corpus promotion use only seed-start
+replay. Historical observed-state replay notes below describe an old,
+non-authoritative diagnostic mode; they are not permitted as fidelity evidence
+and are never used by the autonomous collector. Simulator state must be derived
+from the initial seed/config plus accepted actions, never copied, repaired, or
+hydrated from a real-game observation.
+
 ## Real-Game Comparison
 
 The best current harness is [CommunicationMod](https://github.com/ForgottenArbiter/CommunicationMod). Its protocol sends JSON game state when the game is stable and accepts external commands. [spirecomm](https://github.com/ForgottenArbiter/spirecomm) demonstrates client-side use.

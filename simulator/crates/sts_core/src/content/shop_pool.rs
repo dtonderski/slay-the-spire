@@ -424,42 +424,22 @@ pub fn ironclad_combat_power_discovery_pool() -> &'static [ContentId] {
 
 #[must_use]
 pub fn ironclad_combat_attack_discovery_pool() -> Vec<ContentId> {
-    // Target `AbstractDungeon.returnTrulyRandomCardInCombat(type)` uses source
-    // card pools whose order comes from CardLibrary/HashMap source-pool
-    // construction, then filters by type and excludes HEALING-tagged cards.
-    const DISCOVERY_ATTACKS: &[&str] = &[
-        "SWORD_BOOMERANG",
-        "PERFECTED_STRIKE",
-        "HEAVY_BLADE",
-        "WILD_STRIKE",
-        "HEADBUTT",
-        "CLOTHESLINE",
-        "TWIN_STRIKE",
-        "POMMEL_STRIKE",
-        "THUNDERCLAP",
-        "CLASH",
-        "BODY_SLAM",
-        "IRON_WAVE",
-        "CLEAVE",
-        "ANGER",
-        "UPPERCUT",
-        "DROPKICK",
-        "CARNAGE",
-        "SEARING_BLOW",
-        "WHIRLWIND",
-        "SEVER_SOUL",
-        "RAMPAGE",
-        "PUMMEL",
-        "BLOOD_FOR_BLOOD",
-        "HEMOKINESIS",
-        "RECKLESS_CHARGE",
-        "BLUDGEON",
-        "FIEND_FIRE",
-        "IMMOLATE",
-    ];
-    DISCOVERY_ATTACKS
-        .iter()
-        .map(|name| shop_card_content_id(name))
+    // Target `AbstractDungeon.returnTrulyRandomCardInCombat(type)` appends the
+    // common, uncommon, and rare source groups in that order, then filters by
+    // type. `ironclad_combat_discovery_pool` preserves the underlying
+    // CardLibrary/HashMap order, so stable-partition it by rarity here.
+    [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare]
+        .into_iter()
+        .flat_map(|rarity| {
+            ironclad_combat_discovery_pool()
+                .iter()
+                .copied()
+                .filter(move |content_id| {
+                    get_card_definition(*content_id)
+                        .is_some_and(|definition| definition.card_type == CardType::Attack)
+                        && ironclad_reward_card_rarity(*content_id) == Some(rarity)
+                })
+        })
         .collect()
 }
 
@@ -571,42 +551,47 @@ pub fn ironclad_combat_skill_discovery_pool() -> Vec<ContentId> {
 
 #[must_use]
 pub fn colorless_discovery_pool() -> Vec<ContentId> {
+    // `srcColorlessCardPool` is copied from `colorlessCardPool` with
+    // CardGroup.addToBottom, which prepends each card and reverses the order.
     vec![
-        MADNESS_ID,
-        THINKING_AHEAD_ID,
-        MIND_BLAST_ID,
-        METAMORPHOSIS_ID,
-        JACK_OF_ALL_TRADES_ID,
-        SWIFT_STRIKE_ID,
-        GOOD_INSTINCTS_ID,
-        MASTER_OF_STRATEGY_ID,
-        MAGNETISM_ID,
-        FINESSE_ID,
-        DISCOVERY_ID,
-        CHRYSALIS_ID,
-        TRANSMUTATION_ID,
-        PANACEA_ID,
-        PURITY_ID,
-        ENLIGHTENMENT_ID,
-        FORETHOUGHT_ID,
-        FLASH_OF_STEEL_ID,
-        HAND_OF_GREED_ID,
-        MAYHEM_ID,
-        APOTHEOSIS_ID,
-        SECRET_WEAPON_ID,
-        PANACHE_ID,
-        VIOLENCE_ID,
-        DEEP_BREATH_ID,
-        SECRET_TECHNIQUE_ID,
-        BLIND_ID,
-        THE_BOMB_ID,
-        IMPATIENCE_ID,
-        DRAMATIC_ENTRANCE_ID,
-        TRIP_ID,
-        PANIC_BUTTON_ID,
-        SADISTIC_NATURE_ID,
         DARK_SHACKLES_ID,
+        SADISTIC_NATURE_ID,
+        PANIC_BUTTON_ID,
+        TRIP_ID,
+        DRAMATIC_ENTRANCE_ID,
+        IMPATIENCE_ID,
+        THE_BOMB_ID,
+        BLIND_ID,
+        SECRET_TECHNIQUE_ID,
+        DEEP_BREATH_ID,
+        VIOLENCE_ID,
+        PANACHE_ID,
+        SECRET_WEAPON_ID,
+        APOTHEOSIS_ID,
+        MAYHEM_ID,
+        HAND_OF_GREED_ID,
+        FLASH_OF_STEEL_ID,
+        FORETHOUGHT_ID,
+        ENLIGHTENMENT_ID,
+        PURITY_ID,
+        PANACEA_ID,
+        TRANSMUTATION_ID,
+        CHRYSALIS_ID,
+        DISCOVERY_ID,
+        FINESSE_ID,
+        MAGNETISM_ID,
+        MASTER_OF_STRATEGY_ID,
+        GOOD_INSTINCTS_ID,
+        SWIFT_STRIKE_ID,
+        JACK_OF_ALL_TRADES_ID,
+        METAMORPHOSIS_ID,
+        MIND_BLAST_ID,
+        THINKING_AHEAD_ID,
+        MADNESS_ID,
     ]
+    .into_iter()
+    .rev()
+    .collect()
 }
 
 /// Target `sts::generateDiscoveryCards` / `DiscoveryAction.generateCardChoices`.
@@ -678,6 +663,38 @@ pub fn burn_discovery_card_choice_draws(rng: &mut StsRng, card_type: CardType, d
         CardType::Status => &[],
     };
     burn_discovery_random_draws(rng, pool.len(), draws);
+}
+
+/// Target `colorlessCardPool` order used before Match-and-Keep shuffles it.
+/// `addColorlessCards` iterates CardLibrary's map and calls `CardGroup.addToTop`,
+/// which appends to the backing ArrayList. In-combat colorless generation uses
+/// the separately copied `srcColorlessCardPool`, whose order is reversed.
+#[must_use]
+pub fn colorless_match_and_keep_pool() -> Vec<ContentId> {
+    let mut pool = colorless_discovery_pool();
+    pool.reverse();
+    // CardLibrary's HashMap iteration puts Bandage Up between Blind and Secret
+    // Technique. Discovery filters it because it has the HEALING tag, while
+    // Match-and-Keep shuffles the unfiltered colorless pool.
+    pool.insert(8, BANDAGE_UP_ID);
+    pool
+}
+
+pub fn burn_all_discovery_card_choice_generations(
+    rng: &mut StsRng,
+    count: usize,
+    generations: usize,
+) {
+    burn_discovery_random_picks(
+        rng,
+        ironclad_combat_discovery_pool().len(),
+        count,
+        generations,
+    );
+}
+
+pub fn burn_all_discovery_card_choice_draws(rng: &mut StsRng, draws: usize) {
+    burn_discovery_random_draws(rng, ironclad_combat_discovery_pool().len(), draws);
 }
 
 #[must_use]

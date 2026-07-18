@@ -1,10 +1,10 @@
 use crate::{
-    content::cards::{upgrade_card_instance, upgrade_content_id},
+    content::cards::{card_instance_is_upgradeable, upgrade_card_instance},
     relic::{GIRYA_MAX_LIFTS, REGAL_PILLOW_HEAL},
     Relic, RestAction, RunPhase, RunState, SimError, SimResult,
 };
 
-use super::grid::open_rest_smith_grid;
+use super::grid::{open_rest_remove_grid, open_rest_smith_grid};
 use super::reward::{roll_event_relic_reward, roll_pending_card_reward_choices};
 use crate::RewardScreen;
 
@@ -49,12 +49,12 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
     if !run.relics.contains(&Relic::CoffeeDripper) {
         actions.push(RestAction::Heal);
     }
-    let has_upgradeable = run
-        .deck
-        .iter()
-        .any(|card| upgrade_content_id(card.content_id).is_some());
+    let has_upgradeable = run.deck.iter().any(card_instance_is_upgradeable);
     if has_upgradeable && can_smith(run) {
         actions.push(RestAction::OpenSmith);
+    }
+    if can_remove_at_rest(run) && run.deck.iter().any(|card| !card.bottled) {
+        actions.push(RestAction::OpenRemove);
     }
     if can_lift(run) {
         actions.push(RestAction::Lift);
@@ -66,7 +66,7 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
         if can_remove_at_rest(run) {
             actions.push(RestAction::RemoveCard { card_id: card.id });
         }
-        if upgrade_content_id(card.content_id).is_some() && can_smith(run) {
+        if card_instance_is_upgradeable(card) && can_smith(run) {
             actions.push(RestAction::Smith { card_id: card.id });
         }
     }
@@ -92,6 +92,11 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
         }
         RestAction::OpenSmith if legal_rest_actions(run).contains(&action) => Ok(()),
         RestAction::OpenSmith => Err(SimError::IllegalAction("smith is not available")),
+        RestAction::OpenRemove if !can_remove_at_rest(run) => {
+            Err(SimError::IllegalAction("remove is not available"))
+        }
+        RestAction::OpenRemove if run.deck.iter().any(|card| !card.bottled) => Ok(()),
+        RestAction::OpenRemove => Err(SimError::IllegalAction("remove is not available")),
         RestAction::Lift if can_lift(run) => Ok(()),
         RestAction::Lift => Err(SimError::IllegalAction("lift is not available")),
         RestAction::Dig if can_dig(run) => Ok(()),
@@ -105,7 +110,7 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
                 .iter()
                 .find(|card| card.id == card_id)
                 .ok_or(SimError::UnknownCard(card_id))?;
-            if upgrade_content_id(card.content_id).is_some() {
+            if card_instance_is_upgradeable(card) {
                 Ok(())
             } else {
                 Err(SimError::IllegalAction("card cannot be upgraded"))
@@ -134,14 +139,16 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             if next.relics.contains(&Relic::RegalPillow) {
                 heal += REGAL_PILLOW_HEAL;
             }
-            next.player_hp = (next.player_hp + heal).min(next.player_max_hp);
+            next.heal_player(heal);
             if next.relics.contains(&Relic::DreamCatcher) {
                 next.phase = RunPhase::Reward;
                 next.reward = Some(RewardScreen {
                     choices: Vec::new(),
+                    queued_card_rewards: Vec::new(),
                     gold_offer: 0,
                     stolen_gold_offer: 0,
                     potion_offer: None,
+                    potion_offers: Vec::new(),
                     relic_offer: None,
                     relic_key_offer: None,
                     pending_relic_offer: None,
@@ -164,6 +171,9 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
         RestAction::OpenSmith => {
             open_rest_smith_grid(&mut next);
         }
+        RestAction::OpenRemove => {
+            open_rest_remove_grid(&mut next);
+        }
         RestAction::Lift => {
             next.girya_lifts += 1;
             next.rest_room_complete = true;
@@ -175,9 +185,11 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             next.phase = RunPhase::Reward;
             next.reward = Some(RewardScreen {
                 choices: Vec::new(),
+                queued_card_rewards: Vec::new(),
                 gold_offer: 0,
                 stolen_gold_offer: 0,
                 potion_offer: None,
+                potion_offers: Vec::new(),
                 relic_offer,
                 relic_key_offer: if relic_offer.is_some() {
                     None

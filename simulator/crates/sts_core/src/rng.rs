@@ -256,7 +256,7 @@ impl JavaRng {
         loop {
             let bits = self.next_bits(31) as i32;
             let value = bits % bound;
-            if bits - value + (bound - 1) >= 0 {
+            if bits.wrapping_sub(value).wrapping_add(bound - 1) >= 0 {
                 return value;
             }
         }

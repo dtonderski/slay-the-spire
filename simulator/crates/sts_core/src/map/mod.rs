@@ -58,11 +58,15 @@ impl FixedMap {
 }
 
 pub fn reachable_nodes(state: &MapRunState) -> Vec<MapNodeId> {
-    state
+    let mut nodes = state
         .map
         .children_of(state.current_node)
         .map(|children| children.to_vec())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // CommunicationMod exposes map choices from left to right. Generated edge
+    // insertion order is not stable enough to use as the CHOOSE slot order.
+    nodes.sort_unstable();
+    nodes
 }
 
 pub fn wing_boots_reachable_nodes(state: &MapRunState) -> Vec<MapNodeId> {

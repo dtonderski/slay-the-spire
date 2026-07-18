@@ -10,14 +10,16 @@ pub mod state;
 
 pub use event::{
     apply_event_action, enter_event_screen, enter_fixed_event_screen,
-    enter_legacy_fixed_event_screen, event_screen, fixed_event_screen, legacy_fixed_event_screen,
-    legal_event_actions, validate_event_action, Event, EventChoice, EventScreen,
+    enter_legacy_fixed_event_screen, event_screen, fixed_event_screen, golden_shrine_gold,
+    legacy_fixed_event_screen, legal_event_actions, match_and_keep_group_index_for_label,
+    match_and_keep_label_index_for_group, validate_event_action, Event, EventChoice, EventScreen,
     GOLDEN_SHRINE_GOLD,
 };
 pub use grid::{
-    cancel_grid, confirm_grid, open_astrolabe_grid, open_bottle_grid, open_calling_bell_grid,
-    open_dollys_mirror_grid, open_empty_cage_grid, open_neow_remove_grid, open_neow_upgrade_grid,
-    open_pandoras_box_grid, open_rest_smith_grid, open_shop_remove_grid, select_grid_card,
+    cancel_grid, confirm_grid, open_astrolabe_grid, open_bonfire_elementals_grid, open_bottle_grid,
+    open_calling_bell_grid, open_designer_remove_and_upgrade_grid, open_dollys_mirror_grid,
+    open_empty_cage_grid, open_neow_remove_grid, open_neow_upgrade_grid, open_pandoras_box_grid,
+    open_rest_remove_grid, open_rest_smith_grid, open_shop_remove_grid, select_grid_card,
     CardGridScreen, GridPurpose,
 };
 pub use map::{apply_initial_monster_ai_rolls, apply_map_action_on_run, legal_map_actions_on_run};
@@ -40,7 +42,8 @@ pub use rest::{
 };
 pub use reward::{
     advance_card_rng_for_combat_entry, apply_combat_action_on_run, apply_run_action,
-    card_reward_choices, enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
+    card_reward_choices, consume_neow_three_potions_hidden_card_reward,
+    enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
     enter_elite_combat_reward_screen, enter_elite_relic_reward_screen,
     enter_normal_combat_reward_screen, enter_reward_screen, fixed_card_reward_choices,
     legacy_fixed_card_reward_choices, placeholder_card_reward_choices, roll_event_relic_reward,

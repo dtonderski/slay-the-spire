@@ -164,6 +164,18 @@ fn ink_bottle_counters_round_trip_through_combat_json() {
 }
 
 #[test]
+fn lizard_tail_availability_round_trips_through_combat_json() {
+    let run = RunState::combat_fixture_with_relics(vec![Relic::LizardTail]);
+    let mut combat = run.combat.expect("combat initialized");
+    combat.relic_counters.lizard_tail_available = true;
+
+    let json = serde_json::to_string(&combat).expect("combat serializes");
+    let restored: sts_core::CombatState = serde_json::from_str(&json).expect("combat deserializes");
+
+    assert!(restored.relic_counters.lizard_tail_available);
+}
+
+#[test]
 fn ornamental_fan_grants_block_after_three_attacks_in_turn() {
     let run = RunState::combat_fixture_with_relics(vec![Relic::OrnamentalFan]);
     let mut combat = run.combat.expect("combat initialized");
@@ -241,7 +253,7 @@ fn ice_cream_preserves_leftover_energy_across_turns() {
 
     let next = end_player_turn(&combat);
 
-    assert_eq!(next.player.energy, 1);
+    assert_eq!(next.player.energy, BASE_PLAYER_ENERGY + 1);
 }
 
 #[test]

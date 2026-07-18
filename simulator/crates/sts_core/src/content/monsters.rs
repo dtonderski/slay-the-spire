@@ -2019,6 +2019,26 @@ pub fn target_beyond_encounter_spawn_for_key(
     ascension: u8,
     neow_lament: bool,
 ) -> Option<Vec<TargetEncounterSpawn>> {
+    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+    target_beyond_encounter_spawn_for_key_with_misc_rng(
+        seed,
+        floor_num,
+        encounter_key,
+        ascension,
+        neow_lament,
+        &mut misc_rng,
+    )
+}
+
+#[must_use]
+pub fn target_beyond_encounter_spawn_for_key_with_misc_rng(
+    seed: i64,
+    floor_num: u32,
+    encounter_key: &str,
+    ascension: u8,
+    neow_lament: bool,
+    misc_rng: &mut StsRng,
+) -> Option<Vec<TargetEncounterSpawn>> {
     match encounter_key {
         "3 Darklings" => target_darkling_encounter_spawn(seed, floor_num, ascension, neow_lament),
         "3 Shapes" => Some(target_three_shapes_encounter_spawn(
@@ -2026,12 +2046,14 @@ pub fn target_beyond_encounter_spawn_for_key(
             floor_num,
             ascension,
             neow_lament,
+            misc_rng,
         )),
         "4 Shapes" => Some(target_four_shapes_encounter_spawn(
             seed,
             floor_num,
             ascension,
             neow_lament,
+            misc_rng,
         )),
         "Jaw Worm Horde" => Some(target_jaw_worm_horde_spawn(
             seed,
@@ -2060,11 +2082,13 @@ pub fn target_beyond_encounter_spawn_for_key(
             spawn.rolled_attack_damage = Some(transient_attack_damage(0, ascension));
             Some(vec![spawn])
         }
-        "Sphere and 2 Shapes" => Some(vec![
-            target_definition_spawn(&SPHERIC_GUARDIAN_A0, neow_lament),
-            target_definition_spawn(&SPIKER_A0, neow_lament),
-            target_definition_spawn(&REPULSOR_A0, neow_lament),
-        ]),
+        "Sphere and 2 Shapes" => Some(target_sphere_and_two_shapes_encounter_spawn(
+            seed,
+            floor_num,
+            ascension,
+            neow_lament,
+            misc_rng,
+        )),
         "Spire Growth" => Some(vec![target_definition_spawn(&SPIRE_GROWTH_A0, neow_lament)]),
         "Maw" => Some(vec![target_definition_spawn(&MAW_A0, neow_lament)]),
         "Writhing Mass" => Some(vec![target_definition_spawn(
@@ -2208,8 +2232,80 @@ fn target_three_shapes_encounter_spawn(
     floor_num: u32,
     ascension: u8,
     neow_lament: bool,
+    misc_rng: &mut StsRng,
 ) -> Vec<TargetEncounterSpawn> {
     let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    target_shapes_from_pool(3, misc_rng, &mut hp_rng, ascension, neow_lament)
+}
+
+fn target_four_shapes_encounter_spawn(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+    neow_lament: bool,
+    misc_rng: &mut StsRng,
+) -> Vec<TargetEncounterSpawn> {
+    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    target_shapes_from_pool(4, misc_rng, &mut hp_rng, ascension, neow_lament)
+}
+
+fn target_sphere_and_two_shapes_encounter_spawn(
+    seed: i64,
+    floor_num: u32,
+    ascension: u8,
+    neow_lament: bool,
+    misc_rng: &mut StsRng,
+) -> Vec<TargetEncounterSpawn> {
+    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut spawns = (0..2)
+        .map(|_| {
+            let name = target_random_ancient_shape_name(misc_rng);
+            target_ancient_shape_spawn(name, &mut hp_rng, ascension, neow_lament)
+        })
+        .collect::<Vec<_>>();
+    let mut spheric_guardian = target_definition_spawn(&SPHERIC_GUARDIAN_A0, neow_lament);
+    spheric_guardian.block = SPHERIC_GUARDIAN_STARTING_BLOCK;
+    spheric_guardian.powers.push(TargetSpawnPower {
+        id: "Artifact",
+        amount: SPHERIC_GUARDIAN_ARTIFACT,
+    });
+    spawns.push(spheric_guardian);
+    spawns
+}
+
+fn target_shapes_from_pool(
+    count: usize,
+    misc_rng: &mut StsRng,
+    hp_rng: &mut StsRng,
+    ascension: u8,
+    neow_lament: bool,
+) -> Vec<TargetEncounterSpawn> {
+    let mut pool = vec![
+        "Repulsor", "Repulsor", "Exploder", "Exploder", "Spiker", "Spiker",
+    ];
+    (0..count)
+        .map(|_| {
+            let index = misc_rng.random_int((pool.len() - 1) as i32) as usize;
+            let name = pool.remove(index);
+            target_ancient_shape_spawn(name, hp_rng, ascension, neow_lament)
+        })
+        .collect()
+}
+
+fn target_random_ancient_shape_name(misc_rng: &mut StsRng) -> &'static str {
+    match misc_rng.random_int(2) {
+        0 => "Spiker",
+        1 => "Repulsor",
+        _ => "Exploder",
+    }
+}
+
+fn target_ancient_shape_spawn(
+    name: &str,
+    hp_rng: &mut StsRng,
+    ascension: u8,
+    neow_lament: bool,
+) -> TargetEncounterSpawn {
     let spiker_hp_range = if ascension >= 7 {
         SPIKER_A7_HP_RANGE
     } else {
@@ -2219,6 +2315,11 @@ fn target_three_shapes_encounter_spawn(
         REPULSOR_A7_HP_RANGE
     } else {
         REPULSOR_A0_HP_RANGE
+    };
+    let exploder_damage = if ascension >= 2 {
+        EXPLODER_A2_ATTACK_DAMAGE
+    } else {
+        EXPLODER_ATTACK_DAMAGE
     };
     let spiker_damage = if ascension >= 2 {
         SPIKER_A2_ATTACK_DAMAGE
@@ -2230,129 +2331,55 @@ fn target_three_shapes_encounter_spawn(
     } else {
         REPULSOR_ATTACK_DAMAGE
     };
-    let exploder_damage = if ascension >= 2 {
-        EXPLODER_A2_ATTACK_DAMAGE
-    } else {
-        EXPLODER_ATTACK_DAMAGE
-    };
-    let spiker_thorns = if ascension >= 2 {
-        SPIKER_A2_THORNS
-    } else {
-        SPIKER_THORNS
-    };
-    // The first shape consumes the monster HP RNG even though its visible HP is fixed.
-    let _exploder_constructor_hp_roll = hp_rng.random_int(0);
-
-    let mut exploder = target_combat_entry_spawn(
-        "Exploder",
-        EXPLODER_A0.hp,
-        neow_lament,
-        vec![TargetSpawnPower {
-            id: "Explosive",
-            amount: EXPLODER_EXPLOSIVE,
-        }],
-    );
-    exploder.intent = "Attack";
-    exploder.rolled_attack_damage = Some(exploder_damage);
-
-    let spiker_hp = spiker_hp_range.roll(&mut hp_rng);
-    let mut spiker = target_combat_entry_spawn(
-        "Spiker",
-        spiker_hp,
-        neow_lament,
-        vec![TargetSpawnPower {
-            id: "Thorns",
-            amount: spiker_thorns,
-        }],
-    );
-    spiker.intent = "Attack";
-    spiker.rolled_attack_damage = Some(spiker_damage);
-
-    let repulsor_hp = repulsor_hp_range.roll(&mut hp_rng);
-    let mut repulsor = target_combat_entry_spawn("Repulsor", repulsor_hp, neow_lament, Vec::new());
-    repulsor.intent = "AddDazedToDraw";
-    repulsor.rolled_attack_damage = Some(repulsor_damage);
-
-    vec![exploder, spiker, repulsor]
-}
-
-fn target_four_shapes_encounter_spawn(
-    seed: i64,
-    floor_num: u32,
-    ascension: u8,
-    neow_lament: bool,
-) -> Vec<TargetEncounterSpawn> {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
-    let spiker_hp_range = if ascension >= 7 {
-        SPIKER_A7_HP_RANGE
-    } else {
-        SPIKER_A0_HP_RANGE
-    };
-    let repulsor_hp_range = if ascension >= 7 {
-        REPULSOR_A7_HP_RANGE
-    } else {
-        REPULSOR_A0_HP_RANGE
-    };
-    let exploder_damage = if ascension >= 2 {
-        EXPLODER_A2_ATTACK_DAMAGE
-    } else {
-        EXPLODER_ATTACK_DAMAGE
-    };
-    let repulsor_damage = if ascension >= 2 {
-        REPULSOR_A2_ATTACK_DAMAGE
-    } else {
-        REPULSOR_ATTACK_DAMAGE
-    };
     let spiker_thorns = if ascension >= 2 {
         SPIKER_A2_THORNS
     } else {
         SPIKER_THORNS
     };
 
-    let _first_exploder_constructor_hp_roll = hp_rng.random_int(0);
-    let mut first_exploder = target_combat_entry_spawn(
-        "Exploder",
-        EXPLODER_A0.hp,
-        neow_lament,
-        vec![TargetSpawnPower {
-            id: "Explosive",
-            amount: EXPLODER_EXPLOSIVE,
-        }],
-    );
-    first_exploder.intent = "Attack";
-    first_exploder.rolled_attack_damage = Some(exploder_damage);
-
-    let spiker_hp = spiker_hp_range.roll(&mut hp_rng);
-    let mut spiker = target_combat_entry_spawn(
-        "Spiker",
-        spiker_hp,
-        neow_lament,
-        vec![TargetSpawnPower {
-            id: "Thorns",
-            amount: spiker_thorns,
-        }],
-    );
-    spiker.intent = "StrengthAndBlock";
-
-    let _second_exploder_constructor_hp_roll = hp_rng.random_int(0);
-    let mut second_exploder = target_combat_entry_spawn(
-        "Exploder",
-        EXPLODER_A0.hp,
-        neow_lament,
-        vec![TargetSpawnPower {
-            id: "Explosive",
-            amount: EXPLODER_EXPLOSIVE,
-        }],
-    );
-    second_exploder.intent = "Attack";
-    second_exploder.rolled_attack_damage = Some(exploder_damage);
-
-    let repulsor_hp = repulsor_hp_range.roll(&mut hp_rng);
-    let mut repulsor = target_combat_entry_spawn("Repulsor", repulsor_hp, neow_lament, Vec::new());
-    repulsor.intent = "AddDazedToDraw";
-    repulsor.rolled_attack_damage = Some(repulsor_damage);
-
-    vec![first_exploder, spiker, second_exploder, repulsor]
+    match name {
+        "Spiker" => {
+            let mut spawn = target_combat_entry_spawn(
+                "Spiker",
+                spiker_hp_range.roll(hp_rng),
+                neow_lament,
+                vec![TargetSpawnPower {
+                    id: "Thorns",
+                    amount: spiker_thorns,
+                }],
+            );
+            spawn.intent = "Attack";
+            spawn.rolled_attack_damage = Some(spiker_damage);
+            spawn
+        }
+        "Repulsor" => {
+            let mut spawn = target_combat_entry_spawn(
+                "Repulsor",
+                repulsor_hp_range.roll(hp_rng),
+                neow_lament,
+                Vec::new(),
+            );
+            spawn.intent = "AddDazedToDraw";
+            spawn.rolled_attack_damage = Some(repulsor_damage);
+            spawn
+        }
+        "Exploder" => {
+            let _constructor_hp_roll = hp_rng.random_int(0);
+            let mut spawn = target_combat_entry_spawn(
+                "Exploder",
+                EXPLODER_A0.hp,
+                neow_lament,
+                vec![TargetSpawnPower {
+                    id: "Explosive",
+                    amount: EXPLODER_EXPLOSIVE,
+                }],
+            );
+            spawn.intent = "Attack";
+            spawn.rolled_attack_damage = Some(exploder_damage);
+            spawn
+        }
+        _ => unreachable!("ancient shape pool contains only Spiker, Repulsor, and Exploder"),
+    }
 }
 
 #[must_use]
@@ -2873,6 +2900,13 @@ pub fn target_monster_hp_range_for_content_id(
                 MonsterHpRange::new(320, 320)
             } else {
                 MonsterHpRange::new(300, 300)
+            }
+        }
+        THE_COLLECTOR_ID => {
+            if ascension >= 9 {
+                MonsterHpRange::new(300, 300)
+            } else {
+                MonsterHpRange::new(282, 282)
             }
         }
         _ => return None,
@@ -3969,6 +4003,7 @@ pub fn prepare_monster_intent_for_ascension(
 }
 
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 fn prepare_monster_intent_for_monster(
     definition: &MonsterDefinition,
     moves_executed: u32,
@@ -4274,7 +4309,7 @@ fn target_darkling_next_intent_from_roll_inner(
     }
 
     if roll < 40 {
-        if !move_history.ends_with(&[1]) && monster_index % 2 == 0 {
+        if !move_history.ends_with(&[1]) && monster_index.is_multiple_of(2) {
             MonsterIntent::AttackMultiple {
                 damage: DARKLING_CHOMP_DAMAGE,
                 hits: 2,
@@ -4875,11 +4910,11 @@ fn mugger_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
 pub fn target_mugger_direct_next_intent_after_turn(
     move_history: &[u8],
     moves_executed: u32,
-    rng: Option<&mut StsRng>,
+    mut rng: Option<&mut StsRng>,
     ascension: u8,
 ) -> MonsterIntent {
     if last_move(move_history, 1) && moves_executed == 1 {
-        if let Some(rng) = rng {
+        if let Some(rng) = rng.as_deref_mut() {
             let _ = rng.random_int(2);
         }
         return MonsterIntent::AttackStealGold {
@@ -4888,7 +4923,7 @@ pub fn target_mugger_direct_next_intent_after_turn(
         };
     }
     if last_move(move_history, 1) && moves_executed == 2 {
-        if let Some(rng) = rng {
+        if let Some(rng) = rng.as_deref_mut() {
             let _ = rng.random_int(2);
             let _ = rng.random_float() < 0.6;
             if rng.random_float() < 0.5 {
@@ -6287,7 +6322,7 @@ fn taskmaster_intent() -> MonsterIntent {
     }
 }
 
-fn taskmaster_wound_count(ascension: u8) -> i32 {
+pub fn target_taskmaster_wound_count(ascension: u8) -> i32 {
     if ascension >= 18 {
         TASKMASTER_A18_WOUNDS
     } else if ascension >= 3 {
@@ -7052,7 +7087,7 @@ pub fn target_bronze_automaton_next_intent(
     if moves_executed == 0 {
         return MonsterIntent::SummonGremlins { count: 2 };
     }
-    if moves_executed == 5 {
+    if moves_executed % 6 == 5 {
         return MonsterIntent::Attack {
             damage: bronze_automaton_hyper_beam_damage(ascension),
         };
@@ -7080,8 +7115,10 @@ pub fn target_bronze_automaton_next_intent(
 
 #[must_use]
 fn bronze_automaton_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
-    match moves_executed {
-        0 => MonsterIntent::SummonGremlins { count: 2 },
+    if moves_executed == 0 {
+        return MonsterIntent::SummonGremlins { count: 2 };
+    }
+    match moves_executed % 6 {
         1 | 3 => MonsterIntent::AttackMultiple {
             damage: bronze_automaton_flail_damage(ascension),
             hits: BRONZE_AUTOMATON_FLAIL_HITS,
@@ -7093,15 +7130,12 @@ fn bronze_automaton_intent(moves_executed: u32, ascension: u8) -> MonsterIntent 
         5 => MonsterIntent::Attack {
             damage: bronze_automaton_hyper_beam_damage(ascension),
         },
-        6 if ascension >= 19 => MonsterIntent::StrengthAndBlock {
+        0 if ascension >= 19 => MonsterIntent::StrengthAndBlock {
             strength: bronze_automaton_boost_strength(ascension),
             block: bronze_automaton_boost_block(ascension),
         },
-        6 => MonsterIntent::Stun,
-        _ => MonsterIntent::AttackMultiple {
-            damage: bronze_automaton_flail_damage(ascension),
-            hits: BRONZE_AUTOMATON_FLAIL_HITS,
-        },
+        0 => MonsterIntent::Stun,
+        _ => unreachable!("modulo six move index is covered"),
     }
 }
 
@@ -7510,6 +7544,7 @@ pub fn apply_gremlin_leader_encourage(
     }
 }
 
+#[allow(clippy::explicit_counter_loop)]
 pub fn apply_gremlin_leader_rally_representative(monsters: &mut Vec<MonsterState>, count: i32) {
     if count <= 0 {
         return;
@@ -7618,36 +7653,33 @@ pub fn apply_collector_spawn_torch_heads(
     } else {
         TORCH_HEAD_A0_HP_RANGE
     };
-    let mut next_id = monsters
+    let first_id = monsters
         .iter()
         .map(|monster| monster.id.get())
         .max()
         .unwrap_or(0)
         + 1;
-    let replacing_dead_torch_heads = monsters
-        .iter()
-        .any(|monster| monster.content_id == TORCH_HEAD_ID && !monster.alive);
-    let initial_collector_summon = !replacing_dead_torch_heads && count == 2 && ascension < 9;
     let mut hp_values = (0..count)
         .map(|_| {
             hp_rng.as_deref_mut().map_or(TORCH_HEAD_A0.hp, |rng| {
-                let constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(rng);
-                if initial_collector_summon {
-                    constructor_hp
-                } else {
-                    range.roll(rng)
-                }
+                // TorchHead rolls the A0 range for AbstractMonster's hp
+                // argument, then its own setHp call rolls the active range.
+                let _constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(rng);
+                range.roll(rng)
             })
         })
         .collect::<Vec<_>>();
-    if replacing_dead_torch_heads {
-        hp_values.reverse();
-    }
+    // The Collector constructs slot 1 before slot 2, but SpawnMonsterAction
+    // inserts the farther-left slot 2 before slot 1 in MonsterGroup order.
+    hp_values.reverse();
 
     for (slot_index, max_hp) in hp_values.into_iter().enumerate() {
         let slot = (slot_index + 1) as u8;
-        let mut monster =
-            monster_state_for_ascension(&TORCH_HEAD_A0, MonsterId::new(next_id), ascension);
+        let mut monster = monster_state_for_ascension(
+            &TORCH_HEAD_A0,
+            MonsterId::new(first_id + slot_index as u64),
+            ascension,
+        );
         monster.hp = max_hp;
         monster.max_hp = max_hp;
         monster.powers.minion = 1;
@@ -7673,7 +7705,6 @@ pub fn apply_collector_spawn_torch_heads(
             })
             .unwrap_or(monsters.len());
         monsters.insert(insert_index, monster);
-        next_id += 1;
     }
 }
 
@@ -7846,7 +7877,7 @@ fn reptomancer_position_key_for_slot(slot: u8) -> u8 {
 pub fn apply_large_acid_slime_split(
     monsters: &mut Vec<MonsterState>,
     slime_id: MonsterId,
-    mut rng: Option<&mut StsRng>,
+    rng: Option<&mut StsRng>,
     ascension: u8,
 ) {
     let Some(slime_index) = monsters
@@ -7872,7 +7903,7 @@ pub fn apply_large_acid_slime_split(
     left.max_hp = split_hp;
     right.hp = split_hp;
     right.max_hp = split_hp;
-    if let Some(rng) = rng.as_deref_mut() {
+    if let Some(rng) = rng {
         let left_roll = rng.random_int(99);
         left.intent = target_medium_acid_slime_next_intent_from_roll(
             &left.move_history,
@@ -7975,7 +8006,7 @@ pub fn apply_large_spike_slime_split(
     monsters[slime_index].hp = 0;
     monsters[slime_index].alive = false;
     monsters[slime_index].block = 0;
-    if let Some(rng) = rng.as_deref_mut() {
+    if let Some(rng) = rng {
         let parent_roll = rng.random_int(99);
         monsters[slime_index].intent = target_medium_or_large_spike_slime_next_intent_from_roll(
             monsters[slime_index].max_hp,
@@ -8037,7 +8068,7 @@ pub fn apply_slime_boss_split(
     } else {
         ACID_SLIME_L_NORMAL_TACKLE_DAMAGE
     });
-    if let Some(rng) = rng.as_deref_mut() {
+    if let Some(rng) = rng {
         let roll = rng.random_int(99);
         acid.intent =
             target_large_acid_slime_next_intent_from_roll(&acid.move_history, roll, rng, ascension);
@@ -8601,8 +8632,10 @@ fn guardian_intent(
             1 => MonsterIntent::Attack {
                 damage: guardian_fierce_bash_damage(ascension),
             },
-            2 => MonsterIntent::ApplyPlayerWeak {
-                amount: GUARDIAN_VENT_DEBUFF,
+            2 => MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+                frail: 0,
+                weak: GUARDIAN_VENT_DEBUFF,
+                vulnerable: GUARDIAN_VENT_DEBUFF,
             },
             _ => MonsterIntent::AttackMultiple {
                 damage: GUARDIAN_WHIRLWIND_DAMAGE,
@@ -8672,6 +8705,23 @@ pub fn guardian_on_hp_damage(monster: &mut MonsterState, hp_damage: i32) {
     if monster.mode_shift <= 0 {
         enter_guardian_defensive_mode(monster);
     }
+}
+
+/// Records Guardian Mode Shift damage without entering defensive mode yet.
+///
+/// Card effect queues use this so all hits (including copied multi-hit card
+/// effects) resolve before the queued card action finishes and Guardian gains
+/// its defensive block. Non-card damage paths can continue using
+/// [`guardian_on_hp_damage`] for immediate resolution.
+pub fn guardian_accumulate_hp_damage(monster: &mut MonsterState, hp_damage: i32) {
+    if monster.content_id != GUARDIAN_ID
+        || hp_damage <= 0
+        || monster.in_defensive_mode
+        || monster.mode_shift <= 0
+    {
+        return;
+    }
+    monster.mode_shift -= hp_damage;
 }
 
 pub fn large_acid_slime_on_hp_damage(monster: &mut MonsterState, hp_damage: i32) {
@@ -8903,7 +8953,9 @@ pub fn target_gremlin_nob_next_intent_from_roll(
             damage: gremlin_nob_rush_damage(ascension),
         };
     }
-    if roll < 33 && !last_move(move_history, 2) {
+    // Target GremlinNob.getMove has no lastMove guard on the pre-A18
+    // low-roll branch, so Skull Bash may be selected on consecutive turns.
+    if roll < 33 {
         return MonsterIntent::AttackApplyPlayerVulnerable {
             damage: gremlin_nob_skull_bash_damage(ascension),
             vulnerable: 2,
@@ -9263,7 +9315,15 @@ pub fn apply_monster_intent_with_card_rng(
             (0, 0)
         }
         MonsterIntent::AttackAndBlock { damage, block } => {
-            block_after_thorns = block;
+            if monster.content_id == SPHERIC_GUARDIAN_ID {
+                // Target SphericGuardian move 3 queues GainBlockAction before
+                // DamageAction, so reactive thorns damage lands into the newly
+                // gained block. Other modeled AttackAndBlock users retain their
+                // source attack-then-block ordering.
+                monster.block += block;
+            } else {
+                block_after_thorns = block;
+            }
             (
                 monster_damage_to_player(player_before, monster, scale_damage(damage)),
                 1,
@@ -9376,9 +9436,14 @@ pub fn apply_monster_intent_with_card_rng(
             weak,
             vulnerable,
         } => {
-            player.powers.frail = player.powers.frail.max(frail);
-            player.powers.weak = player.powers.weak.max(weak);
-            player.powers.vulnerable = player.powers.vulnerable.max(vulnerable);
+            apply_player_frail(&mut player.powers, frail);
+            crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
+            let starts_new_vulnerable =
+                vulnerable > 0 && player.powers.vulnerable == 0 && player.powers.artifact == 0;
+            apply_player_vulnerable(&mut player.powers, vulnerable);
+            if starts_new_vulnerable {
+                player.vulnerable_just_applied = true;
+            }
             (0, 0)
         }
         MonsterIntent::ApplyPlayerWeakStrengthSelf { weak, strength } => {
@@ -9411,13 +9476,7 @@ pub fn apply_monster_intent_with_card_rng(
             add_cards_to_discard(piles, SLIMED_ID, count);
             (0, 0)
         }
-        MonsterIntent::AttackAddWoundsToDiscard { damage, count } => {
-            let count = if monster.content_id == TASKMASTER_ID {
-                taskmaster_wound_count(ascension)
-            } else {
-                count
-            };
-            add_cards_to_discard(piles, crate::content::cards::WOUND_ID, count);
+        MonsterIntent::AttackAddWoundsToDiscard { damage, .. } => {
             let damage_taken =
                 monster_damage_to_player(player_before, monster, scale_damage(damage));
             if monster.content_id == TASKMASTER_ID && ascension >= 18 {
@@ -9698,7 +9757,7 @@ fn take_random_card_of_rarity(
     if candidate_indices.is_empty() {
         return None;
     }
-    candidate_indices.sort_by(|(_, left), (_, right)| left.cmp(right));
+    candidate_indices.sort_by_key(|(_, key)| *key);
     let pick = rng.random_int((candidate_indices.len() - 1) as i32) as usize;
     Some(pile.remove(candidate_indices[pick].0))
 }
@@ -9706,6 +9765,64 @@ fn take_random_card_of_rarity(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sphere_and_two_shapes_uses_misc_rng_for_both_shape_identities() {
+        let seed = 772_776_727_775_i64;
+        let floor = 41;
+        let mut misc_rng = StsRng::new(seed + i64::from(floor));
+
+        let spawns = target_beyond_encounter_spawn_for_key_with_misc_rng(
+            seed,
+            floor,
+            "Sphere and 2 Shapes",
+            0,
+            false,
+            &mut misc_rng,
+        )
+        .expect("encounter is implemented");
+
+        assert_eq!(
+            spawns
+                .iter()
+                .map(|spawn| (spawn.name, spawn.max_hp))
+                .collect::<Vec<_>>(),
+            vec![("Repulsor", 32), ("Repulsor", 33), ("Spheric Guardian", 20),]
+        );
+        assert_eq!(spawns[2].block, SPHERIC_GUARDIAN_STARTING_BLOCK);
+        assert_eq!(
+            spawns[2].powers,
+            vec![TargetSpawnPower {
+                id: "Artifact",
+                amount: SPHERIC_GUARDIAN_ARTIFACT,
+            }]
+        );
+        assert_eq!(misc_rng.counter(), 2);
+    }
+
+    #[test]
+    fn guardian_vent_steam_applies_weak_and_vulnerable() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.moves_executed = 2;
+        monster.intent = guardian_intent(false, 0, monster.moves_executed, 0);
+        let mut player = state.player.clone();
+        let player_before = player.clone();
+
+        let damage = apply_monster_intent(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            0,
+            &player_before,
+            &[],
+        );
+
+        assert_eq!(damage, 0);
+        assert_eq!(player.powers.weak, GUARDIAN_VENT_DEBUFF);
+        assert_eq!(player.powers.vulnerable, GUARDIAN_VENT_DEBUFF);
+        assert!(player.vulnerable_just_applied);
+    }
 
     #[test]
     fn guardian_multi_hit_thorns_counts_hits_absorbed_by_block() {
@@ -9763,6 +9880,17 @@ mod tests {
             target_gremlin_nob_next_intent_from_roll(&[3], 99, 17),
             MonsterIntent::Attack {
                 damage: GREMLIN_NOB_A3_RUSH_DAMAGE
+            }
+        );
+    }
+
+    #[test]
+    fn gremlin_nob_a0_low_roll_can_repeat_skull_bash() {
+        assert_eq!(
+            target_gremlin_nob_next_intent_from_roll(&[3, 1, 1, 2], 0, 0),
+            MonsterIntent::AttackApplyPlayerVulnerable {
+                damage: GREMLIN_NOB_SKULL_BASH_DAMAGE,
+                vulnerable: 2
             }
         );
     }
@@ -10262,6 +10390,19 @@ mod tests {
             }
         );
         assert_eq!(target_move_byte(BRONZE_AUTOMATON_ID, hyper_beam), Some(2));
+        assert_eq!(
+            target_bronze_automaton_next_intent(11, &[5, 1, 5], 0),
+            MonsterIntent::Attack {
+                damage: BRONZE_AUTOMATON_HYPER_BEAM_DAMAGE
+            },
+            "the source numTurns reset repeats Hyper Beam every six moves"
+        );
+        assert_eq!(
+            bronze_automaton_intent(11, 0),
+            MonsterIntent::Attack {
+                damage: BRONZE_AUTOMATON_HYPER_BEAM_DAMAGE
+            }
+        );
 
         assert_eq!(
             target_bronze_automaton_next_intent(6, &[4, 1, 5, 1, 5, 2], 18),
@@ -10837,12 +10978,88 @@ mod tests {
         assert_eq!(monsters[0].content_id, TORCH_HEAD_ID);
         assert_eq!(monsters[1].content_id, TORCH_HEAD_ID);
         assert_eq!(monsters[2].content_id, THE_COLLECTOR_ID);
-        assert_eq!((monsters[0].hp, monsters[0].max_hp), (first_hp, first_hp));
-        assert_eq!((monsters[1].hp, monsters[1].max_hp), (second_hp, second_hp));
+        assert_eq!((monsters[0].hp, monsters[0].max_hp), (second_hp, second_hp));
+        assert_eq!((monsters[1].hp, monsters[1].max_hp), (first_hp, first_hp));
         assert_eq!(monsters[0].intent, MonsterIntent::Attack { damage: 7 });
         assert_eq!(monsters[1].intent, MonsterIntent::Attack { damage: 7 });
         assert_eq!(monsters[0].move_history, vec![1]);
         assert_eq!(monsters[1].move_history, vec![1]);
+    }
+
+    #[test]
+    fn collector_a0_torch_heads_consume_constructor_and_set_hp_rolls() {
+        let mut monsters = vec![monster_state(&THE_COLLECTOR_A0, MonsterId::new(1))];
+        let mut hp_rng = StsRng::new(2468);
+        let mut ai_rng = StsRng::new(1357);
+        let mut expected_hp_rng = StsRng::new(2468);
+        let _first_constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
+        let first_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
+        let _second_constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
+        let second_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
+
+        apply_collector_spawn_torch_heads(
+            &mut monsters,
+            2,
+            Some(&mut ai_rng),
+            Some(&mut hp_rng),
+            0,
+        );
+
+        assert_eq!(hp_rng.counter(), 4);
+        assert_eq!(ai_rng.counter(), 2);
+        assert_eq!((monsters[0].hp, monsters[0].max_hp), (second_hp, second_hp));
+        assert_eq!((monsters[1].hp, monsters[1].max_hp), (first_hp, first_hp));
+    }
+
+    #[test]
+    fn collector_fixed_hp_roll_aligns_initial_and_replacement_torch_heads() {
+        let mut monsters = vec![monster_state(&THE_COLLECTOR_A0, MonsterId::new(1))];
+        let mut hp_rng = StsRng::new(772_776_727_775 + 33);
+        let mut ai_rng = StsRng::new(1357);
+
+        let collector_hp = target_monster_hp_range_for_content_id(THE_COLLECTOR_ID, 0)
+            .expect("Collector has a fixed setHp roll")
+            .roll(&mut hp_rng);
+        assert_eq!(collector_hp, 282);
+        apply_collector_spawn_torch_heads(
+            &mut monsters,
+            2,
+            Some(&mut ai_rng),
+            Some(&mut hp_rng),
+            0,
+        );
+        assert_eq!(
+            monsters
+                .iter()
+                .filter(|monster| monster.content_id == TORCH_HEAD_ID && monster.alive)
+                .map(|monster| monster.max_hp)
+                .collect::<Vec<_>>(),
+            vec![39, 39]
+        );
+
+        for monster in &mut monsters {
+            if monster.content_id == TORCH_HEAD_ID {
+                monster.alive = false;
+                monster.hp = 0;
+            }
+        }
+        apply_collector_spawn_torch_heads(
+            &mut monsters,
+            2,
+            Some(&mut ai_rng),
+            Some(&mut hp_rng),
+            0,
+        );
+
+        assert_eq!(hp_rng.counter(), 9);
+        assert_eq!(
+            monsters
+                .iter()
+                .filter(|monster| monster.content_id == TORCH_HEAD_ID && monster.alive)
+                .map(|monster| monster.max_hp)
+                .collect::<Vec<_>>(),
+            vec![38, 39]
+        );
     }
 
     #[test]

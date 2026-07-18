@@ -6,29 +6,31 @@ use crate::{
         advance_reptomancer_monster_hp_rng_for_entry, content_id_from_game_monster_id,
         donu_deca_boss_monsters_for_ascension, get_monster_definition, living_monster_missing_hp,
         monster_state_for_ascension, prepare_monster_intent_for_ascension, record_target_move,
-        target_acid_slime_entry_intent_from_roll, target_beyond_encounter_spawn_for_key,
+        target_acid_slime_entry_intent_from_roll,
+        target_beyond_encounter_spawn_for_key_with_misc_rng,
         target_book_of_stabbing_next_intent_from_roll_with_stab_count,
         target_bronze_orb_next_intent_from_roll, target_byrd_next_intent_from_roll,
         target_centurion_next_intent_from_roll, target_champ_next_intent_from_roll,
         target_chosen_next_intent_from_roll, target_city_normal_encounter_spawn_at_combat_index,
         target_elite_encounter_spawn_at_combat_index, target_exploder_next_intent_from_roll,
-        target_fungi_beast_next_intent_from_roll, target_gremlin_leader_next_intent_from_roll,
-        target_healer_next_intent_from_roll, target_jaw_worm_next_intent_from_roll,
-        target_large_acid_slime_next_intent_from_roll, target_louse_entry_intent_from_roll,
-        target_monster_hp_range_for_content_id, target_normal_encounter_spawn_at_combat_index,
-        target_orb_walker_next_intent_from_roll, target_reptomancer_next_intent_from_roll,
-        target_repulsor_next_intent_from_roll, target_sentry_next_intent,
-        target_shelled_parasite_next_intent_from_roll, target_slaver_blue_next_intent_from_roll,
-        target_slaver_red_next_intent_from_roll, target_small_acid_slime_entry_intent_from_bool,
-        target_snake_plant_next_intent_from_roll, target_snecko_next_intent_from_roll,
-        target_spike_slime_entry_intent_from_roll, target_spire_growth_next_intent_from_roll,
-        TargetEncounterSpawn, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE,
-        BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID, DAGGER_ID,
-        DARKLING_ID, EXPLODER_ID, FUNGI_BEAST_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID,
-        GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH,
-        ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
+        target_fungi_beast_next_intent_from_roll, target_giant_head_next_intent_from_roll,
+        target_gremlin_leader_next_intent_from_roll, target_healer_next_intent_from_roll,
+        target_jaw_worm_next_intent_from_roll, target_large_acid_slime_next_intent_from_roll,
+        target_louse_entry_intent_from_roll, target_monster_hp_range_for_content_id,
+        target_normal_encounter_spawn_at_combat_index, target_orb_walker_next_intent_from_roll,
+        target_reptomancer_next_intent_from_roll, target_repulsor_next_intent_from_roll,
+        target_sentry_next_intent, target_shelled_parasite_next_intent_from_roll,
+        target_slaver_blue_next_intent_from_roll, target_slaver_red_next_intent_from_roll,
+        target_small_acid_slime_entry_intent_from_bool, target_snake_plant_next_intent_from_roll,
+        target_snecko_next_intent_from_roll, target_spike_slime_entry_intent_from_roll,
+        target_spire_growth_next_intent_from_roll, TargetEncounterSpawn, ACID_SLIME_ID,
+        ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_ORB_ID,
+        BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID, DAGGER_ID, DARKLING_ID, EXPLODER_ID,
+        FUNGI_BEAST_ID, GIANT_HEAD_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
+        GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH, ORB_WALKER_ID,
+        RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
         SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SNAKE_PLANT_ID, SNECKO_ID,
-        SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID, THE_COLLECTOR_ID,
+        SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID,
     },
     ids::CardId,
     map::{
@@ -75,6 +77,9 @@ pub fn legal_map_actions_on_run(run: &RunState) -> Vec<MapAction> {
             }
         }
     }
+    actions.sort_unstable_by_key(|action| match action {
+        MapAction::ChooseNode { node_id } => *node_id,
+    });
     actions
 }
 
@@ -168,19 +173,14 @@ fn enter_boss_combat(run: &mut RunState) {
     enter_combat_with_base(run, &mut base);
 }
 
+pub(crate) fn enter_secret_portal_boss_combat(run: &mut RunState) {
+    enter_boss_combat(run);
+}
+
 fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
     run.reset_card_random_rng_for_combat();
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
-    let monster_hp_floor = if base
-        .monsters
-        .iter()
-        .any(|monster| monster.content_id == THE_COLLECTOR_ID)
-    {
-        run.current_floor.saturating_sub(1)
-    } else {
-        run.current_floor
-    };
-    let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(monster_hp_floor));
+    let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut card_random_rng = Some(run.card_random_rng());
     // This local field is the target game's combat aiRng. Target monsterRng is the
     // run-level encounter-list stream.
@@ -435,6 +435,13 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
                 false,
                 combat.ascension,
             );
+        } else if monster.content_id == GIANT_HEAD_ID {
+            monster.intent = target_giant_head_next_intent_from_roll(
+                monster.moves_executed,
+                &monster.move_history,
+                roll,
+                combat.ascension,
+            );
         } else if monster.content_id == DARKLING_ID {
             monster.intent = crate::content::monsters::target_darkling_next_intent_from_roll(
                 &monster.move_history,
@@ -496,13 +503,7 @@ fn normal_combat_state_for_run(run: &mut RunState) -> CombatState {
                 )
             })
             .and_then(|encounter_key| {
-                target_beyond_encounter_spawn_for_key(
-                    run.event_rng_seed as i64,
-                    floor,
-                    &encounter_key,
-                    run.ascension,
-                    neow_lament,
-                )
+                target_beyond_encounter_spawn_for_run(run, floor, &encounter_key, neow_lament)
             })
     } else if run.current_act == 2 {
         if let Some(encounter_key) = run.normal_encounter_list.get(combat_index).cloned() {
@@ -645,6 +646,25 @@ fn target_city_encounter_spawn_for_run(
         run.ascension,
         neow_lament,
         Some(&mut misc_rng),
+    );
+    run.store_rng_counter(RunRngStream::Misc, &misc_rng);
+    spawns
+}
+
+fn target_beyond_encounter_spawn_for_run(
+    run: &mut RunState,
+    floor: u32,
+    encounter_key: &str,
+    neow_lament: bool,
+) -> Option<Vec<TargetEncounterSpawn>> {
+    let mut misc_rng = run.rng_for_stream(RunRngStream::Misc);
+    let spawns = target_beyond_encounter_spawn_for_key_with_misc_rng(
+        run.event_rng_seed as i64,
+        floor,
+        encounter_key,
+        run.ascension,
+        neow_lament,
+        &mut misc_rng,
     );
     run.store_rng_counter(RunRngStream::Misc, &misc_rng);
     spawns
@@ -980,12 +1000,12 @@ mod tests {
     use crate::{
         content::monsters::{
             target_book_of_stabbing_next_intent_from_roll, target_bronze_orb_next_intent_from_roll,
-            target_exploder_next_intent_from_roll, target_orb_walker_next_intent_from_roll,
-            target_repulsor_next_intent_from_roll, target_sentry_next_intent,
-            target_slaver_red_next_intent_from_roll, target_snecko_next_intent_from_roll,
-            BOOK_OF_STABBING_ID, BRONZE_ORB_ID, CULTIST_ID, DECA_ID, DONU_ID, EXPLODER_ID,
-            ORB_WALKER_ID, REPULSOR_ID, SENTRY_ID, SLAVER_RED_ID, SNECKO_ID, SPIKE_SLIME_ID,
-            TASKMASTER_ID,
+            target_exploder_next_intent_from_roll, target_giant_head_next_intent_from_roll,
+            target_orb_walker_next_intent_from_roll, target_repulsor_next_intent_from_roll,
+            target_sentry_next_intent, target_slaver_red_next_intent_from_roll,
+            target_snecko_next_intent_from_roll, BOOK_OF_STABBING_ID, BRONZE_ORB_ID, CULTIST_ID,
+            DECA_ID, DONU_ID, EXPLODER_ID, GIANT_HEAD_ID, ORB_WALKER_ID, REPULSOR_ID, SENTRY_ID,
+            SLAVER_RED_ID, SNECKO_ID, SPIKE_SLIME_ID, TASKMASTER_ID,
         },
         ContentId, MonsterIntent,
     };
@@ -1044,6 +1064,9 @@ mod tests {
         });
         assert_initial_intent_from_roll(EXPLODER_ID, |_history, _roll, ascension| {
             target_exploder_next_intent_from_roll(0, ascension)
+        });
+        assert_initial_intent_from_roll(GIANT_HEAD_ID, |history, roll, ascension| {
+            target_giant_head_next_intent_from_roll(0, history, roll, ascension)
         });
         assert_initial_intent_from_roll(TASKMASTER_ID, |_history, _roll, _ascension| {
             MonsterIntent::AttackAddWoundsToDiscard {

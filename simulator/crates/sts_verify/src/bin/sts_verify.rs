@@ -585,6 +585,7 @@ fn main() {
 #[derive(Debug)]
 struct TraceStatusEntry {
     trace: String,
+    verified_floor: u32,
     total_actions: usize,
     verified: usize,
     raw_diffs: usize,
@@ -626,10 +627,20 @@ fn trace_status_entries(
             .and_then(|name| name.to_str())
             .unwrap_or("<unknown>")
             .to_owned();
-        let content =
-            fs::read_to_string(&path).map_err(|err| format!("{}: {err}", path.display()))?;
-        let report = verify_communication_mod_trace_with_mode(&content, mode)
-            .map_err(|err| format!("{}: {err}", path.display()))?;
+        let content = match fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(err) => {
+                entries.push(trace_error_entry(trace_name, format!("read error: {err}")));
+                continue;
+            }
+        };
+        let report = match verify_communication_mod_trace_with_mode(&content, mode) {
+            Ok(report) => report,
+            Err(err) => {
+                entries.push(trace_error_entry(trace_name, format!("parse error: {err}")));
+                continue;
+            }
+        };
         let boundary = report.seed_start.as_ref().map(|seed_start| {
             format!(
                 "{} at {}",
@@ -638,6 +649,13 @@ fn trace_status_entries(
         });
         entries.push(TraceStatusEntry {
             trace: trace_name,
+            verified_floor: report
+                .seed_start
+                .as_ref()
+                .and_then(|seed_start| seed_start.sim_run_state.as_ref())
+                .and_then(|state| state.map.as_ref())
+                .map(|map| map.floor)
+                .unwrap_or(0),
             total_actions: report.total_actions,
             verified: report.verified.len(),
             raw_diffs: report.unexpected_diffs.len(),
@@ -650,6 +668,21 @@ fn trace_status_entries(
     }
 
     Ok(entries)
+}
+
+fn trace_error_entry(trace: String, error: String) -> TraceStatusEntry {
+    TraceStatusEntry {
+        trace,
+        verified_floor: 0,
+        total_actions: 0,
+        verified: 0,
+        raw_diffs: 0,
+        unsupported: 0,
+        ignored_tail: 0,
+        status: "error",
+        boundary: "-".to_owned(),
+        frontier: error,
+    }
 }
 
 fn trace_status(report: &sts_verify::SimRealReport) -> &'static str {
@@ -704,12 +737,17 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
         .iter()
         .filter(|entry| entry.status == "pass")
         .count();
+    let errors = entries
+        .iter()
+        .filter(|entry| entry.status == "error")
+        .count();
     let raw_diffs: usize = entries.iter().map(|entry| entry.raw_diffs).sum();
     let unsupported: usize = entries.iter().map(|entry| entry.unsupported).sum();
     let verified: usize = entries.iter().map(|entry| entry.verified).sum();
     let ignored_tail: usize = entries.iter().map(|entry| entry.ignored_tail).sum();
     println!("traces={}", entries.len());
     println!("trace_failures={failures}");
+    println!("trace_errors={errors}");
     println!("passing_traces={passing}");
     println!("raw_unexpected_diffs={raw_diffs}");
     println!("unsupported_transitions={unsupported}");
@@ -718,12 +756,13 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
 
     if markdown {
         println!();
-        println!("| Trace | Actions | Verified | Status | Raw diffs | Unsupported | Ignored tail | Boundary | Frontier |");
-        println!("|---|---:|---:|---|---:|---:|---:|---|---|");
+        println!("| Trace | Floor | Actions | Verified | Status | Raw diffs | Unsupported | Ignored tail | Boundary | Frontier |");
+        println!("|---|---:|---:|---:|---|---:|---:|---:|---|---|");
         for entry in entries {
             println!(
-                "| `{}` | {} | {} | {} | {} | {} | {} | `{}` | {} |",
+                "| `{}` | {} | {} | {} | {} | {} | {} | {} | `{}` | {} |",
                 escape_markdown_cell(&entry.trace),
+                entry.verified_floor,
                 entry.total_actions,
                 entry.verified,
                 entry.status,
@@ -737,8 +776,9 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     } else {
         for entry in entries {
             println!(
-                "trace=\"{}\" actions={} verified={} status={} raw_diffs={} unsupported={} ignored_tail={} boundary=\"{}\" frontier=\"{}\"",
+                "trace=\"{}\" floor={} actions={} verified={} status={} raw_diffs={} unsupported={} ignored_tail={} boundary=\"{}\" frontier=\"{}\"",
                 entry.trace,
+                entry.verified_floor,
                 entry.total_actions,
                 entry.verified,
                 entry.status,

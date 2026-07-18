@@ -29,10 +29,11 @@ pub const TINY_HOUSE_HEAL: i32 = 7;
 pub const TINY_HOUSE_GOLD: i32 = 50;
 /// Card reward screens granted by [Relic::Orrery] on pickup.
 pub const ORRERY_CARD_REWARDS: u8 = 5;
+/// New reward items constructed by target Orrery.onEquip; the fifth visible
+/// entry is already present on the room reward list.
+pub const ORRERY_EAGER_CARD_REWARDS: u8 = 5;
 /// Extra cards drawn each hand by [Relic::SneckoEye].
 pub const SNECKO_EYE_DRAW: usize = 2;
-/// Energy granted by [Relic::SneckoEye] on pickup.
-pub const SNECKO_EYE_ENERGY: i32 = 1;
 /// Map jumps granted by [Relic::WingBoots] on pickup.
 pub const WING_BOOTS_CHARGES: u8 = 3;
 /// Extra potion slots granted by [Relic::PotionBelt] on pickup.
@@ -547,6 +548,13 @@ pub const NILRYS_CODEX_ID: ContentId = ContentId::new(445);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub lizard_tail_available: bool,
+    /// Passive Fairy in a Bottle healing available during the current action.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub fairy_heal_percent: i32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub fairy_consumed: bool,
     #[serde(default)]
     pub ink_bottle_cards_played: u32,
     #[serde(default)]
@@ -762,6 +770,15 @@ pub enum RelicKey {
     WarpedTongs,
     GoldenIdol,
     BloodyIdol,
+    /// The Mind Bloom reward; represented symbolically because no relic content
+    /// definition is needed, while its no-healing passive is modeled by run/combat state.
+    MarkOfBloom,
+    /// The no-effect relic awarded by Bonfire Elementals for offering a curse.
+    SpiritPoop,
+    /// The event reward from Hypnotizing Colored Mushrooms; its combat effect is not modeled yet.
+    OddMushroom,
+    /// The relic awarded by N'loth; its passive effect is not modeled yet.
+    NlothsGift,
     RedMask,
     Circlet,
     RedCirclet,
@@ -1649,12 +1666,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
             }
             Relic::BloodVial => {
-                heal_player_in_combat_with_relics(
-                    &mut combat.player.hp,
-                    combat.player.max_hp,
-                    BLOOD_VIAL_HEAL,
-                    relics,
-                );
+                heal_combat_player_with_relics(combat, BLOOD_VIAL_HEAL);
             }
             Relic::Vajra => {
                 combat.player.powers.strength += VAJRA_STRENGTH;
@@ -1794,7 +1806,11 @@ pub fn apply_shuffle_relics(state: &mut CombatState) {
     }
     if state.relics.contains(&Relic::Sundial) {
         state.relic_counters.sundial_shuffles += 1;
-        if state.relic_counters.sundial_shuffles % SUNDIAL_THRESHOLD == 0 {
+        if state
+            .relic_counters
+            .sundial_shuffles
+            .is_multiple_of(SUNDIAL_THRESHOLD)
+        {
             state.player.energy += SUNDIAL_ENERGY;
         }
     }
@@ -1831,6 +1847,9 @@ pub fn heal_player_in_combat_with_relics(
 }
 
 pub fn heal_combat_player_with_relics(state: &mut CombatState, base_heal: i32) {
+    if state.mark_of_bloom {
+        return;
+    }
     heal_player_in_combat_with_relics(
         &mut state.player.hp,
         state.player.max_hp,
@@ -1929,15 +1948,22 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
     state.relic_counters.player_turns_started += 1;
 
     if state.relic_counters.self_forming_clay_next_turn_block > 0 {
-        state.player.block += state.relic_counters.self_forming_clay_next_turn_block;
+        let block = state.relic_counters.self_forming_clay_next_turn_block;
         state.relic_counters.self_forming_clay_next_turn_block = 0;
+        crate::combat::transition::apply_player_direct_block_gain(state, block);
     }
 
     if state.relics.contains(&Relic::HappyFlower) {
         state.relic_counters.happy_flower_turns += 1;
         if state.relic_counters.happy_flower_turns >= HAPPY_FLOWER_THRESHOLD {
             state.relic_counters.happy_flower_turns = 0;
-            state.player.energy += HAPPY_FLOWER_ENERGY;
+            if state.relic_counters.player_turns_started == 1
+                && state.relics.contains(&Relic::Toolbox)
+            {
+                state.pending_start_of_turn_relic_energy += HAPPY_FLOWER_ENERGY;
+            } else {
+                state.player.energy += HAPPY_FLOWER_ENERGY;
+            }
         }
     }
 
@@ -1958,10 +1984,6 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
         _ => {}
     }
 
-    if state.relics.contains(&Relic::MercuryHourglass) {
-        deal_unmodified_damage_to_living_monsters(state, MERCURY_HOURGLASS_DAMAGE);
-    }
-
     if state.relics.contains(&Relic::Brimstone) {
         state.player.powers.strength += BRIMSTONE_PLAYER_STRENGTH;
         for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
@@ -1979,6 +2001,10 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
 }
 
 pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) {
+    if state.relics.contains(&Relic::MercuryHourglass) {
+        deal_unmodified_damage_to_living_monsters(state, MERCURY_HOURGLASS_DAMAGE);
+    }
+
     if state.relics.contains(&Relic::Pocketwatch)
         && state.relic_counters.player_turns_started > 1
         && state.relic_counters.cards_played_last_turn <= POCKETWATCH_CARD_LIMIT
@@ -2036,11 +2062,17 @@ fn has_start_of_turn_relic(state: &CombatState) -> bool {
     })
 }
 
-pub fn apply_end_of_player_turn_relics(state: &mut CombatState) {
+pub fn apply_orichalcum_end_of_player_turn(state: &mut CombatState) {
     if state.relics.contains(&Relic::Orichalcum) && state.player.block == 0 {
-        state.player.block += ORICHALCUM_BLOCK;
+        crate::combat::transition::apply_player_direct_block_gain(state, ORICHALCUM_BLOCK);
     }
+}
 
+pub fn settle_pending_start_of_turn_relic_actions(state: &mut CombatState) {
+    state.player.energy += std::mem::take(&mut state.pending_start_of_turn_relic_energy);
+}
+
+pub fn apply_end_of_player_turn_relics(state: &mut CombatState) {
     if state.relics.contains(&Relic::StoneCalendar)
         && state.relic_counters.player_turns_started == STONE_CALENDAR_TURN
     {

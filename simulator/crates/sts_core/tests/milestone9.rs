@@ -500,6 +500,25 @@ fn remove_card_at_rest_drops_strike_from_deck() {
 }
 
 #[test]
+fn peace_pipe_opens_a_rest_remove_grid() {
+    let mut run = RunState::map_fixture();
+    run.relics.push(Relic::PeacePipe);
+    run = apply_map_action_on_run(
+        &run,
+        MapAction::ChooseNode {
+            node_id: MapNodeId::new(2),
+        },
+    )
+    .expect("enter rest");
+
+    let opened = apply_rest_action(&run, RestAction::OpenRemove).expect("open toke");
+    let grid = opened.card_grid.as_ref().expect("rest remove grid");
+    assert_eq!(grid.purpose, sts_core::GridPurpose::RestRemove);
+    assert_eq!(grid.cards.len(), run.deck.len());
+    assert_eq!(opened.phase, RunPhase::Rest);
+}
+
+#[test]
 fn removing_parasite_at_rest_loses_three_max_hp() {
     let mut run = RunState::map_fixture();
     run.relics.push(Relic::PeacePipe);

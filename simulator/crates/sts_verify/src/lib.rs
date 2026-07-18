@@ -47,7 +47,7 @@ pub use slaythedata::{
     SlayTheDataReplayPlan, SlayTheDataReplayPolicy, SlayTheDataReplayStep,
     SlayTheDataReplayStepKind, SlayTheDataRoute, SlayTheDataRunConfig, SlayTheDataRunImport,
     SlayTheDataRunStart, SlayTheDataShopPurchase, SlayTheDataSource, SlayTheDataSourceKind,
-    SLAYTHEDATA_IMPORT_SCHEMA_VERSION,
+    SLAYTHEDATA_IMPORT_SCHEMA_VERSION, SLAYTHEDATA_NORMAL_MAX_FLOOR_REACHED,
 };
 pub use trace::{
     import_communication_mod_trace, parse_trace_jsonl, CommunicationModTrace, ManualFixture,

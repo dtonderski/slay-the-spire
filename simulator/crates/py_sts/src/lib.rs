@@ -284,8 +284,8 @@ impl PyOmniCombatEnv {
 
         let previous_hash = snapshot_hash(&self.state)?;
         let action_json = to_json(&action.action)?;
-        let transition = apply_combat_action_with_events(&self.state, action.action.clone())
-            .map_err(|error| {
+        let transition =
+            apply_combat_action_with_events(&self.state, action.action).map_err(|error| {
                 PyValueError::new_err(format!("illegal exact combat action: {error:?}"))
             })?;
         let resulting_hash = snapshot_hash(&transition.state)?;
@@ -801,7 +801,7 @@ fn rust_beam_combat_search(
                 principal_variation.push(action.clone());
                 let child = RustBeamNode {
                     state: next_state,
-                    first_action: node.first_action.clone().or_else(|| Some(action)),
+                    first_action: node.first_action.clone().or(Some(action)),
                     principal_variation,
                     actions: node.actions + 1,
                     score,
@@ -1235,7 +1235,6 @@ fn legal_reward_actions(state: &RunState) -> Vec<RunAction> {
         RunAction::CloseCardReward,
         RunAction::TakeGoldReward,
         RunAction::TakeStolenGoldReward,
-        RunAction::TakePotionReward,
         RunAction::TakeRelicReward,
         RunAction::Proceed,
         RunAction::OpenCardReward,
@@ -1243,6 +1242,12 @@ fn legal_reward_actions(state: &RunState) -> Vec<RunAction> {
         RunAction::TakeSingingBowlReward,
     ];
     if let Some(reward) = state.reward.as_ref() {
+        let potion_offer_count = reward
+            .potion_offers
+            .len()
+            .max(usize::from(reward.potion_offer.is_some()));
+        candidates
+            .extend((0..potion_offer_count).map(|index| RunAction::TakePotionReward { index }));
         candidates.extend(
             (0..reward.boss_relic_choices.len())
                 .map(|index| RunAction::ChooseBossRelicReward { index }),
@@ -1296,7 +1301,7 @@ fn apply_exact_run_action(
     action: &ExactRunActionKind,
 ) -> sts_core::SimResult<RunState> {
     match action {
-        ExactRunActionKind::Combat(action) => apply_combat_action_on_run(state, action.clone()),
+        ExactRunActionKind::Combat(action) => apply_combat_action_on_run(state, *action),
         ExactRunActionKind::Event(action) => apply_event_action(state, *action),
         ExactRunActionKind::GridSelect { index } => select_grid_card(state, *index),
         ExactRunActionKind::GridConfirm => confirm_grid(state),
@@ -1354,6 +1359,7 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Map(MapAction::ChooseNode { .. }) => "choose_map_node",
         ExactRunActionKind::Rest(RestAction::Heal) => "rest_heal",
         ExactRunActionKind::Rest(RestAction::OpenSmith) => "rest_open_smith",
+        ExactRunActionKind::Rest(RestAction::OpenRemove) => "rest_open_remove",
         ExactRunActionKind::Rest(RestAction::Smith { .. }) => "rest_smith",
         ExactRunActionKind::Rest(RestAction::RemoveCard { .. }) => "rest_remove_card",
         ExactRunActionKind::Rest(RestAction::Lift) => "rest_lift",
@@ -1365,7 +1371,7 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Run(RunAction::TakeSingingBowlReward) => "take_singing_bowl_reward",
         ExactRunActionKind::Run(RunAction::TakeGoldReward) => "take_gold_reward",
         ExactRunActionKind::Run(RunAction::TakeStolenGoldReward) => "take_stolen_gold_reward",
-        ExactRunActionKind::Run(RunAction::TakePotionReward) => "take_potion_reward",
+        ExactRunActionKind::Run(RunAction::TakePotionReward { .. }) => "take_potion_reward",
         ExactRunActionKind::Run(RunAction::TakeRelicReward) => "take_relic_reward",
         ExactRunActionKind::Run(RunAction::ChooseBossRelicReward { .. }) => {
             "choose_boss_relic_reward"
@@ -1594,9 +1600,11 @@ mod tests {
         env.state.combat = None;
         env.state.reward = Some(sts_core::RewardScreen {
             choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
             gold_offer: 0,
             stolen_gold_offer: 0,
             potion_offer: Some(Potion::Ancient),
+            potion_offers: Vec::new(),
             relic_offer: None,
             relic_key_offer: None,
             pending_relic_offer: None,

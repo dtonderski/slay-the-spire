@@ -11,7 +11,9 @@ use crate::{
     relic::{Relic, RelicKey, RelicTier},
     rng::StsRng,
     run::grid::open_shop_remove_grid,
-    run::reward::target_random_potion,
+    run::reward::{
+        enter_orrery_reward_screen, queue_orrery_card_reward_choices, target_random_potion,
+    },
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -95,15 +97,18 @@ fn card_price_for_rarity(rarity: CardRarity, merchant_rng: &mut StsRng) -> i32 {
     (base as f32 * factor) as i32
 }
 
-fn colorless_card_price_for_rarity(rarity: CardRarity, merchant_rng: &mut StsRng) -> i32 {
+fn card_price_float_for_rarity(rarity: CardRarity, merchant_rng: &mut StsRng) -> f32 {
     // Target `AbstractCard.getPrice` bases, not shop class-card bases.
     let base = match rarity {
         CardRarity::Common => SHOP_CARD_COMMON_PRICE,
         CardRarity::Uncommon => SHOP_POTION_UNCOMMON_PRICE,
         CardRarity::Rare => 150,
     };
-    let factor = merchant_rng.random_float_range(0.9, 1.1);
-    (base as f32 * factor).round() as i32
+    base as f32 * merchant_rng.random_float_range(0.9, 1.1)
+}
+
+fn shop_colorless_card_price_for_rarity(rarity: CardRarity, merchant_rng: &mut StsRng) -> i32 {
+    (card_price_float_for_rarity(rarity, merchant_rng) * 1.2) as i32
 }
 
 fn relic_base_price(tier: RelicTier) -> i32 {
@@ -206,11 +211,14 @@ fn apply_relic_discounts_to_price(mut price: i32, run: &RunState) -> i32 {
 }
 
 fn set_restocked_card_price(offer: &mut ShopCardSlot, run: &RunState, merchant_rng: &mut StsRng) {
-    let mut price =
-        card_price_for_rarity(shop_card_price_rarity(offer.card.content_id), merchant_rng);
-    if shop_card_is_colorless(offer.card.content_id) {
-        price = (price as f32 * 1.2) as i32;
-    }
+    let mut price = if shop_card_is_colorless(offer.card.content_id) {
+        shop_colorless_card_price_for_rarity(
+            shop_card_price_rarity(offer.card.content_id),
+            merchant_rng,
+        )
+    } else {
+        card_price_for_rarity(shop_card_price_rarity(offer.card.content_id), merchant_rng)
+    };
     if has_the_courier(run) {
         price = (price as f32 * 0.8) as i32;
     }
@@ -414,11 +422,8 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
         prices[i] =
             card_price_for_rarity(shop_card_price_rarity(card_contents[i]), &mut merchant_rng);
     }
-    prices[5] = (colorless_card_price_for_rarity(CardRarity::Uncommon, &mut merchant_rng) as f32
-        * 1.2)
-        .round() as i32;
-    prices[6] = (colorless_card_price_for_rarity(CardRarity::Rare, &mut merchant_rng) as f32 * 1.2)
-        .round() as i32;
+    prices[5] = shop_colorless_card_price_for_rarity(CardRarity::Uncommon, &mut merchant_rng);
+    prices[6] = shop_colorless_card_price_for_rarity(CardRarity::Rare, &mut merchant_rng);
 
     let sale_slot = merchant_rng.random_int(4) as usize;
     prices[sale_slot] /= 2;
@@ -522,11 +527,15 @@ pub fn fixed_shop_screen(next_card_id: u64) -> ShopScreen {
 
 pub fn enter_shop_room(run: &mut RunState) {
     run.phase = RunPhase::Shop;
-    run.shop = None;
+    run.shop = Some(if run.merchant_rng_seed == 0 {
+        legacy_fixed_shop_screen(run.next_card_instance_id())
+    } else {
+        generate_shop_screen(run)
+    });
     run.shop_merchant_open = false;
     run.card_grid = None;
     if run.relics.contains(&Relic::MealTicket) {
-        run.player_hp = (run.player_hp + crate::relic::MEAL_TICKET_HEAL).min(run.player_max_hp);
+        run.heal_player(crate::relic::MEAL_TICKET_HEAL);
     }
 }
 
@@ -760,7 +769,13 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             offer.sold = true;
             next.gold -= price;
             next.break_maw_bank_on_shop_spend();
+            if key == RelicKey::Orrery {
+                enter_orrery_reward_screen(&mut next);
+            }
             next.gain_relic_key(key);
+            if key == RelicKey::Orrery {
+                queue_orrery_card_reward_choices(&mut next);
+            }
             if key == RelicKey::MembershipCard {
                 if let Some(shop) = next.shop.as_mut() {
                     apply_membership_discount_to_shop(shop);
@@ -837,5 +852,75 @@ mod tests {
         leave_shop_room(&mut left_room);
         assert!(left_room.shop.is_none());
         assert!(!left_room.shop_merchant_open);
+    }
+
+    #[test]
+    fn entering_shop_room_generates_inventory_before_merchant_is_opened() {
+        let mut run = RunState::placeholder_seeded_ironclad(3_840_209_149_409_335_969, 0);
+        let card_rng_before = run.card_rng_counter;
+
+        enter_shop_room(&mut run);
+
+        assert!(run.shop.is_some());
+        assert!(!run.shop_merchant_open);
+        assert!(run.card_rng_counter > card_rng_before);
+        let counters_after_entry = (
+            run.card_rng_counter,
+            run.merchant_rng_counter,
+            run.potion_rng_counter,
+            run.relic_rng_counter,
+        );
+
+        open_shop_merchant(&mut run);
+
+        assert!(run.shop_merchant_open);
+        assert_eq!(
+            (
+                run.card_rng_counter,
+                run.merchant_rng_counter,
+                run.potion_rng_counter,
+                run.relic_rng_counter,
+            ),
+            counters_after_entry
+        );
+    }
+
+    #[test]
+    fn buying_orrery_opens_five_card_rewards_then_returns_to_shop() {
+        let mut run = RunState::placeholder_seeded_ironclad(3_840_209_149_409_335_969, 0);
+        run.phase = RunPhase::Shop;
+        run.gold = 999;
+        run.shop = Some(legacy_fixed_shop_screen(run.next_card_instance_id()));
+        run.shop_merchant_open = true;
+        run.shop.as_mut().unwrap().relics[0].relic_key = RelicKey::Orrery;
+
+        let mut next = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
+            .expect("Orrery purchase succeeds");
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert_eq!(
+            next.reward.as_ref().unwrap().pending_card_reward_count(),
+            crate::relic::ORRERY_CARD_REWARDS
+        );
+        assert!(next.shop_merchant_open);
+
+        for remaining in (0..crate::relic::ORRERY_CARD_REWARDS).rev() {
+            next = crate::run::reward::apply_run_action(&next, RunAction::OpenCardReward)
+                .expect("Orrery card reward opens");
+            let card_id = next.reward.as_ref().unwrap().choices[0].id;
+            next =
+                crate::run::reward::apply_run_action(&next, RunAction::TakeCardReward { card_id })
+                    .expect("Orrery card reward can be taken");
+            if remaining > 0 {
+                assert_eq!(next.phase, RunPhase::Reward);
+                assert_eq!(
+                    next.reward.as_ref().unwrap().pending_card_reward_count(),
+                    remaining
+                );
+            }
+        }
+
+        assert_eq!(next.phase, RunPhase::Shop);
+        assert!(next.reward.is_none());
+        assert!(next.shop_merchant_open);
     }
 }

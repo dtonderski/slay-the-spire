@@ -1,18 +1,21 @@
+#![allow(clippy::assertions_on_constants)]
+
 use sts_core::{
     apply_combat_action, apply_combat_action_on_run,
     card::{CardType, TargetRequirement},
     combat::{
         hand::resolve_end_of_turn_hand,
         transition::{
-            apply_play_top_draw_card_action, choose_draw_select, choose_exhaust_select,
-            choose_hand_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
+            apply_play_top_draw_card_action, choose_discard_select, choose_draw_select,
+            choose_exhaust_select, choose_hand_select, confirm_draw_select, confirm_exhaust_select,
+            confirm_hand_select, confirm_headbutt_select,
         },
         turn::{end_player_turn, start_player_turn},
         turn_powers::apply_end_of_player_turn_powers,
     },
     content::{
         cards,
-        monsters::{monster_state, FIXED_SIMPLE_MONSTER},
+        monsters::{monster_state, FIXED_SIMPLE_MONSTER, GUARDIAN_A0},
     },
     legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
     MonsterIntent, Relic, RunPhase, RunState, StsRng,
@@ -1077,6 +1080,61 @@ fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
 }
 
 #[test]
+fn armaments_plus_adjusts_confused_cost_when_upgrade_reduces_base_cost() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 3;
+    let mut armaments = CardInstance::new(CardId::new(1), cards::ARMAMENTS_PLUS_ID);
+    armaments.temp_cost = Some(0);
+    let mut defend = CardInstance::new(CardId::new(2), cards::DEFEND_R_ID);
+    defend.temp_cost = Some(2);
+    let mut seeing_red = CardInstance::new(CardId::new(3), cards::SEEING_RED_ID);
+    seeing_red.temp_cost = Some(1);
+    state.piles.hand = vec![armaments, defend, seeing_red];
+    state.piles.discard_pile.clear();
+
+    let after_armaments = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("zero-cost Armaments+ plays");
+
+    assert_eq!(after_armaments.player.energy, 3);
+    assert_eq!(
+        after_armaments.piles.hand[0].content_id,
+        cards::DEFEND_R_PLUS_ID
+    );
+    assert_eq!(after_armaments.piles.hand[0].temp_cost, Some(2));
+    assert_eq!(
+        after_armaments.piles.hand[1].content_id,
+        cards::SEEING_RED_PLUS_ID
+    );
+    assert_eq!(after_armaments.piles.hand[1].temp_cost, Some(0));
+
+    let after_defend = apply_combat_action(
+        &after_armaments,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("Confusion-cost Defend+ plays");
+    assert_eq!(after_defend.player.energy, 1);
+
+    let after_seeing_red = apply_combat_action(
+        &after_defend,
+        CombatAction::PlayCard {
+            card_id: CardId::new(3),
+            target: None,
+        },
+    )
+    .expect("Armaments-upgraded Seeing Red+ plays for zero");
+    assert_eq!(after_seeing_red.player.energy, 3);
+}
+
+#[test]
 fn anger_plus_adds_generated_stat_equivalent_copy_before_source_discard() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
@@ -1097,7 +1155,7 @@ fn anger_plus_adds_generated_stat_equivalent_copy_before_source_discard() {
     assert_eq!(next.monsters[0].hp, starting_hp - 8);
     assert_eq!(next.piles.discard_pile.len(), 2);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::ANGER_PLUS_ID);
-    assert!(next.piles.discard_pile[0].combat_only);
+    assert!(!next.piles.discard_pile[0].combat_only);
     assert_eq!(next.piles.discard_pile[1].content_id, cards::ANGER_PLUS_ID);
     assert!(!next.piles.discard_pile[1].combat_only);
 }
@@ -1653,6 +1711,63 @@ fn double_tap_copy_triggers_pain_for_copied_attack() {
 }
 
 #[test]
+fn pen_nib_doubles_only_the_original_double_tapped_bash() {
+    let target = MonsterId::new(1);
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.player.powers.strength = 3;
+    state.relics = vec![Relic::PenNib];
+    state.relic_counters.pen_nib_attacks_played = 9;
+    state.double_tap_pending = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BASH_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, target)];
+    state.monsters[0].hp = 46;
+    state.monsters[0].max_hp = 46;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(target),
+        },
+    )
+    .expect("Double Tap and Pen Nib Bash should play");
+
+    // Original: (8 + 3) * 2 = 22. Copy after Vulnerable: floor(11 * 1.5) = 16.
+    assert_eq!(next.monsters[0].hp, 8);
+    assert_eq!(next.monsters[0].powers.vulnerable, 4);
+    assert_eq!(next.relic_counters.pen_nib_attacks_played, 1);
+}
+
+#[test]
+fn guardian_mode_shift_block_resolves_after_double_tapped_sword_boomerang() {
+    let target = MonsterId::new(1);
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.player.powers.strength = 3;
+    state.double_tap_pending = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::SWORD_BOOMERANG_ID)];
+    state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+    state.monsters[0].hp = 141;
+    state.monsters[0].powers.vulnerable = 2;
+    state.monsters[0].mode_shift = 40;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Double Tap Sword Boomerang should play");
+
+    // Six 9-damage hits land before Guardian enters defensive mode.
+    assert_eq!(next.monsters[0].hp, 87);
+    assert_eq!(next.monsters[0].block, 20);
+    assert!(next.monsters[0].in_defensive_mode);
+}
+
+#[test]
 fn dual_wield_plus_creates_two_temporary_copies_and_discards_source() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
@@ -1938,6 +2053,30 @@ fn flex_plus_grants_four_temporary_strength() {
 }
 
 #[test]
+fn artifact_blocks_flex_strength_loss_and_makes_strength_permanent() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.player.powers.artifact = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::FLEX_ID)];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Flex plays with Artifact");
+
+    assert_eq!(next.player.powers.artifact, 0);
+    assert_eq!(next.player.powers.strength, 2);
+    assert_eq!(next.player.temp_strength, 0);
+
+    let after_turn = apply_combat_action(&next, CombatAction::EndTurn).expect("turn ends");
+    assert_eq!(after_turn.player.powers.strength, 2);
+}
+
+#[test]
 fn headbutt_plus_auto_places_single_discard_card_on_draw_pile() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
@@ -1965,6 +2104,52 @@ fn headbutt_plus_auto_places_single_discard_card_on_draw_pile() {
         next.piles.discard_pile[0].content_id,
         cards::HEADBUTT_PLUS_ID
     );
+}
+
+#[test]
+fn lethal_headbutt_defers_gremlin_horn_until_after_discard_choice() {
+    let target = MonsterId::new(1);
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 3;
+    state.relics = vec![Relic::GremlinHorn];
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HEADBUTT_ID)];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), cards::BASH_ID)];
+    state.piles.discard_pile = vec![
+        CardInstance::new(CardId::new(3), cards::RAMPAGE_ID),
+        CardInstance::new(CardId::new(4), cards::DEFEND_R_ID),
+    ];
+    let mut dying = monster_state(&FIXED_SIMPLE_MONSTER, target);
+    dying.hp = 9;
+    dying.max_hp = 9;
+    let survivor = monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2));
+    state.monsters = vec![dying, survivor];
+
+    let mut selecting = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(target),
+        },
+    )
+    .expect("Headbutt kills the first monster");
+
+    assert!(selecting.discard_select.is_some());
+    assert_eq!(selecting.player.energy, 2);
+    assert_eq!(selecting.pending_monster_death_relic_triggers, 1);
+    assert_eq!(selecting.piles.draw_pile[0].content_id, cards::BASH_ID);
+
+    choose_discard_select(&mut selecting, 0).expect("select Rampage");
+    confirm_headbutt_select(&mut selecting).expect("confirm Headbutt selection");
+
+    assert!(selecting.discard_select.is_none());
+    assert_eq!(selecting.pending_monster_death_relic_triggers, 0);
+    assert_eq!(selecting.player.energy, 3);
+    assert_eq!(
+        selecting.piles.hand.last().map(|card| card.content_id),
+        Some(cards::RAMPAGE_ID),
+        "Gremlin Horn draws the card Headbutt just placed on top"
+    );
+    assert_eq!(selecting.piles.draw_pile[0].content_id, cards::BASH_ID);
 }
 
 #[test]
@@ -2012,14 +2197,15 @@ fn havoc_played_anger_adds_generated_copy_before_source_discard() {
     assert_eq!(next.piles.discard_pile[0].content_id, cards::ANGER_PLUS_ID);
     assert!(!next.piles.discard_pile[0].combat_only);
     assert_eq!(next.piles.discard_pile[1].content_id, cards::ANGER_PLUS_ID);
-    assert!(next.piles.discard_pile[1].combat_only);
+    assert!(!next.piles.discard_pile[1].combat_only);
 }
 
 #[test]
-fn hemokinesis_plus_loses_two_hp_then_deals_twenty_damage() {
+fn hemokinesis_plus_deals_damage_before_rupture_strength_from_hp_loss() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
     state.player.hp = 50;
+    state.player.powers.rupture = 2;
     state.piles.hand = vec![
         CardInstance::new(CardId::new(1), cards::HEMOKINESIS_PLUS_ID),
         CardInstance::new(CardId::new(2), cards::BLOOD_FOR_BLOOD_ID),
@@ -2038,6 +2224,7 @@ fn hemokinesis_plus_loses_two_hp_then_deals_twenty_damage() {
 
     assert_eq!(next.player.hp, 48);
     assert_eq!(next.monsters[0].hp, starting_hp - 20);
+    assert_eq!(next.player.powers.strength, 2);
     assert_eq!(next.piles.hand[0].content_id, cards::BLOOD_FOR_BLOOD_ID);
     assert_eq!(next.piles.hand[0].blood_for_blood_cost_reduction, 1);
     assert_eq!(
@@ -3991,6 +4178,38 @@ fn deep_breath_shuffles_discard_before_drawing() {
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::DEEP_BREATH_ID);
     assert_eq!(next.piles.draw_pile.len(), 2);
+}
+
+#[test]
+fn deep_breath_uses_separate_discard_and_draw_shuffle_rng_calls() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.shuffle_rng = Some(StsRng::new(123));
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DEEP_BREATH_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::RAMPAGE_ID),
+    ];
+    state.piles.discard_pile = vec![
+        CardInstance::new(CardId::new(4), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(5), cards::BASH_ID),
+    ];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Deep Breath plays with a non-empty discard pile");
+
+    assert_eq!(next.shuffle_rng.as_ref().unwrap().counter(), 2);
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.draw_pile.len(), 3);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::DEEP_BREATH_ID);
 }
 
 #[test]

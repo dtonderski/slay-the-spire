@@ -456,12 +456,16 @@ pub fn ironclad_reward_card_rarity(content_id: ContentId) -> Option<CardRarity> 
 
 #[must_use]
 pub fn ironclad_truly_random_card_pool() -> Vec<ContentId> {
+    // AbstractDungeon.initializeCardPools builds each rarity pool with addToTop, then
+    // returnTrulyRandomCard concatenates the resulting source pools common/uncommon/rare.
+    // Keep this separate from combat reward order, which has its own rarity-roll flow.
     [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare]
         .into_iter()
         .flat_map(|rarity| {
             IRONCLAD_REWARD_ENTRIES
                 .iter()
                 .filter(move |entry| entry.rarity == rarity)
+                .rev()
                 .map(|entry| entry.content_id)
         })
         .collect()

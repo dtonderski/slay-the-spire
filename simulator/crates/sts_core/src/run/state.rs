@@ -4,8 +4,8 @@ use crate::{
     combat::CombatState,
     content::ascension::AscensionConfig,
     content::cards::{
-        card_type_and_rarity, get_card_definition, is_basic_starter_card, is_curse_content_id,
-        upgrade_card_instance, upgrade_content_id,
+        card_instance_is_upgradeable, card_type_and_rarity, get_card_definition,
+        is_basic_starter_card, is_curse_content_id, upgrade_card_instance, upgrade_content_id,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
@@ -22,9 +22,8 @@ use crate::{
         ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
         PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
         PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
-        SLING_OF_COURAGE_STRENGTH, SNECKO_EYE_ENERGY, SOZU_ENERGY, STRAWBERRY_MAX_HP,
-        TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
-        WING_BOOTS_CHARGES,
+        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP, TINY_HOUSE_GOLD,
+        TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY, WING_BOOTS_CHARGES,
     },
     rng::JavaRng,
     rng::StsRng,
@@ -37,6 +36,23 @@ const ENCHIRIDION_HAND_LIMIT: usize = 10;
 
 fn default_energy_per_turn() -> i32 {
     BASE_PLAYER_ENERGY
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snecko_eye_does_not_grant_energy() {
+        let mut run = RunState::map_fixture();
+
+        run.gain_relic(Relic::SneckoEye);
+        let combat = run.init_combat(CombatState::cultist_fixture());
+
+        assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY);
+        assert_eq!(combat.player.max_energy, BASE_PLAYER_ENERGY);
+        assert_eq!(combat.player.energy, BASE_PLAYER_ENERGY);
+    }
 }
 
 fn add_enchiridion_power_to_hand(combat: &mut CombatState) {
@@ -75,6 +91,8 @@ pub struct RunState {
     pub reward: Option<RewardScreen>,
     #[serde(default)]
     pub event: Option<super::event::EventScreen>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub match_and_keep: Option<super::event::MatchAndKeepState>,
     pub shop: Option<super::shop::ShopScreen>,
     #[serde(default)]
     pub shop_merchant_open: bool,
@@ -115,6 +133,10 @@ pub struct RunState {
     #[serde(default)]
     pub relic_rng_counter: u32,
     #[serde(default)]
+    pub shuffle_rng_seed: u64,
+    #[serde(default)]
+    pub shuffle_rng_counter: u32,
+    #[serde(default)]
     pub relic_pools: Option<RelicPoolState>,
     #[serde(default)]
     pub relic_keys: Vec<RelicKey>,
@@ -136,6 +158,12 @@ pub struct RunState {
     pub pen_nib_attacks_played: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub ink_bottle_cards_played: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub happy_flower_turns: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub sundial_shuffles: u32,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub nunchaku_attacks_played: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub tiny_chest_counter: u32,
     #[serde(default = "default_event_room_monster_chance")]
@@ -178,6 +206,14 @@ pub struct RunState {
     pub current_floor: i32,
     #[serde(default)]
     pub current_act: i32,
+    /// Source `CardCrawlGame.playtime`, used by Secret Portal eligibility.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub playtime_seconds: u32,
+    /// Profile-backed card used by Note For Yourself.
+    #[serde(default = "default_note_card_content_id")]
+    pub note_card_content_id: ContentId,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub note_card_upgrades: u8,
     #[serde(default, skip_serializing_if = "Act1Boss::is_default")]
     pub act1_boss: Act1Boss,
     #[serde(default, skip_serializing_if = "Act3Boss::is_default")]
@@ -272,6 +308,7 @@ pub enum RunRngStream {
     Misc,
     Potion,
     Relic,
+    Shuffle,
     Treasure,
 }
 
@@ -296,6 +333,10 @@ pub const REWARD_GOLD_AMOUNT: i32 = 20;
 
 fn default_card_rarity_factor() -> i32 {
     5
+}
+
+fn default_note_card_content_id() -> ContentId {
+    crate::content::cards::IRON_WAVE_ID
 }
 
 pub const DEFAULT_EVENT_ROOM_MONSTER_CHANCE: u32 = 10;
@@ -335,10 +376,15 @@ fn apply_neow_lament_to_combat(combat: &mut CombatState) {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RewardScreen {
     pub choices: Vec<CardInstance>,
+    /// Card reward choices generated eagerly by effects such as Orrery.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub queued_card_rewards: Vec<Vec<CardInstance>>,
     pub gold_offer: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub stolen_gold_offer: i32,
     pub potion_offer: Option<Potion>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub potion_offers: Vec<Potion>,
     pub relic_offer: Option<Relic>,
     #[serde(default)]
     pub relic_key_offer: Option<RelicKey>,
@@ -397,7 +443,9 @@ pub enum RunAction {
     TakeSingingBowlReward,
     TakeGoldReward,
     TakeStolenGoldReward,
-    TakePotionReward,
+    TakePotionReward {
+        index: usize,
+    },
     TakeRelicReward,
     ChooseBossRelicReward {
         index: usize,
@@ -479,6 +527,10 @@ impl RunState {
                 seed: self.relic_rng_seed,
                 counter: self.relic_rng_counter,
             },
+            RunRngStream::Shuffle => RunRngStreamState {
+                seed: self.shuffle_rng_seed,
+                counter: self.shuffle_rng_counter,
+            },
             RunRngStream::Treasure => RunRngStreamState {
                 seed: self.treasure_rng_seed,
                 counter: self.treasure_rng_counter,
@@ -495,6 +547,7 @@ impl RunState {
             RunRngStream::Misc => self.misc_rng_counter = counter,
             RunRngStream::Potion => self.potion_rng_counter = counter,
             RunRngStream::Relic => self.relic_rng_counter = counter,
+            RunRngStream::Shuffle => self.shuffle_rng_counter = counter,
             RunRngStream::Treasure => self.treasure_rng_counter = counter,
         }
     }
@@ -512,11 +565,14 @@ impl RunState {
     #[must_use]
     pub fn init_combat(&self, base: CombatState) -> CombatState {
         let mut combat = base;
+        combat.mark_of_bloom = self.has_mark_of_bloom();
         combat.player.hp = self.player_hp;
         combat.player.max_hp = self.player_max_hp;
         combat.player.max_energy = self.energy_per_turn;
         combat.player.energy = self.energy_per_turn;
         combat.relics = self.relics.clone();
+        combat.relic_counters.lizard_tail_available =
+            self.relics.contains(&Relic::LizardTail) && !self.lizard_tail_used;
         combat.ascension = self.ascension;
         if combat.card_random_rng.is_none() {
             combat.card_random_rng = Some(self.card_random_rng());
@@ -532,12 +588,7 @@ impl RunState {
         if self.current_room_kind() == Some(RoomKind::Boss)
             && self.relics.contains(&Relic::Pantograph)
         {
-            crate::relic::heal_player_in_combat_with_relics(
-                &mut combat.player.hp,
-                combat.player.max_hp,
-                PANTOGRAPH_HEAL,
-                &self.relics,
-            );
+            crate::relic::heal_combat_player_with_relics(&mut combat, PANTOGRAPH_HEAL);
         }
         if self.current_room_kind() == Some(RoomKind::Elite)
             && self.relics.contains(&Relic::PreservedInsect)
@@ -580,6 +631,15 @@ impl RunState {
         }
         if self.relics.contains(&Relic::InkBottle) {
             combat.relic_counters.ink_bottle_cards_played = self.ink_bottle_cards_played;
+        }
+        if self.relics.contains(&Relic::HappyFlower) {
+            combat.relic_counters.happy_flower_turns = self.happy_flower_turns;
+        }
+        if self.relics.contains(&Relic::Sundial) {
+            combat.relic_counters.sundial_shuffles = self.sundial_shuffles;
+        }
+        if self.relics.contains(&Relic::Nunchaku) {
+            combat.relic_counters.nunchaku_attacks_played = self.nunchaku_attacks_played;
         }
         apply_start_of_combat_relics(&mut combat, &self.relics);
         if self.relics.contains(&Relic::Enchiridion) {
@@ -627,6 +687,15 @@ impl RunState {
         }
         if self.relics.contains(&Relic::InkBottle) {
             self.ink_bottle_cards_played = combat.relic_counters.ink_bottle_cards_played;
+        }
+        if self.relics.contains(&Relic::HappyFlower) {
+            self.happy_flower_turns = combat.relic_counters.happy_flower_turns;
+        }
+        if self.relics.contains(&Relic::Sundial) {
+            self.sundial_shuffles = combat.relic_counters.sundial_shuffles;
+        }
+        if self.relics.contains(&Relic::Nunchaku) {
+            self.nunchaku_attacks_played = combat.relic_counters.nunchaku_attacks_played;
         }
         if self.relics.contains(&Relic::Toolbox) || self.relics.contains(&Relic::Enchiridion) {
             if let Some(rng) = combat.card_random_rng.as_ref() {
@@ -693,6 +762,7 @@ impl RunState {
             combat: None,
             reward: None,
             event: None,
+            match_and_keep: None,
             shop: None,
             shop_merchant_open: false,
             card_grid: None,
@@ -712,6 +782,8 @@ impl RunState {
             potion_chance: 0,
             relic_rng_seed: 0,
             relic_rng_counter: 0,
+            shuffle_rng_seed: 0,
+            shuffle_rng_counter: 0,
             relic_pools: None,
             relic_keys: Vec::new(),
             omamori_charges_used: 0,
@@ -723,6 +795,9 @@ impl RunState {
             incense_burner_counter: 0,
             pen_nib_attacks_played: 0,
             ink_bottle_cards_played: 0,
+            happy_flower_turns: 0,
+            sundial_shuffles: 0,
+            nunchaku_attacks_played: 0,
             tiny_chest_counter: 0,
             event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
             event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
@@ -744,6 +819,9 @@ impl RunState {
             elite_encounter_list: Vec::new(),
             current_floor: 0,
             current_act: 1,
+            playtime_seconds: 0,
+            note_card_content_id: default_note_card_content_id(),
+            note_card_upgrades: 0,
             act1_boss: Act1Boss::default(),
             act3_boss: Act3Boss::default(),
             shop_remove_count: 0,
@@ -781,6 +859,7 @@ impl RunState {
             combat: None,
             reward: None,
             event: None,
+            match_and_keep: None,
             shop: None,
             shop_merchant_open: false,
             card_grid: None,
@@ -800,6 +879,8 @@ impl RunState {
             potion_chance: 0,
             relic_rng_seed: 0,
             relic_rng_counter: 0,
+            shuffle_rng_seed: 0,
+            shuffle_rng_counter: 0,
             relic_pools: None,
             relic_keys: Vec::new(),
             omamori_charges_used: 0,
@@ -811,6 +892,9 @@ impl RunState {
             incense_burner_counter: 0,
             pen_nib_attacks_played: 0,
             ink_bottle_cards_played: 0,
+            happy_flower_turns: 0,
+            sundial_shuffles: 0,
+            nunchaku_attacks_played: 0,
             tiny_chest_counter: 0,
             event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
             event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
@@ -832,6 +916,9 @@ impl RunState {
             elite_encounter_list: Vec::new(),
             current_floor: 0,
             current_act: 1,
+            playtime_seconds: 0,
+            note_card_content_id: default_note_card_content_id(),
+            note_card_upgrades: 0,
             act1_boss: Act1Boss::default(),
             act3_boss: Act3Boss::default(),
             shop_remove_count: 0,
@@ -878,6 +965,7 @@ impl RunState {
         run.treasure_rng_seed = seed;
         run.potion_rng_seed = seed;
         run.relic_rng_seed = seed;
+        run.shuffle_rng_seed = seed;
         run.merchant_rng_seed = seed;
         run.misc_rng_seed = seed;
         run.monster_rng_seed = seed;
@@ -888,6 +976,8 @@ impl RunState {
         let base = self.reward_rng_seed as i64;
         self.misc_rng_seed = base.wrapping_add(i64::from(self.current_floor)) as u64;
         self.misc_rng_counter = 0;
+        self.shuffle_rng_seed = self.reward_rng_seed.wrapping_add(self.current_floor as u64);
+        self.shuffle_rng_counter = 0;
     }
 
     pub fn reinit_room_rngs_for_floor(&mut self) {
@@ -1118,11 +1208,22 @@ impl RunState {
         !self.relics.contains(&Relic::Ectoplasm)
     }
 
+    #[must_use]
+    pub fn has_mark_of_bloom(&self) -> bool {
+        self.relic_keys.contains(&RelicKey::MarkOfBloom)
+    }
+
+    pub fn heal_player(&mut self, amount: i32) {
+        if amount > 0 && !self.has_mark_of_bloom() {
+            self.player_hp = (self.player_hp + amount).min(self.player_max_hp);
+        }
+    }
+
     pub fn gain_gold(&mut self, amount: i32) {
         if amount > 0 && self.can_gain_gold() {
             self.gold += amount;
             if self.relics.contains(&Relic::BloodyIdol) {
-                self.player_hp = (self.player_hp + BLOODY_IDOL_HEAL).min(self.player_max_hp);
+                self.heal_player(BLOODY_IDOL_HEAL);
             }
         }
     }
@@ -1139,7 +1240,7 @@ impl RunState {
         }
         if self.relics.contains(&Relic::EternalFeather) {
             let heal = (self.deck.len() as i32 / 5) * ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS;
-            self.player_hp = (self.player_hp + heal).min(self.player_max_hp);
+            self.heal_player(heal);
         }
     }
 
@@ -1172,22 +1273,22 @@ impl RunState {
         match relic {
             Relic::Strawberry => {
                 self.player_max_hp += STRAWBERRY_MAX_HP;
-                self.player_hp += STRAWBERRY_MAX_HP;
+                self.heal_player(STRAWBERRY_MAX_HP);
             }
             Relic::Pear => {
                 self.player_max_hp += PEAR_MAX_HP;
-                self.player_hp += PEAR_MAX_HP;
+                self.heal_player(PEAR_MAX_HP);
             }
             Relic::Mango => {
                 self.player_max_hp += MANGO_MAX_HP;
-                self.player_hp += MANGO_MAX_HP;
+                self.heal_player(MANGO_MAX_HP);
             }
             Relic::OldCoin => {
                 self.gain_gold(OLD_COIN_GOLD);
             }
             Relic::LeesWaffle => {
                 self.player_max_hp += LEES_WAFFLE_MAX_HP;
-                self.player_hp = self.player_max_hp;
+                self.heal_player(self.player_max_hp);
             }
             Relic::CoffeeDripper => {
                 self.energy_per_turn += COFFEE_DRIPPER_ENERGY;
@@ -1204,9 +1305,7 @@ impl RunState {
             Relic::BustedCrown => {
                 self.energy_per_turn += BUSTED_CROWN_ENERGY;
             }
-            Relic::SneckoEye => {
-                self.energy_per_turn += SNECKO_EYE_ENERGY;
-            }
+            Relic::SneckoEye => {}
             Relic::WingBoots => {
                 self.wing_boots_charges = u32::from(WING_BOOTS_CHARGES);
             }
@@ -1260,11 +1359,15 @@ impl RunState {
             }
             Relic::TinyHouse => {
                 self.player_max_hp += TINY_HOUSE_MAX_HP;
-                self.player_hp =
-                    (self.player_hp + TINY_HOUSE_MAX_HP + TINY_HOUSE_HEAL).min(self.player_max_hp);
-                self.gain_gold(TINY_HOUSE_GOLD);
+                self.heal_player(TINY_HOUSE_MAX_HP + TINY_HOUSE_HEAL);
                 self.upgrade_random_deck_cards_matching(1, |_| true);
                 if let Some(reward) = self.reward.as_mut() {
+                    reward.gold_offer += TINY_HOUSE_GOLD;
+                    let mut misc_rng =
+                        StsRng::with_counter(self.misc_rng_seed as i64, self.misc_rng_counter);
+                    reward.potion_offer =
+                        Some(crate::run::reward::target_random_potion(&mut misc_rng));
+                    self.misc_rng_counter = misc_rng.counter();
                     reward.set_pending_card_rewards(reward.pending_card_reward_count() + 1);
                 }
             }
@@ -1445,8 +1548,7 @@ impl RunState {
     fn upgrade_random_deck_cards(&mut self, card_type: CardType, amount: usize) {
         self.upgrade_random_deck_cards_matching(amount, |card| {
             card_type_and_rarity(card.content_id).is_some_and(|(candidate_type, _)| {
-                candidate_type == card_type
-                    && crate::content::cards::upgrade_content_id(card.content_id).is_some()
+                candidate_type == card_type && card_instance_is_upgradeable(card)
             })
         });
     }
@@ -1461,8 +1563,7 @@ impl RunState {
             .iter()
             .enumerate()
             .filter_map(|(index, card)| {
-                (matches_card(card) && upgrade_content_id(card.content_id).is_some())
-                    .then_some(index)
+                (matches_card(card) && card_instance_is_upgradeable(card)).then_some(index)
             })
             .collect();
 
@@ -1517,8 +1618,13 @@ impl RunState {
                     Err(SimError::IllegalAction("no stolen gold reward offered"))
                 }
             }
-            RunAction::TakePotionReward => {
-                if reward.potion_offer.is_none() {
+            RunAction::TakePotionReward { index } => {
+                let offered = reward
+                    .potion_offers
+                    .get(index)
+                    .copied()
+                    .or_else(|| (index == 0).then_some(reward.potion_offer).flatten());
+                if offered.is_none() {
                     return Err(SimError::IllegalAction("no potion reward offered"));
                 }
                 if !self.can_gain_potions() {
@@ -1554,7 +1660,13 @@ impl RunState {
                     Err(SimError::IllegalAction("boss relic choice is not offered"))
                 }
             }
-            RunAction::Proceed => Err(SimError::IllegalAction("not a reward action")),
+            RunAction::Proceed => {
+                if self.event.is_some() && super::reward::reward_is_empty(reward) {
+                    Ok(())
+                } else {
+                    Err(SimError::IllegalAction("cannot proceed from reward"))
+                }
+            }
             RunAction::OpenCardReward => {
                 if reward.pending_card_reward_count() == 0 {
                     return Err(SimError::IllegalAction("no card reward offered"));
@@ -1566,7 +1678,7 @@ impl RunState {
             }
             RunAction::OpenChest => Err(SimError::IllegalAction("not a reward action")),
             RunAction::SkipPotionReward => {
-                if reward.potion_offer.is_none() {
+                if reward.potion_offer.is_none() && reward.potion_offers.is_empty() {
                     return Err(SimError::IllegalAction("no potion reward offered"));
                 }
                 Ok(())
@@ -1882,6 +1994,7 @@ impl Relic {
             RelicKey::Necronomicon => Some(Relic::Necronomicon),
             RelicKey::Enchiridion => Some(Relic::Enchiridion),
             RelicKey::NilrysCodex => Some(Relic::NilrysCodex),
+            RelicKey::MarkOfBloom => None,
             RelicKey::GoldenIdol => Some(Relic::GoldenIdol),
             RelicKey::BloodyIdol => Some(Relic::BloodyIdol),
             RelicKey::RedMask => Some(Relic::RedMask),
@@ -1936,6 +2049,9 @@ impl Relic {
             RelicKey::PrismaticShard => Some(Relic::PrismaticShard),
             RelicKey::MutagenicStrength => Some(Relic::MutagenicStrength),
             RelicKey::WarpedTongs => Some(Relic::WarpedTongs),
+            RelicKey::SpiritPoop => None,
+            RelicKey::OddMushroom => None,
+            RelicKey::NlothsGift => None,
         }
     }
 }

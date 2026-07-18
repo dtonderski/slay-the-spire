@@ -87,7 +87,8 @@ fn take_potion_reward_adds_to_belt_and_consumes_potion_offer() {
     let mut run = win_fixture_combat();
     run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
 
-    let after = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
+    let after =
+        apply_run_action(&run, RunAction::TakePotionReward { index: 0 }).expect("take potion");
 
     assert_eq!(after.phase, RunPhase::Reward);
     assert_eq!(after.potions, vec![Potion::Fire]);
@@ -114,7 +115,8 @@ fn multiple_reward_offers_can_be_collected_before_skip() {
     let gold_offer = run.reward.as_ref().expect("reward").gold_offer;
 
     let run = apply_run_action(&run, RunAction::TakeGoldReward).expect("take gold");
-    let run = apply_run_action(&run, RunAction::TakePotionReward).expect("take potion");
+    let run =
+        apply_run_action(&run, RunAction::TakePotionReward { index: 0 }).expect("take potion");
     let run = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic");
     let run = apply_run_action(&run, RunAction::SkipReward).expect("skip reward");
 

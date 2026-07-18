@@ -212,21 +212,23 @@ pub fn generate_neow_three_potions_with_rng(potion_rng: &mut StsRng) -> NeowPoti
 pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
     run.ensure_ironclad_relic_pools();
 
+    run.relics.retain(|relic| *relic != Relic::BurningBlood);
+    run.relic_keys.retain(|key| *key != RelicKey::BurningBlood);
     let context = run.relic_spawn_context(run.current_floor, false);
     let relic = run
         .relic_pools
         .as_mut()
         .expect("relic pools initialized")
         .return_random_relic(RelicTier::Boss, &context);
-    run.relics.retain(|relic| *relic != Relic::BurningBlood);
-    run.relic_keys.retain(|key| *key != RelicKey::BurningBlood);
     if relic == RelicKey::TinyHouse && run.reward.is_none() {
         run.phase = RunPhase::Reward;
         run.reward = Some(RewardScreen {
             choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
             gold_offer: 0,
             stolen_gold_offer: 0,
             potion_offer: None,
+            potion_offers: Vec::new(),
             relic_offer: None,
             relic_key_offer: None,
             pending_relic_offer: None,

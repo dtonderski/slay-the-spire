@@ -959,6 +959,13 @@ fn test_m32c_20260625_retained_trace_records_32b_shop_reward_deck_evidence() {
     assert_screen_cards_include(&content, 227, &["Forethought", "Chrysalis"]);
     assert_screen_cards_include(&content, 541, &["Panache+"]);
     assert_deck_includes(&content, 541, "Sword Boomerang");
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "retained trace should replay without unexpected diffs: {:?}",
+        report.unexpected_diffs
+    );
 }
 
 #[test]

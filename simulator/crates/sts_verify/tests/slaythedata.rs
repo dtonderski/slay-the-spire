@@ -89,11 +89,14 @@ fn imports_chunk_export_row_into_typed_run_contract() {
                     "event_name": "World of Goop",
                     "player_choice": "Gather Gold",
                     "gold_gain": 75,
-                    "cards_removed": ["Strike"]
+                    "cards_removed": ["Strike"],
+                    "cards_transformed": ["Defend_R"]
                 }
             ],
             "items_purchased": ["Shrug It Off"],
             "item_purchase_floors": [3],
+            "items_purged": ["Defend_R"],
+            "items_purged_floors": [3],
             "campfire_choices": [{"floor": 4, "key": "SMITH", "data": "Bash+"}],
             "potions_floor_usage": [1, 3, 3],
             "potions_obtained": [{"floor": 2, "key": "Fire Potion"}],
@@ -141,6 +144,7 @@ fn imports_chunk_export_row_into_typed_run_contract() {
         Some("World of Goop")
     );
     assert_eq!(floor_2.events[0].cards_removed[0].base, "Strike");
+    assert_eq!(floor_2.events[0].cards_transformed[0].base, "Defend_R");
     assert_eq!(floor_2.potions.obtained[0].key, "Fire Potion");
 
     let floor_3 = imported
@@ -148,8 +152,25 @@ fn imports_chunk_export_row_into_typed_run_contract() {
         .iter()
         .find(|floor| floor.floor == 3)
         .expect("floor 3");
+    assert_eq!(floor_3.shop_purges[0].base, "Defend_R");
     assert_eq!(floor_3.shop_purchases[0].base_item, "Shrug It Off");
     assert_eq!(floor_3.potions.uses_allowed, 2);
+
+    let plan = slaythedata_replay_plan(&imported);
+    let purge_index = plan
+        .steps
+        .iter()
+        .position(|step| matches!(step.kind, SlayTheDataReplayStepKind::ShopPurge { .. }))
+        .expect("shop purge step");
+    let purchase_index = plan
+        .steps
+        .iter()
+        .position(|step| matches!(step.kind, SlayTheDataReplayStepKind::ShopPurchase { .. }))
+        .expect("shop purchase step");
+    assert!(
+        purge_index < purchase_index,
+        "required purge must be replayed before optional same-floor purchases"
+    );
 
     assert_eq!(imported.boss_relic_choices[0].act, 1);
     assert_eq!(imported.final_observed.master_deck[0].base, "Bash");
@@ -196,6 +217,82 @@ fn imports_raw_run_and_reports_reconstruction_blockers() {
         SlayTheDataDiagnosticSeverity::Warning,
         "ambiguous_repeated_grid_floor"
     )));
+}
+
+#[test]
+fn reports_non_standard_run_mode_and_floor_blockers() {
+    let content = r#"{
+        "character_chosen": "IRONCLAD",
+        "ascension_level": 0,
+        "is_beta": true,
+        "is_daily": true,
+        "is_endless": true,
+        "is_prod": true,
+        "is_trial": true,
+        "floor_reached": 107
+    }"#;
+
+    let imported = import_slaythedata_run_json(content).expect("imports");
+    let diagnostics: Vec<_> = imported
+        .diagnostics
+        .iter()
+        .map(|diagnostic| {
+            (
+                diagnostic.severity,
+                diagnostic.code.as_str(),
+                diagnostic.path.as_str(),
+            )
+        })
+        .collect();
+
+    assert!(diagnostics.contains(&(
+        SlayTheDataDiagnosticSeverity::Error,
+        "unsupported_run_mode",
+        "$.is_beta"
+    )));
+    assert!(diagnostics.contains(&(
+        SlayTheDataDiagnosticSeverity::Error,
+        "unsupported_run_mode",
+        "$.is_daily"
+    )));
+    assert!(diagnostics.contains(&(
+        SlayTheDataDiagnosticSeverity::Error,
+        "unsupported_run_mode",
+        "$.is_endless"
+    )));
+    assert!(diagnostics.contains(&(
+        SlayTheDataDiagnosticSeverity::Error,
+        "unsupported_run_mode",
+        "$.is_prod"
+    )));
+    assert!(diagnostics.contains(&(
+        SlayTheDataDiagnosticSeverity::Error,
+        "unsupported_run_mode",
+        "$.is_trial"
+    )));
+    assert!(diagnostics.contains(&(
+        SlayTheDataDiagnosticSeverity::Error,
+        "unsupported_floor_reached",
+        "$.floor_reached"
+    )));
+}
+
+#[test]
+fn normal_is_prod_false_is_not_a_non_standard_run_mode() {
+    let imported = import_slaythedata_run_json(
+        r#"{
+            "character_chosen": "IRONCLAD",
+            "ascension_level": 0,
+            "is_prod": false,
+            "floor_reached": 1
+        }"#,
+    )
+    .expect("imports");
+
+    assert!(!imported
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "unsupported_run_mode"));
 }
 
 #[test]
@@ -267,6 +364,54 @@ fn derives_floor_grouped_replay_plan_from_import() {
         .checkpoints
         .iter()
         .any(|checkpoint| checkpoint.floor == Some(4)));
+}
+
+#[test]
+fn replay_plan_places_neow_card_choice_before_leave_without_duplication() {
+    let imported = import_slaythedata_run_json(
+        r#"{
+            "character_chosen": "IRONCLAD",
+            "ascension_level": 0,
+            "seed_played": "NEOWCARD",
+            "neow_bonus": "THREE_CARDS",
+            "neow_cost": "NONE",
+            "card_choices": [
+                {"floor": 0, "picked": "Inflame", "not_picked": ["Flex", "Warcry"]}
+            ],
+            "path_taken": [],
+            "path_per_floor": [],
+            "floor_reached": 1,
+            "victory": false
+        }"#,
+    )
+    .expect("imports");
+
+    let plan = slaythedata_replay_plan(&imported);
+
+    assert_eq!(plan.steps.len(), 4);
+    assert!(matches!(
+        plan.steps[0].kind,
+        SlayTheDataReplayStepKind::NeowTalk
+    ));
+    assert!(matches!(
+        plan.steps[1].kind,
+        SlayTheDataReplayStepKind::NeowBonus { .. }
+    ));
+    assert!(matches!(
+        plan.steps[2].kind,
+        SlayTheDataReplayStepKind::CardReward { .. }
+    ));
+    assert!(matches!(
+        plan.steps[3].kind,
+        SlayTheDataReplayStepKind::NeowLeave
+    ));
+    assert_eq!(
+        plan.steps
+            .iter()
+            .filter(|step| matches!(step.kind, SlayTheDataReplayStepKind::CardReward { .. }))
+            .count(),
+        1
+    );
 }
 
 #[test]
@@ -546,11 +691,7 @@ fn preflight_checks_map_symbol_without_map_coordinates() {
 
     let report = slaythedata_replay_preflight(&plan);
 
-    assert!(!report.route_fully_checked);
-    assert!(report
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == "route_not_fully_proven"));
+    assert!(report.route_fully_checked);
     let route_step = report
         .steps
         .iter()
@@ -562,10 +703,7 @@ fn preflight_checks_map_symbol_without_map_coordinates() {
                 )
         })
         .expect("route step");
-    assert!(matches!(
-        route_step.code.as_str(),
-        "legal_map_room" | "ambiguous_map_symbol" | "guided_map_symbol_unmatched"
-    ));
+    assert_eq!(route_step.code, "legal_map_room");
 }
 
 #[test]
@@ -679,10 +817,10 @@ fn preflight_resolves_first_map_route_with_combat_and_event_history() {
         .expect("floor 1 map step");
     assert_eq!(
         map_step.status,
-        SlayTheDataPreflightStatus::Blocked,
+        SlayTheDataPreflightStatus::Checked,
         "{}",
         map_step.message
     );
-    assert_eq!(map_step.code, "ambiguous_map_route");
-    assert!(map_step.bridge_command.is_none());
+    assert_eq!(map_step.code, "legal_map_room");
+    assert!(map_step.bridge_command.is_some());
 }

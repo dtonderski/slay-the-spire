@@ -72,6 +72,10 @@ pub struct MonsterPowers {
     pub artifact: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub flight: i32,
+    /// Byrd reached zero Flight during the current card's action queue. The
+    /// target keeps Flight's damage reduction until that queue settles.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub flight_grounding_pending: bool,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub intangible: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
@@ -103,6 +107,10 @@ pub struct MonsterPowers {
     pub strength_up: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub slow: i32,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Slay the Spire-style vulnerable bonus: attack damage is increased by 50%, floored.

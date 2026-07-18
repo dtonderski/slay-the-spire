@@ -15,7 +15,7 @@ fn draw_card_from_pile_top(state: &mut CombatState) -> Option<CardInstance> {
     state.piles.draw_pile.pop()
 }
 
-const MAX_HAND_SIZE: usize = 10;
+pub(crate) const MAX_HAND_SIZE: usize = 10;
 
 fn drawable_count(state: &CombatState, count: usize) -> usize {
     count.min(MAX_HAND_SIZE.saturating_sub(state.piles.hand.len()))
@@ -134,8 +134,7 @@ pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: 
     if !state.relics.contains(&Relic::SneckoEye) && state.player.powers.confusion <= 0 {
         return;
     }
-    if !get_card_definition(card.content_id)
-        .is_some_and(|definition| !definition.keywords.unplayable)
+    if get_card_definition(card.content_id).is_none_or(|definition| definition.keywords.unplayable)
     {
         return;
     }
@@ -167,5 +166,49 @@ pub(crate) fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut S
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let shuffle_seed = rng.random_long();
     JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
+    crate::relic::apply_shuffle_relics(state);
+}
+
+pub(crate) fn deep_breath_shuffle_discard_into_draw(
+    state: &mut CombatState,
+    rng: &mut SimulatorRng,
+) {
+    if state.piles.discard_pile.is_empty() {
+        return;
+    }
+
+    for index in (1..state.piles.discard_pile.len()).rev() {
+        let swap_with = rng.next_usize(
+            RngStream::Shuffle,
+            "combat::draw::deep_breath_discard_shuffle",
+            index + 1,
+        );
+        state.piles.discard_pile.swap(index, swap_with);
+    }
+    state.piles.draw_pile.append(&mut state.piles.discard_pile);
+    for index in (1..state.piles.draw_pile.len()).rev() {
+        let swap_with = rng.next_usize(
+            RngStream::Shuffle,
+            "combat::draw::deep_breath_draw_shuffle",
+            index + 1,
+        );
+        state.piles.draw_pile.swap(index, swap_with);
+    }
+    crate::relic::apply_shuffle_relics(state);
+}
+
+pub(crate) fn deep_breath_shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut StsRng) {
+    if state.piles.discard_pile.is_empty() {
+        return;
+    }
+
+    // Target DeepBreath queues EmptyDeckShuffleAction followed by
+    // ShuffleAction(drawPile, false). CardGroup::shuffle consumes one
+    // shuffleRng.randomLong() for each operation.
+    let discard_shuffle_seed = rng.random_long();
+    JavaRng::new(discard_shuffle_seed).collections_shuffle(&mut state.piles.discard_pile);
+    state.piles.draw_pile.append(&mut state.piles.discard_pile);
+    let draw_shuffle_seed = rng.random_long();
+    JavaRng::new(draw_shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
     crate::relic::apply_shuffle_relics(state);
 }

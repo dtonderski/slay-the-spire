@@ -76,12 +76,60 @@ pub fn parse_trace_jsonl(content: &str) -> Result<Vec<TraceLine>, serde_json::Er
         };
         match type_name {
             "metadata" => lines.push(TraceLine::Metadata(serde_json::from_value(value)?)),
-            "state" => lines.push(TraceLine::State(serde_json::from_value(value)?)),
-            "action" => lines.push(TraceLine::Action(serde_json::from_value(value)?)),
+            "state" => lines.push(TraceLine::State(parse_state_line(value)?)),
+            "action" => lines.push(TraceLine::Action(parse_action_line(value)?)),
             _ => {}
         }
     }
     Ok(lines)
+}
+
+fn parse_state_line(value: Value) -> Result<TraceState, serde_json::Error> {
+    if value.get("step").is_some() && value.get("message").is_some() {
+        return serde_json::from_value(value);
+    }
+
+    let step = value
+        .pointer("/state/raw/current_state/step")
+        .or_else(|| value.pointer("/state/raw/status/step"))
+        .or_else(|| value.get("sequence"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let message = value
+        .pointer("/state/raw/current_state/message")
+        .cloned()
+        .unwrap_or(Value::Null);
+    let received_at = value
+        .pointer("/state/raw/current_state/received_at")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    serde_json::from_value(serde_json::json!({
+        "step": step,
+        "received_at": received_at,
+        "message": message,
+    }))
+}
+
+fn parse_action_line(value: Value) -> Result<TraceAction, serde_json::Error> {
+    if value.get("step").is_some() && value.get("command").is_some() {
+        return serde_json::from_value(value);
+    }
+
+    let step = value
+        .pointer("/action/command/source_state_seq")
+        .or_else(|| value.get("sequence"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let command = value
+        .pointer("/action/command/command")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    serde_json::from_value(serde_json::json!({
+        "step": step,
+        "command": command,
+    }))
 }
 
 /// Import a CommunicationMod trace, collecting metadata and ordered lines.
@@ -113,5 +161,25 @@ mod tests {
         let lines = parse_trace_jsonl(content).expect("parses");
         assert_eq!(lines.len(), 3);
         assert!(matches!(lines[2], TraceLine::Action(_)));
+    }
+
+    #[test]
+    fn parse_trace_accepts_live_trace_session_records() {
+        let content = r#"{"type":"state","sequence":7,"state":{"raw":{"current_state":{"step":6,"received_at":"now","message":{"game_state":{"floor":0}}}}}}
+{"type":"action","sequence":7,"action":{"command":{"command":"CHOOSE 0","source_state_seq":6}}}"#;
+
+        let lines = parse_trace_jsonl(content).expect("parses");
+        assert_eq!(lines.len(), 2);
+        assert!(matches!(
+            &lines[0],
+            TraceLine::State(state)
+                if state.step == 6
+                    && state.received_at.as_deref() == Some("now")
+                    && state.message["game_state"]["floor"] == 0
+        ));
+        assert!(matches!(
+            &lines[1],
+            TraceLine::Action(action) if action.step == 6 && action.command == "CHOOSE 0"
+        ));
     }
 }

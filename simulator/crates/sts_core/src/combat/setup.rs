@@ -47,11 +47,7 @@ pub fn initialize_combat_piles_with_relics(
         .filter(|card| !card_starts_in_opening_hand(card))
         .cloned()
         .collect();
-    draw_pile.extend(
-        shuffled
-            .into_iter()
-            .filter(|card| card_starts_in_opening_hand(card)),
-    );
+    draw_pile.extend(shuffled.into_iter().filter(card_starts_in_opening_hand));
 
     let mut hand = Vec::new();
 

@@ -60,15 +60,11 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
     if player.powers.ritual > 0 {
         player.powers.strength += player.powers.ritual;
     }
-    if player.powers.metallicize > 0 {
-        if player.no_block_turns == 0 {
-            player.block += player.powers.metallicize;
-        }
+    if player.powers.metallicize > 0 && player.no_block_turns == 0 {
+        player.block += player.powers.metallicize;
     }
-    if player.powers.plated_armor > 0 {
-        if player.no_block_turns == 0 {
-            player.block += player.powers.plated_armor;
-        }
+    if player.powers.plated_armor > 0 && player.no_block_turns == 0 {
+        player.block += player.powers.plated_armor;
     }
     if player.powers.regen > 0 {
         heal_player_in_combat_with_relics(
@@ -94,8 +90,12 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
 }
 
 fn apply_end_of_turn_combust(state: &mut CombatState) {
-    for _ in 0..state.player.powers.combust.max(0) {
-        let hp_loss = lose_player_hp(state, COMBUST_HP_LOSS);
+    let combust_stacks = state.player.powers.combust.max(0);
+    if combust_stacks > 0 {
+        // Stacked Combust is one LoseHPAction whose hpLoss field is increased by
+        // one per stack. Card-loss hooks such as Rupture therefore fire once,
+        // not once for every point of HP lost.
+        let hp_loss = lose_player_hp(state, combust_stacks * COMBUST_HP_LOSS);
         crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
         if state.player.hp <= 0 {
             return;
@@ -218,5 +218,21 @@ mod tests {
             monster_damage_to_player(&state.player, &state.monsters[0], 18),
             23
         );
+    }
+
+    #[test]
+    fn stacked_combust_triggers_rupture_once_for_the_combined_hp_loss() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.powers.combust = 2;
+        state.player.powers.combust_damage = 10;
+        state.player.powers.rupture = 2;
+        let monster_hp = state.monsters[0].hp;
+
+        apply_end_of_player_turn_powers(&mut state);
+
+        assert_eq!(state.player.hp, 18);
+        assert_eq!(state.player.powers.strength, 2);
+        assert_eq!(state.monsters[0].hp, monster_hp - 10);
     }
 }

@@ -58,7 +58,7 @@ fn deal_attack_damage_to_monster(
     relics: &[Relic],
     amount: i32,
 ) -> AttackDamageResult {
-    let amount = if monster.powers.flight > 0 {
+    let amount = if monster.powers.flight > 0 || monster.powers.flight_grounding_pending {
         amount / 2
     } else {
         amount
@@ -102,7 +102,7 @@ fn deal_attack_damage_to_monster(
     if monster.alive && hp_damage > 0 && monster.powers.flight > 0 {
         monster.powers.flight -= 1;
         if monster.powers.flight == 0 {
-            monster.intent = crate::MonsterIntent::Stun;
+            monster.powers.flight_grounding_pending = true;
         }
     }
     reduce_monster_plated_armor_after_hp_damage(monster, hp_damage);

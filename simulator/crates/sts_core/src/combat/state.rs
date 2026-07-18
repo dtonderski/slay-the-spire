@@ -26,6 +26,9 @@ pub struct CombatState {
     pub phase: CombatPhase,
     #[serde(default)]
     pub relics: Vec<Relic>,
+    /// Mark of the Bloom prevents every combat healing effect.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub mark_of_bloom: bool,
     #[serde(default)]
     pub relic_counters: RelicCounters,
     #[serde(default)]
@@ -41,6 +44,11 @@ pub struct CombatState {
     /// In-combat zero-cost card reward from potions such as Power Potion.
     #[serde(default)]
     pub potion_card_reward: Option<Vec<CardInstance>>,
+    /// Pool used by the open potion reward, retained until pick/skip because
+    /// target DiscoveryAction burns additional cardRandomRng draws while the
+    /// screen settles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub potion_card_reward_kind: Option<PotionCardRewardKind>,
     /// In-combat normal-cost colorless reward from Toolbox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub toolbox_card_reward: Option<Vec<CardInstance>>,
@@ -78,6 +86,12 @@ pub struct CombatState {
     /// Sharp Hide.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_player_spikes_damage: i32,
+    /// Energy actions queued by start-of-turn relics behind an opening combat choice.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub pending_start_of_turn_relic_energy: i32,
+    /// Monster-death relic callbacks queued behind a card effect that opened a choice screen.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub pending_monster_death_relic_triggers: u32,
     /// Gold gained by combat-only effects such as Hand of Greed before the run wrapper transfers it.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub combat_gold_gained: i32,
@@ -87,6 +101,14 @@ pub struct CombatState {
 pub struct BombTimer {
     pub turns_remaining: i32,
     pub damage: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PotionCardRewardKind {
+    Attack,
+    Skill,
+    Power,
+    Colorless,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -445,6 +467,7 @@ impl CombatState {
             },
             phase: CombatPhase::WaitingForPlayer,
             relics: Vec::new(),
+            mark_of_bloom: false,
             relic_counters: RelicCounters::default(),
             ascension: 0,
             shuffle_rng: None,
@@ -452,6 +475,7 @@ impl CombatState {
             monster_hp_rng: None,
             card_random_rng: None,
             potion_card_reward: None,
+            potion_card_reward_kind: None,
             toolbox_card_reward: None,
             discovery_card_reward: None,
             discovery_source_card: None,
@@ -464,6 +488,8 @@ impl CombatState {
             double_tap_pending: 0,
             bomb_timers: Vec::new(),
             pending_player_spikes_damage: 0,
+            pending_start_of_turn_relic_energy: 0,
+            pending_monster_death_relic_triggers: 0,
             combat_gold_gained: 0,
         }
     }
@@ -593,6 +619,10 @@ fn default_player_energy() -> i32 {
 }
 
 fn is_zero_i32(value: &i32) -> bool {
+    *value == 0
+}
+
+fn is_zero_u32(value: &u32) -> bool {
     *value == 0
 }
 

@@ -258,7 +258,10 @@ impl Potion {
 
     #[must_use]
     pub fn requires_target(self) -> bool {
-        matches!(self, Potion::Fire | Potion::Fear | Potion::Weak)
+        matches!(
+            self,
+            Potion::Fire | Potion::Fear | Potion::Weak | Potion::Explosive
+        )
     }
 
     #[must_use]
@@ -303,5 +306,15 @@ impl Potion {
             self,
             Potion::EntropicBrew | Potion::DistilledChaos | Potion::SneckoOil
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Potion;
+
+    #[test]
+    fn explosive_potion_uses_a_live_target_command() {
+        assert!(Potion::Explosive.requires_target());
     }
 }

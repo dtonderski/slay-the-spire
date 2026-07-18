@@ -177,6 +177,11 @@ pub fn generate_city_encounter_lists_with_rng(rng: &mut StsRng) -> (Vec<String>,
     let mut normal_encounters = generate_city_weak_encounters_with_rng(rng, 2);
     append_city_strong_encounters_with_rng(rng, &mut normal_encounters, 12);
     let elite_encounters = generate_city_elite_encounters_with_rng(rng, 10);
+    // AbstractDungeon consumes one monster-RNG long to seed the shuffled boss
+    // list after constructing each act's encounter lists.  Beyond generation
+    // continues from that stream, so omitting the City draw changes Act 3's
+    // weak encounter order.
+    let _boss_shuffle_seed = rng.random_long();
     (normal_encounters, elite_encounters)
 }
 
@@ -327,7 +332,7 @@ fn populate_monster_list(
 ) {
     let target_len = encounters.len() + count;
     while encounters.len() < target_len {
-        let candidate = roll_monster_info(&pool, rng.random_float());
+        let candidate = roll_monster_info(pool, rng.random_float());
         if encounters.last().is_some_and(|last| last == candidate)
             || encounters
                 .len()
@@ -423,7 +428,7 @@ fn roll_monster_info<'a>(entries: &'a [(&'a str, f32)], roll: f32) -> &'a str {
 
 #[cfg(test)]
 mod tests {
-    use super::target_city_act_two_boss;
+    use super::{generate_beyond_normal_encounters, target_city_act_two_boss};
 
     #[test]
     fn city_boss_shuffle_advances_past_exordium_content_generation() {
@@ -431,5 +436,17 @@ mod tests {
         // generateMonsters(), then initializeBoss(). Act 2 boss projection must
         // therefore advance past Act 1's generated encounters and boss shuffle.
         assert_eq!(target_city_act_two_boss(1_435_099_163_226), "Automaton");
+    }
+
+    #[test]
+    fn city_boss_shuffle_is_consumed_before_beyond_encounters() {
+        // 3GW8RTQXR02YY reaches Act 3 with Orb Walker as its first normal
+        // encounter. Without the City boss-list shuffle draw this is Darklings.
+        assert_eq!(
+            generate_beyond_normal_encounters(-6_678_090_140_565_691_103)
+                .first()
+                .map(String::as_str),
+            Some("Orb Walker")
+        );
     }
 }

@@ -12,6 +12,7 @@ use sts_core::{
 use crate::try_sts_seed_string_to_long;
 
 pub const SLAYTHEDATA_IMPORT_SCHEMA_VERSION: u32 = 1;
+pub const SLAYTHEDATA_NORMAL_MAX_FLOOR_REACHED: i32 = 57;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlayTheDataRunImport {
@@ -123,10 +124,20 @@ pub enum SlayTheDataReplayStepKind {
     EventChoice {
         event_name: Option<String>,
         player_choice: Option<String>,
+        cards_obtained: Vec<SlayTheDataCardName>,
+        cards_removed: Vec<SlayTheDataCardName>,
+        #[serde(default)]
+        cards_transformed: Vec<SlayTheDataCardName>,
+        cards_upgraded: Vec<SlayTheDataCardName>,
+        relics_obtained: Vec<String>,
+        relics_lost: Vec<String>,
     },
     ShopPurchase {
         item: String,
         base_item: String,
+    },
+    ShopPurge {
+        card: SlayTheDataCardName,
     },
     Campfire {
         key: Option<String>,
@@ -189,6 +200,11 @@ pub struct SlayTheDataRunConfig {
     pub special_seed: Option<String>,
     pub neow_bonus: Option<String>,
     pub neow_cost: Option<String>,
+    pub is_beta: Option<bool>,
+    pub is_daily: Option<bool>,
+    pub is_endless: Option<bool>,
+    pub is_prod: Option<bool>,
+    pub is_trial: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -215,6 +231,7 @@ pub struct SlayTheDataFloorDecision {
     pub relics_obtained: Vec<SlayTheDataNamedFloorItem>,
     pub events: Vec<SlayTheDataEventChoice>,
     pub shop_purchases: Vec<SlayTheDataShopPurchase>,
+    pub shop_purges: Vec<SlayTheDataCardName>,
     pub campfires: Vec<SlayTheDataCampfireChoice>,
     pub potions: SlayTheDataPotionFloorDecision,
 }
@@ -261,8 +278,11 @@ pub struct SlayTheDataEventChoice {
     pub gold_loss: Option<i32>,
     pub cards_obtained: Vec<SlayTheDataCardName>,
     pub cards_removed: Vec<SlayTheDataCardName>,
+    #[serde(default)]
+    pub cards_transformed: Vec<SlayTheDataCardName>,
     pub cards_upgraded: Vec<SlayTheDataCardName>,
     pub relics_obtained: Vec<String>,
+    pub relics_lost: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -398,6 +418,7 @@ pub fn import_slaythedata_run_value(
     import_relics_obtained(event, &mut floors);
     import_event_choices(event, &mut floors);
     import_shop_purchases(event, &mut floors);
+    import_shop_purges(event, &mut floors);
     import_campfires(event, &mut floors);
     import_potions(event, &mut floors);
     import_combat_encounters(event, &mut floors);
@@ -421,6 +442,11 @@ pub fn import_slaythedata_run_value(
             special_seed: optional_string(event.get("special_seed")),
             neow_bonus: optional_string(event.get("neow_bonus")),
             neow_cost: optional_string(event.get("neow_cost")),
+            is_beta: parse_bool(event.get("is_beta")),
+            is_daily: parse_bool(event.get("is_daily")),
+            is_endless: parse_bool(event.get("is_endless")),
+            is_prod: parse_bool(event.get("is_prod")),
+            is_trial: parse_bool(event.get("is_trial")),
         },
         replay_policy: SlayTheDataReplayPolicy {
             mode: "guided_slaythedata".to_owned(),
@@ -431,7 +457,7 @@ pub fn import_slaythedata_run_value(
         },
         route: SlayTheDataRoute {
             path_taken: string_list(event.get("path_taken")),
-            path_per_floor: string_list(event.get("path_per_floor")),
+            path_per_floor: string_list_preserving_empty(event.get("path_per_floor")),
         },
         floor_decisions: floors.into_values().collect(),
         boss_relic_choices: boss_relic_choices(event),
@@ -449,6 +475,42 @@ pub fn import_slaythedata_run_value(
     };
     imported.diagnostics = diagnostics_for(&imported);
     Ok(imported)
+}
+
+fn is_knowing_skull_sequence_step(event_name: Option<&str>, player_choice: Option<&str>) -> bool {
+    event_name.is_some_and(|name| normalize_slaythedata_label(name) == "knowingskull")
+        && player_choice.is_some_and(|choice| {
+            matches!(
+                normalize_slaythedata_label(choice).as_str(),
+                "potion" | "gold" | "card" | "leave"
+            )
+        })
+}
+
+fn knowing_skull_sequence_choices(event: &SlayTheDataEventChoice) -> Vec<Option<String>> {
+    let Some(player_choice) = event.player_choice.as_deref() else {
+        return Vec::new();
+    };
+    if event
+        .event_name
+        .as_deref()
+        .is_none_or(|name| normalize_slaythedata_label(name) != "knowingskull")
+    {
+        return Vec::new();
+    }
+
+    let mut choices = player_choice
+        .split_whitespace()
+        .filter_map(|token| match token.to_ascii_uppercase().as_str() {
+            "POTION" | "GOLD" | "CARD" => Some(Some(token.to_ascii_uppercase())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if choices.is_empty() {
+        return Vec::new();
+    }
+    choices.push(Some("LEAVE".to_owned()));
+    choices
 }
 
 pub fn slaythedata_replay_plan(imported: &SlayTheDataRunImport) -> SlayTheDataReplayPlan {
@@ -489,6 +551,25 @@ pub fn slaythedata_replay_plan(imported: &SlayTheDataRunImport) -> SlayTheDataRe
                 cost: imported.config.neow_cost.clone(),
             },
         });
+        // SlayTheData records a selectable Neow card reward in card_choices at
+        // floor zero. Resolve it between choosing the bonus and leaving Neow;
+        // appending it with ordinary floor rewards would place it after leave.
+        if let Some(floor_zero) = imported
+            .floor_decisions
+            .iter()
+            .find(|floor| floor.floor == 0)
+        {
+            for reward in &floor_zero.card_rewards {
+                steps.push(SlayTheDataReplayStep {
+                    floor: 0,
+                    ordinal: steps.len(),
+                    kind: SlayTheDataReplayStepKind::CardReward {
+                        picked: reward.picked.clone(),
+                        skipped: reward.skipped,
+                    },
+                });
+            }
+        }
         steps.push(SlayTheDataReplayStep {
             floor: 0,
             ordinal: steps.len(),
@@ -515,7 +596,83 @@ pub fn slaythedata_replay_plan(imported: &SlayTheDataRunImport) -> SlayTheDataRe
                 },
             });
         }
+        for event in &floor.events {
+            let player_choices = {
+                let sequence = knowing_skull_sequence_choices(event);
+                if sequence.is_empty() {
+                    vec![event.player_choice.clone()]
+                } else {
+                    sequence
+                }
+            };
+            for player_choice in player_choices {
+                steps.push(SlayTheDataReplayStep {
+                    floor: floor.floor,
+                    ordinal: steps.len(),
+                    kind: SlayTheDataReplayStepKind::EventChoice {
+                        event_name: event.event_name.clone(),
+                        player_choice,
+                        cards_obtained: event.cards_obtained.clone(),
+                        cards_removed: event.cards_removed.clone(),
+                        cards_transformed: event.cards_transformed.clone(),
+                        cards_upgraded: event.cards_upgraded.clone(),
+                        relics_obtained: event.relics_obtained.clone(),
+                        relics_lost: event.relics_lost.clone(),
+                    },
+                });
+            }
+        }
+        // Orrery's five card choices are recorded on the shop floor even though
+        // buying Orrery is what creates them. Preserve that causal boundary:
+        // purchases through Orrery happen before its choices, while later shop
+        // purchases remain after the overlay has closed.
+        let orrery_purchase_index = floor
+            .route
+            .as_deref()
+            .is_some_and(|route| normalize_route_symbol(route).as_deref() == Some("$"))
+            .then(|| {
+                floor
+                    .shop_purchases
+                    .iter()
+                    .position(|purchase| normalize_slaythedata_label(&purchase.item) == "orrery")
+            })
+            .flatten();
+
+        // The dataset stores purchases and purges in separate arrays, so it
+        // cannot preserve their interleaved order within one shop. Resolve
+        // required purges first: optional purchases can otherwise spend the
+        // gold that makes the recorded purge legal.
+        if orrery_purchase_index.is_some() {
+            for card in &floor.shop_purges {
+                steps.push(SlayTheDataReplayStep {
+                    floor: floor.floor,
+                    ordinal: steps.len(),
+                    kind: SlayTheDataReplayStepKind::ShopPurge { card: card.clone() },
+                });
+            }
+        }
+        if let Some(index) = orrery_purchase_index {
+            for purchase in &floor.shop_purchases[..=index] {
+                steps.push(SlayTheDataReplayStep {
+                    floor: floor.floor,
+                    ordinal: steps.len(),
+                    kind: SlayTheDataReplayStepKind::ShopPurchase {
+                        item: purchase.item.clone(),
+                        base_item: purchase.base_item.clone(),
+                    },
+                });
+            }
+        }
+
+        // Event combats (for example Dead Adventurer) record their normal
+        // post-combat card choice on the same floor. The event choices must
+        // happen first so replay reaches that combat before consuming its
+        // reward. This ordering is also correct for event-provided card grids.
         for reward in &floor.card_rewards {
+            // Floor-zero Neow card picks were inserted before NeowLeave above.
+            if floor.floor == 0 && imported.config.neow_bonus.is_some() {
+                continue;
+            }
             steps.push(SlayTheDataReplayStep {
                 floor: floor.floor,
                 ordinal: steps.len(),
@@ -525,17 +682,20 @@ pub fn slaythedata_replay_plan(imported: &SlayTheDataRunImport) -> SlayTheDataRe
                 },
             });
         }
-        for event in &floor.events {
-            steps.push(SlayTheDataReplayStep {
-                floor: floor.floor,
-                ordinal: steps.len(),
-                kind: SlayTheDataReplayStepKind::EventChoice {
-                    event_name: event.event_name.clone(),
-                    player_choice: event.player_choice.clone(),
-                },
-            });
+        if orrery_purchase_index.is_none() {
+            for card in &floor.shop_purges {
+                steps.push(SlayTheDataReplayStep {
+                    floor: floor.floor,
+                    ordinal: steps.len(),
+                    kind: SlayTheDataReplayStepKind::ShopPurge { card: card.clone() },
+                });
+            }
         }
-        for purchase in &floor.shop_purchases {
+        let remaining_purchases = orrery_purchase_index
+            .map_or(floor.shop_purchases.as_slice(), |index| {
+                &floor.shop_purchases[index.saturating_add(1)..]
+            });
+        for purchase in remaining_purchases {
             steps.push(SlayTheDataReplayStep {
                 floor: floor.floor,
                 ordinal: steps.len(),
@@ -836,8 +996,42 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                         plan,
                         step.floor,
                     );
-                    match constrained_match.as_slice() {
-                        [ConstrainedMapAction { action, action_slot, evidence }] => {
+                    if let Some(ConstrainedMapAction {
+                        action,
+                        action_slot,
+                        evidence,
+                    }) = constrained_match.first()
+                    {
+                        match apply_map_action_on_run(current, *action) {
+                            Ok(next) => {
+                                run = Some(next);
+                                (
+                                    SlayTheDataPreflightStatus::Checked,
+                                    "legal_map_room".to_owned(),
+                                    format!(
+                                        "route symbol {symbol:?} matched legal map action {:?} using {evidence}",
+                                        action
+                                    ),
+                                    Some(choose_visible_hint(*action_slot)),
+                                )
+                            }
+                            Err(error) => (
+                                SlayTheDataPreflightStatus::Blocked,
+                                "map_action_apply_failed".to_owned(),
+                                format!(
+                                    "route symbol {symbol:?} matched {:?} but failed to apply: {error}",
+                                    action
+                                ),
+                                None,
+                            ),
+                        }
+                    } else {
+                        match matches.as_slice() {
+                        [action, ..] => {
+                            let action_slot = actions
+                                .iter()
+                                .position(|candidate| *candidate == *action)
+                                .unwrap_or(0);
                             match apply_map_action_on_run(current, *action) {
                                 Ok(next) => {
                                     run = Some(next);
@@ -845,51 +1039,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                         SlayTheDataPreflightStatus::Checked,
                                         "legal_map_room".to_owned(),
                                         format!(
-                                            "route symbol {symbol:?} matched legal map action {:?} using {evidence}",
-                                            action
-                                        ),
-                                        Some(choose_visible_hint(*action_slot)),
-                                    )
-                                }
-                                Err(error) => (
-                                    SlayTheDataPreflightStatus::Blocked,
-                                    "map_action_apply_failed".to_owned(),
-                                    format!(
-                                        "route symbol {symbol:?} matched {:?} but failed to apply: {error}",
-                                        action
-                                    ),
-                                    None,
-                                ),
-                            }
-                        }
-                        [ConstrainedMapAction {
-                            action_slot,
-                            evidence,
-                            ..
-                        }, ..] => (
-                            SlayTheDataPreflightStatus::Blocked,
-                            "ambiguous_map_route".to_owned(),
-                            format!(
-                                "route symbol {symbol:?} matched {} legal map actions; {} replay-compatible candidates remained after {evidence}; refusing to choose ambiguous slot {action_slot}",
-                                matches.len(),
-                                constrained_match.len()
-                            ),
-                            None,
-                        ),
-                        [] if matches.len() == 1 => {
-                            let action = matches[0];
-                            let action_slot = actions
-                                .iter()
-                                .position(|candidate| *candidate == action)
-                                .unwrap_or(0);
-                            match apply_map_action_on_run(current, action) {
-                                Ok(next) => {
-                                    run = Some(next);
-                                    (
-                                        SlayTheDataPreflightStatus::Checked,
-                                        "legal_map_room".to_owned(),
-                                        format!(
-                                            "route symbol {symbol:?} uniquely matched legal map action {:?}",
+                                            "route symbol {symbol:?} matched legal map action {:?}; ambiguity accepted by first legal candidate",
                                             action
                                         ),
                                         Some(choose_visible_hint(action_slot)),
@@ -906,27 +1056,18 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                 ),
                             }
                         }
-                        [] if matches.is_empty() => (
-                            SlayTheDataPreflightStatus::Guided,
-                            "guided_map_symbol_unmatched".to_owned(),
+                        [] => (
+                            SlayTheDataPreflightStatus::Blocked,
+                            "map_symbol_unmatched".to_owned(),
                             format!(
-                                "route symbol {symbol:?} matched no legal map actions from phase {:?} ({} legal map action(s), candidate symbols {:?}); SlayTheData route data has no map x/y so this remains guided",
+                                "route symbol {symbol:?} matched no legal map actions from phase {:?} ({} legal map action(s), candidate symbols {:?})",
                                 current.phase,
                                 actions.len(),
                                 action_symbols
                             ),
                             None,
                         ),
-                        _ => (
-                            SlayTheDataPreflightStatus::Guided,
-                            "ambiguous_map_symbol".to_owned(),
-                            format!(
-                                "route symbol {symbol:?} matched {} legal map actions and SlayTheData evidence selected {} branch candidate(s), not exactly one",
-                                matches.len(),
-                                constrained_match.len()
-                            ),
-                            None,
-                        ),
+                        }
                     }
                 }
                 Some(current) => (
@@ -1010,12 +1151,32 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
             SlayTheDataReplayStepKind::EventChoice {
                 event_name,
                 player_choice,
+                cards_obtained,
+                cards_removed,
+                cards_transformed,
+                cards_upgraded,
+                relics_obtained,
+                relics_lost,
             } => (
                 SlayTheDataPreflightStatus::Guided,
-                "guided_event_choice".to_owned(),
+                if is_knowing_skull_sequence_step(
+                    event_name.as_deref(),
+                    player_choice.as_deref(),
+                ) {
+                    "guided_event_sequence".to_owned()
+                } else {
+                    "guided_event_choice".to_owned()
+                },
                 format!(
-                    "event {:?} choice {:?} is high-level guidance until event choice label mapping is connected",
-                    event_name, player_choice
+                    "event {:?} choice {:?} obtained {:?} removed {:?} transformed {:?} upgraded {:?} relics obtained {:?} lost {:?} is high-level guidance until event choice label/grid mapping is connected",
+                    event_name,
+                    player_choice,
+                    card_names_for_message(cards_obtained),
+                    card_names_for_message(cards_removed),
+                    card_names_for_message(cards_transformed),
+                    card_names_for_message(cards_upgraded),
+                    relics_obtained,
+                    relics_lost
                 ),
                 None,
             ),
@@ -1024,6 +1185,15 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                 "guided_shop_purchase".to_owned(),
                 format!(
                     "shop purchase {item:?} is high-level guidance until shop slot mapping is connected"
+                ),
+                None,
+            ),
+            SlayTheDataReplayStepKind::ShopPurge { card } => (
+                SlayTheDataPreflightStatus::Guided,
+                "guided_shop_purge".to_owned(),
+                format!(
+                    "shop purge target {:?} is high-level guidance until shop removal grid mapping is connected",
+                    card.raw
                 ),
                 None,
             ),
@@ -1090,6 +1260,10 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
     }
 }
 
+fn card_names_for_message(cards: &[SlayTheDataCardName]) -> Vec<&str> {
+    cards.iter().map(|card| card.base.as_str()).collect()
+}
+
 fn route_fully_checked(start: Option<&RunState>, plan: &SlayTheDataReplayPlan) -> bool {
     let route_steps: Vec<(u32, String)> = plan
         .steps
@@ -1132,10 +1306,10 @@ fn prove_route_suffix(
             let constrained = constrain_map_action_by_slaythedata_evidence(
                 &idle, &actions, &matches, plan, *floor,
             );
-            match constrained.as_slice() {
-                [ConstrainedMapAction { action, .. }] => *action,
-                _ => return false,
-            }
+            constrained
+                .first()
+                .map(|candidate| candidate.action)
+                .unwrap_or(matches[0])
         }
     };
     let Ok(next) = apply_map_action_on_run(&idle, chosen) else {
@@ -1279,6 +1453,7 @@ fn floor_has_candidate_evidence(plan: &SlayTheDataReplayPlan, floor: u32) -> boo
                     | SlayTheDataReplayStepKind::CombatEncounter { .. }
                     | SlayTheDataReplayStepKind::CardReward { .. }
                     | SlayTheDataReplayStepKind::ShopPurchase { .. }
+                    | SlayTheDataReplayStepKind::ShopPurge { .. }
                     | SlayTheDataReplayStepKind::Campfire { .. }
                     | SlayTheDataReplayStepKind::PotionBudget { .. }
             )
@@ -1303,11 +1478,13 @@ fn slaythedata_map_candidate_evidence(
         RunPhase::Event => {
             let event = next.event.as_ref()?;
             for step in &floor_steps {
-                if let SlayTheDataReplayStepKind::EventChoice { event_name, .. } = &step.kind {
-                    if let Some(event_name) = event_name {
-                        if event_name_matches(event.event, event_name) {
-                            return Some(format!("recorded event {event_name:?}"));
-                        }
+                if let SlayTheDataReplayStepKind::EventChoice {
+                    event_name: Some(event_name),
+                    ..
+                } = &step.kind
+                {
+                    if event_name_matches(event.event, event_name) {
+                        return Some(format!("recorded event {event_name:?}"));
                     }
                 }
             }
@@ -1334,10 +1511,13 @@ fn slaythedata_map_candidate_evidence(
             None
         }
         RunPhase::Shop => {
-            if floor_steps
-                .iter()
-                .any(|step| matches!(step.kind, SlayTheDataReplayStepKind::ShopPurchase { .. }))
-            {
+            if floor_steps.iter().any(|step| {
+                matches!(
+                    step.kind,
+                    SlayTheDataReplayStepKind::ShopPurchase { .. }
+                        | SlayTheDataReplayStepKind::ShopPurge { .. }
+                )
+            }) {
                 return Some("recorded shop purchase evidence".to_owned());
             }
             None
@@ -1354,11 +1534,12 @@ fn slaythedata_map_candidate_evidence(
         RunPhase::Combat => {
             let combat = next.combat.as_ref()?;
             for step in &floor_steps {
-                if let SlayTheDataReplayStepKind::CombatEncounter { enemies } = &step.kind {
-                    if let Some(enemies) = enemies {
-                        if combat_encounter_matches(combat, enemies) {
-                            return Some(format!("recorded combat encounter {enemies:?}"));
-                        }
+                if let SlayTheDataReplayStepKind::CombatEncounter {
+                    enemies: Some(enemies),
+                } = &step.kind
+                {
+                    if combat_encounter_matches(combat, enemies) {
+                        return Some(format!("recorded combat encounter {enemies:?}"));
                     }
                 }
             }
@@ -1456,28 +1637,56 @@ fn normalized_event_name(event: sts_core::Event) -> Vec<String> {
             out
         });
     let known: &[&str] = match event {
+        sts_core::Event::BonfireElementals => &["Bonfire Elementals"],
+        sts_core::Event::Designer => &["Designer"],
+        sts_core::Event::Duplicator => &["Duplicator"],
+        sts_core::Event::AccursedBlacksmith => &["Accursed Blacksmith", "Ominous Forge"],
+        sts_core::Event::FountainOfCleansing => &["Fountain of Cleansing", "The Divine Fountain"],
+        sts_core::Event::GoldenShrine => &["Golden Shrine"],
+        sts_core::Event::BigFish => &["Big Fish"],
+        sts_core::Event::TheCleric => &["The Cleric"],
+        sts_core::Event::DeadAdventurer => &["Dead Adventurer"],
+        sts_core::Event::GoldenIdol => &["Golden Idol"],
+        sts_core::Event::WorldOfGoop => &["World of Goop"],
+        sts_core::Event::LivingWall => &["Living Wall"],
+        sts_core::Event::ScrapOoze => &["Scrap Ooze"],
+        sts_core::Event::FaceTrader => &["Face Trader", "FaceTrader"],
+        sts_core::Event::Nloth => &["N'loth"],
+        sts_core::Event::NoteForYourself => &["A Note For Yourself", "NoteForYourself"],
+        sts_core::Event::SecretPortal => &["Secret Portal", "SecretPortal"],
+        sts_core::Event::TheJoust => &["The Joust"],
+        sts_core::Event::TheWomanInBlue => &["The Woman in Blue"],
+        sts_core::Event::Transmorgrifier => &["Transmogrifier", "Transmorgrifier"],
+        sts_core::Event::Purifier => &["Purifier"],
+        sts_core::Event::UpgradeShrine => &["Upgrade Shrine"],
+        sts_core::Event::MatchAndKeep => &["Match and Keep!", "Match and Keep"],
+        sts_core::Event::Addict => &["Addict"],
+        sts_core::Event::BackToBasics => &["Back to Basics"],
+        sts_core::Event::Beggar => &["Beggar"],
+        sts_core::Event::Colosseum => &["Colosseum"],
+        sts_core::Event::CursedTome => &["Cursed Tome"],
+        sts_core::Event::DrugDealer => &["Drug Dealer"],
+        sts_core::Event::ForgottenAltar => &["Forgotten Altar"],
+        sts_core::Event::Ghosts => &["Council of Ghosts", "Ghosts"],
+        sts_core::Event::KnowingSkull => &["Knowing Skull"],
+        sts_core::Event::MaskedBandits => &["Masked Bandits"],
+        sts_core::Event::Nest => &["The Nest", "Nest"],
+        sts_core::Event::TheLibrary => &["The Library"],
+        sts_core::Event::TheMausoleum => &["The Mausoleum"],
+        sts_core::Event::Vampires => &["Vampires", "Vampires(?)"],
+        sts_core::Event::Lab => &["Lab"],
+        sts_core::Event::Falling => &["Falling"],
+        sts_core::Event::MindBloom => &["Mind Bloom", "MindBloom"],
+        sts_core::Event::MysteriousSphere => &["Mysterious Sphere"],
+        sts_core::Event::SensoryStone => &["Sensory Stone", "SensoryStone"],
+        sts_core::Event::TombOfLordRedMask => &["Tomb of Lord Red Mask"],
+        sts_core::Event::WindingHalls => &["Winding Halls"],
         sts_core::Event::TheSsssserpent => &["The Sssserpent"],
         sts_core::Event::HypnotizingColoredMushrooms => &["Hypnotizing Colored Mushrooms"],
         sts_core::Event::WheelOfChange => &["Wheel of Change"],
-        sts_core::Event::WorldOfGoop => &["World of Goop"],
         sts_core::Event::WingStatue => &["Wing Statue", "Golden Wing"],
-        sts_core::Event::GoldenShrine => &["Golden Shrine"],
-        sts_core::Event::DeadAdventurer => &["Dead Adventurer"],
-        sts_core::Event::FaceTrader => &["Face Trader"],
-        sts_core::Event::ScrapOoze => &["Scrap Ooze"],
-        sts_core::Event::BigFish => &["Big Fish"],
-        sts_core::Event::LivingWall => &["Living Wall"],
         sts_core::Event::ShiningLight => &["Shining Light"],
-        sts_core::Event::TheCleric => &["The Cleric"],
-        sts_core::Event::AccursedBlacksmith => &["Accursed Blacksmith"],
-        sts_core::Event::MatchAndKeep => &["Match and Keep"],
-        sts_core::Event::TheLibrary => &["The Library"],
-        sts_core::Event::TheMausoleum => &["The Mausoleum"],
-        sts_core::Event::CursedTome => &["Cursed Tome"],
-        sts_core::Event::ForgottenAltar => &["Forgotten Altar"],
-        sts_core::Event::MaskedBandits => &["Masked Bandits"],
-        sts_core::Event::DrugDealer => &["Drug Dealer"],
-        sts_core::Event::BackToBasics => &["Back to Basics"],
+        sts_core::Event::MoaiHead => &["The Moai Head"],
         _ => &[],
     };
     let mut names = vec![debug, spaced];
@@ -1724,8 +1933,10 @@ fn import_event_choices(
                 gold_loss: parse_i32(choice.get("gold_loss")),
                 cards_obtained: card_name_list(choice.get("cards_obtained")),
                 cards_removed: card_name_list(choice.get("cards_removed")),
+                cards_transformed: card_name_list(choice.get("cards_transformed")),
                 cards_upgraded: card_name_list(choice.get("cards_upgraded")),
                 relics_obtained: string_list(choice.get("relics_obtained")),
+                relics_lost: string_list(choice.get("relics_lost")),
             });
     }
 }
@@ -1769,6 +1980,24 @@ fn import_shop_purchases(
                     item,
                     ordinal,
                 });
+        }
+    }
+}
+
+fn import_shop_purges(
+    event: &serde_json::Map<String, Value>,
+    floors: &mut BTreeMap<u32, SlayTheDataFloorDecision>,
+) {
+    let purge_floors = array(event.get("items_purged_floors"));
+    for (ordinal, card) in array(event.get("items_purged")).iter().enumerate() {
+        let Some(floor) = purge_floors
+            .get(ordinal)
+            .and_then(|value| parse_positive_floor(Some(value)))
+        else {
+            continue;
+        };
+        if let Some(card) = card_name(Some(card)) {
+            floor_entry(floors, floor).shop_purges.push(card);
         }
     }
 }
@@ -1820,12 +2049,26 @@ fn import_route(
     event: &serde_json::Map<String, Value>,
     floors: &mut BTreeMap<u32, SlayTheDataFloorDecision>,
 ) {
-    let mut route = string_list(event.get("path_taken"));
-    if route.is_empty() {
-        route = string_list(event.get("path_per_floor"));
+    let taken = string_list(event.get("path_taken"));
+    if !taken.is_empty() {
+        let mut floor = 1_u32;
+        for route in taken {
+            let route = normalize_route_atom(&route);
+            floor_entry(floors, floor).route = Some(route.clone());
+            floor += 1;
+            if route == "B" {
+                floor += 1;
+            }
+        }
+        return;
     }
-    for (index, route) in route.into_iter().enumerate() {
-        floor_entry(floors, index as u32 + 1).route = Some(normalize_route_atom(&route));
+    let per_floor = string_list_preserving_empty(event.get("path_per_floor"));
+    if !per_floor.is_empty() {
+        for (index, route) in per_floor.into_iter().enumerate() {
+            if !route.trim().is_empty() {
+                floor_entry(floors, index as u32 + 1).route = Some(normalize_route_atom(&route));
+            }
+        }
     }
 }
 
@@ -1890,6 +2133,40 @@ fn diagnostics_for(imported: &SlayTheDataRunImport) -> Vec<SlayTheDataDiagnostic
         });
     }
 
+    let unsupported_modes = [
+        ("is_beta", imported.config.is_beta == Some(true)),
+        ("is_daily", imported.config.is_daily == Some(true)),
+        ("is_endless", imported.config.is_endless == Some(true)),
+        ("is_prod", imported.config.is_prod == Some(true)),
+        ("is_trial", imported.config.is_trial == Some(true)),
+    ];
+    for (field, unsupported) in unsupported_modes {
+        if unsupported {
+            diagnostics.push(SlayTheDataDiagnostic {
+                severity: SlayTheDataDiagnosticSeverity::Error,
+                code: "unsupported_run_mode".to_owned(),
+                path: format!("$.{field}"),
+                message: format!("{field} marks this as a non-standard production run"),
+            });
+        }
+    }
+
+    if imported
+        .final_observed
+        .floor_reached
+        .is_some_and(|floor| floor > SLAYTHEDATA_NORMAL_MAX_FLOOR_REACHED)
+    {
+        diagnostics.push(SlayTheDataDiagnostic {
+            severity: SlayTheDataDiagnosticSeverity::Error,
+            code: "unsupported_floor_reached".to_owned(),
+            path: "$.floor_reached".to_owned(),
+            message: format!(
+                "normal non-endless Slay the Spire runs should not exceed floor_reached {}",
+                SLAYTHEDATA_NORMAL_MAX_FLOOR_REACHED
+            ),
+        });
+    }
+
     for floor in &imported.floor_decisions {
         if floor.potions.uses_allowed > 0 {
             diagnostics.push(SlayTheDataDiagnostic {
@@ -1926,7 +2203,10 @@ fn floor_grid_target_count(floor: &SlayTheDataFloorDecision) -> usize {
         .events
         .iter()
         .map(|event| {
-            event.cards_obtained.len() + event.cards_removed.len() + event.cards_upgraded.len()
+            event.cards_obtained.len()
+                + event.cards_removed.len()
+                + event.cards_transformed.len()
+                + event.cards_upgraded.len()
         })
         .sum();
     campfire_targets + event_targets
@@ -1946,6 +2226,7 @@ fn floor_entry(
             relics_obtained: Vec::new(),
             events: Vec::new(),
             shop_purchases: Vec::new(),
+            shop_purges: Vec::new(),
             campfires: Vec::new(),
             potions: SlayTheDataPotionFloorDecision::default(),
         })
@@ -1989,6 +2270,19 @@ fn string_list(value: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
+fn string_list_preserving_empty(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|value| match value {
+            Value::String(text) => text.trim().to_owned(),
+            Value::Null => String::new(),
+            other => other.to_string(),
+        })
+        .collect()
+}
+
 fn optional_string(value: Option<&Value>) -> Option<String> {
     match value? {
         Value::String(text) => {
@@ -2015,6 +2309,19 @@ fn parse_i64(value: Option<&Value>) -> Option<i64> {
     }
 }
 
+fn parse_bool(value: Option<&Value>) -> Option<bool> {
+    match value? {
+        Value::Bool(value) => Some(*value),
+        Value::Number(number) => number.as_i64().map(|value| value != 0),
+        Value::String(text) => match text.trim().to_ascii_lowercase().as_str() {
+            "true" | "1" => Some(true),
+            "false" | "0" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn parse_positive_floor(value: Option<&Value>) -> Option<u32> {
     let parsed = parse_i64(value)?;
     (parsed > 0).then_some(parsed as u32)
@@ -2028,6 +2335,63 @@ fn parse_non_negative_floor(value: Option<&Value>) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn route_import_preserves_act_transition_floor_slots() {
+        let value = json!({"path_per_floor": ["M", "BOSS", "", "?"]});
+        let mut floors = BTreeMap::new();
+        import_route(value.as_object().unwrap(), &mut floors);
+
+        assert_eq!(
+            floors.get(&1).and_then(|floor| floor.route.as_deref()),
+            Some("M")
+        );
+        assert_eq!(
+            floors.get(&2).and_then(|floor| floor.route.as_deref()),
+            Some("B")
+        );
+        assert!(!floors.contains_key(&3));
+        assert_eq!(
+            floors.get(&4).and_then(|floor| floor.route.as_deref()),
+            Some("?")
+        );
+    }
+
+    #[test]
+    fn compressed_path_taken_inserts_floor_after_each_boss() {
+        let value = json!({"path_taken": ["M", "BOSS", "?", "BOSS", "R"]});
+        let mut floors = BTreeMap::new();
+        import_route(value.as_object().unwrap(), &mut floors);
+
+        assert_eq!(
+            floors.get(&4).and_then(|floor| floor.route.as_deref()),
+            Some("?")
+        );
+        assert_eq!(
+            floors.get(&5).and_then(|floor| floor.route.as_deref()),
+            Some("B")
+        );
+        assert_eq!(
+            floors.get(&7).and_then(|floor| floor.route.as_deref()),
+            Some("R")
+        );
+    }
+
+    #[test]
+    fn traversed_path_wins_when_per_floor_route_disagrees() {
+        let value = json!({
+            "path_taken": ["M", "BOSS", "?"],
+            "path_per_floor": ["M", "BOSS", null, "$"]
+        });
+        let mut floors = BTreeMap::new();
+        import_route(value.as_object().unwrap(), &mut floors);
+
+        assert_eq!(
+            floors.get(&4).and_then(|floor| floor.route.as_deref()),
+            Some("?")
+        );
+    }
 
     fn empty_plan_with_step(floor: u32, kind: SlayTheDataReplayStepKind) -> SlayTheDataReplayPlan {
         SlayTheDataReplayPlan {
@@ -2052,6 +2416,138 @@ mod tests {
     }
 
     #[test]
+    fn same_floor_event_precedes_its_post_combat_card_reward() {
+        let imported = SlayTheDataRunImport {
+            schema: 1,
+            source: SlayTheDataSource {
+                kind: SlayTheDataSourceKind::RawRun,
+                run_id: Some(1),
+                play_id: None,
+                source_file: None,
+                source_run_ordinal: None,
+            },
+            config: SlayTheDataRunConfig {
+                character: None,
+                ascension: None,
+                build_version: None,
+                seed_played: None,
+                seed_source_timestamp: None,
+                special_seed: None,
+                neow_bonus: None,
+                neow_cost: None,
+                is_beta: None,
+                is_daily: None,
+                is_endless: None,
+                is_prod: None,
+                is_trial: None,
+            },
+            replay_policy: SlayTheDataReplayPolicy {
+                mode: "guided".to_owned(),
+                exact_combat_actions: false,
+                on_illegal_high_level_choice: "stop".to_owned(),
+                on_legal_divergence: "stop".to_owned(),
+                potion_budget_mode: "floor".to_owned(),
+            },
+            route: SlayTheDataRoute {
+                path_taken: Vec::new(),
+                path_per_floor: Vec::new(),
+            },
+            floor_decisions: vec![SlayTheDataFloorDecision {
+                floor: 8,
+                route: None,
+                combats: Vec::new(),
+                card_rewards: vec![SlayTheDataCardReward {
+                    ordinal: 2,
+                    picked: Some(SlayTheDataCardName {
+                        raw: "Iron Wave".to_owned(),
+                        base: "Iron Wave".to_owned(),
+                        upgraded: false,
+                    }),
+                    not_picked: Vec::new(),
+                    skipped: false,
+                }],
+                relics_obtained: Vec::new(),
+                events: vec![SlayTheDataEventChoice {
+                    ordinal: 1,
+                    event_name: Some("Dead Adventurer".to_owned()),
+                    player_choice: Some("Searched '2' times".to_owned()),
+                    damage_taken: None,
+                    damage_healed: None,
+                    max_hp_gain: None,
+                    max_hp_loss: None,
+                    gold_gain: None,
+                    gold_loss: None,
+                    cards_obtained: Vec::new(),
+                    cards_removed: Vec::new(),
+                    cards_transformed: Vec::new(),
+                    cards_upgraded: Vec::new(),
+                    relics_obtained: Vec::new(),
+                    relics_lost: Vec::new(),
+                }],
+                shop_purchases: Vec::new(),
+                shop_purges: Vec::new(),
+                campfires: Vec::new(),
+                potions: SlayTheDataPotionFloorDecision::default(),
+            }],
+            boss_relic_choices: Vec::new(),
+            final_observed: SlayTheDataFinalObserved {
+                floor_reached: Some(8),
+                victory: false,
+                master_deck: Vec::new(),
+                relics: Vec::new(),
+                gold: None,
+            },
+            diagnostics: Vec::new(),
+        };
+
+        let plan = slaythedata_replay_plan(&imported);
+        assert!(matches!(
+            plan.steps[0].kind,
+            SlayTheDataReplayStepKind::EventChoice { .. }
+        ));
+        assert!(matches!(
+            plan.steps[1].kind,
+            SlayTheDataReplayStepKind::CardReward { .. }
+        ));
+    }
+
+    #[test]
+    fn shop_orrery_purchase_precedes_its_same_floor_card_rewards() {
+        let imported = import_slaythedata_run_value(&json!({
+            "path_per_floor": ["$"],
+            "card_choices": [
+                {"floor": 1, "picked": "Barricade", "not_picked": ["Cleave", "Entrench"]},
+                {"floor": 1, "picked": "Headbutt", "not_picked": ["Armaments", "Clothesline"]}
+            ],
+            "items_purchased": ["Orrery", "Membership Card"],
+            "item_purchase_floors": [1, 1]
+        }))
+        .expect("SlayTheData row imports");
+
+        let plan = slaythedata_replay_plan(&imported);
+        assert!(matches!(
+            plan.steps[0].kind,
+            SlayTheDataReplayStepKind::MapRoom { .. }
+        ));
+        assert!(matches!(
+            &plan.steps[1].kind,
+            SlayTheDataReplayStepKind::ShopPurchase { item, .. } if item == "Orrery"
+        ));
+        assert!(matches!(
+            plan.steps[2].kind,
+            SlayTheDataReplayStepKind::CardReward { .. }
+        ));
+        assert!(matches!(
+            plan.steps[3].kind,
+            SlayTheDataReplayStepKind::CardReward { .. }
+        ));
+        assert!(matches!(
+            &plan.steps[4].kind,
+            SlayTheDataReplayStepKind::ShopPurchase { item, .. } if item == "Membership Card"
+        ));
+    }
+
+    #[test]
     fn event_name_matching_accepts_slaythedata_display_names() {
         assert!(event_name_matches(
             sts_core::Event::WheelOfChange,
@@ -2069,6 +2565,149 @@ mod tests {
             sts_core::Event::WingStatue,
             "Golden Wing"
         ));
+        assert!(event_name_matches(
+            sts_core::Event::FountainOfCleansing,
+            "The Divine Fountain"
+        ));
+        assert!(event_name_matches(
+            sts_core::Event::MoaiHead,
+            "The Moai Head"
+        ));
+        assert!(event_name_matches(
+            sts_core::Event::AccursedBlacksmith,
+            "Ominous Forge"
+        ));
+        assert!(event_name_matches(
+            sts_core::Event::Ghosts,
+            "Council of Ghosts"
+        ));
+        assert!(event_name_matches(sts_core::Event::Nest, "The Nest"));
+        assert!(event_name_matches(
+            sts_core::Event::NoteForYourself,
+            "A Note For Yourself"
+        ));
+        assert!(event_name_matches(
+            sts_core::Event::Transmorgrifier,
+            "Transmogrifier"
+        ));
+        assert!(event_name_matches(sts_core::Event::Vampires, "Vampires(?)"));
+    }
+
+    #[test]
+    fn knowing_skull_record_expands_into_individual_live_choices_and_leave() {
+        let event = SlayTheDataEventChoice {
+            ordinal: 0,
+            event_name: Some("Knowing Skull".to_owned()),
+            player_choice: Some("POTION GOLD CARD ".to_owned()),
+            damage_taken: None,
+            damage_healed: None,
+            max_hp_gain: None,
+            max_hp_loss: None,
+            gold_gain: None,
+            gold_loss: None,
+            cards_obtained: Vec::new(),
+            cards_removed: Vec::new(),
+            cards_transformed: Vec::new(),
+            cards_upgraded: Vec::new(),
+            relics_obtained: Vec::new(),
+            relics_lost: Vec::new(),
+        };
+
+        assert_eq!(
+            knowing_skull_sequence_choices(&event),
+            vec![
+                Some("POTION".to_owned()),
+                Some("GOLD".to_owned()),
+                Some("CARD".to_owned()),
+                Some("LEAVE".to_owned()),
+            ]
+        );
+
+        for choice in knowing_skull_sequence_choices(&event) {
+            let plan = empty_plan_with_step(
+                12,
+                SlayTheDataReplayStepKind::EventChoice {
+                    event_name: event.event_name.clone(),
+                    player_choice: choice,
+                    cards_obtained: Vec::new(),
+                    cards_removed: Vec::new(),
+                    cards_transformed: Vec::new(),
+                    cards_upgraded: Vec::new(),
+                    relics_obtained: Vec::new(),
+                    relics_lost: Vec::new(),
+                },
+            );
+            let report = slaythedata_replay_preflight(&plan);
+            assert_eq!(report.steps[0].code, "guided_event_sequence");
+        }
+    }
+
+    #[test]
+    fn event_name_matching_covers_all_recorded_event_names() {
+        let recorded_names = [
+            (sts_core::Event::Neow, "Neow"),
+            (sts_core::Event::AccursedBlacksmith, "Ominous Forge"),
+            (sts_core::Event::BonfireElementals, "Bonfire Elementals"),
+            (sts_core::Event::Designer, "Designer"),
+            (sts_core::Event::Duplicator, "Duplicator"),
+            (sts_core::Event::FountainOfCleansing, "The Divine Fountain"),
+            (sts_core::Event::GoldenShrine, "Golden Shrine"),
+            (sts_core::Event::BigFish, "Big Fish"),
+            (sts_core::Event::TheCleric, "The Cleric"),
+            (sts_core::Event::DeadAdventurer, "Dead Adventurer"),
+            (sts_core::Event::GoldenIdol, "Golden Idol"),
+            (sts_core::Event::WingStatue, "Wing Statue"),
+            (sts_core::Event::WorldOfGoop, "World of Goop"),
+            (sts_core::Event::TheSsssserpent, "The Sssserpent"),
+            (sts_core::Event::LivingWall, "Living Wall"),
+            (
+                sts_core::Event::HypnotizingColoredMushrooms,
+                "Hypnotizing Colored Mushrooms",
+            ),
+            (sts_core::Event::ScrapOoze, "Scrap Ooze"),
+            (sts_core::Event::ShiningLight, "Shining Light"),
+            (sts_core::Event::FaceTrader, "Face Trader"),
+            (sts_core::Event::Nloth, "N'loth"),
+            (sts_core::Event::NoteForYourself, "A Note For Yourself"),
+            (sts_core::Event::SecretPortal, "Secret Portal"),
+            (sts_core::Event::TheJoust, "The Joust"),
+            (sts_core::Event::WeMeetAgain, "We Meet Again!"),
+            (sts_core::Event::TheWomanInBlue, "The Woman in Blue"),
+            (sts_core::Event::Transmorgrifier, "Transmogrifier"),
+            (sts_core::Event::Purifier, "Purifier"),
+            (sts_core::Event::UpgradeShrine, "Upgrade Shrine"),
+            (sts_core::Event::WheelOfChange, "Wheel of Change"),
+            (sts_core::Event::MatchAndKeep, "Match and Keep!"),
+            (sts_core::Event::Addict, "Addict"),
+            (sts_core::Event::BackToBasics, "Back to Basics"),
+            (sts_core::Event::Beggar, "Beggar"),
+            (sts_core::Event::Colosseum, "Colosseum"),
+            (sts_core::Event::CursedTome, "Cursed Tome"),
+            (sts_core::Event::DrugDealer, "Drug Dealer"),
+            (sts_core::Event::ForgottenAltar, "Forgotten Altar"),
+            (sts_core::Event::Ghosts, "Council of Ghosts"),
+            (sts_core::Event::KnowingSkull, "Knowing Skull"),
+            (sts_core::Event::MaskedBandits, "Masked Bandits"),
+            (sts_core::Event::Nest, "The Nest"),
+            (sts_core::Event::TheLibrary, "The Library"),
+            (sts_core::Event::TheMausoleum, "The Mausoleum"),
+            (sts_core::Event::Vampires, "Vampires(?)"),
+            (sts_core::Event::Lab, "Lab"),
+            (sts_core::Event::Falling, "Falling"),
+            (sts_core::Event::MindBloom, "Mind Bloom"),
+            (sts_core::Event::MoaiHead, "The Moai Head"),
+            (sts_core::Event::MysteriousSphere, "Mysterious Sphere"),
+            (sts_core::Event::SensoryStone, "Sensory Stone"),
+            (sts_core::Event::TombOfLordRedMask, "Tomb of Lord Red Mask"),
+            (sts_core::Event::WindingHalls, "Winding Halls"),
+        ];
+
+        for (event, recorded_name) in recorded_names {
+            assert!(
+                event_name_matches(event, recorded_name),
+                "missing SlayTheData name mapping for {event:?} / {recorded_name}"
+            );
+        }
     }
 
     #[test]
@@ -2086,6 +2725,12 @@ mod tests {
             SlayTheDataReplayStepKind::EventChoice {
                 event_name: Some("Wheel of Change".to_owned()),
                 player_choice: Some("Play".to_owned()),
+                cards_obtained: Vec::new(),
+                cards_removed: Vec::new(),
+                cards_transformed: Vec::new(),
+                cards_upgraded: Vec::new(),
+                relics_obtained: Vec::new(),
+                relics_lost: Vec::new(),
             },
         );
 
@@ -2095,6 +2740,38 @@ mod tests {
             evidence,
             Some("recorded event \"Wheel of Change\"".to_owned())
         );
+    }
+
+    #[test]
+    fn preflight_event_choice_message_includes_grid_effect_cards() {
+        let plan = empty_plan_with_step(
+            3,
+            SlayTheDataReplayStepKind::EventChoice {
+                event_name: Some("The Cleric".to_owned()),
+                player_choice: Some("Card Removal".to_owned()),
+                cards_obtained: Vec::new(),
+                cards_removed: vec![SlayTheDataCardName {
+                    raw: "Strike".to_owned(),
+                    base: "Strike".to_owned(),
+                    upgraded: false,
+                }],
+                cards_transformed: vec![SlayTheDataCardName {
+                    raw: "Defend_R".to_owned(),
+                    base: "Defend_R".to_owned(),
+                    upgraded: false,
+                }],
+                cards_upgraded: Vec::new(),
+                relics_obtained: Vec::new(),
+                relics_lost: Vec::new(),
+            },
+        );
+
+        let report = slaythedata_replay_preflight(&plan);
+
+        assert!(report.steps[0].message.contains("removed [\"Strike\"]"));
+        assert!(report.steps[0]
+            .message
+            .contains("transformed [\"Defend_R\"]"));
     }
 
     #[test]
@@ -2112,6 +2789,12 @@ mod tests {
             SlayTheDataReplayStepKind::EventChoice {
                 event_name: Some("Wheel of Change".to_owned()),
                 player_choice: Some("Play".to_owned()),
+                cards_obtained: Vec::new(),
+                cards_removed: Vec::new(),
+                cards_transformed: Vec::new(),
+                cards_upgraded: Vec::new(),
+                relics_obtained: Vec::new(),
+                relics_lost: Vec::new(),
             },
         );
 

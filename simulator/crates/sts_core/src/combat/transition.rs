@@ -13,37 +13,40 @@ use crate::{
         HandSelectPurpose,
     },
     content::cards::{
-        get_card_definition, ritual_dagger_card_damage, ritual_dagger_card_growth,
-        searing_blow_card_damage, upgrade_card_instance, upgrade_content_id, ANGER_ID,
-        ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID, BLIND_PLUS_ID,
-        BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BURN_ID,
-        CARNAGE_ID, CARNAGE_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
-        CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
+        card_instance_is_upgradeable, get_card_definition, ritual_dagger_card_damage,
+        ritual_dagger_card_growth, searing_blow_card_damage, upgrade_card_instance,
+        upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
+        BATTLE_TRANCE_PLUS_ID, BLIND_PLUS_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID,
+        BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BURN_ID, CARNAGE_ID, CARNAGE_PLUS_ID, CHRYSALIS_ID,
+        CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
+        CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
         DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID,
         DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_PLUS_ID,
         ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, ENTRENCH_PLUS_ID, EXHUME_ID,
-        EXHUME_PLUS_ID, FINESSE_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID,
-        FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID,
-        HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID,
-        IMPATIENCE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
+        EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID, FINESSE_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID,
+        FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, HEADBUTT_ID,
+        HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID,
+        IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID, INFERNAL_BLADE_ID,
+        INFERNAL_BLADE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
         MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
         OFFERING_ID, PAIN_ID, PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID,
         PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
         POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
-        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, REAPER_ID,
-        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID, RUPTURE_ID,
-        RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
-        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
-        SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID,
-        TRIP_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
+        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID,
+        RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID,
+        RITUAL_DAGGER_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID,
+        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID,
+        SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
+        SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
+        THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID,
+        TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID,
+        WOUND_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
-        get_monster_definition, guardian_on_hp_damage, release_stasis_card_on_death,
-        wake_lagavulin_on_damage, GIANT_HEAD_ID, GUARDIAN_ID,
+        enter_guardian_defensive_mode, get_monster_definition, guardian_accumulate_hp_damage,
+        release_stasis_card_on_death, wake_lagavulin_on_damage, GIANT_HEAD_ID, GUARDIAN_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -203,8 +206,36 @@ fn process_internal_queue(
     }
 
     flush_pending_player_spikes_damage_if_ready(&mut next);
+    flush_pending_monster_death_relics_if_ready(&mut next);
+
+    // Byrd's Grounded action is queued behind the complete card action. A
+    // copied or multi-hit card therefore keeps Flight's reduction for every
+    // hit, even when an earlier hit reduced Flight to zero.
+    for monster in &mut next.monsters {
+        if monster.powers.flight_grounding_pending {
+            monster.powers.flight_grounding_pending = false;
+            if monster.alive {
+                monster.intent = crate::MonsterIntent::Stun;
+            }
+        }
+    }
+
+    // Target queues Guardian's Mode Shift action behind the complete card
+    // effect queue. This matters for copied multi-hit attacks: every hit lands
+    // before Guardian receives its defensive block.
+    for monster in &mut next.monsters {
+        if monster.content_id == GUARDIAN_ID
+            && !monster.in_defensive_mode
+            && monster.mode_shift <= 0
+            && monster.alive
+        {
+            enter_guardian_defensive_mode(monster);
+        }
+    }
 
     if next.player.hp <= 0 {
+        next.player.hp = 0;
+        next.player.block = 0;
         next.phase = CombatPhase::Lost;
     } else if next.monsters.iter().all(|monster| !monster.alive) {
         next.phase = CombatPhase::Won;
@@ -220,7 +251,24 @@ fn process_internal_queue(
 }
 
 fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalAction) {
-    if matches!(follow_up, InternalAction::GainMonsterBlock { .. }) {
+    if let InternalAction::GainMonsterBlock { target, .. } = &follow_up {
+        // Multi-hit cards enqueue their remaining hit actions before Malleable's
+        // block actions resolve. Keep the block behind contiguous hits from the
+        // same card; copied attacks are separated by PlayCardCopy and therefore
+        // still resolve Malleable before the copy.
+        let pending_hits = queue
+            .iter()
+            .take_while(|action| {
+                matches!(
+                    action,
+                    InternalAction::DealDamage { info } if info.target == *target
+                )
+            })
+            .count();
+        if pending_hits > 0 {
+            queue.insert(pending_hits, follow_up);
+            return;
+        }
         queue.push_front(follow_up);
         return;
     }
@@ -276,6 +324,24 @@ pub fn flush_pending_player_spikes_damage_if_ready(state: &mut CombatState) {
     let damage = std::mem::take(&mut state.pending_player_spikes_damage);
     let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, damage);
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+}
+
+pub fn flush_pending_monster_death_relics_if_ready(state: &mut CombatState) {
+    if state.pending_monster_death_relic_triggers == 0
+        || state.discard_select.is_some()
+        || state.draw_select.is_some()
+        || state.exhaust_select.is_some()
+        || state.hand_select.is_some()
+        || state.discovery_card_reward.is_some()
+        || state.potion_card_reward.is_some()
+        || state.toolbox_card_reward.is_some()
+    {
+        return;
+    }
+    let triggers = std::mem::take(&mut state.pending_monster_death_relic_triggers);
+    for _ in 0..triggers {
+        crate::relic::apply_monster_death_relics(state);
+    }
 }
 
 fn apply_internal_action(
@@ -368,7 +434,7 @@ fn apply_internal_action(
                     &relics,
                 );
                 wake_lagavulin_on_damage(monster, damage.hp_damage);
-                guardian_on_hp_damage(monster, damage.hp_damage);
+                guardian_accumulate_hp_damage(monster, damage.hp_damage);
                 (
                     spikes,
                     monster_content_id,
@@ -393,7 +459,7 @@ fn apply_internal_action(
             }
             check_slime_boss_split(state, info.target);
             if !still_alive {
-                apply_monster_death_hooks(state, info.target);
+                queue_monster_death_hooks(state, info.target);
             }
             apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
             Ok(follow_ups)
@@ -424,7 +490,7 @@ fn apply_internal_action(
                     &relics,
                 );
                 wake_lagavulin_on_damage(monster, damage.hp_damage);
-                guardian_on_hp_damage(monster, damage.hp_damage);
+                guardian_accumulate_hp_damage(monster, damage.hp_damage);
                 (
                     spikes,
                     monster_content_id,
@@ -479,7 +545,7 @@ fn apply_internal_action(
                         &relics,
                     );
                     wake_lagavulin_on_damage(monster, damage.hp_damage);
-                    guardian_on_hp_damage(monster, damage.hp_damage);
+                    guardian_accumulate_hp_damage(monster, damage.hp_damage);
                     (
                         spikes,
                         monster_content_id,
@@ -537,7 +603,7 @@ fn apply_internal_action(
                     &relics,
                 );
                 wake_lagavulin_on_damage(monster, damage.hp_damage);
-                guardian_on_hp_damage(monster, damage.hp_damage);
+                guardian_accumulate_hp_damage(monster, damage.hp_damage);
                 (
                     damage.hp_damage,
                     spikes,
@@ -595,7 +661,7 @@ fn apply_internal_action(
                     &relics,
                 );
                 wake_lagavulin_on_damage(monster, damage.hp_damage);
-                guardian_on_hp_damage(monster, damage.hp_damage);
+                guardian_accumulate_hp_damage(monster, damage.hp_damage);
                 (
                     spikes,
                     monster_content_id,
@@ -622,8 +688,11 @@ fn apply_internal_action(
             check_slime_boss_split(state, info.target);
             if !still_alive {
                 if !minion {
+                    let hp_gain =
+                        crate::relic::combat_healing_amount_with_relics(max_hp_gain, &state.relics);
                     state.player.max_hp += max_hp_gain;
-                    state.player.hp += max_hp_gain;
+                    state.player.hp = (state.player.hp + hp_gain).min(state.player.max_hp);
+                    crate::relic::sync_red_skull_strength(state);
                 }
                 apply_monster_death_hooks(state, info.target);
             }
@@ -656,7 +725,7 @@ fn apply_internal_action(
                     &relics,
                 );
                 wake_lagavulin_on_damage(monster, damage.hp_damage);
-                guardian_on_hp_damage(monster, damage.hp_damage);
+                guardian_accumulate_hp_damage(monster, damage.hp_damage);
                 (
                     spikes,
                     monster_content_id,
@@ -904,12 +973,28 @@ fn apply_internal_action(
             player_draw_cards(state, count);
             Ok(Vec::new())
         }
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count } => {
+            let hand_index = state
+                .piles
+                .hand
+                .iter()
+                .position(|card| card.id == card_id)
+                .ok_or(SimError::IllegalAction("played card is not in hand"))?;
+            let played_card = state.piles.hand.remove(hand_index);
+            player_draw_cards(state, count);
+            state.piles.discard_pile.push(played_card);
+            Ok(Vec::new())
+        }
         InternalAction::DrawCardsFromInkBottle { count } => {
             player_draw_cards(state, count);
             Ok(Vec::new())
         }
         InternalAction::ShuffleDiscardIntoDraw => {
             player_shuffle_discard_into_draw(state);
+            Ok(Vec::new())
+        }
+        InternalAction::DeepBreathShuffleDiscardIntoDraw => {
+            player_deep_breath_shuffle_discard_into_draw(state);
             Ok(Vec::new())
         }
         InternalAction::DrawCardsIfNoAttacksInHand { count } => {
@@ -1048,7 +1133,15 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainTempStrength { amount } => {
-            state.player.temp_strength += amount;
+            // Flex applies Strength and a debuff that removes it at end of
+            // turn. Artifact blocks that debuff when it is created, consuming
+            // one Artifact and leaving the gained Strength permanent.
+            if state.player.powers.artifact > 0 {
+                state.player.powers.artifact -= 1;
+                state.player.powers.strength += amount;
+            } else {
+                state.player.temp_strength += amount;
+            }
             Ok(Vec::new())
         }
         InternalAction::GainIntangible { amount } => {
@@ -1134,31 +1227,67 @@ fn apply_internal_action(
             purpose,
         } => {
             if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
+                let source_card = if let Some(index) = state
+                    .piles
+                    .hand
+                    .iter()
+                    .position(|card| card.id == source_card_id)
+                {
+                    Some(state.piles.hand.remove(index))
+                } else if let Some(index) = state
+                    .piles
+                    .discard_pile
+                    .iter()
+                    .position(|card| card.id == source_card_id)
+                {
+                    Some(state.piles.discard_pile.remove(index))
+                } else if state
+                    .piles
+                    .exhaust_pile
+                    .iter()
+                    .any(|card| card.id == source_card_id)
+                {
+                    None
+                } else {
+                    return Err(SimError::IllegalAction(
+                        "Headbutt source card is not in a playable destination",
+                    ));
+                };
+
                 if state.monsters.iter().all(|monster| !monster.alive) {
-                    move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
+                    if let Some(source_card) = source_card {
+                        state.piles.discard_pile.push(source_card);
+                    }
+                    return Ok(Vec::new());
+                }
+                if state.piles.discard_pile.is_empty() {
+                    if let Some(source_card) = source_card {
+                        state.piles.discard_pile.push(source_card);
+                    }
                     return Ok(Vec::new());
                 }
                 if state.piles.discard_pile.len() == 1 {
-                    let source_card = remove_card_from_pile(state, source_card_id, CardPile::Hand)?;
                     let selected = state.piles.discard_pile.remove(0);
                     state.piles.draw_pile.push(selected);
-                    state.piles.discard_pile.push(source_card);
+                    if let Some(source_card) = source_card {
+                        state.piles.discard_pile.push(source_card);
+                    }
                     return Ok(Vec::new());
                 }
+                state.discard_select = Some(crate::combat::DiscardSelectState {
+                    purpose,
+                    source_card_id: source_card.map(|_| source_card_id),
+                    source_card,
+                    selected_discard_indices: Vec::new(),
+                    max_choices: 1,
+                    selected_discard_index: None,
+                });
+                return Ok(Vec::new());
             }
-            let source_card = if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
-                Some(remove_card_from_pile(
-                    state,
-                    source_card_id,
-                    CardPile::Hand,
-                )?)
-            } else {
-                None
-            };
             state.discard_select = Some(crate::combat::DiscardSelectState {
                 purpose,
                 source_card_id: Some(source_card_id),
-                source_card,
+                source_card: None,
                 selected_discard_indices: Vec::new(),
                 max_choices: 1,
                 selected_discard_index: None,
@@ -1361,7 +1490,7 @@ fn deal_attack_damage_to_all_living(
                 &relics,
             );
             wake_lagavulin_on_damage(monster, damage.hp_damage);
-            guardian_on_hp_damage(monster, damage.hp_damage);
+            guardian_accumulate_hp_damage(monster, damage.hp_damage);
             (
                 damage.hp_damage,
                 monster.alive,
@@ -1421,7 +1550,7 @@ fn deal_unmodified_damage_to_living_monster(
         let monster = living_monster_mut(state, target)?;
         let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
         wake_lagavulin_on_damage(monster, hp_damage);
-        guardian_on_hp_damage(monster, hp_damage);
+        guardian_accumulate_hp_damage(monster, hp_damage);
         monster.alive
     };
     check_slime_boss_split(state, target);
@@ -1432,6 +1561,22 @@ fn deal_unmodified_damage_to_living_monster(
 }
 
 pub(crate) fn apply_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) {
+    apply_monster_death_non_relic_hooks(state, monster_id);
+    if state.monsters.iter().any(|monster| monster.alive) {
+        crate::relic::apply_monster_death_relics(state);
+    }
+}
+
+fn queue_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) {
+    apply_monster_death_non_relic_hooks(state, monster_id);
+    if state.monsters.iter().any(|monster| monster.alive)
+        && state.relics.contains(&Relic::GremlinHorn)
+    {
+        state.pending_monster_death_relic_triggers += 1;
+    }
+}
+
+fn apply_monster_death_non_relic_hooks(state: &mut CombatState, monster_id: MonsterId) {
     if let Some(monster) = state
         .monsters
         .iter_mut()
@@ -1442,7 +1587,6 @@ pub(crate) fn apply_monster_death_hooks(state: &mut CombatState, monster_id: Mon
     apply_gremlin_leader_death_escape(&mut state.monsters, monster_id);
     apply_collector_death_escape(&mut state.monsters, monster_id);
     apply_spore_cloud_on_monster_death(state, monster_id);
-    crate::relic::apply_monster_death_relics(state);
 }
 
 fn apply_spore_cloud_on_monster_death(state: &mut CombatState, monster_id: MonsterId) {
@@ -1638,7 +1782,7 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId)
                 let hp_damage =
                     deal_unmodified_damage_to_monster(monster, crate::relic::CHARONS_ASHES_DAMAGE);
                 wake_lagavulin_on_damage(monster, hp_damage);
-                guardian_on_hp_damage(monster, hp_damage);
+                guardian_accumulate_hp_damage(monster, hp_damage);
                 monster.alive
             };
             check_slime_boss_split(state, target);
@@ -1681,6 +1825,16 @@ pub(crate) fn player_shuffle_discard_into_draw(state: &mut CombatState) {
     }
 }
 
+pub(crate) fn player_deep_breath_shuffle_discard_into_draw(state: &mut CombatState) {
+    if let Some(mut rng) = state.shuffle_rng.take() {
+        crate::combat::draw::deep_breath_shuffle_discard_into_draw_sts(state, &mut rng);
+        state.shuffle_rng = Some(rng);
+    } else {
+        let mut rng = SimulatorRng::new(0);
+        crate::combat::draw::deep_breath_shuffle_discard_into_draw(state, &mut rng);
+    }
+}
+
 fn hand_contains_attack(state: &CombatState) -> bool {
     state.piles.hand.iter().any(|card| {
         get_card_definition(card.content_id)
@@ -1704,7 +1858,10 @@ fn draw_random_attacks_from_draw_pile(state: &mut CombatState, count: usize) {
                 .card_random_rng
                 .as_mut()
                 .map_or(attack_ids.len(), |rng| {
-                    rng.random_int(attack_ids.len() as i32) as usize
+                    // CardGroup::addToRandomSpot asks cardRandomRng for an
+                    // inclusive index in 0..=(size - 1). It never appends to
+                    // the end once the temporary group is non-empty.
+                    rng.random_int((attack_ids.len() - 1) as i32) as usize
                 });
             attack_ids.insert(index, card.id);
         }
@@ -1777,7 +1934,10 @@ fn add_stat_equivalent_copy_to_pile(state: &mut CombatState, source: CardInstanc
     let mut copy = source;
     copy.id = next_id;
     copy.bottled = false;
-    copy.combat_only = true;
+    // AbstractCard.makeStatEquivalentCopy() starts from makeCopy() and does
+    // not copy purgeOnUse. Anger copies therefore keep cycling through combat
+    // piles after play even when their source was temporary.
+    copy.combat_only = false;
     let destination = if to == CardPile::Hand && state.piles.hand.len() >= MAX_HAND_SIZE {
         CardPile::DiscardPile
     } else {
@@ -1871,8 +2031,7 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
 
 fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) {
     if card_type == CardType::Attack && state.player.temp_rage_block > 0 {
-        let gained = calculate_block(state.player.temp_rage_block, state.player.powers);
-        apply_player_direct_block_gain(state, gained);
+        apply_player_direct_block_gain(state, state.player.temp_rage_block);
     }
 }
 
@@ -1983,7 +2142,7 @@ fn apply_play_top_draw_card(
         player_shuffle_discard_into_draw(state);
     }
 
-    let card = state
+    let mut card = state
         .piles
         .draw_pile
         .pop()
@@ -2042,12 +2201,6 @@ fn apply_play_top_draw_card(
         | WILD_STRIKE_ID
         | WILD_STRIKE_PLUS_ID => {
             let target = target.expect("validated havoc attack target");
-            if definition.id == HEMOKINESIS_ID || definition.id == HEMOKINESIS_PLUS_ID {
-                follow_ups.push(InternalAction::LoseHp {
-                    amount: 2,
-                    source: HpLossSource::Card(card_id),
-                });
-            }
             follow_ups.push(InternalAction::DealDamage {
                 info: DamageInfo {
                     source: DamageSource::Card(card_id),
@@ -2056,6 +2209,12 @@ fn apply_play_top_draw_card(
                         .unwrap_or_else(|| definition.values.damage.unwrap_or(0)),
                 },
             });
+            if definition.id == HEMOKINESIS_ID || definition.id == HEMOKINESIS_PLUS_ID {
+                follow_ups.push(InternalAction::LoseHp {
+                    amount: 2,
+                    source: HpLossSource::Card(card_id),
+                });
+            }
             if definition.id == RECKLESS_CHARGE_ID || definition.id == RECKLESS_CHARGE_PLUS_ID {
                 follow_ups.push(InternalAction::AddGeneratedCardToDrawPileRandomSpot {
                     content_id: DAZED_ID,
@@ -2096,6 +2255,56 @@ fn apply_play_top_draw_card(
                     follow_ups.push(InternalAction::DrawCards { count: 1 });
                 }
             }
+            if definition.id == BASH_ID {
+                follow_ups.push(InternalAction::ApplyVulnerable {
+                    target,
+                    amount: definition.values.vulnerable.unwrap_or(0),
+                });
+            }
+        }
+        FEED_ID | FEED_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::DealFeedDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: definition.values.damage.unwrap_or(0),
+                },
+                max_hp_gain: if definition.id == FEED_PLUS_ID { 4 } else { 3 },
+            });
+        }
+        HEADBUTT_ID | HEADBUTT_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: definition.values.damage.unwrap_or(0),
+                },
+            });
+            if !state.piles.discard_pile.is_empty() {
+                follow_ups.push(InternalAction::AwaitDiscardSelect {
+                    source_card_id: card_id,
+                    purpose: DiscardSelectPurpose::HeadbuttPutOnDraw,
+                });
+            }
+        }
+        RAMPAGE_ID | RAMPAGE_PLUS_ID => {
+            let target = target.expect("validated havoc attack target");
+            follow_ups.push(InternalAction::DealDamage {
+                info: DamageInfo {
+                    source: DamageSource::Card(card_id),
+                    target,
+                    amount: definition.values.damage.unwrap_or(0) + card.rampage_damage_bonus,
+                },
+            });
+            // Rampage.upgradeDamage mutates the played card before
+            // PlayTopCardAction moves it to exhaust.
+            card.rampage_damage_bonus += if definition.id == RAMPAGE_PLUS_ID {
+                8
+            } else {
+                5
+            };
         }
         RITUAL_DAGGER_ID => {
             let target = target.expect("validated havoc attack target");
@@ -2289,8 +2498,10 @@ fn apply_play_top_draw_card(
                 amount: definition.values.block.unwrap_or(0),
             });
         }
-        SHRUG_IT_OFF_ID => {
-            follow_ups.push(InternalAction::GainBlock { amount: 8 });
+        SHRUG_IT_OFF_ID | SHRUG_IT_OFF_PLUS_ID => {
+            follow_ups.push(InternalAction::GainBlock {
+                amount: definition.values.block.unwrap_or(0),
+            });
             follow_ups.push(InternalAction::DrawCards { count: 1 });
         }
         IMPATIENCE_ID => {
@@ -2455,7 +2666,7 @@ fn apply_play_top_draw_card(
             } else {
                 1
             };
-            follow_ups.push(InternalAction::ShuffleDiscardIntoDraw);
+            follow_ups.push(InternalAction::DeepBreathShuffleDiscardIntoDraw);
             follow_ups.push(InternalAction::DrawCards { count });
         }
         ENLIGHTENMENT_ID | ENLIGHTENMENT_PLUS_ID => {
@@ -2489,6 +2700,15 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::GainEnergy { amount: 2 });
             follow_ups.push(InternalAction::DrawCards { count: 3 });
         }
+        INFERNAL_BLADE_ID | INFERNAL_BLADE_PLUS_ID => {
+            let generated = card_effects::infernal_blade_generated_attack(state);
+            follow_ups.push(InternalAction::AddGeneratedCardToPile {
+                content_id: generated,
+                to: CardPile::Hand,
+                temp_cost: Some(0),
+                temp_cost_turn_only: true,
+            });
+        }
         SEEING_RED_ID | SEEING_RED_PLUS_ID => {
             follow_ups.push(InternalAction::GainEnergy { amount: 2 });
         }
@@ -2499,6 +2719,11 @@ fn apply_play_top_draw_card(
                 } else {
                     1
                 },
+            });
+        }
+        COMBUST_ID | COMBUST_PLUS_ID => {
+            follow_ups.push(InternalAction::GainCombust {
+                amount: definition.values.damage.unwrap_or(0),
             });
         }
         PANACEA_ID | PANACEA_PLUS_ID => {
@@ -2535,6 +2760,23 @@ fn apply_play_top_draw_card(
             follow_ups.push(InternalAction::GainBlock {
                 amount: definition.values.block.unwrap_or(0),
             });
+        }
+        TRUE_GRIT_ID | TRUE_GRIT_PLUS_ID => {
+            follow_ups.push(InternalAction::GainBlock {
+                amount: definition.values.block.unwrap_or(0),
+            });
+            if !state.piles.hand.is_empty() {
+                if definition.id == TRUE_GRIT_PLUS_ID {
+                    follow_ups.push(InternalAction::AwaitExhaustSelect {
+                        source_card_id: card_id,
+                        purpose: crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
+                    });
+                } else {
+                    follow_ups.push(InternalAction::ExhaustRandomHandCardExcept {
+                        excluded_card_id: card_id,
+                    });
+                }
+            }
         }
         _ if definition.values.block.is_some() => {
             follow_ups.push(InternalAction::GainBlock {
@@ -2940,16 +3182,14 @@ fn confirm_armaments_select(
         .piles
         .hand
         .iter()
-        .filter(|card| card.id != source_card_id && upgrade_content_id(card.content_id).is_some())
+        .filter(|card| card.id != source_card_id && card_instance_is_upgradeable(card))
         .count();
     let cannot_upgrade = if upgradeable_count > 1 {
         let card_ids: Vec<CardId> = state
             .piles
             .hand
             .iter()
-            .filter(|card| {
-                card.id != source_card_id && upgrade_content_id(card.content_id).is_none()
-            })
+            .filter(|card| card.id != source_card_id && !card_instance_is_upgradeable(card))
             .map(|card| card.id)
             .collect();
         card_ids
@@ -3250,9 +3490,6 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
     if discard_select.purpose != DiscardSelectPurpose::HeadbuttPutOnDraw {
         return Err(SimError::IllegalAction("discard select purpose mismatch"));
     }
-    let source_card_id = discard_select
-        .source_card_id
-        .ok_or(SimError::IllegalAction("discard select source is required"))?;
     let index = discard_select
         .selected_discard_index
         .ok_or(SimError::IllegalAction("discard select choice is required"))?;
@@ -3266,10 +3503,11 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
     state.piles.draw_pile.push(card);
     if let Some(source_card) = discard_select.source_card {
         state.piles.discard_pile.push(source_card);
-        Ok(())
-    } else {
-        move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)
+    } else if let Some(source_card_id) = discard_select.source_card_id {
+        move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
     }
+    flush_pending_monster_death_relics_if_ready(state);
+    Ok(())
 }
 
 pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
@@ -3358,15 +3596,13 @@ pub fn exhaust_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> 
             .ok_or(SimError::IllegalAction("exhaust select index out of range"));
     }
     if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne {
-        let source_card_id = exhaust_select
-            .source_card_id
-            .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+        let source_card_id = exhaust_select.source_card_id;
         return state
             .piles
             .hand
             .iter()
             .enumerate()
-            .filter(|(_, card)| card.id != source_card_id)
+            .filter(|(_, card)| Some(card.id) != source_card_id)
             .map(|(index, _)| index)
             .nth(ui_index)
             .ok_or(SimError::IllegalAction("exhaust select index out of range"));
@@ -3441,9 +3677,7 @@ fn confirm_true_grit_select(
     state: &mut CombatState,
     exhaust_select: crate::combat::ExhaustSelectState,
 ) -> SimResult<()> {
-    let source_card_id = exhaust_select
-        .source_card_id
-        .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+    let source_card_id = exhaust_select.source_card_id;
     let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
     let target_index = selected.first().copied().ok_or(SimError::IllegalAction(
         "True Grit requires a selected card",
@@ -3452,7 +3686,7 @@ fn confirm_true_grit_select(
         return Err(SimError::IllegalAction("exhaust select index out of range"));
     }
     let target_card_id = state.piles.hand[target_index].id;
-    if target_card_id == source_card_id {
+    if Some(target_card_id) == source_card_id {
         return Err(SimError::IllegalAction("True Grit cannot exhaust itself"));
     }
 
@@ -3466,14 +3700,24 @@ fn confirm_true_grit_select(
     state.piles.exhaust_pile.push(target_card);
     apply_on_exhaust_effects(state, target_card_id);
 
-    let source_position = state
-        .piles
-        .hand
-        .iter()
-        .position(|card| card.id == source_card_id)
-        .ok_or(SimError::UnknownCard(source_card_id))?;
-    let source_card = state.piles.hand.remove(source_position);
-    state.piles.discard_pile.push(source_card);
+    if let Some(source_card_id) = source_card_id {
+        if let Some(source_position) = state
+            .piles
+            .hand
+            .iter()
+            .position(|card| card.id == source_card_id)
+        {
+            let source_card = state.piles.hand.remove(source_position);
+            state.piles.discard_pile.push(source_card);
+        } else if !state
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == source_card_id)
+        {
+            return Err(SimError::UnknownCard(source_card_id));
+        }
+    }
     Ok(())
 }
 
@@ -3688,13 +3932,19 @@ fn confirm_gambling_chip_select(
     selected.sort_unstable();
     selected.dedup();
     let count = selected.len();
-    for index in selected.into_iter().rev() {
-        if index >= state.piles.hand.len() {
+    for index in &selected {
+        if *index >= state.piles.hand.len() {
             return Err(SimError::IllegalAction("exhaust select index out of range"));
         }
-        let card = state.piles.hand.remove(index);
-        state.piles.discard_pile.push(card);
     }
+    let discarded = selected
+        .iter()
+        .map(|index| state.piles.hand[*index])
+        .collect::<Vec<_>>();
+    for index in selected.into_iter().rev() {
+        state.piles.hand.remove(index);
+    }
+    state.piles.discard_pile.extend(discarded);
     player_draw_cards(state, count);
     Ok(())
 }
@@ -3857,9 +4107,102 @@ fn upgrade_combat_cards(state: &mut CombatState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::{DUAL_WIELD_ID, HAVOC_PLUS_ID};
-    use crate::content::monsters::{monster_state, FUNGI_BEAST_A0, JAW_WORM_A0, SNAKE_PLANT_A0};
+    use crate::content::cards::{
+        ANGER_ID, BASH_ID, BLUDGEON_ID, DUAL_WIELD_ID, FEED_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID,
+        HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, INFERNAL_BLADE_ID, RAMPAGE_ID, SHRUG_IT_OFF_ID,
+        SHRUG_IT_OFF_PLUS_ID,
+    };
+    use crate::content::monsters::{
+        monster_state, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
+    };
     use crate::rng::StsRng;
+
+    #[test]
+    fn violence_uses_card_group_add_to_random_spot_bounds() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), HEADBUTT_ID),
+            CardInstance::new(CardId::new(5), RAMPAGE_ID),
+            CardInstance::new(CardId::new(6), ANGER_ID),
+        ];
+        state.card_random_rng = Some(StsRng::new(1_234));
+        state.shuffle_rng = Some(StsRng::new(5_678));
+
+        draw_random_attacks_from_draw_pile(&mut state, 3);
+
+        assert_eq!(
+            state
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(5), CardId::new(4), CardId::new(6)]
+        );
+        assert_eq!(
+            state
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(1), CardId::new(2), CardId::new(3)]
+        );
+    }
+
+    #[test]
+    fn feed_kill_applies_magic_flower_to_the_hp_gain() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 1;
+        state.monsters[0].max_hp = 1;
+        state.player.hp = 44;
+        state.player.max_hp = 109;
+        state.player.energy = 3;
+        state.relics.push(Relic::MagicFlower);
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), FEED_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Feed should kill the target");
+
+        assert_eq!(next.player.max_hp, 112);
+        assert_eq!(next.player.hp, 49);
+    }
+
+    #[test]
+    fn rage_triggered_block_ignores_dexterity_before_guardian_sharp_hide() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+        state.monsters[0].powers.spikes = 3;
+        state.monsters[0].powers.strength = -2;
+        state.player.block = 7;
+        state.player.powers.dexterity = 2;
+        state.player.temp_rage_block = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), ANGER_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Anger should resolve through Rage and Sharp Hide");
+
+        assert_eq!(next.player.block, 7);
+    }
 
     #[test]
     fn spore_cloud_releases_only_when_battle_is_not_ending() {
@@ -3918,6 +4261,92 @@ mod tests {
     }
 
     #[test]
+    fn shrug_it_off_draws_after_freeing_its_slot_from_a_full_hand() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = (1..=9)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .chain(std::iter::once(CardInstance::new(
+                CardId::new(10),
+                SHRUG_IT_OFF_ID,
+            )))
+            .collect();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(11), DEFEND_R_ID)];
+        state.piles.discard_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(10),
+                target: None,
+            },
+        )
+        .expect("Shrug It Off should play from a full hand");
+
+        assert_eq!(next.piles.hand.len(), 10);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
+        assert!(next.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn shrug_it_off_is_not_shuffled_into_its_own_draw() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), SHRUG_IT_OFF_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(2), DEFEND_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Shrug It Off should draw through a reshuffle");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, DEFEND_R_ID);
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, SHRUG_IT_OFF_ID);
+    }
+
+    #[test]
+    fn battle_trance_draws_after_freeing_its_full_hand_slot() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = (1..=9)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .chain(std::iter::once(CardInstance::new(
+                CardId::new(10),
+                BATTLE_TRANCE_PLUS_ID,
+            )))
+            .collect();
+        state.piles.draw_pile = (11..=14)
+            .map(|id| CardInstance::new(CardId::new(id), DEFEND_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(10),
+                target: None,
+            },
+        )
+        .expect("Battle Trance+ should play from a full hand");
+
+        assert_eq!(next.piles.hand.len(), 10);
+        assert_eq!(next.piles.draw_pile.len(), 3);
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, BATTLE_TRANCE_PLUS_ID);
+    }
+
+    #[test]
     fn copied_attack_resolves_malleable_block_before_second_hit() {
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
@@ -3945,6 +4374,336 @@ mod tests {
         assert_eq!(next.monsters[0].hp, 50);
         assert_eq!(next.monsters[0].block, 5);
         assert_eq!(next.monsters[0].powers.malleable, 6);
+    }
+
+    #[test]
+    fn fiend_fire_resolves_all_hits_before_malleable_block() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SNAKE_PLANT_A0, target)];
+        state.monsters[0].hp = 100;
+        state.monsters[0].max_hp = 100;
+        state.monsters[0].block = 0;
+        state.monsters[0].powers.malleable = 3;
+        state.monsters[0].powers.malleable_base = 3;
+        state.player.energy = 3;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), FIEND_FIRE_PLUS_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(4), BASH_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Fiend Fire+ should play");
+
+        assert_eq!(next.monsters[0].hp, 70);
+        assert_eq!(next.monsters[0].block, 12);
+        assert_eq!(next.monsters[0].powers.malleable, 6);
+    }
+
+    #[test]
+    fn top_draw_bash_applies_vulnerable_before_followup_hand_strike() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 40;
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(4), STRIKE_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), BASH_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        apply_play_top_draw_card_to_state(&mut state, Some(target)).expect("top Strike");
+        apply_play_top_draw_card_to_state(&mut state, Some(target)).expect("top Strike");
+        apply_play_top_draw_card_to_state(&mut state, Some(target)).expect("top Bash");
+
+        assert_eq!(state.monsters[0].hp, 20);
+        assert_eq!(state.monsters[0].powers.vulnerable, 2);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(4),
+                target: Some(target),
+            },
+        )
+        .expect("hand Strike should play into Vulnerable");
+
+        assert_eq!(next.monsters[0].hp, 11);
+    }
+
+    #[test]
+    fn top_draw_anger_copy_is_not_purged_when_mayhem_plays_it_again() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 100;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(1), ANGER_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        apply_play_top_draw_card_to_state(&mut state, Some(target)).expect("play original Anger");
+        assert_eq!(state.piles.discard_pile.len(), 2);
+        assert!(state
+            .piles
+            .discard_pile
+            .iter()
+            .all(|card| !card.combat_only));
+
+        let generated_copy = state
+            .piles
+            .discard_pile
+            .pop()
+            .expect("generated Anger copy");
+        state.piles.discard_pile.clear();
+        state.piles.draw_pile.push(generated_copy);
+
+        apply_play_top_draw_card_to_state(&mut state, Some(target))
+            .expect("Mayhem-style play of generated Anger copy");
+
+        assert_eq!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![ANGER_ID, ANGER_ID]
+        );
+    }
+
+    #[test]
+    fn havoc_played_feed_deals_damage_before_exhausting_it() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 20;
+        state.monsters[0].max_hp = 20;
+        state.monsters[0].block = 40;
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), FEED_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ should play top-deck Feed");
+
+        assert_eq!(next.monsters[0].hp, 20);
+        assert_eq!(next.monsters[0].block, 30);
+        assert_eq!(next.player.energy, 3);
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, FEED_ID);
+        assert_eq!(next.piles.discard_pile.len(), 1);
+        assert_eq!(next.piles.discard_pile[0].content_id, HAVOC_PLUS_ID);
+    }
+
+    #[test]
+    fn havoc_played_rampage_deals_damage_and_scales_before_exhausting_it() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), RAMPAGE_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.card_random_rng = None;
+        let starting_hp = state.monsters[0].hp;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ should play top-deck Rampage");
+
+        assert_eq!(next.monsters[0].hp, starting_hp - 8);
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, RAMPAGE_ID);
+        assert_eq!(next.piles.exhaust_pile[0].rampage_damage_bonus, 5);
+    }
+
+    #[test]
+    fn havoc_played_shrug_it_off_plus_draws_after_gaining_block() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), SHRUG_IT_OFF_PLUS_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ should play top-deck Shrug It Off+");
+
+        assert_eq!(next.player.block, 11);
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert!(next.piles.draw_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, SHRUG_IT_OFF_PLUS_ID);
+    }
+
+    #[test]
+    fn havoc_played_headbutt_opens_discard_choice_without_moving_it_from_exhaust() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 40;
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), HEADBUTT_ID)];
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(3), POWER_THROUGH_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc should play top-deck Headbutt");
+
+        assert_eq!(next.monsters[0].hp, 31);
+        assert_eq!(next.player.energy, 2);
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, HEADBUTT_ID);
+        assert_eq!(next.discard_select.as_ref().unwrap().source_card_id, None);
+        assert_eq!(next.discard_select.as_ref().unwrap().source_card, None);
+
+        choose_discard_select(&mut next, 0).expect("select Power Through");
+        confirm_headbutt_select(&mut next).expect("confirm forced Headbutt selection");
+
+        assert_eq!(next.piles.draw_pile.len(), 1);
+        assert_eq!(next.piles.draw_pile[0].content_id, POWER_THROUGH_ID);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == HEADBUTT_ID));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == HEADBUTT_ID));
+    }
+
+    #[test]
+    fn havoc_played_true_grit_exhausts_a_random_hand_card() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(4), TRUE_GRIT_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.card_random_rng = None;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ should play top-deck True Grit");
+
+        assert_eq!(next.player.block, 7);
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == TRUE_GRIT_ID));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
+    }
+
+    #[test]
+    fn havoc_played_true_grit_plus_selects_without_moving_it_from_exhaust() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(4), TRUE_GRIT_PLUS_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ should play top-deck True Grit+");
+
+        assert_eq!(next.player.block, 9);
+        assert!(next.exhaust_select.is_some());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == TRUE_GRIT_PLUS_ID));
+
+        choose_exhaust_select(&mut next, 0).expect("select Defend");
+        confirm_exhaust_select(&mut next).expect("confirm forced True Grit+ selection");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == TRUE_GRIT_PLUS_ID));
     }
 
     #[test]
@@ -3984,6 +4743,45 @@ mod tests {
         assert_eq!(next.piles.discard_pile[0].content_id, HAVOC_PLUS_ID);
         assert_eq!(next.piles.hand.len(), 1);
         assert_eq!(next.piles.hand[0].content_id, DUAL_WIELD_ID);
+    }
+
+    #[test]
+    fn infernal_blade_exhausts_source_after_adding_generated_attack() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), INFERNAL_BLADE_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.card_random_rng = None;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Infernal Blade should play");
+
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, INFERNAL_BLADE_ID);
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.player.energy, 2);
+    }
+
+    #[test]
+    fn infernal_blade_uses_source_groups_in_rarity_order() {
+        let pool = card_effects::infernal_blade_modeled_attack_pool();
+
+        assert_eq!(pool[17], SEARING_BLOW_ID);
+        assert_eq!(pool[21], PUMMEL_ID);
+        assert_eq!(pool[25], BLUDGEON_ID);
+        assert_eq!(pool[26], FIEND_FIRE_ID);
+        assert_eq!(pool[27], IMMOLATE_ID);
     }
 
     #[test]

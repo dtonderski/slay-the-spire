@@ -8,7 +8,7 @@ use crate::{
     content::encounters::{
         generate_beyond_encounter_lists_with_rng, generate_city_encounter_lists_with_rng,
     },
-    content::monsters::DARKLING_ID,
+    content::monsters::{DARKLING_ID, TRANSIENT_ID},
     content::reward_pool::{
         ironclad_reward_card_rarity, random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES,
     },
@@ -32,7 +32,8 @@ use crate::{
         RunRngStream, DEFAULT_EVENT_ROOM_MONSTER_CHANCE, DEFAULT_EVENT_ROOM_SHOP_CHANCE,
         DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
     },
-    CombatAction, MonsterState, RewardScreen, RunAction, RunPhase, RunState, SimError, SimResult,
+    CombatAction, Event, MonsterState, RewardScreen, RunAction, RunPhase, RunState, SimError,
+    SimResult,
 };
 
 /// Source-backed combat reward categories from target `createCombatReward` variants.
@@ -129,6 +130,49 @@ pub fn setup_treasure_room(run: &mut RunState) {
     });
 }
 
+/// Prepare the reward overlay that Orrery opens while preserving the shop
+/// underneath it. The relic pickup itself adds the five pending card rewards.
+pub(crate) fn enter_orrery_reward_screen(run: &mut RunState) {
+    run.phase = RunPhase::Reward;
+    run.reward = Some(RewardScreen {
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 0,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers: Vec::new(),
+        relic_offer: None,
+        relic_key_offer: None,
+        pending_relic_offer: None,
+        pending_relic_key_offer: None,
+        queued_relic_key_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_active: false,
+        card_reward_pending: false,
+        pending_card_reward_count: 0,
+    });
+}
+
+/// Target Orrery constructs all five CardRewardItems immediately on pickup,
+/// consuming card RNG before the player opens any of them.
+pub(crate) fn queue_orrery_card_reward_choices(run: &mut RunState) {
+    queue_eager_card_reward_choices(run, crate::relic::ORRERY_EAGER_CARD_REWARDS);
+}
+
+fn queue_eager_card_reward_choices(run: &mut RunState, count: u8) {
+    let mut queued = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        roll_pending_card_reward_choices(run);
+        queued.push(std::mem::take(
+            &mut run.reward.as_mut().expect("card reward screen").choices,
+        ));
+    }
+    run.reward
+        .as_mut()
+        .expect("card reward screen")
+        .queued_card_rewards = queued;
+}
+
 pub fn roll_event_relic_reward(run: &mut RunState, act: i32) -> RelicKey {
     run.ensure_ironclad_relic_pools();
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
@@ -184,6 +228,10 @@ const NORMAL_REWARD_RARITY_CHANCES: RewardRarityChances = RewardRarityChances {
 const ELITE_REWARD_RARITY_CHANCES: RewardRarityChances = RewardRarityChances {
     rare: 10,
     uncommon: 40,
+};
+const SHOP_REWARD_RARITY_CHANCES: RewardRarityChances = RewardRarityChances {
+    rare: 9,
+    uncommon: 37,
 };
 
 fn roll_reward_rarity(
@@ -311,6 +359,66 @@ pub fn target_card_reward_choices_with_count(
         RewardCardPoolKind::Ironclad,
         NORMAL_REWARD_RARITY_CHANCES,
         None,
+        true,
+    )
+}
+
+/// Target `TheLibrary.buttonEffect` rolls rarity again whenever a duplicate
+/// card is found, but unlike combat rewards it does not mutate the shared
+/// card-rarity factor and does not roll upgrades.
+#[must_use]
+pub fn target_library_card_choices(
+    rng: &mut StsRng,
+    card_rarity_factor: i32,
+    next_card_id: u64,
+    choice_count: usize,
+) -> Vec<CardInstance> {
+    let mut choices = Vec::with_capacity(choice_count);
+    for index in 0..choice_count {
+        loop {
+            let requested =
+                roll_reward_rarity(rng, card_rarity_factor, NORMAL_REWARD_RARITY_CHANCES);
+            let rarity = resolve_rarity(requested, IRONCLAD_REWARD_ENTRIES);
+            let candidate_indices = IRONCLAD_REWARD_ENTRIES
+                .iter()
+                .enumerate()
+                .filter(|(_, entry)| entry.rarity == rarity)
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            let pick = rng.random_int((candidate_indices.len() - 1) as i32) as usize;
+            let content_id = IRONCLAD_REWARD_ENTRIES[candidate_indices[pick]].content_id;
+            if choices
+                .iter()
+                .any(|choice: &CardInstance| choice.content_id == content_id)
+            {
+                continue;
+            }
+            choices.push(CardInstance::new(
+                CardId::new(next_card_id + index as u64),
+                content_id,
+            ));
+            break;
+        }
+    }
+    choices
+}
+
+#[must_use]
+pub fn target_colorless_card_reward_choices_with_count(
+    rng: &mut StsRng,
+    card_rarity_factor: &mut i32,
+    next_card_id: u64,
+    choice_count: usize,
+) -> Vec<CardInstance> {
+    target_card_reward_choices_with_count_and_pool(
+        rng,
+        card_rarity_factor,
+        next_card_id,
+        choice_count,
+        RewardCardPoolKind::AnyColor,
+        NORMAL_REWARD_RARITY_CHANCES,
+        None,
+        true,
     )
 }
 
@@ -320,6 +428,7 @@ enum RewardCardPoolKind {
     AnyColor,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn target_card_reward_choices_with_count_and_pool(
     rng: &mut StsRng,
     card_rarity_factor: &mut i32,
@@ -328,11 +437,17 @@ fn target_card_reward_choices_with_count_and_pool(
     pool_kind: RewardCardPoolKind,
     rarity_chances: RewardRarityChances,
     forced_requested_rarity: Option<CardRarity>,
+    apply_card_rarity_factor: bool,
 ) -> Vec<CardInstance> {
     let mut choices = Vec::with_capacity(choice_count);
 
     for index in 0..choice_count {
-        let rolled = roll_reward_rarity(rng, *card_rarity_factor, rarity_chances);
+        let rarity_factor = if apply_card_rarity_factor {
+            *card_rarity_factor
+        } else {
+            0
+        };
+        let rolled = roll_reward_rarity(rng, rarity_factor, rarity_chances);
         let requested = forced_requested_rarity.unwrap_or(rolled);
         let rarity = match pool_kind {
             RewardCardPoolKind::Ironclad => resolve_rarity(requested, IRONCLAD_REWARD_ENTRIES),
@@ -777,6 +892,16 @@ pub fn target_random_potion(rng: &mut StsRng) -> Potion {
     target_random_potion_with_filter(rng, |_| true)
 }
 
+/// Picks directly from the character potion pool with one RNG draw.
+///
+/// This matches `PotionHelper.getRandomPotion()`. It is distinct from the
+/// rarity-first `AbstractDungeon.returnRandomPotion()` behavior modeled by
+/// [`target_random_potion`].
+pub fn target_uniform_random_potion(rng: &mut StsRng) -> Potion {
+    let index = rng.random_int((IRONCLAD_POTION_POOL.len() - 1) as i32) as usize;
+    IRONCLAD_POTION_POOL[index]
+}
+
 pub fn target_random_combat_potion(rng: &mut StsRng) -> Potion {
     loop {
         let potion = target_random_potion(rng);
@@ -815,11 +940,11 @@ pub fn target_potion_reward_offer(
 ) -> Option<Potion> {
     let _ = (potion_belt_count, potion_capacity);
 
-    if guaranteed_potion {
-        return Some(target_random_potion(rng));
-    }
-
-    let mut chance = BASE_POTION_DROP_CHANCE + *potion_chance;
+    let mut chance = if guaranteed_potion {
+        100
+    } else {
+        BASE_POTION_DROP_CHANCE + *potion_chance
+    };
     if reward_count >= 4 {
         chance = 0;
     }
@@ -855,6 +980,24 @@ fn roll_bonus_relic_offer(run: &mut RunState) -> (Option<Relic>, Option<RelicKey
     let tier = target_relic_tier(&mut relic_rng, run.current_act);
     run.store_rng_counter(RunRngStream::Relic, &relic_rng);
     split_relic_offer(roll_relic_reward(run, tier))
+}
+
+fn roll_matryoshka_bonus_relic_offer(run: &mut RunState) -> (Option<Relic>, Option<RelicKey>) {
+    // Matryoshka.onChestOpen uses relicRng.randomBoolean(0.75F): its bonus
+    // relic is common on true and uncommon on false. It does not use the
+    // normal act relic-tier distribution.
+    let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
+    let tier = target_matryoshka_relic_tier(&mut relic_rng);
+    run.store_rng_counter(RunRngStream::Relic, &relic_rng);
+    split_relic_offer(roll_relic_reward(run, tier))
+}
+
+fn target_matryoshka_relic_tier(relic_rng: &mut StsRng) -> RelicTier {
+    if relic_rng.random_float() < 0.75 {
+        RelicTier::Common
+    } else {
+        RelicTier::Uncommon
+    }
 }
 
 pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
@@ -896,9 +1039,11 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
         gold_offer: 0,
         stolen_gold_offer: 0,
         potion_offer: None,
+        potion_offers: Vec::new(),
         relic_offer,
         relic_key_offer,
         pending_relic_offer,
@@ -921,9 +1066,11 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
     run.boss_chest_opened = true;
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
         gold_offer: 0,
         stolen_gold_offer: 0,
         potion_offer: None,
+        potion_offers: Vec::new(),
         relic_offer: None,
         relic_key_offer: None,
         pending_relic_offer: None,
@@ -946,9 +1093,11 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
         gold_offer: 0,
         stolen_gold_offer: 0,
         potion_offer: None,
+        potion_offers: Vec::new(),
         relic_offer,
         relic_key_offer,
         pending_relic_offer: None,
@@ -970,6 +1119,35 @@ pub fn advance_card_rng_for_combat_entry(run: &mut RunState) {
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
 }
 
+/// Consumes the card reward generated and immediately removed by Neow's
+/// three-potion reward.
+///
+/// Target `NeowReward.activate` opens `CombatRewardScreen` after adding the
+/// potions. `setupItemReward` constructs a normal card `RewardItem`, including
+/// rarity, duplicate-reroll, and upgrade RNG draws, before Neow removes it from
+/// the visible rewards.
+pub(crate) fn consume_hidden_neow_room_card_reward(run: &mut RunState) {
+    let next_card_id = run.next_card_instance_id();
+    let choice_count = reward_card_choice_count(run);
+    let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
+    let mut choices = target_card_reward_choices_with_count_and_pool(
+        &mut card_rng,
+        &mut run.card_rarity_factor,
+        next_card_id,
+        choice_count,
+        RewardCardPoolKind::Ironclad,
+        NORMAL_REWARD_RARITY_CHANCES,
+        None,
+        true,
+    );
+    consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run));
+    run.store_rng_counter(RunRngStream::CardReward, &card_rng);
+}
+
+pub fn consume_neow_three_potions_hidden_card_reward(run: &mut RunState) {
+    consume_hidden_neow_room_card_reward(run);
+}
+
 pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     let next_card_id = run.next_card_instance_id();
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
@@ -979,11 +1157,12 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
     } else {
         RewardCardPoolKind::Ironclad
     };
-    let rarity_chances = if run.current_room_kind() == Some(crate::map::RoomKind::Elite) {
-        ELITE_REWARD_RARITY_CHANCES
-    } else {
-        NORMAL_REWARD_RARITY_CHANCES
+    let rarity_chances = match run.current_room_kind() {
+        Some(crate::map::RoomKind::Elite) => ELITE_REWARD_RARITY_CHANCES,
+        Some(crate::map::RoomKind::Shop) => SHOP_REWARD_RARITY_CHANCES,
+        _ => NORMAL_REWARD_RARITY_CHANCES,
     };
+    let apply_card_rarity_factor = true;
     let forced_requested_rarity = if run.current_room_kind() == Some(crate::map::RoomKind::Boss) {
         Some(CardRarity::Rare)
     } else {
@@ -997,6 +1176,7 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) {
         pool_kind,
         rarity_chances,
         forced_requested_rarity,
+        apply_card_rarity_factor,
     );
     consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run));
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
@@ -1070,6 +1250,38 @@ fn any_color_reward_card_rarity(content_id: ContentId) -> Option<CardRarity> {
     }
 }
 
+/// Stable target card key for a Prismatic Shard reward card that is not part
+/// of the simulator's modeled card registry.
+#[must_use]
+pub fn any_color_reward_card_key(content_id: ContentId) -> Option<&'static str> {
+    ANY_COLOR_COMMON_CARDS
+        .iter()
+        .chain(ANY_COLOR_UNCOMMON_CARDS.iter())
+        .chain(ANY_COLOR_RARE_CARDS.iter())
+        .copied()
+        .find(|name| shop_card_content_id(name) == content_id)
+}
+
+#[must_use]
+pub fn any_color_reward_card_key_from_identity(identity: &str) -> Option<&'static str> {
+    let normalized = identity
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect::<String>();
+    ANY_COLOR_COMMON_CARDS
+        .iter()
+        .chain(ANY_COLOR_UNCOMMON_CARDS.iter())
+        .chain(ANY_COLOR_RARE_CARDS.iter())
+        .copied()
+        .find(|name| {
+            name.chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .map(|character| character.to_ascii_lowercase())
+                .eq(normalized.chars())
+        })
+}
+
 pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     let all_monsters_escaped = run
         .combat
@@ -1127,9 +1339,11 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
         gold_offer,
         stolen_gold_offer: 0,
         potion_offer,
+        potion_offers: Vec::new(),
         relic_offer,
         relic_key_offer,
         pending_relic_offer: None,
@@ -1142,14 +1356,20 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     });
     if pending_card_reward_count == 1 {
         roll_pending_card_reward_choices(run);
+    } else {
+        // CombatRewardScreen constructs both Prayer Wheel RewardItems before either is opened.
+        // Their card RNG must therefore be consumed even when the player skips both rewards.
+        queue_eager_card_reward_choices(run, pending_card_reward_count);
     }
 }
 
 fn suppress_gold_for_all_escaped_monsters(monsters: &[MonsterState]) -> bool {
     !monsters.is_empty()
-        && monsters
-            .iter()
-            .all(|monster| monster.escaped && monster.content_id != DARKLING_ID)
+        && monsters.iter().all(|monster| {
+            monster.escaped
+                && monster.content_id != DARKLING_ID
+                && monster.content_id != TRANSIENT_ID
+        })
 }
 
 pub fn enter_reward_screen(run: &mut RunState) {
@@ -1210,9 +1430,11 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
         gold_offer,
         stolen_gold_offer: 0,
         potion_offer,
+        potion_offers: Vec::new(),
         relic_offer,
         relic_key_offer,
         pending_relic_offer,
@@ -1252,9 +1474,11 @@ pub fn enter_boss_combat_reward_screen(run: &mut RunState) {
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
         gold_offer,
         stolen_gold_offer: 0,
         potion_offer,
+        potion_offers: Vec::new(),
         relic_offer: None,
         relic_key_offer: None,
         pending_relic_offer: None,
@@ -1314,7 +1538,9 @@ fn enter_next_act_map(run: &mut RunState) {
     run.current_room_override = None;
     run.normal_combat_count = 0;
     run.elite_combat_count = 0;
-    run.player_hp = run.player_max_hp;
+    if !run.has_mark_of_bloom() {
+        run.player_hp = run.player_max_hp;
+    }
 }
 
 fn generate_city_encounters_for_next_act(run: &mut RunState) {
@@ -1327,7 +1553,12 @@ fn generate_city_encounters_for_next_act(run: &mut RunState) {
 }
 
 fn generate_beyond_encounters_for_next_act(run: &mut RunState) {
-    let mut rng = StsRng::with_counter(run.monster_rng_seed as i64, run.monster_rng_counter);
+    // Dungeon content generation is replayed from the run seed for each act;
+    // combat AI rolls accumulated during Act 2 must not contaminate the Act 3
+    // encounter list.
+    let mut rng = StsRng::new(run.monster_rng_seed as i64);
+    crate::content::encounters::advance_exordium_content_generation_rng(&mut rng);
+    let _ = generate_city_encounter_lists_with_rng(&mut rng);
     let (normal, elite) = generate_beyond_encounter_lists_with_rng(&mut rng);
     run.normal_encounter_list = normal;
     run.elite_encounter_list = elite;
@@ -1365,15 +1596,35 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
     } else {
         0
     };
-    let key = roll_relic_reward(run, tier);
-    let (mut relic_offer, mut relic_key_offer) = split_relic_offer(key);
-    let (mut pending_relic_offer, mut pending_relic_key_offer) =
+    let (bonus_relic_offer, bonus_relic_key_offer) =
         if run.relics.contains(&Relic::Matryoshka) && run.matryoshka_chests_opened < 2 {
             run.matryoshka_chests_opened += 1;
-            roll_bonus_relic_offer(run)
+            roll_matryoshka_bonus_relic_offer(run)
         } else {
             (None, None)
         };
+    // AbstractChest.open invokes relic onChestOpen hooks before adding the
+    // chest's own relic reward. Matryoshka therefore consumes relic RNG and
+    // removes its relic from the pool before the normal chest relic is rolled.
+    let key = roll_relic_reward(run, tier);
+    let (chest_relic_offer, chest_relic_key_offer) = split_relic_offer(key);
+    // Matryoshka's extra reward is inserted before the chest's normal relic
+    // in the target reward list.
+    let (
+        mut relic_offer,
+        mut relic_key_offer,
+        mut pending_relic_offer,
+        mut pending_relic_key_offer,
+    ) = if bonus_relic_offer.is_some() || bonus_relic_key_offer.is_some() {
+        (
+            bonus_relic_offer,
+            bonus_relic_key_offer,
+            chest_relic_offer,
+            chest_relic_key_offer,
+        )
+    } else {
+        (chest_relic_offer, chest_relic_key_offer, None, None)
+    };
     if pending_relic_offer.is_some_and(is_bottled_relic_offer)
         || pending_relic_key_offer.is_some_and(is_bottled_relic_key_offer)
     {
@@ -1385,9 +1636,11 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
     run.combat = None;
     run.reward = Some(RewardScreen {
         choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
         gold_offer,
         stolen_gold_offer: 0,
         potion_offer: None,
+        potion_offers: Vec::new(),
         relic_offer,
         relic_key_offer,
         pending_relic_offer,
@@ -1439,10 +1692,42 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
 
     let mut combat_for_action = combat.clone();
     combat_for_action.relics = run.relics.clone();
+    combat_for_action.relic_counters.lizard_tail_available =
+        run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used;
+    combat_for_action.relic_counters.fairy_consumed = false;
+    combat_for_action.relic_counters.fairy_heal_percent = if run
+        .occupied_potion_slots()
+        .iter()
+        .any(|(_, potion)| *potion == Potion::Fairy)
+        && !run.has_mark_of_bloom()
+    {
+        FAIRY_HEAL_PERCENT
+            * if run.relics.contains(&Relic::SacredBark) {
+                2
+            } else {
+                1
+            }
+    } else {
+        0
+    };
 
     let transition = apply_combat_action_with_events(&combat_for_action, action)?;
     let mut next_combat = transition.state;
     let mut next = run.clone();
+    if next_combat.relic_counters.fairy_consumed {
+        if let Some((slot, _)) = next
+            .occupied_potion_slots()
+            .into_iter()
+            .find(|(_, potion)| *potion == Potion::Fairy)
+        {
+            next.take_potion_slot(slot)
+                .expect("consumed fairy potion was present before combat transition");
+        }
+    }
+    if next.relics.contains(&Relic::LizardTail) && !next_combat.relic_counters.lizard_tail_available
+    {
+        next.lizard_tail_used = true;
+    }
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
     apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat);
     sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
@@ -1470,7 +1755,6 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
         && matches!(action, CombatAction::EndTurn)
         && next_combat.phase == CombatPhase::WaitingForPlayer
         && next_combat.monsters.iter().any(|monster| monster.alive)
-        && next_combat.piles.hand.is_empty()
     {
         finish_monster_turn_after_player_revival(&mut next_combat);
         start_player_turn(&mut next_combat);
@@ -1486,6 +1770,15 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
     if next.relics.contains(&Relic::InkBottle) {
         next.ink_bottle_cards_played = next_combat.relic_counters.ink_bottle_cards_played;
+    }
+    if next.relics.contains(&Relic::HappyFlower) {
+        next.happy_flower_turns = next_combat.relic_counters.happy_flower_turns;
+    }
+    if next.relics.contains(&Relic::Sundial) {
+        next.sundial_shuffles = next_combat.relic_counters.sundial_shuffles;
+    }
+    if next.relics.contains(&Relic::Nunchaku) {
+        next.nunchaku_attacks_played = next_combat.relic_counters.nunchaku_attacks_played;
     }
 
     if next_combat.phase == CombatPhase::Won {
@@ -1637,6 +1930,10 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
         return false;
     }
 
+    if run.has_mark_of_bloom() {
+        return false;
+    }
+
     if run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used {
         run.lizard_tail_used = true;
         combat.player.hp =
@@ -1667,7 +1964,9 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     match action {
-        RunAction::OpenChest | RunAction::Proceed => apply_treasure_action(run, action),
+        RunAction::OpenChest => apply_treasure_action(run, action),
+        RunAction::Proceed if run.phase == RunPhase::Reward => apply_reward_action(run, action),
+        RunAction::Proceed => apply_treasure_action(run, action),
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
         | RunAction::BuyShopPotion { .. }
@@ -1811,14 +2110,15 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             reward.stolen_gold_offer = 0;
             next.gain_gold(stolen_gold_offer);
         }
-        RunAction::TakePotionReward => {
-            let potion = next
-                .reward
-                .as_mut()
-                .expect("validated reward screen")
-                .potion_offer
-                .take()
-                .expect("validated potion offer");
+        RunAction::TakePotionReward { index } => {
+            let potion = {
+                let reward = next.reward.as_mut().expect("validated reward screen");
+                if !reward.potion_offers.is_empty() {
+                    reward.potion_offers.remove(index)
+                } else {
+                    reward.potion_offer.take().expect("validated potion offer")
+                }
+            };
             next.gain_potion(potion)?;
         }
         RunAction::TakeRelicReward => {
@@ -1834,6 +2134,18 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             if next.phase == RunPhase::Reward && next.card_grid.is_none() {
                 advance_pending_relic_offer(&mut next);
             }
+            let boss_calling_bell_rewards_complete = next.boss_chest_opened
+                && next.reward.as_ref().is_some_and(|reward| {
+                    reward.relic_offer.is_none()
+                        && reward.relic_key_offer.is_none()
+                        && reward.pending_relic_offer.is_none()
+                        && reward.pending_relic_key_offer.is_none()
+                        && reward.queued_relic_key_offers.is_empty()
+                });
+            if boss_calling_bell_rewards_complete {
+                next.phase = RunPhase::Treasure;
+                next.reward = None;
+            }
         }
         RunAction::ChooseBossRelicReward { index } => {
             let key = {
@@ -1847,7 +2159,19 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             next.reward = None;
         }
         RunAction::Proceed => {
-            unreachable!("validated reward action")
+            let neow_leave = next
+                .event
+                .as_ref()
+                .is_some_and(|event| event.event == Event::Neow && event.stage == 2);
+            next.phase = if neow_leave {
+                RunPhase::Idle
+            } else {
+                RunPhase::Event
+            };
+            next.reward = None;
+            if neow_leave {
+                next.event = None;
+            }
         }
         RunAction::OpenChest => {
             unreachable!("validated reward action")
@@ -1856,7 +2180,15 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             if next.reward.as_ref().is_some_and(|reward| {
                 reward.choices.is_empty() && reward.pending_card_reward_count() > 0
             }) {
-                roll_pending_card_reward_choices(&mut next);
+                let queued = next.reward.as_mut().and_then(|reward| {
+                    (!reward.queued_card_rewards.is_empty())
+                        .then(|| reward.queued_card_rewards.remove(0))
+                });
+                if let Some(choices) = queued {
+                    next.reward.as_mut().expect("reward screen present").choices = choices;
+                } else {
+                    roll_pending_card_reward_choices(&mut next);
+                }
             }
             preview_obtain_card_reward_choices(&mut next);
             next.reward
@@ -1865,10 +2197,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .card_reward_active = true;
         }
         RunAction::SkipPotionReward => {
-            next.reward
-                .as_mut()
-                .expect("validated reward screen")
-                .potion_offer = None;
+            let reward = next.reward.as_mut().expect("validated reward screen");
+            reward.potion_offer = None;
+            reward.potion_offers.clear();
         }
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
@@ -1902,9 +2233,6 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
 }
 
 fn return_to_event_if_reward_empty(run: &mut RunState) {
-    if run.event.is_none() {
-        return;
-    }
     let Some(reward) = run.reward.as_ref() else {
         return;
     };
@@ -1924,8 +2252,31 @@ fn return_to_event_if_reward_empty(run: &mut RunState) {
     {
         return;
     }
-    run.phase = RunPhase::Event;
-    run.reward = None;
+    if run.shop.is_some() && run.shop_merchant_open {
+        run.phase = RunPhase::Shop;
+        run.reward = None;
+    } else if run.event.is_some() {
+        run.phase = RunPhase::Event;
+        run.reward = None;
+    }
+}
+
+pub(crate) fn reward_is_empty(reward: &RewardScreen) -> bool {
+    !reward.card_reward_active
+        && !reward.card_reward_pending
+        && reward.pending_card_reward_count() == 0
+        && reward.choices.is_empty()
+        && reward.queued_card_rewards.is_empty()
+        && reward.gold_offer == 0
+        && reward.stolen_gold_offer == 0
+        && reward.potion_offer.is_none()
+        && reward.potion_offers.is_empty()
+        && reward.relic_offer.is_none()
+        && reward.relic_key_offer.is_none()
+        && reward.pending_relic_offer.is_none()
+        && reward.pending_relic_key_offer.is_none()
+        && reward.queued_relic_key_offers.is_empty()
+        && reward.boss_relic_choices.is_empty()
 }
 
 pub(crate) fn advance_pending_relic_offer(run: &mut RunState) {
@@ -1965,8 +2316,9 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{
-            FIRE_BREATHING_ID, HEADBUTT_ID, METALLICIZE_ID, SHOCKWAVE_PLUS_ID, SPOT_WEAKNESS_ID,
-            STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID, WARCRY_ID,
+            DUAL_WIELD_ID, FIRE_BREATHING_ID, HEADBUTT_ID, HEAVY_BLADE_ID, METALLICIZE_ID,
+            POMMEL_STRIKE_ID, POWER_THROUGH_ID, SHOCKWAVE_PLUS_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
+            SWIFT_STRIKE_ID, THUNDERCLAP_ID, WARCRY_ID, WHIRLWIND_ID,
         },
         content::monsters::DARKLING_ID,
         run::{
@@ -1984,6 +2336,58 @@ mod tests {
             .iter()
             .map(|choice| choice.content_id)
             .collect()
+    }
+
+    #[test]
+    fn matryoshka_uses_its_own_float_tier_roll_on_session_1181_seed() {
+        let mut relic_rng = StsRng::with_counter(7_708_489_759_596_451_588_i64, 10);
+
+        assert_eq!(
+            target_matryoshka_relic_tier(&mut relic_rng),
+            RelicTier::Uncommon
+        );
+        assert_eq!(relic_rng.counter(), 11);
+    }
+
+    #[test]
+    fn boss_calling_bell_relics_return_to_treasure_proceed() {
+        let mut run = RunState::placeholder_seeded_ironclad(7, 0);
+        run.boss_chest_opened = true;
+        enter_calling_bell_reward_screen(&mut run);
+
+        for _ in 0..3 {
+            run = apply_run_action(&run, RunAction::TakeRelicReward)
+                .expect("Calling Bell relic can be collected");
+        }
+
+        assert_eq!(run.phase, RunPhase::Treasure);
+        assert!(run.reward.is_none());
+    }
+
+    #[test]
+    fn neow_three_potions_hidden_reward_consumption_is_seed_dependent() {
+        let mut duplicate_reroll_run =
+            RunState::placeholder_seeded_ironclad(2_080_939_458_480_311_800_u64, 0);
+        consume_neow_three_potions_hidden_card_reward(&mut duplicate_reroll_run);
+        assert_eq!(duplicate_reroll_run.card_rng_counter, 10);
+        assert_eq!(duplicate_reroll_run.card_rarity_factor, 5);
+        duplicate_reroll_run.current_room_override = Some(RoomKind::Combat);
+        enter_normal_combat_reward_screen(&mut duplicate_reroll_run);
+        assert_eq!(
+            reward_choice_ids(&duplicate_reroll_run),
+            vec![POWER_THROUGH_ID, POMMEL_STRIKE_ID, WARCRY_ID]
+        );
+
+        let mut no_reroll_run = RunState::placeholder_seeded_ironclad(22_079_335_079, 0);
+        consume_neow_three_potions_hidden_card_reward(&mut no_reroll_run);
+        assert_eq!(no_reroll_run.card_rng_counter, 9);
+        assert_eq!(no_reroll_run.card_rarity_factor, 2);
+        no_reroll_run.current_room_override = Some(RoomKind::Combat);
+        enter_normal_combat_reward_screen(&mut no_reroll_run);
+        assert_eq!(
+            reward_choice_ids(&no_reroll_run),
+            vec![DUAL_WIELD_ID, WHIRLWIND_ID, HEAVY_BLADE_ID]
+        );
     }
 
     #[test]
@@ -2011,6 +2415,34 @@ mod tests {
             reward_choice_ids(&run),
             vec![THUNDERCLAP_ID, WARCRY_ID, METALLICIZE_ID]
         );
+    }
+
+    #[test]
+    fn prayer_wheel_eagerly_consumes_both_hidden_reward_rolls_from_session_1224() {
+        let mut run =
+            RunState::placeholder_seeded_ironclad((-4_906_255_751_777_637_416_i64) as u64, 0);
+        run.current_room_override = Some(RoomKind::Combat);
+        run.card_rng_counter = 90;
+        run.card_rarity_factor = -1;
+        run.relics.push(Relic::QuestionCard);
+        run.relics.push(Relic::PrayerWheel);
+
+        enter_normal_combat_reward_screen(&mut run);
+
+        let reward = run.reward.as_ref().expect("combat reward");
+        assert_eq!(reward.pending_card_reward_count(), 2);
+        assert!(reward.choices.is_empty());
+        assert_eq!(reward.queued_card_rewards.len(), 2);
+        assert!(reward
+            .queued_card_rewards
+            .iter()
+            .all(|choices| choices.len() == 4));
+        assert_eq!(run.card_rng_counter, 115);
+
+        let skipped = apply_run_action(&run, RunAction::SkipReward)
+            .expect("both unopened card rewards can be skipped");
+        assert_eq!(skipped.card_rng_counter, 115);
+        assert!(skipped.reward.is_none());
     }
 
     #[test]
@@ -2046,13 +2478,13 @@ mod tests {
         run.current_act = 1;
 
         run.current_floor = 3;
-        let act = i32::from(run.current_act);
+        let act = run.current_act;
         let scrap_ooze_relic = roll_event_relic_reward(&mut run, act);
         assert_eq!(scrap_ooze_relic, RelicKey::DreamCatcher);
         run.gain_relic_key(scrap_ooze_relic);
 
         run.current_floor = 4;
-        let act = i32::from(run.current_act);
+        let act = run.current_act;
         let event_relic = roll_event_relic_reward(&mut run, act);
         assert_eq!(event_relic, RelicKey::ToxicEgg);
     }
@@ -2125,6 +2557,49 @@ mod tests {
     }
 
     #[test]
+    fn happy_flower_counter_persists_between_run_and_combat_turns() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![Relic::HappyFlower];
+        run.happy_flower_turns = 1;
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+        run.happy_flower_turns = combat.relic_counters.happy_flower_turns;
+        run.combat = Some(combat);
+
+        let next = apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("turn ends");
+        let combat = next.combat.as_ref().expect("combat remains active");
+
+        assert_eq!(next.happy_flower_turns, 0);
+        assert_eq!(combat.relic_counters.happy_flower_turns, 0);
+        assert_eq!(combat.player.energy, 4);
+    }
+
+    #[test]
+    fn sundial_counter_persists_between_combats_and_grants_third_shuffle_energy() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![Relic::Sundial];
+        run.sundial_shuffles = 2;
+
+        let mut base = CombatState::initial_fixture();
+        base.piles.draw_pile.clear();
+        base.monsters[0].intent = crate::MonsterIntent::Stun;
+        let combat = run.init_combat(base);
+        assert_eq!(combat.relic_counters.sundial_shuffles, 2);
+        run.combat = Some(combat);
+
+        let next = apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("turn ends");
+        let combat = next.combat.as_ref().expect("combat remains active");
+
+        assert_eq!(next.sundial_shuffles, 3);
+        assert_eq!(combat.relic_counters.sundial_shuffles, 3);
+        assert_eq!(combat.player.energy, 5);
+    }
+
+    #[test]
     fn half_dead_darklings_still_allow_combat_gold_reward() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Combat;
@@ -2145,6 +2620,32 @@ mod tests {
             run.reward.as_ref().expect("reward screen").gold_offer > 0,
             "Darkling half-dead markers are not escaped-monster gold suppression"
         );
+    }
+
+    #[test]
+    fn faded_transient_still_allows_normal_combat_rewards() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.potion_rng_seed = 772_776_727_775;
+        run.potion_rng_counter = 88;
+
+        let mut combat = CombatState::initial_fixture();
+        for monster in &mut combat.monsters {
+            monster.content_id = TRANSIENT_ID;
+            monster.hp = 0;
+            monster.alive = false;
+            monster.escaped = true;
+        }
+        run.combat = Some(combat);
+
+        enter_normal_combat_reward_screen(&mut run);
+
+        let reward = run.reward.as_ref().expect("reward screen");
+        assert!(reward.gold_offer > 0);
+        assert_eq!(reward.potion_offer, Some(Potion::Elixir));
+        assert_eq!(run.potion_rng_counter, 91);
+        assert_eq!(run.potion_chance, -10);
     }
 
     #[test]
@@ -2180,6 +2681,53 @@ mod tests {
     }
 
     #[test]
+    fn mark_of_bloom_blocks_the_act_transition_heal() {
+        let mut run = RunState::map_fixture();
+        run.current_act = 1;
+        run.player_hp = 10;
+        run.player_max_hp = 80;
+        run.relic_keys.push(RelicKey::MarkOfBloom);
+
+        enter_next_act_map(&mut run);
+
+        assert_eq!(run.current_act, 2);
+        assert_eq!(run.player_hp, 10);
+    }
+
+    #[test]
+    fn lizard_tail_revives_mid_monster_turn_and_remaining_sentries_act() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Elite);
+        run.relics.push(Relic::LizardTail);
+
+        let mut combat = CombatState::sentry_fixture();
+        combat.player.hp = 1;
+        combat.player.max_hp = 85;
+        combat.monsters[0].intent = crate::MonsterIntent::Attack { damage: 9 };
+        combat.monsters[1].intent = crate::MonsterIntent::AddDazedToDiscard { count: 2 };
+        combat.monsters[2].intent = crate::MonsterIntent::Attack { damage: 9 };
+        run.combat = Some(combat);
+
+        let after = apply_combat_action_on_run(&run, CombatAction::EndTurn)
+            .expect("enemy turn resolves through revival");
+        let combat = after.combat.expect("combat continues");
+
+        assert_eq!(combat.player.hp, 33);
+        let dazed_count = combat
+            .piles
+            .hand
+            .iter()
+            .chain(&combat.piles.draw_pile)
+            .chain(&combat.piles.discard_pile)
+            .chain(&combat.piles.exhaust_pile)
+            .filter(|card| card.content_id == crate::content::cards::DAZED_ID)
+            .count();
+        assert_eq!(dazed_count, 2);
+        assert!(after.lizard_tail_used);
+    }
+
+    #[test]
     fn upgraded_starter_relic_keeps_starter_relic_slot() {
         let mut run = RunState::map_fixture();
         run.relics = vec![
@@ -2198,5 +2746,20 @@ mod tests {
                 Relic::OddlySmoothStone
             ]
         );
+    }
+
+    #[test]
+    fn guaranteed_potion_still_consumes_drop_roll() {
+        let mut actual_rng = StsRng::new(77);
+        let mut expected_rng = StsRng::new(77);
+        let mut potion_chance = 0;
+
+        let actual = target_potion_reward_offer(&mut actual_rng, &mut potion_chance, 2, 0, 3, true);
+        let _drop_roll = expected_rng.random_int(99);
+        let expected = Some(target_random_potion(&mut expected_rng));
+
+        assert_eq!(actual, expected);
+        assert_eq!(actual_rng.counter(), expected_rng.counter());
+        assert_eq!(potion_chance, -10);
     }
 }

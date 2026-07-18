@@ -173,10 +173,15 @@ pub enum InternalAction {
     DrawCards {
         count: usize,
     },
+    DrawCardsWhilePlayedCardIsInLimbo {
+        card_id: CardId,
+        count: usize,
+    },
     DrawCardsFromInkBottle {
         count: usize,
     },
     ShuffleDiscardIntoDraw,
+    DeepBreathShuffleDiscardIntoDraw,
     DrawCardsIfNoAttacksInHand {
         count: usize,
     },
@@ -331,6 +336,7 @@ pub enum InternalAction {
 pub enum RestAction {
     Heal,
     OpenSmith,
+    OpenRemove,
     Smith { card_id: CardId },
     RemoveCard { card_id: CardId },
     Lift,
