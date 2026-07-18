@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "frozen_at": "2026-07-15",
+  "protocol_sha256": "C9D0CE153BDCE9167AF6194F843850B86411C6B9297D2C6551D700703C300E8C",
+  "development_manifests": [
+    {
+      "path": "../overnight-2026-07-13/development.json",
+      "sha256": "028DB01B966B712F9718C136C8683218E4565A19E42B7BC67B710AF95B7915C0",
+      "roots": 124
+    },
+    {
+      "path": "../overnight-2026-07-13/validation.json",
+      "sha256": "1FCF0EE9FA5F3493AC203B77DA8E86474AF8682DE06A9B06A33FADD4B6B31E73",
+      "roots": 56
+    },
+    {
+      "path": "../overnight-2026-07-13/challenge.json",
+      "sha256": "6757095B55D39E941FE87D10DDA893935E3F8C44134BD0F91A6045C289211F2E",
+      "roots": 22
+    }
+  ],
+  "holdout_manifest": {
+    "path": "../overnight-2026-07-13/held_out.json",
+    "sha256": "EBC99C574573D2A651C47B9392B55D38679CD5D475D9F3FE78162906EDB023AA",
+    "roots": 23
+  },
+  "evaluator_source": {
+    "path": "../../crates/sts_live/src/combat_research.rs",
+    "sha256": "8DA2896E8B396078F88CABBEF4417B3044E91D158A27C27EF055CF7B57FEE73B"
+  },
+  "incumbent_planner_source_sha256": "D9143C27202BC296D74C2F42045CCFB6FDCD0FB86F277D9251BBB1D86AC039B1",
+  "configuration": {
+    "depth": 100,
+    "width": 300,
+    "transition_budget": 100000,
+    "timeout_ms": 10000
+  }
+}

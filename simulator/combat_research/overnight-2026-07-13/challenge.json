@@ -1,0 +1,1432 @@
+{
+  "schema": 1,
+  "split": "challenge",
+  "generated_at_unix": 1783908175,
+  "entries": [
+    {
+      "id": "5300d08ee9f03e0b",
+      "lineage": "IRONCLAD:a0:seed:-547381600895504000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1187.jsonl",
+      "source_line": 10,
+      "root_file": "roots/5300d08ee9f03e0b.json",
+      "act": 1,
+      "floor": 1,
+      "encounter": "ContentId(102)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": false,
+      "challenge": true
+    },
+    {
+      "id": "22724ebbf7868f5c",
+      "lineage": "IRONCLAD:a0:seed:-547381600895504000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1187.jsonl",
+      "source_line": 84,
+      "root_file": "roots/22724ebbf7868f5c.json",
+      "act": 1,
+      "floor": 2,
+      "encounter": "ContentId(105)+ContentId(105)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": false,
+      "challenge": true
+    },
+    {
+      "id": "816a4267d2dee77d",
+      "lineage": "IRONCLAD:a0:seed:-547381600895504000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1187.jsonl",
+      "source_line": 128,
+      "root_file": "roots/816a4267d2dee77d.json",
+      "act": 1,
+      "floor": 4,
+      "encounter": "ContentId(101)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "fb6b88db1f03c5f5",
+      "lineage": "IRONCLAD:a0:seed:-547381600895504000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1187.jsonl",
+      "source_line": 220,
+      "root_file": "roots/fb6b88db1f03c5f5.json",
+      "act": 1,
+      "floor": 7,
+      "encounter": "ContentId(126)+ContentId(126)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "0db16259e63d4a6a",
+      "lineage": "IRONCLAD:a0:seed:-547381600895504000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1187.jsonl",
+      "source_line": 304,
+      "root_file": "roots/0db16259e63d4a6a.json",
+      "act": 1,
+      "floor": 10,
+      "encounter": "ContentId(103)",
+      "room_type": "MonsterRoomElite",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "60c1f8bd75b28b97",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 12,
+      "root_file": "roots/60c1f8bd75b28b97.json",
+      "act": 1,
+      "floor": 1,
+      "encounter": "ContentId(102)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": false,
+      "challenge": true
+    },
+    {
+      "id": "8b6698ca11294976",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 106,
+      "root_file": "roots/8b6698ca11294976.json",
+      "act": 1,
+      "floor": 6,
+      "encounter": "ContentId(109)+ContentId(109)+ContentId(109)",
+      "room_type": "MonsterRoomElite",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "f1af823492463aef",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 218,
+      "root_file": "roots/f1af823492463aef.json",
+      "act": 1,
+      "floor": 7,
+      "encounter": "ContentId(106)+ContentId(107)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": false,
+      "challenge": true
+    },
+    {
+      "id": "30a2f861aa179334",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 280,
+      "root_file": "roots/30a2f861aa179334.json",
+      "act": 1,
+      "floor": 11,
+      "encounter": "ContentId(105)+ContentId(105)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": false,
+      "challenge": true
+    },
+    {
+      "id": "10da32d2ef10b98e",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 326,
+      "root_file": "roots/10da32d2ef10b98e.json",
+      "act": 1,
+      "floor": 13,
+      "encounter": "ContentId(103)",
+      "room_type": "MonsterRoomElite",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "088268d9dfd8ec92",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 406,
+      "root_file": "roots/088268d9dfd8ec92.json",
+      "act": 1,
+      "floor": 14,
+      "encounter": "ContentId(106)+ContentId(101)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": false,
+      "challenge": true
+    },
+    {
+      "id": "f4c25991a47268fe",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 462,
+      "root_file": "roots/f4c25991a47268fe.json",
+      "act": 1,
+      "floor": 16,
+      "encounter": "ContentId(111)",
+      "room_type": "MonsterRoomBoss",
+      "low_hp": false,
+      "potion_opportunity": false,
+      "challenge": true
+    },
+    {
+      "id": "f246d9290c24e3e4",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 652,
+      "root_file": "roots/f246d9290c24e3e4.json",
+      "act": 2,
+      "floor": 18,
+      "encounter": "ContentId(121)+ContentId(121)+ContentId(121)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "2456b1723c9eb50d",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 730,
+      "root_file": "roots/2456b1723c9eb50d.json",
+      "act": 2,
+      "floor": 20,
+      "encounter": "ContentId(113)+ContentId(115)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "62231a2a62d75f8d",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 788,
+      "root_file": "roots/62231a2a62d75f8d.json",
+      "act": 2,
+      "floor": 23,
+      "encounter": "ContentId(127)+ContentId(124)+ContentId(128)",
+      "room_type": "MonsterRoomElite",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "99425c041a60bee2",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 908,
+      "root_file": "roots/99425c041a60bee2.json",
+      "act": 2,
+      "floor": 24,
+      "encounter": "ContentId(145)+ContentId(146)+ContentId(144)",
+      "room_type": "EventRoom",
+      "low_hp": true,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "9903bfd6b22f2de6",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 1020,
+      "root_file": "roots/9903bfd6b22f2de6.json",
+      "act": 2,
+      "floor": 28,
+      "encounter": "ContentId(119)+ContentId(120)",
+      "room_type": "MonsterRoom",
+      "low_hp": true,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "c5e8b06832a74f12",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1189.jsonl",
+      "source_line": 1018,
+      "root_file": "roots/c5e8b06832a74f12.json",
+      "act": 2,
+      "floor": 28,
+      "encounter": "ContentId(119)+ContentId(120)",
+      "room_type": "MonsterRoom",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "d66b2d5b6eb9e9ea",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1189.jsonl",
+      "source_line": 1098,
+      "root_file": "roots/d66b2d5b6eb9e9ea.json",
+      "act": 2,
+      "floor": 29,
+      "encounter": "ContentId(123)",
+      "room_type": "MonsterRoomElite",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "e3a00e77bf2130c4",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 1096,
+      "root_file": "roots/e3a00e77bf2130c4.json",
+      "act": 2,
+      "floor": 29,
+      "encounter": "ContentId(123)",
+      "room_type": "MonsterRoomElite",
+      "low_hp": true,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "666841260134e780",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1189.jsonl",
+      "source_line": 1242,
+      "root_file": "roots/666841260134e780.json",
+      "act": 2,
+      "floor": 33,
+      "encounter": "ContentId(134)",
+      "room_type": "MonsterRoomBoss",
+      "low_hp": false,
+      "potion_opportunity": true,
+      "challenge": true
+    },
+    {
+      "id": "81bd0d2b97a54bc4",
+      "lineage": "IRONCLAD:a0:seed:7708489759596452000",
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\simulator/live_traces\\session-1188.jsonl",
+      "source_line": 1240,
+      "root_file": "roots/81bd0d2b97a54bc4.json",
+      "act": 2,
+      "floor": 33,
+      "encounter": "ContentId(134)",
+      "room_type": "MonsterRoomBoss",
+      "low_hp": true,
+      "potion_opportunity": true,
+      "challenge": true
+    }
+  ],
+  "exclusions": [
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T15-16-41-267Z.jsonl",
+      "source_line": 90,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T18-54-05-077Z.jsonl",
+      "source_line": 51,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T18-54-05-077Z.jsonl",
+      "source_line": 102,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T18-54-05-077Z.jsonl",
+      "source_line": 135,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T18-54-05-077Z.jsonl",
+      "source_line": 186,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T18-54-05-077Z.jsonl",
+      "source_line": 228,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 129,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 171,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 216,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 289,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 331,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 364,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 451,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 599,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 632,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 680,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-04T20-30-44-675Z.jsonl",
+      "source_line": 725,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-07T18-33-54-807Z.jsonl",
+      "source_line": 1633,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-07T18-33-54-807Z.jsonl",
+      "source_line": 1744,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-07T18-33-54-807Z.jsonl",
+      "source_line": 1903,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-07T18-33-54-807Z.jsonl",
+      "source_line": 1981,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-07T18-33-54-807Z.jsonl",
+      "source_line": 2089,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-07T18-33-54-807Z.jsonl",
+      "source_line": 2188,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-07T18-33-54-807Z.jsonl",
+      "source_line": 2296,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-07T18-33-54-807Z.jsonl",
+      "source_line": 2448,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T03-03-02-021Z.jsonl",
+      "source_line": 26,
+      "reason": "verification_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T03-03-02-021Z.jsonl",
+      "source_line": 26,
+      "reason": "later_prefixes_skipped_after_monotonic_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 62,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 172,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 191,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 234,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 304,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 374,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 434,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 459,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 487,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 560,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 585,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 652,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 680,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 708,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 763,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 791,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 852,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 925,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 977,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1029,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1090,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1115,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1156,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1224,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1285,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1358,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1383,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1451,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1523,
+      "reason": "verification_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T14-10-31-468Z.jsonl",
+      "source_line": 1523,
+      "reason": "later_prefixes_skipped_after_monotonic_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T20-52-15-907Z.jsonl",
+      "source_line": 44,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T22-45-08-078Z.jsonl",
+      "source_line": 98,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 172,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 308,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 369,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 390,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 408,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 461,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 519,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 794,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 859,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 939,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 981,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1065,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1120,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1160,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1211,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1272,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1317,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1419,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1493,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1575,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1627,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1697,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1764,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1856,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1880,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1924,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1945,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1966,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 1984,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2029,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2109,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2173,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2291,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2380,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2463,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2530,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2610,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2653,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2719,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2777,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2868,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2945,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 2981,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3068,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3135,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3180,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3222,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3289,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3348,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3414,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3444,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3511,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3615,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3657,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3694,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3727,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3797,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3855,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3897,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 3992,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4075,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4135,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4223,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4277,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4342,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4390,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4444,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4507,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4604,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4665,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4704,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4768,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4853,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4926,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 4990,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-08T23-42-24-828Z.jsonl",
+      "source_line": 5085,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T17-31-02-902Z.jsonl",
+      "source_line": 112,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T17-31-02-902Z.jsonl",
+      "source_line": 187,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T17-49-24-048Z.jsonl",
+      "source_line": 98,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T18-09-05-633Z.jsonl",
+      "source_line": 191,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T18-09-05-633Z.jsonl",
+      "source_line": 266,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T18-09-05-633Z.jsonl",
+      "source_line": 321,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T18-09-05-633Z.jsonl",
+      "source_line": 376,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T21-48-05-265Z.jsonl",
+      "source_line": 32,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T21-48-05-265Z.jsonl",
+      "source_line": 74,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T21-48-05-265Z.jsonl",
+      "source_line": 146,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-09T22-58-17-539Z.jsonl",
+      "source_line": 113,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T14-39-02-362Z.jsonl",
+      "source_line": 187,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T14-39-02-362Z.jsonl",
+      "source_line": 211,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T14-39-02-362Z.jsonl",
+      "source_line": 235,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T14-39-02-362Z.jsonl",
+      "source_line": 253,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T16-23-00-222Z.jsonl",
+      "source_line": 51,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T20-33-11-690Z.jsonl",
+      "source_line": 338,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T20-33-11-690Z.jsonl",
+      "source_line": 449,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T20-33-11-690Z.jsonl",
+      "source_line": 579,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T20-33-11-690Z.jsonl",
+      "source_line": 697,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T20-33-11-690Z.jsonl",
+      "source_line": 797,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T20-33-11-690Z.jsonl",
+      "source_line": 1214,
+      "reason": "verification_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-10T20-33-11-690Z.jsonl",
+      "source_line": 1214,
+      "reason": "later_prefixes_skipped_after_monotonic_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 607,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 730,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 799,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 928,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 1036,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 1093,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 1829,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 2108,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 2201,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 2312,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 2469,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 2580,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 2760,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 2823,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 2940,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 3210,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 3634,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 3745,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 3925,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 3988,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 4105,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 4375,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 4771,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 4894,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 4990,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 5402,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 5499,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T15-09-20-644Z.jsonl",
+      "source_line": 5617,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T17-13-20-967Z.jsonl",
+      "source_line": 2173,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T17-13-20-967Z.jsonl",
+      "source_line": 2464,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T17-13-20-967Z.jsonl",
+      "source_line": 2788,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T17-13-20-967Z.jsonl",
+      "source_line": 3235,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T17-13-20-967Z.jsonl",
+      "source_line": 3346,
+      "reason": "verification_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-11T17-13-20-967Z.jsonl",
+      "source_line": 3346,
+      "reason": "later_prefixes_skipped_after_monotonic_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T16-42-31-386Z.jsonl",
+      "source_line": 814,
+      "reason": "verification_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T16-42-31-386Z.jsonl",
+      "source_line": 814,
+      "reason": "later_prefixes_skipped_after_monotonic_timeout"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 595,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 736,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 904,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 997,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 1066,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 1186,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 1270,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 1555,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 1672,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 1759,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 1939,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 2107,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 2221,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 2437,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 2635,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 2776,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 2944,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 3037,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 3106,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 3226,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 3310,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 3595,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 3712,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 3799,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 3979,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 4144,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 4264,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/communication_mod\\trace-2026-07-12T23-44-04-701Z.jsonl",
+      "source_line": 4480,
+      "reason": "verification_rejected"
+    },
+    {
+      "source": "D:\\dev\\slay-the-spire\\simulator\\crates\\sts_verify\\../../..\\verification/corpus/permanent_traces\\trace-2026-07-01T18-16-48-695Z.jsonl",
+      "source_line": 215,
+      "reason": "verification_rejected"
+    }
+  ]
+}

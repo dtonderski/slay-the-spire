@@ -1,5 +1,13 @@
 # Combat Policy Benchmark — 2026-07-11
 
+The corpus-wide train/validation gate is intentionally excluded from ordinary
+`cargo test` runs because it performs full combat searches across collected
+traces. Run it explicitly when evaluating combat-policy changes:
+
+```powershell
+cargo test -p sts_live collected_trace_benchmark_reports_train_and_validation_reward -- --ignored --nocapture
+```
+
 ## Question
 
 Evaluate the combat-policy changes that replace the transient 5,000-point
