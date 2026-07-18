@@ -24,11 +24,43 @@ pub enum RunSeed {
     Numeric(i64),
 }
 
+impl RunSeed {
+    #[must_use]
+    pub fn command_text(&self) -> String {
+        match self {
+            Self::External(seed) => seed.clone(),
+            Self::Numeric(seed) => sts_verify::sts_seed_long_to_string(*seed),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunConfig {
     pub character: Character,
     pub ascension: u8,
     pub seed: RunSeed,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RunSeed;
+
+    #[test]
+    fn numeric_run_seed_command_text_uses_game_seed_alphabet() {
+        assert_eq!(RunSeed::Numeric(123).command_text(), "3I");
+        let signed = -1_271_861_678_227_830_524;
+        let encoded = RunSeed::Numeric(signed).command_text();
+        assert!(!encoded.contains('-'));
+        assert_eq!(sts_verify::sts_seed_string_to_long(&encoded), signed);
+    }
+
+    #[test]
+    fn external_run_seed_command_text_is_preserved() {
+        assert_eq!(
+            RunSeed::External("CODEX04".to_owned()).command_text(),
+            "CODEX04"
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,11 +217,11 @@ impl Default for AutomationJobSnapshot {
 }
 
 fn default_automation_depth() -> usize {
-    50
+    100
 }
 
 fn default_automation_width() -> usize {
-    50
+    300
 }
 
 fn default_automation_auto_action_limit() -> usize {
@@ -202,8 +234,49 @@ impl Default for AutomationConfig {
             policy: AutomationPolicy::BeamSearch,
             depth: default_automation_depth(),
             width: default_automation_width(),
-            allowed_potion_slots: Vec::new(),
+            allowed_potion_slots: (0..5).collect(),
             auto_action_limit: default_automation_auto_action_limit(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlayTheDataRunOutcome {
+    Win,
+    Loss,
+    Abandon,
+}
+
+impl SlayTheDataRunOutcome {
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Win => "win",
+            Self::Loss => "loss",
+            Self::Abandon => "abandon",
+        }
+    }
+
+    #[must_use]
+    pub fn from_victory(victory: bool) -> Self {
+        if victory {
+            Self::Win
+        } else {
+            Self::Loss
+        }
+    }
+}
+
+impl TryFrom<String> for SlayTheDataRunOutcome {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "win" => Ok(Self::Win),
+            "loss" => Ok(Self::Loss),
+            "abandon" => Ok(Self::Abandon),
+            other => Err(format!("unknown SlayTheData run outcome {other}")),
         }
     }
 }
@@ -221,7 +294,13 @@ pub struct SlayTheDataSearchFilters {
     #[serde(default)]
     pub victory: Option<bool>,
     #[serde(default)]
+    pub run_outcome: Option<SlayTheDataRunOutcome>,
+    #[serde(default)]
+    pub neow_bonus: Option<String>,
+    #[serde(default)]
     pub seed_played: Option<String>,
+    #[serde(default)]
+    pub run_id: Option<i64>,
     #[serde(default = "default_slaythedata_limit")]
     pub limit: usize,
     #[serde(default = "default_true")]
@@ -232,9 +311,11 @@ pub struct SlayTheDataSearchFilters {
 pub struct SlayTheDataRunSummary {
     pub id: i64,
     pub seed_played: Option<String>,
+    pub build_version: Option<String>,
     pub ascension_level: Option<u8>,
     pub floor_reached: Option<u32>,
     pub victory: bool,
+    pub run_outcome: SlayTheDataRunOutcome,
     pub path_length: Option<u32>,
     pub card_choice_count: Option<u32>,
     pub event_choice_count: Option<u32>,
@@ -244,6 +325,13 @@ pub struct SlayTheDataRunSummary {
     pub neow_cost: Option<String>,
     pub guided_score: i64,
     pub materialized: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrokenSlayTheDataRun {
+    pub run_id: i64,
+    pub seed_played: Option<String>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -265,6 +353,8 @@ pub struct SlayTheDataSessionSnapshot {
     pub next_step_index: usize,
     pub blocked: Option<BlockedState>,
     pub last_message: Option<String>,
+    #[serde(default)]
+    pub auto_play_paused: bool,
 }
 
 fn default_slaythedata_character() -> String {
@@ -323,6 +413,12 @@ pub enum SessionLifecycle {
     Ended,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionListItem {
+    pub session_id: SessionId,
+    pub lifecycle: SessionLifecycle,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockedState {
     pub reason_code: String,
@@ -341,6 +437,33 @@ pub struct SessionSnapshot {
     pub blocked: Option<BlockedState>,
     pub automation: AutomationJobSnapshot,
     pub slaythedata: SlayTheDataSessionSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlayTheDataCollectionBlockerKind {
+    SimulatorFidelityBreak,
+    SlaythedataMappingGap,
+    SlaythedataIllegalLog,
+    SlaythedataIncompatibleRun,
+    RunEndedBeforeTarget,
+    BridgeOrBackendError,
+    CompletedTrace,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SlayTheDataRepairPacket {
+    pub blocker_kind: SlayTheDataCollectionBlockerKind,
+    pub run_id: i64,
+    pub seed: Option<String>,
+    pub session_id: Option<SessionId>,
+    pub trace_path: Option<String>,
+    pub current_live_state_summary: Option<Value>,
+    pub slaythedata_step: Option<SlayTheDataAdvisorStep>,
+    pub legal_live_actions: Vec<LegalAction>,
+    pub first_simulator_diff_or_mapping_failure: Option<String>,
+    pub reproduce_command: Option<String>,
+    pub illegal_run_constant_entry: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

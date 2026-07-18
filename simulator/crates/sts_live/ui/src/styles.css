@@ -27,7 +27,7 @@ article,
 
 .session-bar {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 16px;
   align-items: center;
   padding: 10px 12px;
@@ -47,6 +47,39 @@ h2 {
   font-weight: 700;
   overflow-wrap: anywhere;
   text-align: right;
+}
+
+.backend-status {
+  justify-self: end;
+  min-width: 148px;
+  min-height: 26px;
+  border: 1px solid #44515f;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #d8e2ec;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.backend-status-connected {
+  border-color: #416f4b;
+  background: #102118;
+  color: #a9e6b4;
+}
+
+.backend-status-disconnected {
+  border-color: #8f4f4f;
+  background: #241719;
+  color: #ffb4a8;
+}
+
+.backend-status-unknown {
+  border-color: #6a7480;
+  background: #101820;
+  color: #c6d6e6;
 }
 
 .session-alert {
@@ -106,9 +139,24 @@ h2 {
   color: #ffd8d8;
 }
 
+.notification-info {
+  border-color: #416f4b;
+  background: #102118;
+  color: #dff7e4;
+}
+
+.notification-info .notification-title {
+  color: #a9e6b4;
+}
+
+.notification-info button {
+  border-color: #416f4b;
+  color: #dff7e4;
+}
+
 .controls {
   display: grid;
-  grid-template-columns: minmax(260px, 0.9fr) minmax(430px, 1.25fr) minmax(430px, 1.35fr) minmax(240px, 0.75fr);
+  grid-template-columns: minmax(430px, 1.05fr) minmax(430px, 1.1fr) minmax(430px, 1.35fr) minmax(210px, 0.55fr);
   gap: 0;
   margin-top: 10px;
   padding: 10px;
@@ -146,7 +194,7 @@ article h2 {
 }
 
 .open-trace-row {
-  grid-template-columns: minmax(0, 1fr) 84px;
+  grid-template-columns: minmax(150px, 1fr) 70px 92px 92px;
 }
 
 .start-run-row {
@@ -213,18 +261,20 @@ input:focus-visible {
 #abandon,
 #kill-selected,
 #kill-all,
+#clear-traces,
 #automation-cancel {
   border-color: #9a5757;
   color: #ffd9d9;
 }
 
-#kill-all {
+#kill-all,
+#clear-traces {
   background: #241719;
 }
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(500px, 1fr) minmax(330px, 390px) minmax(330px, 390px) minmax(310px, 370px);
+  grid-template-columns: minmax(500px, 1fr) minmax(330px, 390px) minmax(400px, 480px) minmax(310px, 370px);
   gap: 10px;
   margin-top: 10px;
   align-items: start;
@@ -342,13 +392,13 @@ article {
 
 .slaythedata-search-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
 .slaythedata-buttons-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -366,13 +416,45 @@ article {
 
 .slaythedata-run {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 7px;
+  padding: 7px 0 8px;
+  border-bottom: 1px solid #28333f;
+}
+
+.slaythedata-run:first-of-type {
+  padding-top: 0;
+}
+
+.slaythedata-run:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.slaythedata-run-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.slaythedata-run-actions {
+  display: grid;
+  grid-template-columns: minmax(112px, 1fr) minmax(72px, 0.7fr) minmax(58px, 0.55fr) minmax(78px, 0.65fr);
   gap: 6px;
   align-items: center;
 }
 
 .slaythedata-run button {
   min-height: 28px;
+  padding: 0 8px;
+}
+
+.slaythedata-status {
+  min-height: 28px;
+  border: 1px solid #3f607f;
+  border-radius: 5px;
+  background: #101b24;
+  color: #b9dcff;
+  padding: 6px 8px;
+  font-weight: 700;
 }
 
 .slaythedata-advisor .advisor-code {
@@ -613,6 +695,40 @@ pre {
   white-space: pre-wrap;
 }
 
+#confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid #455566;
+  border-radius: 10px;
+  background: #18212a;
+  color: #eef4fa;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 55%);
+}
+
+#confirm-dialog::backdrop {
+  background: rgb(4 8 12 / 72%);
+}
+
+.confirm-dialog-form {
+  padding: 20px;
+}
+
+.confirm-dialog-form h2 {
+  margin-top: 0;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.danger-button {
+  border-color: #a94c4c;
+  background: #6f2929;
+}
+
 @media (max-width: 1280px) {
   .controls,
   .workspace {
@@ -663,6 +779,12 @@ pre {
   .status {
     justify-self: start;
     text-align: left;
+  }
+
+  .backend-status {
+    justify-self: start;
+    width: 100%;
+    white-space: normal;
   }
 
   .action-group h3 {

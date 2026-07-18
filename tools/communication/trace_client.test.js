@@ -678,8 +678,8 @@ async function testTcpControlAbandonRunBypassesAvailableCommands() {
     await waitFor(() => stdout.includes("ready\n"));
     child.stdin.write(`${JSON.stringify({
       in_game: true,
-      ready_for_command: true,
-      available_commands: ["state"],
+      ready_for_command: false,
+      available_commands: ["state", "abandon"],
       game_state: {
         screen_type: "COMBAT",
         floor: 3,
@@ -732,6 +732,52 @@ async function testTcpControlAbandonRunBypassesAvailableCommands() {
     const action = records.find((record) => record.type === "action" && record.command === "ABANDON");
     assert.ok(action, `missing ABANDON action; stderr=${stderr}`);
     assert.strictEqual(action.command_meta.operator_control, "abandon_run");
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function testTcpControlAcceptsAdvertisedStartFromUnreadyMenu() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-menu-start-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: { ...process.env, TRACE_SESSION_DIR: sessionDir, TRACE_OUT_DIR: outDir, TRACE_CONTROL_PORT: "0" },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: false,
+      ready_for_command: false,
+      available_commands: ["start", "state"],
+    })}\n`);
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const liveState = await controlRequest(status.control.port, { type: "state" });
+    const acquired = await controlRequest(status.control.port, { type: "acquire", owner_id: "test-controller" });
+    const accepted = await controlRequest(status.control.port, {
+      type: "command",
+      command: "START IRONCLAD 0 TESTSEED",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+      wait_for_state_update: false,
+    });
+    assert.strictEqual(accepted.ok, true, stderr);
+    await waitFor(() => stdout.includes("START IRONCLAD 0 TESTSEED\n"));
   } finally {
     if (!child.killed && child.exitCode === null) child.kill();
     fs.rmSync(root, { recursive: true, force: true });
@@ -997,6 +1043,7 @@ Promise.resolve()
   .then(testTcpControlDisablesLegacyFileCommandsByDefault)
   .then(testTcpControlRecordsObservedUpdateTimeout)
   .then(testTcpControlAbandonRunBypassesAvailableCommands)
+  .then(testTcpControlAcceptsAdvertisedStartFromUnreadyMenu)
   .then(testTcpControlRejectsSecondCommandUntilStateUpdate)
   .then(testTcpControlAllowsStartupStartBeforeObservedState)
   .then(testTcpControlClearsInFlightAfterUnchangedCommandTimeout)

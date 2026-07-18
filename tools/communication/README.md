@@ -9,7 +9,7 @@ is replaced by a Rust executable, this directory is required for live runs.
 
 ## Bridge
 
-- `trace_client.js` is the stdin/stdout bridge used by CommunicationMod. It writes JSONL traces under `simulator/verification/corpus/communication_mod/` and publishes current state files under `tools/communication/session/`.
+- `trace_client.js` is the stdin/stdout bridge used by CommunicationMod. By default it keeps only the current low-level bridge trace at `tools/communication/session/raw_bridge_current.jsonl` and publishes current state files alongside it. Set `TRACE_OUT_DIR` only when a persistent timestamped bridge-level capture is needed for protocol debugging.
 - `run_bridge.cmd` starts the interactive bridge.
 - `run_passive_bridge.cmd` starts the bridge in state-polling mode.
 - Fresh bridge launch scripts enable the optional localhost TCP JSONL control

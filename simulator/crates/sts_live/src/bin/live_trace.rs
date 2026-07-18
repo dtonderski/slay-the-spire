@@ -1,3 +1,8 @@
+#![cfg_attr(
+    test,
+    allow(clippy::assertions_on_constants, clippy::items_after_test_module)
+)]
+
 use std::{env, net::TcpListener, path::PathBuf, process::exit, thread};
 
 use sts_live::{
@@ -11,7 +16,27 @@ use sts_live::{
     FakeBridgeManager, SessionStore, SlayTheDataIndex,
 };
 
+const CLI_MAIN_STACK_BYTES: usize = 16 * 1024 * 1024;
+
 fn main() {
+    match thread::Builder::new()
+        .name("live-trace-main".to_owned())
+        .stack_size(CLI_MAIN_STACK_BYTES)
+        .spawn(run)
+    {
+        Ok(worker) => {
+            if let Err(panic) = worker.join() {
+                std::panic::resume_unwind(panic);
+            }
+        }
+        Err(error) => {
+            eprintln!("{}", format_cli_error(&LiveError::Io(error)));
+            exit(1);
+        }
+    }
+}
+
+fn run() {
     let trace_root = env::var("STS_LIVE_TRACE_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("live_traces"));
@@ -20,9 +45,16 @@ fn main() {
     let slaythedata_index = runtime_slaythedata_index(&mut args);
     let mut store = SessionStore::new(bridge, TraceFidelityChecker, trace_root)
         .with_slaythedata_index(slaythedata_index);
-    if let Err(err) = store.recover_existing_sessions() {
+    if let Err(err) = store.observe_existing_session_ids() {
         eprintln!("{}", format_cli_error(&err));
         exit(1);
+    }
+    let recover_sessions = should_recover_sessions(&args);
+    if recover_sessions && args.first().map(String::as_str) != Some("serve") {
+        if let Err(err) = store.recover_existing_sessions() {
+            eprintln!("{}", format_cli_error(&err));
+            exit(1);
+        }
     }
     if args.first().map(String::as_str) == Some("serve") {
         let addr = serve_addr(&args);
@@ -32,6 +64,9 @@ fn main() {
         });
         eprintln!("live-trace listening on http://{addr}");
         let app = LiveHttpApp::new(store);
+        if recover_sessions {
+            app.recover_existing_sessions_background();
+        }
         loop {
             match listener.accept() {
                 Ok((stream, _)) => {
@@ -53,6 +88,46 @@ fn main() {
             eprintln!("{}", format_cli_error(&err));
             exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod entrypoint_tests {
+    use super::*;
+
+    #[test]
+    fn cli_entrypoint_reserves_stack_for_composed_collection_and_verification() {
+        assert!(CLI_MAIN_STACK_BYTES >= 16 * 1024 * 1024);
+    }
+
+    #[test]
+    fn cli_entrypoint_recovers_sessions_for_skip_shop() {
+        assert!(should_recover_sessions(&[
+            "slaythedata".to_owned(),
+            "skip-shop".to_owned(),
+            "session-5".to_owned(),
+        ]));
+    }
+}
+
+fn should_recover_sessions(args: &[String]) -> bool {
+    match args {
+        [area, ..] if area == "serve" => true,
+        [area, command, ..] if area == "sessions" && command != "start" => true,
+        [area, ..] if area == "actions" => true,
+        [area, ..] if area == "automation" => true,
+        [area, command, ..]
+            if area == "slaythedata"
+                && matches!(
+                    command.as_str(),
+                    "attach" | "send-next" | "skip-shop" | "auto-play" | "resume"
+                ) =>
+        {
+            true
+        }
+        [area, ..] if area == "fidelity" => true,
+        [area, ..] if area == "trace" => true,
+        _ => false,
     }
 }
 

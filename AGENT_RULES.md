@@ -68,6 +68,11 @@ These rules are for Codex or any other coding agent working on this project.
 
 - Do not claim real-game parity without a real-game trace or an explicitly stated reason.
 - Prefer CommunicationMod-style JSON traces for exact comparison.
+- When iterating on simulator fidelity from a collected trace, use `sts-verify`
+  or the repo's trace replay verifier against the saved CommunicationMod trace.
+  Do not restart the live backend/UI as the inner debugging loop. Restart
+  `live-trace` only after the verifier-driven fix is ready to validate in the
+  UI or to serve the updated implementation.
 - Use `sts_lightspeed` as useful prior art and a secondary differential oracle, not as the final authority.
 - Treat wiki and community references as starting points, not final proof.
 - Mark hidden or unobservable fields explicitly.
@@ -78,6 +83,18 @@ These rules are for Codex or any other coding agent working on this project.
   advance solely from the initial seed/state plus accepted actions and
   implemented game rules. If simulated state diverges from observed state, stop
   at the first divergence and fix the simulator bug.
+
+## Live Backend / UI Rules
+
+- The Vite UI at `http://127.0.0.1:5173/` proxies backend requests to
+  `http://127.0.0.1:8800`, as configured in
+  `simulator/crates/sts_live/ui/vite.config.ts`. When restarting the live trace
+  backend for the UI, run `live-trace serve --addr 127.0.0.1:8800`; do not use
+  the binary default `8799` unless intentionally bypassing the UI proxy.
+- After restarting the backend, verify both `http://127.0.0.1:8800/health` and
+  `http://127.0.0.1:5173/health`. If direct health is connected but the UI says
+  "backend disconnected", check the Vite proxy port before changing backend
+  code.
 
 ## Rust Hygiene
 
@@ -101,3 +118,27 @@ understand what changed, what was verified, and what remains risky. Prefer the
 commit message for ordinary implementation notes, and use permanent project
 documents only for decisions or design context that should outlive a single
 change.
+
+## Project History Curation
+
+- Maintain `PROJECT_HISTORY.md` as a compact explanation of why the project took
+  its current shape. The default is no update: edit it only when work changes a
+  durable project-level belief or decision, reveals a rejected approach worth
+  remembering, or establishes an experiment conclusion that changes future work.
+- Do not copy routine implementation details, file lists, test commands, commit
+  summaries, transient status, or raw debugging notes into the history. Git and
+  task-specific status documents already preserve those.
+- Make at most one bounded history edit per coherent task, normally no more than
+  150 words. Prefer revising an existing section over adding a heading. Most
+  tasks should make no edit.
+- Curate instead of endlessly appending: merge repetition, remove superseded
+  wording, and keep the main file below roughly 3,000 words. Preserve an old
+  belief only when the reason it changed is part of the useful story. Near the
+  size limit, merge or remove at least as much as you add.
+- Distinguish fact from reconstruction. Link durable evidence when useful, and
+  label uncertain retrospective claims rather than presenting them as settled.
+- Do not use Current Thesis or Open Strategic Questions as status/backlog
+  sections, and do not record speculative future plans unless they are adopted.
+- Use this test: if forgetting the information would not make a future agent
+  repeat a failed direction or misunderstand an important architectural choice,
+  omit it.

@@ -19,13 +19,36 @@ pub(crate) fn validate_ready_for_command(
         return Ok(());
     }
     reject_stale_action(files, source_state_id)?;
+    let commands = available_commands(&files.summary);
+    if verb == "start" && menu_start_is_available(files, &commands, stale_after)? {
+        return Ok(());
+    }
     reject_unready_bridge(files, stale_after)?;
-    if !available_commands(&files.summary).contains(verb.as_str()) {
+    if !commands.contains(verb.as_str()) {
         return Err(LiveError::Bridge(format!(
             "command {verb:?} is not available"
         )));
     }
     Ok(())
+}
+
+fn menu_start_is_available(
+    files: &BridgeFiles,
+    commands: &std::collections::HashSet<String>,
+    stale_after: Duration,
+) -> LiveResult<bool> {
+    if files.summary_age.is_none_or(|age| age > stale_after) {
+        return Err(LiveError::Bridge("bridge state is stale".to_owned()));
+    }
+    if files.status.get("pending_command").and_then(Value::as_bool) == Some(true) {
+        return Err(LiveError::Bridge(
+            "bridge command already pending".to_owned(),
+        ));
+    }
+    Ok(
+        files.summary.get("in_game").and_then(Value::as_bool) == Some(false)
+            && commands.contains("start"),
+    )
 }
 
 pub(crate) fn validate_ready_for_operator_control(
@@ -65,4 +88,68 @@ fn reject_unready_bridge(files: &BridgeFiles, stale_after: Duration) -> LiveResu
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn files(summary: Value) -> BridgeFiles {
+        BridgeFiles {
+            status: json!({}),
+            summary,
+            current_state: json!({}),
+            status_age: Some(Duration::ZERO),
+            summary_age: Some(Duration::ZERO),
+        }
+    }
+
+    #[test]
+    fn allows_explicitly_advertised_start_from_unready_menu_state() {
+        let files = files(json!({
+            "in_game": false,
+            "ready_for_command": false,
+            "available_commands": ["start", "state"]
+        }));
+
+        validate_ready_for_command(
+            &files,
+            "START IRONCLAD 0 SEED",
+            None,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn does_not_bypass_readiness_for_non_start_commands() {
+        let files = files(json!({
+            "in_game": false,
+            "ready_for_command": false,
+            "available_commands": ["choose", "state"]
+        }));
+
+        let error = validate_ready_for_command(&files, "CHOOSE 0", None, Duration::from_secs(1))
+            .unwrap_err();
+        assert!(error.to_string().contains("bridge is not ready"));
+    }
+
+    #[test]
+    fn does_not_start_when_menu_does_not_advertise_start() {
+        let files = files(json!({
+            "in_game": false,
+            "ready_for_command": false,
+            "available_commands": ["state"]
+        }));
+
+        let error = validate_ready_for_command(
+            &files,
+            "START IRONCLAD 0 SEED",
+            None,
+            Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("bridge is not ready"));
+    }
 }

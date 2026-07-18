@@ -6,13 +6,12 @@ const net = require("net");
 const path = require("path");
 const readline = require("readline");
 
-const repoRoot = path.resolve(__dirname, "..", "..");
-const outDir = process.env.TRACE_OUT_DIR
-  ? path.resolve(process.env.TRACE_OUT_DIR)
-  : path.join(repoRoot, "simulator", "verification", "corpus", "communication_mod");
 const sessionDir = process.env.TRACE_SESSION_DIR
   ? path.resolve(process.env.TRACE_SESSION_DIR)
   : path.join(__dirname, "session");
+const outDir = process.env.TRACE_OUT_DIR
+  ? path.resolve(process.env.TRACE_OUT_DIR)
+  : sessionDir;
 const commandPath = path.join(sessionDir, "next_command.txt");
 const commandMetaPath = path.join(sessionDir, "next_command.json");
 const statePath = path.join(sessionDir, "current_state.json");
@@ -34,12 +33,13 @@ if (fs.existsSync(commandMetaPath)) {
   fs.unlinkSync(commandMetaPath);
 }
 
-const tracePath = path.join(
-  outDir,
-  `trace-${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`,
-);
+const tracePath = process.env.TRACE_OUT_DIR
+  ? path.join(outDir, `trace-${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`)
+  : path.join(sessionDir, "raw_bridge_current.jsonl");
 const clientPid = process.pid;
-const logStream = fs.createWriteStream(tracePath, { flags: "a" });
+const logStream = fs.createWriteStream(tracePath, {
+  flags: process.env.TRACE_OUT_DIR ? "a" : "w",
+});
 
 let step = 0;
 let processing = false;
@@ -400,6 +400,8 @@ function validateProtocolCommand(payload) {
   if (command.length > 200) return "command is too long";
   const verb = command.split(/\s+/)[0].toLowerCase();
   const startupStart = verb === "start" && !latestSummary && latestStatus?.status === "ready";
+  const available = new Set((latestSummary?.available_commands ?? []).map((item) => String(item).toLowerCase()));
+  const menuStart = verb === "start" && latestSummary?.in_game === false && available.has("start");
   if (!latestSummary && !startupStart) return "no observed state is available";
   if (queuedCommands.length > 0) return "a command is already queued";
   if (commandInFlight && stateSeq <= commandInFlight.accepted_state_seq) {
@@ -420,8 +422,7 @@ function validateProtocolCommand(payload) {
   if (controlOwner && payload.owner_token !== controlOwner.owner_token) {
     return "controller owner_token is required";
   }
-  const available = new Set((latestSummary?.available_commands ?? []).map((item) => String(item).toLowerCase()));
-  if (verb !== "state" && !startupStart && latestSummary.ready_for_command !== true) {
+  if (verb !== "state" && !startupStart && !menuStart && latestSummary.ready_for_command !== true) {
     return "bridge is not ready for a command";
   }
   if (verb !== "state" && !startupStart && !available.has(verb)) {
@@ -439,7 +440,10 @@ function validateAbandonRun(payload) {
   if (controlOwner && payload.owner_token !== controlOwner.owner_token) {
     return "controller owner_token is required";
   }
-  if (latestSummary.ready_for_command !== true) {
+  const available = new Set(
+    (latestSummary.available_commands ?? []).map((item) => String(item).toLowerCase()),
+  );
+  if (latestSummary.ready_for_command !== true && !available.has("abandon")) {
     return "bridge is not ready for a command";
   }
   return null;

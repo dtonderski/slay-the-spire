@@ -179,7 +179,7 @@ fn actions_from_summary(summary: &Value, source_state_id: Option<&str>) -> Vec<L
         source_state_id,
     );
     add_operator_actions(&mut actions, summary, disabled.clone(), source_state_id);
-    add_simple_actions(&mut actions, &available, disabled, source_state_id);
+    add_simple_actions(&mut actions, summary, &available, disabled, source_state_id);
     actions
 }
 
@@ -390,14 +390,46 @@ fn living_monsters(monsters: &[Value]) -> impl Iterator<Item = &Value> {
 
 fn add_simple_actions(
     actions: &mut Vec<LegalAction>,
+    summary: &Value,
     available: &HashSet<String>,
     disabled: Option<String>,
     source_state_id: Option<&str>,
 ) {
+    if available.contains("key")
+        && summary
+            .get("screen_name")
+            .and_then(Value::as_str)
+            .is_some_and(|screen| screen.eq_ignore_ascii_case("MASTER_DECK_VIEW"))
+    {
+        actions.push(bridge_action(
+            "close-master-deck-view",
+            LegalActionKind::Confirm,
+            "Close deck view",
+            "KEY CANCEL 250",
+            disabled.clone(),
+            source_state_id,
+        ));
+    }
+    if available.contains("click")
+        && summary
+            .get("screen_name")
+            .and_then(Value::as_str)
+            .is_some_and(|screen| screen.eq_ignore_ascii_case("FTUE"))
+    {
+        actions.push(bridge_action(
+            "dismiss-ftue",
+            LegalActionKind::Confirm,
+            "Dismiss tutorial",
+            "CLICK LEFT 1080 700 250",
+            disabled.clone(),
+            source_state_id,
+        ));
+    }
     for (verb, label, kind) in [
         ("end", "End turn", LegalActionKind::EndTurn),
         ("proceed", "Proceed", LegalActionKind::Confirm),
         ("confirm", "Confirm", LegalActionKind::Confirm),
+        ("cancel", "Cancel", LegalActionKind::Confirm),
         ("leave", "Leave shop", LegalActionKind::Confirm),
         ("skip", "Skip", LegalActionKind::SkipReward),
     ] {
@@ -475,6 +507,10 @@ fn phase_from_summary(summary: &Value) -> LivePhase {
         "MENU" => LivePhase::Menu,
         "MAP" => LivePhase::Map,
         "COMBAT" => LivePhase::Combat,
+        "GRID" if room_phase == "COMBAT" || summary.get("combat").is_some() => LivePhase::Combat,
+        "CARD_REWARD" if room_phase == "COMBAT" || summary.get("combat").is_some() => {
+            LivePhase::Combat
+        }
         "COMBAT_REWARD" | "CARD_REWARD" | "GRID" | "BOSS_REWARD" => LivePhase::Reward,
         "SHOP" | "SHOP_SCREEN" => LivePhase::Shop,
         "REST" => LivePhase::Rest,
@@ -497,8 +533,8 @@ fn disabled_reason(summary: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::bridge_files_from_protocol_state;
-    use serde_json::json;
+    use super::{actions_from_summary, bridge_files_from_protocol_state};
+    use serde_json::{json, Value};
 
     #[test]
     fn protocol_state_status_uses_fresh_top_level_pending_fields() {
@@ -540,5 +576,82 @@ mod tests {
             Some(false)
         );
         assert!(files.status.get("command_in_flight").unwrap().is_null());
+    }
+
+    #[test]
+    fn ftue_screen_exposes_a_tutorial_dismiss_click() {
+        let actions = actions_from_summary(
+            &json!({
+                "available_commands": ["click", "state"],
+                "ready_for_command": true,
+                "in_game": true,
+                "screen_type": "NONE",
+                "screen_name": "FTUE"
+            }),
+            Some("ftue-state"),
+        );
+
+        let dismiss = actions
+            .iter()
+            .find(|action| action.id.0 == "dismiss-ftue")
+            .expect("FTUE dismiss action");
+        assert_eq!(dismiss.label, "Dismiss tutorial");
+        assert_eq!(
+            dismiss
+                .command
+                .get("command")
+                .and_then(|value| value.as_str()),
+            Some("CLICK LEFT 1080 700 250")
+        );
+    }
+
+    #[test]
+    fn master_deck_view_exposes_a_cancel_key_action() {
+        let actions = actions_from_summary(
+            &json!({
+                "available_commands": ["key", "state"],
+                "ready_for_command": true,
+                "in_game": true,
+                "screen_type": "NONE",
+                "screen_name": "MASTER_DECK_VIEW"
+            }),
+            Some("deck-state"),
+        );
+
+        let close = actions
+            .iter()
+            .find(|action| action.id.0 == "close-master-deck-view")
+            .expect("master deck close action");
+        assert_eq!(close.label, "Close deck view");
+        assert_eq!(
+            close.command.get("command").and_then(Value::as_str),
+            Some("KEY CANCEL 250")
+        );
+    }
+
+    #[test]
+    fn cancel_command_is_exposed_as_a_live_action() {
+        let actions = actions_from_summary(
+            &json!({
+                "available_commands": ["cancel", "state"],
+                "ready_for_command": true,
+                "in_game": true,
+                "screen_type": "GRID"
+            }),
+            Some("grid-state"),
+        );
+
+        let cancel = actions
+            .iter()
+            .find(|action| action.id.0 == "cancel")
+            .expect("cancel action");
+        assert_eq!(cancel.label, "Cancel");
+        assert_eq!(
+            cancel
+                .command
+                .get("command")
+                .and_then(|value| value.as_str()),
+            Some("CANCEL")
+        );
     }
 }

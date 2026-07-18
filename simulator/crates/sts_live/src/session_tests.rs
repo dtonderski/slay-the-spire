@@ -2,11 +2,16 @@ use crate::{
     bridge::{BridgeManager, FakeBridgeManager},
     fidelity::{FidelityChecker, TraceFidelityChecker},
     model::{
-        ActionId, BridgeId, BridgeStatus, Character, FidelityKind, FidelityStatus, LegalAction,
-        LegalActionKind, LiveError, LivePhase, LiveResult, LiveState, RunConfig, RunSeed,
-        SessionId, SessionLifecycle, TraceRecord,
+        ActionId, AutomationConfig, AutomationPolicy, BridgeId, BridgeStatus, Character,
+        FidelityKind, FidelityStatus, LegalAction, LegalActionKind, LiveError, LivePhase,
+        LiveResult, LiveState, RunConfig, RunSeed, SessionId, SessionLifecycle, TraceRecord,
     },
-    session::SessionStore,
+    session::{
+        combat_state_is_actionable, is_unsettled_action_transition, persist_verified_trace,
+        refreshed_equivalent_action, slaythedata_reward_binding_is_pending,
+        slaythedata_state_is_temporarily_actionless, slaythedata_step_advances,
+        trace_has_completed_shop_purge, SessionStore,
+    },
     slaythedata::SlayTheDataIndex,
 };
 use rusqlite::Connection;
@@ -44,6 +49,94 @@ fn start_run_creates_recording_session_and_trace() {
     assert!(trace.contains("\"type\":\"response\""));
     assert!(trace.contains("\"command\":\"start_run\""));
     assert!(trace.contains("START IRONCLAD 0 CODEX04"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn stale_action_can_be_rebound_only_to_the_same_refreshed_live_action() {
+    let stale = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseNeow,
+        label: "talk".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0", "source_state_id": "old"}),
+        disabled_reason: None,
+    };
+    let mut refreshed = stale.clone();
+    refreshed.command = json!({"command": "CHOOSE 0", "source_state_id": "new"});
+    let state = LiveState {
+        sequence: 2,
+        phase: LivePhase::Neow,
+        legal_actions: vec![refreshed.clone()],
+        raw: json!({}),
+    };
+
+    assert_eq!(
+        refreshed_equivalent_action(&state, &stale),
+        Some(&refreshed)
+    );
+
+    let mut changed = state;
+    changed.legal_actions[0].command = json!({"command": "CHOOSE 1", "source_state_id": "new"});
+    assert!(refreshed_equivalent_action(&changed, &stale).is_none());
+}
+
+#[test]
+fn active_trace_can_be_snapshotted_to_permanent_corpus_without_overwrite() {
+    let root = temp_dir("permanent-corpus-source");
+    let permanent_root = temp_dir("permanent-corpus-destination");
+    let mut store = fake_store(&root);
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+
+    let destination = store
+        .copy_trace_to_permanent_corpus(&snapshot.session_id, &permanent_root)
+        .unwrap();
+
+    assert_eq!(destination.file_name().unwrap(), "trace-session-1.jsonl");
+    assert_eq!(
+        fs::read_to_string(&destination).unwrap(),
+        fs::read_to_string(&snapshot.trace_path).unwrap()
+    );
+    assert!(std::path::Path::new(&snapshot.trace_path).exists());
+    assert_eq!(
+        store
+            .copy_trace_to_permanent_corpus(&snapshot.session_id, &permanent_root)
+            .unwrap(),
+        destination
+    );
+
+    fs::remove_dir_all(root).ok();
+    fs::remove_dir_all(permanent_root).ok();
+}
+
+#[test]
+fn repeated_clean_trace_promotion_refreshes_the_stable_corpus_file() {
+    let root = temp_dir("refresh-clean-promotion");
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("session-1.jsonl");
+    let destination = root.join("trace-session-1.jsonl");
+    fs::write(&source, "short trace\n").unwrap();
+    fs::write(&destination, "stale corpus trace\n").unwrap();
+
+    persist_verified_trace(&source, &destination, None).unwrap();
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "short trace\n");
+
+    fs::write(&source, "longer clean trace\n").unwrap();
+    persist_verified_trace(&source, &destination, None).unwrap();
+    assert_eq!(
+        fs::read_to_string(&destination).unwrap(),
+        "longer clean trace\n"
+    );
+
     fs::remove_dir_all(root).ok();
 }
 
@@ -132,14 +225,10 @@ fn fidelity_loss_after_action_stays_visible_without_blocking_manual_collection()
         .send_action(&snapshot.session_id, &ActionId("talk".to_owned()))
         .unwrap();
 
-    assert_eq!(updated.lifecycle, SessionLifecycle::Recording);
-    assert_ne!(updated.fidelity.kind, FidelityKind::Lost);
-
-    let lost = store.refresh_fidelity(&snapshot.session_id).unwrap();
-    assert_eq!(lost.lifecycle, SessionLifecycle::FidelityLost);
-    assert_eq!(lost.fidelity.kind, FidelityKind::Lost);
-    assert!(lost.blocked.is_none());
-    let trace = fs::read_to_string(&lost.trace_path).unwrap();
+    assert_eq!(updated.lifecycle, SessionLifecycle::FidelityLost);
+    assert_eq!(updated.fidelity.kind, FidelityKind::Lost);
+    assert!(updated.blocked.is_none());
+    let trace = fs::read_to_string(&updated.trace_path).unwrap();
     assert!(!trace.contains("\"reason_code\":\"fidelity_lost\""));
 
     let continued = store
@@ -208,6 +297,10 @@ fn refresh_fidelity_reuses_unsupported_boundary_cache_after_trace_append() {
     let boundary = store.refresh_fidelity(&snapshot.session_id).unwrap();
     assert_eq!(boundary.fidelity.kind, FidelityKind::Unknown);
     assert_eq!(calls.get(), calls_after_start + 1);
+    assert!(boundary
+        .latest_state
+        .as_ref()
+        .is_some_and(|state| state.raw.get("sim_run_state").is_some()));
 
     append_trace_record(
         &snapshot.trace_path,
@@ -220,6 +313,10 @@ fn refresh_fidelity_reuses_unsupported_boundary_cache_after_trace_append() {
     let refreshed = store.refresh_fidelity(&snapshot.session_id).unwrap();
     assert_eq!(refreshed.fidelity.kind, FidelityKind::Unknown);
     assert_eq!(calls.get(), calls_after_start + 1);
+    assert!(refreshed
+        .latest_state
+        .as_ref()
+        .is_some_and(|state| state.raw.get("sim_run_state").is_none()));
 
     append_trace_record(
         &snapshot.trace_path,
@@ -325,6 +422,324 @@ fn send_action_waits_for_state_newer_than_action_source() {
 }
 
 #[test]
+fn send_action_records_late_state_after_bridge_observation_timeout() {
+    let root = temp_dir("send-action-late-observation");
+    let mut store = SessionStore::new(
+        LateObservedActionBridge::default(),
+        TraceFidelityChecker,
+        &root,
+    );
+    let snapshot = store
+        .start_run(
+            BridgeId("bridge".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+
+    let next = store
+        .send_action(&snapshot.session_id, &ActionId("choose-0".to_owned()))
+        .unwrap();
+
+    assert_eq!(next.latest_state.as_ref().unwrap().sequence, 2);
+    assert_ne!(next.lifecycle, SessionLifecycle::Blocked);
+    let trace = fs::read_to_string(next.trace_path).unwrap();
+    assert!(trace.contains("\"type\":\"action\""));
+    assert!(trace.contains("\"command\":\"CHOOSE 0\""));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn send_neow_talk_waits_past_fresh_but_semantically_stale_state() {
+    let root = temp_dir("send-neow-talk-settled-state");
+    let mut store = SessionStore::new(
+        TransientNeowTalkBridge::default(),
+        TraceFidelityChecker,
+        &root,
+    );
+    let snapshot = store
+        .start_run(
+            BridgeId("bridge".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+
+    let next = store
+        .send_action(&snapshot.session_id, &ActionId("choose-0".to_owned()))
+        .unwrap();
+
+    let state = next.latest_state.as_ref().unwrap();
+    assert_eq!(state.sequence, 3);
+    assert_eq!(state.legal_actions.len(), 4);
+    assert_eq!(state.legal_actions[0].label, "choose a card to obtain");
+    let trace = fs::read_to_string(next.trace_path).unwrap();
+    assert!(!trace.contains("state-2"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn send_neow_bonus_waits_until_selected_option_disappears() {
+    let root = temp_dir("send-neow-bonus-settled-state");
+    let mut store = SessionStore::new(
+        TransientNeowBonusBridge::default(),
+        TraceFidelityChecker,
+        &root,
+    );
+    let snapshot = store
+        .start_run(
+            BridgeId("bridge".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+
+    let next = store
+        .send_action(&snapshot.session_id, &ActionId("choose-0".to_owned()))
+        .unwrap();
+
+    let state = next.latest_state.as_ref().unwrap();
+    assert_eq!(state.sequence, 3);
+    assert_eq!(state.phase, LivePhase::Reward);
+    assert_eq!(state.legal_actions[0].label, "inflame");
+    let trace = fs::read_to_string(next.trace_path).unwrap();
+    assert!(!trace.contains("state-2"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn selected_card_reward_remaining_visible_is_an_unsettled_transition() {
+    let action = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseReward,
+        label: "inflame".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let state = LiveState {
+        sequence: 2,
+        phase: LivePhase::Reward,
+        legal_actions: vec![action.clone()],
+        raw: json!({
+            "summary": {
+                "state_id": "state-2",
+                "screen_type": "CARD_REWARD",
+            }
+        }),
+    };
+
+    assert!(is_unsettled_action_transition(&action, &state));
+}
+
+#[test]
+fn selected_map_node_remaining_visible_is_an_unsettled_transition() {
+    let action = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseMapNode,
+        label: "x=1".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let state = LiveState {
+        sequence: 2,
+        phase: LivePhase::Map,
+        legal_actions: vec![action.clone()],
+        raw: json!({"summary": {"state_id": "state-2", "screen_type": "MAP"}}),
+    };
+
+    assert!(is_unsettled_action_transition(&action, &state));
+}
+
+#[test]
+fn smoke_bomb_combat_state_is_unsettled_until_escape_timer_finishes() {
+    let action = LegalAction {
+        id: ActionId("potion-0-0".to_owned()),
+        kind: LegalActionKind::UsePotion,
+        label: "Use Smoke Bomb -> Giant Head".to_owned(),
+        enabled: true,
+        command: json!({"command": "POTION USE 0 0", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let still_in_combat = LiveState {
+        sequence: 2,
+        phase: LivePhase::Combat,
+        legal_actions: Vec::new(),
+        raw: json!({"summary": {"state_id": "state-2", "ready_for_command": true}}),
+    };
+    let escaped_to_reward = LiveState {
+        sequence: 3,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({"summary": {"state_id": "state-3", "ready_for_command": true}}),
+    };
+
+    assert!(is_unsettled_action_transition(&action, &still_in_combat));
+    assert!(!is_unsettled_action_transition(&action, &escaped_to_reward));
+}
+
+#[test]
+fn nest_ritual_dagger_effect_is_unsettled_until_card_enters_deck() {
+    let action = LegalAction {
+        id: ActionId("choose-1".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "stay in line".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 1", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let state = |state_id: &str, deck: serde_json::Value| LiveState {
+        sequence: 2,
+        phase: LivePhase::Event,
+        legal_actions: Vec::new(),
+        raw: json!({
+            "current_state": {
+                "state_id": state_id,
+                "message": {
+                    "game_state": {
+                        "deck": deck,
+                        "screen_state": {"event_id": "Nest"}
+                    }
+                }
+            },
+            "summary": {"state_id": state_id, "ready_for_command": true}
+        }),
+    };
+    let pending = state("state-2", json!([{"id": "Warcry"}]));
+    let settled = state("state-3", json!([{"id": "Warcry"}, {"id": "RitualDagger"}]));
+
+    assert!(is_unsettled_action_transition(&action, &pending));
+    assert!(!is_unsettled_action_transition(&action, &settled));
+}
+
+#[test]
+fn hidden_neow_to_map_state_is_temporary_not_plan_completion() {
+    let state = LiveState {
+        sequence: 2,
+        phase: LivePhase::Map,
+        legal_actions: Vec::new(),
+        raw: json!({
+            "summary": {
+                "room_type": "NeowRoom",
+                "screen_type": "MAP",
+            }
+        }),
+    };
+
+    assert!(slaythedata_state_is_temporarily_actionless(&state));
+}
+
+#[test]
+fn neow_room_map_with_live_nodes_is_settled() {
+    let state = LiveState {
+        sequence: 3,
+        phase: LivePhase::Map,
+        legal_actions: vec![LegalAction {
+            id: ActionId("choose-0".to_owned()),
+            kind: LegalActionKind::ChooseMapNode,
+            label: "x=0".to_owned(),
+            enabled: true,
+            command: json!({"command": "CHOOSE 0"}),
+            disabled_reason: None,
+        }],
+        raw: json!({
+            "summary": {
+                "room_type": "NeowRoom",
+                "screen_type": "MAP",
+            }
+        }),
+    };
+
+    assert!(!slaythedata_state_is_temporarily_actionless(&state));
+}
+
+#[test]
+fn combat_state_is_not_actionable_while_all_gameplay_actions_are_disabled() {
+    let mut action = LegalAction {
+        id: ActionId("play-0".to_owned()),
+        kind: LegalActionKind::PlayCard,
+        label: "Play Strike".to_owned(),
+        enabled: false,
+        command: json!({"command": "PLAY 0 0"}),
+        disabled_reason: Some("game is still initializing combat".to_owned()),
+    };
+    let mut state = LiveState {
+        sequence: 1,
+        phase: LivePhase::Combat,
+        legal_actions: vec![action.clone()],
+        raw: json!({}),
+    };
+
+    assert!(!combat_state_is_actionable(&state));
+    action.enabled = true;
+    state.legal_actions = vec![action];
+    assert!(combat_state_is_actionable(&state));
+}
+
+#[test]
+fn combat_state_is_actionable_when_a_combat_prompt_has_an_enabled_confirm() {
+    let state = LiveState {
+        sequence: 1,
+        phase: LivePhase::Combat,
+        legal_actions: vec![LegalAction {
+            id: ActionId("choose-1".to_owned()),
+            kind: LegalActionKind::Confirm,
+            label: "Run action".to_owned(),
+            enabled: true,
+            command: json!({"command": "CHOOSE 1"}),
+            disabled_reason: None,
+        }],
+        raw: json!({"summary": {"screen_type": "GRID"}}),
+    };
+
+    assert!(combat_state_is_actionable(&state));
+}
+
+#[test]
+fn send_map_action_waits_past_hidden_neow_transition_state() {
+    let root = temp_dir("send-map-action-settled-state");
+    let mut store = SessionStore::new(TransientMapBridge::default(), TraceFidelityChecker, &root);
+    let snapshot = store
+        .start_run(
+            BridgeId("bridge".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::Numeric(123),
+            },
+        )
+        .unwrap();
+
+    let next = store
+        .send_action(&snapshot.session_id, &ActionId("choose-0".to_owned()))
+        .unwrap();
+
+    assert_eq!(next.latest_state.as_ref().unwrap().phase, LivePhase::Combat);
+    assert_eq!(
+        next.latest_state
+            .as_ref()
+            .unwrap()
+            .raw
+            .pointer("/summary/state_id")
+            .and_then(serde_json::Value::as_str),
+        Some("state-3")
+    );
+    let trace = fs::read_to_string(next.trace_path).unwrap();
+    assert!(!trace.contains("state-2"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn recovers_existing_sessions_from_trace_root() {
     let root = temp_dir("recover");
     {
@@ -372,6 +787,42 @@ fn recovers_existing_sessions_from_trace_root() {
         )
         .unwrap();
     assert_eq!(second.session_id.0, "session-2");
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn recovery_does_not_run_full_fidelity_check() {
+    let root = temp_dir("recover-no-fidelity");
+    {
+        let mut store = fake_store(&root);
+        store
+            .start_run(
+                BridgeId("fake-bridge-1".to_owned()),
+                RunConfig {
+                    character: Character::Ironclad,
+                    ascension: 0,
+                    seed: RunSeed::External("CODEX04".to_owned()),
+                },
+            )
+            .unwrap();
+    }
+
+    let calls = Rc::new(Cell::new(0));
+    let mut recovered_store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        CountingBoundaryFidelity::new(calls.clone()),
+        &root,
+    );
+    let recovered = recovered_store.recover_existing_sessions().unwrap();
+
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(calls.get(), 0);
+    assert_eq!(recovered[0].fidelity.kind, FidelityKind::Unknown);
+    assert!(recovered[0]
+        .fidelity
+        .message
+        .as_deref()
+        .is_some_and(|message| message.contains("stale")));
     fs::remove_dir_all(root).ok();
 }
 
@@ -604,7 +1055,7 @@ fn abandon_then_start_creates_two_start_rooted_traces() {
 
     let first_trace = fs::read_to_string(abandoned.trace_path).unwrap();
     assert_eq!(first_trace.matches("START IRONCLAD").count(), 1);
-    assert!(first_trace.contains("START IRONCLAD 0 123"));
+    assert!(first_trace.contains("START IRONCLAD 0 3I"));
     assert!(first_trace.contains("\"command\":\"abandon_run\""));
 
     let second_trace = fs::read_to_string(second.trace_path).unwrap();
@@ -661,6 +1112,392 @@ fn slaythedata_attach_advises_and_sends_next_non_combat_action() {
 }
 
 #[test]
+fn slaythedata_auto_play_hands_combat_to_the_combat_agent() {
+    let root = temp_dir("slaythedata-auto-combat-agent");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        AlwaysOkFidelity,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+    store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+    let combat = store.slaythedata_send_next(&snapshot.session_id).unwrap();
+    assert_eq!(
+        combat.latest_state.as_ref().unwrap().phase,
+        LivePhase::Combat
+    );
+    store
+        .configure_automation(
+            &snapshot.session_id,
+            AutomationConfig {
+                policy: AutomationPolicy::FakePlayFirstCard,
+                ..AutomationConfig::default()
+            },
+        )
+        .unwrap();
+
+    let handed_off = store.slaythedata_auto_play(&snapshot.session_id).unwrap();
+
+    assert_eq!(
+        handed_off.latest_state.as_ref().unwrap().phase,
+        LivePhase::Combat
+    );
+    assert_eq!(
+        handed_off.automation.executed_actions.len(),
+        1,
+        "SlayTheData auto-play should invoke the combat agent"
+    );
+    assert_eq!(
+        handed_off.automation.state,
+        crate::model::AutomationState::Blocked
+    );
+    let trace = fs::read_to_string(handed_off.trace_path).unwrap();
+    assert!(trace.contains("auto_play_started"));
+    assert!(trace.contains("\"event\":\"sent_action\""));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn slaythedata_background_combat_reuses_the_existing_plan() {
+    let root = temp_dir("slaythedata-background-plan-reuse");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        AlwaysOkFidelity,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+    store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+    store.slaythedata_send_next(&snapshot.session_id).unwrap();
+    store
+        .configure_automation(
+            &snapshot.session_id,
+            AutomationConfig {
+                policy: AutomationPolicy::FakePlayFirstCard,
+                ..AutomationConfig::default()
+            },
+        )
+        .unwrap();
+    store
+        .slaythedata_start_auto_play(&snapshot.session_id)
+        .unwrap();
+
+    let _ = store
+        .slaythedata_auto_play_tick(&snapshot.session_id)
+        .unwrap();
+    let _ = store
+        .slaythedata_auto_play_tick(&snapshot.session_id)
+        .unwrap();
+
+    let trace = fs::read_to_string(
+        store
+            .session_snapshot(&snapshot.session_id)
+            .unwrap()
+            .trace_path,
+    )
+    .unwrap();
+    assert_eq!(
+        trace.matches("\"event\":\"plan_ready\"").count(),
+        1,
+        "background SlayTheData combat should consume one plan instead of replanning each action"
+    );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn slaythedata_background_stops_when_combat_automation_blocks() {
+    let root = temp_dir("slaythedata-background-blocked-combat");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        AlwaysOkFidelity,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+    store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+    store.slaythedata_send_next(&snapshot.session_id).unwrap();
+    store
+        .configure_automation(
+            &snapshot.session_id,
+            AutomationConfig {
+                policy: AutomationPolicy::FakePlayFirstCard,
+                ..AutomationConfig::default()
+            },
+        )
+        .unwrap();
+    store
+        .slaythedata_start_auto_play(&snapshot.session_id)
+        .unwrap();
+    store
+        .automation_fail_auto_play(&snapshot.session_id, "fixture planner failure")
+        .unwrap();
+
+    let (stopped, should_continue) = store
+        .slaythedata_auto_play_tick(&snapshot.session_id)
+        .unwrap();
+    assert!(!should_continue);
+    assert_eq!(
+        stopped.slaythedata.blocked.as_ref().unwrap().reason_code,
+        "slaythedata_combat_automation_blocked"
+    );
+    assert_eq!(
+        stopped.automation.state,
+        crate::model::AutomationState::Failed
+    );
+    assert_eq!(
+        stopped.automation.blocked.as_ref().unwrap().reason_code,
+        "automation_auto_play_failed"
+    );
+    let trace = fs::read_to_string(stopped.trace_path).unwrap();
+    assert!(!trace.lines().any(|line| {
+        line.contains("\"type\":\"automation\"") && line.contains("\"event\":\"auto_play_started\"")
+    }));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn slaythedata_pause_stops_background_ticks_without_losing_progress() {
+    let root = temp_dir("slaythedata-pause");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        AlwaysOkFidelity,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+    store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+
+    let started = store
+        .slaythedata_start_auto_play(&snapshot.session_id)
+        .unwrap();
+    assert!(!started.slaythedata.auto_play_paused);
+    let paused = store.slaythedata_pause(&snapshot.session_id).unwrap();
+    assert!(paused.slaythedata.auto_play_paused);
+
+    let (after_tick, should_continue) = store
+        .slaythedata_auto_play_tick(&snapshot.session_id)
+        .unwrap();
+    assert!(!should_continue);
+    assert_eq!(after_tick.slaythedata.next_step_index, 0);
+    assert!(after_tick.slaythedata.auto_play_paused);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn slaythedata_game_over_reports_terminal_loss_instead_of_stale_guidance() {
+    let root = temp_dir("slaythedata-game-over");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        AlwaysOkFidelity,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+    store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+    store
+        .slaythedata_start_auto_play(&snapshot.session_id)
+        .unwrap();
+    store
+        .set_latest_state_for_test(
+            &snapshot.session_id,
+            LiveState {
+                sequence: 99,
+                phase: LivePhase::GameOver,
+                legal_actions: Vec::new(),
+                raw: json!({"summary": {"floor": 8}}),
+            },
+        )
+        .unwrap();
+
+    let (after_tick, should_continue) = store
+        .slaythedata_auto_play_tick(&snapshot.session_id)
+        .unwrap();
+
+    assert!(!should_continue);
+    let blocked = after_tick.slaythedata.blocked.unwrap();
+    assert_eq!(blocked.reason_code, "game_over_before_target");
+    assert!(blocked.message.contains("game over"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn slaythedata_reattach_restores_sent_progress_from_trace() {
+    let root = temp_dir("slaythedata-reattach-progress");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let mut store = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        AlwaysOkFidelity,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    let snapshot = store
+        .start_run(
+            BridgeId("fake-bridge-1".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("CODEX04".to_owned()),
+            },
+        )
+        .unwrap();
+    store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+    let sent = store.slaythedata_send_next(&snapshot.session_id).unwrap();
+    assert_eq!(sent.slaythedata.next_step_index, 1);
+    append_trace_record(
+        &sent.trace_path,
+        &TraceRecord::SlayTheData {
+            sequence: 99,
+            event: "sent_action".to_owned(),
+            details: json!({
+                "attached_run": {"id": 7},
+                "next_step_index": 3
+            }),
+        },
+    );
+
+    let reattached = store
+        .attach_slaythedata_run(&snapshot.session_id, 7)
+        .unwrap();
+
+    assert_eq!(reattached.slaythedata.next_step_index, 3);
+    assert_eq!(
+        reattached.slaythedata.last_message.as_deref(),
+        Some("SlayTheData progress restored from recorded guidance; simulator state unchanged")
+    );
+    assert_ne!(
+        reattached
+            .slaythedata
+            .advisor
+            .as_ref()
+            .map(|advisor| advisor.code.as_str()),
+        Some("legal_neow_talk")
+    );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn recovered_cli_session_reattaches_guidance_from_records_without_hydrating_simulator_state() {
+    let root = temp_dir("slaythedata-recovered-cli-attachment");
+    let db = root.join("slaythedata.sqlite3");
+    write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
+    let session_id = {
+        let mut store = SessionStore::new(
+            FakeBridgeManager::with_default_bridge(),
+            AlwaysOkFidelity,
+            &root,
+        )
+        .with_slaythedata_index(SlayTheDataIndex::new(&db));
+        let snapshot = store
+            .start_run(
+                BridgeId("fake-bridge-1".to_owned()),
+                RunConfig {
+                    character: Character::Ironclad,
+                    ascension: 0,
+                    seed: RunSeed::External("CODEX04".to_owned()),
+                },
+            )
+            .unwrap();
+        store
+            .attach_slaythedata_run(&snapshot.session_id, 7)
+            .unwrap();
+        snapshot.session_id
+    };
+
+    let mut recovered = SessionStore::new(
+        FakeBridgeManager::with_default_bridge(),
+        AlwaysOkFidelity,
+        &root,
+    )
+    .with_slaythedata_index(SlayTheDataIndex::new(&db));
+    recovered.recover_existing_sessions().unwrap();
+    assert_eq!(
+        recovered.attached_slaythedata_run_id(&session_id).unwrap(),
+        Some(7)
+    );
+
+    let restored = recovered
+        .ensure_slaythedata_attachment(&session_id)
+        .unwrap()
+        .expect("recorded attachment");
+    assert_eq!(restored.slaythedata.attached_run.unwrap().id, 7);
+    assert!(restored
+        .latest_state
+        .as_ref()
+        .and_then(|state| state.raw.get("sim_run_state"))
+        .is_none());
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn slaythedata_blocks_guided_send_when_fidelity_is_not_ok() {
     let root = temp_dir("slaythedata-fidelity-block");
     let db = root.join("slaythedata.sqlite3");
@@ -699,7 +1536,7 @@ fn slaythedata_blocks_guided_send_when_fidelity_is_not_ok() {
 }
 
 #[test]
-fn slaythedata_blocks_same_command_on_wrong_live_phase_and_stays_blocked() {
+fn slaythedata_rechecks_same_command_on_wrong_live_phase_without_sending() {
     let root = temp_dir("slaythedata-wrong-phase");
     let db = root.join("slaythedata.sqlite3");
     write_slaythedata_db(&db, slaythedata_raw_run_json("CODEX04"));
@@ -759,7 +1596,7 @@ fn slaythedata_blocks_same_command_on_wrong_live_phase_and_stays_blocked() {
         "slaythedata_action_mismatch"
     );
     let trace = fs::read_to_string(still_blocked.trace_path).unwrap();
-    assert_eq!(trace.matches("\"event\":\"blocked\"").count(), 1);
+    assert_eq!(trace.matches("\"event\":\"blocked\"").count(), 2);
     assert!(!trace.contains("\"event\":\"sent_action\""));
     fs::remove_dir_all(root).ok();
 }
@@ -804,6 +1641,437 @@ fn slaythedata_bridge_send_failure_records_slaythedata_block() {
     assert!(trace.contains("\"event\":\"blocked\""));
     assert!(trace.contains("slaythedata_send_failed"));
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn slaythedata_pending_room_event_choices_do_not_advance_step() {
+    let leave_event = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "leave".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0"}),
+        disabled_reason: None,
+    };
+    let outrun_event = LegalAction {
+        id: ActionId("choose-1".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "outrun".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 1"}),
+        disabled_reason: None,
+    };
+    let map_choice = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseMapNode,
+        label: "x=0".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0"}),
+        disabled_reason: None,
+    };
+
+    assert!(!slaythedata_step_advances(
+        "pending_room_resolution",
+        &leave_event,
+        None
+    ));
+    assert!(!slaythedata_step_advances(
+        "pending_room_resolution",
+        &outrun_event,
+        None
+    ));
+    assert!(slaythedata_step_advances(
+        "pending_room_resolution",
+        &map_choice,
+        None
+    ));
+}
+
+#[test]
+fn slaythedata_shop_entry_does_not_advance_purchase_or_purge_step() {
+    let shop_entry = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::Confirm,
+        label: "shop".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0"}),
+        disabled_reason: None,
+    };
+    let purchase = LegalAction {
+        id: ActionId("choose-1".to_owned()),
+        kind: LegalActionKind::ShopBuy,
+        label: "Whirlwind - 112 gold".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 1"}),
+        disabled_reason: None,
+    };
+
+    assert!(!slaythedata_step_advances(
+        "guided_shop_purchase",
+        &shop_entry,
+        None
+    ));
+    assert!(!slaythedata_step_advances(
+        "guided_shop_purge",
+        &shop_entry,
+        None
+    ));
+    assert!(slaythedata_step_advances(
+        "guided_shop_purchase",
+        &purchase,
+        None
+    ));
+}
+
+#[test]
+fn completed_shop_purge_requires_confirmed_purge_grid_and_return_to_same_shop() {
+    let purge_grid = LiveState {
+        sequence: 10,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({
+            "summary": {"floor": 5, "screen_type": "GRID"},
+            "current_state": {"message": {"game_state": {
+                "floor": 5,
+                "screen_state": {"for_purge": true}
+            }}}
+        }),
+    };
+    let confirm = LegalAction {
+        id: ActionId("confirm".to_owned()),
+        kind: LegalActionKind::Confirm,
+        label: "Confirm".to_owned(),
+        enabled: true,
+        command: json!({"command": "CONFIRM"}),
+        disabled_reason: None,
+    };
+    let returned_shop = LiveState {
+        sequence: 11,
+        phase: LivePhase::Shop,
+        legal_actions: Vec::new(),
+        raw: json!({"summary": {"floor": 5, "screen_type": "SHOP_SCREEN"}}),
+    };
+    let records = vec![
+        TraceRecord::State {
+            sequence: 10,
+            state: purge_grid.clone(),
+        },
+        TraceRecord::Action {
+            sequence: 10,
+            action: confirm.clone(),
+        },
+        TraceRecord::State {
+            sequence: 11,
+            state: returned_shop,
+        },
+    ];
+
+    assert!(trace_has_completed_shop_purge(&records, 5));
+    assert!(!trace_has_completed_shop_purge(&records, 6));
+    assert!(!trace_has_completed_shop_purge(
+        &[
+            TraceRecord::State {
+                sequence: 10,
+                state: purge_grid,
+            },
+            TraceRecord::Action {
+                sequence: 10,
+                action: confirm,
+            },
+        ],
+        5
+    ));
+}
+
+#[test]
+fn slaythedata_shop_room_proceed_does_not_advance_room_step() {
+    let proceed = LegalAction {
+        id: ActionId("proceed".to_owned()),
+        kind: LegalActionKind::Confirm,
+        label: "Proceed".to_owned(),
+        enabled: true,
+        command: json!({"command": "PROCEED"}),
+        disabled_reason: None,
+    };
+
+    assert!(!slaythedata_step_advances(
+        "pending_room_resolution",
+        &proceed,
+        None
+    ));
+}
+
+#[test]
+fn slaythedata_neow_followup_reward_does_not_advance_leave_step() {
+    let reward_choice = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseReward,
+        label: "shrug it off".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0"}),
+        disabled_reason: None,
+    };
+
+    assert!(!slaythedata_step_advances(
+        "pending_neow_followup",
+        &reward_choice,
+        None
+    ));
+}
+
+#[test]
+fn slaythedata_card_reward_opening_grid_does_not_advance_step() {
+    let card_reward = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseReward,
+        label: "card".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0"}),
+        disabled_reason: None,
+    };
+    let grid_state = LiveState {
+        sequence: 10,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({"summary": {"screen_type": "CARD_REWARD"}}),
+    };
+
+    assert!(!slaythedata_step_advances(
+        "pending_card_reward",
+        &card_reward,
+        Some(&grid_state)
+    ));
+}
+
+#[test]
+fn slaythedata_pending_card_reward_retries_after_reward_screen_opens() {
+    let reward_state = LiveState {
+        sequence: 10,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({"summary": {"screen_type": "COMBAT_REWARD"}}),
+    };
+
+    assert!(slaythedata_reward_binding_is_pending(
+        &reward_state,
+        Some("pending_card_reward"),
+        false
+    ));
+    assert!(!slaythedata_reward_binding_is_pending(
+        &reward_state,
+        Some("guided_card_reward"),
+        false
+    ));
+    assert!(!slaythedata_reward_binding_is_pending(
+        &reward_state,
+        Some("pending_card_reward"),
+        true
+    ));
+}
+
+#[test]
+fn slaythedata_prerequisite_grid_confirm_does_not_advance_card_reward_step() {
+    let confirm = LegalAction {
+        id: ActionId("confirm".to_owned()),
+        kind: LegalActionKind::Confirm,
+        label: "Confirm".to_owned(),
+        enabled: true,
+        command: json!({"command": "CONFIRM"}),
+        disabled_reason: None,
+    };
+
+    assert!(!slaythedata_step_advances(
+        "guided_card_reward",
+        &confirm,
+        None
+    ));
+}
+
+#[test]
+fn slaythedata_guided_card_reward_opening_does_not_advance_step() {
+    let card_reward = LegalAction {
+        id: ActionId("choose-card".to_owned()),
+        kind: LegalActionKind::ChooseReward,
+        label: "card".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0"}),
+        disabled_reason: None,
+    };
+    let card_screen = LiveState {
+        sequence: 10,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({"summary": {"screen_type": "CARD_REWARD"}}),
+    };
+
+    assert!(!slaythedata_step_advances(
+        "guided_card_reward",
+        &card_reward,
+        Some(&card_screen)
+    ));
+}
+
+#[test]
+fn slaythedata_event_choice_opening_grid_does_not_advance_step() {
+    let event_choice = LegalAction {
+        id: ActionId("choose-1".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "purify".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 1"}),
+        disabled_reason: None,
+    };
+    let grid_state = LiveState {
+        sequence: 10,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({"summary": {"screen_type": "GRID"}}),
+    };
+
+    assert!(!slaythedata_step_advances(
+        "guided_event_choice",
+        &event_choice,
+        Some(&grid_state)
+    ));
+}
+
+#[test]
+fn slaythedata_campfire_smith_opening_grid_does_not_advance_step() {
+    let smith = LegalAction {
+        id: ActionId("choose-1".to_owned()),
+        kind: LegalActionKind::RestSite,
+        label: "smith".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 1"}),
+        disabled_reason: None,
+    };
+    let grid_state = LiveState {
+        sequence: 10,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({"summary": {"screen_type": "GRID"}}),
+    };
+
+    assert!(!slaythedata_step_advances(
+        "guided_campfire",
+        &smith,
+        Some(&grid_state)
+    ));
+}
+
+#[test]
+fn slaythedata_event_choice_opening_continue_does_not_advance_step() {
+    let event_choice = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "pray".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0"}),
+        disabled_reason: None,
+    };
+    let continue_state = LiveState {
+        sequence: 10,
+        phase: LivePhase::Event,
+        legal_actions: vec![LegalAction {
+            id: ActionId("choose-0".to_owned()),
+            kind: LegalActionKind::EventChoice,
+            label: "continue".to_owned(),
+            enabled: true,
+            command: json!({"command": "CHOOSE 0"}),
+            disabled_reason: None,
+        }],
+        raw: json!({}),
+    };
+
+    assert!(!slaythedata_step_advances(
+        "guided_event_choice",
+        &event_choice,
+        Some(&continue_state)
+    ));
+}
+
+#[test]
+fn slaythedata_event_choice_opening_single_leave_does_not_advance_step() {
+    let event_choice = LegalAction {
+        id: ActionId("choose-2".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "leave".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 2"}),
+        disabled_reason: None,
+    };
+    let leave_state = LiveState {
+        sequence: 10,
+        phase: LivePhase::Event,
+        legal_actions: vec![LegalAction {
+            id: ActionId("choose-0".to_owned()),
+            kind: LegalActionKind::EventChoice,
+            label: "leave".to_owned(),
+            enabled: true,
+            command: json!({"command": "CHOOSE 0"}),
+            disabled_reason: None,
+        }],
+        raw: json!({}),
+    };
+
+    assert!(!slaythedata_step_advances(
+        "guided_event_choice",
+        &event_choice,
+        Some(&leave_state)
+    ));
+}
+
+#[test]
+fn slaythedata_big_fish_box_followup_leave_advances_step() {
+    let event_choice = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "leave".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0"}),
+        disabled_reason: None,
+    };
+    let leave_state = LiveState {
+        sequence: 10,
+        phase: LivePhase::Event,
+        legal_actions: vec![event_choice.clone()],
+        raw: json!({
+            "summary": {
+                "screen_type": "EVENT",
+                "screen_state": {"event_name": "Big Fish"}
+            }
+        }),
+    };
+
+    assert!(slaythedata_step_advances(
+        "guided_event_choice",
+        &event_choice,
+        Some(&leave_state)
+    ));
+}
+
+#[test]
+fn slaythedata_event_grid_card_selection_does_not_advance_step_until_confirm() {
+    let grid_choice = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::ChooseReward,
+        label: "strike".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0"}),
+        disabled_reason: None,
+    };
+    let grid_state = LiveState {
+        sequence: 11,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({"summary": {"screen_type": "GRID", "screen_state": {"confirm_up": true}}}),
+    };
+
+    assert!(!slaythedata_step_advances(
+        "guided_event_choice",
+        &grid_choice,
+        Some(&grid_state)
+    ));
 }
 
 fn fake_store(root: &std::path::Path) -> SessionStore<FakeBridgeManager, TraceFidelityChecker> {
@@ -853,17 +2121,28 @@ impl CountingBoundaryFidelity {
 }
 
 impl FidelityChecker for CountingBoundaryFidelity {
-    fn check_trace(&self, _path: &std::path::Path) -> LiveResult<FidelityStatus> {
+    fn check_trace(&self, path: &std::path::Path) -> LiveResult<FidelityStatus> {
+        self.check_trace_with_sim_state(path)
+            .map(|(status, _)| status)
+    }
+
+    fn check_trace_with_sim_state(
+        &self,
+        _path: &std::path::Path,
+    ) -> LiveResult<(FidelityStatus, Option<sts_core::RunState>)> {
         self.calls.set(self.calls.get() + 1);
-        Ok(FidelityStatus {
-            kind: FidelityKind::Unknown,
-            first_divergent_step: None,
-            compact_diff: vec!["unsupported verifier boundary".to_owned()],
-            message: Some(
-                "seed-start replay reached boundary unsupported_event_card_grid_rng_divergence: test"
-                    .to_owned(),
-            ),
-        })
+        Ok((
+            FidelityStatus {
+                kind: FidelityKind::Unknown,
+                first_divergent_step: None,
+                compact_diff: vec!["unsupported verifier boundary".to_owned()],
+                message: Some(
+                    "seed-start replay reached boundary unsupported_event_card_grid_rng_divergence: test"
+                        .to_owned(),
+                ),
+            },
+            Some(sts_core::RunState::map_fixture()),
+        ))
     }
 }
 
@@ -920,6 +2199,7 @@ fn write_slaythedata_db(path: &std::path::Path, raw_run_json: String) {
             is_trial INTEGER,
             unsupported_any INTEGER,
             seed_played TEXT,
+            build_version TEXT,
             victory INTEGER,
             path_length INTEGER,
             card_choice_count INTEGER,
@@ -938,7 +2218,7 @@ fn write_slaythedata_db(path: &std::path::Path, raw_run_json: String) {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO runs VALUES (7, 'IRONCLAD', 0, 1, 0, 0, 0, 0, 'CODEX04', 0, 1, 0, 0, 0, 0, 'TEN_PERCENT_HP_BONUS', 'NONE')",
+        "INSERT INTO runs VALUES (7, 'IRONCLAD', 0, 1, 0, 0, 0, 0, 'CODEX04', '2020-07-30', 0, 1, 0, 0, 0, 0, 'TEN_PERCENT_HP_BONUS', 'NONE')",
         [],
     )
     .unwrap();
@@ -1054,6 +2334,356 @@ impl BridgeManager for StaleActionBridge {
     }
 }
 
+#[derive(Default)]
+struct LateObservedActionBridge {
+    state: Option<LiveState>,
+}
+
+impl BridgeManager for LateObservedActionBridge {
+    fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>> {
+        Ok(Vec::new())
+    }
+
+    fn start_run(&mut self, _bridge_id: &BridgeId, _config: &RunConfig) -> LiveResult<LiveState> {
+        let state = StaleActionBridge::state_with_id(
+            "state-1",
+            1,
+            vec![StaleActionBridge::choice_action()],
+        );
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn abandon_run(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn request_state(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn send_action(
+        &mut self,
+        _bridge_id: &BridgeId,
+        _action: &LegalAction,
+    ) -> LiveResult<LiveState> {
+        self.state = Some(StaleActionBridge::state_with_id(
+            "state-2",
+            2,
+            vec![request_state_action()],
+        ));
+        Err(LiveError::Bridge(
+            "timed out waiting for observed state update".to_owned(),
+        ))
+    }
+
+    fn kill_bridge(&mut self, _bridge_id: &BridgeId) -> LiveResult<()> {
+        Ok(())
+    }
+
+    fn kill_all(&mut self) -> LiveResult<usize> {
+        Ok(0)
+    }
+}
+
+#[derive(Default)]
+struct TransientNeowTalkBridge {
+    state: Option<LiveState>,
+    requests: u8,
+}
+
+impl TransientNeowTalkBridge {
+    fn state(state_id: &str, sequence: u64, labels: &[&str]) -> LiveState {
+        let actions = labels
+            .iter()
+            .enumerate()
+            .map(|(index, label)| LegalAction {
+                id: ActionId(format!("choose-{index}")),
+                kind: LegalActionKind::ChooseNeow,
+                label: (*label).to_owned(),
+                enabled: true,
+                command: json!({
+                    "command": format!("CHOOSE {index}"),
+                    "source_state_id": state_id,
+                }),
+                disabled_reason: None,
+            })
+            .collect();
+        LiveState {
+            sequence,
+            phase: LivePhase::Neow,
+            legal_actions: actions,
+            raw: json!({
+                "summary": {
+                    "state_id": state_id,
+                    "state_seq": sequence,
+                    "screen_type": "EVENT",
+                    "room_type": "NeowRoom",
+                }
+            }),
+        }
+    }
+}
+
+impl BridgeManager for TransientNeowTalkBridge {
+    fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>> {
+        Ok(Vec::new())
+    }
+
+    fn start_run(&mut self, _bridge_id: &BridgeId, _config: &RunConfig) -> LiveResult<LiveState> {
+        let state = Self::state("state-1", 1, &["talk"]);
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn abandon_run(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn request_state(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        self.requests += 1;
+        let state = if self.requests == 1 {
+            Self::state("state-2", 2, &["talk"])
+        } else {
+            Self::state(
+                "state-3",
+                3,
+                &[
+                    "choose a card to obtain",
+                    "obtain 3 random potions",
+                    "lose 8 max hp choose a rare colorless card to obtain",
+                    "lose your starting relic obtain a random boss relic",
+                ],
+            )
+        };
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn send_action(
+        &mut self,
+        _bridge_id: &BridgeId,
+        _action: &LegalAction,
+    ) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn kill_bridge(&mut self, _bridge_id: &BridgeId) -> LiveResult<()> {
+        Ok(())
+    }
+
+    fn kill_all(&mut self) -> LiveResult<usize> {
+        Ok(0)
+    }
+}
+
+#[derive(Default)]
+struct TransientNeowBonusBridge {
+    state: Option<LiveState>,
+    requests: u8,
+}
+
+impl TransientNeowBonusBridge {
+    fn bonus_state(state_id: &str, sequence: u64) -> LiveState {
+        TransientNeowTalkBridge::state(
+            state_id,
+            sequence,
+            &[
+                "choose a card to obtain",
+                "obtain 3 random potions",
+                "lose 8 max hp choose a rare colorless card to obtain",
+                "lose your starting relic obtain a random boss relic",
+            ],
+        )
+    }
+
+    fn reward_state() -> LiveState {
+        LiveState {
+            sequence: 3,
+            phase: LivePhase::Reward,
+            legal_actions: ["inflame", "flex", "warcry"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, label)| LegalAction {
+                    id: ActionId(format!("choose-{index}")),
+                    kind: LegalActionKind::ChooseReward,
+                    label: label.to_owned(),
+                    enabled: true,
+                    command: json!({
+                        "command": format!("CHOOSE {index}"),
+                        "source_state_id": "state-3",
+                    }),
+                    disabled_reason: None,
+                })
+                .collect(),
+            raw: json!({
+                "summary": {
+                    "state_id": "state-3",
+                    "state_seq": 3,
+                    "screen_type": "CARD_REWARD",
+                    "room_type": "NeowRoom",
+                }
+            }),
+        }
+    }
+}
+
+impl BridgeManager for TransientNeowBonusBridge {
+    fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>> {
+        Ok(Vec::new())
+    }
+
+    fn start_run(&mut self, _bridge_id: &BridgeId, _config: &RunConfig) -> LiveResult<LiveState> {
+        let state = Self::bonus_state("state-1", 1);
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn abandon_run(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn request_state(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        self.requests += 1;
+        let state = if self.requests == 1 {
+            Self::bonus_state("state-2", 2)
+        } else {
+            Self::reward_state()
+        };
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn send_action(
+        &mut self,
+        _bridge_id: &BridgeId,
+        _action: &LegalAction,
+    ) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn kill_bridge(&mut self, _bridge_id: &BridgeId) -> LiveResult<()> {
+        Ok(())
+    }
+
+    fn kill_all(&mut self) -> LiveResult<usize> {
+        Ok(0)
+    }
+}
+
+#[derive(Default)]
+struct TransientMapBridge {
+    state: Option<LiveState>,
+    requests: u8,
+}
+
+impl TransientMapBridge {
+    fn map_state(state_id: &str, sequence: u64) -> LiveState {
+        LiveState {
+            sequence,
+            phase: LivePhase::Map,
+            legal_actions: vec![LegalAction {
+                id: ActionId("choose-0".to_owned()),
+                kind: LegalActionKind::ChooseMapNode,
+                label: "x=1".to_owned(),
+                enabled: true,
+                command: json!({
+                    "command": "CHOOSE 0",
+                    "source_state_id": "state-1"
+                }),
+                disabled_reason: None,
+            }],
+            raw: json!({
+                "summary": {
+                    "state_id": state_id,
+                    "state_seq": sequence,
+                    "screen_type": "MAP",
+                    "is_screen_up": true
+                }
+            }),
+        }
+    }
+
+    fn hidden_neow_state() -> LiveState {
+        LiveState {
+            sequence: 2,
+            phase: LivePhase::Neow,
+            legal_actions: Vec::new(),
+            raw: json!({
+                "summary": {
+                    "state_id": "state-2",
+                    "state_seq": 2,
+                    "screen_type": "EVENT",
+                    "room_type": "NeowRoom",
+                    "is_screen_up": false
+                }
+            }),
+        }
+    }
+
+    fn combat_state() -> LiveState {
+        LiveState {
+            sequence: 3,
+            phase: LivePhase::Combat,
+            legal_actions: vec![request_state_action()],
+            raw: json!({
+                "summary": {
+                    "state_id": "state-3",
+                    "state_seq": 3,
+                    "screen_type": "COMBAT"
+                }
+            }),
+        }
+    }
+}
+
+impl BridgeManager for TransientMapBridge {
+    fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>> {
+        Ok(vec![BridgeStatus {
+            id: BridgeId("bridge".to_owned()),
+            process_id: Some(1234),
+            client_id: Some("transient-map-test".to_owned()),
+            connected: true,
+            last_heartbeat_ms: None,
+        }])
+    }
+
+    fn start_run(&mut self, _bridge_id: &BridgeId, _config: &RunConfig) -> LiveResult<LiveState> {
+        let state = Self::map_state("state-1", 1);
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn abandon_run(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Ok(self.state.clone().unwrap())
+    }
+
+    fn request_state(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        self.requests += 1;
+        let state = Self::combat_state();
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn send_action(
+        &mut self,
+        _bridge_id: &BridgeId,
+        _action: &LegalAction,
+    ) -> LiveResult<LiveState> {
+        let state = Self::hidden_neow_state();
+        self.state = Some(state.clone());
+        Ok(state)
+    }
+
+    fn kill_bridge(&mut self, _bridge_id: &BridgeId) -> LiveResult<()> {
+        Ok(())
+    }
+
+    fn kill_all(&mut self) -> LiveResult<usize> {
+        Ok(0)
+    }
+}
+
 impl Default for PendingCommandBridge {
     fn default() -> Self {
         Self {
@@ -1086,7 +2716,9 @@ impl BridgeManager for PendingCommandBridge {
                 LegalAction {
                     id: ActionId("reward-potion".to_owned()),
                     kind: LegalActionKind::ChooseReward,
-                    label: "potion".to_owned(),
+                    // Keep a same-command action visible on the wrong phase
+                    // without triggering SlayTheData's automatic potion pickup.
+                    label: "card".to_owned(),
                     enabled: true,
                     command: json!({"command": "CHOOSE 0"}),
                     disabled_reason: None,

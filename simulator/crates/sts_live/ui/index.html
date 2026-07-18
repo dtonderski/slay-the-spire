@@ -11,6 +11,7 @@
       <header class="session-bar">
         <h1>Live Trace Collector</h1>
         <div id="status" class="status">Not attached</div>
+        <div id="backend-status" class="backend-status backend-status-unknown">Backend unknown</div>
       </header>
       <section id="session-alert" class="session-alert" hidden></section>
       <div id="notifications" class="notifications" aria-live="polite"></div>
@@ -24,6 +25,8 @@
               <select id="session"></select>
             </label>
             <button id="load-session">Open</button>
+            <button id="add-to-permanent-corpus" disabled>Add to permanent corpus</button>
+            <button id="clear-traces" disabled>Clear traces</button>
           </div>
         </div>
 
@@ -114,6 +117,10 @@
           <h2>SlayTheData</h2>
           <div class="slaythedata-search-grid">
             <label>
+              Run ID
+              <input id="slaythedata-run-id" type="number" step="1" placeholder="Any">
+            </label>
+            <label>
               Ascension
               <input id="slaythedata-ascension" type="number" min="0" max="20" value="0">
             </label>
@@ -127,17 +134,53 @@
                 <option value="any">Any</option>
                 <option value="win">Win</option>
                 <option value="loss">Loss</option>
+                <option value="abandon">Abandon</option>
+              </select>
+            </label>
+            <label>
+              Neow bonus
+              <select id="slaythedata-neow-bonus">
+                <option value="any">Any</option>
+                <option value="THREE_CARDS">Three cards</option>
+                <option value="THREE_RARE_CARDS">Three rare cards</option>
+                <option value="ONE_RANDOM_RARE_CARD">One random rare card</option>
+                <option value="RANDOM_COLORLESS">Random colorless card</option>
+                <option value="RANDOM_COLORLESS_2">Two random colorless cards</option>
+                <option value="REMOVE_CARD">Remove a card</option>
+                <option value="REMOVE_TWO">Remove two cards</option>
+                <option value="UPGRADE_CARD">Upgrade a card</option>
+                <option value="TRANSFORM_CARD">Transform a card</option>
+                <option value="TRANSFORM_TWO_CARDS">Transform two cards</option>
+                <option value="THREE_SMALL_POTIONS">Three small potions</option>
+                <option value="RANDOM_COMMON_RELIC">Random common relic</option>
+                <option value="ONE_RARE_RELIC">One rare relic</option>
+                <option value="TEN_PERCENT_HP_BONUS">+10% max HP</option>
+                <option value="TWENTY_PERCENT_HP_BONUS">+20% max HP</option>
+                <option value="THREE_ENEMY_KILL">Next three enemies have 1 HP</option>
+                <option value="HUNDRED_GOLD">100 gold</option>
+                <option value="TWO_FIFTY_GOLD">250 gold</option>
+                <option value="BOSS_RELIC">Boss relic</option>
+              </select>
+            </label>
+            <label>
+              Corpus runs
+              <select id="slaythedata-corpus-runs">
+                <option value="exclude">Exclude added</option>
+                <option value="include">Include added</option>
               </select>
             </label>
             <label>
               Limit
-              <input id="slaythedata-limit" type="number" min="1" max="100" value="25">
+              <input id="slaythedata-limit" type="number" min="1" max="100" value="5">
             </label>
           </div>
           <div class="slaythedata-buttons-row">
             <button id="slaythedata-search">Search</button>
+            <button id="slaythedata-search-current" disabled>Current seed</button>
             <button id="slaythedata-send-next" disabled>Send next</button>
             <button id="slaythedata-auto-play" disabled>Auto-play</button>
+            <button id="slaythedata-pause" disabled>Pause auto-play</button>
+            <button id="slaythedata-skip-shop" disabled>Skip shop</button>
           </div>
           <div id="slaythedata-results" class="slaythedata-results">No run selected</div>
           <div id="slaythedata-advisor" class="slaythedata-advisor">No advisor</div>
@@ -164,5 +207,15 @@
         </article>
       </section>
     </main>
+    <dialog id="confirm-dialog" aria-labelledby="confirm-dialog-title">
+      <form method="dialog" class="confirm-dialog-form">
+        <h2 id="confirm-dialog-title">Confirm action</h2>
+        <p id="confirm-dialog-message"></p>
+        <div class="confirm-dialog-actions">
+          <button value="cancel">Cancel</button>
+          <button value="confirm" class="danger-button">Abandon run</button>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>

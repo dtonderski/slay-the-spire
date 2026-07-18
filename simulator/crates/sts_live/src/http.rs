@@ -7,6 +7,8 @@ use crate::{
         SlayTheDataSearchFilters,
     },
     session::SessionStore,
+    session_recovery,
+    slaythedata::SlayTheDataIndex,
 };
 use serde_json::{json, Value};
 use std::{
@@ -19,14 +21,19 @@ use std::{
     time::Duration,
 };
 
+const SLAYTHEDATA_AUTO_TICK_LIMIT: usize = 10_000;
+const SLAYTHEDATA_AUTO_NO_PROGRESS_LIMIT: usize = 200;
+
 pub struct LiveHttpApp<B, F> {
     store: Arc<Mutex<SessionStore<B, F>>>,
+    slaythedata_index: SlayTheDataIndex,
 }
 
 impl<B, F> Clone for LiveHttpApp<B, F> {
     fn clone(&self) -> Self {
         Self {
             store: Arc::clone(&self.store),
+            slaythedata_index: self.slaythedata_index.clone(),
         }
     }
 }
@@ -37,9 +44,18 @@ where
     F: FidelityChecker + Send + 'static,
 {
     pub fn new(store: SessionStore<B, F>) -> Self {
+        let slaythedata_index = store.slaythedata_index().clone();
         Self {
             store: Arc::new(Mutex::new(store)),
+            slaythedata_index,
         }
+    }
+
+    pub fn recover_existing_sessions_background(&self) {
+        let store = Arc::clone(&self.store);
+        thread::spawn(move || {
+            recover_existing_sessions_into_store(store);
+        });
     }
 
     pub fn handle(&self, method: &str, path: &str, body: &str) -> LiveResult<Value> {
@@ -55,6 +71,38 @@ where
             return self.start_auto_play_job(SessionId((*session_id).to_owned()));
         }
 
+        if let ("POST", ["sessions", session_id, "slaythedata", "auto-play"]) =
+            (method, parts.as_slice())
+        {
+            return self.start_slaythedata_auto_play_job(SessionId((*session_id).to_owned()));
+        }
+
+        if let ("POST", ["sessions", session_id, "slaythedata", "skip-shop"]) =
+            (method, parts.as_slice())
+        {
+            return self.skip_shop_and_resume_slaythedata(SessionId((*session_id).to_owned()));
+        }
+
+        if let ("GET", ["health"]) = (method, parts.as_slice()) {
+            return Ok(json!({
+                "ok": true,
+                "service": "sts_live",
+                "backend": "connected"
+            }));
+        }
+
+        if let ("POST", ["slaythedata", "search"]) = (method, parts.as_slice()) {
+            let payload: Value = serde_json::from_str(body)?;
+            let include_corpus = payload
+                .get("include_corpus")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let request: SlayTheDataSearchFilters = serde_json::from_value(payload)?;
+            return Ok(json!({
+                "runs": self.slaythedata_index.search_with_corpus(&request, include_corpus)?
+            }));
+        }
+
         let mut store = self
             .store
             .lock()
@@ -62,16 +110,56 @@ where
 
         match (method, parts.as_slice()) {
             ("GET", ["bridges"]) => Ok(json!({"bridges": store.list_bridges()?})),
-            ("POST", ["slaythedata", "search"]) => {
-                let request: SlayTheDataSearchFilters = serde_json::from_str(body)?;
-                Ok(json!({"runs": store.search_slaythedata_runs(request)?}))
+            ("GET", ["slaythedata", "runs", run_id, "json"]) => {
+                let run_id = run_id
+                    .parse::<i64>()
+                    .map_err(|_| LiveError::InvalidAction(format!("invalid run id {run_id}")))?;
+                store.slaythedata_run_json(run_id)
+            }
+            ("POST", ["slaythedata", "runs", run_id, "mark-broken"]) => {
+                let run_id = run_id
+                    .parse::<i64>()
+                    .map_err(|_| LiveError::InvalidAction(format!("invalid run id {run_id}")))?;
+                let request: MarkBrokenSlayTheDataRunRequest =
+                    serde_json::from_str(body).unwrap_or_default();
+                Ok(serde_json::to_value(store.mark_slaythedata_run_broken(
+                    run_id,
+                    request.reason.as_deref(),
+                )?)?)
+            }
+            ("POST", ["slaythedata", "runs", run_id, "unmark-broken"]) => {
+                let run_id = run_id
+                    .parse::<i64>()
+                    .map_err(|_| LiveError::InvalidAction(format!("invalid run id {run_id}")))?;
+                Ok(json!({
+                    "run_id": run_id,
+                    "unmarked": store.unmark_slaythedata_run_broken(run_id)?
+                }))
             }
             ("POST", ["bridges", "kill-all"]) => Ok(json!({"killed": store.kill_all_bridges()?})),
             ("POST", ["bridges", bridge_id, "kill"]) => {
                 store.kill_bridge(&BridgeId((*bridge_id).to_owned()))?;
                 Ok(json!({"killed": 1, "bridge_id": bridge_id}))
             }
-            ("GET", ["sessions"]) => Ok(json!({"sessions": store.list_sessions()})),
+            ("GET", ["sessions"]) => Ok(json!({
+                "sessions": store.list_session_items()
+            })),
+            ("POST", ["sessions", session_id, "clear-other-traces"]) => Ok(json!({
+                "deleted": store.clear_other_traces(&SessionId((*session_id).to_owned()))?,
+                "sessions": store.list_session_items()
+            })),
+            ("POST", ["sessions", session_id, "add-to-permanent-corpus"]) => {
+                let session_id = SessionId((*session_id).to_owned());
+                let permanent_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../verification/corpus/permanent_traces");
+                let path = store
+                    .copy_verified_trace_prefix_to_permanent_corpus(&session_id, &permanent_root)?;
+                let run_id = store.attached_slaythedata_run_id(&session_id)?;
+                if let Some(run_id) = run_id {
+                    store.mark_slaythedata_run_in_corpus(run_id, &path)?;
+                }
+                Ok(json!({"path": path.display().to_string(), "run_id": run_id}))
+            }
             ("POST", ["sessions", "start"]) => {
                 let request: StartRequest = serde_json::from_str(body)?;
                 Ok(serde_json::to_value(
@@ -109,11 +197,9 @@ where
                     &SessionId((*session_id).to_owned()),
                 )?)?)
             }
-            ("POST", ["sessions", session_id, "slaythedata", "auto-play"]) => {
-                Ok(serde_json::to_value(store.slaythedata_auto_play(
-                    &SessionId((*session_id).to_owned()),
-                )?)?)
-            }
+            ("POST", ["sessions", session_id, "slaythedata", "pause"]) => Ok(serde_json::to_value(
+                store.slaythedata_pause(&SessionId((*session_id).to_owned()))?,
+            )?),
             ("GET", ["sessions", session_id, "automation"]) => Ok(serde_json::to_value(
                 store.automation_status(&SessionId((*session_id).to_owned()))?,
             )?),
@@ -172,6 +258,90 @@ where
         }
         Ok(serde_json::to_value(snapshot)?)
     }
+
+    fn start_slaythedata_auto_play_job(&self, session_id: SessionId) -> LiveResult<Value> {
+        let snapshot = {
+            let mut store = self
+                .store
+                .lock()
+                .map_err(|_| LiveError::Blocked("session store lock poisoned".to_owned()))?;
+            store.slaythedata_start_auto_play(&session_id)?
+        };
+        let store = Arc::clone(&self.store);
+        thread::spawn(move || {
+            run_slaythedata_auto_play_job(store, session_id, SLAYTHEDATA_AUTO_TICK_LIMIT)
+        });
+        Ok(serde_json::to_value(snapshot)?)
+    }
+
+    fn skip_shop_and_resume_slaythedata(&self, session_id: SessionId) -> LiveResult<Value> {
+        let snapshot = {
+            let mut store = self
+                .store
+                .lock()
+                .map_err(|_| LiveError::Blocked("session store lock poisoned".to_owned()))?;
+            let snapshot = store.slaythedata_skip_shop(&session_id)?;
+            store.slaythedata_start_auto_play(&session_id)?;
+            snapshot
+        };
+        let store = Arc::clone(&self.store);
+        thread::spawn(move || {
+            run_slaythedata_auto_play_job(store, session_id, SLAYTHEDATA_AUTO_TICK_LIMIT)
+        });
+        Ok(serde_json::to_value(snapshot)?)
+    }
+}
+
+fn recover_existing_sessions_into_store<B, F>(store: Arc<Mutex<SessionStore<B, F>>>)
+where
+    B: BridgeManager + Send + 'static,
+    F: FidelityChecker + Send + 'static,
+{
+    let trace_root = {
+        let Ok(store) = store.lock() else {
+            eprintln!("session recovery failed: session store lock poisoned");
+            return;
+        };
+        store.trace_root().to_path_buf()
+    };
+    let mut paths = match session_recovery::trace_paths(&trace_root) {
+        Ok(paths) => paths,
+        Err(err) => {
+            eprintln!("session recovery failed: {err}");
+            return;
+        }
+    };
+    paths.sort_by(|left, right| {
+        session_path_number(right)
+            .cmp(&session_path_number(left))
+            .then_with(|| right.cmp(left))
+    });
+
+    let mut recovered = 0usize;
+    for path in paths {
+        let session = match session_recovery::recover_session(&path) {
+            Ok(session) => session,
+            Err(err) => {
+                eprintln!("session recovery skipped {}: {err}", path.display());
+                continue;
+            }
+        };
+        let Ok(mut store) = store.lock() else {
+            eprintln!("session recovery failed: session store lock poisoned");
+            return;
+        };
+        store.insert_recovered_session(session);
+        recovered += 1;
+    }
+    eprintln!("session recovery complete: {recovered} sessions");
+}
+
+fn session_path_number(path: &Path) -> u64 {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| stem.strip_prefix("session-"))
+        .and_then(|number| number.parse().ok())
+        .unwrap_or(0)
 }
 
 fn run_auto_play_job<B, F>(
@@ -209,6 +379,76 @@ fn run_auto_play_job<B, F>(
     }
 }
 
+fn run_slaythedata_auto_play_job<B, F>(
+    store: Arc<Mutex<SessionStore<B, F>>>,
+    session_id: SessionId,
+    limit: usize,
+) where
+    B: BridgeManager + Send + 'static,
+    F: FidelityChecker + Send + 'static,
+{
+    let mut last_progress = None;
+    let mut no_progress_ticks = 0usize;
+    for _ in 0..limit {
+        let tick = {
+            let mut store = match store.lock() {
+                Ok(store) => store,
+                Err(_) => return,
+            };
+            store.slaythedata_auto_play_tick(&session_id)
+        };
+        match tick {
+            Ok((snapshot, true)) => {
+                let progress = (
+                    snapshot.slaythedata.next_step_index,
+                    snapshot.automation.executed_actions.len(),
+                    snapshot
+                        .latest_state
+                        .as_ref()
+                        .map(|state| state.phase.clone()),
+                );
+                if last_progress.as_ref() == Some(&progress) {
+                    no_progress_ticks += 1;
+                } else {
+                    last_progress = Some(progress);
+                    no_progress_ticks = 0;
+                }
+                if no_progress_ticks >= SLAYTHEDATA_AUTO_NO_PROGRESS_LIMIT {
+                    if let Ok(mut store) = store.lock() {
+                        let _ = store.slaythedata_fail_auto_play(
+                            &session_id,
+                            "slaythedata_auto_no_progress",
+                            "SlayTheData auto-play stopped after 200 consecutive ticks without guided, combat, or phase progress",
+                        );
+                    }
+                    return;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            Ok((_, false)) => return,
+            Err(err) => {
+                if let Ok(mut store) = store.lock() {
+                    let _ = store.slaythedata_fail_auto_play(
+                        &session_id,
+                        "slaythedata_auto_play_failed",
+                        &format!("SlayTheData auto-play failed: {err}"),
+                    );
+                }
+                return;
+            }
+        }
+    }
+    if let Ok(mut store) = store.lock() {
+        let _ = store.slaythedata_fail_auto_play(
+            &session_id,
+            "slaythedata_auto_action_limit",
+            &format!(
+                "SlayTheData auto-play stopped after reaching its {limit}-tick catastrophic safety limit"
+            ),
+        );
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct StartRequest {
     bridge_id: String,
@@ -218,6 +458,11 @@ struct StartRequest {
 #[derive(serde::Deserialize)]
 struct SlayTheDataAttachRequest {
     run_id: i64,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct MarkBrokenSlayTheDataRunRequest {
+    reason: Option<String>,
 }
 
 pub const UI_INDEX_HTML: &str = include_str!("../ui/index.html");
@@ -412,6 +657,68 @@ mod tests {
     };
 
     #[test]
+    fn http_health_reports_backend_available() {
+        let root = temp_dir("http-health");
+        let app = LiveHttpApp::new(SessionStore::new(
+            FakeBridgeManager::with_default_bridge(),
+            TraceFidelityChecker,
+            &root,
+        ));
+
+        let response = app.handle("GET", "/health", "").unwrap();
+
+        assert_eq!(response["ok"], true);
+        assert_eq!(response["service"], "sts_live");
+        assert_eq!(response["backend"], "connected");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn http_health_does_not_wait_for_session_store_lock() {
+        let root = temp_dir("http-health-no-lock");
+        let app = LiveHttpApp::new(SessionStore::new(
+            FakeBridgeManager::with_default_bridge(),
+            TraceFidelityChecker,
+            &root,
+        ));
+        let _guard = app.store.lock().unwrap();
+
+        let response = app.handle("GET", "/health", "").unwrap();
+
+        assert_eq!(response["backend"], "connected");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn http_slaythedata_search_does_not_wait_for_session_store_lock() {
+        let root = temp_dir("http-slaythedata-search-no-lock");
+        fs::create_dir_all(&root).unwrap();
+        let db = root.join("slaythedata.sqlite3");
+        write_slaythedata_locator_db(&db);
+        let app = LiveHttpApp::new(
+            SessionStore::new(
+                FakeBridgeManager::with_default_bridge(),
+                TraceFidelityChecker,
+                &root,
+            )
+            .with_slaythedata_index(crate::SlayTheDataIndex::new(&db)),
+        );
+        let _guard = app.store.lock().unwrap();
+
+        let response = app
+            .handle(
+                "POST",
+                "/slaythedata/search",
+                r#"{"character":"IRONCLAD","ascension":0,"min_floor_reached":20,"victory":false,"limit":10,"require_supported":true}"#,
+            )
+            .unwrap();
+
+        assert_eq!(response["runs"].as_array().unwrap().len(), 1);
+        assert_eq!(response["runs"][0]["id"], 21);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn http_api_starts_session_against_fake_bridge() {
         let root = temp_dir("http-start");
         let app = LiveHttpApp::new(SessionStore::new(
@@ -430,6 +737,8 @@ mod tests {
 
         let sessions = app.handle("GET", "/sessions", "").unwrap();
         assert_eq!(sessions["sessions"][0]["session_id"], "session-1");
+        assert_eq!(sessions["sessions"][0]["lifecycle"], "recording");
+        assert!(sessions["sessions"][0].get("latest_state").is_none());
         fs::remove_dir_all(root).ok();
     }
 
@@ -482,6 +791,46 @@ mod tests {
     }
 
     #[test]
+    fn http_api_clears_traces_except_current_session() {
+        let root = temp_dir("http-clear-traces");
+        let app = LiveHttpApp::new(SessionStore::new(
+            FakeBridgeManager::with_default_bridge(),
+            TraceFidelityChecker,
+            &root,
+        ));
+        let first = app
+            .handle(
+                "POST",
+                "/sessions/start",
+                r#"{"bridge_id":"fake-bridge-1","config":{"character":"ironclad","ascension":0,"seed":{"external":"CODEX04"}}}"#,
+            )
+            .unwrap();
+        let second = app
+            .handle(
+                "POST",
+                "/sessions/start",
+                r#"{"bridge_id":"fake-bridge-1","config":{"character":"ironclad","ascension":0,"seed":{"external":"CODEX05"}}}"#,
+            )
+            .unwrap();
+        let first_trace = PathBuf::from(first["trace_path"].as_str().unwrap());
+        let second_trace = PathBuf::from(second["trace_path"].as_str().unwrap());
+        assert!(first_trace.exists());
+        assert!(second_trace.exists());
+
+        let response = app
+            .handle("POST", "/sessions/session-2/clear-other-traces", "{}")
+            .unwrap();
+
+        assert_eq!(response["deleted"], 1);
+        assert!(!first_trace.exists());
+        assert!(second_trace.exists());
+        let sessions = response["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0]["session_id"], "session-2");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
     fn http_session_get_returns_cached_snapshot_without_fidelity_replay() {
         let root = temp_dir("http-session-get-snapshot");
         let checks = Arc::new(AtomicUsize::new(0));
@@ -510,7 +859,7 @@ mod tests {
     }
 
     #[test]
-    fn http_manual_action_returns_live_state_before_fidelity_refresh() {
+    fn http_manual_action_returns_live_state_after_fidelity_refresh() {
         let root = temp_dir("http-action-cached-fidelity");
         let checks = Arc::new(AtomicUsize::new(0));
         let app = LiveHttpApp::new(SessionStore::new(
@@ -532,7 +881,7 @@ mod tests {
             .handle("POST", "/sessions/session-1/actions/talk", "{}")
             .unwrap();
         assert_eq!(response["latest_state"]["phase"], "combat");
-        assert_eq!(checks.load(Ordering::SeqCst), 1);
+        assert_eq!(checks.load(Ordering::SeqCst), 2);
 
         app.handle("GET", "/sessions/session-1/fidelity", "")
             .unwrap();
@@ -567,6 +916,65 @@ mod tests {
         assert_eq!(response["runs"][0]["id"], 21);
         assert_eq!(response["runs"][0]["victory"], false);
         assert_eq!(response["runs"][0]["materialized"], true);
+        assert_eq!(response["runs"][0]["build_version"], "2022-12-18");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn http_api_marks_slaythedata_run_broken() {
+        let root = temp_dir("http-slaythedata-mark-broken");
+        fs::create_dir_all(&root).unwrap();
+        let db = root.join("slaythedata.sqlite3");
+        write_slaythedata_locator_db(&db);
+        let app = LiveHttpApp::new(
+            SessionStore::new(
+                FakeBridgeManager::with_default_bridge(),
+                TraceFidelityChecker,
+                &root,
+            )
+            .with_slaythedata_index(crate::SlayTheDataIndex::new(&db)),
+        );
+
+        let response = app
+            .handle(
+                "POST",
+                "/slaythedata/runs/21/mark-broken",
+                r#"{"reason":"bad replay"}"#,
+            )
+            .unwrap();
+
+        assert_eq!(response["run_id"], 21);
+        assert_eq!(response["seed_played"], "LOSS");
+        assert_eq!(response["reason"], "bad replay");
+        let search = app
+            .handle(
+                "POST",
+                "/slaythedata/search",
+                r#"{"character":"IRONCLAD","ascension":0,"min_floor_reached":1,"victory":false,"limit":10,"require_supported":true}"#,
+            )
+            .unwrap();
+        assert_eq!(search["runs"].as_array().unwrap().len(), 0);
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn http_api_downloads_slaythedata_json() {
+        let root = temp_dir("http-slaythedata-json");
+        fs::create_dir_all(&root).unwrap();
+        let db = root.join("slaythedata.sqlite3");
+        write_slaythedata_locator_db(&db);
+        let app = LiveHttpApp::new(
+            SessionStore::new(
+                FakeBridgeManager::with_default_bridge(),
+                TraceFidelityChecker,
+                &root,
+            )
+            .with_slaythedata_index(crate::SlayTheDataIndex::new(&db)),
+        );
+
+        let response = app.handle("GET", "/slaythedata/runs/21/json", "").unwrap();
+
+        assert_eq!(response, json!({"build_version": "2022-12-18"}));
         fs::remove_dir_all(root).ok();
     }
 
@@ -645,6 +1053,7 @@ mod tests {
                 is_trial INTEGER,
                 unsupported_any INTEGER,
                 seed_played TEXT,
+                build_version TEXT,
                 victory INTEGER,
                 path_length INTEGER,
                 card_choice_count INTEGER,
@@ -663,12 +1072,12 @@ mod tests {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO runs VALUES (21, 'IRONCLAD', 0, 35, 0, 0, 0, 0, 'LOSS', 0, 35, 5, 1, 1, 0, 'THREE_CARDS', 'NONE')",
+            "INSERT INTO runs VALUES (21, 'IRONCLAD', 0, 35, 0, 0, 0, 0, 'LOSS', '2020-07-30', 0, 35, 5, 1, 1, 0, 'THREE_CARDS', 'NONE')",
             [],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO runs VALUES (22, 'IRONCLAD', 0, 35, 0, 0, 0, 0, 'WIN', 1, 35, 5, 1, 1, 0, 'THREE_CARDS', 'NONE')",
+            "INSERT INTO runs VALUES (22, 'IRONCLAD', 0, 35, 0, 0, 0, 0, 'WIN', '2020-07-30', 1, 35, 5, 1, 1, 0, 'THREE_CARDS', 'NONE')",
             [],
         )
         .unwrap();
@@ -676,8 +1085,11 @@ mod tests {
             .unwrap();
         conn.execute("INSERT INTO chunk_runs VALUES (22)", [])
             .unwrap();
-        conn.execute("INSERT INTO run_materialized_json VALUES (21, '{}')", [])
-            .unwrap();
+        conn.execute(
+            "INSERT INTO run_materialized_json VALUES (21, '{\"build_version\":\"2022-12-18\"}')",
+            [],
+        )
+        .unwrap();
     }
 
     struct CountingFidelity {

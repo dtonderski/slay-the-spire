@@ -5,6 +5,7 @@ mod automation;
 pub mod bridge;
 pub mod cli;
 pub mod cli_output;
+pub mod combat_research;
 pub mod communication;
 pub mod error_payload;
 pub mod fidelity;

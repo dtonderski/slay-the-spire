@@ -1,6 +1,5 @@
 package abandonruncontrol;
 
-import com.badlogic.gdx.Gdx;
 import com.evacipated.cardcrawl.modthespire.lib.SpirePatch;
 import com.evacipated.cardcrawl.modthespire.lib.SpirePostfixPatch;
 import com.evacipated.cardcrawl.modthespire.lib.SpirePrefixPatch;
@@ -8,11 +7,8 @@ import com.evacipated.cardcrawl.modthespire.lib.SpireReturn;
 import com.megacrit.cardcrawl.core.CardCrawlGame;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
 import com.megacrit.cardcrawl.saveAndContinue.SaveAndContinue;
-import com.megacrit.cardcrawl.screens.mainMenu.MainMenuScreen;
 import communicationmod.CommandExecutor;
 import java.util.ArrayList;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 public final class AbandonRunControl {
     private static final String ABANDON = "abandon";
@@ -34,36 +30,11 @@ public final class AbandonRunControl {
     }
 
     public static void abandonRun() {
-        runOnGameThread(new Runnable() {
-            @Override
-            public void run() {
-                abandonRunNow();
-            }
-        });
-    }
-
-    private static void runOnGameThread(Runnable runnable) {
-        CountDownLatch done = new CountDownLatch(1);
-        Gdx.app.postRunnable(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    runnable.run();
-                } finally {
-                    done.countDown();
-                }
-            }
-        });
-        try {
-            done.await(2, TimeUnit.SECONDS);
-        } catch (InterruptedException ignored) {
-            Thread.currentThread().interrupt();
-        }
+        abandonRunNow();
     }
 
     private static void abandonRunNow() {
         if (!isInAbandonableRun()) {
-            forceStartOver();
             return;
         }
 
@@ -91,31 +62,10 @@ public final class AbandonRunControl {
         } catch (RuntimeException ignored) {
         }
 
-        forceStartOver();
-    }
-
-    private static void forceStartOver() {
-        try {
-            AbstractDungeon.screen = AbstractDungeon.CurrentScreen.NONE;
-        } catch (RuntimeException ignored) {
-        }
-
-        try {
-            AbstractDungeon.reset();
-        } catch (RuntimeException ignored) {
-        }
-
-        try {
-            CardCrawlGame.mainMenuScreen = new MainMenuScreen();
-            if (CardCrawlGame.mainMenuScreen.bg != null) {
-                CardCrawlGame.mainMenuScreen.bg.slideDownInstantly();
-            }
-        } catch (RuntimeException ignored) {
-        }
-
-        CardCrawlGame.mode = CardCrawlGame.GameMode.CHAR_SELECT;
-        CardCrawlGame.startOver = false;
-        CardCrawlGame.fadeIn(0.25F);
+        // Use the game's own fade/reset lifecycle. It clears all dungeon and
+        // seed globals before constructing the main menu, which makes a later
+        // CommunicationMod START behave exactly like a normal new run.
+        CardCrawlGame.startOver();
     }
 
     @SpirePatch(clz = CommandExecutor.class, method = "executeCommand")
@@ -134,6 +84,14 @@ public final class AbandonRunControl {
     public static final class AvailableCommandsPatch {
         @SpirePostfixPatch
         public static ArrayList<String> postfix(ArrayList<String> result) {
+            // CommunicationMod normally advertises START as soon as the
+            // dungeon stops being addressable. The game's native start-over
+            // reset continues for two seconds after that point, so accepting
+            // START during the fade can create a run that is immediately
+            // destroyed when the old reset finishes.
+            if (CardCrawlGame.startOver && CardCrawlGame.screenTimer > 0.0F) {
+                result.remove("start");
+            }
             if (isInAbandonableRun() && !result.contains(ABANDON)) {
                 result.add(ABANDON);
             }

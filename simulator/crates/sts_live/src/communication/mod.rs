@@ -7,8 +7,8 @@ mod process;
 use crate::{
     bridge::BridgeManager,
     model::{
-        BridgeId, BridgeStatus, Character, LegalAction, LiveError, LiveResult, LiveState,
-        RunConfig, RunSeed,
+        BridgeId, BridgeStatus, Character, LegalAction, LiveError, LivePhase, LiveResult,
+        LiveState, RunConfig,
     },
 };
 pub(crate) use actions::live_state_from_files;
@@ -30,6 +30,13 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+// A real game can spend several seconds loading the dungeon after accepting
+// START, especially after a completed/abandoned run.  Keep polling long enough
+// to observe the authoritative Neow state before returning an error; otherwise
+// the game starts successfully but SessionStore never creates its new session.
+const START_COMPLETION_POLL_INTERVAL: Duration = Duration::from_millis(150);
+const START_COMPLETION_POLL_ATTEMPTS: usize = 120;
 
 const DEFAULT_BRIDGE_ID: &str = "communication-mod";
 const LOCAL_PROCESS_PREFIX: &str = "local-process-";
@@ -158,8 +165,21 @@ impl CommunicationModBridgeManager {
     fn send_abandon_run(&self, bridge_id: &BridgeId) -> LiveResult<LiveState> {
         let files = self.require_bridge(bridge_id)?;
         if let Some(control) = control_address(&files.status) {
-            let control_files =
+            let mut control_files =
                 request_control_files(&control, &files.status, self.config.command_timeout)?;
+            if guard::validate_ready_for_operator_control(&control_files, self.config.stale_after)
+                .is_err()
+            {
+                send_control_command(
+                    &control,
+                    "STATE",
+                    &control_files,
+                    self.config.stale_after,
+                    self.config.command_timeout,
+                )?;
+                control_files =
+                    request_control_files(&control, &files.status, self.config.command_timeout)?;
+            }
             guard::validate_ready_for_operator_control(&control_files, self.config.stale_after)?;
             let state = send_abandon_control(
                 &control,
@@ -186,21 +206,64 @@ impl CommunicationModBridgeManager {
         initial: LiveState,
     ) -> LiveResult<LiveState> {
         let mut latest = initial;
-        if abandon_complete(&latest) {
-            return Ok(latest);
-        }
+        // CardCrawlGame.startOver() completes its authoritative dungeon reset
+        // at the end of a two-second fade. CommunicationMod can transiently
+        // report an out-of-game menu before that reset has finished, so never
+        // allow a replacement START during the fade window.
+        thread::sleep(Duration::from_millis(2_300));
         for _ in 0..12 {
             thread::sleep(Duration::from_millis(300));
-            if let Ok(files) =
+            let Ok(files) =
                 request_control_files(control, fallback_status, self.config.command_timeout)
-            {
-                latest = live_state_from_files(&files);
-                if abandon_complete(&latest) {
-                    return Ok(latest);
-                }
+            else {
+                continue;
+            };
+            let Ok(state) = send_control_command(
+                control,
+                "STATE",
+                &files,
+                self.config.stale_after,
+                self.config.command_timeout,
+            ) else {
+                continue;
+            };
+            latest = state;
+            if abandon_complete(&latest) {
+                return Ok(latest);
             }
         }
         Ok(latest)
+    }
+
+    fn wait_for_start_completion(
+        &self,
+        control: &ControlAddress,
+        fallback_status: &Value,
+        initial: LiveState,
+    ) -> LiveResult<LiveState> {
+        let mut latest = initial;
+        if start_complete(&latest) {
+            return Ok(latest);
+        }
+        for _ in 0..START_COMPLETION_POLL_ATTEMPTS {
+            thread::sleep(START_COMPLETION_POLL_INTERVAL);
+            let files =
+                request_control_files(control, fallback_status, self.config.command_timeout)?;
+            latest = send_control_command(
+                control,
+                "STATE",
+                &files,
+                self.config.stale_after,
+                self.config.command_timeout,
+            )?;
+            if start_complete(&latest) {
+                return Ok(latest);
+            }
+        }
+        Err(LiveError::Bridge(
+            "START was accepted but the game did not enter a new Neow run after waiting for startup"
+                .to_owned(),
+        ))
     }
 
     fn send_via_file(&self, command: &str, source_state_id: Option<&str>) -> LiveResult<()> {
@@ -313,20 +376,66 @@ impl BridgeManager for CommunicationModBridgeManager {
         let character = match config.character {
             Character::Ironclad => "IRONCLAD",
         };
-        let seed = match &config.seed {
-            RunSeed::External(seed) => seed.clone(),
-            RunSeed::Numeric(seed) => seed.to_string(),
-        };
+        let seed = config.seed.command_text();
         let command = format!("START {character} {} {seed}", config.ascension);
         let files = self.require_bridge(bridge_id)?;
         if let Some(control) = control_address(&files.status) {
-            return send_control_command(
+            let effective_files = self.effective_command_files(&files, &command);
+            let control_files = match validate_ready_for_command(
+                &effective_files,
+                &command,
+                None,
+                self.config.stale_after,
+            ) {
+                Ok(()) => effective_files,
+                Err(_) => {
+                    let mut control_files = request_control_files(
+                        &control,
+                        &files.status,
+                        self.config.command_timeout,
+                    )?;
+                    if validate_ready_for_command(
+                        &control_files,
+                        &command,
+                        None,
+                        self.config.stale_after,
+                    )
+                    .is_err()
+                    {
+                        // An operator abandon can move the game to the menu one
+                        // frame after the bridge publishes its command response.
+                        // Force CommunicationMod to observe the current screen
+                        // before deciding that START is unavailable.
+                        send_control_command(
+                            &control,
+                            "STATE",
+                            &control_files,
+                            self.config.stale_after,
+                            self.config.command_timeout,
+                        )?;
+                        control_files = request_control_files(
+                            &control,
+                            &files.status,
+                            self.config.command_timeout,
+                        )?;
+                    }
+                    validate_ready_for_command(
+                        &control_files,
+                        &command,
+                        None,
+                        self.config.stale_after,
+                    )?;
+                    control_files
+                }
+            };
+            let state = send_control_command(
                 &control,
                 &command,
-                &files,
+                &control_files,
                 self.config.stale_after,
                 self.config.command_timeout,
-            );
+            )?;
+            return self.wait_for_start_completion(&control, &files.status, state);
         }
         let effective_files = self.effective_command_files(&files, &command);
         validate_ready_for_command(&effective_files, &command, None, self.config.stale_after)?;
@@ -347,7 +456,13 @@ impl BridgeManager for CommunicationModBridgeManager {
         let files = self.require_bridge(bridge_id)?;
         if let Some(control) = control_address(&files.status) {
             match request_control_files(&control, &files.status, self.config.command_timeout) {
-                Ok(control_files) => Ok(live_state_from_files(&control_files)),
+                Ok(control_files) => send_control_command(
+                    &control,
+                    "STATE",
+                    &control_files,
+                    self.config.stale_after,
+                    self.config.command_timeout,
+                ),
                 Err(LiveError::Bridge(message))
                     if message.contains("no observed state is available") =>
                 {
@@ -372,7 +487,16 @@ impl BridgeManager for CommunicationModBridgeManager {
             .command
             .get("source_state_id")
             .and_then(Value::as_str);
-        self.send_command(bridge_id, command, source_state_id)
+        let state = self.send_command(bridge_id, command, source_state_id)?;
+        if action_needs_event_followup_confirmation(command, &state) {
+            // Several events publish their follow-up Leave screen one frame
+            // before queued deck/relic mutations settle. A confirming STATE
+            // command is still seed/action-derived input; it only prevents an
+            // intermediate observation from being treated as authoritative.
+            thread::sleep(Duration::from_millis(50));
+            return self.request_state(bridge_id);
+        }
+        Ok(state)
     }
 
     fn kill_bridge(&mut self, bridge_id: &BridgeId) -> LiveResult<()> {
@@ -411,6 +535,28 @@ impl BridgeManager for CommunicationModBridgeManager {
         }
         Ok(killed)
     }
+}
+
+fn action_needs_event_followup_confirmation(command: &str, state: &LiveState) -> bool {
+    if !command
+        .split_whitespace()
+        .next()
+        .is_some_and(|verb| verb.eq_ignore_ascii_case("choose"))
+        || state.phase != LivePhase::Event
+    {
+        return false;
+    }
+    let Some(choices) = state
+        .raw
+        .pointer("/summary/choices")
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    choices.len() == 1
+        && choices[0]
+            .as_str()
+            .is_some_and(|choice| choice.trim().eq_ignore_ascii_case("leave"))
 }
 
 impl CommunicationModBridgeManager {
@@ -481,30 +627,71 @@ fn menu_summary_from_status(files: &BridgeFiles) -> Value {
 }
 
 fn abandon_complete(state: &LiveState) -> bool {
-    matches!(state.phase, crate::model::LivePhase::Menu)
-        || state
-            .raw
-            .pointer("/summary/in_game")
-            .or_else(|| state.raw.pointer("/current_state/message/in_game"))
-            .and_then(Value::as_bool)
-            == Some(false)
-        || commands_contain_start(state.raw.pointer("/summary/available_commands"))
+    let in_game = state
+        .raw
+        .pointer("/summary/in_game")
+        .or_else(|| state.raw.pointer("/current_state/message/in_game"))
+        .and_then(Value::as_bool)
+        == Some(false);
+    let ready = state
+        .raw
+        .pointer("/summary/ready_for_command")
+        .or_else(|| {
+            state
+                .raw
+                .pointer("/current_state/message/ready_for_command")
+        })
+        .and_then(Value::as_bool)
+        == Some(true);
+    let can_start = commands_contain_start(state.raw.pointer("/summary/available_commands"))
         || commands_contain_start(
             state
                 .raw
                 .pointer("/current_state/message/available_commands"),
-        )
+        );
+    in_game && ready && can_start
+}
+
+fn start_complete(state: &LiveState) -> bool {
+    let in_game = state
+        .raw
+        .pointer("/summary/in_game")
+        .or_else(|| state.raw.pointer("/current_state/message/in_game"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    let ready = state
+        .raw
+        .pointer("/summary/ready_for_command")
+        .or_else(|| {
+            state
+                .raw
+                .pointer("/current_state/message/ready_for_command")
+        })
+        .and_then(Value::as_bool)
+        == Some(true);
+    let can_choose = commands_contain(state.raw.pointer("/summary/available_commands"), "choose")
+        || commands_contain(
+            state
+                .raw
+                .pointer("/current_state/message/available_commands"),
+            "choose",
+        );
+    matches!(state.phase, crate::model::LivePhase::Neow) && in_game && ready && can_choose
 }
 
 fn commands_contain_start(commands: Option<&Value>) -> bool {
+    commands_contain(commands, "start")
+}
+
+fn commands_contain(commands: Option<&Value>, expected: &str) -> bool {
     match commands {
         Some(Value::Array(items)) => items
             .iter()
             .filter_map(Value::as_str)
-            .any(|command| command.eq_ignore_ascii_case("start")),
+            .any(|command| command.eq_ignore_ascii_case(expected)),
         Some(Value::String(commands)) => commands
             .split_whitespace()
-            .any(|command| command.eq_ignore_ascii_case("start")),
+            .any(|command| command.eq_ignore_ascii_case(expected)),
         _ => false,
     }
 }
@@ -540,4 +727,18 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{START_COMPLETION_POLL_ATTEMPTS, START_COMPLETION_POLL_INTERVAL};
+    use std::time::Duration;
+
+    #[test]
+    fn start_completion_window_covers_slow_post_run_dungeon_loads() {
+        assert!(
+            START_COMPLETION_POLL_INTERVAL * START_COMPLETION_POLL_ATTEMPTS as u32
+                >= Duration::from_secs(15)
+        );
+    }
 }

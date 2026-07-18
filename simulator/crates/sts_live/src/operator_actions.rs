@@ -1,14 +1,11 @@
-use crate::model::{ActionId, Character, LegalAction, LegalActionKind, RunConfig, RunSeed};
+use crate::model::{ActionId, Character, LegalAction, LegalActionKind, RunConfig};
 use serde_json::json;
 
 pub(super) fn start_run_action(config: &RunConfig) -> LegalAction {
     let character = match config.character {
         Character::Ironclad => "IRONCLAD",
     };
-    let seed = match &config.seed {
-        RunSeed::External(seed) => seed.clone(),
-        RunSeed::Numeric(seed) => seed.to_string(),
-    };
+    let seed = config.seed.command_text();
     let command = format!("START {character} {} {seed}", config.ascension);
     LegalAction {
         id: ActionId("start-run".to_owned()),

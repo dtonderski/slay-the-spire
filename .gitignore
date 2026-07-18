@@ -20,6 +20,9 @@ simulator/crates/sts_live/node_modules/
 simulator/crates/sts_live/ui/node_modules/
 simulator/crates/sts_live/ui/dist/
 simulator/live_traces/
+simulator/live_traces_active/
+simulator/SLAYTHEDATA_*_COLLECTION_LOG.jsonl
+simulator/latest-repair.json
 tools/communication/session/
 mods/abandon-run-control/build/
 

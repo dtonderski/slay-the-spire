@@ -6,7 +6,9 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       "/bridges": "http://127.0.0.1:8800",
-      "/sessions": "http://127.0.0.1:8800"
+      "/sessions": "http://127.0.0.1:8800",
+      "/health": "http://127.0.0.1:8800",
+      "/slaythedata": "http://127.0.0.1:8800"
     }
   }
 });

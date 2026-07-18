@@ -29,6 +29,12 @@ interface BridgesResponse {
   bridges: BridgeStatus[];
 }
 
+interface HealthResponse {
+  ok: boolean;
+  backend?: string;
+  service?: string;
+}
+
 interface SessionListItem {
   session_id: string;
   lifecycle: SessionLifecycle;
@@ -36,6 +42,16 @@ interface SessionListItem {
 
 interface SessionsResponse {
   sessions: SessionListItem[];
+}
+
+interface ClearTracesResponse {
+  deleted: number;
+  sessions: SessionListItem[];
+}
+
+interface PermanentTraceResponse {
+  path: string;
+  run_id?: number | null;
 }
 
 interface FidelityStatus {
@@ -73,9 +89,11 @@ interface BlockedState {
 interface SlayTheDataRunSummary {
   id: number;
   seed_played?: string | null;
+  build_version?: string | null;
   ascension_level?: number | null;
   floor_reached?: number | null;
   victory: boolean;
+  run_outcome: "win" | "loss" | "abandon";
   path_length?: number | null;
   card_choice_count?: number | null;
   event_choice_count?: number | null;
@@ -104,6 +122,7 @@ interface SlayTheDataSessionSnapshot {
   next_step_index: number;
   blocked?: BlockedState | null;
   last_message?: string | null;
+  auto_play_paused: boolean;
 }
 
 interface SessionSnapshot {
@@ -183,6 +202,12 @@ interface SlayTheDataSearchResponse {
   runs: SlayTheDataRunSummary[];
 }
 
+interface BrokenSlayTheDataRun {
+  run_id: number;
+  seed_played?: string | null;
+  reason?: string | null;
+}
+
 type ActionGroupKey =
   | "card"
   | "discard"
@@ -194,6 +219,8 @@ type ActionGroupKey =
   | "utility"
   | "operator"
   | "other";
+
+type BackendConnectionState = "unknown" | "connected" | "disconnected";
 
 let currentSession: SessionSnapshot | null = null;
 let bridgeStatuses: BridgeStatus[] = [];
@@ -208,12 +235,18 @@ let pendingCommand: PendingCommand | null = null;
 let pendingCommandTimer: number | null = null;
 let renderedActionsKey: string | null = null;
 let renderedAutomationSummaryKey: string | null = null;
+let backendConnectionState: BackendConnectionState = "unknown";
+let backendHealthInFlight = false;
 let slayTheDataBusy = false;
+let slayTheDataBusyMessage: string | null = null;
 let lastSlayTheDataRuns: SlayTheDataRunSummary[] | null = null;
 const BRIDGE_REFRESH_MS = 1000;
 const SESSION_REFRESH_MS = 2000;
+const BACKEND_HEALTH_MS = 1000;
 const ACTIVE_SESSION_REFRESH_MS = 150;
 const COMMAND_PENDING_TIMEOUT_MS = 3500;
+const STS_SEED_ALPHABET = "0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ";
+const U64_MODULUS = 1n << 64n;
 
 function byId<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -231,17 +264,25 @@ function formatError(error: unknown): string {
 }
 
 function notifyError(error: unknown): void {
+  notify("Action failed", formatError(error), "notification");
+}
+
+function notifyInfo(message: string): void {
+  notify("Done", message, "notification notification-info");
+}
+
+function notify(titleText: string, messageText: string, className: string): void {
   const container = byId<HTMLDivElement>("notifications");
   const notification = document.createElement("section");
-  notification.className = "notification";
+  notification.className = className;
 
   const content = document.createElement("div");
   const title = document.createElement("div");
   title.className = "notification-title";
-  title.textContent = "Action failed";
+  title.textContent = titleText;
   const message = document.createElement("div");
   message.className = "notification-message";
-  message.textContent = formatError(error);
+  message.textContent = messageText;
   content.append(title, message);
 
   const close = document.createElement("button");
@@ -257,6 +298,16 @@ function notifyError(error: unknown): void {
 
 function run(task: () => Promise<void>): void {
   task().catch(notifyError);
+}
+
+function confirmAction(message: string): Promise<boolean> {
+  const dialog = byId<HTMLDialogElement>("confirm-dialog");
+  byId<HTMLParagraphElement>("confirm-dialog-message").textContent = message;
+  dialog.returnValue = "cancel";
+  dialog.showModal();
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => resolve(dialog.returnValue === "confirm"), { once: true });
+  });
 }
 
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -294,6 +345,36 @@ async function refreshBridges(): Promise<void> {
     bridge.value = selected;
   }
   syncBridgeControls();
+}
+
+async function refreshBackendHealth(): Promise<void> {
+  if (backendHealthInFlight) return;
+  backendHealthInFlight = true;
+  try {
+    const health = await api<HealthResponse>("/health");
+    backendConnectionState = health.ok ? "connected" : "disconnected";
+    renderBackendStatus();
+  } catch (error) {
+    backendConnectionState = "disconnected";
+    renderBackendStatus(formatError(error));
+  } finally {
+    backendHealthInFlight = false;
+  }
+}
+
+function renderBackendStatus(detail?: string): void {
+  const status = byId<HTMLDivElement>("backend-status");
+  status.className = `backend-status backend-status-${backendConnectionState}`;
+  if (backendConnectionState === "connected") {
+    status.textContent = "Backend connected";
+    status.title = "The UI can reach the live trace backend.";
+  } else if (backendConnectionState === "disconnected") {
+    status.textContent = "Backend disconnected";
+    status.title = detail || "The UI cannot reach the live trace backend.";
+  } else {
+    status.textContent = "Backend unknown";
+    status.title = "Waiting for backend health check.";
+  }
 }
 
 function bridgeOptionLabel(bridge: BridgeStatus): string {
@@ -362,9 +443,12 @@ function renderSession(session: SessionSnapshot): void {
   reconcilePendingCommand(session);
   currentSession = session;
   currentSessionRenderedAt = Date.now();
+  syncRunControlsFromSession(session);
   byId<HTMLButtonElement>("request").disabled = false;
   byId<HTMLButtonElement>("abandon").disabled =
     !session.latest_state || session.latest_state.phase === "menu";
+  byId<HTMLButtonElement>("clear-traces").disabled = false;
+  byId<HTMLButtonElement>("add-to-permanent-corpus").disabled = false;
   byId<HTMLDivElement>("status").textContent = statusSummary(session);
   byId<HTMLElement>("lifecycle").textContent = session.lifecycle;
   byId<HTMLElement>("trace").textContent = session.trace_path;
@@ -388,6 +472,21 @@ function renderSession(session: SessionSnapshot): void {
   syncBridgeControls();
   scheduleActiveSessionRefresh(session);
   refreshSessions().catch(console.error);
+}
+
+function syncRunControlsFromSession(session: SessionSnapshot): void {
+  const config = session.run_config;
+  if (!config) return;
+  byId<HTMLSelectElement>("character").value = config.character;
+  byId<HTMLInputElement>("ascension").value = String(config.ascension);
+  byId<HTMLInputElement>("slaythedata-ascension").value = String(config.ascension);
+  byId<HTMLInputElement>("seed").value = seedInputText(config.seed);
+}
+
+function seedInputText(seed: RunSeed): string {
+  if ("external" in seed) return seed.external;
+  if ("numeric" in seed) return stsSeedLongToString(String(seed.numeric));
+  return "";
 }
 
 function scheduleActiveSessionRefresh(session: SessionSnapshot): void {
@@ -730,17 +829,29 @@ function renderSlayTheData(session: SessionSnapshot): void {
   const canGuide = Boolean(session.latest_state && session.lifecycle !== "ended" && state.attached_run);
   const pending = isCommandPending() || slayTheDataBusy;
   const hasAdvisor = Boolean(state.advisor);
+  const canRetryGuidance = state.blocked?.reason_code === "slaythedata_no_live_action"
+    || state.blocked?.reason_code === "pending_card_reward"
+    || Boolean(state.blocked?.reason_code.startsWith("guided_"));
   byId<HTMLButtonElement>("slaythedata-send-next").disabled =
-    !canGuide || pending || Boolean(state.blocked) || !hasAdvisor;
+    !canGuide || pending || (Boolean(state.blocked) && !canRetryGuidance) || !hasAdvisor;
   byId<HTMLButtonElement>("slaythedata-auto-play").disabled =
-    !canGuide || pending || Boolean(state.blocked) || !hasAdvisor;
+    !canGuide || pending || (Boolean(state.blocked) && !canRetryGuidance) || !hasAdvisor;
+  byId<HTMLButtonElement>("slaythedata-pause").disabled =
+    !canGuide || state.auto_play_paused;
+  byId<HTMLButtonElement>("slaythedata-skip-shop").disabled =
+    !canGuide || state.blocked?.reason_code !== "shop_purchase_unavailable";
   byId<HTMLButtonElement>("slaythedata-search").disabled = pending;
+  byId<HTMLButtonElement>("slaythedata-search-current").disabled =
+    pending || !currentSessionSeedPlayed();
 
   const advisor = byId<HTMLDivElement>("slaythedata-advisor");
   advisor.replaceChildren();
   if (state.attached_run) {
     const run = document.createElement("div");
-    run.textContent = `Run ${state.attached_run.id} | seed ${state.attached_run.seed_played || "-"} | floor ${state.attached_run.floor_reached ?? "-"} | ${state.attached_run.victory ? "win" : "loss"}`;
+    const build = state.attached_run.build_version
+      ? ` | build ${state.attached_run.build_version}`
+      : "";
+    run.textContent = `Run ${state.attached_run.id} | seed ${state.attached_run.seed_played || "-"} | floor ${state.attached_run.floor_reached ?? "-"} | ${formatRunOutcome(state.attached_run.run_outcome)}${build}`;
     advisor.appendChild(run);
   }
   if (state.blocked) {
@@ -748,6 +859,12 @@ function renderSlayTheData(session: SessionSnapshot): void {
     blocked.className = "automation-blocked";
     blocked.textContent = `${state.blocked.reason_code}: ${state.blocked.message}`;
     advisor.appendChild(blocked);
+  }
+  if (state.last_message) {
+    const status = document.createElement("div");
+    status.className = "slaythedata-status";
+    status.textContent = state.last_message;
+    advisor.appendChild(status);
   }
   if (state.advisor) {
     const code = document.createElement("div");
@@ -760,8 +877,8 @@ function renderSlayTheData(session: SessionSnapshot): void {
     advisor.append(code, message);
   } else if (!state.attached_run) {
     advisor.textContent = "No advisor";
-  } else if (!state.blocked) {
-    advisor.textContent = state.last_message || "No remaining non-combat guidance";
+  } else if (!state.blocked && !state.last_message) {
+    advisor.append("No remaining non-combat guidance");
   }
 }
 
@@ -771,7 +888,8 @@ function defaultSlayTheData(): SlayTheDataSessionSnapshot {
     advisor: null,
     next_step_index: 0,
     blocked: null,
-    last_message: null
+    last_message: null,
+    auto_play_paused: false
   };
 }
 
@@ -1060,10 +1178,173 @@ async function startRun(): Promise<void> {
   renderSession(session);
 }
 
+function slayTheDataRunConfig(runSummary: SlayTheDataRunSummary): RunConfig {
+  const seed = slayTheDataSeedText(runSummary);
+  byId<HTMLInputElement>("seed").value = seed;
+  byId<HTMLInputElement>("ascension").value = String(runSummary.ascension_level ?? 0);
+  return {
+    character: "ironclad",
+    ascension: runSummary.ascension_level ?? 0,
+    seed: { external: seed }
+  };
+}
+
+function slayTheDataSeedText(runSummary: SlayTheDataRunSummary): string {
+  const seed = runSummary.seed_played?.trim();
+  if (!seed) {
+    throw new Error(`SlayTheData run ${runSummary.id} has no seed`);
+  }
+  return /^-?\d+$/.test(seed) ? stsSeedLongToString(seed) : seed;
+}
+
+function stsSeedLongToString(seed: string): string {
+  let value = BigInt(seed);
+  if (value < 0n) {
+    value += U64_MODULUS;
+  }
+  if (value === 0n) return "";
+  const radix = BigInt(STS_SEED_ALPHABET.length);
+  let encoded = "";
+  while (value !== 0n) {
+    const digit = Number(value % radix);
+    value /= radix;
+    encoded = STS_SEED_ALPHABET[digit] + encoded;
+  }
+  return encoded;
+}
+
+async function startSlayTheDataRun(runSummary: SlayTheDataRunSummary): Promise<SessionSnapshot> {
+  const bridge = selectedBridge();
+  if (!bridge?.connected) {
+    throw new Error("Select a connected bridge before starting a SlayTheData run");
+  }
+  if (currentSession?.latest_state?.phase === "game_over") {
+    renderSession(await api<SessionSnapshot>(
+      `/sessions/${currentSession.session_id}/abandon`,
+      { method: "POST", body: "{}" }
+    ));
+  }
+  return api<SessionSnapshot>("/sessions/start", {
+    method: "POST",
+    body: JSON.stringify({
+      bridge_id: bridge.id,
+      config: slayTheDataRunConfig(runSummary)
+    })
+  });
+}
+
+async function startAndAttachSlayTheDataRun(runSummary: SlayTheDataRunSummary): Promise<void> {
+  const session = await startSlayTheDataRun(runSummary);
+  renderSession(session);
+  await attachSlayTheDataRunToSession(session.session_id, runSummary);
+}
+
+async function attachSlayTheDataRun(runSummary: SlayTheDataRunSummary): Promise<void> {
+  if (!currentSession) {
+    throw new Error("Open a current session before attaching without starting");
+  }
+  await attachSlayTheDataRunToSession(currentSession.session_id, runSummary);
+}
+
+async function attachSlayTheDataRunToSession(
+  sessionId: string,
+  runSummary: SlayTheDataRunSummary
+): Promise<void> {
+  const session = await api<SessionSnapshot>(
+    `/sessions/${sessionId}/slaythedata/attach`,
+    { method: "POST", body: JSON.stringify({ run_id: runSummary.id }) }
+  );
+  const attachedRun = session.slaythedata?.attached_run;
+  if (attachedRun?.id === runSummary.id) {
+    Object.assign(runSummary, attachedRun);
+    if (lastSlayTheDataRuns) renderSlayTheDataResults(lastSlayTheDataRuns);
+  }
+  renderSession(session);
+}
+
+async function downloadSlayTheDataJson(runSummary: SlayTheDataRunSummary): Promise<void> {
+  const payload = await api<unknown>(`/slaythedata/runs/${runSummary.id}/json`);
+  const raw = payload && typeof payload === "object"
+    ? payload as Record<string, unknown>
+    : null;
+  const event = raw?.event && typeof raw.event === "object"
+    ? raw.event as Record<string, unknown>
+    : raw;
+  const buildVersion = event?.build_version;
+  runSummary.materialized = true;
+  runSummary.build_version = typeof buildVersion === "string" ? buildVersion : null;
+  if (lastSlayTheDataRuns) renderSlayTheDataResults(lastSlayTheDataRuns);
+  const jsonText = JSON.stringify(payload, null, 2);
+  const blob = new Blob([jsonText, "\n"], { type: "application/json" });
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.download = `slaythedata-run-${runSummary.id}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function markSlayTheDataRunBroken(runSummary: SlayTheDataRunSummary): Promise<void> {
+  const label = runSummary.seed_played ? `seed ${runSummary.seed_played}` : `run ${runSummary.id}`;
+  if (!await confirmAction(`Mark ${label} as broken and hide it from future SlayTheData searches?`)) {
+    return;
+  }
+  const broken = await api<BrokenSlayTheDataRun>(
+    `/slaythedata/runs/${runSummary.id}/mark-broken`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason: "marked broken from UI" })
+    }
+  );
+  if (lastSlayTheDataRuns) {
+    lastSlayTheDataRuns = lastSlayTheDataRuns.filter((run) => {
+      if (run.id === broken.run_id) return false;
+      return !broken.seed_played || run.seed_played !== broken.seed_played;
+    });
+    renderSlayTheDataResults(lastSlayTheDataRuns);
+  }
+  notifyInfo(`Marked ${label} broken.`);
+}
+
 async function loadSelectedSession(): Promise<void> {
   const sessionId = byId<HTMLSelectElement>("session").value;
   if (!sessionId) return;
   renderSession(await api<SessionSnapshot>(`/sessions/${sessionId}`));
+}
+
+async function clearOtherTraces(): Promise<void> {
+  if (!currentSession) return;
+  const confirmed = window.confirm(
+    `Delete all saved traces except ${currentSession.session_id}? This cannot be undone.`
+  );
+  if (!confirmed) return;
+  const response = await api<ClearTracesResponse>(
+    `/sessions/${currentSession.session_id}/clear-other-traces`,
+    { method: "POST", body: "{}" }
+  );
+  sessionStatuses = response.sessions;
+  await refreshSessions();
+  notifyInfo(`Deleted ${response.deleted} trace${response.deleted === 1 ? "" : "s"}.`);
+}
+
+async function addCurrentTraceToPermanentCorpus(): Promise<void> {
+  if (!currentSession) return;
+  const response = await api<PermanentTraceResponse>(
+    `/sessions/${currentSession.session_id}/add-to-permanent-corpus`,
+    { method: "POST", body: "{}" }
+  );
+  if (
+    response.run_id != null
+    && byId<HTMLSelectElement>("slaythedata-corpus-runs").value === "exclude"
+    && lastSlayTheDataRuns
+  ) {
+    lastSlayTheDataRuns = lastSlayTheDataRuns.filter((run) => run.id !== response.run_id);
+    renderSlayTheDataResults(lastSlayTheDataRuns);
+  }
+  const run = response.run_id == null ? "" : `; SlayTheData run ${response.run_id} marked added`;
+  notifyInfo(`Added trace to permanent corpus: ${response.path}${run}`);
 }
 
 async function refreshCurrentSession(): Promise<void> {
@@ -1120,7 +1401,7 @@ async function requestState(): Promise<void> {
 
 async function abandonRun(): Promise<void> {
   if (!currentSession) return;
-  if (!window.confirm(`Abandon run for ${currentSession.session_id}?`)) return;
+  if (!await confirmAction(`Abandon run for ${currentSession.session_id}?`)) return;
   renderSession(await api<SessionSnapshot>(`/sessions/${currentSession.session_id}/abandon`, {
     method: "POST",
     body: "{}"
@@ -1186,13 +1467,20 @@ async function automationAutoPlay(): Promise<void> {
   ));
 }
 
-function slayTheDataFilters(): Record<string, unknown> {
+function slayTheDataFilters(seedPlayed?: string): Record<string, unknown> {
   const outcome = byId<HTMLSelectElement>("slaythedata-outcome").value;
+  const neowBonus = byId<HTMLSelectElement>("slaythedata-neow-bonus").value;
+  const corpusRuns = byId<HTMLSelectElement>("slaythedata-corpus-runs").value;
+  const runId = byId<HTMLInputElement>("slaythedata-run-id").value.trim();
   return {
     character: "IRONCLAD",
+    run_id: runId === "" ? null : Number(runId),
     ascension: Number(byId<HTMLInputElement>("slaythedata-ascension").value),
     min_floor_reached: Number(byId<HTMLInputElement>("slaythedata-min-floor").value),
-    victory: outcome === "any" ? null : outcome === "win",
+    run_outcome: outcome === "any" ? null : outcome,
+    neow_bonus: neowBonus === "any" ? null : neowBonus,
+    include_corpus: corpusRuns === "include",
+    seed_played: seedPlayed ?? null,
     limit: Number(byId<HTMLInputElement>("slaythedata-limit").value),
     require_supported: true
   };
@@ -1207,40 +1495,170 @@ async function searchSlayTheData(): Promise<void> {
   renderSlayTheDataResults(response.runs);
 }
 
+async function searchCurrentSlayTheDataSeed(): Promise<void> {
+  const seedPlayed = currentSessionSeedPlayed();
+  if (!seedPlayed) {
+    throw new Error("Current session has no searchable seed");
+  }
+  if (currentSession?.run_config?.ascension != null) {
+    byId<HTMLInputElement>("slaythedata-ascension").value = String(currentSession.run_config.ascension);
+  }
+  const response = await api<SlayTheDataSearchResponse>("/slaythedata/search", {
+    method: "POST",
+    body: JSON.stringify(slayTheDataFilters(seedPlayed))
+  });
+  lastSlayTheDataRuns = response.runs;
+  renderSlayTheDataResults(response.runs);
+}
+
+function currentSessionSeedPlayed(): string | null {
+  const seed = currentSession?.run_config?.seed;
+  if (!seed) return null;
+  if ("external" in seed) {
+    return stsSeedStringToLongString(seed.external);
+  }
+  if ("numeric" in seed && Number.isSafeInteger(seed.numeric)) {
+    return String(seed.numeric);
+  }
+  return null;
+}
+
+function stsSeedStringToLongString(seed: string): string {
+  let value = 0n;
+  const radix = BigInt(STS_SEED_ALPHABET.length);
+  for (const raw of seed.toUpperCase().replace(/O/g, "0")) {
+    const digit = STS_SEED_ALPHABET.indexOf(raw);
+    if (digit < 0) {
+      throw new Error(`Current seed contains invalid STS seed character: ${raw}`);
+    }
+    value = (value * radix + BigInt(digit)) % U64_MODULUS;
+  }
+  const signedMax = (1n << 63n) - 1n;
+  if (value > signedMax) {
+    value -= U64_MODULUS;
+  }
+  return value.toString();
+}
+
+function formatRunOutcome(outcome: SlayTheDataRunSummary["run_outcome"]): string {
+  switch (outcome) {
+    case "win":
+      return "win";
+    case "loss":
+      return "loss";
+    case "abandon":
+      return "abandon";
+  }
+}
+
 function renderSlayTheDataResults(runs: SlayTheDataRunSummary[]): void {
   const container = byId<HTMLDivElement>("slaythedata-results");
+  const bridge = selectedBridge();
+  const renderKey = JSON.stringify({
+    runs,
+    busy: slayTheDataBusy,
+    busyMessage: slayTheDataBusyMessage,
+    sessionId: currentSession?.session_id ?? null,
+    bridgeId: bridge?.id ?? null,
+    bridgeConnected: bridge?.connected ?? false
+  });
+  if (container.dataset.renderKey === renderKey) return;
+  container.dataset.renderKey = renderKey;
   container.replaceChildren();
+  if (slayTheDataBusyMessage) {
+    const status = document.createElement("div");
+    status.className = "slaythedata-status";
+    status.textContent = slayTheDataBusyMessage;
+    container.appendChild(status);
+  }
   if (runs.length === 0) {
-    container.textContent = "No matching runs";
+    const empty = document.createElement("div");
+    empty.textContent = slayTheDataBusyMessage ? "Waiting for results..." : "No matching runs";
+    container.appendChild(empty);
     return;
   }
   for (const runSummary of runs) {
     const row = document.createElement("div");
     row.className = "slaythedata-run";
     const label = document.createElement("div");
-    label.textContent = `#${runSummary.id} ${runSummary.seed_played || "-"} | A${runSummary.ascension_level ?? "-"} | floor ${runSummary.floor_reached ?? "-"} | ${runSummary.victory ? "win" : "loss"} | ${runSummary.materialized ? "ready" : "not materialized"}`;
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = "Attach";
-    button.disabled = slayTheDataBusy || !currentSession || !runSummary.materialized;
-    button.title = runSummary.materialized
-      ? "Attach this materialized run"
-      : "Run must be exported into run_materialized_json before attach";
-    button.addEventListener("click", () => {
-      runSlayTheDataTask(async () => {
-        if (!currentSession) throw new Error("No session selected");
-        renderSession(await api<SessionSnapshot>(
-          `/sessions/${currentSession.session_id}/slaythedata/attach`,
-          { method: "POST", body: JSON.stringify({ run_id: runSummary.id }) }
-        ));
-      });
+    label.className = "slaythedata-run-summary";
+    const build = runSummary.materialized && runSummary.build_version
+      ? ` | build ${runSummary.build_version}`
+      : "";
+    label.textContent = `#${runSummary.id} ${runSummary.seed_played || "-"} | A${runSummary.ascension_level ?? "-"} | floor ${runSummary.floor_reached ?? "-"} | ${formatRunOutcome(runSummary.run_outcome)}${build} | ${runSummary.materialized ? "ready" : "not materialized"}`;
+    const actions = document.createElement("div");
+    actions.className = "slaythedata-run-actions";
+    const startButton = document.createElement("button");
+    startButton.type = "button";
+    startButton.textContent = "Start + attach";
+    const canStartRun = Boolean(runSummary.seed_played && selectedBridge()?.connected);
+    startButton.disabled = slayTheDataBusy || !canStartRun;
+    if (canStartRun) {
+      startButton.title = runSummary.materialized
+        ? "Start this SlayTheData seed and attach the run"
+        : "Start this SlayTheData seed, materialize it, and attach the run";
+    } else {
+      startButton.title = runSummary.seed_played
+        ? "Select a connected bridge to start this SlayTheData seed"
+        : "This SlayTheData run has no seed";
+    }
+    startButton.addEventListener("click", () => {
+      lastSlayTheDataRuns = [runSummary];
+      run(() => runSlayTheDataTask(() => startAndAttachSlayTheDataRun(runSummary)));
     });
-    row.append(label, button);
+
+    const attachButton = document.createElement("button");
+    attachButton.type = "button";
+    attachButton.textContent = "Attach";
+    attachButton.disabled = slayTheDataBusy || !currentSession;
+    attachButton.title = currentSession
+      ? "Attach this SlayTheData run to the current session"
+      : "Open or start a current session before attaching";
+    attachButton.addEventListener("click", () => {
+      run(() => runSlayTheDataTask(() => attachSlayTheDataRun(runSummary)));
+    });
+
+    const jsonButton = document.createElement("button");
+    jsonButton.type = "button";
+    jsonButton.textContent = "JSON";
+    jsonButton.disabled = slayTheDataBusy;
+    jsonButton.title = runSummary.materialized
+      ? "Download the raw SlayTheData run JSON"
+      : "Materialize and download the raw SlayTheData run JSON";
+    jsonButton.addEventListener("click", () => {
+      run(() => runSlayTheDataTask(() => downloadSlayTheDataJson(runSummary)));
+    });
+
+    const brokenButton = document.createElement("button");
+    brokenButton.type = "button";
+    brokenButton.textContent = "Broken";
+    brokenButton.disabled = slayTheDataBusy;
+    brokenButton.title = "Hide this SlayTheData seed from future search results";
+    brokenButton.addEventListener("click", () => {
+      run(() => runSlayTheDataTask(
+        () => markSlayTheDataRunBroken(runSummary),
+        "Marking SlayTheData seed broken..."
+      ));
+    });
+
+    actions.append(startButton, attachButton, jsonButton, brokenButton);
+    row.append(label, actions);
     container.appendChild(row);
   }
 }
 
-async function slayTheDataCommand(command: "send-next" | "auto-play"): Promise<void> {
+function renderSlayTheDataBusyState(): void {
+  if (!slayTheDataBusyMessage) return;
+  const container = byId<HTMLDivElement>("slaythedata-results");
+  delete container.dataset.renderKey;
+  container.replaceChildren();
+  const status = document.createElement("div");
+  status.className = "slaythedata-status";
+  status.textContent = slayTheDataBusyMessage;
+  container.appendChild(status);
+}
+
+async function slayTheDataCommand(command: "send-next" | "auto-play" | "pause" | "skip-shop"): Promise<void> {
   if (!currentSession) return;
   renderSession(await api<SessionSnapshot>(
     `/sessions/${currentSession.session_id}/slaythedata/${command}`,
@@ -1248,19 +1666,26 @@ async function slayTheDataCommand(command: "send-next" | "auto-play"): Promise<v
   ));
 }
 
-async function runSlayTheDataTask(task: () => Promise<void>): Promise<void> {
+async function runSlayTheDataTask(
+  task: () => Promise<void>,
+  busyMessage = "SlayTheData action pending..."
+): Promise<void> {
   if (slayTheDataBusy) return;
   slayTheDataBusy = true;
+  slayTheDataBusyMessage = busyMessage;
   if (currentSession) {
     renderSlayTheData(currentSession);
   }
   if (lastSlayTheDataRuns) {
     renderSlayTheDataResults(lastSlayTheDataRuns);
+  } else {
+    renderSlayTheDataBusyState();
   }
   try {
     await task();
   } finally {
     slayTheDataBusy = false;
+    slayTheDataBusyMessage = null;
     if (currentSession) {
       renderSlayTheData(currentSession);
     }
@@ -1290,6 +1715,8 @@ function clearSession(): void {
   byId<HTMLPreElement>("diff").textContent = "";
   byId<HTMLButtonElement>("request").disabled = true;
   byId<HTMLButtonElement>("abandon").disabled = true;
+  byId<HTMLButtonElement>("clear-traces").disabled = true;
+  byId<HTMLButtonElement>("add-to-permanent-corpus").disabled = true;
   for (const id of [
     "automation-plan",
     "automation-run-one",
@@ -1297,8 +1724,11 @@ function clearSession(): void {
     "automation-pause",
     "automation-resume",
     "automation-cancel",
+    "slaythedata-search-current",
     "slaythedata-send-next",
-    "slaythedata-auto-play"
+    "slaythedata-auto-play",
+    "slaythedata-pause",
+    "slaythedata-skip-shop"
   ]) {
     byId<HTMLButtonElement>(id).disabled = true;
   }
@@ -1324,6 +1754,9 @@ function syncBridgeControls(): void {
   byId<HTMLButtonElement>("start").disabled = !canUseSelected;
   byId<HTMLButtonElement>("kill-selected").disabled = !selected;
   byId<HTMLButtonElement>("kill-all").disabled = !hasBridge;
+  if (lastSlayTheDataRuns) {
+    renderSlayTheDataResults(lastSlayTheDataRuns);
+  }
 }
 
 async function killSelectedBridge(): Promise<void> {
@@ -1354,6 +1787,10 @@ async function killAllBridges(): Promise<void> {
 
 byId<HTMLButtonElement>("start").addEventListener("click", () => run(startRun));
 byId<HTMLButtonElement>("load-session").addEventListener("click", () => run(loadSelectedSession));
+byId<HTMLButtonElement>("clear-traces").addEventListener("click", () => run(clearOtherTraces));
+byId<HTMLButtonElement>("add-to-permanent-corpus").addEventListener("click", () => {
+  run(addCurrentTraceToPermanentCorpus);
+});
 byId<HTMLButtonElement>("request").addEventListener("click", () => run(requestState));
 byId<HTMLButtonElement>("abandon").addEventListener("click", () => run(abandonRun));
 byId<HTMLButtonElement>("kill-selected").addEventListener("click", () => run(killSelectedBridge));
@@ -1366,9 +1803,12 @@ byId<HTMLButtonElement>("automation-pause").addEventListener("click", () => {
 });
 byId<HTMLButtonElement>("automation-resume").addEventListener("click", () => run(() => automationCommand("resume")));
 byId<HTMLButtonElement>("automation-cancel").addEventListener("click", () => run(cancelAutomation));
-byId<HTMLButtonElement>("slaythedata-search").addEventListener("click", () => run(() => runSlayTheDataTask(searchSlayTheData)));
+byId<HTMLButtonElement>("slaythedata-search").addEventListener("click", () => run(() => runSlayTheDataTask(searchSlayTheData, "Searching SlayTheData...")));
+byId<HTMLButtonElement>("slaythedata-search-current").addEventListener("click", () => run(() => runSlayTheDataTask(searchCurrentSlayTheDataSeed, "Searching current seed...")));
 byId<HTMLButtonElement>("slaythedata-send-next").addEventListener("click", () => run(() => runSlayTheDataTask(() => slayTheDataCommand("send-next"))));
 byId<HTMLButtonElement>("slaythedata-auto-play").addEventListener("click", () => run(() => runSlayTheDataTask(() => slayTheDataCommand("auto-play"))));
+byId<HTMLButtonElement>("slaythedata-pause").addEventListener("click", () => run(() => slayTheDataCommand("pause")));
+byId<HTMLButtonElement>("slaythedata-skip-shop").addEventListener("click", () => run(() => slayTheDataCommand("skip-shop")));
 byId<HTMLSelectElement>("bridge").addEventListener("change", syncBridgeControls);
 byId<HTMLSelectElement>("automation-policy").addEventListener("change", rememberAutomationDraft);
 for (const id of ["automation-depth", "automation-width", "automation-limit"]) {
@@ -1376,10 +1816,13 @@ for (const id of ["automation-depth", "automation-width", "automation-limit"]) {
 }
 byId<HTMLDivElement>("automation-potions").addEventListener("change", rememberAutomationDraft);
 
+renderBackendStatus();
+refreshBackendHealth().catch(console.error);
 refreshBridges().catch(notifyError);
 refreshSessions()
   .then(loadLatestSessionOnStartup)
   .catch(notifyError);
+window.setInterval(() => refreshBackendHealth().catch(console.error), BACKEND_HEALTH_MS);
 window.setInterval(() => refreshBridgesIfIdle().catch(console.error), BRIDGE_REFRESH_MS);
 window.setInterval(() => refreshCurrentSessionIfIdle().catch(console.error), SESSION_REFRESH_MS);
 window.setInterval(updateStateFreshness, 1000);

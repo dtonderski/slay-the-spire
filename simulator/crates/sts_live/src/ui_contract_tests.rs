@@ -13,6 +13,7 @@ fn static_ui_exposes_stage_1_manual_controls() {
         "bridge",
         "session",
         "load-session",
+        "add-to-permanent-corpus",
         "character",
         "ascension",
         "seed",
@@ -33,19 +34,26 @@ fn static_ui_exposes_stage_1_manual_controls() {
         "automation-resume",
         "automation-cancel",
         "automation-summary",
+        "slaythedata-run-id",
         "slaythedata-ascension",
         "slaythedata-min-floor",
         "slaythedata-outcome",
+        "slaythedata-neow-bonus",
+        "slaythedata-corpus-runs",
         "slaythedata-limit",
         "slaythedata-search",
         "slaythedata-send-next",
         "slaythedata-auto-play",
+        "slaythedata-pause",
+        "slaythedata-skip-shop",
         "slaythedata-results",
         "slaythedata-advisor",
         "actions",
         "command-status",
         "session-alert",
         "notifications",
+        "confirm-dialog",
+        "confirm-dialog-message",
         "lifecycle",
         "trace",
         "fidelity",
@@ -126,6 +134,8 @@ fn static_ui_sends_backend_action_ids() {
     assert!(UI_MAIN_TS.contains("/slaythedata/${command}"));
     assert!(UI_MAIN_TS.contains("renderSlayTheData"));
     assert!(UI_MAIN_TS.contains("renderSlayTheDataResults"));
+    assert!(UI_MAIN_TS.contains("neow_bonus"));
+    assert!(UI_MAIN_TS.contains("run_id: runId === \"\" ? null : Number(runId)"));
     assert!(UI_MAIN_TS.contains("SlayTheDataSessionSnapshot"));
     assert!(UI_MAIN_TS.contains("not materialized"));
     assert!(UI_MAIN_TS.contains("runSummary.materialized"));
@@ -161,6 +171,13 @@ fn static_ui_sends_backend_action_ids() {
     assert!(UI_MAIN_TS.contains("loadLatestSessionOnStartup"));
     assert!(UI_MAIN_TS.contains(".then(loadLatestSessionOnStartup)"));
     assert!(UI_MAIN_TS.contains("notifyError"));
+    assert!(UI_MAIN_TS.contains("confirmAction"));
+    assert!(UI_INDEX_HTML.contains("confirm-dialog"));
+    assert!(UI_MAIN_TS.contains("lastSlayTheDataRuns = [runSummary]"));
+    assert!(UI_MAIN_TS
+        .contains("run(() => runSlayTheDataTask(() => startAndAttachSlayTheDataRun(runSummary)))"));
+    assert!(UI_MAIN_TS
+        .contains("run(() => runSlayTheDataTask(() => attachSlayTheDataRun(runSummary)))"));
     assert!(UI_MAIN_TS.contains("const sessionId = currentSession.session_id"));
     assert!(UI_MAIN_TS.contains("currentSession?.session_id === sessionId"));
     assert!(!UI_MAIN_TS.contains("catch(alert)"));

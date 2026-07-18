@@ -1,6 +1,5 @@
 use crate::{
     communication::{live_state_from_files, BridgeFiles},
-    fidelity::FidelityChecker,
     model::{
         AutomationJobSnapshot, BlockedState, FidelityKind, FidelityStatus, LiveError, LiveResult,
         LiveState, RunConfig, SessionId, SessionLifecycle, TraceRecord,
@@ -13,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub(super) fn trace_paths(trace_root: &Path) -> LiveResult<Vec<PathBuf>> {
+pub(crate) fn trace_paths(trace_root: &Path) -> LiveResult<Vec<PathBuf>> {
     if !trace_root.exists() {
         return Ok(Vec::new());
     }
@@ -28,14 +27,11 @@ pub(super) fn trace_paths(trace_root: &Path) -> LiveResult<Vec<PathBuf>> {
     Ok(paths)
 }
 
-pub(super) fn recover_session<F>(path: &Path, fidelity: &F) -> LiveResult<SessionData>
-where
-    F: FidelityChecker,
-{
+pub(crate) fn recover_session(path: &Path) -> LiveResult<SessionData> {
     let records = read_records(path)?;
     let recovered = recovered_session_data(&records)?;
     let (trace_writer, _) = TraceWriter::recover_existing(path)?;
-    let fidelity = fidelity.check_trace(path)?;
+    let fidelity = recovered_fidelity(&records);
     let lifecycle = recovered_lifecycle(&records, &fidelity, recovered.blocked.as_ref());
     Ok(SessionData {
         id: recovered.id,
@@ -50,6 +46,34 @@ where
         automation: AutomationJobSnapshot::default(),
         slaythedata: None,
     })
+}
+
+fn recovered_fidelity(records: &[TraceRecord]) -> FidelityStatus {
+    for (index, record) in records.iter().enumerate() {
+        if let TraceRecord::Error {
+            reason_code,
+            message,
+            ..
+        } = record
+        {
+            if reason_code == "fidelity_lost" {
+                return FidelityStatus {
+                    kind: FidelityKind::Lost,
+                    first_divergent_step: Some(index as u64),
+                    compact_diff: vec![message.clone()],
+                    message: Some(message.clone()),
+                };
+            }
+        }
+    }
+    FidelityStatus {
+        kind: FidelityKind::Unknown,
+        first_divergent_step: None,
+        compact_diff: Vec::new(),
+        message: Some(
+            "recovered session fidelity is stale; refresh before taking guided actions".to_owned(),
+        ),
+    }
 }
 
 pub(super) fn bump_next_session(next_session: &mut u64, id: &SessionId) {
