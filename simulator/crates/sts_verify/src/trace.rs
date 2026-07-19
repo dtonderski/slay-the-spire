@@ -44,6 +44,9 @@ pub struct TraceAction {
     pub command: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sent_at: Option<String>,
+    /// Explicit non-seeded run timer input used by time-gated target logic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playtime_seconds: Option<u32>,
 }
 
 /// Hand-authored manual corpus fixture (one JSON object per file or line).
@@ -125,10 +128,16 @@ fn parse_action_line(value: Value) -> Result<TraceAction, serde_json::Error> {
         .pointer("/action/command/command")
         .cloned()
         .unwrap_or(Value::Null);
+    let playtime_seconds = value
+        .pointer("/action/playtime_seconds")
+        .or_else(|| value.pointer("/action/command/playtime_seconds"))
+        .cloned()
+        .unwrap_or(Value::Null);
 
     serde_json::from_value(serde_json::json!({
         "step": step,
         "command": command,
+        "playtime_seconds": playtime_seconds,
     }))
 }
 
@@ -166,7 +175,7 @@ mod tests {
     #[test]
     fn parse_trace_accepts_live_trace_session_records() {
         let content = r#"{"type":"state","sequence":7,"state":{"raw":{"current_state":{"step":6,"received_at":"now","message":{"game_state":{"floor":0}}}}}}
-{"type":"action","sequence":7,"action":{"command":{"command":"CHOOSE 0","source_state_seq":6}}}"#;
+{"type":"action","sequence":7,"action":{"command":{"command":"CHOOSE 0","source_state_seq":6},"playtime_seconds":812}}"#;
 
         let lines = parse_trace_jsonl(content).expect("parses");
         assert_eq!(lines.len(), 2);
@@ -179,7 +188,10 @@ mod tests {
         ));
         assert!(matches!(
             &lines[1],
-            TraceLine::Action(action) if action.step == 6 && action.command == "CHOOSE 0"
+            TraceLine::Action(action)
+                if action.step == 6
+                    && action.command == "CHOOSE 0"
+                    && action.playtime_seconds == Some(812)
         ));
     }
 }

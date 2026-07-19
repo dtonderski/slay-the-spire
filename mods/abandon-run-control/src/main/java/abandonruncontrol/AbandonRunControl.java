@@ -8,7 +8,9 @@ import com.megacrit.cardcrawl.core.CardCrawlGame;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
 import com.megacrit.cardcrawl.saveAndContinue.SaveAndContinue;
 import communicationmod.CommandExecutor;
+import communicationmod.GameStateConverter;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 public final class AbandonRunControl {
     private static final String ABANDON = "abandon";
@@ -95,6 +97,18 @@ public final class AbandonRunControl {
             if (isInAbandonableRun() && !result.contains(ABANDON)) {
                 result.add(ABANDON);
             }
+            return result;
+        }
+    }
+
+    @SpirePatch(clz = GameStateConverter.class, method = "getGameState")
+    public static final class GameStatePlaytimePatch {
+        @SpirePostfixPatch
+        public static HashMap<String, Object> postfix(HashMap<String, Object> result) {
+            // Playtime is a non-seeded input used by Secret Portal eligibility.
+            // Recording it lets strict replay reproduce the gate without copying
+            // any deterministic gameplay or RNG state from the live game.
+            result.put("playtime_seconds", CardCrawlGame.playtime);
             return result;
         }
     }

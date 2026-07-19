@@ -405,3 +405,29 @@ Source inspected: target 12-18-2022 desktop-jar bytecode for
   Frail, Weak, or other player debuff. Session 29 also proves that the
   master-deck addition happens during the same end-turn transition, triggers
   Ceramic Fish's 9 gold immediately, and leaves a subsequent Defend at 5 block.
+
+## Time-gated event eligibility evidence
+
+Source inspected: target 12-18-2022 desktop-jar bytecode for
+`dungeons.AbstractDungeon`, `helpers.EventHelper`, and Secret Portal event
+selection.
+
+- A `?` room first consumes one `eventRng.random()` draw to resolve the room
+  type. Event generation then consumes another float for the shrine roll and an
+  inclusive integer draw for the event or shrine candidate index.
+- Secret Portal joins the Act 3 special-shrine candidates only when
+  `CardCrawlGame.playtime >= 800` seconds. This wall-clock gate is not a seeded
+  RNG property.
+- Session 29's floor-41 event proves that Secret Portal was eligible. At event
+  RNG counter 10, the room roll is `0.59727615`, the shrine roll is
+  `0.15961087`, and the candidate draw is index 2 without Secret Portal but
+  index 6 with it. Those candidates are Golden Shrine and Accursed Blacksmith
+  respectively, exactly reproducing the observed divergence.
+- Wall-clock trace timestamps cannot reproduce this gate because the target
+  timer pauses while the game is backgrounded. The live support mod now records
+  actual `CardCrawlGame.playtime` as `playtime_seconds`; seed-start verification
+  treats that one non-seeded value as an explicit transition input. It does not
+  hydrate deck, relic, RNG, phase, event, or other deterministic simulator state
+  from observations.
+- `session-29-act3-accursed-blacksmith-event-rng.jsonl` pins the complete
+  seed-start prefix through this time-gated event selection.

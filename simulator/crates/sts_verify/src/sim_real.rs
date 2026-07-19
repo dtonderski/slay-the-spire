@@ -318,6 +318,16 @@ fn is_delayed_map_choice(pre: &TraceState, action: &TraceAction) -> bool {
     screen_type(&pre.message) == Some("MAP") && command_choose_index(&action.command).is_some()
 }
 
+fn recorded_action_playtime_seconds(pre: &TraceState, action: &TraceAction) -> Option<u32> {
+    action.playtime_seconds.or_else(|| {
+        pre.message
+            .pointer("/game_state/playtime_seconds")
+            .and_then(Value::as_f64)
+            .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+            .map(|seconds| seconds.min(f64::from(u32::MAX)).floor() as u32)
+    })
+}
+
 struct SeedStartVerification {
     boundary: SeedStartBoundary,
     final_run_state: Option<RunState>,
@@ -389,6 +399,15 @@ fn verify_seed_start_transitions(
     }
 
     for (pre, action, post) in transitions {
+        // Target event eligibility can depend on CardCrawlGame.playtime (Secret
+        // Portal). This non-seeded clock is recorded as an explicit transition
+        // input; deterministic gameplay state is never hydrated from observations.
+        if let (Some(sim), Some(playtime_seconds)) = (
+            seed_sim.as_mut(),
+            recorded_action_playtime_seconds(pre, action),
+        ) {
+            sim.playtime_seconds = playtime_seconds;
+        }
         if let Some(game) = post.message.get("game_state") {
             if let Some(act3_boss) = game
                 .get("act_boss")
@@ -10825,6 +10844,28 @@ mod tests {
     use sts_core::relic::IRONCLAD_BOSS_RELIC_POOL;
 
     #[test]
+    fn recorded_action_input_drives_time_gated_run_state_without_gameplay_hydration() {
+        let pre = TraceState {
+            step: 10,
+            received_at: Some("wall clock is deliberately ignored".to_owned()),
+            message: json!({"game_state": {"playtime_seconds": 812.75}}),
+        };
+        let mut action = TraceAction {
+            step: 10,
+            command: "CHOOSE 0".to_owned(),
+            sent_at: None,
+            playtime_seconds: None,
+        };
+        assert_eq!(recorded_action_playtime_seconds(&pre, &action), Some(812));
+        action.playtime_seconds = Some(799);
+        assert_eq!(
+            recorded_action_playtime_seconds(&pre, &action),
+            Some(799),
+            "the explicit action input wins over its source state's copy"
+        );
+    }
+
+    #[test]
     fn dual_wield_hand_select_projects_only_attack_and_power_candidates() {
         let mut run = RunState::placeholder_seeded_ironclad(1, 0);
         let mut combat = CombatState::initial_fixture();
@@ -10865,11 +10906,13 @@ mod tests {
                 step: 814,
                 command: "CHOOSE 0".to_owned(),
                 sent_at: None,
+                playtime_seconds: None,
             }),
             TraceLine::Action(TraceAction {
                 step: 815,
                 command: "STATE".to_owned(),
                 sent_at: None,
+                playtime_seconds: None,
             }),
             TraceLine::State(TraceState {
                 step: 815,
@@ -10880,6 +10923,7 @@ mod tests {
                 step: 816,
                 command: "STATE".to_owned(),
                 sent_at: None,
+                playtime_seconds: None,
             }),
             TraceLine::State(TraceState {
                 step: 816,
@@ -11332,6 +11376,7 @@ mod tests {
             step: 1,
             command: "START IRONCLAD 0 -5230933468808623542".to_owned(),
             sent_at: None,
+            playtime_seconds: None,
         })
         .expect("start command")
         .expect("valid start command");

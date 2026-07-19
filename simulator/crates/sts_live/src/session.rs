@@ -580,7 +580,7 @@ where
                 !matches!(session.automation.state, AutomationState::SendingAction);
             session.trace_writer.append(&TraceRecord::Action {
                 sequence: state.sequence.saturating_sub(1),
-                action: action.clone(),
+                action: action_with_recorded_playtime(&action, &source_state),
             })?;
             append_bridge_response_and_state(session, "send_action", &state)?;
             session.latest_state = Some(state);
@@ -2907,6 +2907,23 @@ fn offered_relic_changes_card_reward_schedule(state: &LiveState) -> bool {
     expected != identity
 }
 
+fn action_with_recorded_playtime(action: &LegalAction, source_state: &LiveState) -> LegalAction {
+    let Some(seconds) = source_state
+        .raw
+        .pointer("/current_state/message/game_state/playtime_seconds")
+        .and_then(Value::as_f64)
+        .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+        .map(|seconds| seconds.min(u32::MAX as f64).floor() as u32)
+    else {
+        return action.clone();
+    };
+    let mut recorded = action.clone();
+    if let Some(command) = recorded.command.as_object_mut() {
+        command.insert("playtime_seconds".to_owned(), json!(seconds));
+    }
+    recorded
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2929,6 +2946,27 @@ mod tests {
             command: json!({}),
             disabled_reason: None,
         }
+    }
+
+    #[test]
+    fn recorded_action_carries_target_playtime_as_explicit_input() {
+        let source_state = LiveState {
+            sequence: 10,
+            phase: LivePhase::Map,
+            legal_actions: Vec::new(),
+            raw: json!({
+                "current_state": {
+                    "message": {"game_state": {"playtime_seconds": 812.75}}
+                }
+            }),
+        };
+        let mut choose = action(LegalActionKind::ChooseMapNode, "event");
+        choose.command = json!({"command": "CHOOSE 0"});
+
+        let recorded = action_with_recorded_playtime(&choose, &source_state);
+
+        assert_eq!(recorded.command["playtime_seconds"], json!(812));
+        assert!(choose.command.get("playtime_seconds").is_none());
     }
 
     #[test]
