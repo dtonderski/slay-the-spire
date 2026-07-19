@@ -672,6 +672,13 @@ where
         self.slaythedata_index.search(&filters)
     }
 
+    pub fn search_slaythedata_runs_with_corpus(
+        &self,
+        filters: SlayTheDataSearchFilters,
+    ) -> LiveResult<Vec<SlayTheDataRunSummary>> {
+        self.slaythedata_index.search_with_corpus(&filters, true)
+    }
+
     pub fn slaythedata_run_json(&self, run_id: i64) -> LiveResult<serde_json::Value> {
         let (_, raw_run_json) = self.slaythedata_index.load_or_materialize_run(run_id)?;
         Ok(serde_json::from_str(&raw_run_json)?)

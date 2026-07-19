@@ -534,6 +534,7 @@ fn apply_illegal_run_entries_to_source(
 
 struct SlayTheDataCollectRequest {
     filters: SlayTheDataSearchFilters,
+    include_corpus: bool,
     bridge_id: Option<BridgeId>,
     target_floor: u32,
     reset_bridge: bool,
@@ -572,6 +573,7 @@ struct SlayTheDataCollectContext<'a> {
 
 fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataCollectRequest> {
     let mut bridge_id = None;
+    let mut include_corpus = false;
     let mut target_floor = 60;
     let mut reset_bridge = true;
     let mut repair_packet_path = None;
@@ -618,6 +620,9 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
             }
             "--retry-journaled" => {
                 retry_journaled = true;
+            }
+            "--include-corpus" => {
+                include_corpus = true;
             }
             "--combat-search-transition-budget" => {
                 index += 1;
@@ -667,6 +672,7 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
     let filters = parse_slaythedata_filters(&filter_args)?;
     Ok(SlayTheDataCollectRequest {
         filters,
+        include_corpus,
         bridge_id,
         target_floor,
         reset_bridge,
@@ -1228,7 +1234,11 @@ where
     let requested_limit = request.filters.limit;
     let mut search_filters = request.filters.clone();
     search_filters.limit = requested_limit.saturating_add(journaled_run_ids.len());
-    let runs = match store.search_slaythedata_runs(search_filters) {
+    let runs = match if request.include_corpus {
+        store.search_slaythedata_runs_with_corpus(search_filters)
+    } else {
+        store.search_slaythedata_runs(search_filters)
+    } {
         Ok(runs) => runs,
         Err(error) => {
             let mut result = collect_terminal_json(
@@ -2324,7 +2334,7 @@ fn required<'a>(args: &'a [String], index: usize, flag: &str) -> LiveResult<&'a 
 }
 
 fn usage() -> String {
-    "usage: live-trace [--slaythedata-db PATH] bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace slaythedata search [filters]|json RUN_ID|attach SESSION RUN_ID|send-next SESSION|skip-shop SESSION|auto-play SESSION|resume SESSION [--target-floor N] [--journal PATH] [--permanent-root PATH] [--promote-floor N] [--no-promote]|agent [collect options]|collect [filters] [--bridge ID] [--target-floor N] [--reset-bridge|--no-reset-bridge] [--journal PATH] [--retry-journaled] [--permanent-root PATH] [--promote-floor N] [--no-promote] [--repair-packet PATH] [--combat-search-transition-budget N] [--combat-search-time-budget-ms N] [--combat-search-dedup] [--mark-illegal|--mark-illegal-source PATH]|mark-broken RUN_ID [REASON]|unmark-broken RUN_ID|mark-illegal PACKET_JSON [--source PATH]; live-trace fidelity status SESSION; live-trace trace path|verify SESSION; live-trace trace promote SESSION [--permanent-root PATH] [--min-floor N]".to_owned()
+    "usage: live-trace [--slaythedata-db PATH] bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace slaythedata search [filters]|json RUN_ID|attach SESSION RUN_ID|send-next SESSION|skip-shop SESSION|auto-play SESSION|resume SESSION [--target-floor N] [--journal PATH] [--permanent-root PATH] [--promote-floor N] [--no-promote]|agent [collect options]|collect [filters] [--bridge ID] [--target-floor N] [--reset-bridge|--no-reset-bridge] [--journal PATH] [--retry-journaled] [--include-corpus] [--permanent-root PATH] [--promote-floor N] [--no-promote] [--repair-packet PATH] [--combat-search-transition-budget N] [--combat-search-time-budget-ms N] [--combat-search-dedup] [--mark-illegal|--mark-illegal-source PATH]|mark-broken RUN_ID [REASON]|unmark-broken RUN_ID|mark-illegal PACKET_JSON [--source PATH]; live-trace fidelity status SESSION; live-trace trace path|verify SESSION; live-trace trace promote SESSION [--permanent-root PATH] [--min-floor N]".to_owned()
 }
 
 #[cfg(test)]
@@ -2938,6 +2948,7 @@ mod tests {
             "packet.json",
             "--mark-illegal",
             "--retry-journaled",
+            "--include-corpus",
             "--combat-search-transition-budget",
             "25000",
             "--combat-search-time-budget-ms",
@@ -2964,6 +2975,7 @@ mod tests {
         assert_eq!(request.filters.run_id, Some(11));
         assert_eq!(request.filters.min_floor_reached, 1);
         assert!(request.retry_journaled);
+        assert!(request.include_corpus);
         assert_eq!(request.automation_config.search_transition_budget, 25_000);
         assert_eq!(request.automation_config.search_time_budget_ms, 12_000);
         assert!(request.automation_config.deduplicate_search_states);
@@ -2985,6 +2997,7 @@ mod tests {
             Some(SlayTheDataRunOutcome::Win)
         );
         assert!(!request.retry_journaled);
+        assert!(!request.include_corpus);
         assert!(request.output.promote);
         assert_eq!(request.output.promote_floor, 11);
     }
