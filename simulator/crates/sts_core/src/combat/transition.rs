@@ -204,6 +204,11 @@ fn process_internal_queue(
         for follow_up in follow_ups {
             push_follow_up(&mut queue, follow_up);
         }
+        if next.hand_select.is_some() && !queue.is_empty() {
+            next.pending_after_hand_select_actions
+                .extend(queue.drain(..));
+            break;
+        }
     }
 
     flush_pending_player_spikes_damage_if_ready(&mut next);
@@ -2927,7 +2932,18 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
             hand_select.source_card_id,
             required_hand_select_index(&hand_select)?,
         ),
+    }?;
+    resume_actions_after_hand_select(state)
+}
+
+fn resume_actions_after_hand_select(state: &mut CombatState) -> SimResult<()> {
+    if state.pending_after_hand_select_actions.is_empty() {
+        return Ok(());
     }
+    let queue = std::mem::take(&mut state.pending_after_hand_select_actions);
+    let transition = process_internal_queue(state, queue)?;
+    *state = transition.state;
+    Ok(())
 }
 
 fn required_hand_select_index(hand_select: &crate::combat::HandSelectState) -> SimResult<usize> {
@@ -4136,14 +4152,64 @@ fn upgrade_combat_cards(state: &mut CombatState) {
 mod tests {
     use super::*;
     use crate::content::cards::{
-        ANGER_ID, BASH_ID, BLUDGEON_ID, DUAL_WIELD_ID, FEED_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID,
-        HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, INFERNAL_BLADE_ID, RAMPAGE_ID, SHRUG_IT_OFF_ID,
-        SHRUG_IT_OFF_PLUS_ID,
+        ANGER_ID, ARMAMENTS_ID, BASH_ID, BLUDGEON_ID, DUAL_WIELD_ID, FEED_ID, FIEND_FIRE_ID,
+        FIEND_FIRE_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, INFERNAL_BLADE_ID, RAMPAGE_ID,
+        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
     };
     use crate::content::monsters::{
         monster_state, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
     };
     use crate::rng::StsRng;
+
+    #[test]
+    fn hex_dazed_waits_for_armaments_hand_select_to_close() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.hex = 1;
+        state.card_random_rng = Some(StsRng::new(7_141_693_325_691_831_207));
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(4), SHRUG_IT_OFF_ID),
+            CardInstance::new(CardId::new(5), BASH_ID),
+            CardInstance::new(CardId::new(6), RAMPAGE_ID),
+        ];
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Armaments should open its hand-select screen");
+
+        assert!(next.hand_select.is_some());
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .filter(|card| card.content_id == DAZED_ID)
+                .count(),
+            0
+        );
+        assert_eq!(next.pending_after_hand_select_actions.len(), 1);
+
+        choose_hand_select(&mut next, 0).expect("Strike is selectable");
+        confirm_hand_select(&mut next).expect("Armaments selection should resolve");
+
+        assert!(next.pending_after_hand_select_actions.is_empty());
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .filter(|card| card.content_id == DAZED_ID)
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn violence_uses_card_group_add_to_random_spot_bounds() {

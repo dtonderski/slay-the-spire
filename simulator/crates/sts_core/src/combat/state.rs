@@ -1,4 +1,5 @@
 use crate::{
+    action::InternalAction,
     card::CardInstance,
     content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     content::character::IRONCLAD_A0_BASE_HP,
@@ -14,7 +15,7 @@ use crate::{
     ContentId, SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
 pub const BASE_PLAYER_ENERGY: i32 = 3;
 
@@ -61,6 +62,10 @@ pub struct CombatState {
     /// Awaiting player choice for Warcry, Armaments, Forethought, and similar hand-select effects.
     #[serde(default)]
     pub hand_select: Option<HandSelectState>,
+    /// Target actions queued behind an open hand-select screen. The action
+    /// manager does not resume these until the player closes the screen.
+    #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+    pub pending_after_hand_select_actions: VecDeque<InternalAction>,
     /// Awaiting player choice for draw-pile search effects such as Secret Technique.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draw_select: Option<DrawSelectState>,
@@ -480,6 +485,7 @@ impl CombatState {
             discovery_card_reward: None,
             discovery_source_card: None,
             hand_select: None,
+            pending_after_hand_select_actions: VecDeque::new(),
             draw_select: None,
             discard_select: None,
             exhaust_select: None,
