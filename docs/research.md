@@ -379,3 +379,23 @@ The simulator now keeps this distinction explicit: target map/list shuffles that
 - rare empty returns `Circlet`; boss empty returns `Red Circlet`
 - rejected relics are removed from their pool before retrying from the back of the same tier
 - spawn filters cover the target floor/shop gates, bottled-card availability gates, starter-relic upgrade gates, and the less-than-two campfire relic rule
+
+## Writhing Mass intent and Compulsive evidence
+
+Source inspected: target 12-18-2022 desktop-jar bytecode for
+`monsters.beyond.WrithingMass`, `powers.ReactivePower`,
+`actions.common.RollMoveAction`, and `monsters.AbstractMonster`.
+
+- Pre-battle setup applies both Compulsive (`ReactivePower`) and Malleable 3.
+- A nonlethal, positive, non-HP-loss/non-Thorns attack queues `RollMoveAction`.
+  The reroll consumes `aiRng.random(99)` immediately, so every qualifying hit
+  can replace the visible intent before the monster acts.
+- `AbstractMonster.setMove` appends the previous `nextMove` to move history.
+  Reactive rerolls therefore affect both RNG position and future history checks.
+- The first roll uses `<33` multi-hit, `<66` attack-and-block, otherwise
+  attack-and-debuff. Later rolls use the exact recursive ranges and probability
+  retries from `WrithingMass.getMove`.
+- At A0, attack-and-block deals 15 and gains 15 block; at A2+ both are 16.
+  Attack-and-debuff applies Weak 2 and Vulnerable 2.
+- Session 29 seed `316L5SYDLG5KU` pins three successive attack-triggered rerolls
+  followed by a 15-damage/15-block turn in the seed-start corpus regression.

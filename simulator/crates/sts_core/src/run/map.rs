@@ -23,14 +23,14 @@ use crate::{
         target_slaver_blue_next_intent_from_roll, target_slaver_red_next_intent_from_roll,
         target_small_acid_slime_entry_intent_from_bool, target_snake_plant_next_intent_from_roll,
         target_snecko_next_intent_from_roll, target_spike_slime_entry_intent_from_roll,
-        target_spire_growth_next_intent_from_roll, TargetEncounterSpawn, ACID_SLIME_ID,
-        ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_ORB_ID,
-        BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID, DAGGER_ID, DARKLING_ID, EXPLODER_ID,
-        FUNGI_BEAST_ID, GIANT_HEAD_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
-        GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID, LOUSE_CURL_STRENGTH, ORB_WALKER_ID,
-        RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
-        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SNAKE_PLANT_ID, SNECKO_ID,
-        SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID,
+        target_spire_growth_next_intent_from_roll, target_writhing_mass_next_intent_from_roll,
+        TargetEncounterSpawn, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE,
+        BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID, DAGGER_ID,
+        DARKLING_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID, GREEN_LOUSE_BITE_DAMAGE,
+        GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID,
+        LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID,
+        REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SNAKE_PLANT_ID,
+        SNECKO_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID, WRITHING_MASS_ID,
     },
     ids::CardId,
     map::{
@@ -440,6 +440,15 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
                 monster.moves_executed,
                 &monster.move_history,
                 roll,
+                combat.ascension,
+            );
+        } else if monster.content_id == WRITHING_MASS_ID {
+            monster.intent = target_writhing_mass_next_intent_from_roll(
+                true,
+                &monster.move_history,
+                false,
+                roll,
+                rng,
                 combat.ascension,
             );
         } else if monster.content_id == DARKLING_ID {

@@ -446,8 +446,10 @@ fn apply_internal_action(
             };
             let mut follow_ups = Vec::new();
             push_malleable_block_follow_up(
+                state,
                 &mut follow_ups,
                 info.target,
+                monster_content_id,
                 still_alive,
                 malleable_block,
             );
@@ -503,8 +505,10 @@ fn apply_internal_action(
             };
             let mut follow_ups = Vec::new();
             push_malleable_block_follow_up(
+                state,
                 &mut follow_ups,
                 info.target,
+                monster_content_id,
                 still_alive,
                 malleable_block,
             );
@@ -557,8 +561,10 @@ fn apply_internal_action(
                 };
                 let mut follow_ups = Vec::new();
                 push_malleable_block_follow_up(
+                    state,
                     &mut follow_ups,
                     target,
+                    monster_content_id,
                     still_alive,
                     malleable_block,
                 );
@@ -616,8 +622,10 @@ fn apply_internal_action(
             };
             let mut follow_ups = Vec::new();
             push_malleable_block_follow_up(
+                state,
                 &mut follow_ups,
                 info.target,
+                monster_content_id,
                 still_alive,
                 malleable_block,
             );
@@ -674,8 +682,10 @@ fn apply_internal_action(
             };
             let mut follow_ups = Vec::new();
             push_malleable_block_follow_up(
+                state,
                 &mut follow_ups,
                 info.target,
+                monster_content_id,
                 still_alive,
                 malleable_block,
             );
@@ -738,8 +748,10 @@ fn apply_internal_action(
             };
             let mut follow_ups = Vec::new();
             push_malleable_block_follow_up(
+                state,
                 &mut follow_ups,
                 info.target,
+                monster_content_id,
                 still_alive,
                 malleable_block,
             );
@@ -1499,7 +1511,14 @@ fn deal_attack_damage_to_all_living(
                 damage.malleable_block,
             )
         };
-        push_malleable_block_follow_up(&mut follow_ups, target, still_alive, malleable_block);
+        push_malleable_block_follow_up(
+            state,
+            &mut follow_ups,
+            target,
+            monster_content_id,
+            still_alive,
+            malleable_block,
+        );
         if still_alive && hand_drill_applies {
             apply_player_vulnerable_debuff(state, target, crate::relic::HAND_DRILL_VULNERABLE)?;
         }
@@ -1530,11 +1549,19 @@ fn apply_or_queue_spikes_to_player(
 }
 
 fn push_malleable_block_follow_up(
+    state: &mut CombatState,
     follow_ups: &mut Vec<InternalAction>,
     target: MonsterId,
+    monster_content_id: ContentId,
     still_alive: bool,
     malleable_block: Option<i32>,
 ) {
+    if still_alive
+        && malleable_block.is_some()
+        && monster_content_id == crate::content::monsters::WRITHING_MASS_ID
+    {
+        crate::combat::turn::reroll_writhing_mass_after_attack(state, target);
+    }
     if still_alive {
         if let Some(amount) = malleable_block {
             follow_ups.push(InternalAction::GainMonsterBlock { target, amount });

@@ -44,17 +44,19 @@ use crate::{
         target_slaver_red_next_intent_from_roll, target_small_acid_slime_followup_intent,
         target_snake_plant_next_intent_from_roll, target_snecko_next_intent_from_roll,
         target_spheric_guardian_next_intent_from_roll, target_spiker_next_intent_from_roll,
-        target_spire_growth_next_intent_from_roll, target_taskmaster_wound_count, ACID_SLIME_ID,
-        ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID,
-        BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID,
-        DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID, GREEN_LOUSE_BITE_DAMAGE,
-        GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_THIEF_ID,
-        GREMLIN_TSUNDERE_ID, GREMLIN_WARRIOR_ID, GREMLIN_WIZARD_ID, HEALER_ID, HEXAGHOST_ID,
-        JAW_WORM_ID, LAGAVULIN_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID, NEMESIS_ID,
-        ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
+        target_spire_growth_next_intent_from_roll, target_taskmaster_wound_count,
+        target_writhing_mass_next_intent_from_roll, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
+        ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
+        CENTURION_ID, CHAMP_ID, CHOSEN_ID, DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID,
+        GIANT_HEAD_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
+        GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_THIEF_ID, GREMLIN_TSUNDERE_ID,
+        GREMLIN_WARRIOR_ID, GREMLIN_WIZARD_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID,
+        LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID, NEMESIS_ID, ORB_WALKER_ID,
+        RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
         SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID, SNAKE_PLANT_ID,
         SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIKE_SLIME_L_SPIT_DAMAGE,
         SPIKE_SLIME_S_A7_HP_RANGE, SPIRE_GROWTH_ID, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
+        WRITHING_MASS_ID,
     },
     ids::MonsterId,
     rng::{SimulatorRng, StsRng},
@@ -1307,6 +1309,21 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 } else {
                     prepare_monster_intent_for_ascension(monster, state.ascension)
                 }
+            } else if monster.content_id == WRITHING_MASS_ID {
+                if let (Some(roll), Some(rng)) = (roll, state.monster_rng.as_mut()) {
+                    let target_history =
+                        &monster.move_history[..monster.move_history.len().saturating_sub(1)];
+                    target_writhing_mass_next_intent_from_roll(
+                        false,
+                        target_history,
+                        monster.has_siphoned,
+                        roll,
+                        rng,
+                        state.ascension,
+                    )
+                } else {
+                    prepare_monster_intent_for_ascension(monster, state.ascension)
+                }
             } else if monster.content_id == NEMESIS_ID {
                 if let Some(roll) = roll {
                     target_nemesis_next_intent_from_roll(
@@ -1659,6 +1676,34 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
             record_target_move(monster);
         }
     }
+}
+
+pub(super) fn reroll_writhing_mass_after_attack(state: &mut CombatState, actor_id: MonsterId) {
+    let Some(monster_index) = state
+        .monsters
+        .iter()
+        .position(|monster| monster.id == actor_id && monster.alive)
+    else {
+        return;
+    };
+    let Some(rng) = state.monster_rng.as_mut() else {
+        return;
+    };
+    let roll = rng.random_int(99);
+    let monster = &state.monsters[monster_index];
+    let target_history =
+        monster.move_history[..monster.move_history.len().saturating_sub(1)].to_vec();
+    let intent = target_writhing_mass_next_intent_from_roll(
+        false,
+        &target_history,
+        monster.has_siphoned,
+        roll,
+        rng,
+        state.ascension,
+    );
+    let monster = &mut state.monsters[monster_index];
+    monster.intent = intent;
+    record_target_move(monster);
 }
 
 fn is_half_dead_darkling(monster: &crate::MonsterState) -> bool {

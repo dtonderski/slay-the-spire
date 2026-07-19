@@ -410,7 +410,6 @@ const WRITHING_MASS_A2_MULTI_HIT_DAMAGE: i32 = 9;
 const WRITHING_MASS_MULTI_HIT_HITS: i32 = 3;
 const WRITHING_MASS_ATTACK_BLOCK_DAMAGE: i32 = 15;
 const WRITHING_MASS_A2_ATTACK_BLOCK_DAMAGE: i32 = 16;
-const WRITHING_MASS_ATTACK_BLOCK_BLOCK: i32 = 16;
 const WRITHING_MASS_ATTACK_DEBUFF_DAMAGE: i32 = 10;
 const WRITHING_MASS_A2_ATTACK_DEBUFF_DAMAGE: i32 = 12;
 const WRITHING_MASS_MALLEABLE: i32 = 3;
@@ -5746,8 +5745,169 @@ fn shelled_parasite_double_strike_intent(ascension: u8) -> MonsterIntent {
     }
 }
 
+/// Reproduces `WrithingMass.getMove`, including the extra RNG consumed by its
+/// recursive rejection branches. `first_move` is explicit because Compulsive
+/// can reroll the intent before the monster has executed its first turn.
+#[must_use]
+pub fn target_writhing_mass_next_intent_from_roll(
+    first_move: bool,
+    move_history: &[u8],
+    used_mega_debuff: bool,
+    roll: i32,
+    rng: &mut StsRng,
+    ascension: u8,
+) -> MonsterIntent {
+    if first_move {
+        return if roll < 33 {
+            writhing_mass_multi_hit_intent(ascension)
+        } else if roll < 66 {
+            writhing_mass_attack_block_intent(ascension)
+        } else {
+            writhing_mass_attack_debuff_intent(ascension)
+        };
+    }
+
+    if roll < 10 {
+        if !last_move(move_history, 0) {
+            return writhing_mass_big_hit_intent(ascension);
+        }
+        let reroll = rng.random_int_range(10, 99);
+        return target_writhing_mass_next_intent_from_roll(
+            false,
+            move_history,
+            used_mega_debuff,
+            reroll,
+            rng,
+            ascension,
+        );
+    }
+    if roll < 20 {
+        if !used_mega_debuff && !last_move(move_history, 4) {
+            return MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 };
+        }
+        if rng.random_float() < 0.1 {
+            return writhing_mass_big_hit_intent(ascension);
+        }
+        let reroll = rng.random_int_range(20, 99);
+        return target_writhing_mass_next_intent_from_roll(
+            false,
+            move_history,
+            used_mega_debuff,
+            reroll,
+            rng,
+            ascension,
+        );
+    }
+    if roll < 40 {
+        if !last_move(move_history, 3) {
+            return writhing_mass_attack_debuff_intent(ascension);
+        }
+        let reroll = if rng.random_float() < 0.4 {
+            rng.random_int(19)
+        } else {
+            rng.random_int_range(40, 99)
+        };
+        return target_writhing_mass_next_intent_from_roll(
+            false,
+            move_history,
+            used_mega_debuff,
+            reroll,
+            rng,
+            ascension,
+        );
+    }
+    if roll < 70 {
+        if !last_move(move_history, 1) {
+            return writhing_mass_multi_hit_intent(ascension);
+        }
+        if rng.random_float() < 0.3 {
+            return writhing_mass_attack_block_intent(ascension);
+        }
+        let reroll = rng.random_int(39);
+        return target_writhing_mass_next_intent_from_roll(
+            false,
+            move_history,
+            used_mega_debuff,
+            reroll,
+            rng,
+            ascension,
+        );
+    }
+    if !last_move(move_history, 2) {
+        return writhing_mass_attack_block_intent(ascension);
+    }
+    let reroll = rng.random_int(69);
+    target_writhing_mass_next_intent_from_roll(
+        false,
+        move_history,
+        used_mega_debuff,
+        reroll,
+        rng,
+        ascension,
+    )
+}
+
+fn writhing_mass_big_hit_intent(ascension: u8) -> MonsterIntent {
+    MonsterIntent::Attack {
+        damage: asc_damage(
+            ascension,
+            WRITHING_MASS_BIG_HIT_DAMAGE,
+            WRITHING_MASS_A2_BIG_HIT_DAMAGE,
+            2,
+        ),
+    }
+}
+
+fn writhing_mass_multi_hit_intent(ascension: u8) -> MonsterIntent {
+    MonsterIntent::AttackMultiple {
+        damage: asc_damage(
+            ascension,
+            WRITHING_MASS_MULTI_HIT_DAMAGE,
+            WRITHING_MASS_A2_MULTI_HIT_DAMAGE,
+            2,
+        ),
+        hits: WRITHING_MASS_MULTI_HIT_HITS,
+    }
+}
+
+fn writhing_mass_attack_block_intent(ascension: u8) -> MonsterIntent {
+    let damage = asc_damage(
+        ascension,
+        WRITHING_MASS_ATTACK_BLOCK_DAMAGE,
+        WRITHING_MASS_A2_ATTACK_BLOCK_DAMAGE,
+        2,
+    );
+    MonsterIntent::AttackAndBlock {
+        damage,
+        block: damage,
+    }
+}
+
+fn writhing_mass_attack_debuff_intent(ascension: u8) -> MonsterIntent {
+    MonsterIntent::AttackApplyPlayerWeakAndVulnerable {
+        damage: asc_damage(
+            ascension,
+            WRITHING_MASS_ATTACK_DEBUFF_DAMAGE,
+            WRITHING_MASS_A2_ATTACK_DEBUFF_DAMAGE,
+            2,
+        ),
+        weak: 2,
+        vulnerable: 2,
+    }
+}
+
 #[must_use]
 pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<u8> {
+    if content_id == WRITHING_MASS_ID {
+        return match intent {
+            MonsterIntent::Attack { .. } => Some(0),
+            MonsterIntent::AttackMultiple { .. } => Some(1),
+            MonsterIntent::AttackAndBlock { .. } => Some(2),
+            MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. } => Some(3),
+            MonsterIntent::ApplyPlayerFrailAndWeak { .. } => Some(4),
+            _ => None,
+        };
+    }
     if content_id == GUARDIAN_ID {
         return match intent {
             MonsterIntent::GuardianCloseUp { .. } => Some(1),
@@ -6951,41 +7111,10 @@ fn public_backlog_monster_intent(
             ),
         },
         WRITHING_MASS_ID => match moves_executed % 5 {
-            0 => MonsterIntent::Attack {
-                damage: asc_damage(
-                    ascension,
-                    WRITHING_MASS_BIG_HIT_DAMAGE,
-                    WRITHING_MASS_A2_BIG_HIT_DAMAGE,
-                    2,
-                ),
-            },
-            1 => MonsterIntent::AttackMultiple {
-                damage: asc_damage(
-                    ascension,
-                    WRITHING_MASS_MULTI_HIT_DAMAGE,
-                    WRITHING_MASS_A2_MULTI_HIT_DAMAGE,
-                    2,
-                ),
-                hits: WRITHING_MASS_MULTI_HIT_HITS,
-            },
-            2 => MonsterIntent::AttackAndBlock {
-                damage: asc_damage(
-                    ascension,
-                    WRITHING_MASS_ATTACK_BLOCK_DAMAGE,
-                    WRITHING_MASS_A2_ATTACK_BLOCK_DAMAGE,
-                    2,
-                ),
-                block: WRITHING_MASS_ATTACK_BLOCK_BLOCK,
-            },
-            3 => MonsterIntent::AttackApplyPlayerWeak {
-                damage: asc_damage(
-                    ascension,
-                    WRITHING_MASS_ATTACK_DEBUFF_DAMAGE,
-                    WRITHING_MASS_A2_ATTACK_DEBUFF_DAMAGE,
-                    2,
-                ),
-                weak: 2,
-            },
+            0 => writhing_mass_big_hit_intent(ascension),
+            1 => writhing_mass_multi_hit_intent(ascension),
+            2 => writhing_mass_attack_block_intent(ascension),
+            3 => writhing_mass_attack_debuff_intent(ascension),
             _ => MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 },
         },
         CORRUPT_HEART_ID => match moves_executed % 4 {
@@ -9432,6 +9561,11 @@ pub fn apply_monster_intent_with_card_rng(
             } else {
                 frail
             };
+            if monster.content_id == WRITHING_MASS_ID {
+                // This field is the existing per-monster one-shot move marker.
+                // For Writhing Mass it mirrors `usedMegaDebuff`.
+                monster.has_siphoned = true;
+            }
             apply_player_frail(&mut player.powers, applied_frail);
             crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
             (0, 0)
@@ -10680,6 +10814,84 @@ mod tests {
                 id: "Malleable",
                 amount: WRITHING_MASS_MALLEABLE,
             }]
+        );
+    }
+
+    #[test]
+    fn writhing_mass_source_move_table_uses_exact_thresholds_and_a2_values() {
+        let mut rng = StsRng::new(1);
+        assert_eq!(
+            target_writhing_mass_next_intent_from_roll(true, &[], false, 32, &mut rng, 0),
+            MonsterIntent::AttackMultiple { damage: 7, hits: 3 }
+        );
+        assert_eq!(
+            target_writhing_mass_next_intent_from_roll(true, &[], false, 33, &mut rng, 0),
+            MonsterIntent::AttackAndBlock {
+                damage: 15,
+                block: 15,
+            }
+        );
+        assert_eq!(
+            target_writhing_mass_next_intent_from_roll(true, &[], false, 66, &mut rng, 2),
+            MonsterIntent::AttackApplyPlayerWeakAndVulnerable {
+                damage: 12,
+                weak: 2,
+                vulnerable: 2,
+            }
+        );
+        assert_eq!(
+            target_writhing_mass_next_intent_from_roll(false, &[], false, 9, &mut rng, 2),
+            MonsterIntent::Attack { damage: 38 }
+        );
+        assert_eq!(
+            target_writhing_mass_next_intent_from_roll(false, &[], false, 10, &mut rng, 0),
+            MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 }
+        );
+        assert_eq!(
+            target_writhing_mass_next_intent_from_roll(false, &[], false, 20, &mut rng, 0),
+            MonsterIntent::AttackApplyPlayerWeakAndVulnerable {
+                damage: 10,
+                weak: 2,
+                vulnerable: 2,
+            }
+        );
+        assert_eq!(
+            target_writhing_mass_next_intent_from_roll(false, &[], false, 40, &mut rng, 0),
+            MonsterIntent::AttackMultiple { damage: 7, hits: 3 }
+        );
+        assert_eq!(
+            target_writhing_mass_next_intent_from_roll(false, &[], false, 70, &mut rng, 2),
+            MonsterIntent::AttackAndBlock {
+                damage: 16,
+                block: 16,
+            }
+        );
+    }
+
+    #[test]
+    fn writhing_mass_move_bytes_match_target_next_move_ids() {
+        assert_eq!(
+            target_move_byte(WRITHING_MASS_ID, writhing_mass_big_hit_intent(0)),
+            Some(0)
+        );
+        assert_eq!(
+            target_move_byte(WRITHING_MASS_ID, writhing_mass_multi_hit_intent(0)),
+            Some(1)
+        );
+        assert_eq!(
+            target_move_byte(WRITHING_MASS_ID, writhing_mass_attack_block_intent(0)),
+            Some(2)
+        );
+        assert_eq!(
+            target_move_byte(WRITHING_MASS_ID, writhing_mass_attack_debuff_intent(0)),
+            Some(3)
+        );
+        assert_eq!(
+            target_move_byte(
+                WRITHING_MASS_ID,
+                MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 }
+            ),
+            Some(4)
         );
     }
 
