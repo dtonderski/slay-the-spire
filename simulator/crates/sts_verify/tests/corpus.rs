@@ -9,9 +9,9 @@ use sts_core::{
     ExordiumMapChoiceStep, RoomKind,
 };
 use sts_verify::{
-    canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
+    assess_verification, canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
     verify_communication_mod_trace, verify_seed_start_communication_mod_trace, ManualFixture,
-    VerificationMode,
+    VerificationCorpusManifest, VerificationMode, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
 #[derive(Debug, serde::Deserialize)]
@@ -945,6 +945,7 @@ fn test_m32c_20260625_retained_trace_records_32b_shop_reward_deck_evidence() {
     assert!(trace.lines.iter().all(|line| match line {
         sts_verify::TraceLine::State(state) => state.step <= 541,
         sts_verify::TraceLine::Action(action) => action.step <= 541,
+        sts_verify::TraceLine::Error(error) => error.step <= 541,
         sts_verify::TraceLine::Metadata(_) => true,
     }));
 
@@ -983,6 +984,7 @@ fn test_m33_manual01_selected_neow_random_rare_card_prefix() {
     assert!(trace.lines.iter().all(|line| match line {
         sts_verify::TraceLine::State(state) => state.step <= 4,
         sts_verify::TraceLine::Action(action) => action.step <= 4,
+        sts_verify::TraceLine::Error(error) => error.step <= 4,
         sts_verify::TraceLine::Metadata(_) => true,
     }));
 
@@ -1056,6 +1058,7 @@ fn test_m33_m290005_selected_neow_remove_card_grid_prefix() {
     assert!(trace.lines.iter().all(|line| match line {
         sts_verify::TraceLine::State(state) => state.step <= 7,
         sts_verify::TraceLine::Action(action) => action.step <= 7,
+        sts_verify::TraceLine::Error(error) => error.step <= 7,
         sts_verify::TraceLine::Metadata(_) => true,
     }));
 
@@ -1374,20 +1377,37 @@ fn permanent_trace_entries_pass_seed_start() {
     if !dir.exists() {
         return;
     }
+    let manifest_content =
+        load_corpus_file("permanent_traces.json").expect("permanent trace manifest is readable");
+    let manifest: VerificationCorpusManifest =
+        serde_json::from_str(&manifest_content).expect("permanent trace manifest parses");
+    assert_eq!(manifest.schema, VERIFICATION_CORPUS_MANIFEST_SCHEMA);
 
-    let mut entries = fs::read_dir(&dir)
+    let mut actual_traces = fs::read_dir(&dir)
         .expect("permanent trace directory is readable")
         .map(|entry| entry.expect("permanent trace entry is readable").path())
         .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"))
+        .map(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .expect("permanent trace filename is UTF-8")
+                .to_owned()
+        })
         .collect::<Vec<_>>();
-    entries.sort();
-
-    assert!(
-        !entries.is_empty(),
-        "permanent trace directory should contain at least one .jsonl trace"
+    actual_traces.sort();
+    let mut declared_traces = manifest
+        .entries
+        .iter()
+        .map(|entry| entry.trace.clone())
+        .collect::<Vec<_>>();
+    declared_traces.sort();
+    assert_eq!(
+        declared_traces, actual_traces,
+        "permanent trace manifest must exactly match the corpus directory"
     );
 
-    for path in entries {
+    for entry in manifest.entries {
+        let path = dir.join(&entry.trace);
         let display_path = path.display().to_string();
         let content = fs::read_to_string(&path)
             .unwrap_or_else(|err| panic!("permanent trace is readable: {display_path}: {err}"));
@@ -1398,6 +1418,47 @@ fn permanent_trace_entries_pass_seed_start() {
             report.unexpected_diffs.is_empty(),
             "{display_path} unexpected diffs: {:?}",
             report.unexpected_diffs
+        );
+        assert_eq!(
+            report.action_dispositions.len(),
+            report.total_actions,
+            "{display_path} must assign one ledger entry to every trace action"
+        );
+        let integrity = report
+            .action_integrity
+            .as_ref()
+            .unwrap_or_else(|| panic!("{display_path} action-integrity evidence"));
+        assert_eq!(
+            integrity.applicable_actions + integrity.rejected_actions,
+            report.total_actions,
+            "{display_path} action-integrity scope must classify rejected commands explicitly"
+        );
+        assert_eq!(
+            integrity.disposed_actions, integrity.applicable_actions,
+            "{display_path} has unclassified trace actions: {:?}",
+            report
+                .action_dispositions
+                .iter()
+                .filter(|entry| entry.disposition == sts_verify::ActionDispositionKind::Unclassified)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            integrity.duplicate_dispositions, 0,
+            "{display_path} has duplicate or orphan verifier dispositions"
+        );
+        assert_eq!(
+            integrity.unresolved_transient_assertions, 0,
+            "{display_path} has unresolved transient assertions"
+        );
+        let outcome = assess_verification(Ok(&report), &entry.expectation, Some(integrity));
+        assert!(
+            outcome.is_success(),
+            "{display_path} typed outcome: {outcome:#?}; ignored actions: {:?}",
+            report
+                .action_dispositions
+                .iter()
+                .filter(|entry| entry.disposition == sts_verify::ActionDispositionKind::IgnoredTail)
+                .collect::<Vec<_>>()
         );
     }
 }

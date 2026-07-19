@@ -106,6 +106,8 @@ mod tests {
             mode: VerificationMode::SeedStart,
             total_actions: 1,
             ignored_tail_actions: 0,
+            action_dispositions: Vec::new(),
+            action_integrity: None,
             verified: Vec::new(),
             unsupported: Vec::new(),
             unexpected_diffs: vec![diff],
@@ -123,6 +125,8 @@ mod tests {
             mode: VerificationMode::SeedStart,
             total_actions: 2,
             ignored_tail_actions: 0,
+            action_dispositions: Vec::new(),
+            action_integrity: None,
             verified: Vec::new(),
             unsupported: Vec::new(),
             unexpected_diffs: vec![UnexpectedDiff {

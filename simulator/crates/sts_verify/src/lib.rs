@@ -26,8 +26,9 @@ pub use normalize::{
     CanonicalMonsterObservation, CanonicalRunObservation,
 };
 pub use outcome::{
-    assess_verification, ExpectedBoundary, RetainedPrefixEndpoint, VerificationExpectation,
-    VerificationFailure, VerificationIntegrity, VerificationOutcome,
+    assess_verification, ExpectedBoundary, RetainedPrefixEndpoint, VerificationCorpusEntry,
+    VerificationCorpusManifest, VerificationExpectation, VerificationFailure,
+    VerificationIntegrity, VerificationOutcome, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 pub use seed::{
     sts_seed_long_to_string, sts_seed_string_to_long, try_sts_seed_string_to_long,
@@ -36,9 +37,10 @@ pub use seed::{
 pub use sim_real::{
     verify_communication_mod_trace, verify_communication_mod_trace_with_mode,
     verify_seed_start_communication_mod_trace,
-    verify_seed_start_communication_mod_trace_with_options, RngBoundary, SeedStartBoundary,
-    SeedStartReport, SeedStartVerifyOptions, SimRealError, SimRealReport, StartRunCommand,
-    UnexpectedDiff, UnsupportedTransition, VerificationMode, VerifiedTransition,
+    verify_seed_start_communication_mod_trace_with_options, ActionDisposition,
+    ActionDispositionKind, RngBoundary, SeedStartBoundary, SeedStartReport, SeedStartVerifyOptions,
+    SimRealError, SimRealReport, StartRunCommand, UnexpectedDiff, UnsupportedTransition,
+    VerificationMode, VerifiedTransition,
 };
 pub use slaythedata::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,
@@ -56,7 +58,7 @@ pub use slaythedata::{
 };
 pub use trace::{
     import_communication_mod_trace, parse_trace_jsonl, CommunicationModTrace, ManualFixture,
-    TraceAction, TraceLine, TraceMetadata, TraceState,
+    TraceAction, TraceError, TraceLine, TraceMetadata, TraceState,
 };
 
 use std::path::{Path, PathBuf};

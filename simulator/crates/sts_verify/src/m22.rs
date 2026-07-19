@@ -198,7 +198,7 @@ fn captured_first_three_combat_entries(lines: &[TraceLine]) -> Vec<CapturedComba
                 seen_floors.push(entry.floor);
                 entries.push(entry);
             }
-            TraceLine::Metadata(_) => {}
+            TraceLine::Metadata(_) | TraceLine::Error(_) => {}
         }
     }
 

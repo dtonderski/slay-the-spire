@@ -10,6 +10,13 @@ pub enum TraceLine {
     Metadata(TraceMetadata),
     State(TraceState),
     Action(TraceAction),
+    Error(TraceError),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceError {
+    pub step: u32,
+    pub message: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -81,6 +88,7 @@ pub fn parse_trace_jsonl(content: &str) -> Result<Vec<TraceLine>, serde_json::Er
             "metadata" => lines.push(TraceLine::Metadata(serde_json::from_value(value)?)),
             "state" => lines.push(TraceLine::State(parse_state_line(value)?)),
             "action" => lines.push(TraceLine::Action(parse_action_line(value)?)),
+            "error" => lines.push(TraceLine::Error(serde_json::from_value(value)?)),
             _ => {}
         }
     }
@@ -192,6 +200,19 @@ mod tests {
                 if action.step == 6
                     && action.command == "CHOOSE 0"
                     && action.playtime_seconds == Some(812)
+        ));
+    }
+
+    #[test]
+    fn parse_trace_preserves_target_command_errors() {
+        let content = r#"{"type":"action","step":7,"command":"POTION USE 1"}
+{"type":"error","step":7,"message":{"error":"Potion cannot be used"}}"#;
+
+        let lines = parse_trace_jsonl(content).expect("parses");
+        assert!(matches!(
+            &lines[1],
+            TraceLine::Error(error)
+                if error.step == 7 && error.message["error"] == "Potion cannot be used"
         ));
     }
 }

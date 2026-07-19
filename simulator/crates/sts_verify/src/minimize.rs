@@ -141,6 +141,7 @@ pub fn filter_trace_lines(lines: &[TraceLine], max_step: u32) -> Vec<TraceLine> 
             TraceLine::Metadata(_) => false,
             TraceLine::State(state) => state.step <= max_step,
             TraceLine::Action(action) => action.step <= max_step,
+            TraceLine::Error(error) => error.step <= max_step,
         })
         .cloned()
         .collect()
@@ -294,6 +295,7 @@ mod tests {
         assert!(reparsed.lines.iter().all(|line| match line {
             TraceLine::State(state) => state.step <= report.failure_step,
             TraceLine::Action(action) => action.step <= report.failure_step,
+            TraceLine::Error(error) => error.step <= report.failure_step,
             TraceLine::Metadata(_) => true,
         }));
     }

@@ -5,11 +5,12 @@ use std::{
 };
 
 use sts_verify::{
-    canonical_diff, corpus_path, import_communication_mod_trace, import_slaythedata_jsonl_line,
-    import_slaythedata_run_json, load_corpus_file, minimize_communication_mod_trace,
-    slaythedata_replay_plan, slaythedata_replay_preflight,
+    assess_verification, canonical_diff, corpus_path, import_communication_mod_trace,
+    import_slaythedata_jsonl_line, import_slaythedata_run_json, load_corpus_file,
+    minimize_communication_mod_trace, slaythedata_replay_plan, slaythedata_replay_preflight,
     verify_communication_mod_trace_with_mode, MinimizeError, SlayTheDataDiagnosticSeverity,
-    VerificationMode,
+    VerificationCorpusManifest, VerificationExpectation, VerificationMode, VerificationOutcome,
+    VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
 fn main() {
@@ -124,6 +125,23 @@ fn main() {
             println!("verified={}", report.verified.len());
             println!("unsupported={}", report.unsupported.len());
             println!("unexpected_diffs={}", report.unexpected_diffs.len());
+            if let Some(integrity) = &report.action_integrity {
+                println!("applicable_actions={}", integrity.applicable_actions);
+                println!("disposed_actions={}", integrity.disposed_actions);
+                println!("target_rejected_actions={}", integrity.rejected_actions);
+                println!(
+                    "duplicate_dispositions={}",
+                    integrity.duplicate_dispositions
+                );
+                println!(
+                    "unresolved_transient_assertions={}",
+                    integrity.unresolved_transient_assertions
+                );
+                println!(
+                    "terminal_state_observed={}",
+                    integrity.terminal_state_observed
+                );
+            }
             if let Some(seed_start) = &report.seed_start {
                 println!("seed_start.failed={}", seed_start.failed);
                 println!(
@@ -585,15 +603,27 @@ fn main() {
 #[derive(Debug)]
 struct TraceStatusEntry {
     trace: String,
+    expectation: String,
     verified_floor: u32,
     total_actions: usize,
     verified: usize,
     raw_diffs: usize,
     unsupported: usize,
     ignored_tail: usize,
-    status: &'static str,
+    applicable_actions: usize,
+    disposed_actions: usize,
+    rejected_actions: usize,
+    duplicate_dispositions: usize,
+    unresolved_transient_assertions: usize,
+    status: String,
     boundary: String,
     frontier: String,
+}
+
+struct StatusTraceInput {
+    path: PathBuf,
+    trace: String,
+    expectation: VerificationExpectation,
 }
 
 fn status_path(input: &str) -> PathBuf {
@@ -609,38 +639,38 @@ fn trace_status_entries(
     root: &Path,
     mode: VerificationMode,
 ) -> Result<Vec<TraceStatusEntry>, String> {
-    let mut paths = fs::read_dir(root)
-        .map_err(|err| err.to_string())?
-        .map(|entry| {
-            entry
-                .map(|entry| entry.path())
-                .map_err(|err| err.to_string())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    paths.retain(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"));
-    paths.sort();
-
+    let inputs = status_trace_inputs(root)?;
     let mut entries = Vec::new();
-    for path in paths {
-        let trace_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("<unknown>")
-            .to_owned();
-        let content = match fs::read_to_string(&path) {
+    for input in inputs {
+        let expectation = expectation_label(&input.expectation);
+        let content = match fs::read_to_string(&input.path) {
             Ok(content) => content,
             Err(err) => {
-                entries.push(trace_error_entry(trace_name, format!("read error: {err}")));
+                entries.push(trace_error_entry(
+                    input.trace,
+                    expectation,
+                    format!("read error: {err}"),
+                ));
                 continue;
             }
         };
         let report = match verify_communication_mod_trace_with_mode(&content, mode) {
             Ok(report) => report,
             Err(err) => {
-                entries.push(trace_error_entry(trace_name, format!("parse error: {err}")));
+                entries.push(trace_error_entry(
+                    input.trace,
+                    expectation,
+                    format!("parse error: {err}"),
+                ));
                 continue;
             }
         };
+        let outcome = assess_verification(
+            Ok(&report),
+            &input.expectation,
+            report.action_integrity.as_ref(),
+        );
+        let integrity = report.action_integrity.unwrap_or_default();
         let boundary = report.seed_start.as_ref().map(|seed_start| {
             format!(
                 "{} at {}",
@@ -648,7 +678,8 @@ fn trace_status_entries(
             )
         });
         entries.push(TraceStatusEntry {
-            trace: trace_name,
+            trace: input.trace,
+            expectation,
             verified_floor: report
                 .seed_start
                 .as_ref()
@@ -661,39 +692,155 @@ fn trace_status_entries(
             raw_diffs: report.unexpected_diffs.len(),
             unsupported: report.unsupported.len(),
             ignored_tail: report.ignored_tail_actions,
-            status: trace_status(&report),
+            applicable_actions: integrity.applicable_actions,
+            disposed_actions: integrity.disposed_actions,
+            rejected_actions: integrity.rejected_actions,
+            duplicate_dispositions: integrity.duplicate_dispositions,
+            unresolved_transient_assertions: integrity.unresolved_transient_assertions,
+            status: outcome_status(&outcome).to_owned(),
             boundary: boundary.unwrap_or_else(|| "-".to_owned()),
-            frontier: trace_frontier(&report),
+            frontier: trace_frontier(&report, &outcome),
         });
     }
 
     Ok(entries)
 }
 
-fn trace_error_entry(trace: String, error: String) -> TraceStatusEntry {
+fn status_trace_inputs(root: &Path) -> Result<Vec<StatusTraceInput>, String> {
+    let manifest_path = root.with_extension("json");
+    if manifest_path.exists() {
+        let content = fs::read_to_string(&manifest_path).map_err(|err| err.to_string())?;
+        let manifest: VerificationCorpusManifest =
+            serde_json::from_str(&content).map_err(|err| err.to_string())?;
+        if manifest.schema != VERIFICATION_CORPUS_MANIFEST_SCHEMA {
+            return Err(format!(
+                "unsupported verification corpus manifest schema {} in {}",
+                manifest.schema,
+                manifest_path.display()
+            ));
+        }
+        let mut actual = fs::read_dir(root)
+            .map_err(|err| err.to_string())?
+            .map(|entry| {
+                entry
+                    .map(|entry| entry.path())
+                    .map_err(|err| err.to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        actual.retain(|path| {
+            path.extension().and_then(|extension| extension.to_str()) == Some("jsonl")
+        });
+        let mut actual_names = actual
+            .iter()
+            .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        actual_names.sort();
+        let mut declared_names = manifest
+            .entries
+            .iter()
+            .map(|entry| entry.trace.clone())
+            .collect::<Vec<_>>();
+        declared_names.sort();
+        if declared_names != actual_names {
+            return Err(format!(
+                "manifest {} does not exactly match trace directory {}",
+                manifest_path.display(),
+                root.display()
+            ));
+        }
+        return manifest
+            .entries
+            .into_iter()
+            .map(|entry| {
+                let path = Path::new(&entry.trace);
+                if path.file_name().and_then(|name| name.to_str()) != Some(entry.trace.as_str()) {
+                    return Err(format!(
+                        "manifest trace must be a filename, found {:?}",
+                        entry.trace
+                    ));
+                }
+                Ok(StatusTraceInput {
+                    path: root.join(&entry.trace),
+                    trace: entry.trace,
+                    expectation: entry.expectation,
+                })
+            })
+            .collect();
+    }
+
+    let mut paths = fs::read_dir(root)
+        .map_err(|err| err.to_string())?
+        .map(|entry| {
+            entry
+                .map(|entry| entry.path())
+                .map_err(|err| err.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    paths.retain(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"));
+    paths.sort();
+    Ok(paths
+        .into_iter()
+        .map(|path| StatusTraceInput {
+            trace: path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("<unknown>")
+                .to_owned(),
+            path,
+            expectation: VerificationExpectation::Complete,
+        })
+        .collect())
+}
+
+fn expectation_label(expectation: &VerificationExpectation) -> String {
+    match expectation {
+        VerificationExpectation::Complete => "complete".to_owned(),
+        VerificationExpectation::RetainedPrefix { endpoint } => format!(
+            "retained_prefix through step {} ({})",
+            endpoint.action_step, endpoint.label
+        ),
+        VerificationExpectation::ExpectedBoundary { boundary } => {
+            format!(
+                "expected_boundary {} at {}",
+                boundary.category, boundary.path
+            )
+        }
+    }
+}
+
+fn outcome_status(outcome: &VerificationOutcome) -> &'static str {
+    match outcome {
+        VerificationOutcome::CompletePass => "complete_pass",
+        VerificationOutcome::RetainedPrefixPass { .. } => "retained_prefix_pass",
+        VerificationOutcome::ExpectedBoundary { .. } => "expected_boundary",
+        VerificationOutcome::InvalidInput { .. } => "invalid_input",
+        VerificationOutcome::Failed { .. } => "failed",
+    }
+}
+
+fn trace_error_entry(trace: String, expectation: String, error: String) -> TraceStatusEntry {
     TraceStatusEntry {
         trace,
+        expectation,
         verified_floor: 0,
         total_actions: 0,
         verified: 0,
         raw_diffs: 0,
         unsupported: 0,
         ignored_tail: 0,
-        status: "error",
+        applicable_actions: 0,
+        disposed_actions: 0,
+        rejected_actions: 0,
+        duplicate_dispositions: 0,
+        unresolved_transient_assertions: 0,
+        status: "invalid_input".to_owned(),
         boundary: "-".to_owned(),
         frontier: error,
     }
 }
 
-fn trace_status(report: &sts_verify::SimRealReport) -> &'static str {
-    if report.unexpected_diffs.is_empty() && report.unsupported.is_empty() {
-        "pass"
-    } else {
-        "fail"
-    }
-}
-
-fn trace_frontier(report: &sts_verify::SimRealReport) -> String {
+fn trace_frontier(report: &sts_verify::SimRealReport, outcome: &VerificationOutcome) -> String {
     if let Some(diff) = report.unexpected_diffs.first() {
         let first_line = diff
             .diffs
@@ -715,6 +862,13 @@ fn trace_frontier(report: &sts_verify::SimRealReport) -> String {
         );
     }
 
+    if let VerificationOutcome::Failed { failures } = outcome {
+        return failures
+            .first()
+            .map(|failure| format!("typed outcome failure: {failure:?}"))
+            .unwrap_or_else(|| "typed outcome failed without a reason".to_owned());
+    }
+
     if let Some(seed_start) = &report.seed_start {
         if seed_start.first_boundary.category == "none" {
             return "all verifiable transitions passed".to_owned();
@@ -731,44 +885,85 @@ fn trace_frontier(report: &sts_verify::SimRealReport) -> String {
 fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     let failures = entries
         .iter()
-        .filter(|entry| entry.status == "fail")
+        .filter(|entry| entry.status == "failed")
         .count();
     let passing = entries
         .iter()
-        .filter(|entry| entry.status == "pass")
+        .filter(|entry| {
+            matches!(
+                entry.status.as_str(),
+                "complete_pass" | "retained_prefix_pass" | "expected_boundary"
+            )
+        })
         .count();
     let errors = entries
         .iter()
-        .filter(|entry| entry.status == "error")
+        .filter(|entry| entry.status == "invalid_input")
+        .count();
+    let complete_passes = entries
+        .iter()
+        .filter(|entry| entry.status == "complete_pass")
+        .count();
+    let prefix_passes = entries
+        .iter()
+        .filter(|entry| entry.status == "retained_prefix_pass")
+        .count();
+    let expected_boundaries = entries
+        .iter()
+        .filter(|entry| entry.status == "expected_boundary")
         .count();
     let raw_diffs: usize = entries.iter().map(|entry| entry.raw_diffs).sum();
     let unsupported: usize = entries.iter().map(|entry| entry.unsupported).sum();
     let verified: usize = entries.iter().map(|entry| entry.verified).sum();
     let ignored_tail: usize = entries.iter().map(|entry| entry.ignored_tail).sum();
+    let applicable_actions: usize = entries.iter().map(|entry| entry.applicable_actions).sum();
+    let disposed_actions: usize = entries.iter().map(|entry| entry.disposed_actions).sum();
+    let rejected_actions: usize = entries.iter().map(|entry| entry.rejected_actions).sum();
+    let duplicate_dispositions: usize = entries
+        .iter()
+        .map(|entry| entry.duplicate_dispositions)
+        .sum();
+    let unresolved_transient_assertions: usize = entries
+        .iter()
+        .map(|entry| entry.unresolved_transient_assertions)
+        .sum();
     println!("traces={}", entries.len());
     println!("trace_failures={failures}");
     println!("trace_errors={errors}");
     println!("passing_traces={passing}");
+    println!("complete_passes={complete_passes}");
+    println!("retained_prefix_passes={prefix_passes}");
+    println!("expected_boundaries={expected_boundaries}");
     println!("raw_unexpected_diffs={raw_diffs}");
     println!("unsupported_transitions={unsupported}");
     println!("verified_transitions={verified}");
     println!("ignored_tail_actions={ignored_tail}");
+    println!("applicable_actions={applicable_actions}");
+    println!("disposed_actions={disposed_actions}");
+    println!("target_rejected_actions={rejected_actions}");
+    println!("duplicate_dispositions={duplicate_dispositions}");
+    println!("unresolved_transient_assertions={unresolved_transient_assertions}");
 
     if markdown {
         println!();
-        println!("| Trace | Floor | Actions | Verified | Status | Raw diffs | Unsupported | Ignored tail | Boundary | Frontier |");
-        println!("|---|---:|---:|---:|---|---:|---:|---:|---|---|");
+        println!("| Trace | Expectation | Floor | Actions | Disposed | Rejected | Verified | Status | Raw diffs | Unsupported | Ignored tail | Duplicates | Unresolved transient | Boundary | Frontier |");
+        println!("|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|---|");
         for entry in entries {
             println!(
-                "| `{}` | {} | {} | {} | {} | {} | {} | {} | `{}` | {} |",
+                "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` | {} |",
                 escape_markdown_cell(&entry.trace),
+                escape_markdown_cell(&entry.expectation),
                 entry.verified_floor,
                 entry.total_actions,
+                entry.disposed_actions,
+                entry.rejected_actions,
                 entry.verified,
                 entry.status,
                 entry.raw_diffs,
                 entry.unsupported,
                 entry.ignored_tail,
+                entry.duplicate_dispositions,
+                entry.unresolved_transient_assertions,
                 escape_markdown_cell(&entry.boundary),
                 escape_markdown_cell(&entry.frontier)
             );
@@ -776,15 +971,21 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     } else {
         for entry in entries {
             println!(
-                "trace=\"{}\" floor={} actions={} verified={} status={} raw_diffs={} unsupported={} ignored_tail={} boundary=\"{}\" frontier=\"{}\"",
+                "trace=\"{}\" expectation=\"{}\" floor={} actions={} applicable={} disposed={} rejected={} verified={} status={} raw_diffs={} unsupported={} ignored_tail={} duplicates={} unresolved_transient={} boundary=\"{}\" frontier=\"{}\"",
                 entry.trace,
+                entry.expectation,
                 entry.verified_floor,
                 entry.total_actions,
+                entry.applicable_actions,
+                entry.disposed_actions,
+                entry.rejected_actions,
                 entry.verified,
                 entry.status,
                 entry.raw_diffs,
                 entry.unsupported,
                 entry.ignored_tail,
+                entry.duplicate_dispositions,
+                entry.unresolved_transient_assertions,
                 entry.boundary,
                 entry.frontier
             );

@@ -1,7 +1,21 @@
 //! Typed verification outcomes and the evidence required to claim them.
 
-use crate::{SeedStartBoundary, SimRealError, SimRealReport};
+use crate::{ActionDispositionKind, SeedStartBoundary, SimRealError, SimRealReport};
 use serde::{Deserialize, Serialize};
+
+pub const VERIFICATION_CORPUS_MANIFEST_SCHEMA: u32 = 1;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerificationCorpusManifest {
+    pub schema: u32,
+    pub entries: Vec<VerificationCorpusEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerificationCorpusEntry {
+    pub trace: String,
+    pub expectation: VerificationExpectation,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -23,12 +37,14 @@ pub struct ExpectedBoundary {
     pub category: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerificationIntegrity {
     pub applicable_actions: usize,
     pub disposed_actions: usize,
     pub duplicate_dispositions: usize,
     pub unresolved_transient_assertions: usize,
+    pub terminal_state_observed: bool,
+    pub rejected_actions: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +89,14 @@ pub enum VerificationFailure {
     ExpectedBoundaryNotReached {
         expected: ExpectedBoundary,
         actual: SeedStartBoundary,
+    },
+    CompleteTraceNotTerminal,
+    CompleteTraceHasRejectedActions {
+        count: usize,
+    },
+    RetainedPrefixEndpointMismatch {
+        expected: RetainedPrefixEndpoint,
+        actual_action_step: Option<u32>,
     },
     MissingActionIntegrity,
     IncompleteActionAccounting {
@@ -169,8 +193,35 @@ pub fn assess_verification(
                     count: integrity.unresolved_transient_assertions,
                 });
             }
+            if matches!(expectation, VerificationExpectation::Complete)
+                && !integrity.terminal_state_observed
+            {
+                failures.push(VerificationFailure::CompleteTraceNotTerminal);
+            }
+            if matches!(expectation, VerificationExpectation::Complete)
+                && integrity.rejected_actions != 0
+            {
+                failures.push(VerificationFailure::CompleteTraceHasRejectedActions {
+                    count: integrity.rejected_actions,
+                });
+            }
         }
         None => failures.push(VerificationFailure::MissingActionIntegrity),
+    }
+
+    if let VerificationExpectation::RetainedPrefix { endpoint } = expectation {
+        let actual_action_step = report
+            .action_dispositions
+            .iter()
+            .rev()
+            .find(|entry| entry.disposition == ActionDispositionKind::Verified)
+            .map(|entry| entry.action_step);
+        if actual_action_step != Some(endpoint.action_step) {
+            failures.push(VerificationFailure::RetainedPrefixEndpointMismatch {
+                expected: endpoint.clone(),
+                actual_action_step,
+            });
+        }
     }
 
     if !failures.is_empty() {
@@ -202,6 +253,8 @@ mod tests {
             mode: VerificationMode::SeedStart,
             total_actions: 1,
             ignored_tail_actions: 0,
+            action_dispositions: Vec::new(),
+            action_integrity: None,
             verified: Vec::new(),
             unsupported: Vec::new(),
             unexpected_diffs: Vec::new(),
@@ -236,6 +289,8 @@ mod tests {
             disposed_actions: 1,
             duplicate_dispositions: 0,
             unresolved_transient_assertions: 0,
+            terminal_state_observed: true,
+            rejected_actions: 0,
         }
     }
 
@@ -259,6 +314,15 @@ mod tests {
             action_step: 548,
             label: "floor 37 shop return to map".to_owned(),
         };
+        let mut report = report;
+        report.action_dispositions.push(crate::ActionDisposition {
+            action_ordinal: 0,
+            action_step: endpoint.action_step,
+            command: "CHOOSE 0".to_owned(),
+            disposition: ActionDispositionKind::Verified,
+            detail: Some(endpoint.label.clone()),
+            deferred_assertion_reconciled: false,
+        });
         assert_eq!(
             assess_verification(
                 Ok(&report),
@@ -337,6 +401,22 @@ mod tests {
                     ..complete_integrity()
                 }),
                 VerificationFailure::UnresolvedTransientAssertions { count: 1 },
+            ),
+            (
+                Some(VerificationIntegrity {
+                    terminal_state_observed: false,
+                    ..complete_integrity()
+                }),
+                VerificationFailure::CompleteTraceNotTerminal,
+            ),
+            (
+                Some(VerificationIntegrity {
+                    applicable_actions: 0,
+                    disposed_actions: 0,
+                    rejected_actions: 1,
+                    ..complete_integrity()
+                }),
+                VerificationFailure::CompleteTraceHasRejectedActions { count: 1 },
             ),
         ];
 
@@ -451,6 +531,40 @@ mod tests {
                     actual,
                 }],
             }
+        );
+    }
+
+    #[test]
+    fn retained_prefix_endpoint_must_be_the_last_verified_action() {
+        let mut report = report();
+        report.action_dispositions.push(crate::ActionDisposition {
+            action_ordinal: 0,
+            action_step: 12,
+            command: "CHOOSE 0".to_owned(),
+            disposition: ActionDispositionKind::Verified,
+            detail: Some("floor 1 map".to_owned()),
+            deferred_assertion_reconciled: false,
+        });
+        let endpoint = RetainedPrefixEndpoint {
+            action_step: 13,
+            label: "wrong endpoint".to_owned(),
+        };
+
+        let outcome = assess_verification(
+            Ok(&report),
+            &VerificationExpectation::RetainedPrefix {
+                endpoint: endpoint.clone(),
+            },
+            Some(&complete_integrity()),
+        );
+        let VerificationOutcome::Failed { failures } = outcome else {
+            panic!("wrong retained endpoint unexpectedly passed: {outcome:?}");
+        };
+        assert!(
+            failures.contains(&VerificationFailure::RetainedPrefixEndpointMismatch {
+                expected: endpoint,
+                actual_action_step: Some(12),
+            })
         );
     }
 }

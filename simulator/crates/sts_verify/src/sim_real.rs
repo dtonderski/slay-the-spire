@@ -4,7 +4,7 @@
 use crate::sts_seed_string_to_long;
 use crate::{
     canonical_diff, import_communication_mod_trace, try_sts_seed_string_to_long, TraceAction,
-    TraceLine, TraceState,
+    TraceLine, TraceState, VerificationIntegrity,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -57,11 +57,42 @@ pub struct SimRealReport {
     pub mode: VerificationMode,
     pub total_actions: usize,
     pub ignored_tail_actions: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub action_dispositions: Vec<ActionDisposition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_integrity: Option<VerificationIntegrity>,
     pub verified: Vec<VerifiedTransition>,
     pub unsupported: Vec<UnsupportedTransition>,
     pub unexpected_diffs: Vec<UnexpectedDiff>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed_start: Option<SeedStartReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActionDisposition {
+    pub action_ordinal: usize,
+    pub action_step: u32,
+    pub command: String,
+    pub disposition: ActionDispositionKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub deferred_assertion_reconciled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionDispositionKind {
+    Verified,
+    Unsupported,
+    UnexpectedDiff,
+    IgnoredTail,
+    ObservationPoll,
+    FoldedTargetConfirmation,
+    TargetRejected,
+    Boundary,
+    BeyondBoundary,
+    Unclassified,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -227,6 +258,8 @@ fn verify_seed_start_trace(
         mode: VerificationMode::SeedStart,
         total_actions,
         ignored_tail_actions: transitions.ignored_tail_actions,
+        action_dispositions: Vec::new(),
+        action_integrity: None,
         verified: Vec::new(),
         unsupported: Vec::new(),
         unexpected_diffs: Vec::new(),
@@ -250,60 +283,129 @@ fn verify_seed_start_trace(
         m22_encounter_report,
         sim_run_state: verification.final_run_state,
     });
+    let (action_dispositions, action_integrity) =
+        build_action_accounting(&trace.lines, &transitions, &report);
+    report.action_dispositions = action_dispositions;
+    report.action_integrity = Some(action_integrity);
 
     Ok(report)
 }
 
 struct TraceTransitions {
     transitions: Vec<(TraceState, TraceAction, TraceState)>,
+    transition_action_ordinals: Vec<usize>,
+    folded_action_dispositions: Vec<(usize, ActionDispositionKind)>,
+    rejected_action_dispositions: Vec<(usize, String)>,
+    ignored_action_ordinals: Vec<usize>,
+    reconciled_deferred_action_ordinals: Vec<usize>,
+    unresolved_transient_assertions: usize,
     ignored_tail_actions: usize,
+}
+
+struct PendingTraceAction {
+    pre: TraceState,
+    action: TraceAction,
+    action_ordinal: usize,
+    deferred_assertion: bool,
 }
 
 fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealError> {
     let mut transitions = Vec::new();
+    let mut transition_action_ordinals = Vec::new();
+    let mut folded_action_dispositions = Vec::new();
+    let mut rejected_action_dispositions = Vec::new();
+    let mut ignored_action_ordinals = Vec::new();
+    let mut reconciled_deferred_action_ordinals = Vec::new();
+    let mut unresolved_transient_assertions = 0;
     let mut last_state: Option<TraceState> = None;
-    let mut pending: Option<(TraceState, TraceAction)> = None;
-    let mut ignored_tail_actions = 0;
+    let mut pending: Option<PendingTraceAction> = None;
+    let mut next_action_ordinal = 0;
     for line in lines {
         match line {
             TraceLine::State(state) => {
-                if let Some((pre, action)) = pending.take() {
-                    if is_delayed_map_choice(&pre, &action)
+                if let Some(mut pending_action) = pending.take() {
+                    if is_delayed_map_choice(&pending_action.pre, &pending_action.action)
                         && screen_type(&state.message) == Some("MAP")
-                        || is_unsettled_trace_action_state(&pre, &action, state)
-                        || is_mushrooms_fight_confirmation_state(&pre, &action, state)
-                        || is_cursed_key_chest_curse_pending_state(&pre, &action, state)
+                        || is_unsettled_trace_action_state(
+                            &pending_action.pre,
+                            &pending_action.action,
+                            state,
+                        )
+                        || is_mushrooms_fight_confirmation_state(
+                            &pending_action.pre,
+                            &pending_action.action,
+                            state,
+                        )
+                        || is_cursed_key_chest_curse_pending_state(
+                            &pending_action.pre,
+                            &pending_action.action,
+                            state,
+                        )
                     {
-                        pending = Some((pre, action));
+                        pending_action.deferred_assertion = true;
+                        pending = Some(pending_action);
                     } else {
-                        transitions.push((pre, action, state.clone()));
+                        if pending_action.deferred_assertion {
+                            reconciled_deferred_action_ordinals.push(pending_action.action_ordinal);
+                        }
+                        transition_action_ordinals.push(pending_action.action_ordinal);
+                        transitions.push((
+                            pending_action.pre,
+                            pending_action.action,
+                            state.clone(),
+                        ));
                     }
                 }
                 last_state = Some(state.clone());
             }
             TraceLine::Action(action) => {
-                if let Some((pre, pending_action)) = pending.take() {
+                let action_ordinal = next_action_ordinal;
+                next_action_ordinal += 1;
+                if let Some(pending_action) = pending.take() {
                     let pending_is_unsettled = last_state.as_ref().is_some_and(|state| {
-                        is_unsettled_trace_action_state(&pre, &pending_action, state)
+                        is_unsettled_trace_action_state(
+                            &pending_action.pre,
+                            &pending_action.action,
+                            state,
+                        )
                     });
                     let pending_is_mushrooms_confirmation =
                         last_state.as_ref().is_some_and(|state| {
-                            is_mushrooms_fight_confirmation_state(&pre, &pending_action, state)
+                            is_mushrooms_fight_confirmation_state(
+                                &pending_action.pre,
+                                &pending_action.action,
+                                state,
+                            )
                         });
                     let pending_is_cursed_key_chest = last_state.as_ref().is_some_and(|state| {
-                        is_cursed_key_chest_curse_pending_state(&pre, &pending_action, state)
+                        is_cursed_key_chest_curse_pending_state(
+                            &pending_action.pre,
+                            &pending_action.action,
+                            state,
+                        )
                     });
-                    if (is_delayed_map_choice(&pre, &pending_action)
+                    if (is_delayed_map_choice(&pending_action.pre, &pending_action.action)
                         || pending_is_unsettled
                         || pending_is_cursed_key_chest)
                         && is_trace_observation_poll(action)
                         || pending_is_mushrooms_confirmation
                             && command_choose_index(&action.command) == Some(0)
                     {
-                        pending = Some((pre, pending_action));
+                        let disposition = if pending_is_mushrooms_confirmation
+                            && command_choose_index(&action.command) == Some(0)
+                        {
+                            ActionDispositionKind::FoldedTargetConfirmation
+                        } else {
+                            ActionDispositionKind::ObservationPoll
+                        };
+                        folded_action_dispositions.push((action_ordinal, disposition));
+                        pending = Some(pending_action);
                         continue;
                     }
-                    ignored_tail_actions += 1;
+                    if pending_action.deferred_assertion {
+                        unresolved_transient_assertions += 1;
+                    }
+                    ignored_action_ordinals.push(pending_action.action_ordinal);
                 }
                 let pre = if let Some(pre) = last_state.clone() {
                     pre
@@ -314,21 +416,295 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
                         message: Value::Null,
                     }
                 } else {
-                    ignored_tail_actions += 1;
+                    ignored_action_ordinals.push(action_ordinal);
                     continue;
                 };
-                pending = Some((pre, action.clone()));
+                pending = Some(PendingTraceAction {
+                    pre,
+                    action: action.clone(),
+                    action_ordinal,
+                    deferred_assertion: false,
+                });
+            }
+            TraceLine::Error(error) => {
+                if let Some(pending_action) = pending.take() {
+                    if pending_action.action.step == error.step {
+                        rejected_action_dispositions.push((
+                            pending_action.action_ordinal,
+                            serde_json::to_string(&error.message)
+                                .unwrap_or_else(|_| "target rejected command".to_owned()),
+                        ));
+                    } else {
+                        pending = Some(pending_action);
+                    }
+                }
             }
             TraceLine::Metadata(_) => {}
         }
     }
-    if pending.is_some() {
-        ignored_tail_actions += 1;
+    if let Some(pending_action) = pending {
+        if pending_action.deferred_assertion {
+            unresolved_transient_assertions += 1;
+        }
+        ignored_action_ordinals.push(pending_action.action_ordinal);
     }
+    let ignored_tail_actions = ignored_action_ordinals.len();
     Ok(TraceTransitions {
         transitions,
+        transition_action_ordinals,
+        folded_action_dispositions,
+        rejected_action_dispositions,
+        ignored_action_ordinals,
+        reconciled_deferred_action_ordinals,
+        unresolved_transient_assertions,
         ignored_tail_actions,
     })
+}
+
+fn build_action_accounting(
+    lines: &[TraceLine],
+    transitions: &TraceTransitions,
+    report: &SimRealReport,
+) -> (Vec<ActionDisposition>, VerificationIntegrity) {
+    let actions = lines
+        .iter()
+        .filter_map(|line| match line {
+            TraceLine::Action(action) => Some(action),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut dispositions: Vec<Option<ActionDisposition>> = vec![None; actions.len()];
+    let reconciled = transitions
+        .reconciled_deferred_action_ordinals
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    let mut duplicate_dispositions = 0;
+
+    for (ordinal, disposition) in &transitions.folded_action_dispositions {
+        let detail = match disposition {
+            ActionDispositionKind::ObservationPoll => {
+                "observation poll folded into the pending semantic action"
+            }
+            ActionDispositionKind::FoldedTargetConfirmation => {
+                "target-only confirmation folded into the pending semantic action"
+            }
+            _ => "folded trace action",
+        };
+        duplicate_dispositions += assign_action_disposition(
+            &actions,
+            &reconciled,
+            &mut dispositions,
+            *ordinal,
+            *disposition,
+            Some(detail.to_owned()),
+        );
+    }
+    for ordinal in &transitions.ignored_action_ordinals {
+        duplicate_dispositions += assign_action_disposition(
+            &actions,
+            &reconciled,
+            &mut dispositions,
+            *ordinal,
+            ActionDispositionKind::IgnoredTail,
+            Some("trace action has no settled post-state".to_owned()),
+        );
+    }
+    for (ordinal, reason) in &transitions.rejected_action_dispositions {
+        duplicate_dispositions += assign_action_disposition(
+            &actions,
+            &reconciled,
+            &mut dispositions,
+            *ordinal,
+            ActionDispositionKind::TargetRejected,
+            Some(reason.clone()),
+        );
+    }
+
+    let mut used_verified = vec![false; report.verified.len()];
+    let mut used_unsupported = vec![false; report.unsupported.len()];
+    let mut used_diffs = vec![false; report.unexpected_diffs.len()];
+    let boundary = report
+        .seed_start
+        .as_ref()
+        .map(|seed_start| &seed_start.first_boundary);
+    let boundary_step = boundary
+        .filter(|boundary| boundary.category != "none")
+        .and_then(|boundary| action_step_from_boundary_path(&boundary.path));
+    let mut boundary_reached = false;
+
+    for (transition_index, ordinal) in transitions
+        .transition_action_ordinals
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        let action = &transitions.transitions[transition_index].1;
+        let verified_matches = report
+            .verified
+            .iter()
+            .enumerate()
+            .filter(|(index, entry)| {
+                !used_verified[*index]
+                    && entry.action_step == action.step
+                    && entry.command == action.command
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let unsupported_matches = report
+            .unsupported
+            .iter()
+            .enumerate()
+            .filter(|(index, entry)| {
+                !used_unsupported[*index]
+                    && entry.action_step == action.step
+                    && entry.command == action.command
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let diff_matches = report
+            .unexpected_diffs
+            .iter()
+            .enumerate()
+            .filter(|(index, entry)| {
+                !used_diffs[*index]
+                    && entry.action_step == action.step
+                    && entry.command == action.command
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let (disposition, detail) = if let Some(index) = diff_matches.first().copied() {
+            used_diffs[index] = true;
+            (
+                ActionDispositionKind::UnexpectedDiff,
+                Some(report.unexpected_diffs[index].label.clone()),
+            )
+        } else if let Some(index) = unsupported_matches.first().copied() {
+            used_unsupported[index] = true;
+            (
+                ActionDispositionKind::Unsupported,
+                Some(report.unsupported[index].reason.clone()),
+            )
+        } else if let Some(index) = verified_matches.first().copied() {
+            used_verified[index] = true;
+            (
+                ActionDispositionKind::Verified,
+                Some(report.verified[index].label.clone()),
+            )
+        } else if boundary_step == Some(action.step) && !boundary_reached {
+            let boundary = boundary.expect("boundary step came from boundary");
+            (
+                ActionDispositionKind::Boundary,
+                Some(format!("{}: {}", boundary.category, boundary.reason)),
+            )
+        } else if boundary_reached {
+            (
+                ActionDispositionKind::BeyondBoundary,
+                Some("action follows the verifier boundary".to_owned()),
+            )
+        } else {
+            (ActionDispositionKind::Unclassified, None)
+        };
+
+        duplicate_dispositions += assign_action_disposition(
+            &actions,
+            &reconciled,
+            &mut dispositions,
+            ordinal,
+            disposition,
+            detail,
+        );
+        if boundary_step == Some(action.step) && !boundary_reached {
+            boundary_reached = true;
+        }
+    }
+
+    let unmatched_report_dispositions = used_verified.iter().filter(|used| !**used).count()
+        + used_unsupported.iter().filter(|used| !**used).count()
+        + used_diffs.iter().filter(|used| !**used).count();
+    duplicate_dispositions += unmatched_report_dispositions;
+
+    for (ordinal, action) in actions.iter().enumerate() {
+        if dispositions[ordinal].is_none() {
+            dispositions[ordinal] = Some(ActionDisposition {
+                action_ordinal: ordinal,
+                action_step: action.step,
+                command: action.command.clone(),
+                disposition: ActionDispositionKind::Unclassified,
+                detail: None,
+                deferred_assertion_reconciled: reconciled.contains(&ordinal),
+            });
+        }
+    }
+
+    let dispositions = dispositions
+        .into_iter()
+        .map(|disposition| disposition.expect("every trace action receives a disposition"))
+        .collect::<Vec<_>>();
+    let rejected_actions = dispositions
+        .iter()
+        .filter(|entry| entry.disposition == ActionDispositionKind::TargetRejected)
+        .count();
+    let disposed_actions = dispositions
+        .iter()
+        .filter(|entry| {
+            !matches!(
+                entry.disposition,
+                ActionDispositionKind::Unclassified | ActionDispositionKind::TargetRejected
+            )
+        })
+        .count();
+    let integrity = VerificationIntegrity {
+        applicable_actions: actions.len() - rejected_actions,
+        disposed_actions,
+        duplicate_dispositions,
+        unresolved_transient_assertions: transitions.unresolved_transient_assertions,
+        terminal_state_observed: trace_terminal_state_observed(lines),
+        rejected_actions,
+    };
+    (dispositions, integrity)
+}
+
+fn trace_terminal_state_observed(lines: &[TraceLine]) -> bool {
+    let Some(message) = lines.iter().rev().find_map(|line| match line {
+        TraceLine::State(state) => Some(&state.message),
+        _ => None,
+    }) else {
+        return false;
+    };
+    message.get("in_game").and_then(Value::as_bool) == Some(false)
+        || screen_type(message) == Some("GAME_OVER")
+}
+
+fn assign_action_disposition(
+    actions: &[&TraceAction],
+    reconciled: &std::collections::HashSet<usize>,
+    dispositions: &mut [Option<ActionDisposition>],
+    ordinal: usize,
+    disposition: ActionDispositionKind,
+    detail: Option<String>,
+) -> usize {
+    let Some(action) = actions.get(ordinal) else {
+        return 1;
+    };
+    let entry = ActionDisposition {
+        action_ordinal: ordinal,
+        action_step: action.step,
+        command: action.command.clone(),
+        disposition,
+        detail,
+        deferred_assertion_reconciled: reconciled.contains(&ordinal),
+    };
+    usize::from(dispositions[ordinal].replace(entry).is_some())
+}
+
+fn action_step_from_boundary_path(path: &str) -> Option<u32> {
+    let (_, suffix) = path.split_once("step=")?;
+    let digits = suffix
+        .chars()
+        .take_while(|character| character.is_ascii_digit())
+        .collect::<String>();
+    (!digits.is_empty()).then(|| digits.parse().ok()).flatten()
 }
 
 fn is_delayed_map_choice(pre: &TraceState, action: &TraceAction) -> bool {
@@ -3553,6 +3929,58 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     };
+                    match screen_type(&post.message) {
+                        Some("COMBAT_REWARD") => compare_subset(
+                            report,
+                            action,
+                            "skip combat card reward",
+                            seed_start_reward_observed_subset(&post.message),
+                            seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                        ),
+                        Some("REST") => compare_subset(
+                            report,
+                            action,
+                            "skip rest card reward",
+                            seed_start_rest_observed_subset(&post.message),
+                            seed_start_rest_simulated_subset(&next, &relics),
+                        ),
+                        Some("EVENT") => compare_subset(
+                            report,
+                            action,
+                            "skip event card reward",
+                            seed_start_event_observed_subset(&post.message),
+                            seed_start_event_simulated_subset(&next, &relics),
+                        ),
+                        Some("SHOP_SCREEN") => compare_subset(
+                            report,
+                            action,
+                            "skip shop card reward",
+                            seed_start_shop_observed_subset(&post.message),
+                            seed_start_shop_screen_simulated_subset(&next, &relics),
+                        ),
+                        Some("GRID") => compare_subset(
+                            report,
+                            action,
+                            "skip card reward to grid",
+                            seed_start_grid_observed_subset(&post.message),
+                            seed_start_grid_simulated_subset(&next, &relics),
+                        ),
+                        screen => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "unsupported_reward_path".to_owned(),
+                                reason: format!(
+                                    "card reward skip returned to unsupported screen {screen:?}"
+                                ),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
+                    }
                     seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                     *sim = next;
                     if seed_start_reward_sequence_complete(sim) {
@@ -11093,6 +11521,15 @@ mod tests {
         assert_eq!(transitions.transitions[0].1.command, "CHOOSE 0");
         assert_eq!(transitions.transitions[0].2.step, 816);
         assert_eq!(transitions.ignored_tail_actions, 0);
+        assert_eq!(
+            transitions.folded_action_dispositions,
+            vec![
+                (1, ActionDispositionKind::ObservationPoll),
+                (2, ActionDispositionKind::ObservationPoll),
+            ]
+        );
+        assert_eq!(transitions.reconciled_deferred_action_ordinals, vec![0]);
+        assert_eq!(transitions.unresolved_transient_assertions, 0);
     }
 
     #[test]
@@ -11140,6 +11577,15 @@ mod tests {
         assert_eq!(transitions.transitions[0].1.command, "PLAY 2 1");
         assert_eq!(transitions.transitions[0].2.step, 4);
         assert_eq!(transitions.ignored_tail_actions, 0);
+        assert_eq!(
+            transitions.folded_action_dispositions,
+            vec![
+                (1, ActionDispositionKind::ObservationPoll),
+                (2, ActionDispositionKind::ObservationPoll),
+            ]
+        );
+        assert_eq!(transitions.reconciled_deferred_action_ordinals, vec![0]);
+        assert_eq!(transitions.unresolved_transient_assertions, 0);
     }
 
     #[test]
@@ -11182,6 +11628,12 @@ mod tests {
             Some("NONE")
         );
         assert_eq!(transitions.ignored_tail_actions, 0);
+        assert_eq!(
+            transitions.folded_action_dispositions,
+            vec![(1, ActionDispositionKind::FoldedTargetConfirmation)]
+        );
+        assert_eq!(transitions.reconciled_deferred_action_ordinals, vec![0]);
+        assert_eq!(transitions.unresolved_transient_assertions, 0);
     }
 
     #[test]
@@ -11224,6 +11676,77 @@ mod tests {
         assert_eq!(transitions.transitions[0].1.step, 2);
         assert_eq!(transitions.transitions[0].2.step, 3);
         assert_eq!(transitions.ignored_tail_actions, 0);
+        assert_eq!(
+            transitions.folded_action_dispositions,
+            vec![(1, ActionDispositionKind::ObservationPoll)]
+        );
+        assert_eq!(transitions.reconciled_deferred_action_ordinals, vec![0]);
+        assert_eq!(transitions.unresolved_transient_assertions, 0);
+    }
+
+    #[test]
+    fn trace_transitions_report_unresolved_transient_at_end_of_trace() {
+        let state = |step, playtime_seconds| {
+            TraceLine::State(TraceState {
+                step,
+                received_at: None,
+                message: json!({
+                    "ready_for_command": true,
+                    "game_state": {
+                        "playtime_seconds": playtime_seconds,
+                        "screen_type": "NONE",
+                        "combat_state": {"player": {"energy": 3}}
+                    }
+                }),
+            })
+        };
+        let lines = vec![
+            state(1, 10.0),
+            TraceLine::Action(TraceAction {
+                step: 2,
+                command: "PLAY 2 1".to_owned(),
+                sent_at: None,
+                playtime_seconds: Some(10),
+            }),
+            state(2, 10.1),
+        ];
+
+        let transitions = trace_transitions(&lines).expect("trace transitions");
+        assert!(transitions.transitions.is_empty());
+        assert_eq!(transitions.ignored_action_ordinals, vec![0]);
+        assert_eq!(transitions.ignored_tail_actions, 1);
+        assert_eq!(transitions.unresolved_transient_assertions, 1);
+    }
+
+    #[test]
+    fn trace_transitions_classify_target_rejection_without_ignored_tail() {
+        let lines = vec![
+            TraceLine::State(TraceState {
+                step: 6,
+                received_at: None,
+                message: json!({"ready_for_command": true}),
+            }),
+            TraceLine::Action(TraceAction {
+                step: 7,
+                command: "POTION USE 1".to_owned(),
+                sent_at: None,
+                playtime_seconds: None,
+            }),
+            TraceLine::Error(crate::TraceError {
+                step: 7,
+                message: json!({"error": "Potion cannot be used"}),
+            }),
+        ];
+
+        let transitions = trace_transitions(&lines).expect("trace transitions");
+        assert!(transitions.transitions.is_empty());
+        assert_eq!(transitions.rejected_action_dispositions.len(), 1);
+        assert_eq!(transitions.rejected_action_dispositions[0].0, 0);
+        assert!(transitions.rejected_action_dispositions[0]
+            .1
+            .contains("Potion cannot be used"));
+        assert_eq!(transitions.ignored_tail_actions, 0);
+        assert_eq!(transitions.unresolved_transient_assertions, 0);
     }
 
     #[test]
@@ -16155,11 +16678,12 @@ mod tests {
                 "max_hp": tiny_house_run.player_max_hp,
                 "deck": tiny_house_deck,
                 "relics": tiny_house_relics,
-                "choice_list": ["gold", "potion"],
+                "choice_list": ["gold", "potion", "card"],
                 "screen_state": {
                     "rewards": [
                         {"reward_type": "GOLD", "gold": 50},
-                        {"reward_type": "POTION"}
+                        {"reward_type": "POTION"},
+                        {"reward_type": "CARD"}
                     ]
                 }
             }}}),
