@@ -46,7 +46,8 @@ use crate::{
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
         enter_guardian_defensive_mode, get_monster_definition, guardian_accumulate_hp_damage,
-        release_stasis_card_on_death, wake_lagavulin_on_damage, GIANT_HEAD_ID, GUARDIAN_ID,
+        release_stasis_card_on_death, wake_lagavulin_on_damage, DARKLING_ID, GIANT_HEAD_ID,
+        GUARDIAN_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -687,7 +688,7 @@ fn apply_internal_action(
             }
             check_slime_boss_split(state, info.target);
             if !still_alive {
-                if !minion {
+                if !minion && monster_content_id != DARKLING_ID {
                     let hp_gain =
                         crate::relic::combat_healing_amount_with_relics(max_hp_gain, &state.relics);
                     state.player.max_hp += max_hp_gain;
@@ -4113,7 +4114,7 @@ mod tests {
         SHRUG_IT_OFF_PLUS_ID,
     };
     use crate::content::monsters::{
-        monster_state, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
+        monster_state, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
     };
     use crate::rng::StsRng;
 
@@ -4178,6 +4179,33 @@ mod tests {
 
         assert_eq!(next.player.max_hp, 112);
         assert_eq!(next.player.hp, 49);
+    }
+
+    #[test]
+    fn feed_does_not_gain_max_hp_from_a_half_dead_darkling() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&DARKLING_A0, target)];
+        state.monsters[0].hp = 1;
+        state.monsters[0].max_hp = 1;
+        state.player.hp = 81;
+        state.player.max_hp = 114;
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), FEED_PLUS_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Feed should put the Darkling into its half-dead state");
+
+        assert_eq!(next.player.max_hp, 114);
+        assert_eq!(next.player.hp, 81);
+        assert!(!next.monsters[0].alive);
+        assert!(next.monsters[0].escaped);
     }
 
     #[test]
