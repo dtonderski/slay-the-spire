@@ -163,6 +163,12 @@ pub struct AutomationConfig {
     pub allowed_potion_slots: Vec<usize>,
     #[serde(default = "default_automation_auto_action_limit")]
     pub auto_action_limit: usize,
+    #[serde(default = "default_automation_search_transition_budget")]
+    pub search_transition_budget: usize,
+    #[serde(default = "default_automation_search_time_budget_ms")]
+    pub search_time_budget_ms: u64,
+    #[serde(default)]
+    pub deduplicate_search_states: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -175,7 +181,7 @@ pub struct AutomationPlannedAction {
     pub planner_action: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AutomationPlanSnapshot {
     pub actions: Vec<AutomationPlannedAction>,
     #[serde(default)]
@@ -185,6 +191,18 @@ pub struct AutomationPlanSnapshot {
     pub value: Option<f64>,
     pub nodes: usize,
     pub terminal_reason: Option<String>,
+    #[serde(default)]
+    pub search_elapsed_ms: u64,
+    #[serde(default)]
+    pub budget_exhausted: bool,
+    #[serde(default)]
+    pub timed_out: bool,
+    #[serde(default)]
+    pub duplicate_checks: usize,
+    #[serde(default)]
+    pub duplicates: usize,
+    #[serde(default)]
+    pub cache_hits: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -228,6 +246,14 @@ fn default_automation_auto_action_limit() -> usize {
     80
 }
 
+fn default_automation_search_transition_budget() -> usize {
+    100_000
+}
+
+fn default_automation_search_time_budget_ms() -> u64 {
+    30_000
+}
+
 impl Default for AutomationConfig {
     fn default() -> Self {
         Self {
@@ -236,6 +262,9 @@ impl Default for AutomationConfig {
             width: default_automation_width(),
             allowed_potion_slots: (0..5).collect(),
             auto_action_limit: default_automation_auto_action_limit(),
+            search_transition_budget: default_automation_search_transition_budget(),
+            search_time_budget_ms: default_automation_search_time_budget_ms(),
+            deduplicate_search_states: false,
         }
     }
 }

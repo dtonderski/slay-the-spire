@@ -3,9 +3,10 @@
     allow(clippy::assertions_on_constants, clippy::items_after_test_module)
 )]
 
-use std::{env, net::TcpListener, path::PathBuf, process::exit, thread};
+use std::{env, io, net::TcpListener, path::PathBuf, process::exit, thread};
 
 use sts_live::{
+    agent::run_slaythedata_agent,
     bridge::BridgeManager,
     cli::run_cli,
     cli_output::{format_cli_error, format_cli_success},
@@ -82,6 +83,20 @@ fn run() {
         }
     }
 
+    if matches!(args.as_slice(), [area, command, ..] if area == "slaythedata" && command == "agent")
+    {
+        let collect_options = args[2..].to_vec();
+        let stdin = io::stdin();
+        let stdout = io::stdout();
+        if let Err(err) =
+            run_slaythedata_agent(&mut store, collect_options, stdin.lock(), stdout.lock())
+        {
+            eprintln!("{}", format_cli_error(&err));
+            exit(1);
+        }
+        return;
+    }
+
     match run_cli(&mut store, args) {
         Ok(value) => println!("{}", format_cli_success(&value).expect("json output")),
         Err(err) => {
@@ -120,7 +135,7 @@ fn should_recover_sessions(args: &[String]) -> bool {
             if area == "slaythedata"
                 && matches!(
                     command.as_str(),
-                    "attach" | "send-next" | "skip-shop" | "auto-play" | "resume"
+                    "agent" | "attach" | "send-next" | "skip-shop" | "auto-play" | "resume"
                 ) =>
         {
             true

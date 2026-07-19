@@ -29,6 +29,21 @@ Feed, Hand of Greed, thief, or potion trade-offs.
 ## Safety and limits
 
 - Inner turn enumeration has its own ply bound to prevent zero-cost loops.
+- Live search has two explicit limits: a deterministic transition budget and an
+  optional wall-clock failsafe. Benchmarks and regressions compare policies at a
+  fixed transition budget; the wall-clock limit is only an operational guard
+  for the live collector and is recorded whenever it truncates a search.
+- A canonical serialized `RunState` fingerprint may deduplicate transpositions
+  within a beam layer. Equal states include RNG streams, counters, pile order,
+  relics, and action-queue state. The cache never substitutes observed live
+  state and never survives across different simulator roots. This experimental
+  cache is disabled by default: the initial sealed-root benchmark removed many
+  transitions but serialization overhead increased latency on four of five
+  late-act roots and one root lost ending HP. It must not replace the validated
+  plan-suffix cache without a broader quality gate.
+- The unplayed suffix of a validated plan remains the only cross-turn warm
+  start. It is replayed from the new simulator root before use; an illegal
+  suffix is discarded.
 - Exact simulator transitions remain authoritative; the planner does not
   hydrate or repair state from observations.
 - Promotion requires regression gates plus grouped combat-start benchmarks.

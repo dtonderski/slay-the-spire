@@ -5,7 +5,10 @@ use crate::model::{
 use serde::Serialize;
 use serde_json::Value;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    time::{Duration, Instant},
+};
 use sts_core::{
     apply_combat_action_on_run, apply_run_action,
     card::CardType,
@@ -45,6 +48,7 @@ struct SearchRecommendation {
     final_hp: i32,
     monster_hp: i32,
     budget_exhausted: bool,
+    timed_out: bool,
     expanded: usize,
     generated: usize,
     terminal_nodes: usize,
@@ -67,6 +71,8 @@ pub(crate) struct BenchmarkSearchResult {
     pub remaining_monster_hp: i32,
     pub transitions: usize,
     pub budget_exhausted: bool,
+    pub timed_out: bool,
+    pub elapsed_ms: u64,
     pub expanded: usize,
     pub generated: usize,
     pub terminal_nodes: usize,
@@ -162,6 +168,12 @@ fn plan_single_card_play(
         value: None,
         nodes: 1,
         terminal_reason: None,
+        search_elapsed_ms: 0,
+        budget_exhausted: false,
+        timed_out: false,
+        duplicate_checks: 0,
+        duplicates: 0,
+        cache_hits: 0,
     };
     Ok((planned, snapshot))
 }
@@ -202,10 +214,17 @@ fn plan_search_action(
                 value: None,
                 nodes: 1,
                 terminal_reason: None,
+                search_elapsed_ms: 0,
+                budget_exhausted: false,
+                timed_out: false,
+                duplicate_checks: 0,
+                duplicates: 0,
+                cache_hits: 0,
             },
         ));
     }
 
+    let search_started = Instant::now();
     let recommendation = match config.policy {
         AutomationPolicy::GreedySearch => greedy_search(&run, config),
         AutomationPolicy::BeamSearch => beam_search_with_warm_start(&run, config, warm_steps),
@@ -256,6 +275,12 @@ fn plan_search_action(
         value: Some(recommendation.value),
         nodes: recommendation.nodes,
         terminal_reason: recommendation.terminal_reason,
+        search_elapsed_ms: u64::try_from(search_started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        budget_exhausted: recommendation.budget_exhausted,
+        timed_out: recommendation.timed_out,
+        duplicate_checks: recommendation.duplicate_checks,
+        duplicates: recommendation.duplicates,
+        cache_hits: recommendation.cache_hits,
     };
     Ok((planned, snapshot))
 }
@@ -357,6 +382,7 @@ fn greedy_search(state: &RunState, config: &AutomationConfig) -> SearchRecommend
         final_hp,
         monster_hp,
         budget_exhausted: false,
+        timed_out: false,
         expanded: nodes.saturating_sub(1),
         generated: nodes.saturating_sub(1),
         terminal_nodes,
@@ -370,10 +396,8 @@ fn greedy_search(state: &RunState, config: &AutomationConfig) -> SearchRecommend
 
 #[cfg(test)]
 fn beam_search(state: &RunState, config: &AutomationConfig) -> SearchRecommendation {
-    beam_search_with_node_limit(state, config, usize::MAX, &[])
+    beam_search_with_node_limit(state, config, usize::MAX, &[], None)
 }
-
-const LIVE_BEAM_SEARCH_TRANSITION_BUDGET: usize = 100_000;
 
 fn beam_search_with_warm_start(
     state: &RunState,
@@ -388,8 +412,10 @@ fn beam_search_with_warm_start(
     beam_search_with_node_limit(
         state,
         config,
-        LIVE_BEAM_SEARCH_TRANSITION_BUDGET.saturating_add(1),
+        config.search_transition_budget.saturating_add(1),
         &warm_actions,
+        (config.search_time_budget_ms > 0)
+            .then(|| Instant::now() + Duration::from_millis(config.search_time_budget_ms)),
     )
 }
 
@@ -398,6 +424,7 @@ fn beam_search_with_node_limit(
     config: &AutomationConfig,
     node_limit: usize,
     warm_actions: &[PlannerAction],
+    deadline: Option<Instant>,
 ) -> SearchRecommendation {
     let (warm_node, cache_hits) = validated_warm_start(state, warm_actions);
     let primary = action_depth_beam_search_with_node_limit(
@@ -406,8 +433,9 @@ fn beam_search_with_node_limit(
         node_limit,
         warm_node.as_ref(),
         cache_hits,
+        deadline,
     );
-    if primary.terminal_reason.is_some() || primary.nodes >= node_limit {
+    if primary.terminal_reason.is_some() || primary.nodes >= node_limit || primary.timed_out {
         return primary;
     }
 
@@ -418,6 +446,7 @@ fn beam_search_with_node_limit(
         remaining_node_limit,
         warm_node.as_ref(),
         0,
+        deadline,
     );
     combine_fallback_effort(primary, fallback)
 }
@@ -434,6 +463,7 @@ fn combine_fallback_effort(
     };
     selected.nodes = selected.nodes.saturating_add(other.nodes).saturating_sub(1);
     selected.budget_exhausted |= other.budget_exhausted;
+    selected.timed_out |= other.timed_out;
     selected.expanded += other.expanded;
     selected.generated += other.generated;
     selected.terminal_nodes += other.terminal_nodes;
@@ -451,6 +481,7 @@ fn action_depth_beam_search_with_node_limit(
     node_limit: usize,
     warm_node: Option<&SearchNode>,
     cache_hits: usize,
+    deadline: Option<Instant>,
 ) -> SearchRecommendation {
     let initial_terminal_reason = terminal_reason(state);
     let mut best = SearchNode {
@@ -474,9 +505,10 @@ fn action_depth_beam_search_with_node_limit(
     let mut terminal_nodes = 0usize;
     let mut pruned = 0usize;
     let mut max_frontier = frontier.len();
-    let duplicate_checks = 0usize;
-    let duplicates = 0usize;
+    let mut duplicate_checks = 0usize;
+    let mut duplicates = 0usize;
     let mut budget_exhausted = false;
+    let mut timed_out = false;
 
     'depth: for _ in 0..config.depth {
         let mut next_frontier = Vec::new();
@@ -497,8 +529,11 @@ fn action_depth_beam_search_with_node_limit(
                 continue;
             }
             for action in actions {
-                if nodes >= node_limit {
+                if nodes >= node_limit
+                    || deadline.is_some_and(|deadline| Instant::now() >= deadline)
+                {
                     budget_exhausted = true;
+                    timed_out = nodes < node_limit;
                     break 'depth;
                 }
                 let Ok(next_state) = apply_planner_action(&node.state, &action) else {
@@ -540,6 +575,12 @@ fn action_depth_beam_search_with_node_limit(
         let before = next_frontier.len();
         next_frontier = prune_frontier(next_frontier, width);
         pruned += before.saturating_sub(next_frontier.len());
+        if config.deduplicate_search_states {
+            let (deduplicated, checks, removed) = deduplicate_search_nodes(next_frontier);
+            next_frontier = deduplicated;
+            duplicate_checks += checks;
+            duplicates += removed;
+        }
         max_frontier = max_frontier.max(next_frontier.len());
         frontier = next_frontier;
     }
@@ -559,6 +600,7 @@ fn action_depth_beam_search_with_node_limit(
         final_hp,
         monster_hp,
         budget_exhausted,
+        timed_out,
         expanded,
         generated,
         terminal_nodes,
@@ -576,6 +618,7 @@ fn complete_turn_beam_search_with_node_limit(
     node_limit: usize,
     warm_node: Option<&SearchNode>,
     cache_hits: usize,
+    deadline: Option<Instant>,
 ) -> SearchRecommendation {
     let initial_terminal_reason = terminal_reason(state);
     let mut best = SearchNode {
@@ -599,10 +642,11 @@ fn complete_turn_beam_search_with_node_limit(
     let mut terminal_nodes = 0usize;
     let mut pruned = 0usize;
     let mut max_frontier = frontier.len();
-    let duplicate_checks = 0usize;
-    let duplicates = 0usize;
+    let mut duplicate_checks = 0usize;
+    let mut duplicates = 0usize;
 
     let mut budget_exhausted = false;
+    let mut timed_out = false;
     for _ in 0..config.depth {
         frontier = expand_complete_turns(
             std::mem::take(&mut frontier),
@@ -616,6 +660,10 @@ fn complete_turn_beam_search_with_node_limit(
             &mut pruned,
             &mut max_frontier,
             &mut budget_exhausted,
+            &mut timed_out,
+            &mut duplicate_checks,
+            &mut duplicates,
+            deadline,
             &mut best,
         );
         if frontier.is_empty() || budget_exhausted {
@@ -641,6 +689,7 @@ fn complete_turn_beam_search_with_node_limit(
         final_hp,
         monster_hp,
         budget_exhausted,
+        timed_out,
         expanded,
         generated,
         terminal_nodes,
@@ -667,6 +716,10 @@ fn expand_complete_turns(
     pruned: &mut usize,
     max_frontier: &mut usize,
     budget_exhausted: &mut bool,
+    timed_out: &mut bool,
+    duplicate_checks: &mut usize,
+    duplicates: &mut usize,
+    deadline: Option<Instant>,
     best: &mut SearchNode,
 ) -> Vec<SearchNode> {
     let mut active = turn_roots;
@@ -692,8 +745,11 @@ fn expand_complete_turns(
                 continue;
             }
             for action in actions {
-                if *nodes >= node_limit {
+                if *nodes >= node_limit
+                    || deadline.is_some_and(|deadline| Instant::now() >= deadline)
+                {
                     *budget_exhausted = true;
+                    *timed_out = *nodes < node_limit;
                     break;
                 }
                 let Ok(next_state) = apply_planner_action(&node.state, &action) else {
@@ -742,6 +798,12 @@ fn expand_complete_turns(
         let before = next_active.len();
         active = prune_frontier(next_active, width);
         *pruned += before.saturating_sub(active.len());
+        if config.deduplicate_search_states {
+            let (deduplicated, checks, removed) = deduplicate_search_nodes(active);
+            active = deduplicated;
+            *duplicate_checks += checks;
+            *duplicates += removed;
+        }
         *max_frontier = (*max_frontier).max(active.len());
     }
 
@@ -751,10 +813,36 @@ fn expand_complete_turns(
         }
     }
     let before = completed.len();
-    let completed = prune_frontier(completed, width);
+    let mut completed = prune_frontier(completed, width);
     *pruned += before.saturating_sub(completed.len());
+    if config.deduplicate_search_states {
+        let (deduplicated, checks, removed) = deduplicate_search_nodes(completed);
+        completed = deduplicated;
+        *duplicate_checks += checks;
+        *duplicates += removed;
+    }
     *max_frontier = (*max_frontier).max(completed.len());
     completed
+}
+
+fn deduplicate_search_nodes(nodes: Vec<SearchNode>) -> (Vec<SearchNode>, usize, usize) {
+    let checks = nodes.len();
+    let mut indices = HashMap::<Vec<u8>, usize>::with_capacity(nodes.len());
+    let mut unique = Vec::<SearchNode>::with_capacity(nodes.len());
+    for node in nodes {
+        let key = serde_json::to_vec(&node.state)
+            .expect("authoritative RunState must remain serializable for search caching");
+        if let Some(index) = indices.get(&key).copied() {
+            if node_better(&node, &unique[index]) {
+                unique[index] = node;
+            }
+        } else {
+            indices.insert(key, unique.len());
+            unique.push(node);
+        }
+    }
+    let duplicates = checks.saturating_sub(unique.len());
+    (unique, checks, duplicates)
 }
 
 fn validated_warm_start(
@@ -808,8 +896,15 @@ pub(crate) fn benchmark_beam_search(
     config: &AutomationConfig,
     transition_budget: usize,
 ) -> BenchmarkSearchResult {
-    let recommendation =
-        beam_search_with_node_limit(state, config, transition_budget.saturating_add(1), &[]);
+    let started = Instant::now();
+    let recommendation = beam_search_with_node_limit(
+        state,
+        config,
+        transition_budget.saturating_add(1),
+        &[],
+        None,
+    );
+    let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     let mut replay = state.clone();
     let mut replay_error = None;
     let mut action_labels = Vec::new();
@@ -850,6 +945,8 @@ pub(crate) fn benchmark_beam_search(
         remaining_monster_hp,
         transitions: recommendation.nodes.saturating_sub(1),
         budget_exhausted: recommendation.budget_exhausted,
+        timed_out: recommendation.timed_out,
+        elapsed_ms,
         expanded: recommendation.expanded,
         generated: recommendation.generated,
         terminal_nodes: recommendation.terminal_nodes,
@@ -1707,6 +1804,7 @@ mod tests {
             &config,
             100,
             &[PlannerAction::Combat(CombatAction::EndTurn)],
+            None,
         );
 
         assert_eq!(result.cache_hits, 1);
@@ -1715,6 +1813,58 @@ mod tests {
             "a fresh frontier must still be searched"
         );
         assert!(result.nodes > 1, "fresh search must consume its own budget");
+    }
+
+    #[test]
+    fn expired_live_search_deadline_returns_a_structured_timeout() {
+        let run = RunState::combat_fixture();
+        let config = AutomationConfig {
+            depth: 10,
+            width: 30,
+            ..AutomationConfig::default()
+        };
+
+        let result = beam_search_with_node_limit(
+            &run,
+            &config,
+            10_000,
+            &[],
+            Some(Instant::now() - Duration::from_millis(1)),
+        );
+
+        assert!(result.budget_exhausted);
+        assert!(result.timed_out);
+        assert_eq!(result.nodes, 1);
+    }
+
+    #[test]
+    fn state_cache_keeps_the_better_path_without_changing_state() {
+        let state = RunState::combat_fixture();
+        let worse = SearchNode {
+            state: state.clone(),
+            first_action: Some(PlannerAction::Combat(CombatAction::EndTurn)),
+            principal_variation: vec![PlannerAction::Combat(CombatAction::EndTurn)],
+            actions: 2,
+            score: 1.0,
+            terminal_reason: None,
+        };
+        let better = SearchNode {
+            state: state.clone(),
+            first_action: Some(PlannerAction::Combat(CombatAction::EndTurn)),
+            principal_variation: vec![PlannerAction::Combat(CombatAction::EndTurn)],
+            actions: 1,
+            score: 2.0,
+            terminal_reason: None,
+        };
+
+        let (deduplicated, checks, duplicates) = deduplicate_search_nodes(vec![worse, better]);
+
+        assert_eq!(checks, 2);
+        assert_eq!(duplicates, 1);
+        assert_eq!(deduplicated.len(), 1);
+        assert_eq!(deduplicated[0].state, state);
+        assert_eq!(deduplicated[0].score, 2.0);
+        assert_eq!(deduplicated[0].actions, 1);
     }
 
     #[test]

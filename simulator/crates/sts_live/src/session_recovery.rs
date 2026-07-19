@@ -18,13 +18,20 @@ pub(crate) fn trace_paths(trace_root: &Path) -> LiveResult<Vec<PathBuf>> {
     }
     let mut paths = fs::read_dir(trace_root)?
         .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "jsonl")
-        })
+        .filter(|path| is_session_trace_path(path))
         .collect::<Vec<_>>();
     paths.sort();
     Ok(paths)
+}
+
+fn is_session_trace_path(path: &Path) -> bool {
+    if path.extension().and_then(|extension| extension.to_str()) != Some("jsonl") {
+        return false;
+    }
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .and_then(|stem| stem.strip_prefix("session-"))
+        .is_some_and(|number| !number.is_empty() && number.chars().all(|ch| ch.is_ascii_digit()))
 }
 
 pub(crate) fn recover_session(path: &Path) -> LiveResult<SessionData> {

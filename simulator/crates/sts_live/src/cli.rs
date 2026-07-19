@@ -30,6 +30,19 @@ where
     B: BridgeManager,
     F: FidelityChecker,
 {
+    let mut ignore_events = |_event: Value| {};
+    run_cli_with_events(store, args, &mut ignore_events)
+}
+
+pub(crate) fn run_cli_with_events<B, F>(
+    store: &mut SessionStore<B, F>,
+    args: impl IntoIterator<Item = String>,
+    emit: &mut dyn FnMut(Value),
+) -> LiveResult<Value>
+where
+    B: BridgeManager,
+    F: FidelityChecker,
+{
     let args: Vec<String> = args.into_iter().collect();
     match args.as_slice() {
         [area, command] if area == "bridges" && command == "list" => {
@@ -142,11 +155,11 @@ where
         }
         [area, command, session_id, rest @ ..] if area == "slaythedata" && command == "resume" => {
             let request = parse_slaythedata_resume_args(session_id, rest)?;
-            Ok(run_slaythedata_resume(store, request))
+            Ok(run_slaythedata_resume(store, request, emit))
         }
         [area, command, rest @ ..] if area == "slaythedata" && command == "collect" => {
             let request = parse_slaythedata_collect_args(rest)?;
-            Ok(run_slaythedata_collection(store, request))
+            Ok(run_slaythedata_collection(store, request, emit))
         }
         [area, command, session_id] if area == "automation" && command == "status" => Ok(
             serde_json::to_value(store.automation_status(&SessionId(session_id.clone()))?)?,
@@ -289,6 +302,22 @@ fn parse_automation_config(args: &[String]) -> LiveResult<AutomationConfig> {
                     "--auto-action-limit",
                 )?;
             }
+            "--search-transition-budget" => {
+                index += 1;
+                config.search_transition_budget = parse_usize(
+                    required(args, index, "--search-transition-budget")?,
+                    "--search-transition-budget",
+                )?;
+            }
+            "--search-time-budget-ms" => {
+                index += 1;
+                config.search_time_budget_ms = required(args, index, "--search-time-budget-ms")?
+                    .parse()
+                    .map_err(|err| {
+                        LiveError::InvalidAction(format!("invalid --search-time-budget-ms: {err}"))
+                    })?;
+            }
+            "--search-dedup" => config.deduplicate_search_states = true,
             "--potions" | "--potion-slots" => {
                 index += 1;
                 config.allowed_potion_slots =
@@ -511,6 +540,7 @@ struct SlayTheDataCollectRequest {
     repair_packet_path: Option<PathBuf>,
     mark_illegal_source_path: Option<PathBuf>,
     retry_journaled: bool,
+    automation_config: AutomationConfig,
     output: CollectionOutputOptions,
 }
 
@@ -547,6 +577,7 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
     let mut repair_packet_path = None;
     let mut mark_illegal_source_path = None;
     let mut retry_journaled = false;
+    let mut automation_config = AutomationConfig::default();
     let mut output = default_collection_output_options();
     let mut filter_args = Vec::new();
     let mut index = 0;
@@ -588,6 +619,27 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
             "--retry-journaled" => {
                 retry_journaled = true;
             }
+            "--combat-search-transition-budget" => {
+                index += 1;
+                automation_config.search_transition_budget = parse_usize(
+                    required(args, index, "--combat-search-transition-budget")?,
+                    "--combat-search-transition-budget",
+                )?;
+            }
+            "--combat-search-time-budget-ms" => {
+                index += 1;
+                automation_config.search_time_budget_ms =
+                    required(args, index, "--combat-search-time-budget-ms")?
+                        .parse()
+                        .map_err(|err| {
+                            LiveError::InvalidAction(format!(
+                                "invalid --combat-search-time-budget-ms: {err}"
+                            ))
+                        })?;
+            }
+            "--combat-search-dedup" => {
+                automation_config.deduplicate_search_states = true;
+            }
             "--journal" => {
                 index += 1;
                 output.journal_path = Some(PathBuf::from(required(args, index, "--journal")?));
@@ -621,6 +673,7 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
         repair_packet_path,
         mark_illegal_source_path,
         retry_journaled,
+        automation_config,
         output,
     })
 }
@@ -1038,6 +1091,7 @@ where
 fn run_slaythedata_resume<B, F>(
     store: &mut SessionStore<B, F>,
     request: SlayTheDataResumeRequest,
+    emit: &mut dyn FnMut(Value),
 ) -> Value
 where
     B: BridgeManager,
@@ -1075,8 +1129,9 @@ where
         slaythedata_db_path: Some(&db_path),
         mark_illegal_source_path: None,
     };
+    emit_collection_progress(emit, "resume_started", &run, Some(&snapshot));
     let mut attempt =
-        drive_attached_slaythedata_run(store, &request.session_id, &run, snapshot, context);
+        drive_attached_slaythedata_run(store, &request.session_id, &run, snapshot, context, emit);
     mark_confirmed_incompatible_attempt(store, &mut attempt);
     finish_collection_attempt(store, attempt, started_at.elapsed(), &request.output)
 }
@@ -1108,6 +1163,7 @@ where
 fn run_slaythedata_collection<B, F>(
     store: &mut SessionStore<B, F>,
     request: SlayTheDataCollectRequest,
+    emit: &mut dyn FnMut(Value),
 ) -> Value
 where
     B: BridgeManager,
@@ -1194,16 +1250,28 @@ where
     let mut illegal_run_ids_to_add = Vec::new();
     for run in runs {
         let started_at = Instant::now();
+        emit_collection_progress(emit, "attempt_starting", &run, None);
         let mut attempt = collect_one_slaythedata_run(
             store,
             &bridge_id,
             &run,
             request.reset_bridge,
+            &request.automation_config,
             collect_context,
+            emit,
         );
         mark_confirmed_incompatible_attempt(store, &mut attempt);
         let attempt =
             finish_collection_attempt(store, attempt, started_at.elapsed(), &request.output);
+        emit(json!({
+            "type": "progress",
+            "operation": "attempt_finished",
+            "run_id": run.id,
+            "session_id": attempt.get("session_id"),
+            "floor": attempt.get("floor"),
+            "status": attempt.get("status"),
+            "reason": attempt.get("reason"),
+        }));
         let blocker_kind = collect_attempt_blocker_kind(&attempt);
         if blocker_kind == Some(SlayTheDataCollectionBlockerKind::SlaythedataIllegalLog) {
             if let Some(run_id) = attempt["run_id"].as_i64() {
@@ -1425,6 +1493,27 @@ fn collector_run_summary() -> SlayTheDataRunSummary {
     }
 }
 
+fn emit_collection_progress(
+    emit: &mut dyn FnMut(Value),
+    operation: &str,
+    run: &SlayTheDataRunSummary,
+    snapshot: Option<&SessionSnapshot>,
+) {
+    let state = snapshot.and_then(|snapshot| snapshot.latest_state.as_ref());
+    let summary = state.and_then(|state| state.raw.pointer("/summary"));
+    emit(json!({
+        "type": "progress",
+        "operation": operation,
+        "run_id": run.id,
+        "seed": run.seed_played,
+        "session_id": snapshot.map(|snapshot| &snapshot.session_id),
+        "floor": snapshot.and_then(current_floor),
+        "phase": state.map(|state| format!("{:?}", state.phase).to_lowercase()),
+        "current_hp": summary.and_then(|summary| summary.get("current_hp")),
+        "max_hp": summary.and_then(|summary| summary.get("max_hp")),
+    }));
+}
+
 fn write_requested_repair_packet(result: &mut Value, repair_packet_path: Option<PathBuf>) {
     if let Some(path) = repair_packet_path {
         let packet = result.get("repair_packet").cloned().or_else(|| {
@@ -1458,7 +1547,9 @@ fn collect_one_slaythedata_run<B, F>(
     bridge_id: &BridgeId,
     run: &SlayTheDataRunSummary,
     reset_bridge: bool,
+    automation_config: &AutomationConfig,
     context: SlayTheDataCollectContext<'_>,
+    emit: &mut dyn FnMut(Value),
 ) -> Value
 where
     B: BridgeManager,
@@ -1482,6 +1573,7 @@ where
             .map_or_else(|_| RunSeed::External(seed.to_owned()), RunSeed::Numeric),
     };
     if reset_bridge {
+        emit_collection_progress(emit, "bridge_reset_started", run, None);
         if let Err(error) = reset_bridge_for_collection(store, bridge_id) {
             return collect_attempt_json(
                 run,
@@ -1506,7 +1598,18 @@ where
             );
         }
     };
+    emit_collection_progress(emit, "run_started", run, Some(&started));
     let session_id = started.session_id.clone();
+    if let Err(error) = store.configure_automation(&session_id, automation_config.clone()) {
+        return collect_attempt_json(
+            run,
+            Some(&started),
+            "blocked",
+            "automation_configure_failed",
+            Some(error),
+            context,
+        );
+    }
     let snapshot = match store.attach_slaythedata_run(&session_id, run.id) {
         Ok(snapshot) => snapshot,
         Err(error) => {
@@ -1520,7 +1623,8 @@ where
             );
         }
     };
-    drive_attached_slaythedata_run(store, &session_id, run, snapshot, context)
+    emit_collection_progress(emit, "guidance_attached", run, Some(&snapshot));
+    drive_attached_slaythedata_run(store, &session_id, run, snapshot, context, emit)
 }
 
 fn drive_attached_slaythedata_run<B, F>(
@@ -1529,11 +1633,13 @@ fn drive_attached_slaythedata_run<B, F>(
     run: &SlayTheDataRunSummary,
     mut snapshot: SessionSnapshot,
     context: SlayTheDataCollectContext<'_>,
+    emit: &mut dyn FnMut(Value),
 ) -> Value
 where
     B: BridgeManager,
     F: FidelityChecker,
 {
+    let mut last_progress = None;
     for _ in 0..500 {
         snapshot = match store.request_state(session_id) {
             Ok(snapshot) => snapshot,
@@ -1578,6 +1684,11 @@ where
                 context,
             );
         };
+        let progress = (current_floor(&snapshot), state.phase.clone());
+        if last_progress.as_ref() != Some(&progress) {
+            emit_collection_progress(emit, "state", run, Some(&snapshot));
+            last_progress = Some(progress);
+        }
         if state.phase == LivePhase::GameOver {
             return collect_attempt_json(
                 run,
@@ -1589,8 +1700,12 @@ where
             );
         }
         snapshot = if state.phase == LivePhase::Combat {
+            emit_collection_progress(emit, "combat_search_started", run, Some(&snapshot));
             match store.automation_auto_play(session_id) {
-                Ok(snapshot) => snapshot,
+                Ok(snapshot) => {
+                    emit_collection_progress(emit, "combat_search_finished", run, Some(&snapshot));
+                    snapshot
+                }
                 Err(error) => {
                     return collect_attempt_json(
                         run,
@@ -2206,7 +2321,7 @@ fn required<'a>(args: &'a [String], index: usize, flag: &str) -> LiveResult<&'a 
 }
 
 fn usage() -> String {
-    "usage: live-trace [--slaythedata-db PATH] bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace slaythedata search [filters]|json RUN_ID|attach SESSION RUN_ID|send-next SESSION|skip-shop SESSION|auto-play SESSION|resume SESSION [--target-floor N] [--journal PATH] [--permanent-root PATH] [--promote-floor N] [--no-promote]|collect [filters] [--bridge ID] [--target-floor N] [--reset-bridge|--no-reset-bridge] [--journal PATH] [--retry-journaled] [--permanent-root PATH] [--promote-floor N] [--no-promote] [--repair-packet PATH] [--mark-illegal|--mark-illegal-source PATH]|mark-broken RUN_ID [REASON]|unmark-broken RUN_ID|mark-illegal PACKET_JSON [--source PATH]; live-trace fidelity status SESSION; live-trace trace path|verify SESSION; live-trace trace promote SESSION [--permanent-root PATH] [--min-floor N]".to_owned()
+    "usage: live-trace [--slaythedata-db PATH] bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace slaythedata search [filters]|json RUN_ID|attach SESSION RUN_ID|send-next SESSION|skip-shop SESSION|auto-play SESSION|resume SESSION [--target-floor N] [--journal PATH] [--permanent-root PATH] [--promote-floor N] [--no-promote]|agent [collect options]|collect [filters] [--bridge ID] [--target-floor N] [--reset-bridge|--no-reset-bridge] [--journal PATH] [--retry-journaled] [--permanent-root PATH] [--promote-floor N] [--no-promote] [--repair-packet PATH] [--combat-search-transition-budget N] [--combat-search-time-budget-ms N] [--combat-search-dedup] [--mark-illegal|--mark-illegal-source PATH]|mark-broken RUN_ID [REASON]|unmark-broken RUN_ID|mark-illegal PACKET_JSON [--source PATH]; live-trace fidelity status SESSION; live-trace trace path|verify SESSION; live-trace trace promote SESSION [--permanent-root PATH] [--min-floor N]".to_owned()
 }
 
 #[cfg(test)]
@@ -2820,6 +2935,11 @@ mod tests {
             "packet.json",
             "--mark-illegal",
             "--retry-journaled",
+            "--combat-search-transition-budget",
+            "25000",
+            "--combat-search-time-budget-ms",
+            "12000",
+            "--combat-search-dedup",
             "--run-id",
             "11",
             "--ascension",
@@ -2841,6 +2961,9 @@ mod tests {
         assert_eq!(request.filters.run_id, Some(11));
         assert_eq!(request.filters.min_floor_reached, 1);
         assert!(request.retry_journaled);
+        assert_eq!(request.automation_config.search_transition_budget, 25_000);
+        assert_eq!(request.automation_config.search_time_budget_ms, 12_000);
+        assert!(request.automation_config.deduplicate_search_states);
         assert!(request.output.promote);
         assert_eq!(request.output.promote_floor, 11);
     }

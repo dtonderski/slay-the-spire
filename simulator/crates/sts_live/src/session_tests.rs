@@ -755,6 +755,11 @@ fn recovers_existing_sessions_from_trace_root() {
             )
             .unwrap();
     }
+    fs::write(
+        root.join("slaythedata-collection.jsonl"),
+        "{\"status\":\"blocked\",\"run_id\":123}\n",
+    )
+    .unwrap();
 
     let mut recovered_store = fake_store(&root);
     let recovered = recovered_store.recover_existing_sessions().unwrap();

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![doc = "Live trace collection backend primitives and operator surfaces."]
 
+pub mod agent;
 mod automation;
 pub mod bridge;
 pub mod cli;

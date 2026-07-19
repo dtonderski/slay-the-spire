@@ -1723,6 +1723,7 @@ where
         if let Some(plan_step) = plan.actions.get_mut(plan.played_actions) {
             *plan_step = live_step.clone();
         }
+        plan.cache_hits += 1;
         session.automation.planned_action = Some(live_step);
         Ok(true)
     }
@@ -3034,6 +3035,7 @@ mod tests {
                 value: Some(1.0),
                 nodes: 10,
                 terminal_reason: None,
+                ..AutomationPlanSnapshot::default()
             }),
             ..AutomationJobSnapshot::default()
         };
@@ -3071,6 +3073,7 @@ mod tests {
                 value: None,
                 nodes: 1,
                 terminal_reason: None,
+                ..AutomationPlanSnapshot::default()
             }),
             ..AutomationJobSnapshot::default()
         };

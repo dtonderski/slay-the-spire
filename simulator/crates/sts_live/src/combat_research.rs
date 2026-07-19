@@ -102,6 +102,16 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
                 parse(depth, "depth")?,
                 parse(width, "width")?,
                 parse(transitions, "transition budget")?,
+                true,
+            )
+        }
+        [command, root, depth, width, transitions, deduplicate] if command == "eval-root" => {
+            eval_root(
+                Path::new(root),
+                parse(depth, "depth")?,
+                parse(width, "width")?,
+                parse(transitions, "transition budget")?,
+                parse(deduplicate, "deduplicate")?,
             )
         }
         [command, trace, line, output] if command == "verify-prefix" => {
@@ -111,7 +121,7 @@ pub fn run(args: impl Iterator<Item = String>) -> Result<(), String> {
                 Path::new(output),
             )
         }
-        _ => Err("usage: combat-research freeze OUT_DIR | evaluate MANIFEST OUTPUT DEPTH WIDTH TRANSITIONS TIMEOUT_MS | eval-root ROOT DEPTH WIDTH TRANSITIONS".to_owned()),
+        _ => Err("usage: combat-research freeze OUT_DIR | evaluate MANIFEST OUTPUT DEPTH WIDTH TRANSITIONS TIMEOUT_MS | eval-root ROOT DEPTH WIDTH TRANSITIONS [DEDUPLICATE]".to_owned()),
     }
 }
 
@@ -667,6 +677,7 @@ fn eval_root(
     depth: usize,
     width: usize,
     transition_budget: usize,
+    deduplicate_search_states: bool,
 ) -> Result<(), String> {
     let bytes = fs::read(root).map_err(io_error)?;
     let expected_id = root
@@ -683,6 +694,7 @@ fn eval_root(
     let config = AutomationConfig {
         depth,
         width,
+        deduplicate_search_states,
         ..AutomationConfig::default()
     };
     let result = benchmark_beam_search(&state, &config, transition_budget);
