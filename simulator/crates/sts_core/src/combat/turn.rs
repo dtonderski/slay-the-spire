@@ -85,6 +85,7 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
     // clicks End Turn with zero block.
     crate::relic::apply_orichalcum_end_of_player_turn(&mut next);
     apply_end_of_player_turn_powers(&mut next);
+    resolve_player_temp_strength(&mut next);
     let deferred_stasis_cards = if next.monsters.iter().any(|monster| monster.alive) {
         take_released_stasis_cards_from_piles(&mut next, &stasis_cards_before_end_powers)
     } else {
@@ -219,6 +220,18 @@ pub fn start_player_turn(state: &mut CombatState) {
         return;
     }
     state.phase = CombatPhase::WaitingForPlayer;
+}
+
+fn resolve_player_temp_strength(state: &mut CombatState) {
+    let amount = std::mem::take(&mut state.player.temp_strength);
+    if amount <= 0 || state.player.powers.artifact <= 0 {
+        return;
+    }
+
+    // Flex's LoseStrengthPower applies negative Strength at end of turn. Artifact
+    // can therefore block it even when Artifact was gained after Flex resolved.
+    state.player.powers.artifact -= 1;
+    state.player.powers.strength += amount;
 }
 
 pub fn finish_monster_turn_after_player_revival(state: &mut CombatState) {

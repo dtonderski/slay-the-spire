@@ -2077,6 +2077,38 @@ fn artifact_blocks_flex_strength_loss_and_makes_strength_permanent() {
 }
 
 #[test]
+fn artifact_gained_after_flex_blocks_its_end_of_turn_strength_loss() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::FLEX_ID),
+        CardInstance::new(CardId::new(2), cards::PANACEA_ID),
+    ];
+
+    let after_flex = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Flex plays before Artifact is gained");
+    let after_panacea = apply_combat_action(
+        &after_flex,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("Panacea grants Artifact after Flex");
+    let after_turn = apply_combat_action(&after_panacea, CombatAction::EndTurn).expect("turn ends");
+
+    assert_eq!(after_turn.player.powers.strength, 2);
+    assert_eq!(after_turn.player.temp_strength, 0);
+    assert_eq!(after_turn.player.powers.artifact, 0);
+}
+
+#[test]
 fn headbutt_plus_auto_places_single_discard_card_on_draw_pile() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

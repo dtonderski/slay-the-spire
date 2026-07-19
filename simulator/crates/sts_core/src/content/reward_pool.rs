@@ -1,20 +1,20 @@
 use crate::{
     card::CardRarity,
     content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID,
-        BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, CARNAGE_ID,
-        CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, COMBUST_ID, CORRUPTION_ID, DARK_EMBRACE_ID,
-        DECAY_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID, DOUBT_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID,
-        INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID,
-        NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID,
-        POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID,
-        RUPTURE_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID,
-        SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SWORD_BOOMERANG_ID,
-        THUNDERCLAP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID,
-        WILD_STRIKE_ID, WRITHE_ID,
+        is_curse_content_id, ANGER_ID, ARMAMENTS_ID, BARRICADE_ID, BATTLE_TRANCE_ID, BERSERK_ID,
+        BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID,
+        BURNING_PACT_ID, CARNAGE_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, COMBUST_ID,
+        CORRUPTION_ID, DARK_EMBRACE_ID, DECAY_ID, DEMON_FORM_ID, DISARM_ID, DOUBLE_TAP_ID,
+        DOUBT_ID, DROPKICK_ID, DUAL_WIELD_ID, ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
+        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
+        GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
+        IMPERVIOUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID,
+        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID,
+        RAMPAGE_ID, REAPER_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, SEARING_BLOW_ID,
+        SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID,
+        SHRUG_IT_OFF_ID, SPOT_WEAKNESS_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID, WRITHE_ID,
     },
     rng::StsRng,
     ContentId,
@@ -439,8 +439,15 @@ pub fn ironclad_transform_card_content_id(source: ContentId, rng: &mut StsRng) -
 
 #[must_use]
 pub fn ironclad_transform_card_pool(source: ContentId) -> Vec<ContentId> {
-    IRONCLAD_TRANSFORM_POOL
-        .iter()
+    // AbstractDungeon.transformCard branches on card color. Curse transforms call
+    // CardLibrary.getCurse(source, rng), which excludes the source and special curses.
+    // Non-curse Ironclad cards use the character transform pool below.
+    let pool = if is_curse_content_id(source) {
+        NORMAL_CURSE_POOL
+    } else {
+        IRONCLAD_TRANSFORM_POOL
+    };
+    pool.iter()
         .copied()
         .filter(|content_id| *content_id != source)
         .collect()
@@ -469,4 +476,22 @@ pub fn ironclad_truly_random_card_pool() -> Vec<ContentId> {
                 .map(|entry| entry.content_id)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::cards::CURSE_OF_THE_BELL_ID;
+
+    #[test]
+    fn curse_transform_pool_uses_normal_curses_and_excludes_source() {
+        let regret_pool = ironclad_transform_card_pool(REGRET_ID);
+        assert_eq!(regret_pool.len(), NORMAL_CURSE_POOL.len() - 1);
+        assert!(!regret_pool.contains(&REGRET_ID));
+        assert!(regret_pool.contains(&CLUMSY_ID));
+        assert!(!regret_pool.contains(&HEAVY_BLADE_ID));
+
+        let bell_pool = ironclad_transform_card_pool(CURSE_OF_THE_BELL_ID);
+        assert_eq!(bell_pool, NORMAL_CURSE_POOL);
+    }
 }
