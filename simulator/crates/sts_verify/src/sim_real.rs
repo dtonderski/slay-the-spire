@@ -9709,9 +9709,6 @@ fn subset_diffs(expected: Value, actual: Value) -> Vec<String> {
     let expected_json = serde_json::to_string(&expected).expect("json serializes");
     let actual_json = serde_json::to_string(&actual).expect("json serializes");
     canonical_diff(&expected_json, &actual_json)
-        .into_iter()
-        .filter(|diff| !is_known_card_vs_legacy_unknown_diff(diff))
-        .collect()
 }
 
 #[cfg(test)]
@@ -9725,20 +9722,6 @@ fn normalized_combat_subset_diffs(
         seed_start_normalize_combat_compare(expected, strip_piles),
         seed_start_normalize_combat_compare(actual, strip_piles),
     )
-}
-
-fn is_known_card_vs_legacy_unknown_diff(diff: &str) -> bool {
-    const KNOWN_CARD_NAMES: &[&str] = &[
-        "Armaments+",
-        "Offering",
-        "Offering+",
-        "armaments+",
-        "offering+",
-    ];
-    KNOWN_CARD_NAMES.iter().any(|name| {
-        diff.contains(&format!("\"{name}\" != \"unknown\""))
-            || diff.contains(&format!("\"unknown\" != \"{name}\""))
-    })
 }
 
 #[cfg(test)]
@@ -11453,6 +11436,13 @@ mod tests {
             Some(799),
             "the explicit action input wins over its source state's copy"
         );
+    }
+
+    #[test]
+    fn subset_diffs_reports_known_card_against_unknown() {
+        let diffs = subset_diffs(json!(["Offering+"]), json!(["unknown"]));
+
+        assert_eq!(diffs, vec!["[0]: \"Offering+\" != \"unknown\""]);
     }
 
     #[test]
