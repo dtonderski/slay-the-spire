@@ -1185,6 +1185,61 @@ fn communication_bridge_polls_past_stale_observed_update_payload() {
 }
 
 #[test]
+fn communication_bridge_disables_shop_potions_for_full_belt_and_offers_discard() {
+    let root = temp_dir("shop-full-potion-belt");
+    let summary = shop_summary();
+    let current_state = json!({
+        "message": {
+            "available_commands": ["choose", "potion", "leave", "state", "abandon"],
+            "ready_for_command": true,
+            "game_state": {
+                "screen_type": "SHOP_SCREEN",
+                "screen_state": {
+                    "potions": [
+                        {"id": "Swift Potion", "name": "Swift Potion", "price": 50},
+                        {"id": "Strength Potion", "name": "Strength Potion", "price": 50}
+                    ]
+                },
+                "potions": [
+                    {"id": "Ancient Potion", "name": "Ancient Potion", "can_use": false, "can_discard": true},
+                    {"id": "Fire Potion", "name": "Fire Potion", "can_use": false, "can_discard": true},
+                    {"id": "LiquidMemories", "name": "Liquid Memories", "can_use": false, "can_discard": true}
+                ]
+            }
+        }
+    });
+    write_bridge_files_with_current_state(&root, summary, current_state);
+    let mut bridge = bridge(&root, false);
+
+    let state = bridge
+        .request_state(&BridgeId("communication-mod".to_owned()))
+        .unwrap();
+
+    for id in ["choose-3", "choose-4"] {
+        let action = state
+            .legal_actions
+            .iter()
+            .find(|action| action.id == ActionId(id.to_owned()))
+            .unwrap();
+        assert!(!action.enabled);
+        assert_eq!(
+            action.disabled_reason.as_deref(),
+            Some("potion belt is full; discard a potion before buying another")
+        );
+    }
+    assert!(state.legal_actions.iter().any(|action| {
+        action.id == ActionId("potion-discard-0".to_owned())
+            && action.kind == LegalActionKind::DiscardPotion
+            && action.command["command"] == "POTION DISCARD 0"
+    }));
+    assert!(state
+        .legal_actions
+        .iter()
+        .any(|action| { action.id == ActionId("choose-1".to_owned()) && action.enabled }));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn communication_bridge_confirms_event_leave_followup_before_returning() {
     let root = temp_dir("event-leave-followup-confirmation");
     let initial_summary = json!({

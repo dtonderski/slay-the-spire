@@ -2209,6 +2209,9 @@ fn collect_blocker_kind(status: &str, reason: &str) -> SlayTheDataCollectionBloc
         "blocked" if reason == "game_over_before_target" => {
             SlayTheDataCollectionBlockerKind::RunEndedBeforeTarget
         }
+        "blocked" if reason == "slaythedata_send_failed" => {
+            SlayTheDataCollectionBlockerKind::BridgeOrBackendError
+        }
         "blocked"
             if reason.starts_with("slaythedata")
                 || reason.starts_with("guided")
@@ -3096,6 +3099,10 @@ mod tests {
         );
         assert_eq!(
             collect_blocker_kind("blocked", "request_state_failed"),
+            SlayTheDataCollectionBlockerKind::BridgeOrBackendError
+        );
+        assert_eq!(
+            collect_blocker_kind("blocked", "slaythedata_send_failed"),
             SlayTheDataCollectionBlockerKind::BridgeOrBackendError
         );
         assert_eq!(

@@ -79,7 +79,7 @@ pub(crate) fn live_state_from_files(files: &BridgeFiles) -> LiveState {
     LiveState {
         sequence,
         phase: phase_from_summary(&summary),
-        legal_actions: actions_from_summary(&summary, source_state_id),
+        legal_actions: actions_from_summary(&summary, &files.current_state, source_state_id),
         raw: json!({
             "status": files.status,
             "summary": summary,
@@ -143,7 +143,11 @@ pub(crate) fn available_commands(summary: &Value) -> HashSet<String> {
         .collect()
 }
 
-fn actions_from_summary(summary: &Value, source_state_id: Option<&str>) -> Vec<LegalAction> {
+fn actions_from_summary(
+    summary: &Value,
+    current_state: &Value,
+    source_state_id: Option<&str>,
+) -> Vec<LegalAction> {
     let available = available_commands(summary);
     let disabled = disabled_reason(summary);
     let phase = phase_from_summary(summary);
@@ -159,6 +163,7 @@ fn actions_from_summary(summary: &Value, source_state_id: Option<&str>) -> Vec<L
     add_choice_actions(
         &mut actions,
         summary,
+        current_state,
         &available,
         phase,
         disabled.clone(),
@@ -186,6 +191,7 @@ fn actions_from_summary(summary: &Value, source_state_id: Option<&str>) -> Vec<L
 fn add_choice_actions(
     actions: &mut Vec<LegalAction>,
     summary: &Value,
+    current_state: &Value,
     available: &HashSet<String>,
     phase: LivePhase,
     disabled: Option<String>,
@@ -208,16 +214,49 @@ fn add_choice_actions(
             if should_hide_reward_choice(summary, &phase, choice) {
                 continue;
             }
+            let choice_disabled = disabled
+                .clone()
+                .or_else(|| full_belt_shop_potion_reason(summary, current_state, &phase, choice));
             actions.push(bridge_action(
                 &format!("choose-{index}"),
                 choose_kind.clone(),
                 choice.as_str().unwrap_or("Choose"),
                 &format!("CHOOSE {index}"),
-                disabled.clone(),
+                choice_disabled,
                 source_state_id,
             ));
         }
     }
+}
+
+fn full_belt_shop_potion_reason(
+    summary: &Value,
+    current_state: &Value,
+    phase: &LivePhase,
+    choice: &Value,
+) -> Option<String> {
+    if phase != &LivePhase::Shop
+        || summary
+            .get("open_potion_slots")
+            .and_then(Value::as_i64)
+            .is_none_or(|slots| slots > 0)
+    {
+        return None;
+    }
+    let choice = choice.as_str()?;
+    let is_shop_potion = current_state
+        .pointer("/message/game_state/screen_state/potions")
+        .and_then(Value::as_array)
+        .is_some_and(|potions| {
+            potions.iter().any(|potion| {
+                potion
+                    .get("name")
+                    .or_else(|| potion.get("id"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|label| label.trim().eq_ignore_ascii_case(choice.trim()))
+            })
+        });
+    is_shop_potion.then(|| "potion belt is full; discard a potion before buying another".to_owned())
 }
 
 fn should_hide_reward_choice(summary: &Value, phase: &LivePhase, choice: &Value) -> bool {
@@ -333,9 +372,6 @@ fn add_potion_actions(
         .unwrap_or_default();
 
     for (fallback_slot, potion) in potions.iter().enumerate() {
-        if potion.get("can_use").and_then(Value::as_bool) != Some(true) {
-            continue;
-        }
         let slot = potion
             .get("index")
             .and_then(Value::as_u64)
@@ -345,6 +381,19 @@ fn add_potion_actions(
             .or_else(|| potion.get("id"))
             .and_then(Value::as_str)
             .unwrap_or("Potion");
+        if potion.get("can_discard").and_then(Value::as_bool) == Some(true) {
+            actions.push(bridge_action(
+                &format!("potion-discard-{slot}"),
+                LegalActionKind::DiscardPotion,
+                &format!("Discard {potion_label}"),
+                &format!("POTION DISCARD {slot}"),
+                disabled.clone(),
+                source_state_id,
+            ));
+        }
+        if potion.get("can_use").and_then(Value::as_bool) != Some(true) {
+            continue;
+        }
         if potion
             .get("requires_target")
             .and_then(Value::as_bool)
@@ -588,6 +637,7 @@ mod tests {
                 "screen_type": "NONE",
                 "screen_name": "FTUE"
             }),
+            &Value::Null,
             Some("ftue-state"),
         );
 
@@ -615,6 +665,7 @@ mod tests {
                 "screen_type": "NONE",
                 "screen_name": "MASTER_DECK_VIEW"
             }),
+            &Value::Null,
             Some("deck-state"),
         );
 
@@ -638,6 +689,7 @@ mod tests {
                 "in_game": true,
                 "screen_type": "GRID"
             }),
+            &Value::Null,
             Some("grid-state"),
         );
 

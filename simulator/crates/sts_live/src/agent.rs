@@ -319,6 +319,10 @@ fn decision_packet(snapshot: &SessionSnapshot) -> Value {
     let summary = raw.and_then(|raw| raw.pointer("/summary"));
     let game = raw.and_then(|raw| raw.pointer("/current_state/message/game_state"));
     let screen = game.and_then(|game| game.get("screen_state"));
+    let is_shop = summary
+        .and_then(|summary| summary.get("screen_type"))
+        .and_then(Value::as_str)
+        == Some("SHOP_SCREEN");
     json!({
         "type": "decision",
         "schema": AGENT_PROTOCOL_SCHEMA,
@@ -336,8 +340,8 @@ fn decision_packet(snapshot: &SessionSnapshot) -> Value {
         "deck": game.and_then(|game| game.get("deck")),
         "relics": game.and_then(|game| game.get("relics")),
         "potions": game.and_then(|game| game.get("potions")),
-        "shop": screen.filter(|_| summary.and_then(|summary| summary.get("screen_type")).and_then(Value::as_str) == Some("SHOP_SCREEN")),
-        "screen": screen,
+        "shop": screen.filter(|_| is_shop),
+        "screen": screen.filter(|_| !is_shop),
         "route": {
             "act": game.and_then(|game| game.get("act")),
             "boss": game.and_then(|game| game.get("act_boss")),
@@ -349,7 +353,16 @@ fn decision_packet(snapshot: &SessionSnapshot) -> Value {
         "combat": game.and_then(|game| game.get("combat_state")),
         "legal_actions": state.map(|state| &state.legal_actions),
         "slaythedata": snapshot.slaythedata,
-        "automation": snapshot.automation,
+        "automation": {
+            "state": &snapshot.automation.state,
+            "policy": &snapshot.automation.policy,
+            "config": &snapshot.automation.config,
+            "planned_action": &snapshot.automation.planned_action,
+            "plan": &snapshot.automation.plan,
+            "blocked": &snapshot.automation.blocked,
+            "last_message": &snapshot.automation.last_message,
+            "executed_action_count": snapshot.automation.executed_actions.len(),
+        },
         "fidelity": snapshot.fidelity,
     })
 }
@@ -542,10 +555,13 @@ mod tests {
         assert_eq!(packet["hp"]["current"], 42);
         assert_eq!(packet["shop"]["cards"][0]["price"], 77);
         assert_eq!(packet["shop"]["purge_cost"], 75);
+        assert!(packet["screen"].is_null());
         assert_eq!(packet["deck"][0]["name"], "Strike");
         assert_eq!(packet["route"]["boss"], "Hexaghost");
         assert!(packet["route"].get("map").is_none());
         assert_eq!(packet["legal_actions"][0]["id"], "choose-1");
+        assert!(packet["automation"].get("executed_actions").is_none());
+        assert_eq!(packet["automation"]["executed_action_count"], 0);
     }
 
     #[test]
