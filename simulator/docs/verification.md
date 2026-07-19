@@ -19,6 +19,27 @@ and are never used by the autonomous collector. Simulator state must be derived
 from the initial seed/config plus accepted actions, never copied, repaired, or
 hydrated from a real-game observation.
 
+## Verification Outcome Contract
+
+Verification verdict and coverage scope are explicit. A report is assessed
+against one declared expectation: complete replay, a retained prefix with a
+named endpoint, or an exact expected boundary. The resulting typed outcome is
+one of complete pass, retained-prefix pass, expected boundary, invalid input,
+or failure.
+
+No passing outcome may be produced from empty diff lists alone. It also
+requires zero unsupported transitions, zero ignored-tail actions, a boundary
+consistent with the declared expectation, and complete action-integrity
+evidence. That evidence must show exactly one disposition for every applicable
+action, no duplicate dispositions, and no unresolved transient assertions.
+Missing integrity evidence is itself a failure.
+
+The migration is deliberately staged. Typed assessment and policy tests land
+first without changing CLI or corpus enforcement. Action dispositions are then
+recorded for every trace action, permanent traces receive explicit coverage
+expectations, and only after the generated corpus ledger has been reviewed do
+the CLI exit codes and corpus gate switch to the typed outcome.
+
 ## Real-Game Comparison
 
 The best current harness is [CommunicationMod](https://github.com/ForgottenArbiter/CommunicationMod). Its protocol sends JSON game state when the game is stable and accepts external commands. [spirecomm](https://github.com/ForgottenArbiter/spirecomm) demonstrates client-side use.

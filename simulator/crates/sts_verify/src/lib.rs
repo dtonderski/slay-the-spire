@@ -6,6 +6,7 @@ pub mod importer;
 pub mod m22;
 pub mod minimize;
 pub mod normalize;
+pub mod outcome;
 pub mod seed;
 pub mod sim_real;
 pub mod slaythedata;
@@ -23,6 +24,10 @@ pub use minimize::{
 pub use normalize::{
     normalize_combat_state, normalize_communication_mod_message, CanonicalCombatObservation,
     CanonicalMonsterObservation, CanonicalRunObservation,
+};
+pub use outcome::{
+    assess_verification, ExpectedBoundary, RetainedPrefixEndpoint, VerificationExpectation,
+    VerificationFailure, VerificationIntegrity, VerificationOutcome,
 };
 pub use seed::{
     sts_seed_long_to_string, sts_seed_string_to_long, try_sts_seed_string_to_long,
