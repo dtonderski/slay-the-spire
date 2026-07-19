@@ -25,6 +25,7 @@ simulator/SLAYTHEDATA_*_COLLECTION_LOG.jsonl
 simulator/latest-repair.json
 tools/communication/session/
 mods/abandon-run-control/build/
+mods/verification-bootstrap/build/
 
 # Decompiled/vendor reference corpora are local-only.
 tmp/decompiled-sts/
