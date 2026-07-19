@@ -9,7 +9,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sts_core::card::CardType;
-use sts_core::combat::HandSelectPurpose;
+use sts_core::combat::{ExhaustSelectPurpose, HandSelectPurpose};
 use sts_core::content::cards::{card_type_and_rarity, STRIKE_R_ID};
 use sts_core::content::encounters::{
     target_beyond_act_three_boss_with_unlocks, target_exordium_act_one_boss_with_unlocks,
@@ -2677,7 +2677,6 @@ fn verify_seed_start_transitions(
                                         seed_start_encounter_observed_subset(&post.message);
                                     let simulated = seed_start_simulated_map_combat_subset(
                                         &next,
-                                        &post.message,
                                         &relics,
                                         normal_combat_index,
                                     );
@@ -3143,7 +3142,7 @@ fn verify_seed_start_transitions(
                 {
                     let label = "event combat";
                     let observed = seed_start_encounter_observed_subset(&post.message);
-                    let simulated = seed_start_simulated_combat_subset(&next, &post.message, false);
+                    let simulated = seed_start_simulated_combat_subset(&next, false);
                     seed_start_compare_combat_subset(
                         report, action, label, observed, simulated, true,
                     );
@@ -3326,7 +3325,7 @@ fn verify_seed_start_transitions(
                             action,
                             "Smoke Bomb escape queued",
                             seed_start_combat_observed_subset(&post.message),
-                            seed_start_simulated_combat_subset(&settling, &post.message, false),
+                            seed_start_simulated_combat_subset(&settling, false),
                             false,
                         );
                         *sim = settling;
@@ -3341,8 +3340,7 @@ fn verify_seed_start_transitions(
                         if let Some(object) = observed.as_object_mut() {
                             object.remove("card_reward_ids");
                         }
-                        let mut simulated =
-                            seed_start_simulated_combat_subset(&next, &post.message, false);
+                        let mut simulated = seed_start_simulated_combat_subset(&next, false);
                         if let Some(object) = simulated.as_object_mut() {
                             object.remove("card_reward_ids");
                         }
@@ -3375,7 +3373,7 @@ fn verify_seed_start_transitions(
                         action,
                         "combat potion use",
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
                     *sim = next;
@@ -3424,7 +3422,7 @@ fn verify_seed_start_transitions(
                         action,
                         "combat potion card reward",
                         observed,
-                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
                     *sim = next;
@@ -3452,7 +3450,7 @@ fn verify_seed_start_transitions(
                         action,
                         "combat potion card reward skip",
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
                     *sim = next;
@@ -3480,7 +3478,7 @@ fn verify_seed_start_transitions(
                         action,
                         "hand select confirm",
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
                     *sim = next;
@@ -3517,7 +3515,7 @@ fn verify_seed_start_transitions(
                         action,
                         "hand select",
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
                     *sim = next;
@@ -3545,7 +3543,7 @@ fn verify_seed_start_transitions(
                         action,
                         "discard select confirm",
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
                     *sim = next;
@@ -3587,7 +3585,7 @@ fn verify_seed_start_transitions(
                         action,
                         "discard select",
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
                     *sim = next;
@@ -3615,7 +3613,7 @@ fn verify_seed_start_transitions(
                         action,
                         "exhaust select confirm",
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
                     *sim = next;
@@ -3657,7 +3655,7 @@ fn verify_seed_start_transitions(
                         action,
                         "exhaust select",
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, &post.message, false),
+                        seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
                     *sim = next;
@@ -3673,7 +3671,7 @@ fn verify_seed_start_transitions(
                         action,
                         "hand select refresh",
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(sim, &post.message, false),
+                        seed_start_simulated_combat_subset(sim, false),
                         false,
                     );
                     report.verified.push(VerifiedTransition {
@@ -3814,7 +3812,7 @@ fn verify_seed_start_transitions(
                 };
                 let label = combat_label(command, sim);
                 let observed = seed_start_combat_observed_subset(&post.message);
-                let simulated = seed_start_simulated_combat_subset(&next, &post.message, false);
+                let simulated = seed_start_simulated_combat_subset(&next, false);
                 if seed_start_is_transient_combat_post_state(&post.message) {
                     seed_start_compare_transient_combat_subset(
                         report, action, &label, observed, simulated,
@@ -4884,8 +4882,12 @@ fn seed_start_encounter_observed_subset(message: &Value) -> Value {
     };
     let combat = game.get("combat_state");
     let player = combat.and_then(|combat| combat.get("player"));
-    json!({
-        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+    let screen_type = game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let mut subset = json!({
+        "screen_type": screen_type,
         "ascension": game.get("ascension_level").and_then(Value::as_u64).unwrap_or(0),
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
         "gold": int(game, "gold"),
@@ -4898,7 +4900,19 @@ fn seed_start_encounter_observed_subset(message: &Value) -> Value {
         "combat_player_block": player.map(|p| int(p, "block")).unwrap_or(0),
         "combat_player_energy": player.map(|p| int(p, "energy")).unwrap_or(0),
         "monsters": seed_start_monsters_from_value(combat.and_then(|combat| combat.get("monsters"))),
-    })
+    });
+    if screen_type == "CARD_REWARD" {
+        if let Value::Object(map) = &mut subset {
+            map.insert(
+                "card_reward_ids".to_owned(),
+                json!(card_reward_ids_from_value(
+                    game.get("screen_state")
+                        .and_then(|state| state.get("cards")),
+                )),
+            );
+        }
+    }
+    subset
 }
 
 fn seed_start_combat_observed_subset(message: &Value) -> Value {
@@ -8123,30 +8137,23 @@ fn seed_start_opening_piles_match(simulated: &CardPiles, message: &Value) -> boo
     observed_hand == simulated_hand && observed_draw == simulated_draw
 }
 
-fn seed_start_simulated_combat_subset(
-    run: &RunState,
-    message: &Value,
-    end_turn_snapshot: bool,
-) -> Value {
-    seed_start_simulated_combat_subset_with_options(run, message, end_turn_snapshot, &[])
+fn seed_start_simulated_combat_subset(run: &RunState, end_turn_snapshot: bool) -> Value {
+    seed_start_simulated_combat_subset_with_options(run, end_turn_snapshot, &[])
 }
 
 fn seed_start_simulated_map_combat_subset(
     run: &RunState,
-    message: &Value,
     relics: &[String],
     _normal_combat_index: usize,
 ) -> Value {
-    seed_start_simulated_combat_subset_with_options(run, message, false, relics)
+    seed_start_simulated_combat_subset_with_options(run, false, relics)
 }
 
 fn seed_start_simulated_combat_subset_with_options(
     run: &RunState,
-    message: &Value,
     end_turn_snapshot: bool,
     relics: &[String],
 ) -> Value {
-    let game = message.get("game_state").expect("observed game_state");
     let Some(combat) = run.combat.as_ref() else {
         return json!({
             "screen_type": "NO_COMBAT",
@@ -8169,20 +8176,7 @@ fn seed_start_simulated_combat_subset_with_options(
             },
         });
     };
-    let observed_screen_type = game
-        .get("screen_type")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let screen_type =
-        if combat.potion_card_reward.is_some() || combat.discovery_card_reward.is_some() {
-            "CARD_REWARD"
-        } else if combat.hand_select.is_some()
-            || (combat.exhaust_select.is_some() && observed_screen_type == "HAND_SELECT")
-        {
-            "HAND_SELECT"
-        } else {
-            observed_screen_type
-        };
+    let screen_type = seed_start_simulated_combat_screen_type(combat);
     let mut subset = json!({
         "screen_type": screen_type,
         "ascension": run.ascension,
@@ -8229,6 +8223,7 @@ fn seed_start_simulated_combat_subset_with_options(
         .potion_card_reward
         .as_ref()
         .or(combat.discovery_card_reward.as_ref())
+        .or(combat.toolbox_card_reward.as_ref())
     {
         if let Value::Object(map) = &mut subset {
             map.insert(
@@ -8241,6 +8236,34 @@ fn seed_start_simulated_combat_subset_with_options(
         }
     }
     subset
+}
+
+fn seed_start_simulated_combat_screen_type(combat: &CombatState) -> &'static str {
+    if combat.phase == CombatPhase::Lost {
+        "GAME_OVER"
+    } else if combat.potion_card_reward.is_some()
+        || combat.discovery_card_reward.is_some()
+        || combat.toolbox_card_reward.is_some()
+    {
+        "CARD_REWARD"
+    } else if combat.hand_select.is_some()
+        || combat
+            .exhaust_select
+            .as_ref()
+            .is_some_and(|select| select.purpose != ExhaustSelectPurpose::ExhumeReturnToHand)
+    {
+        "HAND_SELECT"
+    } else if combat.draw_select.is_some()
+        || combat.discard_select.is_some()
+        || combat
+            .exhaust_select
+            .as_ref()
+            .is_some_and(|select| select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand)
+    {
+        "GRID"
+    } else {
+        "NONE"
+    }
 }
 
 #[cfg(test)]
@@ -11372,17 +11395,10 @@ mod tests {
             selected_hand_indices: Vec::new(),
         });
         run.combat = Some(combat);
-        let message = json!({
-            "game_state": {
-                "screen_type": "HAND_SELECT",
-                "floor": 24,
-                "combat_state": {"monsters": []}
-            }
-        });
-
-        let projected = seed_start_simulated_combat_subset(&run, &message, false);
+        let projected = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(projected["hand_ids"], json!(["Pommel Strike", "Combust"]));
+        assert_eq!(projected["screen_type"], json!("HAND_SELECT"));
     }
 
     #[test]
@@ -13781,54 +13797,31 @@ mod tests {
         run.relics = vec![Relic::BurningBlood, Relic::BloodVial];
         run.combat = Some(run.init_combat(CombatState::initial_fixture()));
 
-        let message = json!({
-            "game_state": {
-                "floor": 8,
-                "screen_type": "NONE"
-            }
-        });
-        let subset = seed_start_simulated_combat_subset(&run, &message, false);
+        let subset = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(subset["current_hp"], json!(36));
         assert_eq!(subset["combat_player_hp"], json!(36));
     }
 
     #[test]
-    fn combat_subset_uses_simulated_floor_instead_of_observation() {
+    fn combat_subset_uses_run_floor() {
         let mut run = RunState::map_fixture();
         run.current_floor = 17;
         run.combat = Some(run.init_combat(CombatState::initial_fixture()));
-        let forged_observation = json!({
-            "game_state": {
-                "floor": 999,
-                "screen_type": "NONE",
-                "combat_state": {"monsters": []}
-            }
-        });
 
-        let subset = seed_start_simulated_combat_subset(&run, &forged_observation, false);
+        let subset = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(subset["floor"], json!(17));
     }
 
     #[test]
-    fn combat_subset_uses_simulated_monster_identity_and_max_hp_instead_of_observation() {
+    fn combat_subset_uses_simulated_monster_identity_and_max_hp() {
         let mut run = RunState::map_fixture();
         let mut combat = run.init_combat(CombatState::initial_fixture());
         combat.monsters[0].hp = 31;
         combat.monsters[0].max_hp = 47;
         run.combat = Some(combat);
-        let forged_observation = json!({
-            "game_state": {
-                "floor": run.current_floor,
-                "screen_type": "NONE",
-                "combat_state": {
-                    "monsters": [{"name": "Gremlin Nob", "max_hp": 999}]
-                }
-            }
-        });
-
-        let subset = seed_start_simulated_combat_subset(&run, &forged_observation, false);
+        let subset = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(subset["monsters"][0]["current_hp"], json!(31));
         assert_eq!(subset["monsters"][0]["max_hp"], json!(47));
@@ -13880,6 +13873,97 @@ mod tests {
     }
 
     #[test]
+    fn simulated_combat_screen_type_comes_from_typed_decision_state() {
+        use sts_core::combat::{
+            DiscardSelectPurpose, DiscardSelectState, DrawSelectPurpose, DrawSelectState,
+            ExhaustSelectState,
+        };
+
+        let source_card_id = CardId::new(100);
+        let mut combat = CombatState::initial_fixture();
+        assert_eq!(seed_start_simulated_combat_screen_type(&combat), "NONE");
+
+        combat.phase = CombatPhase::Lost;
+        assert_eq!(
+            seed_start_simulated_combat_screen_type(&combat),
+            "GAME_OVER"
+        );
+        combat.phase = CombatPhase::WaitingForPlayer;
+
+        combat.toolbox_card_reward = Some(vec![CardInstance::new(source_card_id, STRIKE_R_ID)]);
+        assert_eq!(
+            seed_start_simulated_combat_screen_type(&combat),
+            "CARD_REWARD"
+        );
+        let mut toolbox_run = RunState::map_fixture();
+        toolbox_run.combat = Some(combat.clone());
+        let toolbox_subset = seed_start_simulated_combat_subset(&toolbox_run, false);
+        assert_eq!(toolbox_subset["screen_type"], json!("CARD_REWARD"));
+        assert_eq!(
+            toolbox_subset["card_reward_ids"],
+            json!([STRIKE_R_ID.get()])
+        );
+        combat.toolbox_card_reward = None;
+
+        combat.exhaust_select = Some(ExhaustSelectState {
+            purpose: ExhaustSelectPurpose::BurningPactDraw2,
+            source_card_id: Some(source_card_id),
+            source_card: None,
+            selected_hand_indices: Vec::new(),
+        });
+        assert_eq!(
+            seed_start_simulated_combat_screen_type(&combat),
+            "HAND_SELECT"
+        );
+        combat.exhaust_select.as_mut().unwrap().purpose = ExhaustSelectPurpose::ExhumeReturnToHand;
+        assert_eq!(seed_start_simulated_combat_screen_type(&combat), "GRID");
+        combat.exhaust_select = None;
+
+        combat.draw_select = Some(DrawSelectState {
+            purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
+            source_card_id,
+            selected_draw_index: None,
+        });
+        assert_eq!(seed_start_simulated_combat_screen_type(&combat), "GRID");
+        combat.draw_select = None;
+
+        combat.discard_select = Some(DiscardSelectState {
+            purpose: DiscardSelectPurpose::HeadbuttPutOnDraw,
+            source_card_id: Some(source_card_id),
+            source_card: None,
+            selected_discard_indices: Vec::new(),
+            max_choices: 1,
+            selected_discard_index: None,
+        });
+        assert_eq!(seed_start_simulated_combat_screen_type(&combat), "GRID");
+    }
+
+    #[test]
+    fn encounter_observation_projects_visible_toolbox_cards() {
+        use sts_core::content::cards::{BASH_ID, DEFEND_R_ID};
+
+        let message = json!({
+            "game_state": {
+                "screen_type": "CARD_REWARD",
+                "screen_state": {
+                    "cards": [
+                        {"id": "Strike_R"},
+                        {"id": "Defend_R"},
+                        {"id": "Bash"}
+                    ]
+                }
+            }
+        });
+
+        let observed = seed_start_encounter_observed_subset(&message);
+
+        assert_eq!(
+            observed["card_reward_ids"],
+            json!([STRIKE_R_ID.get(), DEFEND_R_ID.get(), BASH_ID.get()])
+        );
+    }
+
+    #[test]
     fn combat_subset_reports_discovery_card_reward_choices() {
         use sts_core::{
             card::CardInstance,
@@ -13896,13 +13980,7 @@ mod tests {
         ]);
         run.combat = Some(combat);
 
-        let message = json!({
-            "game_state": {
-                "floor": 33,
-                "screen_type": "CARD_REWARD"
-            }
-        });
-        let subset = seed_start_simulated_combat_subset(&run, &message, false);
+        let subset = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(subset["screen_type"], json!("CARD_REWARD"));
         assert_eq!(
@@ -13948,7 +14026,7 @@ mod tests {
         });
 
         let observed = seed_start_combat_observed_subset(&message);
-        let simulated = seed_start_simulated_combat_subset(&run, &message, false);
+        let simulated = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(simulated["screen_type"], json!("NO_COMBAT"));
         assert!(!subset_diffs(observed, simulated).is_empty());
