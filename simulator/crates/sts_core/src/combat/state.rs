@@ -240,6 +240,8 @@ pub struct MonsterState {
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub temp_strength_down: i32,
     pub content_id: ContentId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slime_size: Option<SlimeSize>,
     #[serde(default)]
     pub moves_executed: u32,
     #[serde(default)]
@@ -269,6 +271,13 @@ pub struct MonsterState {
     #[serde(default, skip_serializing_if = "is_false")]
     pub initial_intent_locked: bool,
     pub intent: MonsterIntent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SlimeSize {
+    Small,
+    Medium,
+    Large,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

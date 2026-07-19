@@ -2,7 +2,7 @@ use crate::{
     card::{CardInstance, CardRarity},
     combat::piles::{add_cards_to_discard, add_cards_to_draw_random_spot},
     combat::turn_powers::monster_attack_damage,
-    combat::{CardPiles, MonsterIntent, MonsterState},
+    combat::{CardPiles, MonsterIntent, MonsterState, SlimeSize},
     content::ascension::AscensionConfig,
     content::cards::{card_type_and_rarity, BURN_ID, DAZED_ID, SLIMED_ID},
     ids::{CardId, ContentId, MonsterId},
@@ -3854,6 +3854,10 @@ pub fn monster_state_for_ascension(
         },
         temp_strength_down: 0,
         content_id: definition.content_id,
+        slime_size: match definition.content_id {
+            SPIKE_SLIME_ID | ACID_SLIME_ID => Some(SlimeSize::Small),
+            _ => None,
+        },
         moves_executed: 0,
         sleep_turns_remaining: definition.starting_sleep_turns,
         has_siphoned: false,
@@ -8036,8 +8040,10 @@ pub fn apply_large_acid_slime_split(
     let mut right = monster_state(&ACID_SLIME_A0, MonsterId::new(next_id + 1));
     left.hp = split_hp;
     left.max_hp = split_hp;
+    left.slime_size = Some(SlimeSize::Medium);
     right.hp = split_hp;
     right.max_hp = split_hp;
+    right.slime_size = Some(SlimeSize::Medium);
     if let Some(rng) = rng {
         let left_roll = rng.random_int(99);
         left.intent = target_medium_acid_slime_next_intent_from_roll(
@@ -8108,8 +8114,10 @@ pub fn apply_large_spike_slime_split(
     let mut right = monster_state(&SPIKE_SLIME_A0, MonsterId::new(next_id + 1));
     left.hp = split_hp;
     left.max_hp = split_hp;
+    left.slime_size = Some(SlimeSize::Medium);
     right.hp = split_hp;
     right.max_hp = split_hp;
+    right.slime_size = Some(SlimeSize::Medium);
     if let Some(rng) = rng.as_deref_mut() {
         let left_roll = rng.random_int(99);
         left.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
@@ -8181,6 +8189,7 @@ pub fn apply_slime_boss_split(
     let mut acid = monster_state(&ACID_SLIME_A0, MonsterId::new(next_id + 1));
     spike.hp = split_hp;
     spike.max_hp = split_hp;
+    spike.slime_size = Some(SlimeSize::Large);
     spike.rolled_attack_damage = Some(if ascension >= 2 {
         SPIKE_SLIME_L_SPIT_DAMAGE + 2
     } else {
@@ -8198,6 +8207,7 @@ pub fn apply_slime_boss_split(
     }
     acid.hp = split_hp;
     acid.max_hp = split_hp;
+    acid.slime_size = Some(SlimeSize::Large);
     acid.rolled_attack_damage = Some(if ascension >= 2 {
         ACID_SLIME_L_A2_NORMAL_TACKLE_DAMAGE
     } else {
@@ -10382,6 +10392,9 @@ mod tests {
         assert!(children
             .iter()
             .all(|monster| (monster.hp, monster.max_hp) == (20, 20)));
+        assert!(children
+            .iter()
+            .all(|monster| monster.slime_size == Some(SlimeSize::Medium)));
     }
 
     #[test]
@@ -10402,6 +10415,9 @@ mod tests {
         assert!(children
             .iter()
             .all(|monster| (monster.hp, monster.max_hp) == (17, 17)));
+        assert!(children
+            .iter()
+            .all(|monster| monster.slime_size == Some(SlimeSize::Medium)));
     }
 
     #[test]
@@ -10426,6 +10442,7 @@ mod tests {
             .find(|monster| monster.alive && monster.content_id == SPIKE_SLIME_ID)
             .expect("Slime Boss split should spawn a Spike Slime child");
         assert_eq!((spike.hp, spike.max_hp), (54, 54));
+        assert_eq!(spike.slime_size, Some(SlimeSize::Large));
         assert_eq!(
             spike.intent,
             MonsterIntent::AttackAddSlimedToDiscard {

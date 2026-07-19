@@ -1,6 +1,6 @@
 use crate::{
     card::CardInstance,
-    combat::{initialize_combat_piles_with_relics, CombatState, MonsterState},
+    combat::{initialize_combat_piles_with_relics, CombatState, MonsterState, SlimeSize},
     content::cards::WOUND_ID,
     content::monsters::{
         advance_reptomancer_monster_hp_rng_for_entry, content_id_from_game_monster_id,
@@ -763,6 +763,7 @@ fn target_spawn_monster_state(
 
     monster.hp = spawn.current_hp;
     monster.max_hp = spawn.max_hp;
+    monster.slime_size = target_spawn_slime_size(spawn.name).or(monster.slime_size);
     monster.block = spawn.block;
     monster.alive = spawn.current_hp > 0;
     monster.powers = spawn_monster_powers(spawn);
@@ -821,6 +822,21 @@ fn target_spawn_monster_state(
         monster.initial_intent_locked = true;
     }
     monster
+}
+
+fn target_spawn_slime_size(name: &str) -> Option<SlimeSize> {
+    match name {
+        "SpikeSlime_S" | "Spike Slime (S)" | "AcidSlime_S" | "Acid Slime (S)" => {
+            Some(SlimeSize::Small)
+        }
+        "SpikeSlime_M" | "Spike Slime (M)" | "AcidSlime_M" | "Acid Slime (M)" => {
+            Some(SlimeSize::Medium)
+        }
+        "SpikeSlime_L" | "Spike Slime (L)" | "AcidSlime_L" | "Acid Slime (L)" => {
+            Some(SlimeSize::Large)
+        }
+        _ => None,
+    }
 }
 
 fn observed_spike_slime_frail_amount(spawn: &TargetEncounterSpawn, ascension: u8) -> i32 {
@@ -1018,6 +1034,23 @@ mod tests {
         },
         ContentId, MonsterIntent,
     };
+
+    #[test]
+    fn target_spawn_slime_size_preserves_target_class_independently_of_hp() {
+        assert_eq!(
+            target_spawn_slime_size("Spike Slime (S)"),
+            Some(SlimeSize::Small)
+        );
+        assert_eq!(
+            target_spawn_slime_size("AcidSlime_M"),
+            Some(SlimeSize::Medium)
+        );
+        assert_eq!(
+            target_spawn_slime_size("SpikeSlime_L"),
+            Some(SlimeSize::Large)
+        );
+        assert_eq!(target_spawn_slime_size("Cultist"), None);
+    }
 
     #[test]
     fn source_locked_initial_intent_does_not_consume_ai_rng() {

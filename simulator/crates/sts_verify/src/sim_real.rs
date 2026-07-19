@@ -15,7 +15,6 @@ use sts_core::content::encounters::{
     target_beyond_act_three_boss_with_unlocks, target_exordium_act_one_boss_with_unlocks,
     BossUnlockState,
 };
-use sts_core::content::monsters::LOOTER_ID;
 use sts_core::potion::Potion;
 use sts_core::run::event::{neow_screen_for_stage, VAMPIRES_BITE_COUNT};
 use sts_core::run::neow::{
@@ -46,8 +45,8 @@ use sts_core::content::monsters::{
     looter_theft, target_beyond_encounter_spawn_for_key,
     target_city_normal_encounter_spawn_at_combat_index, target_move_byte,
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
-    GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, MUGGER_ID, SLAVER_RED_ID,
-    TASKMASTER_ID,
+    GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, LOOTER_ID, MUGGER_ID,
+    SLAVER_RED_ID, TASKMASTER_ID,
 };
 #[cfg(test)]
 use sts_core::{
@@ -6761,18 +6760,37 @@ fn target_spawn_trace_name(
     }
 }
 
-fn seed_start_trace_monster_name(content_id: ContentId) -> &'static str {
+fn seed_start_trace_monster_name(monster: &MonsterState) -> String {
+    use sts_core::combat::SlimeSize;
     use sts_core::content::monsters::{
-        ACID_SLIME_ID, CULTIST_ID, GREEN_LOUSE_ID, JAW_WORM_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
+        get_monster_definition, ACID_SLIME_ID, BRONZE_ORB_ID, GREEN_LOUSE_ID, GREMLIN_FAT_ID,
+        GREMLIN_THIEF_ID, GREMLIN_TSUNDERE_ID, GREMLIN_WARRIOR_ID, GUARDIAN_ID, RED_LOUSE_ID,
+        SLAVER_BLUE_ID, SLAVER_RED_ID, SPIKE_SLIME_ID,
     };
-    match content_id {
-        id if id == CULTIST_ID => "Cultist",
-        id if id == JAW_WORM_ID => "Jaw Worm",
-        id if id == LOOTER_ID => "Looter",
-        id if id == SPIKE_SLIME_ID => "Spike Slime (S)",
-        id if id == ACID_SLIME_ID => "Acid Slime (M)",
-        id if id == GREEN_LOUSE_ID || id == RED_LOUSE_ID => "Louse",
-        _ => "Cultist",
+
+    let slime_size = || match monster.slime_size.unwrap_or(match monster.max_hp {
+        ..=19 => SlimeSize::Small,
+        20..=49 => SlimeSize::Medium,
+        _ => SlimeSize::Large,
+    }) {
+        SlimeSize::Small => "S",
+        SlimeSize::Medium => "M",
+        SlimeSize::Large => "L",
+    };
+    match monster.content_id {
+        id if id == SPIKE_SLIME_ID => format!("Spike Slime ({})", slime_size()),
+        id if id == ACID_SLIME_ID => format!("Acid Slime ({})", slime_size()),
+        id if id == GREEN_LOUSE_ID || id == RED_LOUSE_ID => "Louse".to_owned(),
+        id if id == SLAVER_BLUE_ID || id == SLAVER_RED_ID => "Slaver".to_owned(),
+        id if id == GREMLIN_WARRIOR_ID => "Mad Gremlin".to_owned(),
+        id if id == GREMLIN_THIEF_ID => "Sneaky Gremlin".to_owned(),
+        id if id == GREMLIN_FAT_ID => "Fat Gremlin".to_owned(),
+        id if id == GREMLIN_TSUNDERE_ID => "Shield Gremlin".to_owned(),
+        id if id == BRONZE_ORB_ID => "Orb".to_owned(),
+        id if id == GUARDIAN_ID => "The Guardian".to_owned(),
+        content_id => get_monster_definition(content_id)
+            .map(|definition| definition.name.to_owned())
+            .unwrap_or_else(|| format!("Unknown monster content {}", content_id.get())),
     }
 }
 
@@ -8151,9 +8169,6 @@ fn seed_start_simulated_combat_subset_with_options(
             },
         });
     };
-    let observed_monsters = game
-        .get("combat_state")
-        .and_then(|combat| combat.get("monsters"));
     let observed_screen_type = game
         .get("screen_type")
         .and_then(Value::as_str)
@@ -8208,7 +8223,7 @@ fn seed_start_simulated_combat_subset_with_options(
         ),
         "draw_ids": draw_pile_to_comm_mod_visible_order(&combat.piles.draw_pile),
         "discard_ids": discard_pile_to_comm_mod_visible_order(&combat.piles.discard_pile),
-        "monsters": seed_start_monsters_from_sim(combat, observed_monsters, end_turn_snapshot),
+        "monsters": seed_start_monsters_from_sim(combat, end_turn_snapshot),
     });
     if let Some(choices) = combat
         .potion_card_reward
@@ -8682,23 +8697,12 @@ fn seed_start_shop_purchase_has_stale_observed_deck(
     deck_keys_from_value(game.get("deck")) == before_deck
 }
 
-fn seed_start_monsters_from_sim(
-    combat: &CombatState,
-    observed_monsters: Option<&Value>,
-    end_turn_snapshot: bool,
-) -> Vec<Value> {
-    let observed = observed_monsters.and_then(Value::as_array);
+fn seed_start_monsters_from_sim(combat: &CombatState, end_turn_snapshot: bool) -> Vec<Value> {
     combat
         .monsters
         .iter()
-        .enumerate()
-        .map(|(index, monster)| {
-            let observed_monster = observed.and_then(|monsters| monsters.get(index));
-            let name = observed_monster
-                .and_then(|monster| monster.get("name"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .unwrap_or_else(|| seed_start_trace_monster_name(monster.content_id).to_owned());
+        .map(|monster| {
+            let name = seed_start_trace_monster_name(monster);
             let strength = (monster.powers.strength - monster.powers.ritual).max(0);
             let vulnerable = monster.powers.vulnerable;
             if end_turn_snapshot {
@@ -9736,6 +9740,7 @@ fn monsters_from_observed(
                 powers,
                 temp_strength_down: 0,
                 content_id,
+                slime_size: None,
                 moves_executed: replay.moves_executed,
                 sleep_turns_remaining: replay.sleep_turns_remaining,
                 has_siphoned: replay.has_siphoned,
@@ -13807,7 +13812,7 @@ mod tests {
     }
 
     #[test]
-    fn combat_subset_uses_simulated_monster_max_hp_instead_of_observation() {
+    fn combat_subset_uses_simulated_monster_identity_and_max_hp_instead_of_observation() {
         let mut run = RunState::map_fixture();
         let mut combat = run.init_combat(CombatState::initial_fixture());
         combat.monsters[0].hp = 31;
@@ -13818,7 +13823,7 @@ mod tests {
                 "floor": run.current_floor,
                 "screen_type": "NONE",
                 "combat_state": {
-                    "monsters": [{"name": "Cultist", "max_hp": 999}]
+                    "monsters": [{"name": "Gremlin Nob", "max_hp": 999}]
                 }
             }
         });
@@ -13827,6 +13832,51 @@ mod tests {
 
         assert_eq!(subset["monsters"][0]["current_hp"], json!(31));
         assert_eq!(subset["monsters"][0]["max_hp"], json!(47));
+        assert_eq!(subset["monsters"][0]["name"], json!("Fixed Simple Monster"));
+    }
+
+    #[test]
+    fn simulated_monster_identity_uses_target_display_names_and_slime_sizes() {
+        use sts_core::combat::SlimeSize;
+        use sts_core::content::monsters::{
+            ACID_SLIME_ID, BRONZE_ORB_ID, GREEN_LOUSE_ID, GREMLIN_FAT_ID, GREMLIN_THIEF_ID,
+            GREMLIN_TSUNDERE_ID, GREMLIN_WARRIOR_ID, GUARDIAN_ID, RED_LOUSE_ID, SLAVER_BLUE_ID,
+            SLAVER_RED_ID, SPIKE_SLIME_ID,
+        };
+
+        let mut monster = CombatState::initial_fixture().monsters.remove(0);
+        for (content_id, max_hp, expected) in [
+            (GREEN_LOUSE_ID, 12, "Louse"),
+            (RED_LOUSE_ID, 11, "Louse"),
+            (SLAVER_BLUE_ID, 50, "Slaver"),
+            (SLAVER_RED_ID, 50, "Slaver"),
+            (GREMLIN_WARRIOR_ID, 22, "Mad Gremlin"),
+            (GREMLIN_THIEF_ID, 12, "Sneaky Gremlin"),
+            (GREMLIN_FAT_ID, 16, "Fat Gremlin"),
+            (GREMLIN_TSUNDERE_ID, 14, "Shield Gremlin"),
+            (BRONZE_ORB_ID, 54, "Orb"),
+            (GUARDIAN_ID, 240, "The Guardian"),
+            (SPIKE_SLIME_ID, 13, "Spike Slime (S)"),
+            (SPIKE_SLIME_ID, 30, "Spike Slime (M)"),
+            (SPIKE_SLIME_ID, 68, "Spike Slime (L)"),
+            (ACID_SLIME_ID, 10, "Acid Slime (S)"),
+            (ACID_SLIME_ID, 29, "Acid Slime (M)"),
+            (ACID_SLIME_ID, 67, "Acid Slime (L)"),
+        ] {
+            monster.content_id = content_id;
+            monster.max_hp = max_hp;
+            assert_eq!(seed_start_trace_monster_name(&monster), expected);
+        }
+
+        monster.content_id = SPIKE_SLIME_ID;
+        monster.max_hp = 9;
+        monster.slime_size = Some(SlimeSize::Medium);
+        assert_eq!(seed_start_trace_monster_name(&monster), "Spike Slime (M)");
+
+        monster.content_id = ACID_SLIME_ID;
+        monster.max_hp = 9;
+        monster.slime_size = Some(SlimeSize::Medium);
+        assert_eq!(seed_start_trace_monster_name(&monster), "Acid Slime (M)");
     }
 
     #[test]
