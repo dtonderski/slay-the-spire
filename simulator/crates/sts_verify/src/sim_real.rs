@@ -167,6 +167,7 @@ pub enum SimRealError {
     Trace(serde_json::Error),
     MissingStartCommand,
     MalformedStartCommand(String),
+    MalformedChooseCommand { step: u32, command: String },
 }
 
 impl std::fmt::Display for SimRealError {
@@ -177,6 +178,10 @@ impl std::fmt::Display for SimRealError {
             Self::MalformedStartCommand(command) => {
                 write!(f, "malformed START command: {command}")
             }
+            Self::MalformedChooseCommand { step, command } => write!(
+                f,
+                "malformed CHOOSE command at step {step}: {command}; expected exactly `CHOOSE <non-negative index>`"
+            ),
         }
     }
 }
@@ -359,6 +364,14 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
                 last_state = Some(state.clone());
             }
             TraceLine::Action(action) => {
+                if command_head_eq(&action.command, "CHOOSE")
+                    && command_choose_index(&action.command).is_none()
+                {
+                    return Err(SimRealError::MalformedChooseCommand {
+                        step: action.step,
+                        command: action.command.clone(),
+                    });
+                }
                 let action_ordinal = next_action_ordinal;
                 next_action_ordinal += 1;
                 if let Some(pending_action) = pending.take() {
@@ -2840,7 +2853,8 @@ fn verify_seed_start_transitions(
                 continue;
             }
             SeedStartPhase::Treasure if command_head_eq(&action.command, "CHOOSE") => {
-                let choose_index = choose_index(&action.command).unwrap_or(0);
+                let choose_index = choose_index(&action.command)
+                    .expect("malformed CHOOSE rejected before phase dispatch");
                 let Some(sim) = seed_sim.as_mut() else {
                     return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -2980,7 +2994,8 @@ fn verify_seed_start_transitions(
                 continue;
             }
             SeedStartPhase::Rest if command_head_eq(&action.command, "CHOOSE") => {
-                let choose_index = choose_index(&action.command).unwrap_or(0);
+                let choose_index = choose_index(&action.command)
+                    .expect("malformed CHOOSE rejected before phase dispatch");
                 let Some(sim) = seed_sim.as_mut() else {
                     return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -4281,7 +4296,8 @@ fn verify_seed_start_transitions(
                 }
             }
             SeedStartPhase::BossReward if command_head_eq(&action.command, "CHOOSE") => {
-                let choose_index = choose_index(&action.command).unwrap_or(0);
+                let choose_index = choose_index(&action.command)
+                    .expect("malformed CHOOSE rejected before phase dispatch");
                 let Some(sim) = seed_sim.as_mut() else {
                     return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -4586,7 +4602,8 @@ fn verify_seed_start_transitions(
                     continue;
                 }
                 if command_head_eq(command, "CHOOSE") {
-                    let choose_index = choose_index(command).unwrap_or(0);
+                    let choose_index = choose_index(command)
+                        .expect("malformed CHOOSE rejected before phase dispatch");
                     if screen_type(&pre.message) == Some("SHOP_SCREEN")
                         && screen_type(&post.message) == Some("NONE")
                     {
@@ -6362,7 +6379,7 @@ fn seed_start_map_label(combat_index: usize) -> String {
 }
 
 fn seed_start_map_pick_x(external_seed: &str, path_so_far: &[i32], command: &str) -> i32 {
-    let choice_index = choose_index(command).unwrap_or(0);
+    let choice_index = choose_index(command).expect("map pick requires a valid CHOOSE command");
     let seed = seed_text_to_long(external_seed).expect("start command seed already parsed");
     if path_so_far.is_empty() {
         generate_exordium_map_topology(seed)
@@ -8474,7 +8491,8 @@ fn seed_start_apply_grid_command(
     post_message: &Value,
 ) -> Result<RunState, String> {
     if command_head_eq(command, "CHOOSE") {
-        let index = choose_index(command).unwrap_or(0);
+        let index = choose_index(command)
+            .ok_or_else(|| format!("malformed grid CHOOSE command {command:?}"))?;
         let mut next = select_grid_card(sim, index).map_err(|err| err.to_string())?;
 
         // Multi-select grids such as Augmenter's two-card transform close as
@@ -12151,6 +12169,34 @@ mod tests {
 
         let error = verify_communication_mod_trace(content).expect_err("strict replay needs START");
         assert!(matches!(error, SimRealError::MissingStartCommand));
+    }
+
+    #[test]
+    fn malformed_choose_is_rejected_instead_of_selecting_choice_zero() {
+        let content = r#"{"type":"metadata","schema":1,"source":"communication_mod"}
+{"type":"state","step":0,"message":{}}
+{"type":"action","step":1,"command":"START IRONCLAD 0 VERIFY01"}
+{"type":"state","step":1,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"choice_list":["talk"]}}}
+{"type":"action","step":2,"command":"CHOOSE nope"}
+{"type":"state","step":2,"message":{"game_state":{"screen_type":"EVENT","choice_list":["talk"]}}}"#;
+
+        let error = verify_communication_mod_trace(content).expect_err("malformed trace rejected");
+        assert!(matches!(
+            error,
+            SimRealError::MalformedChooseCommand {
+                step: 2,
+                ref command,
+            } if command == "CHOOSE nope"
+        ));
+        assert!(matches!(
+            crate::assess_verification(
+                Err(&error),
+                &crate::VerificationExpectation::Complete,
+                None,
+            ),
+            crate::VerificationOutcome::InvalidInput { reason }
+                if reason.contains("expected exactly `CHOOSE <non-negative index>`")
+        ));
     }
 
     #[test]
