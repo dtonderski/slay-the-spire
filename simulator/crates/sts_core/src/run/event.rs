@@ -3686,8 +3686,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     if next.ascension >= 15 { 0.18 } else { 0.125 },
                 );
                 lose_event_hp(&mut next, loss);
-                next.gain_deck_card(MADNESS_ID);
-                next.gain_deck_card(MADNESS_ID);
+                next.queue_pending_obtain_card(MADNESS_ID);
+                next.queue_pending_obtain_card(MADNESS_ID);
                 next.event = Some(make_event_screen(
                     Event::WindingHalls,
                     winding_halls_choices(&next, 2),
@@ -3700,7 +3700,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     if next.ascension >= 15 { 0.20 } else { 0.25 },
                 );
                 next.heal_player(heal);
-                next.gain_deck_card(WRITHE_ID);
+                next.queue_pending_obtain_card(WRITHE_ID);
                 next.event = Some(make_event_screen(
                     Event::WindingHalls,
                     winding_halls_choices(&next, 2),
@@ -3718,6 +3718,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
             2 if choice_index == 0 => {
+                next.flush_pending_obtain_cards();
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -4822,6 +4823,7 @@ mod tests {
     use crate::{
         map::RoomKind,
         potion::Potion,
+        relic::CERAMIC_FISH_GOLD,
         run::{apply_run_action, RunAction},
         MonsterIntent,
     };
@@ -6672,10 +6674,11 @@ mod tests {
     }
 
     #[test]
-    fn winding_halls_writhe_path_heals_and_stages_leave() {
+    fn winding_halls_card_obtains_wait_for_the_leave_stage() {
         let mut run = RunState::placeholder_seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.player_hp = 20;
+        run.relics.push(Relic::CeramicFish);
         run.event = Some(event_screen_for_run(&run, Event::WindingHalls));
         assert_eq!(run.event.as_ref().expect("intro").choices[0].label, "...");
         let after_intro = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
@@ -6692,15 +6695,37 @@ mod tests {
         assert!(labels[0].starts_with("Embrace Madness"));
         assert!(labels[1].starts_with("Focus"));
         assert!(labels[2].starts_with("Retrace Your Steps"));
+
+        let after_madness =
+            apply_event_action(&after_intro, EventAction::Choose { choice_index: 0 })
+                .expect("Madness path applies");
+        assert_eq!(
+            after_madness.pending_obtain_cards,
+            vec![MADNESS_ID, MADNESS_ID]
+        );
+
+        let gold_before = after_intro.gold;
         let after_choice =
             apply_event_action(&after_intro, EventAction::Choose { choice_index: 1 })
                 .expect("Writhe path applies");
         assert_eq!(after_choice.player_hp, 40);
-        assert!(after_choice
+        assert!(!after_choice
             .deck
             .iter()
             .any(|card| card.content_id == WRITHE_ID));
+        assert_eq!(after_choice.pending_obtain_cards, vec![WRITHE_ID]);
+        assert_eq!(after_choice.gold, gold_before);
         assert_eq!(after_choice.event.as_ref().expect("leave screen").stage, 2);
+
+        let after_leave =
+            apply_event_action(&after_choice, EventAction::Choose { choice_index: 0 })
+                .expect("Winding Halls leave applies");
+        assert!(after_leave.pending_obtain_cards.is_empty());
+        assert!(after_leave
+            .deck
+            .iter()
+            .any(|card| card.content_id == WRITHE_ID));
+        assert_eq!(after_leave.gold, gold_before + CERAMIC_FISH_GOLD);
     }
 
     #[test]
