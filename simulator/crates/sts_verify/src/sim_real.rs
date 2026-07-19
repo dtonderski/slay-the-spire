@@ -8694,10 +8694,6 @@ fn seed_start_monsters_from_sim(
         .enumerate()
         .map(|(index, monster)| {
             let observed_monster = observed.and_then(|monsters| monsters.get(index));
-            let max_hp = observed
-                .and_then(|monsters| monsters.get(index))
-                .map(|monster| int(monster, "max_hp"))
-                .unwrap_or(monster.hp);
             let name = observed_monster
                 .and_then(|monster| monster.get("name"))
                 .and_then(Value::as_str)
@@ -8711,7 +8707,7 @@ fn seed_start_monsters_from_sim(
             json!({
                 "name": name,
                 "current_hp": monster.hp.max(0),
-                "max_hp": max_hp,
+                "max_hp": monster.max_hp,
                 "block": monster.block,
                 "intent": seed_start_trace_intent(monster),
                 "strength": strength,
@@ -13808,6 +13804,29 @@ mod tests {
         let subset = seed_start_simulated_combat_subset(&run, &forged_observation, false);
 
         assert_eq!(subset["floor"], json!(17));
+    }
+
+    #[test]
+    fn combat_subset_uses_simulated_monster_max_hp_instead_of_observation() {
+        let mut run = RunState::map_fixture();
+        let mut combat = run.init_combat(CombatState::initial_fixture());
+        combat.monsters[0].hp = 31;
+        combat.monsters[0].max_hp = 47;
+        run.combat = Some(combat);
+        let forged_observation = json!({
+            "game_state": {
+                "floor": run.current_floor,
+                "screen_type": "NONE",
+                "combat_state": {
+                    "monsters": [{"name": "Cultist", "max_hp": 999}]
+                }
+            }
+        });
+
+        let subset = seed_start_simulated_combat_subset(&run, &forged_observation, false);
+
+        assert_eq!(subset["monsters"][0]["current_hp"], json!(31));
+        assert_eq!(subset["monsters"][0]["max_hp"], json!(47));
     }
 
     #[test]

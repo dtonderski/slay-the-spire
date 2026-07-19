@@ -7749,6 +7749,7 @@ pub fn apply_gremlin_leader_rally_target(
             monster_state_for_ascension(definition, MonsterId::new(next_id), ascension);
         next_id += 1;
         monster.hp = max_hp;
+        monster.max_hp = max_hp;
         monster.powers.minion = 1;
         if monster.content_id == GREMLIN_WARRIOR_ID {
             monster.powers.anger = gremlin_warrior_anger(ascension);
@@ -11138,6 +11139,37 @@ mod tests {
             gremlin_leader_first_available_slot_excluding(&monsters, &[0]),
             Some(2)
         );
+    }
+
+    #[test]
+    fn gremlin_leader_rally_preserves_rolled_max_hp() {
+        let leader = monster_state(&GREMLIN_LEADER_A0, MonsterId::new(1));
+        let mut monsters = vec![leader];
+        let mut ai_rng = StsRng::new(8765);
+        let mut hp_rng = StsRng::new(4321);
+        let mut expected_ai_rng = StsRng::new(8765);
+        let mut expected_hp_rng = StsRng::new(4321);
+        let expected = (0..2)
+            .map(|slot| {
+                let name = target_random_gremlin_name(&mut expected_ai_rng);
+                let content_id = content_id_from_game_monster_id(name);
+                let max_hp = target_city_monster_hp_range(name, 0)
+                    .expect("rally gremlin has a target HP range")
+                    .roll(&mut expected_hp_rng);
+                (slot, content_id, max_hp)
+            })
+            .collect::<Vec<_>>();
+
+        apply_gremlin_leader_rally_target(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
+
+        for (slot, content_id, max_hp) in expected {
+            let summoned = monsters
+                .iter()
+                .find(|monster| monster.gremlin_leader_slot == Some(slot))
+                .expect("rally gremlin spawned in the planned slot");
+            assert_eq!(summoned.content_id, content_id);
+            assert_eq!((summoned.hp, summoned.max_hp), (max_hp, max_hp));
+        }
     }
 
     #[test]
