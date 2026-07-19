@@ -1928,7 +1928,7 @@ pub fn match_and_keep_group_index_for_label(label_index: usize, card_count: usiz
     if card_count == 12 {
         // CommunicationMod enumerates the 4x3 card grid in hitbox order,
         // which differs from MatchAndKeep's backing CardGroup order.
-        const COMMUNICATION_MOD_GROUP_ORDER: [usize; 12] = [0, 9, 2, 3, 4, 1, 10, 7, 8, 5, 6, 11];
+        const COMMUNICATION_MOD_GROUP_ORDER: [usize; 12] = [0, 9, 6, 3, 4, 1, 10, 7, 8, 5, 2, 11];
         COMMUNICATION_MOD_GROUP_ORDER[label_index]
     } else {
         label_index
@@ -1937,7 +1937,7 @@ pub fn match_and_keep_group_index_for_label(label_index: usize, card_count: usiz
 
 pub fn match_and_keep_label_index_for_group(group_index: usize, card_count: usize) -> usize {
     if card_count == 12 {
-        const COMMUNICATION_MOD_GROUP_ORDER: [usize; 12] = [0, 9, 2, 3, 4, 1, 10, 7, 8, 5, 6, 11];
+        const COMMUNICATION_MOD_GROUP_ORDER: [usize; 12] = [0, 9, 6, 3, 4, 1, 10, 7, 8, 5, 2, 11];
         COMMUNICATION_MOD_GROUP_ORDER
             .iter()
             .position(|candidate| *candidate == group_index)
@@ -5259,7 +5259,7 @@ mod tests {
 
     #[test]
     fn match_and_keep_card_labels_use_communication_mod_grid_order() {
-        let expected = [0, 9, 2, 3, 4, 1, 10, 7, 8, 5, 6, 11];
+        let expected = [0, 9, 6, 3, 4, 1, 10, 7, 8, 5, 2, 11];
         for (label, group) in expected.into_iter().enumerate() {
             assert_eq!(match_and_keep_group_index_for_label(label, 12), group);
             assert_eq!(match_and_keep_label_index_for_group(group, 12), label);
@@ -5280,7 +5280,7 @@ mod tests {
         run.match_and_keep = Some(MatchAndKeepState {
             cards: (0..12)
                 .map(|index| MatchAndKeepCard {
-                    content_id: if index == 2 || index == 9 {
+                    content_id: if index == 6 || index == 9 {
                         LIMIT_BREAK_ID
                     } else if index == 1 {
                         DEFEND_R_ID
@@ -5298,7 +5298,7 @@ mod tests {
         });
 
         let after_first = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
-            .expect("card2 maps to group slot 2");
+            .expect("card2 maps to group slot 6");
         let after_second =
             apply_event_action(&after_first, EventAction::Choose { choice_index: 1 })
                 .expect("card1 maps to group slot 9 after card2 is omitted");
@@ -5310,7 +5310,7 @@ mod tests {
         assert_eq!(state.cards.len(), 12);
         assert_eq!(state.first_flipped_index, None);
         assert_eq!(state.second_flipped_index, None);
-        assert!(state.cards[2].matched);
+        assert!(state.cards[6].matched);
         assert!(state.cards[9].matched);
         assert_eq!(state.matched_cards, vec![LIMIT_BREAK_ID]);
         assert_eq!(
@@ -5332,7 +5332,7 @@ mod tests {
             .expect("the next flip flushes the matched-card obtain effect");
         let state = after_next.match_and_keep.as_ref().unwrap();
         assert_eq!(state.cards.len(), 12);
-        assert!(state.cards[2].matched);
+        assert!(state.cards[6].matched);
         assert!(state.cards[9].matched);
         assert_eq!(state.matched_cards, vec![LIMIT_BREAK_ID]);
         let labels = after_next

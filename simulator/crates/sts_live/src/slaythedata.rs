@@ -7177,7 +7177,7 @@ mod tests {
             phase: LivePhase::Event,
             legal_actions: (0..11)
                 .map(|index| {
-                    let label_index = if index < 10 { index } else { index + 1 };
+                    let label_index = if index < 2 { index } else { index + 1 };
                     LegalAction {
                         id: ActionId(format!("choose-{index}")),
                         kind: LegalActionKind::EventChoice,
@@ -7223,7 +7223,7 @@ mod tests {
 
         let action = bind_dynamic_guided_step_to_live_action(&state, &step).unwrap();
 
-        assert_eq!(action.label, "card2");
+        assert_eq!(action.label, "card10");
     }
 
     #[test]
