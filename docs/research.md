@@ -563,3 +563,23 @@ Source inspected: target 12-18-2022 desktop-jar bytecode for
   The TEST retained prefix declares Guardian as unseen, while the CODEX10
   complete trace declares the profile state that selects Collector and Donu and
   Deca.
+
+## Dead Adventurer search timing evidence
+
+Sources inspected: target 12-18-2022 desktop-jar bytecode for
+`events.exordium.DeadAdventurer`, plus captured session 1155.
+
+- A search consumes `miscRng.random(0, 99)` immediately. On failure it exposes
+  the single Fight choice in the same transition; it does not open a separate
+  settlement step.
+- A safe search calls `randomReward()` immediately, increments the reward count
+  and encounter chance by 25, applies the selected shuffled reward, and changes
+  the first dialog option to Continue with the new chance. Choosing Continue is
+  the next search and therefore consumes the next encounter roll.
+- The event constructor consumes `miscRng.randomLong()` to seed the shuffled
+  GOLD/NOTHING/RELIC order, followed by `miscRng.random(0, 2)` for the encounter
+  identity.
+- `session-1155-event-injury-deck-update.jsonl` pins a safe 25% search followed
+  by a failing 50% Continue search and the resulting three-Sentry combat. This
+  prevents verification from treating Continue as an RNG-free reward-settlement
+  command or repairing the event stage from observed choices.

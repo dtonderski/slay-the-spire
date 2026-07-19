@@ -451,11 +451,15 @@ fn roll_dead_adventurer_event_data(run: &mut RunState) -> u32 {
 }
 
 fn dead_adventurer_screen(run: &RunState, stage: u8, event_data: u32) -> EventScreen {
-    let encounter_chance =
-        dead_adventurer_encounter_chance(run, dead_adventurer_attempts(event_data));
+    let attempts = dead_adventurer_attempts(event_data);
+    let encounter_chance = dead_adventurer_encounter_chance(run, attempts);
+    let mut choices = dead_adventurer_choices(stage, encounter_chance);
+    if stage == 0 && attempts > 0 {
+        choices[0].label = format!("Continue ({encounter_chance}%: monster returns)");
+    }
     EventScreen {
         event: Event::DeadAdventurer,
-        choices: dead_adventurer_choices(stage, encounter_chance),
+        choices,
         stage: u32::from(stage),
         event_data,
     }
@@ -2995,15 +2999,27 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
                 let encounter = misc_rng.random_int(99) < encounter_chance;
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
-                let mut event_data = dead_adventurer_event_data(
+                let event_data = dead_adventurer_event_data(
                     dead_adventurer_order(screen.event_data),
                     dead_adventurer_enemy(screen.event_data),
                     attempts + 1,
                 );
                 if encounter {
-                    event_data |= DEAD_ADVENTURER_PENDING_ENCOUNTER;
+                    next.event = Some(dead_adventurer_screen(&next, 3, event_data));
+                } else {
+                    let reward = dead_adventurer_order(screen.event_data)[attempts as usize];
+                    match reward {
+                        0 => next.gain_gold(30),
+                        2 => {
+                            let act = next.current_act;
+                            let relic = roll_event_relic_reward(&mut next, act);
+                            next.gain_relic_key(relic);
+                        }
+                        _ => {}
+                    }
+                    let stage = if attempts + 1 >= 3 { 1 } else { 0 };
+                    next.event = Some(dead_adventurer_screen(&next, stage, event_data));
                 }
-                next.event = Some(dead_adventurer_screen(&next, 2, event_data));
             }
             0 if choice_index == 1 => {
                 next.event = Some(dead_adventurer_screen(&next, 1, screen.event_data));
@@ -5023,7 +5039,7 @@ mod tests {
     }
 
     #[test]
-    fn dead_adventurer_continue_returns_to_search_after_a_safe_attempt() {
+    fn dead_adventurer_legacy_continue_returns_to_next_search_after_a_safe_attempt() {
         let mut run = RunState::placeholder_seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         let event_data = dead_adventurer_event_data([0, 1, 2], 0, 1);
@@ -5037,7 +5053,7 @@ mod tests {
         assert_eq!(next.event.as_ref().unwrap().stage, 0);
         assert!(next.event.as_ref().unwrap().choices[0]
             .label
-            .starts_with("Search"));
+            .starts_with("Continue"));
     }
 
     #[test]
@@ -6223,6 +6239,7 @@ mod tests {
         let mut run = RunState::placeholder_seeded_ironclad(1, 0);
         run.current_floor = 7;
         run.phase = RunPhase::Event;
+        let gold_before = run.gold;
         let mut search_counter = None;
         for counter in 0..64 {
             let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, counter);
@@ -6238,6 +6255,11 @@ mod tests {
             .expect("Dead Adventurer search applies");
         assert_eq!(after_search.phase, RunPhase::Event);
         assert!(after_search.combat.is_none());
+        assert_eq!(after_search.gold, gold_before + 30);
+        assert_eq!(after_search.event.as_ref().expect("event").stage, 0);
+        assert!(after_search.event.as_ref().expect("event").choices[0]
+            .label
+            .starts_with("Continue"));
         assert_eq!(
             dead_adventurer_attempts(after_search.event.as_ref().expect("event").event_data),
             1

@@ -34,9 +34,9 @@ use sts_core::{
     leave_shop_room, legal_map_actions_on_run, legal_rest_actions, open_neow_reward_grid,
     select_grid_card, shop_action_for_choice_index, target_room_kinds_on_path, Act1Boss, Act3Boss,
     CardGridScreen, CardId, CardInstance, CombatAction, CombatPhase, CombatState, ContentId, Event,
-    EventAction, EventChoice, GeneratedNeowOption, GridPurpose, MonsterId, MonsterIntent,
-    MonsterState, NeowDrawback, NeowRewardType, Relic, RelicKey, RestAction, RewardScreen,
-    RoomKind, RunAction, RunPhase, RunState, ShopPick, TargetMapAct,
+    EventAction, GeneratedNeowOption, GridPurpose, MonsterId, MonsterIntent, MonsterState,
+    NeowDrawback, NeowRewardType, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
+    RunPhase, RunState, ShopPick, TargetMapAct,
 };
 
 #[cfg(test)]
@@ -52,8 +52,8 @@ use sts_core::content::monsters::{
 #[cfg(test)]
 use sts_core::{
     city_room_kinds_on_path, enter_normal_combat_reward_screen, event_screen,
-    exordium_room_kinds_on_path, initialize_combat_piles_with_relics, CardPiles, EventScreen,
-    MonsterPowers, PlayerPowers, RelicCounters, StsRng,
+    exordium_room_kinds_on_path, initialize_combat_piles_with_relics, CardPiles, EventChoice,
+    EventScreen, MonsterPowers, PlayerPowers, RelicCounters, StsRng,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3118,7 +3118,7 @@ fn verify_seed_start_transitions(
                         && sim_choice_index < screen.choices.len().saturating_sub(1))
                     .then_some(VAMPIRES_BITE_COUNT)
                 });
-                let Ok(mut next) = apply_event_action(
+                let Ok(next) = apply_event_action(
                     sim,
                     EventAction::Choose {
                         choice_index: sim_choice_index,
@@ -3136,44 +3136,6 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
-                let observed_event_choices = choice_list_from_value(
-                    post.message
-                        .get("game_state")
-                        .and_then(|game| game.get("choice_list")),
-                );
-                if next
-                    .event
-                    .as_ref()
-                    .is_some_and(|screen| screen.event == Event::DeadAdventurer)
-                    && observed_event_choices.len() == 1
-                    && observed_event_choices[0].eq_ignore_ascii_case("fight")
-                {
-                    if let Some(screen) = next.event.as_mut() {
-                        screen.stage = 3;
-                        screen.choices = vec![EventChoice {
-                            label: "Fight".to_owned(),
-                        }];
-                    }
-                }
-                if next
-                    .event
-                    .as_ref()
-                    .is_some_and(|screen| screen.event == Event::MatchAndKeep)
-                    && observed_event_choices.len() == 1
-                    && observed_event_choices[0].eq_ignore_ascii_case("leave")
-                {
-                    if let Some(screen) = next.event.as_mut() {
-                        screen.stage = 3;
-                        screen.choices = vec![EventChoice {
-                            label: "leave".to_owned(),
-                        }];
-                    }
-                    if let Some(state) = next.match_and_keep.as_mut() {
-                        state.attempts_remaining = 0;
-                        state.first_flipped_index = None;
-                        state.second_flipped_index = None;
-                    }
-                }
                 if post
                     .message
                     .get("game_state")
@@ -3789,24 +3751,35 @@ fn verify_seed_start_transitions(
                     return finish_boundary!(boundary);
                 }
 
-                if let Some(combat) = sim.combat.as_ref() {
-                    if let Some(reason) = unsupported_seed_start_combat_command(combat, command) {
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason,
-                        });
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "unsupported card in seed-start combat".to_owned(),
-                        });
-                    }
+                let Some(combat) = sim.combat.as_ref() else {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_simulator_state".to_owned(),
+                        reason:
+                            "seed-start verifier entered its combat phase without core combat state"
+                                .to_owned(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
+                };
+                if let Some(reason) = unsupported_seed_start_combat_command(combat, command) {
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason,
+                    });
+                    return finish_boundary!(SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_combat_path".to_owned(),
+                        reason: "unsupported card in seed-start combat".to_owned(),
+                    });
                 }
 
-                let Some(combat_action) =
-                    combat_action_from_command(command, sim.combat.as_ref().expect("combat run"))
-                else {
+                let Some(combat_action) = combat_action_from_command(command, combat) else {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_combat_path".to_owned(),
