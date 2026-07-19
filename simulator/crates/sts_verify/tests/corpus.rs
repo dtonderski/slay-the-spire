@@ -1597,6 +1597,23 @@ fn session38_no_action_campfire_allows_immediate_proceed() {
     }));
 }
 
+#[test]
+fn session38_floor25_excludes_colosseum_before_selecting_masked_bandits() {
+    let Some(content) =
+        load_corpus_file("fidelity_regressions/session-38-floor25-colosseum-eligibility.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("session-38 Colosseum eligibility regression replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 2061 && transition.command.eq_ignore_ascii_case("CHOOSE 1")
+    }));
+}
+
 fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {
     for line in content.lines().filter(|line| !line.trim().is_empty()) {
         let value: serde_json::Value = serde_json::from_str(line).expect("trace line parses");

@@ -1825,7 +1825,7 @@ fn event_is_available(run: &RunState, event: Event) -> bool {
         }
         Event::TheCleric => run.gold >= 35,
         Event::Beggar => run.gold >= BEGGAR_GOLD_COST,
-        Event::Colosseum => current_floor_in_act(run) > 7,
+        Event::Colosseum => current_floor_in_act(run) > 8,
         _ => true,
     }
 }
@@ -4833,6 +4833,30 @@ mod tests {
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::BonfireElementals));
         run
+    }
+
+    #[test]
+    fn event_screen_selection_does_not_advance_persistent_event_rng() {
+        let mut run = RunState::placeholder_seeded_ironclad(7_141_693_325_691_831_207, 0);
+        run.current_act = 2;
+        run.current_floor = 25;
+        run.event_rng_counter = 9;
+
+        enter_event_screen(&mut run);
+
+        assert_eq!(run.event_rng_counter, 9);
+    }
+
+    #[test]
+    fn colosseum_requires_a_map_row_past_the_act_midpoint() {
+        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        run.current_act = 2;
+        run.current_floor = 25;
+
+        assert!(!event_is_available(&run, Event::Colosseum));
+
+        run.current_floor = 26;
+        assert!(event_is_available(&run, Event::Colosseum));
     }
 
     #[test]
