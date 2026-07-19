@@ -1265,6 +1265,9 @@ fn verify_seed_start_transitions(
                         phase = SeedStartPhase::Map;
                         continue;
                     }
+                    if transform_count_before_confirm > 0 {
+                        neow_leave_visible_deck_ids = Some(visible_deck_ids.clone());
+                    }
                     compare_subset(
                         report,
                         action,
@@ -1443,6 +1446,9 @@ fn verify_seed_start_transitions(
                         continue;
                     }
                     if confirmed.card_grid.is_none() {
+                        if transform_count_before_confirm > 0 {
+                            neow_leave_visible_deck_ids = Some(visible_deck_ids.clone());
+                        }
                         compare_subset(
                             report,
                             action,
