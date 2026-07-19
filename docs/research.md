@@ -390,8 +390,9 @@ Source inspected: target 12-18-2022 desktop-jar bytecode for
 - A nonlethal, positive, non-HP-loss/non-Thorns attack queues `RollMoveAction`.
   The reroll consumes `aiRng.random(99)` immediately, so every qualifying hit
   can replace the visible intent before the monster acts.
-- `AbstractMonster.setMove` appends the previous `nextMove` to move history.
-  Reactive rerolls therefore affect both RNG position and future history checks.
+- `AbstractMonster.setMove` records the selected move byte immediately.
+  Reactive rerolls therefore affect both RNG position and future history checks,
+  and subsequent selection must inspect the complete recorded history.
 - The first roll uses `<33` multi-hit, `<66` attack-and-block, otherwise
   attack-and-debuff. Later rolls use the exact recursive ranges and probability
   retries from `WrithingMass.getMove`.
@@ -399,3 +400,6 @@ Source inspected: target 12-18-2022 desktop-jar bytecode for
   Attack-and-debuff applies Weak 2 and Vulnerable 2.
 - Session 29 seed `316L5SYDLG5KU` pins three successive attack-triggered rerolls
   followed by a 15-damage/15-block turn in the seed-start corpus regression.
+- Mega Debuff marks its one-use guard and queues `AddCardToDeckAction(Parasite)`.
+  Session 29 also proves that the master-deck addition happens during the same
+  end-turn transition and triggers Ceramic Fish's 9 gold immediately.

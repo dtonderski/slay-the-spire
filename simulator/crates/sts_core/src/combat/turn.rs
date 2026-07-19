@@ -1311,11 +1311,9 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 }
             } else if monster.content_id == WRITHING_MASS_ID {
                 if let (Some(roll), Some(rng)) = (roll, state.monster_rng.as_mut()) {
-                    let target_history =
-                        &monster.move_history[..monster.move_history.len().saturating_sub(1)];
                     target_writhing_mass_next_intent_from_roll(
                         false,
-                        target_history,
+                        &monster.move_history,
                         monster.has_siphoned,
                         roll,
                         rng,
@@ -1691,8 +1689,7 @@ pub(super) fn reroll_writhing_mass_after_attack(state: &mut CombatState, actor_i
     };
     let roll = rng.random_int(99);
     let monster = &state.monsters[monster_index];
-    let target_history =
-        monster.move_history[..monster.move_history.len().saturating_sub(1)].to_vec();
+    let target_history = monster.move_history.clone();
     let intent = target_writhing_mass_next_intent_from_roll(
         false,
         &target_history,

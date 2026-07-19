@@ -4,11 +4,11 @@ use crate::{
         apply_combat_action_with_events, finish_monster_turn_after_player_revival,
         start_player_turn, CombatPhase,
     },
-    content::cards::{upgrade_card_instance, ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID},
+    content::cards::{upgrade_card_instance, ANGER_ID, CLEAVE_ID, PARASITE_ID, SHRUG_IT_OFF_ID},
     content::encounters::{
         generate_beyond_encounter_lists_with_rng, generate_city_encounter_lists_with_rng,
     },
-    content::monsters::{DARKLING_ID, TRANSIENT_ID},
+    content::monsters::{DARKLING_ID, TRANSIENT_ID, WRITHING_MASS_ID},
     content::reward_pool::{
         ironclad_reward_card_rarity, random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES,
     },
@@ -1734,6 +1734,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
     apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat);
+    apply_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &mut next_combat);
     sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
     if let Some(rng) = next_combat.card_random_rng.as_ref() {
         next.store_rng_counter(RunRngStream::CardRandom, rng);
@@ -1796,6 +1797,33 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     Ok(next)
+}
+
+fn apply_writhing_mass_mega_debuff_to_run(
+    run: &mut RunState,
+    before: &crate::combat::CombatState,
+    after: &mut crate::combat::CombatState,
+) {
+    let triggered = after.monsters.iter().any(|monster| {
+        monster.content_id == WRITHING_MASS_ID
+            && monster.has_siphoned
+            && before
+                .monsters
+                .iter()
+                .find(|before_monster| before_monster.id == monster.id)
+                .is_none_or(|before_monster| !before_monster.has_siphoned)
+    });
+    if !triggered {
+        return;
+    }
+
+    // AddCardToDeckAction mutates the master deck during combat. Keep the run
+    // and combat player views aligned so card-obtain relics apply immediately.
+    run.player_hp = after.player.hp;
+    run.player_max_hp = after.player.max_hp;
+    run.gain_deck_card(PARASITE_ID);
+    after.player.hp = run.player_hp;
+    after.player.max_hp = run.player_max_hp;
 }
 
 fn sync_ritual_dagger_damage_to_deck(run: &mut RunState, combat: &crate::combat::CombatState) {
@@ -2324,10 +2352,10 @@ mod tests {
     use crate::{
         content::cards::{
             DUAL_WIELD_ID, FIRE_BREATHING_ID, HEADBUTT_ID, HEAVY_BLADE_ID, METALLICIZE_ID,
-            POMMEL_STRIKE_ID, POWER_THROUGH_ID, SHOCKWAVE_PLUS_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID,
-            SWIFT_STRIKE_ID, THUNDERCLAP_ID, WARCRY_ID, WHIRLWIND_ID,
+            PARASITE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, SHOCKWAVE_PLUS_ID, SPOT_WEAKNESS_ID,
+            STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID, WARCRY_ID, WHIRLWIND_ID,
         },
-        content::monsters::DARKLING_ID,
+        content::monsters::{monster_state, DARKLING_ID, WRITHING_MASS_A0},
         run::{
             neow::{generate_neow_colorless_reward, NeowRewardType},
             RunState,
@@ -2604,6 +2632,34 @@ mod tests {
         assert_eq!(next.sundial_shuffles, 3);
         assert_eq!(combat.relic_counters.sundial_shuffles, 3);
         assert_eq!(combat.player.energy, 5);
+    }
+
+    #[test]
+    fn writhing_mass_mega_debuff_adds_parasite_and_triggers_ceramic_fish() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![Relic::CeramicFish];
+        let starting_gold = run.gold;
+        let starting_deck_len = run.deck.len();
+
+        let mut combat = CombatState::initial_fixture();
+        let mut writhing_mass = monster_state(&WRITHING_MASS_A0, MonsterId::new(1));
+        writhing_mass.intent = crate::MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 };
+        writhing_mass.move_history = vec![4];
+        combat.monsters = vec![writhing_mass];
+        run.combat = Some(combat);
+
+        let next = apply_combat_action_on_run(&run, CombatAction::EndTurn)
+            .expect("Writhing Mass Mega Debuff resolves");
+
+        assert_eq!(next.deck.len(), starting_deck_len + 1);
+        assert_eq!(
+            next.deck.last().map(|card| card.content_id),
+            Some(PARASITE_ID)
+        );
+        assert_eq!(next.gold, starting_gold + crate::relic::CERAMIC_FISH_GOLD);
+        assert!(next.combat.as_ref().expect("combat continues").monsters[0].has_siphoned);
     }
 
     #[test]
