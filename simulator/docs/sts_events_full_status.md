@@ -69,7 +69,7 @@ All 52 simulator event variants now have an automatic SlayTheData path. None of 
 | 49 | MysteriousSphere | Complete | Fight/Leave mappings and combat/reward transition |
 | 50 | SensoryStone | Complete | Live Interact/Recall labels, HP costs, eager one-to-three colorless-only reward overlays, reward skipping, and final Leave; source bytecode plus session-22/23/25/27/28 seed-start regressions |
 | 51 | TombOfLordRedMask | Complete | Wear/Offer/Leave mappings |
-| 52 | WindingHalls | Complete | Madness/Writhe/Max-HP mappings |
+| 52 | WindingHalls | Complete | Live `...` intro plus Madness/Writhe/Max-HP mappings; session-29 seed-start regression |
 
 ## Structural fixes made during auto-play verification
 

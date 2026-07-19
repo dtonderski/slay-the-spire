@@ -1080,7 +1080,10 @@ fn mysterious_sphere_choices(stage: u32) -> Vec<EventChoice> {
 }
 
 fn winding_halls_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
-    if stage > 0 {
+    if stage == 0 {
+        return labeled_choices(&["..."]);
+    }
+    if stage > 1 {
         return labeled_choices(&["Leave"]);
     }
     let hp_loss = rounded_event_percent(
@@ -2209,7 +2212,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         ),
         Event::MysteriousSphere => make_event_screen(event, mysterious_sphere_choices(0), 0),
         Event::SensoryStone => make_event_screen(event, sensory_stone_choices(0), 0),
-        Event::WindingHalls => make_event_screen(event, labeled_choices(&["Continue"]), 0),
+        Event::WindingHalls => make_event_screen(event, labeled_choices(&["..."]), 0),
         Event::LivingWall => {
             make_event_screen(event, labeled_choices(&["Forget", "Change", "Grow"]), 0)
         }
@@ -3672,7 +3675,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             0 if choice_index == 0 => {
                 next.event = Some(EventScreen {
                     event: Event::WindingHalls,
-                    choices: winding_halls_choices(&next, 0),
+                    choices: winding_halls_choices(&next, 1),
                     stage: 1,
                     event_data: 0,
                 });
@@ -6674,8 +6677,13 @@ mod tests {
         run.phase = RunPhase::Event;
         run.player_hp = 20;
         run.event = Some(event_screen_for_run(&run, Event::WindingHalls));
+        assert_eq!(run.event.as_ref().expect("intro").choices[0].label, "...");
         let after_intro = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("Winding Halls intro applies");
+        assert_eq!(
+            after_intro.event.as_ref().expect("choices").choices.len(),
+            3
+        );
         let after_choice =
             apply_event_action(&after_intro, EventAction::Choose { choice_index: 1 })
                 .expect("Writhe path applies");
