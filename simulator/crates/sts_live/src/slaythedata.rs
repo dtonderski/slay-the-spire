@@ -2737,6 +2737,28 @@ fn bind_dynamic_guided_step_to_live_action<'a>(
         if state.phase == LivePhase::Reward && !is_grid_screen(state) {
             return reward_flush_action_before_high_level_step(state, "guided campfire");
         }
+        if state.phase == LivePhase::Rest
+            && !state
+                .legal_actions
+                .iter()
+                .any(|action| action.enabled && action.kind == LegalActionKind::RestSite)
+        {
+            let proceed = state
+                .legal_actions
+                .iter()
+                .filter(|action| {
+                    action.enabled
+                        && action.kind == LegalActionKind::Confirm
+                        && action.label.eq_ignore_ascii_case("proceed")
+                })
+                .collect::<Vec<_>>();
+            if !proceed.is_empty() {
+                return match proceed.as_slice() {
+                    [action] => Ok(action),
+                    _ => Err("guided campfire matched multiple live Proceed actions".to_owned()),
+                };
+            }
+        }
         let Some(key) = quoted_message_value(&step.message, "campfire key Some(\"") else {
             return Err("guided campfire has no concrete SlayTheData key".to_owned());
         };
@@ -9163,6 +9185,33 @@ mod tests {
         let action = bind_dynamic_guided_step_to_live_action(&state, &step).unwrap();
 
         assert_eq!(action.id.0, "choose-1");
+    }
+
+    #[test]
+    fn guided_campfire_proceeds_when_relics_disable_all_actions() {
+        let state = LiveState {
+            sequence: 7,
+            phase: LivePhase::Rest,
+            legal_actions: vec![LegalAction {
+                id: ActionId("proceed".to_owned()),
+                kind: LegalActionKind::Confirm,
+                label: "Proceed".to_owned(),
+                enabled: true,
+                command: json!({"transport": "communication_mod", "command": "PROCEED"}),
+                disabled_reason: None,
+            }],
+            raw: json!({
+                "summary": {
+                    "screen_type": "REST",
+                    "relics": ["Fusion Hammer", "Coffee Dripper"]
+                }
+            }),
+        };
+        let step = guided_smith_step();
+
+        let action = bind_dynamic_guided_step_to_live_action(&state, &step).unwrap();
+
+        assert_eq!(action.id.0, "proceed");
     }
 
     #[test]
