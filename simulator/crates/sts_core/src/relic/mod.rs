@@ -188,6 +188,8 @@ pub const PRESERVED_INSECT_HP_DENOMINATOR: i32 = 4;
 pub const SLING_OF_COURAGE_STRENGTH: i32 = 2;
 /// Gold granted by [Relic::MawBank] when entering a floor before it breaks.
 pub const MAW_BANK_GOLD: i32 = 12;
+/// Gold granted by [Relic::SsserpentHead] when entering an event (`?`) room.
+pub const SSSERPENT_HEAD_GOLD: i32 = 50;
 /// Energy granted by [Relic::AncientTeaSet] in the next combat after entering a rest site.
 pub const ANCIENT_TEA_SET_ENERGY: i32 = 2;
 /// Block lost at turn transition with [Relic::Calipers] instead of losing all block.

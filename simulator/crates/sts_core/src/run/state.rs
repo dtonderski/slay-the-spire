@@ -22,8 +22,9 @@ use crate::{
         ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
         PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
         PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
-        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, STRAWBERRY_MAX_HP, TINY_HOUSE_GOLD,
-        TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY, WING_BOOTS_CHARGES,
+        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, SSSERPENT_HEAD_GOLD, STRAWBERRY_MAX_HP,
+        TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
+        WING_BOOTS_CHARGES,
     },
     rng::JavaRng,
     rng::StsRng,
@@ -1231,6 +1232,11 @@ impl RunState {
     pub fn apply_floor_entry_relics(&mut self) {
         if self.relics.contains(&Relic::MawBank) && !self.maw_bank_broken {
             self.gain_gold(MAW_BANK_GOLD);
+        }
+        if self.current_room_kind() == Some(RoomKind::Event)
+            && self.relics.contains(&Relic::SsserpentHead)
+        {
+            self.gain_gold(SSSERPENT_HEAD_GOLD);
         }
     }
 
