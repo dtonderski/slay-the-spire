@@ -1100,10 +1100,10 @@ fn winding_halls_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
             label: format!("Embrace Madness (lose {hp_loss} HP, gain 2 Madness)"),
         },
         EventChoice {
-            label: format!("Become Whole (heal {heal}, gain Writhe)"),
+            label: format!("Focus (heal {heal}, gain Writhe)"),
         },
         EventChoice {
-            label: format!("Reject the Call (lose {max_hp_loss} max HP)"),
+            label: format!("Retrace Your Steps (lose {max_hp_loss} max HP)"),
         },
     ]
 }
@@ -6680,10 +6680,18 @@ mod tests {
         assert_eq!(run.event.as_ref().expect("intro").choices[0].label, "...");
         let after_intro = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("Winding Halls intro applies");
-        assert_eq!(
-            after_intro.event.as_ref().expect("choices").choices.len(),
-            3
-        );
+        let labels = after_intro
+            .event
+            .as_ref()
+            .expect("choices")
+            .choices
+            .iter()
+            .map(|choice| choice.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(labels.len(), 3);
+        assert!(labels[0].starts_with("Embrace Madness"));
+        assert!(labels[1].starts_with("Focus"));
+        assert!(labels[2].starts_with("Retrace Your Steps"));
         let after_choice =
             apply_event_action(&after_intro, EventAction::Choose { choice_index: 1 })
                 .expect("Writhe path applies");
