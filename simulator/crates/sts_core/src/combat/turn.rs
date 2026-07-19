@@ -278,6 +278,7 @@ fn apply_start_of_turn_brutality(state: &mut CombatState) {
     for _ in 0..state.player.powers.brutality.max(0) {
         let hp_loss = crate::combat::hp_loss::lose_player_hp(state, 1);
         crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
+        revive_player_if_available(state);
         if state.player.hp <= 0 {
             return;
         }
@@ -843,6 +844,11 @@ fn revive_with_fairy_if_available(state: &mut CombatState) {
     state.relic_counters.fairy_consumed = true;
 }
 
+pub(crate) fn revive_player_if_available(state: &mut CombatState) {
+    revive_with_lizard_tail_if_available(state);
+    revive_with_fairy_if_available(state);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_monster_pending_effects(
     state: &mut CombatState,
@@ -980,8 +986,7 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> i32 {
     let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp = (state.player.hp - hp_damage).max(0);
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_damage);
-    revive_with_lizard_tail_if_available(state);
-    revive_with_fairy_if_available(state);
+    revive_player_if_available(state);
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
     }
@@ -1931,6 +1936,44 @@ mod tests {
         assert_eq!(next.monsters[0].block, 12);
         assert!(next.relic_counters.fairy_consumed);
         assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+    }
+
+    #[test]
+    fn lethal_combust_fairy_revival_finishes_end_turn_before_drawing() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 1;
+        state.player.max_hp = 114;
+        state.player.powers.combust = 1;
+        state.player.powers.combust_damage = 5;
+        state.relic_counters.fairy_heal_percent = 30;
+        state.monsters[0].intent = crate::MonsterIntent::Stun;
+        let monster_hp = state.monsters[0].hp;
+        state.piles.hand = (1..=5)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.draw_pile = (6..=10)
+            .map(|id| CardInstance::new(CardId::new(id), SLIMED_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+
+        let next = end_player_turn(&state);
+
+        assert_eq!(next.player.hp, 34);
+        assert_eq!(next.monsters[0].hp, monster_hp - 5);
+        assert!(next.relic_counters.fairy_consumed);
+        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(next.piles.hand.len(), 5);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id == SLIMED_ID));
+        assert_eq!(next.piles.discard_pile.len(), 5);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .all(|card| card.content_id == STRIKE_R_ID));
     }
 
     #[test]
