@@ -3451,14 +3451,18 @@ fn verify_seed_start_transitions(
                         phase = SeedStartPhase::Treasure;
                         continue;
                     }
-                    if seed_sim.as_ref().is_some_and(|sim| {
-                        sim.phase == RunPhase::Reward
-                            && sim.event.is_some()
-                            && seed_start_reward_sequence_complete(sim)
-                    }) {
+                    if seed_sim
+                        .as_ref()
+                        .is_some_and(|sim| sim.phase == RunPhase::Reward && sim.event.is_some())
+                    {
                         let sim = seed_sim.as_mut().expect("reward simulation checked above");
-                        let next = apply_run_action(sim, RunAction::Proceed)
-                            .map_err(|err| err.to_string());
+                        let reward_action = if seed_start_reward_sequence_complete(sim) {
+                            RunAction::Proceed
+                        } else {
+                            RunAction::SkipReward
+                        };
+                        let next =
+                            apply_run_action(sim, reward_action).map_err(|err| err.to_string());
                         let Ok(next) = next else {
                             let boundary = SeedStartBoundary {
                                 path: format!("$.actions[step={}].command", action.step),

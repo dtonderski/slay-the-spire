@@ -2064,6 +2064,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 && reward.queued_relic_key_offers.is_empty()
             {
                 enter_boss_reward_chest(&mut next);
+            } else if next.event.is_some() {
+                next.phase = RunPhase::Event;
+                next.reward = None;
             } else {
                 next.phase = RunPhase::Idle;
                 next.reward = None;

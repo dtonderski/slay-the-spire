@@ -6802,5 +6802,20 @@ mod tests {
                 .label,
             "Leave"
         );
+
+        let skipped =
+            crate::run::reward::apply_run_action(&after_memory, crate::RunAction::SkipReward)
+                .expect("pending Sensory Stone rewards can be skipped");
+        assert_eq!(skipped.phase, RunPhase::Event);
+        assert!(skipped.reward.is_none());
+        assert_eq!(
+            skipped
+                .event
+                .as_ref()
+                .expect("Sensory Stone leave screen")
+                .choices[0]
+                .label,
+            "Leave"
+        );
     }
 }
