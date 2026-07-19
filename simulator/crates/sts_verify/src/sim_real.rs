@@ -3777,16 +3777,9 @@ fn verify_seed_start_transitions(
                         action,
                         &label,
                         seed_start_victory_observed_subset(&post.message),
-                        seed_start_victory_simulated_subset(&next, &post.message),
+                        seed_start_victory_simulated_subset(&next),
                     );
-                    let final_boss_complete = screen_type(&post.message) == Some("COMPLETE")
-                        && post
-                            .message
-                            .get("game_state")
-                            .and_then(|game| game.get("room_type"))
-                            .and_then(Value::as_str)
-                            == Some("MonsterRoomBoss")
-                        && sim.current_act == 3;
+                    let final_boss_complete = seed_start_is_final_boss_victory(&next);
                     seed_sim = Some(next);
                     phase = if final_boss_complete {
                         SeedStartPhase::Proceed
@@ -8312,22 +8305,19 @@ fn seed_start_victory_observed_subset(message: &Value) -> Value {
     })
 }
 
-fn seed_start_victory_simulated_subset(run: &RunState, message: &Value) -> Value {
-    let game = message.get("game_state").expect("observed game_state");
-    let observed_screen_type = game
-        .get("screen_type")
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    let screen_type = if observed_screen_type == "COMPLETE"
-        && game.get("room_type").and_then(Value::as_str) == Some("MonsterRoomBoss")
-    {
+fn seed_start_is_final_boss_victory(run: &RunState) -> bool {
+    run.current_act == 3 && run.current_room_kind() == Some(RoomKind::Boss)
+}
+
+fn seed_start_victory_simulated_subset(run: &RunState) -> Value {
+    let screen_type = if seed_start_is_final_boss_victory(run) {
         "COMPLETE"
     } else {
         "COMBAT_REWARD"
     };
     json!({
         "screen_type": screen_type,
-        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "floor": run.current_floor,
         "gold": run.gold,
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
@@ -11376,6 +11366,35 @@ mod tests {
             recorded_action_playtime_seconds(&pre, &action),
             Some(799),
             "the explicit action input wins over its source state's copy"
+        );
+    }
+
+    #[test]
+    fn victory_projection_uses_only_simulator_state() {
+        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        run.current_floor = 16;
+        run.current_act = 1;
+        run.current_room_override = Some(RoomKind::Boss);
+        run.gold = 123;
+        run.player_hp = 45;
+        run.player_max_hp = 80;
+
+        assert_eq!(
+            seed_start_victory_simulated_subset(&run),
+            json!({
+                "screen_type": "COMBAT_REWARD",
+                "floor": 16,
+                "gold": 123,
+                "current_hp": 45,
+                "max_hp": 80,
+            })
+        );
+
+        run.current_act = 3;
+        run.current_floor = 51;
+        assert_eq!(
+            seed_start_victory_simulated_subset(&run)["screen_type"],
+            json!("COMPLETE")
         );
     }
 
