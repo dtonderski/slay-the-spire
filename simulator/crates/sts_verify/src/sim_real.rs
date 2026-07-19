@@ -8132,7 +8132,7 @@ fn seed_start_simulated_combat_subset_with_options(
     let Some(combat) = run.combat.as_ref() else {
         return json!({
             "screen_type": "NO_COMBAT",
-            "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+            "floor": run.current_floor,
             "gold": run.gold,
             "current_hp": run.player_hp,
             "max_hp": run.player_max_hp,
@@ -8171,7 +8171,7 @@ fn seed_start_simulated_combat_subset_with_options(
     let mut subset = json!({
         "screen_type": screen_type,
         "ascension": run.ascension,
-        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "floor": run.current_floor,
         "gold": run.gold,
         "current_hp": combat.player.hp,
         "max_hp": run.player_max_hp,
@@ -13790,6 +13790,24 @@ mod tests {
 
         assert_eq!(subset["current_hp"], json!(36));
         assert_eq!(subset["combat_player_hp"], json!(36));
+    }
+
+    #[test]
+    fn combat_subset_uses_simulated_floor_instead_of_observation() {
+        let mut run = RunState::map_fixture();
+        run.current_floor = 17;
+        run.combat = Some(run.init_combat(CombatState::initial_fixture()));
+        let forged_observation = json!({
+            "game_state": {
+                "floor": 999,
+                "screen_type": "NONE",
+                "combat_state": {"monsters": []}
+            }
+        });
+
+        let subset = seed_start_simulated_combat_subset(&run, &forged_observation, false);
+
+        assert_eq!(subset["floor"], json!(17));
     }
 
     #[test]
