@@ -413,6 +413,7 @@ const WRITHING_MASS_A2_ATTACK_BLOCK_DAMAGE: i32 = 16;
 const WRITHING_MASS_ATTACK_BLOCK_BLOCK: i32 = 16;
 const WRITHING_MASS_ATTACK_DEBUFF_DAMAGE: i32 = 10;
 const WRITHING_MASS_A2_ATTACK_DEBUFF_DAMAGE: i32 = 12;
+const WRITHING_MASS_MALLEABLE: i32 = 3;
 const CORRUPT_HEART_BLOOD_SHOTS_DAMAGE: i32 = 2;
 const CORRUPT_HEART_BLOOD_SHOTS_HITS: i32 = 12;
 const CORRUPT_HEART_ECHO_ATTACK_DAMAGE: i32 = 40;
@@ -2091,10 +2092,14 @@ pub fn target_beyond_encounter_spawn_for_key_with_misc_rng(
         )),
         "Spire Growth" => Some(vec![target_definition_spawn(&SPIRE_GROWTH_A0, neow_lament)]),
         "Maw" => Some(vec![target_definition_spawn(&MAW_A0, neow_lament)]),
-        "Writhing Mass" => Some(vec![target_definition_spawn(
-            &WRITHING_MASS_A0,
-            neow_lament,
-        )]),
+        "Writhing Mass" => {
+            let mut spawn = target_definition_spawn(&WRITHING_MASS_A0, neow_lament);
+            spawn.powers.push(TargetSpawnPower {
+                id: "Malleable",
+                amount: WRITHING_MASS_MALLEABLE,
+            });
+            Some(vec![spawn])
+        }
         "Giant Head" => Some(vec![target_definition_spawn(&GIANT_HEAD_A0, neow_lament)]),
         "Nemesis" => Some(vec![target_definition_spawn(&NEMESIS_A0, neow_lament)]),
         "Reptomancer" => Some(target_reptomancer_encounter_spawn(
@@ -3816,15 +3821,15 @@ pub fn monster_state_for_ascension(
             } else {
                 0
             },
-            malleable: if definition.content_id == SNAKE_PLANT_ID {
-                SNAKE_PLANT_MALLEABLE
-            } else {
-                0
+            malleable: match definition.content_id {
+                SNAKE_PLANT_ID => SNAKE_PLANT_MALLEABLE,
+                WRITHING_MASS_ID => WRITHING_MASS_MALLEABLE,
+                _ => 0,
             },
-            malleable_base: if definition.content_id == SNAKE_PLANT_ID {
-                SNAKE_PLANT_MALLEABLE
-            } else {
-                0
+            malleable_base: match definition.content_id {
+                SNAKE_PLANT_ID => SNAKE_PLANT_MALLEABLE,
+                WRITHING_MASS_ID => WRITHING_MASS_MALLEABLE,
+                _ => 0,
             },
             spore_cloud: if definition.content_id == FUNGI_BEAST_ID {
                 FUNGI_BEAST_SPORE_CLOUD
@@ -10659,6 +10664,23 @@ mod tests {
         assert_eq!(source_monster.powers.malleable_base, SNAKE_PLANT_MALLEABLE);
         assert_eq!(player.powers.frail, SNAKE_PLANT_SPORES_DEBUFF);
         assert_eq!(player.powers.weak, SNAKE_PLANT_SPORES_DEBUFF);
+    }
+
+    #[test]
+    fn writhing_mass_starts_with_source_malleable() {
+        let monster = monster_state(&WRITHING_MASS_A0, MonsterId::new(1));
+        assert_eq!(monster.powers.malleable, WRITHING_MASS_MALLEABLE);
+        assert_eq!(monster.powers.malleable_base, WRITHING_MASS_MALLEABLE);
+
+        let spawns = target_beyond_encounter_spawn_for_key(1, 39, "Writhing Mass", 0, false)
+            .expect("Writhing Mass encounter is generated");
+        assert_eq!(
+            spawns[0].powers,
+            vec![TargetSpawnPower {
+                id: "Malleable",
+                amount: WRITHING_MASS_MALLEABLE,
+            }]
+        );
     }
 
     #[test]
