@@ -1449,6 +1449,22 @@ fn fidelity_regression_trace_entries_pass_seed_start() {
     }
 }
 
+#[test]
+fn session31_stale_post_regression_verifies_the_settled_combat_action() {
+    let Some(content) =
+        load_corpus_file("fidelity_regressions/session-31-floor1-stale-combat-post-state.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("session-31 stale post-state regression replays");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 458 && transition.command.eq_ignore_ascii_case("PLAY 2 1")
+    }));
+}
+
 fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {
     for line in content.lines().filter(|line| !line.trim().is_empty()) {
         let value: serde_json::Value = serde_json::from_str(line).expect("trace line parses");

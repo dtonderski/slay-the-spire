@@ -2493,7 +2493,43 @@ fn same_observed_game_state(source: &LiveState, candidate: &LiveState) -> bool {
         .raw
         .pointer("/current_state/message")
         .zip(candidate.raw.pointer("/current_state/message"))
-        .is_some_and(|(source, candidate)| source == candidate)
+        .is_some_and(|(source, candidate)| {
+            same_observed_message_ignoring_playtime(source, candidate)
+        })
+}
+
+fn same_observed_message_ignoring_playtime(source: &Value, candidate: &Value) -> bool {
+    let (Some(source), Some(candidate)) = (source.as_object(), candidate.as_object()) else {
+        return source == candidate;
+    };
+    source.len() == candidate.len()
+        && source.iter().all(|(key, value)| {
+            if key == "game_state" {
+                candidate
+                    .get(key)
+                    .is_some_and(|candidate| same_game_state_ignoring_playtime(value, candidate))
+            } else {
+                candidate.get(key) == Some(value)
+            }
+        })
+}
+
+fn same_game_state_ignoring_playtime(source: &Value, candidate: &Value) -> bool {
+    let (Some(source), Some(candidate)) = (source.as_object(), candidate.as_object()) else {
+        return source == candidate;
+    };
+    let source_fields = source
+        .keys()
+        .filter(|key| key.as_str() != "playtime_seconds")
+        .count();
+    let candidate_fields = candidate
+        .keys()
+        .filter(|key| key.as_str() != "playtime_seconds")
+        .count();
+    source_fields == candidate_fields
+        && source
+            .iter()
+            .all(|(key, value)| key == "playtime_seconds" || candidate.get(key) == Some(value))
 }
 
 fn transition_state_is_ready(source: &LiveState, candidate: &LiveState) -> bool {
@@ -2967,6 +3003,32 @@ mod tests {
 
         assert_eq!(recorded.command["playtime_seconds"], json!(812));
         assert!(choose.command.get("playtime_seconds").is_none());
+    }
+
+    #[test]
+    fn action_state_freshness_ignores_target_playtime_ticks() {
+        let state = |sequence, playtime_seconds, energy| LiveState {
+            sequence,
+            phase: LivePhase::Combat,
+            legal_actions: Vec::new(),
+            raw: json!({
+                "current_state": {
+                    "message": {
+                        "ready_for_command": true,
+                        "game_state": {
+                            "playtime_seconds": playtime_seconds,
+                            "combat_state": {"player": {"energy": energy}}
+                        }
+                    }
+                }
+            }),
+        };
+        let source = state(1, 10.0, 3);
+        let timer_only = state(2, 10.1, 3);
+        let transitioned = state(3, 10.2, 2);
+
+        assert!(same_observed_game_state(&source, &timer_only));
+        assert!(!same_observed_game_state(&source, &transitioned));
     }
 
     #[test]

@@ -270,6 +270,7 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
                 if let Some((pre, action)) = pending.take() {
                     if is_delayed_map_choice(&pre, &action)
                         && screen_type(&state.message) == Some("MAP")
+                        || is_unsettled_trace_action_state(&pre, &action, state)
                     {
                         pending = Some((pre, action));
                     } else {
@@ -280,8 +281,11 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
             }
             TraceLine::Action(action) => {
                 if let Some((pre, pending_action)) = pending.take() {
-                    if is_delayed_map_choice(&pre, &pending_action)
-                        && action.command.eq_ignore_ascii_case("STATE")
+                    let pending_is_unsettled = last_state.as_ref().is_some_and(|state| {
+                        is_unsettled_trace_action_state(&pre, &pending_action, state)
+                    });
+                    if (is_delayed_map_choice(&pre, &pending_action) || pending_is_unsettled)
+                        && is_trace_observation_poll(action)
                     {
                         pending = Some((pre, pending_action));
                         continue;
@@ -316,6 +320,62 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
 
 fn is_delayed_map_choice(pre: &TraceState, action: &TraceAction) -> bool {
     screen_type(&pre.message) == Some("MAP") && command_choose_index(&action.command).is_some()
+}
+
+fn is_trace_observation_poll(action: &TraceAction) -> bool {
+    action.command.eq_ignore_ascii_case("STATE") || action.command.eq_ignore_ascii_case("WAIT")
+}
+
+fn is_unsettled_trace_action_state(
+    pre: &TraceState,
+    action: &TraceAction,
+    candidate: &TraceState,
+) -> bool {
+    if is_trace_observation_poll(action) {
+        return false;
+    }
+    action.playtime_seconds.is_some()
+        && same_trace_message_ignoring_playtime(&pre.message, &candidate.message)
+        || trace_ready_for_command(&pre.message).is_some()
+            && trace_ready_for_command(&candidate.message) == Some(false)
+}
+
+fn trace_ready_for_command(message: &Value) -> Option<bool> {
+    message.get("ready_for_command").and_then(Value::as_bool)
+}
+
+fn same_trace_message_ignoring_playtime(source: &Value, candidate: &Value) -> bool {
+    let (Some(source), Some(candidate)) = (source.as_object(), candidate.as_object()) else {
+        return source == candidate;
+    };
+    source.len() == candidate.len()
+        && source.iter().all(|(key, value)| {
+            if key == "game_state" {
+                candidate.get(key).is_some_and(|candidate| {
+                    same_trace_game_state_ignoring_playtime(value, candidate)
+                })
+            } else {
+                candidate.get(key) == Some(value)
+            }
+        })
+}
+
+fn same_trace_game_state_ignoring_playtime(source: &Value, candidate: &Value) -> bool {
+    let (Some(source), Some(candidate)) = (source.as_object(), candidate.as_object()) else {
+        return source == candidate;
+    };
+    let source_fields = source
+        .keys()
+        .filter(|key| key.as_str() != "playtime_seconds")
+        .count();
+    let candidate_fields = candidate
+        .keys()
+        .filter(|key| key.as_str() != "playtime_seconds")
+        .count();
+    source_fields == candidate_fields
+        && source
+            .iter()
+            .all(|(key, value)| key == "playtime_seconds" || candidate.get(key) == Some(value))
 }
 
 fn recorded_action_playtime_seconds(pre: &TraceState, action: &TraceAction) -> Option<u32> {
@@ -10942,6 +11002,53 @@ mod tests {
         assert_eq!(transitions.transitions.len(), 1);
         assert_eq!(transitions.transitions[0].1.command, "CHOOSE 0");
         assert_eq!(transitions.transitions[0].2.step, 816);
+        assert_eq!(transitions.ignored_tail_actions, 0);
+    }
+
+    #[test]
+    fn trace_transitions_wait_past_timer_only_and_busy_combat_states() {
+        let state = |step, playtime_seconds, ready_for_command, energy| {
+            TraceLine::State(TraceState {
+                step,
+                received_at: None,
+                message: json!({
+                    "ready_for_command": ready_for_command,
+                    "game_state": {
+                        "playtime_seconds": playtime_seconds,
+                        "screen_type": "NONE",
+                        "combat_state": {"player": {"energy": energy}}
+                    }
+                }),
+            })
+        };
+        let poll = |step| {
+            TraceLine::Action(TraceAction {
+                step,
+                command: "STATE".to_owned(),
+                sent_at: None,
+                playtime_seconds: None,
+            })
+        };
+        let lines = vec![
+            state(1, 10.0, true, 3),
+            TraceLine::Action(TraceAction {
+                step: 2,
+                command: "PLAY 2 1".to_owned(),
+                sent_at: None,
+                playtime_seconds: Some(10),
+            }),
+            state(2, 10.1, true, 3),
+            poll(3),
+            state(3, 10.2, false, 2),
+            poll(4),
+            state(4, 10.3, true, 2),
+        ];
+
+        let transitions = trace_transitions(&lines).expect("trace transitions");
+
+        assert_eq!(transitions.transitions.len(), 1);
+        assert_eq!(transitions.transitions[0].1.command, "PLAY 2 1");
+        assert_eq!(transitions.transitions[0].2.step, 4);
         assert_eq!(transitions.ignored_tail_actions, 0);
     }
 

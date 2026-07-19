@@ -431,3 +431,21 @@ selection.
   from observations.
 - `session-29-act3-accursed-blacksmith-event-rng.jsonl` pins the complete
   seed-start prefix through this time-gated event selection.
+
+## Live action completion and target timer evidence
+
+- Session 31 exposed a bridge-ordering race after target playtime became
+  observable. CommunicationMod first published a new state ID whose gameplay
+  payload was unchanged except for `playtime_seconds`, then published busy
+  intermediate combat states, and only afterward published the settled Strike
+  result.
+- Target playtime is an explicit transition input for time-gated events, but a
+  timer tick is not evidence that a gameplay action completed. Live action
+  completion therefore compares gameplay payloads while ignoring only
+  `playtime_seconds`, and still requires the resulting state to be ready.
+- Seed-start trace pairing applies the same rule when reading existing raw
+  traces: observation polls and busy states between an action and its settled
+  result belong to that action rather than becoming independent transitions.
+- `session-31-floor1-stale-combat-post-state.jsonl` pins the floor-1 Strike and
+  asserts that the action is actually verified against the settled 2-energy,
+  22-HP post-state; it is not accepted as an ignored trace tail.
