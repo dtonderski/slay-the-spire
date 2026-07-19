@@ -301,8 +301,13 @@ fn verify_seed_start_trace(
         m22_encounter_report,
         sim_run_state: verification.final_run_state,
     });
-    let (action_dispositions, action_integrity) =
-        build_action_accounting(&trace.lines, &transitions, &report);
+    let (action_dispositions, action_integrity) = build_action_accounting(
+        &trace.lines,
+        &transitions,
+        &report,
+        &verification.reconciled_deferred_action_steps,
+        verification.unresolved_transient_assertions,
+    );
     report.action_dispositions = action_dispositions;
     report.action_integrity = Some(action_integrity);
 
@@ -491,6 +496,8 @@ fn build_action_accounting(
     lines: &[TraceLine],
     transitions: &TraceTransitions,
     report: &SimRealReport,
+    semantic_reconciled_action_steps: &[u32],
+    semantic_unresolved_transient_assertions: usize,
 ) -> (Vec<ActionDisposition>, VerificationIntegrity) {
     let actions = lines
         .iter()
@@ -500,11 +507,23 @@ fn build_action_accounting(
         })
         .collect::<Vec<_>>();
     let mut dispositions: Vec<Option<ActionDisposition>> = vec![None; actions.len()];
-    let reconciled = transitions
+    let mut reconciled = transitions
         .reconciled_deferred_action_ordinals
         .iter()
         .copied()
         .collect::<std::collections::HashSet<_>>();
+    for (transition_index, ordinal) in transitions
+        .transition_action_ordinals
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        if semantic_reconciled_action_steps
+            .contains(&transitions.transitions[transition_index].1.step)
+        {
+            reconciled.insert(ordinal);
+        }
+    }
     let mut duplicate_dispositions = 0;
 
     for (ordinal, disposition) in &transitions.folded_action_dispositions {
@@ -684,7 +703,8 @@ fn build_action_accounting(
         applicable_actions: actions.len() - rejected_actions,
         disposed_actions,
         duplicate_dispositions,
-        unresolved_transient_assertions: transitions.unresolved_transient_assertions,
+        unresolved_transient_assertions: transitions.unresolved_transient_assertions
+            + semantic_unresolved_transient_assertions,
         terminal_state_observed: trace_terminal_state_observed(lines),
         rejected_actions,
     };
@@ -876,6 +896,21 @@ fn recorded_action_playtime_seconds(pre: &TraceState, action: &TraceAction) -> O
 struct SeedStartVerification {
     boundary: SeedStartBoundary,
     final_run_state: Option<RunState>,
+    reconciled_deferred_action_steps: Vec<u32>,
+    unresolved_transient_assertions: usize,
+}
+
+struct PendingEventDeckAssertion {
+    action: TraceAction,
+    label: String,
+    expected_deck: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PendingEventDeckObservation {
+    Settled,
+    Deferred,
+    Diverged(Vec<String>),
 }
 
 fn seed_start_empty_combat_reward() -> RewardScreen {
@@ -932,14 +967,45 @@ fn verify_seed_start_transitions(
     let mut pending_smoke_bomb_reward: Option<RunState> = None;
     let mut smoke_bomb_reward_active = false;
     let mut smoke_bomb_proceed_pending = false;
+    let mut pending_event_deck_assertion: Option<PendingEventDeckAssertion> = None;
+    let mut reconciled_deferred_action_steps = Vec::new();
 
     macro_rules! finish_boundary {
         ($boundary:expr) => {
-            seed_start_finish_boundary(&seed_sim, $boundary, start.numeric_seed, boss_unlocks)
+            seed_start_finish_boundary(
+                &seed_sim,
+                $boundary,
+                start.numeric_seed,
+                boss_unlocks,
+                reconciled_deferred_action_steps,
+                usize::from(pending_event_deck_assertion.is_some()),
+            )
         };
     }
 
     for (pre, action, post) in transitions {
+        if let Some(pending) = pending_event_deck_assertion.take() {
+            if is_trace_observation_poll(action) {
+                pending_event_deck_assertion = Some(pending);
+            } else {
+                let observed_deck = seed_start_observed_deck(&post.message);
+                if observed_deck.starts_with(&pending.expected_deck) {
+                    report.verified.push(VerifiedTransition {
+                        action_step: pending.action.step,
+                        command: pending.action.command,
+                        label: pending.label,
+                    });
+                    reconciled_deferred_action_steps.push(pending.action.step);
+                } else {
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: pending.action.step,
+                        command: pending.action.command,
+                        label: pending.label,
+                        diffs: subset_diffs(json!(observed_deck), json!(pending.expected_deck)),
+                    });
+                }
+            }
+        }
         if let Some(sim) = seed_sim.as_mut() {
             seed_start_apply_boss_unlocks(sim, start.numeric_seed, boss_unlocks);
         }
@@ -3159,7 +3225,7 @@ fn verify_seed_start_transitions(
                     Some("GRID") => seed_start_grid_observed_subset(&post.message),
                     _ => seed_start_event_observed_subset(&post.message),
                 };
-                let simulated = match next.phase {
+                let mut simulated = match next.phase {
                     _ if next.card_grid.is_some() => {
                         seed_start_grid_simulated_subset(&next, &relics)
                     }
@@ -3180,18 +3246,56 @@ fn verify_seed_start_transitions(
                 };
                 normalize_match_and_keep_transient_choices(&next, &mut observed, &simulated);
                 if next.phase == RunPhase::Event && !next.pending_obtain_cards.is_empty() {
-                    compare_subset_any(
-                        report,
-                        action,
-                        "event choice",
-                        observed,
-                        vec![
-                            simulated,
-                            seed_start_event_simulated_subset_with_pending_obtain_cards(
-                                &next, &relics,
-                            ),
-                        ],
-                    );
+                    let observed_deck = observed
+                        .as_object_mut()
+                        .and_then(|object| object.remove("deck_ids"))
+                        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                        .unwrap_or_default();
+                    let simulated_deck = simulated
+                        .as_object_mut()
+                        .and_then(|object| object.remove("deck_ids"))
+                        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                        .unwrap_or_default();
+                    let non_deck_diffs = subset_diffs(observed, simulated);
+                    if !non_deck_diffs.is_empty() {
+                        report.unexpected_diffs.push(UnexpectedDiff {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: "event choice".to_owned(),
+                            diffs: non_deck_diffs,
+                        });
+                    } else {
+                        let expected_deck =
+                            deck_content_keys_after_pending_obtain_cards_settle(&next);
+                        match classify_pending_event_deck_observation(
+                            &observed_deck,
+                            &simulated_deck,
+                            &expected_deck,
+                        ) {
+                            PendingEventDeckObservation::Settled => {
+                                report.verified.push(VerifiedTransition {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    label: "event choice".to_owned(),
+                                });
+                            }
+                            PendingEventDeckObservation::Deferred => {
+                                pending_event_deck_assertion = Some(PendingEventDeckAssertion {
+                                    action: action.clone(),
+                                    label: "event choice".to_owned(),
+                                    expected_deck,
+                                });
+                            }
+                            PendingEventDeckObservation::Diverged(diffs) => {
+                                report.unexpected_diffs.push(UnexpectedDiff {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    label: "event choice".to_owned(),
+                                    diffs,
+                                });
+                            }
+                        }
+                    }
                 } else {
                     compare_subset(report, action, "event choice", observed, simulated);
                 }
@@ -4714,6 +4818,8 @@ fn seed_start_finish_boundary(
     boundary: SeedStartBoundary,
     numeric_seed: i64,
     boss_unlocks: BossUnlockState,
+    reconciled_deferred_action_steps: Vec<u32>,
+    unresolved_transient_assertions: usize,
 ) -> SeedStartVerification {
     let mut final_run_state = seed_sim.clone();
     if let Some(run) = final_run_state.as_mut() {
@@ -4722,6 +4828,8 @@ fn seed_start_finish_boundary(
     SeedStartVerification {
         boundary,
         final_run_state,
+        reconciled_deferred_action_steps,
+        unresolved_transient_assertions,
     }
 }
 
@@ -7904,17 +8012,6 @@ fn normalize_match_and_keep_transient_choices(
     }
 }
 
-fn seed_start_event_simulated_subset_with_pending_obtain_cards(
-    run: &RunState,
-    relic_ids: &[String],
-) -> Value {
-    seed_start_event_simulated_subset_with_deck(
-        run,
-        relic_ids,
-        deck_content_keys_with_pending_obtain_cards(run),
-    )
-}
-
 fn seed_start_event_simulated_subset_with_deck(
     run: &RunState,
     relic_ids: &[String],
@@ -9608,34 +9705,6 @@ fn compare_subset(
     }
 }
 
-fn compare_subset_any(
-    report: &mut SimRealReport,
-    action: &TraceAction,
-    label: &str,
-    expected: Value,
-    actuals: Vec<Value>,
-) {
-    let mut first_diffs = None;
-    for actual in actuals {
-        let diffs = subset_diffs(expected.clone(), actual);
-        if diffs.is_empty() {
-            report.verified.push(VerifiedTransition {
-                action_step: action.step,
-                command: action.command.clone(),
-                label: label.to_owned(),
-            });
-            return;
-        }
-        first_diffs.get_or_insert(diffs);
-    }
-    report.unexpected_diffs.push(UnexpectedDiff {
-        action_step: action.step,
-        command: action.command.clone(),
-        label: label.to_owned(),
-        diffs: first_diffs.unwrap_or_default(),
-    });
-}
-
 fn subset_diffs(expected: Value, actual: Value) -> Vec<String> {
     let expected_json = serde_json::to_string(&expected).expect("json serializes");
     let actual_json = serde_json::to_string(&actual).expect("json serializes");
@@ -11133,14 +11202,31 @@ fn deck_content_keys(deck: &[CardInstance]) -> Vec<String> {
         .collect()
 }
 
-fn deck_content_keys_with_pending_obtain_cards(run: &RunState) -> Vec<String> {
-    let mut deck = deck_content_keys(&run.deck);
-    deck.extend(
-        run.pending_obtain_cards
-            .iter()
-            .map(|content_id| deck_content_key(*content_id).to_owned()),
-    );
-    deck
+fn deck_content_keys_after_pending_obtain_cards_settle(run: &RunState) -> Vec<String> {
+    let mut settled = run.clone();
+    settled.flush_pending_obtain_cards();
+    deck_content_keys(&settled.deck)
+}
+
+fn classify_pending_event_deck_observation(
+    observed: &[String],
+    transient: &[String],
+    settled: &[String],
+) -> PendingEventDeckObservation {
+    if observed == settled {
+        PendingEventDeckObservation::Settled
+    } else if observed == transient {
+        PendingEventDeckObservation::Deferred
+    } else {
+        PendingEventDeckObservation::Diverged(subset_diffs(json!(observed), json!(settled)))
+    }
+}
+
+fn seed_start_observed_deck(message: &Value) -> Vec<String> {
+    message
+        .get("game_state")
+        .map(|game| deck_keys_from_value(game.get("deck")))
+        .unwrap_or_default()
 }
 
 fn screen_type(message: &Value) -> Option<&str> {
@@ -14699,6 +14785,59 @@ mod tests {
 
         assert_eq!(deck.len(), visible_before);
         assert!(!deck.iter().any(|card| card == "Perfected Strike"));
+    }
+
+    #[test]
+    fn event_projection_defers_simulator_owned_pending_obtain_cards() {
+        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::TheSsssserpent));
+        let deck_before = deck_content_keys(&run.deck);
+        run.queue_pending_obtain_card(sts_core::content::cards::REGRET_ID);
+
+        let transient_projection = seed_start_event_simulated_subset(&run, &[]);
+        let settled_projection = deck_content_keys_after_pending_obtain_cards_settle(&run);
+
+        assert_eq!(transient_projection["deck_ids"], json!(deck_before));
+        let mut expected_deck = deck_before;
+        expected_deck.push("Regret".to_owned());
+        assert_eq!(settled_projection, expected_deck);
+
+        let mut protected = RunState::placeholder_seeded_ironclad(1, 0);
+        let protected_deck = deck_content_keys(&protected.deck);
+        protected.gain_relic_key(RelicKey::Omamori);
+        protected.queue_pending_obtain_card(sts_core::content::cards::PAIN_ID);
+        assert_eq!(
+            deck_content_keys_after_pending_obtain_cards_settle(&protected),
+            protected_deck,
+            "settled projection must apply core card-obtain prevention"
+        );
+        assert_eq!(protected.omamori_charges_used, 0, "projection is read-only");
+
+        assert_eq!(
+            classify_pending_event_deck_observation(
+                &["Strike".to_owned()],
+                &["Strike".to_owned()],
+                &["Strike".to_owned(), "Regret".to_owned()],
+            ),
+            PendingEventDeckObservation::Deferred
+        );
+        assert_eq!(
+            classify_pending_event_deck_observation(
+                &["Strike".to_owned(), "Regret".to_owned()],
+                &["Strike".to_owned()],
+                &["Strike".to_owned(), "Regret".to_owned()],
+            ),
+            PendingEventDeckObservation::Settled
+        );
+        assert!(matches!(
+            classify_pending_event_deck_observation(
+                &["Strike".to_owned(), "Pain".to_owned()],
+                &["Strike".to_owned()],
+                &["Strike".to_owned(), "Regret".to_owned()],
+            ),
+            PendingEventDeckObservation::Diverged(diffs) if !diffs.is_empty()
+        ));
     }
 
     #[test]

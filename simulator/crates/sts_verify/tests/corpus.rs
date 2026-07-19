@@ -1536,6 +1536,59 @@ fn fidelity_regression_trace_entries_pass_seed_start() {
 }
 
 #[test]
+fn session13_golden_shrine_curse_is_deferred_until_the_stable_deck_frame() {
+    let Some(content) =
+        load_corpus_file("fidelity_regressions/session-13-transmogrifier-curse-transform.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("session-13 Golden Shrine regression replays");
+
+    assert!(report.unexpected_diffs.is_empty());
+    let disposition = report
+        .action_dispositions
+        .iter()
+        .find(|entry| entry.action_step == 4467 && entry.command == "CHOOSE 2")
+        .expect("Golden Shrine desecrate action has a disposition");
+    assert_eq!(
+        disposition.disposition,
+        sts_verify::ActionDispositionKind::Verified
+    );
+    assert!(disposition.deferred_assertion_reconciled);
+    assert_eq!(
+        report
+            .action_integrity
+            .expect("verification integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+
+    let mut truncated_lines = Vec::new();
+    for line in content.lines() {
+        truncated_lines.push(line);
+        let value: serde_json::Value = serde_json::from_str(line).expect("trace line parses");
+        if value.get("type").and_then(serde_json::Value::as_str) == Some("state")
+            && value.get("step").and_then(serde_json::Value::as_u64) == Some(4468)
+        {
+            break;
+        }
+    }
+    let truncated = truncated_lines.join("\n");
+    let truncated_report = verify_seed_start_communication_mod_trace(&truncated)
+        .expect("truncated session-13 trace replays");
+    assert!(truncated_report.unexpected_diffs.is_empty());
+    assert_eq!(
+        truncated_report
+            .action_integrity
+            .expect("truncated verification integrity")
+            .unresolved_transient_assertions,
+        1,
+        "a retained transient frame must not count as complete verification"
+    );
+}
+
+#[test]
 fn session31_stale_post_regression_verifies_the_settled_combat_action() {
     let Some(content) =
         load_corpus_file("fidelity_regressions/session-31-floor1-stale-combat-post-state.jsonl")
