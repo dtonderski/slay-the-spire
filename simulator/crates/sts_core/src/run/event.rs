@@ -10,11 +10,11 @@ use crate::{
     },
     content::{
         monsters::{
-            monster_state_for_ascension, prepare_monster_intent_for_ascension, record_target_move,
+            monster_state_for_ascension, record_target_move,
             target_monster_hp_range_for_content_id, MonsterDefinition, BANDIT_BEAR_A0,
             BANDIT_LEADER_A0, BANDIT_POINTY_A0, FUNGI_BEAST_A0, GREMLIN_NOB_A0, GUARDIAN_A0,
-            HEXAGHOST_A0, LAGAVULIN_A0, ORB_WALKER_A0, SENTRY_A0, SENTRY_ID, SLAVER_BLUE_A0,
-            SLAVER_RED_A0, SLIME_BOSS_A0, TASKMASTER_A0,
+            HEXAGHOST_A0, LAGAVULIN_A0, ORB_WALKER_A0, SENTRY_A0, SLAVER_BLUE_A0, SLAVER_RED_A0,
+            SLIME_BOSS_A0, TASKMASTER_A0,
         },
         reward_pool::{random_normal_curse, IRONCLAD_REWARD_ENTRIES},
         shop_pool::{
@@ -31,7 +31,7 @@ use crate::{
             open_event_remove_return_to_event_grid, open_event_transform_return_to_event_grid,
             open_event_upgrade_return_to_event_grid, open_falling_card_grid,
         },
-        map::enter_secret_portal_boss_combat,
+        map::{apply_initial_monster_ai_rolls, enter_secret_portal_boss_combat},
         neow::{
             apply_neow_boss_swap, apply_neow_curse_drawback, apply_neow_lament_reward,
             apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
@@ -3074,7 +3074,12 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     } else {
                         RelicKey::OddMushroom
                     });
-                enter_event_combat(&mut next, &[&FUNGI_BEAST_A0, &FUNGI_BEAST_A0]);
+                // Target MonsterHelper encounter "The Mushroom Lair" creates
+                // three FungiBeast instances (desktop-1.0.jar case 18).
+                enter_event_combat(
+                    &mut next,
+                    &[&FUNGI_BEAST_A0, &FUNGI_BEAST_A0, &FUNGI_BEAST_A0],
+                );
             }
             0 if choice_index == 1 => {
                 let heal = next.player_max_hp * 25 / 100;
@@ -4767,9 +4772,10 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
 fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
-    let monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
+    let mut monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
     let mut card_random_rng = Some(run.card_random_rng());
     let mut combat = CombatState::initial_fixture();
+    combat.ascension = run.ascension;
     combat.monsters = definitions
         .iter()
         .enumerate()
@@ -4789,16 +4795,7 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
             monster
         })
         .collect();
-    if combat.monsters.len() == 3
-        && combat
-            .monsters
-            .iter()
-            .all(|monster| monster.content_id == SENTRY_ID)
-    {
-        combat.monsters[1].moves_executed = 1;
-        combat.monsters[1].intent =
-            prepare_monster_intent_for_ascension(&combat.monsters[1], run.ascension);
-    }
+    apply_initial_monster_ai_rolls(&mut combat, &mut monster_rng);
     for monster in &mut combat.monsters {
         record_target_move(monster);
     }
@@ -6254,6 +6251,44 @@ mod tests {
             .deck
             .iter()
             .any(|card| card.content_id == PARASITE_ID));
+    }
+
+    #[test]
+    fn hypnotizing_mushrooms_fight_spawns_three_fungi_beasts() {
+        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        run.current_floor = 8;
+        run.monster_rng_seed = 10_634_058_411_488_052_108;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::HypnotizingColoredMushrooms));
+
+        let after_stomp = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Mushroom fight choice applies");
+        let monsters = &after_stomp.combat.as_ref().expect("event combat").monsters;
+
+        assert_eq!(monsters.len(), 3);
+        assert!(monsters
+            .iter()
+            .all(|monster| monster.content_id == FUNGI_BEAST_A0.content_id));
+        assert!(matches!(
+            monsters[0].intent,
+            MonsterIntent::Attack { damage: 6 }
+        ));
+        assert!(matches!(
+            monsters[1].intent,
+            MonsterIntent::Attack { damage: 6 }
+        ));
+        assert!(matches!(
+            monsters[2].intent,
+            MonsterIntent::StrengthSelf { amount: 3 }
+        ));
+        assert_eq!(
+            after_stomp
+                .combat
+                .as_ref()
+                .and_then(|combat| combat.monster_rng.as_ref())
+                .map(StsRng::counter),
+            Some(3)
+        );
     }
 
     #[test]

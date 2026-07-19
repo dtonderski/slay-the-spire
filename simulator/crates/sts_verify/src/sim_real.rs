@@ -271,6 +271,8 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
                     if is_delayed_map_choice(&pre, &action)
                         && screen_type(&state.message) == Some("MAP")
                         || is_unsettled_trace_action_state(&pre, &action, state)
+                        || is_mushrooms_fight_confirmation_state(&pre, &action, state)
+                        || is_cursed_key_chest_curse_pending_state(&pre, &action, state)
                     {
                         pending = Some((pre, action));
                     } else {
@@ -284,8 +286,19 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
                     let pending_is_unsettled = last_state.as_ref().is_some_and(|state| {
                         is_unsettled_trace_action_state(&pre, &pending_action, state)
                     });
-                    if (is_delayed_map_choice(&pre, &pending_action) || pending_is_unsettled)
+                    let pending_is_mushrooms_confirmation =
+                        last_state.as_ref().is_some_and(|state| {
+                            is_mushrooms_fight_confirmation_state(&pre, &pending_action, state)
+                        });
+                    let pending_is_cursed_key_chest = last_state.as_ref().is_some_and(|state| {
+                        is_cursed_key_chest_curse_pending_state(&pre, &pending_action, state)
+                    });
+                    if (is_delayed_map_choice(&pre, &pending_action)
+                        || pending_is_unsettled
+                        || pending_is_cursed_key_chest)
                         && is_trace_observation_poll(action)
+                        || pending_is_mushrooms_confirmation
+                            && command_choose_index(&action.command) == Some(0)
                     {
                         pending = Some((pre, pending_action));
                         continue;
@@ -338,6 +351,76 @@ fn is_unsettled_trace_action_state(
         && same_trace_message_ignoring_playtime(&pre.message, &candidate.message)
         || trace_ready_for_command(&pre.message).is_some()
             && trace_ready_for_command(&candidate.message) == Some(false)
+}
+
+fn is_mushrooms_fight_confirmation_state(
+    pre: &TraceState,
+    action: &TraceAction,
+    candidate: &TraceState,
+) -> bool {
+    command_choose_index(&action.command) == Some(0)
+        && trace_event_id(&pre.message).is_some_and(|id| id.eq_ignore_ascii_case("Mushrooms"))
+        && choice_list_from_value(pre.message.pointer("/game_state/choice_list"))
+            .first()
+            .is_some_and(|choice| choice.eq_ignore_ascii_case("stomp"))
+        && trace_event_id(&candidate.message).is_some_and(|id| id.eq_ignore_ascii_case("Mushrooms"))
+        && choice_list_from_value(candidate.message.pointer("/game_state/choice_list")).as_slice()
+            == ["fight"]
+}
+
+fn is_cursed_key_chest_curse_pending_state(
+    pre: &TraceState,
+    action: &TraceAction,
+    candidate: &TraceState,
+) -> bool {
+    command_choose_index(&action.command) == Some(0)
+        && screen_type(&pre.message) == Some("CHEST")
+        && trace_room_type(&pre.message) != Some("TreasureRoomBoss")
+        && trace_relic_counter(&pre.message, &["Cursed Key", "CursedKey"]).is_some()
+        && trace_relic_counter(&pre.message, &["Omamori"]).is_none_or(|counter| counter <= 0)
+        && screen_type(&candidate.message) == Some("COMBAT_REWARD")
+        && trace_deck_len(&pre.message)
+            .zip(trace_deck_len(&candidate.message))
+            .is_some_and(|(pre_len, candidate_len)| candidate_len <= pre_len)
+}
+
+fn trace_room_type(message: &Value) -> Option<&str> {
+    message
+        .pointer("/game_state/room_type")
+        .and_then(Value::as_str)
+}
+
+fn trace_deck_len(message: &Value) -> Option<usize> {
+    message
+        .pointer("/game_state/deck")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+}
+
+fn trace_relic_counter(message: &Value, aliases: &[&str]) -> Option<i64> {
+    message
+        .pointer("/game_state/relics")
+        .and_then(Value::as_array)?
+        .iter()
+        .find(|relic| {
+            relic
+                .get("id")
+                .or_else(|| relic.get("name"))
+                .and_then(Value::as_str)
+                .is_some_and(|relic| {
+                    aliases
+                        .iter()
+                        .any(|alias| relic.eq_ignore_ascii_case(alias))
+                })
+        })
+        .and_then(|relic| relic.get("counter"))
+        .and_then(Value::as_i64)
+}
+
+fn trace_event_id(message: &Value) -> Option<&str> {
+    message
+        .pointer("/game_state/screen_state/event_id")
+        .and_then(Value::as_str)
 }
 
 fn trace_ready_for_command(message: &Value) -> Option<bool> {
@@ -11049,6 +11132,90 @@ mod tests {
         assert_eq!(transitions.transitions.len(), 1);
         assert_eq!(transitions.transitions[0].1.command, "PLAY 2 1");
         assert_eq!(transitions.transitions[0].2.step, 4);
+        assert_eq!(transitions.ignored_tail_actions, 0);
+    }
+
+    #[test]
+    fn trace_transitions_fold_mushrooms_fight_confirmation_into_event_choice() {
+        let state = |step, event_id: Option<&str>, choices: &[&str], screen_type| {
+            TraceLine::State(TraceState {
+                step,
+                received_at: None,
+                message: json!({
+                    "ready_for_command": true,
+                    "game_state": {
+                        "screen_type": screen_type,
+                        "choice_list": choices,
+                        "screen_state": {"event_id": event_id}
+                    }
+                }),
+            })
+        };
+        let choose = |step| {
+            TraceLine::Action(TraceAction {
+                step,
+                command: "CHOOSE 0".to_owned(),
+                sent_at: None,
+                playtime_seconds: Some(10),
+            })
+        };
+        let lines = vec![
+            state(1, Some("Mushrooms"), &["stomp", "eat"], "EVENT"),
+            choose(2),
+            state(2, Some("Mushrooms"), &["fight"], "EVENT"),
+            choose(3),
+            state(3, None, &[], "NONE"),
+        ];
+
+        let transitions = trace_transitions(&lines).expect("trace transitions");
+        assert_eq!(transitions.transitions.len(), 1);
+        assert_eq!(transitions.transitions[0].1.step, 2);
+        assert_eq!(
+            screen_type(&transitions.transitions[0].2.message),
+            Some("NONE")
+        );
+        assert_eq!(transitions.ignored_tail_actions, 0);
+    }
+
+    #[test]
+    fn trace_transitions_wait_for_cursed_key_chest_curse_effect() {
+        let state = |step, screen_type: &str, deck: &[&str]| {
+            TraceLine::State(TraceState {
+                step,
+                received_at: None,
+                message: json!({
+                    "ready_for_command": true,
+                    "game_state": {
+                        "deck": deck.iter().map(|id| json!({"id": id})).collect::<Vec<_>>(),
+                        "relics": [{"id": "Cursed Key", "counter": -1}],
+                        "room_type": "TreasureRoom",
+                        "screen_type": screen_type
+                    }
+                }),
+            })
+        };
+        let lines = vec![
+            state(1, "CHEST", &["Strike_R"]),
+            TraceLine::Action(TraceAction {
+                step: 2,
+                command: "CHOOSE 0".to_owned(),
+                sent_at: None,
+                playtime_seconds: Some(10),
+            }),
+            state(2, "COMBAT_REWARD", &["Strike_R"]),
+            TraceLine::Action(TraceAction {
+                step: 3,
+                command: "STATE".to_owned(),
+                sent_at: None,
+                playtime_seconds: None,
+            }),
+            state(3, "COMBAT_REWARD", &["Strike_R", "Writhe"]),
+        ];
+
+        let transitions = trace_transitions(&lines).expect("trace transitions");
+        assert_eq!(transitions.transitions.len(), 1);
+        assert_eq!(transitions.transitions[0].1.step, 2);
+        assert_eq!(transitions.transitions[0].2.step, 3);
         assert_eq!(transitions.ignored_tail_actions, 0);
     }
 

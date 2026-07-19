@@ -1465,6 +1465,70 @@ fn session31_stale_post_regression_verifies_the_settled_combat_action() {
     }));
 }
 
+#[test]
+fn session31_mushrooms_confirmation_regression_verifies_one_semantic_event_choice() {
+    let Some(content) =
+        load_corpus_file("fidelity_regressions/session-31-floor8-mushrooms-confirmation.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("session-31 Mushrooms confirmation regression replays");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 678 && transition.command.eq_ignore_ascii_case("CHOOSE 0")
+    }));
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 686 && transition.command.eq_ignore_ascii_case("END")
+    }));
+    assert!(!report
+        .verified
+        .iter()
+        .any(|transition| transition.action_step == 679));
+}
+
+#[test]
+fn session31_cursed_key_chest_regression_waits_for_the_queued_curse() {
+    let Some(content) =
+        load_corpus_file("fidelity_regressions/session-31-floor22-cursed-key-chest-delay.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("session-31 Cursed Key chest regression replays");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 969
+            && transition.command.eq_ignore_ascii_case("CHOOSE 0")
+            && transition.label == "open treasure chest"
+    }));
+    assert!(!report
+        .verified
+        .iter()
+        .any(|transition| transition.action_step == 970));
+}
+
+#[test]
+fn session31_floor25_cursed_key_card_rng_regression_matches_live_reward() {
+    let Some(content) =
+        load_corpus_file("fidelity_regressions/session-31-floor25-card-reward-rng.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("session-31 floor-25 card reward regression replays");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 1031 && transition.command.eq_ignore_ascii_case("CHOOSE 0")
+    }));
+}
+
 fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {
     for line in content.lines().filter(|line| !line.trim().is_empty()) {
         let value: serde_json::Value = serde_json::from_str(line).expect("trace line parses");

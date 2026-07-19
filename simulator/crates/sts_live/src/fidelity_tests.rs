@@ -226,6 +226,89 @@ fn checker_returns_simulator_state_for_supported_live_trace() {
 }
 
 #[test]
+fn checker_preserves_action_timer_when_pairing_settled_live_states() {
+    let corpus_path = sts_verify::corpus_path(
+        "fidelity_regressions/session-31-floor1-stale-combat-post-state.jsonl",
+    );
+    assert!(
+        corpus_path.exists(),
+        "session 31 action-settling regression must remain in the corpus"
+    );
+
+    let path = temp_trace_path("settled-action-timer");
+    let mut writer = TraceWriter::create_new(&path).unwrap();
+    writer
+        .append(&TraceRecord::Metadata {
+            schema: 1,
+            source: "test".to_owned(),
+            session_id: SessionId("s".to_owned()),
+            bridge_id: BridgeId("b".to_owned()),
+            run_config: Some(RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("354Y73L428LQ8".to_owned()),
+            }),
+        })
+        .unwrap();
+
+    let content = fs::read_to_string(corpus_path).unwrap();
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        let value: serde_json::Value = serde_json::from_str(line).unwrap();
+        let sequence = value
+            .get("step")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        match value.get("type").and_then(serde_json::Value::as_str) {
+            Some("state") => {
+                writer
+                    .append(&TraceRecord::State {
+                        sequence,
+                        state: live_state(
+                            value
+                                .get("message")
+                                .cloned()
+                                .expect("state trace line has message"),
+                        ),
+                    })
+                    .unwrap();
+            }
+            Some("action") => {
+                let command = value
+                    .get("command")
+                    .and_then(serde_json::Value::as_str)
+                    .expect("action trace line has command");
+                let mut action_command = json!({ "command": command });
+                if let Some(playtime_seconds) = value.get("playtime_seconds") {
+                    action_command["playtime_seconds"] = playtime_seconds.clone();
+                }
+                writer
+                    .append(&TraceRecord::Action {
+                        sequence,
+                        action: LegalAction {
+                            id: ActionId(format!("action-{sequence}")),
+                            kind: LegalActionKind::RequestState,
+                            label: command.to_owned(),
+                            enabled: true,
+                            command: action_command,
+                            disabled_reason: None,
+                        },
+                    })
+                    .unwrap();
+            }
+            _ => {}
+        }
+    }
+
+    let status = TraceFidelityChecker.check_trace(&path).unwrap();
+    assert_eq!(
+        status.kind,
+        FidelityKind::Ok,
+        "in-process fidelity must agree with direct strict replay: {status:?}"
+    );
+    fs::remove_file(path).ok();
+}
+
+#[test]
 fn checker_treats_operator_abandon_as_intentional_trace_end() {
     let path = temp_trace_path("abandon");
     let mut writer = TraceWriter::create_new(&path).unwrap();

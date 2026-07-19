@@ -449,3 +449,51 @@ selection.
 - `session-31-floor1-stale-combat-post-state.jsonl` pins the floor-1 Strike and
   asserts that the action is actually verified against the settled 2-energy,
   22-HP post-state; it is not accepted as an ignored trace tail.
+- The in-process live fidelity checker must preserve each action's recorded
+  `playtime_seconds` while converting session records to verifier input. Direct
+  path verification already retained it; dropping it in the conversion made
+  the same session-31 trace clean in the final report but falsely lost inside
+  the running session.
+
+## Mushrooms event confirmation and encounter evidence
+
+Source inspected: target 12-18-2022 desktop-jar bytecode for
+`events.exordium.Mushrooms` and `helpers.MonsterHelper`.
+
+- Choosing `Stomp` updates the event to a single `Fight` button and advances
+  the target event's internal screen from 0 to 2. Choosing that confirmation
+  enters combat; these are two live UI commands for one simulator event choice.
+- Strict trace pairing folds the target-only `Fight` confirmation into the
+  preceding `Stomp` transition. The SlayTheData metric `Fought Mushrooms` maps
+  to both labels, so autonomous guidance can send both stages without advancing
+  the source step between them.
+- `MonsterHelper.getEncounter("The Mushroom Lair")` case 18 constructs an
+  array of three `FungiBeast` instances. The simulator previously spawned only
+  two; session 31's floor-8 capture proves the third target monster has 24 HP.
+- `session-31-floor8-mushrooms-confirmation.jsonl` pins the complete seed-start
+  prefix through both UI commands and the settled three-monster combat state.
+
+## Cursed Key chest-obtain timing evidence
+
+Source inspected: target 12-18-2022 desktop-jar bytecode for
+`relics.CursedKey` and `helpers.CardLibrary.getCurse()`.
+
+- Opening a non-boss chest calls `AbstractDungeon.returnRandomCurse()` and
+  queues a `ShowCardAndObtainEffect`; the curse is not inserted into the master
+  deck synchronously with the reward-screen transition.
+- Session 31's floor-22 medium chest first exposed a command-ready reward
+  screen with the old 22-card deck, then exposed `Writhe` on the next state
+  poll.
+- `CardLibrary.getCurse()` selects the curse with
+  `AbstractDungeon.cardRng`. The simulator previously used the separate
+  per-combat `cardRandomRng`, leaving `cardRng` one draw behind. Session 31
+  proves the downstream effect: floor 24 must begin its reward at counter 273
+  and the floor-25 elite reward must begin at counter 282.
+- Live action completion now treats that reward state as transient while
+  Cursed Key is active, except for boss chests or an Omamori with a remaining
+  charge. Strict trace pairing folds historical observation polls into the
+  original chest-open action.
+- `session-31-floor22-cursed-key-chest-delay.jsonl` pins the complete seed-start
+  prefix and verifies the chest action against the settled 23-card state.
+- `session-31-floor25-card-reward-rng.jsonl` pins the downstream reward choices
+  and prevents Cursed Key from regressing to the wrong RNG stream.

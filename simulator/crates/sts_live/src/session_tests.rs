@@ -7,10 +7,10 @@ use crate::{
         LiveResult, LiveState, RunConfig, RunSeed, SessionId, SessionLifecycle, TraceRecord,
     },
     session::{
-        combat_state_is_actionable, is_unsettled_action_transition, persist_verified_trace,
-        refreshed_equivalent_action, slaythedata_reward_binding_is_pending,
-        slaythedata_state_is_temporarily_actionless, slaythedata_step_advances,
-        trace_has_completed_shop_purge, SessionStore,
+        combat_state_is_actionable, is_cursed_key_chest_curse_pending,
+        is_unsettled_action_transition, persist_verified_trace, refreshed_equivalent_action,
+        slaythedata_reward_binding_is_pending, slaythedata_state_is_temporarily_actionless,
+        slaythedata_step_advances, trace_has_completed_shop_purge, SessionStore,
     },
     slaythedata::SlayTheDataIndex,
 };
@@ -620,6 +620,126 @@ fn nest_ritual_dagger_effect_is_unsettled_until_card_enters_deck() {
 
     assert!(is_unsettled_action_transition(&action, &pending));
     assert!(!is_unsettled_action_transition(&action, &settled));
+}
+
+#[test]
+fn cursed_key_chest_is_unsettled_until_queued_curse_enters_deck() {
+    let action = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::Confirm,
+        label: "open".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let state = |state_id: &str, screen_type: &str, room_type: &str, deck, relics| LiveState {
+        sequence: 2,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({
+            "current_state": {
+                "state_id": state_id,
+                "message": {
+                    "game_state": {
+                        "deck": deck,
+                        "relics": relics,
+                        "room_type": room_type,
+                        "screen_type": screen_type
+                    }
+                }
+            },
+            "summary": {"state_id": state_id, "ready_for_command": true}
+        }),
+    };
+    let cursed_key = json!([{"id": "Cursed Key", "counter": -1}]);
+    let source = state(
+        "state-1",
+        "CHEST",
+        "TreasureRoom",
+        json!([{"id": "Strike_R"}]),
+        cursed_key.clone(),
+    );
+    let pending = state(
+        "state-2",
+        "COMBAT_REWARD",
+        "TreasureRoom",
+        json!([{"id": "Strike_R"}]),
+        cursed_key.clone(),
+    );
+    let settled = state(
+        "state-3",
+        "COMBAT_REWARD",
+        "TreasureRoom",
+        json!([{"id": "Strike_R"}, {"id": "Writhe"}]),
+        cursed_key,
+    );
+
+    assert!(is_cursed_key_chest_curse_pending(
+        &action, &source, &pending
+    ));
+    assert!(!is_cursed_key_chest_curse_pending(
+        &action, &source, &settled
+    ));
+}
+
+#[test]
+fn cursed_key_chest_wait_is_disabled_for_boss_chests_and_active_omamori() {
+    let action = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::Confirm,
+        label: "open".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let state = |state_id: &str, screen_type: &str, room_type: &str, relics| LiveState {
+        sequence: 2,
+        phase: LivePhase::Reward,
+        legal_actions: Vec::new(),
+        raw: json!({
+            "current_state": {
+                "state_id": state_id,
+                "message": {"game_state": {
+                    "deck": [{"id": "Strike_R"}],
+                    "relics": relics,
+                    "room_type": room_type,
+                    "screen_type": screen_type
+                }}
+            }
+        }),
+    };
+    let pending = state(
+        "state-2",
+        "COMBAT_REWARD",
+        "TreasureRoom",
+        json!([{"id": "Cursed Key", "counter": -1}]),
+    );
+    let boss_source = state(
+        "state-1",
+        "CHEST",
+        "TreasureRoomBoss",
+        json!([{"id": "Cursed Key", "counter": -1}]),
+    );
+    let omamori_source = state(
+        "state-1",
+        "CHEST",
+        "TreasureRoom",
+        json!([
+            {"id": "Cursed Key", "counter": -1},
+            {"id": "Omamori", "counter": 2}
+        ]),
+    );
+
+    assert!(!is_cursed_key_chest_curse_pending(
+        &action,
+        &boss_source,
+        &pending
+    ));
+    assert!(!is_cursed_key_chest_curse_pending(
+        &action,
+        &omamori_source,
+        &pending
+    ));
 }
 
 #[test]

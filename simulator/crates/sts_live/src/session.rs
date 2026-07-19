@@ -629,6 +629,7 @@ where
             && !same_observed_game_state(source_state, &initial)
             && transition_state_is_ready(source_state, &initial)
             && !is_unsettled_action_transition(action, &initial)
+            && !is_cursed_key_chest_curse_pending(action, source_state, &initial)
         {
             return Ok(initial);
         }
@@ -640,6 +641,7 @@ where
                 && !same_observed_game_state(source_state, &refreshed)
                 && transition_state_is_ready(source_state, &refreshed)
                 && !is_unsettled_action_transition(action, &refreshed)
+                && !is_cursed_key_chest_curse_pending(action, source_state, &refreshed)
             {
                 return Ok(refreshed);
             }
@@ -2618,6 +2620,92 @@ pub(crate) fn is_unsettled_action_transition(action: &LegalAction, state: &LiveS
         || stale_card_reward_choice
         || smoke_bomb_escape_pending
         || nest_ritual_dagger_pending
+}
+
+// Cursed Key queues its curse through ShowCardAndObtainEffect after opening a
+// non-boss chest. CommunicationMod can expose the reward screen while the
+// master deck still has its old length, even though the state is command-ready.
+// Wait for the queued curse instead of recording that transient reward state.
+pub(crate) fn is_cursed_key_chest_curse_pending(
+    action: &LegalAction,
+    source: &LiveState,
+    candidate: &LiveState,
+) -> bool {
+    let opens_chest = action.kind == LegalActionKind::Confirm
+        && action.label.eq_ignore_ascii_case("open")
+        || action
+            .command
+            .get("command")
+            .and_then(Value::as_str)
+            .is_some_and(|command| command.eq_ignore_ascii_case("CHOOSE 0"));
+    opens_chest
+        && state_screen_type(source) == Some("CHEST")
+        && state_room_type(source) != Some("TreasureRoomBoss")
+        && state_relic_counter(source, &["Cursed Key", "CursedKey"]).is_some()
+        && state_relic_counter(source, &["Omamori"]).is_none_or(|counter| counter <= 0)
+        && state_screen_type(candidate) == Some("COMBAT_REWARD")
+        && state_deck_len(source)
+            .zip(state_deck_len(candidate))
+            .is_some_and(|(source_len, candidate_len)| candidate_len <= source_len)
+}
+
+fn state_screen_type(state: &LiveState) -> Option<&str> {
+    state
+        .raw
+        .pointer("/summary/screen_type")
+        .or_else(|| {
+            state
+                .raw
+                .pointer("/current_state/message/game_state/screen_type")
+        })
+        .and_then(Value::as_str)
+}
+
+fn state_room_type(state: &LiveState) -> Option<&str> {
+    state
+        .raw
+        .pointer("/summary/room_type")
+        .or_else(|| {
+            state
+                .raw
+                .pointer("/current_state/message/game_state/room_type")
+        })
+        .and_then(Value::as_str)
+}
+
+fn state_deck_len(state: &LiveState) -> Option<usize> {
+    state
+        .raw
+        .pointer("/summary/deck")
+        .or_else(|| state.raw.pointer("/current_state/message/game_state/deck"))?
+        .as_array()
+        .map(Vec::len)
+}
+
+fn state_relic_counter(state: &LiveState, aliases: &[&str]) -> Option<i64> {
+    state
+        .raw
+        .pointer("/summary/relics")
+        .or_else(|| {
+            state
+                .raw
+                .pointer("/current_state/message/game_state/relics")
+        })?
+        .as_array()?
+        .iter()
+        .find(|relic| {
+            relic
+                .get("id")
+                .or_else(|| relic.get("name"))
+                .and_then(Value::as_str)
+                .is_some_and(|relic| {
+                    aliases
+                        .iter()
+                        .any(|alias| relic.eq_ignore_ascii_case(alias))
+                })
+        })
+        .and_then(|relic| relic.get("counter"))
+        .and_then(Value::as_i64)
 }
 
 fn state_event_id(state: &LiveState) -> Option<&str> {

@@ -202,6 +202,7 @@ fn communication_mod_trace(
                         "type": "action",
                         "step": sequence,
                         "command": command,
+                        "playtime_seconds": action.command.get("playtime_seconds"),
                     }))?);
                     jsonl.push('\n');
                     if saw_state {

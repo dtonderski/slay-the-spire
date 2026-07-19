@@ -1676,9 +1676,12 @@ fn apply_cursed_key_chest_curse(run: &mut RunState) {
         return;
     }
 
-    let mut rng = run.card_random_rng();
+    // Target `CardLibrary.getCurse()` samples with `AbstractDungeon.cardRng`.
+    // This is the persistent reward-card stream, not the per-combat
+    // `cardRandomRng` stream.
+    let mut rng = run.rng_for_stream(RunRngStream::CardReward);
     let curse = random_normal_curse(&mut rng);
-    run.store_rng_counter(RunRngStream::CardRandom, &rng);
+    run.store_rng_counter(RunRngStream::CardReward, &rng);
     run.gain_deck_card(curse);
 }
 
@@ -2371,6 +2374,27 @@ mod tests {
             .iter()
             .map(|choice| choice.content_id)
             .collect()
+    }
+
+    #[test]
+    fn cursed_key_uses_persistent_card_rng_on_session31_seed() {
+        let seed = (-7_812_685_662_221_499_508_i64) as u64;
+        let mut run = RunState::placeholder_seeded_ironclad(seed, 0);
+        run.reward_rng_seed = seed;
+        run.card_rng_counter = 272;
+        run.card_random_rng_counter = 19;
+        run.relics.push(Relic::CursedKey);
+        let deck_len = run.deck.len();
+
+        apply_cursed_key_chest_curse(&mut run);
+
+        assert_eq!(run.deck.len(), deck_len + 1);
+        assert_eq!(
+            run.deck.last().map(|card| card.content_id),
+            Some(crate::content::cards::WRITHE_ID)
+        );
+        assert_eq!(run.card_rng_counter, 273);
+        assert_eq!(run.card_random_rng_counter, 19);
     }
 
     #[test]
