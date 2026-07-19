@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sts_core::content::encounters::BossUnlockState;
 
 /// One line from a CommunicationMod-style trace file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,6 +36,10 @@ pub struct TraceMetadata {
     pub ended_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event: Option<String>,
+    /// Profile state supplied as a pre-run input. Boss selection is not a pure
+    /// function of the seed while a profile still has unseen bosses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boss_unlocks: Option<BossUnlockState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -214,5 +219,18 @@ mod tests {
             TraceLine::Error(error)
                 if error.step == 7 && error.message["error"] == "Potion cannot be used"
         ));
+    }
+
+    #[test]
+    fn parse_trace_preserves_explicit_boss_unlock_inputs() {
+        let content = r#"{"type":"metadata","schema":1,"source":"communication_mod","boss_unlocks":{"guardian_seen":false,"hexaghost_seen":true,"slime_boss_seen":true,"champ_seen":true,"automaton_seen":true,"collector_seen":true,"awakened_one_seen":true,"donu_deca_seen":true,"time_eater_seen":true}}"#;
+
+        let trace = import_communication_mod_trace(content).expect("parses");
+        let unlocks = trace
+            .metadata
+            .and_then(|metadata| metadata.boss_unlocks)
+            .expect("boss unlock inputs");
+        assert!(!unlocks.guardian_seen);
+        assert!(unlocks.hexaghost_seen);
     }
 }

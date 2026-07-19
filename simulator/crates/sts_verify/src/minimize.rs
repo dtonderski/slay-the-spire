@@ -160,6 +160,7 @@ fn minimized_metadata(
         started_at: None,
         ended_at: None,
         event: None,
+        boss_unlocks: None,
     });
     metadata.event = Some(format!("minimized_to_step={failure_step}; mode={mode:?}"));
     metadata

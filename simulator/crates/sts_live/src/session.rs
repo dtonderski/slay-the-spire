@@ -310,6 +310,7 @@ where
                 started_at: None,
                 ended_at: None,
                 event: None,
+                boss_unlocks: None,
             });
             metadata.event = Some(format!(
                 "retained_verified_prefix_through_step={retained_step}; excluded_failure_step={failing_step}"

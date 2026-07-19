@@ -419,6 +419,7 @@ fn default_metadata() -> TraceMetadata {
         started_at: None,
         ended_at: None,
         event: None,
+        boss_unlocks: None,
     }
 }
 

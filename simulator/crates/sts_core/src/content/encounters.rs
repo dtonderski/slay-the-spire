@@ -2,6 +2,40 @@ use crate::{
     map::TargetMapAct,
     rng::{JavaRng, StsRng},
 };
+use serde::{Deserialize, Serialize};
+
+/// Profile-scoped boss discovery inputs used by the target's boss-list setup.
+///
+/// An unseen boss is selected before the seeded shuffle is considered, so a
+/// seed alone is not sufficient to reconstruct boss identity on every profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BossUnlockState {
+    pub guardian_seen: bool,
+    pub hexaghost_seen: bool,
+    pub slime_boss_seen: bool,
+    pub champ_seen: bool,
+    pub automaton_seen: bool,
+    pub collector_seen: bool,
+    pub awakened_one_seen: bool,
+    pub donu_deca_seen: bool,
+    pub time_eater_seen: bool,
+}
+
+impl Default for BossUnlockState {
+    fn default() -> Self {
+        Self {
+            guardian_seen: true,
+            hexaghost_seen: true,
+            slime_boss_seen: true,
+            champ_seen: true,
+            automaton_seen: true,
+            collector_seen: true,
+            awakened_one_seen: true,
+            donu_deca_seen: true,
+            time_eater_seen: true,
+        }
+    }
+}
 
 pub const EXORDIUM_WEAK_ENCOUNTERS: [(&str, f32); 4] = [
     ("Cultist", 2.0),
@@ -92,6 +126,20 @@ pub fn generate_exordium_elite_encounters(seed: i64) -> Vec<String> {
 
 #[must_use]
 pub fn target_exordium_act_one_boss(seed: i64) -> String {
+    target_exordium_act_one_boss_with_unlocks(seed, BossUnlockState::default())
+}
+
+#[must_use]
+pub fn target_exordium_act_one_boss_with_unlocks(seed: i64, unlocks: BossUnlockState) -> String {
+    if !unlocks.guardian_seen {
+        return "The Guardian".to_owned();
+    }
+    if !unlocks.hexaghost_seen {
+        return "Hexaghost".to_owned();
+    }
+    if !unlocks.slime_boss_seen {
+        return "Slime Boss".to_owned();
+    }
     let mut rng = StsRng::new(seed);
     let mut normal_encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3);
     append_exordium_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
@@ -103,6 +151,20 @@ pub fn target_exordium_act_one_boss(seed: i64) -> String {
 
 #[must_use]
 pub fn target_city_act_two_boss(seed: i64) -> String {
+    target_city_act_two_boss_with_unlocks(seed, BossUnlockState::default())
+}
+
+#[must_use]
+pub fn target_city_act_two_boss_with_unlocks(seed: i64, unlocks: BossUnlockState) -> String {
+    if !unlocks.champ_seen {
+        return "Champ".to_owned();
+    }
+    if !unlocks.automaton_seen {
+        return "Automaton".to_owned();
+    }
+    if !unlocks.collector_seen {
+        return "Collector".to_owned();
+    }
     let mut rng = StsRng::new(seed);
     advance_exordium_content_generation_rng(&mut rng);
     let mut normal_encounters = generate_city_weak_encounters_with_rng(&mut rng, 2);
@@ -115,6 +177,20 @@ pub fn target_city_act_two_boss(seed: i64) -> String {
 
 #[must_use]
 pub fn target_beyond_act_three_boss(seed: i64) -> String {
+    target_beyond_act_three_boss_with_unlocks(seed, BossUnlockState::default())
+}
+
+#[must_use]
+pub fn target_beyond_act_three_boss_with_unlocks(seed: i64, unlocks: BossUnlockState) -> String {
+    if !unlocks.awakened_one_seen {
+        return "Awakened One".to_owned();
+    }
+    if !unlocks.donu_deca_seen {
+        return "Donu and Deca".to_owned();
+    }
+    if !unlocks.time_eater_seen {
+        return "Time Eater".to_owned();
+    }
     let mut rng = StsRng::new(seed);
     advance_exordium_content_generation_rng(&mut rng);
     let _ = generate_city_encounter_lists_with_rng(&mut rng);
@@ -428,7 +504,59 @@ fn roll_monster_info<'a>(entries: &'a [(&'a str, f32)], roll: f32) -> &'a str {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_beyond_normal_encounters, target_city_act_two_boss};
+    use super::{
+        generate_beyond_normal_encounters, target_beyond_act_three_boss,
+        target_beyond_act_three_boss_with_unlocks, target_city_act_two_boss,
+        target_city_act_two_boss_with_unlocks, target_exordium_act_one_boss,
+        target_exordium_act_one_boss_with_unlocks, BossUnlockState,
+    };
+
+    #[test]
+    fn unseen_bosses_precede_seeded_boss_shuffle_in_target_order() {
+        let unlocks = BossUnlockState {
+            guardian_seen: false,
+            hexaghost_seen: false,
+            ..BossUnlockState::default()
+        };
+        assert_eq!(
+            target_exordium_act_one_boss_with_unlocks(1, unlocks),
+            "The Guardian"
+        );
+
+        let unlocks = BossUnlockState {
+            champ_seen: false,
+            automaton_seen: false,
+            ..BossUnlockState::default()
+        };
+        assert_eq!(target_city_act_two_boss_with_unlocks(1, unlocks), "Champ");
+
+        let unlocks = BossUnlockState {
+            awakened_one_seen: false,
+            donu_deca_seen: false,
+            ..BossUnlockState::default()
+        };
+        assert_eq!(
+            target_beyond_act_three_boss_with_unlocks(1, unlocks),
+            "Awakened One"
+        );
+    }
+
+    #[test]
+    fn all_seen_profile_preserves_seed_only_boss_projection() {
+        let unlocks = BossUnlockState::default();
+        assert_eq!(
+            target_exordium_act_one_boss_with_unlocks(1, unlocks),
+            target_exordium_act_one_boss(1)
+        );
+        assert_eq!(
+            target_city_act_two_boss_with_unlocks(1, unlocks),
+            target_city_act_two_boss(1)
+        );
+        assert_eq!(
+            target_beyond_act_three_boss_with_unlocks(1, unlocks),
+            target_beyond_act_three_boss(1)
+        );
+    }
 
     #[test]
     fn city_boss_shuffle_advances_past_exordium_content_generation() {

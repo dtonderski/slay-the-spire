@@ -2538,6 +2538,7 @@ mod tests {
             started_at: None,
             ended_at: None,
             event: None,
+            boss_unlocks: None,
         });
         let prefix = serialize_communication_mod_trace(&metadata, &trace.lines[..=line_index]);
         let report = verify_seed_start_communication_mod_trace(&prefix).ok()?;

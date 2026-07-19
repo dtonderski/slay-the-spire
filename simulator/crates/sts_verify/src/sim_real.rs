@@ -11,6 +11,10 @@ use serde_json::{json, Value};
 use sts_core::card::CardType;
 use sts_core::combat::HandSelectPurpose;
 use sts_core::content::cards::{card_type_and_rarity, STRIKE_R_ID};
+use sts_core::content::encounters::{
+    target_beyond_act_three_boss_with_unlocks, target_exordium_act_one_boss_with_unlocks,
+    BossUnlockState,
+};
 use sts_core::content::monsters::LOOTER_ID;
 use sts_core::potion::Potion;
 use sts_core::run::event::{neow_screen_for_stage, VAMPIRES_BITE_COUNT};
@@ -244,6 +248,11 @@ fn verify_seed_start_trace(
     options: SeedStartVerifyOptions,
 ) -> Result<SimRealReport, SimRealError> {
     let trace = import_communication_mod_trace(content)?;
+    let boss_unlocks = trace
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.boss_unlocks)
+        .unwrap_or_default();
     let total_actions = trace
         .lines
         .iter()
@@ -271,8 +280,13 @@ fn verify_seed_start_trace(
         seed_start: None,
     };
 
-    let verification =
-        verify_seed_start_transitions(&transitions.transitions, &start, &mut report, options);
+    let verification = verify_seed_start_transitions(
+        &transitions.transitions,
+        &start,
+        &mut report,
+        options,
+        boss_unlocks,
+    );
     let failed = verification.boundary.category != "none";
     let m22_encounter_report = Some(crate::m22::verify_m22_encounter_spawn_prefix(
         &trace.lines,
@@ -890,6 +904,7 @@ fn verify_seed_start_transitions(
     start: &StartRunCommand,
     report: &mut SimRealReport,
     _options: SeedStartVerifyOptions,
+    boss_unlocks: BossUnlockState,
 ) -> SeedStartVerification {
     let mut phase = SeedStartPhase::BeforeStart;
     let mut _reward_step = 0usize;
@@ -915,22 +930,20 @@ fn verify_seed_start_transitions(
     let mut relics = vec!["Burning Blood".to_owned()];
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
-    let mut initial_act1_boss = Act1Boss::default();
-    let mut initial_act3_boss = Act3Boss::default();
     let mut pending_smoke_bomb_reward: Option<RunState> = None;
     let mut smoke_bomb_reward_active = false;
     let mut smoke_bomb_proceed_pending = false;
 
     macro_rules! finish_boundary {
         ($boundary:expr) => {
-            SeedStartVerification {
-                boundary: $boundary,
-                final_run_state: seed_sim.clone(),
-            }
+            seed_start_finish_boundary(&seed_sim, $boundary, start.numeric_seed, boss_unlocks)
         };
     }
 
     for (pre, action, post) in transitions {
+        if let Some(sim) = seed_sim.as_mut() {
+            seed_start_apply_boss_unlocks(sim, start.numeric_seed, boss_unlocks);
+        }
         // Target event eligibility can depend on CardCrawlGame.playtime (Secret
         // Portal). This non-seeded clock is recorded as an explicit transition
         // input; deterministic gameplay state is never hydrated from observations.
@@ -939,18 +952,6 @@ fn verify_seed_start_transitions(
             recorded_action_playtime_seconds(pre, action),
         ) {
             sim.playtime_seconds = playtime_seconds;
-        }
-        if let Some(game) = post.message.get("game_state") {
-            if let Some(act3_boss) = game
-                .get("act_boss")
-                .and_then(Value::as_str)
-                .and_then(Act3Boss::from_trace_name)
-            {
-                initial_act3_boss = act3_boss;
-                if let Some(sim) = seed_sim.as_mut() {
-                    sim.act3_boss = act3_boss;
-                }
-            }
         }
         if pre
             .message
@@ -1103,27 +1104,40 @@ fn verify_seed_start_transitions(
                     start.character, start.ascension, start.external_seed
                 )) =>
             {
-                compare_subset(
-                    report,
-                    action,
-                    "seed-start bootstrap",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": deck_ids,
-                        "relic_ids": relics,
-                        "choices": ["talk"],
-                    }),
-                );
-                if let Some(game) = post.message.get("game_state") {
-                    initial_act1_boss = observed_act1_boss(game);
-                    initial_act3_boss = observed_act3_boss(game);
+                let mut observed = seed_start_observed_subset(&post.message);
+                let mut simulated = json!({
+                    "screen_type": "EVENT",
+                    "ascension": start.ascension,
+                    "floor": 0,
+                    "gold": 99,
+                    "current_hp": 80,
+                    "max_hp": 80,
+                    "deck_ids": deck_ids,
+                    "relic_ids": relics,
+                    "choices": ["talk"],
+                });
+                if let Some(observed_boss) = post
+                    .message
+                    .get("game_state")
+                    .and_then(|game| game.get("act_boss"))
+                    .and_then(Value::as_str)
+                {
+                    observed
+                        .as_object_mut()
+                        .expect("observed bootstrap subset is an object")
+                        .insert("act_boss".to_owned(), json!(observed_boss));
+                    simulated
+                        .as_object_mut()
+                        .expect("simulated bootstrap subset is an object")
+                        .insert(
+                            "act_boss".to_owned(),
+                            json!(target_exordium_act_one_boss_with_unlocks(
+                                start.numeric_seed,
+                                boss_unlocks,
+                            )),
+                        );
                 }
+                compare_subset(report, action, "seed-start bootstrap", observed, simulated);
                 phase = SeedStartPhase::NeowTalk;
             }
             SeedStartPhase::NeowTalk if command_is_choose(&action.command, 0) => {
@@ -1507,8 +1521,6 @@ fn verify_seed_start_transitions(
                 run.gold = neow_gold;
                 run.player_hp = neow_current_hp;
                 run.player_max_hp = neow_max_hp;
-                run.act1_boss = initial_act1_boss;
-                run.act3_boss = initial_act3_boss;
                 run.potions = neow_potion_reward
                     .iter()
                     .filter_map(|name| potion_from_trace_name(name))
@@ -2513,8 +2525,6 @@ fn verify_seed_start_transitions(
                     run.gold = neow_gold;
                     run.player_hp = neow_current_hp;
                     run.player_max_hp = neow_max_hp;
-                    run.act1_boss = initial_act1_boss;
-                    run.act3_boss = initial_act3_boss;
                     run.potions = neow_potion_reward
                         .iter()
                         .filter_map(|name| potion_from_trace_name(name))
@@ -2539,12 +2549,9 @@ fn verify_seed_start_transitions(
                     run.gold = neow_gold;
                     run.player_hp = neow_current_hp;
                     run.player_max_hp = neow_max_hp;
-                    run.act3_boss = initial_act3_boss;
                     seed_sim = Some(run);
                 }
                 if let Some(sim) = seed_sim.as_mut() {
-                    sim.act1_boss = initial_act1_boss;
-                    sim.act3_boss = initial_act3_boss;
                     sim.phase = RunPhase::Idle;
                     sim.event = None;
                     sim.reward = None;
@@ -4829,6 +4836,38 @@ fn verify_seed_start_transitions(
         category: "none".to_owned(),
         reason: "seed-start verifier checked every verifiable transition in the trace".to_owned(),
     })
+}
+
+fn seed_start_finish_boundary(
+    seed_sim: &Option<RunState>,
+    boundary: SeedStartBoundary,
+    numeric_seed: i64,
+    boss_unlocks: BossUnlockState,
+) -> SeedStartVerification {
+    let mut final_run_state = seed_sim.clone();
+    if let Some(run) = final_run_state.as_mut() {
+        seed_start_apply_boss_unlocks(run, numeric_seed, boss_unlocks);
+    }
+    SeedStartVerification {
+        boundary,
+        final_run_state,
+    }
+}
+
+fn seed_start_apply_boss_unlocks(
+    run: &mut RunState,
+    numeric_seed: i64,
+    boss_unlocks: BossUnlockState,
+) {
+    run.act1_boss = Act1Boss::from_trace_name(&target_exordium_act_one_boss_with_unlocks(
+        numeric_seed,
+        boss_unlocks,
+    ))
+    .unwrap_or_default();
+    run.act3_boss = Act3Boss::from_game_key(&target_beyond_act_three_boss_with_unlocks(
+        numeric_seed,
+        boss_unlocks,
+    ));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11384,20 +11423,6 @@ fn str_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
-fn observed_act1_boss(game: &Value) -> Act1Boss {
-    game.get("act_boss")
-        .and_then(Value::as_str)
-        .and_then(Act1Boss::from_trace_name)
-        .unwrap_or_default()
-}
-
-fn observed_act3_boss(game: &Value) -> Act3Boss {
-    game.get("act_boss")
-        .and_then(Value::as_str)
-        .and_then(Act3Boss::from_trace_name)
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 fn power_id(power: &Value) -> Option<String> {
     power
@@ -12197,6 +12222,66 @@ mod tests {
             crate::VerificationOutcome::InvalidInput { reason }
                 if reason.contains("expected exactly `CHOOSE <non-negative index>`")
         ));
+    }
+
+    #[test]
+    fn observed_boss_identity_is_compared_without_steering_simulation() {
+        let path = crate::corpus_path("permanent_traces/trace-2026-07-03T20-12-12-408Z.jsonl");
+        let content = std::fs::read_to_string(path).expect("retained trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let start = imported
+            .lines
+            .iter()
+            .find_map(|line| match line {
+                TraceLine::Action(action) => parse_start_command(action).and_then(Result::ok),
+                _ => None,
+            })
+            .expect("trace start command");
+        let expected_boss =
+            RunState::placeholder_seeded_ironclad(start.numeric_seed as u64, start.ascension)
+                .act1_boss;
+        let forged_boss = match expected_boss {
+            sts_core::Act1Boss::Guardian => "Hexaghost",
+            sts_core::Act1Boss::Hexaghost | sts_core::Act1Boss::SlimeBoss => "The Guardian",
+        };
+        let expected_boss_name = match expected_boss {
+            sts_core::Act1Boss::Guardian => "The Guardian",
+            sts_core::Act1Boss::Hexaghost => "Hexaghost",
+            sts_core::Act1Boss::SlimeBoss => "Slime Boss",
+        };
+
+        let mut mutated_states = 0;
+        let mutated = content
+            .lines()
+            .map(|line| {
+                let mut value: Value = serde_json::from_str(line).expect("trace line JSON");
+                if value.get("type").and_then(Value::as_str) == Some("state") {
+                    if let Some(act_boss) = value
+                        .get_mut("message")
+                        .and_then(|message| message.get_mut("game_state"))
+                        .and_then(|game| game.get_mut("act_boss"))
+                    {
+                        *act_boss = json!(forged_boss);
+                        mutated_states += 1;
+                    }
+                }
+                serde_json::to_string(&value).expect("mutated trace line serializes")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(mutated_states > 0, "fixture must expose boss identity");
+
+        let report = verify_communication_mod_trace(&mutated).expect("mutated trace parses");
+        let boss_diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| {
+                diff.action_step == start.action_step && diff.label == "seed-start bootstrap"
+            })
+            .and_then(|diff| diff.diffs.iter().find(|line| line.starts_with("act_boss:")))
+            .expect("forged observed boss must differ from seed-derived boss");
+        assert!(boss_diff.contains(forged_boss), "{boss_diff}");
+        assert!(boss_diff.contains(expected_boss_name), "{boss_diff}");
     }
 
     #[test]

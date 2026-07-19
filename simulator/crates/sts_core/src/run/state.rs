@@ -977,6 +977,23 @@ impl RunState {
     /// generator, not target-game seed-start parity.
     #[must_use]
     pub fn placeholder_seeded_ironclad(seed: u64, ascension: u8) -> Self {
+        Self::placeholder_seeded_ironclad_with_boss_unlocks(
+            seed,
+            ascension,
+            crate::content::encounters::BossUnlockState::default(),
+        )
+    }
+
+    /// Start a simulator-only seeded Ironclad run with explicit profile boss history.
+    ///
+    /// Fidelity: placeholder. This uses the deterministic placeholder map
+    /// generator, not target-game seed-start parity.
+    #[must_use]
+    pub fn placeholder_seeded_ironclad_with_boss_unlocks(
+        seed: u64,
+        ascension: u8,
+        boss_unlocks: crate::content::encounters::BossUnlockState,
+    ) -> Self {
         let mut run = Self::map_fixture();
         run.deck = crate::content::deck::ironclad_starter_deck_for_ascension(ascension);
         run.map = Some(generate_target_fixed_map(
@@ -984,11 +1001,17 @@ impl RunState {
             TargetMapAct::Exordium,
         ));
         run.act1_boss = Act1Boss::from_trace_name(
-            &crate::content::encounters::target_exordium_act_one_boss(seed as i64),
+            &crate::content::encounters::target_exordium_act_one_boss_with_unlocks(
+                seed as i64,
+                boss_unlocks,
+            ),
         )
         .unwrap_or_default();
         run.act3_boss = Act3Boss::from_game_key(
-            &crate::content::encounters::target_beyond_act_three_boss(seed as i64),
+            &crate::content::encounters::target_beyond_act_three_boss_with_unlocks(
+                seed as i64,
+                boss_unlocks,
+            ),
         );
         run.relics = vec![Relic::BurningBlood];
         run.phase = RunPhase::Event;

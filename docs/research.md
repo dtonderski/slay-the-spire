@@ -542,3 +542,24 @@ captured session 35.
   card.
 - `session-35-floor1-second-distilled-chaos.jsonl` pins the second potion use,
   including final pile order and Louse HP/block.
+
+## Profile boss-discovery input evidence
+
+Source inspected: target 12-18-2022 desktop-jar bytecode for
+`dungeons.Exordium.initializeBoss`, `dungeons.TheCity.initializeBoss`, and
+`dungeons.TheBeyond.initializeBoss`.
+
+- Boss identity is not always a pure function of the run seed. Each act first
+  selects the earliest unseen boss in a fixed profile-progression order and
+  uses the seeded boss-list shuffle only after all three bosses have been seen.
+- The fixed orders are Guardian, Hexaghost, Slime Boss for Exordium; Champ,
+  Bronze Automaton, Collector for the City; and Awakened One, Donu and Deca,
+  Time Eater for the Beyond.
+- Verification traces that depend on an unseen boss now carry typed
+  `boss_unlocks` metadata as an explicit pre-run input. The simulated projection
+  derives boss identity from that input and the seed; observed post-state is
+  compared independently and is never assigned into authoritative run state.
+- Legacy traces without the field retain the prior all-bosses-seen assumption.
+  The TEST retained prefix declares Guardian as unseen, while the CODEX10
+  complete trace declares the profile state that selects Collector and Donu and
+  Deca.
