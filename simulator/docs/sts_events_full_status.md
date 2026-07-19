@@ -67,7 +67,7 @@ All 52 simulator event variants now have an automatic SlayTheData path. None of 
 | 47 | MindBloom | Complete | War/Awake/Healthy mappings and combat/reward stages |
 | 48 | MoaiHead | Complete | `The Moai Head` alias; Heal/Idol/Leave mappings |
 | 49 | MysteriousSphere | Complete | Fight/Leave mappings and combat/reward transition |
-| 50 | SensoryStone | Complete | Memory 1/2/3 mappings and colorless reward |
+| 50 | SensoryStone | Complete | Live Interact/Recall labels, HP costs, and colorless reward; session-22/23 seed-start regressions |
 | 51 | TombOfLordRedMask | Complete | Wear/Offer/Leave mappings |
 | 52 | WindingHalls | Complete | Madness/Writhe/Max-HP mappings |
 
