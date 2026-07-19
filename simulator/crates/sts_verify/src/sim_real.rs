@@ -982,7 +982,7 @@ fn verify_seed_start_transitions(
                     action,
                     "Smoke Bomb escape settled to empty reward",
                     seed_start_reward_observed_subset(&post.message),
-                    seed_start_reward_simulated_subset(&settled, &post.message, &relics, None),
+                    seed_start_reward_simulated_subset(&settled, &relics),
                 );
                 seed_sim = Some(settled);
                 phase = SeedStartPhase::Reward;
@@ -1054,7 +1054,7 @@ fn verify_seed_start_transitions(
                 action,
                 "dismiss FTUE overlay",
                 seed_start_reward_observed_subset(&post.message),
-                seed_start_reward_simulated_subset(sim, &post.message, &relics, None),
+                seed_start_reward_simulated_subset(sim, &relics),
             );
             seed_start_test_pop_last_diff(report, action, &start.external_seed);
             phase = SeedStartPhase::Reward;
@@ -1646,7 +1646,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Neow boss swap Tiny House reward",
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(&run, &post.message, &relic_ids, None),
+                        seed_start_reward_simulated_subset(&run, &relic_ids),
                     );
                     deck_ids = deck_content_keys(&run.deck);
                     neow_gold = run.gold;
@@ -2123,7 +2123,7 @@ fn verify_seed_start_transitions(
                     action,
                     "Neow boss swap Calling Bell rewards",
                     seed_start_reward_observed_subset(&post.message),
-                    seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                    seed_start_reward_simulated_subset(&next, &relics),
                 );
                 seed_sim = Some(next);
                 phase = SeedStartPhase::NeowBossSwapCallingBellReward;
@@ -2169,12 +2169,7 @@ fn verify_seed_start_transitions(
                         action,
                         &label,
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(
-                            sim,
-                            &post.message,
-                            &relics,
-                            Some(&post.message),
-                        ),
+                        seed_start_reward_simulated_subset(sim, &relics),
                     );
                     phase = SeedStartPhase::Reward;
                 } else {
@@ -2183,12 +2178,7 @@ fn verify_seed_start_transitions(
                         action,
                         &label,
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(
-                            sim,
-                            &post.message,
-                            &relics,
-                            Some(&post.message),
-                        ),
+                        seed_start_reward_simulated_subset(sim, &relics),
                     );
                 }
             }
@@ -2752,12 +2742,7 @@ fn verify_seed_start_transitions(
                                         action,
                                         "map reward",
                                         seed_start_reward_observed_subset(&post.message),
-                                        seed_start_reward_simulated_subset(
-                                            &next,
-                                            &post.message,
-                                            &relics,
-                                            None,
-                                        ),
+                                        seed_start_reward_simulated_subset(&next, &relics),
                                     );
                                     seed_sim = Some(next);
                                     phase = SeedStartPhase::Reward;
@@ -2884,19 +2869,12 @@ fn verify_seed_start_transitions(
                         phase = SeedStartPhase::BossReward;
                     } else {
                         enter_chest_relic_reward_screen(sim);
-                        if let Some(reward) = sim.reward.as_mut() {
-                            reward.gold_offer = post
-                                .message
-                                .get("game_state")
-                                .map(reward_gold_offer)
-                                .unwrap_or(0);
-                        }
                         compare_subset(
                             report,
                             action,
                             "open treasure chest",
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(sim, &post.message, &relics, None),
+                            seed_start_reward_simulated_subset(sim, &relics),
                         );
                         phase = SeedStartPhase::Reward;
                     }
@@ -3047,7 +3025,7 @@ fn verify_seed_start_transitions(
                     if screen_type(&post.message) == Some("CARD_REWARD") {
                         (
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                            seed_start_reward_simulated_subset(&next, &relics),
                             "rest card reward",
                         )
                     } else if screen_type(&post.message) == Some("GRID") {
@@ -3233,9 +3211,7 @@ fn verify_seed_start_transitions(
                         &deck_ids,
                         &deck_ids,
                     ),
-                    RunPhase::Reward => {
-                        seed_start_reward_simulated_subset(&next, &post.message, &relics, None)
-                    }
+                    RunPhase::Reward => seed_start_reward_simulated_subset(&next, &relics),
                     _ => seed_start_event_simulated_subset_with_delayed_deck_append(
                         &next,
                         &relics,
@@ -3463,7 +3439,7 @@ fn verify_seed_start_transitions(
                             action,
                             "reward-screen potion use",
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                            seed_start_reward_simulated_subset(&next, &relics),
                         );
                         *sim = next;
                         phase = SeedStartPhase::Reward;
@@ -3957,7 +3933,7 @@ fn verify_seed_start_transitions(
                             action,
                             "skip combat card reward",
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                            seed_start_reward_simulated_subset(&next, &relics),
                         ),
                         Some("REST") => compare_subset(
                             report,
@@ -4164,19 +4140,6 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
-                if screen_type(&pre.message) == Some("COMBAT_REWARD") {
-                    let observed_gold_offer = pre
-                        .message
-                        .get("game_state")
-                        .map(reward_gold_offer)
-                        .unwrap_or(0);
-                    if observed_gold_offer > 0 {
-                        if let Some(reward) = sim.reward.as_mut() {
-                            reward.gold_offer = observed_gold_offer;
-                        }
-                    }
-                }
-
                 if let Some(potion_use) = parse_potion_use(&action.command) {
                     let target = seed_start_potion_command_target(sim, &potion_use);
                     let next = apply_run_action(
@@ -4207,7 +4170,7 @@ fn verify_seed_start_transitions(
                         action,
                         "reward-screen potion use",
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(sim, &post.message, &relics, None),
+                        seed_start_reward_simulated_subset(sim, &relics),
                     );
                     continue;
                 }
@@ -4251,12 +4214,7 @@ fn verify_seed_start_transitions(
                                 } else {
                                     (
                                         seed_start_reward_observed_subset(&post.message),
-                                        seed_start_reward_simulated_subset(
-                                            sim,
-                                            &post.message,
-                                            &relics,
-                                            Some(&post.message),
-                                        ),
+                                        seed_start_reward_simulated_subset(sim, &relics),
                                     )
                                 };
                             if label.starts_with("card reward pick ")
@@ -4518,7 +4476,7 @@ fn verify_seed_start_transitions(
                         action,
                         label,
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                        seed_start_reward_simulated_subset(&next, &relics),
                     );
                 } else if screen_type(&post.message) == Some("CHEST")
                     && next.phase == RunPhase::Treasure
@@ -4680,7 +4638,7 @@ fn verify_seed_start_transitions(
                             action,
                             label,
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next, &post.message, &relics, None),
+                            seed_start_reward_simulated_subset(&next, &relics),
                         );
                     } else {
                         let stale_observed_deck = seed_start_shop_purchase_has_stale_observed_deck(
@@ -5143,6 +5101,14 @@ fn seed_start_reward_observed_subset(message: &Value) -> Value {
                         .and_then(|state| state.get("rewards")),
                 );
                 insert(map, "reward_types", reward_types.clone());
+                let gold_offer = reward_gold_offer(game);
+                if gold_offer > 0 {
+                    insert(map, "gold_offer", gold_offer);
+                }
+                let stolen_gold_offer = reward_gold_at_reward_type_from_game(game, "STOLEN_GOLD");
+                if stolen_gold_offer > 0 {
+                    insert(map, "stolen_gold_offer", stolen_gold_offer);
+                }
                 insert(
                     map,
                     "choices",
@@ -8679,19 +8645,11 @@ fn verify_primary_relic_offer_matches_observed(
     ))
 }
 
-fn seed_start_reward_simulated_subset(
-    run: &RunState,
-    message: &Value,
-    relic_ids: &[String],
-    pre: Option<&Value>,
-) -> Value {
-    let Some(game) = message.get("game_state") else {
-        return json!({});
-    };
+fn seed_start_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
     if run.card_grid.is_some() {
         return seed_start_grid_simulated_subset(run, relic_ids);
     }
-    let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(0);
+    let floor = run.current_floor;
     let relic_ids = relic_ids_for_simulated_subset(run, relic_ids);
 
     if run
@@ -8730,22 +8688,7 @@ fn seed_start_reward_simulated_subset(
     }
 
     let reward = run.reward.as_ref();
-    let mut combat_choices = reward.map(sim_reward_combat_choices).unwrap_or_default();
-    if let Some(pre) = pre {
-        let observed_types = reward_types_from_combat_reward(pre);
-        if !observed_types.is_empty() {
-            combat_choices = observed_types
-                .iter()
-                .map(|reward_type| match reward_type.as_str() {
-                    "gold" => "gold".to_owned(),
-                    "card" => "card".to_owned(),
-                    "potion" => "potion".to_owned(),
-                    "relic" => "relic".to_owned(),
-                    other => other.to_owned(),
-                })
-                .collect();
-        }
-    }
+    let combat_choices = reward.map(sim_reward_combat_choices).unwrap_or_default();
     let reward_types: Vec<String> = combat_choices
         .iter()
         .map(|choice| match choice.as_str() {
@@ -8770,6 +8713,21 @@ fn seed_start_reward_simulated_subset(
         "choices": combat_choices,
         "reward_types": reward_types,
     });
+
+    if let Value::Object(map) = &mut out {
+        if let Some(gold_offer) = reward
+            .map(|reward| reward.gold_offer)
+            .filter(|offer| *offer > 0)
+        {
+            insert(map, "gold_offer", gold_offer);
+        }
+        if let Some(stolen_gold_offer) = reward
+            .map(|reward| reward.stolen_gold_offer)
+            .filter(|offer| *offer > 0)
+        {
+            insert(map, "stolen_gold_offer", stolen_gold_offer);
+        }
+    }
 
     if let Value::Object(map) = &mut out {
         if reward_types.is_empty() {
@@ -12024,8 +11982,8 @@ mod tests {
             card_reward_pending: false,
             pending_card_reward_count: 0,
         });
-        let message = json!({"game_state": {"floor": 8}});
-        let subset = seed_start_reward_simulated_subset(&run, &message, &[], None);
+        run.current_floor = 8;
+        let subset = seed_start_reward_simulated_subset(&run, &[]);
         assert_eq!(
             subset["choices"].as_array().unwrap().last(),
             Some(&json!("bowl"))
@@ -12037,6 +11995,55 @@ mod tests {
             .expect("Singing Bowl choice applies");
         assert_eq!(label, "singing bowl card reward");
         assert!(run.player_max_hp > max_hp);
+    }
+
+    #[test]
+    fn reward_projection_uses_simulated_order_and_visible_gold_amounts() {
+        let mut run = RunState::map_fixture();
+        run.current_floor = 8;
+        run.phase = RunPhase::Reward;
+        run.reward = Some(RewardScreen {
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 17,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            relic_key_offer: None,
+            pending_relic_offer: None,
+            pending_relic_key_offer: None,
+            queued_relic_key_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_active: false,
+            card_reward_pending: true,
+            pending_card_reward_count: 1,
+        });
+        let observed_message = json!({
+            "game_state": {
+                "screen_type": "COMBAT_REWARD",
+                "floor": 8,
+                "gold": run.gold,
+                "current_hp": run.player_hp,
+                "max_hp": run.player_max_hp,
+                "deck": [],
+                "relics": [],
+                "choice_list": ["card", "gold"],
+                "screen_state": {
+                    "rewards": [
+                        {"reward_type": "CARD"},
+                        {"reward_type": "GOLD", "gold": 999}
+                    ]
+                }
+            }
+        });
+
+        let simulated = seed_start_reward_simulated_subset(&run, &[]);
+        let observed = seed_start_reward_observed_subset(&observed_message);
+        assert_eq!(simulated["choices"], json!(["gold", "card"]));
+        assert_eq!(observed["choices"], json!(["card", "gold"]));
+        assert_eq!(simulated["gold_offer"], 17);
+        assert_eq!(observed["gold_offer"], 999);
     }
 
     #[test]
@@ -12282,6 +12289,81 @@ mod tests {
             .expect("forged observed boss must differ from seed-derived boss");
         assert!(boss_diff.contains(forged_boss), "{boss_diff}");
         assert!(boss_diff.contains(expected_boss_name), "{boss_diff}");
+    }
+
+    #[test]
+    fn observed_chest_gold_is_compared_without_steering_simulation() {
+        let path = crate::corpus_path("permanent_traces/trace-session-8.jsonl");
+        let content = std::fs::read_to_string(path).expect("complete trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (chest_action_step, chest_post) = transitions
+            .transitions
+            .iter()
+            .find_map(|(pre, action, post)| {
+                (screen_type(&pre.message) == Some("CHEST")
+                    && command_is_choose(&action.command, 0)
+                    && screen_type(&post.message) == Some("COMBAT_REWARD")
+                    && post
+                        .message
+                        .get("game_state")
+                        .map(reward_gold_offer)
+                        .unwrap_or(0)
+                        > 0)
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture has a treasure chest with gold");
+        let original_gold = chest_post
+            .message
+            .get("game_state")
+            .map(reward_gold_offer)
+            .expect("chest gold");
+        let forged_gold = original_gold + 1_000;
+
+        let mut mutated_lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let mutated_state = mutated_lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if *state == chest_post => Some(state),
+                _ => None,
+            })
+            .expect("chest post-state remains in imported trace");
+        let rewards = mutated_state
+            .message
+            .pointer_mut("/game_state/screen_state/rewards")
+            .and_then(Value::as_array_mut)
+            .expect("chest rewards");
+        let gold = rewards
+            .iter_mut()
+            .find(|reward| reward.get("reward_type").and_then(Value::as_str) == Some("GOLD"))
+            .and_then(|reward| reward.get_mut("gold"))
+            .expect("gold reward amount");
+        *gold = json!(forged_gold);
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
+        let report = verify_communication_mod_trace(&mutated).expect("mutated trace parses");
+        let gold_diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| {
+                diff.action_step == chest_action_step && diff.label == "open treasure chest"
+            })
+            .and_then(|diff| {
+                diff.diffs
+                    .iter()
+                    .find(|line| line.starts_with("gold_offer:"))
+            })
+            .expect("forged observed chest gold must differ from simulated gold");
+        assert!(
+            gold_diff.contains(&original_gold.to_string()),
+            "{gold_diff}"
+        );
+        assert!(gold_diff.contains(&forged_gold.to_string()), "{gold_diff}");
     }
 
     #[test]
