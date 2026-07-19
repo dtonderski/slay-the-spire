@@ -40,7 +40,7 @@ use crate::{
             GeneratedNeowOption, NeowDrawback, NeowRewardType,
         },
         reward::{
-            roll_event_relic_reward, roll_relic_reward,
+            reward_card_choice_count, roll_event_relic_reward, roll_relic_reward,
             target_colorless_card_reward_choices_with_count, target_elite_relic_tier,
             target_library_card_choices, target_random_potion, target_uniform_random_potion,
         },
@@ -3621,21 +3621,34 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             if hp_loss > 0 {
                 lose_event_hp(&mut next, hp_loss);
             }
+            let reward_count = u8::try_from(choice_index + 1)
+                .expect("Sensory Stone offers at most three card rewards");
+            let card_choice_count = reward_card_choice_count(&next);
             let mut card_rng = next.rng_for_stream(RunRngStream::CardReward);
             let mut rarity_factor = next.card_rarity_factor;
-            let cards = target_colorless_card_reward_choices_with_count(
-                &mut card_rng,
-                &mut rarity_factor,
-                next.next_card_instance_id(),
-                choice_index + 1,
-            );
+            let mut next_card_id = next.next_card_instance_id();
+            let mut queued_card_rewards = Vec::with_capacity(usize::from(reward_count));
+            for _ in 0..reward_count {
+                let cards = target_colorless_card_reward_choices_with_count(
+                    &mut card_rng,
+                    &mut rarity_factor,
+                    next_card_id,
+                    card_choice_count,
+                );
+                next_card_id += cards.len() as u64;
+                queued_card_rewards.push(cards);
+            }
             next.card_rarity_factor = rarity_factor;
             next.store_rng_counter(RunRngStream::CardReward, &card_rng);
             next.phase = RunPhase::Reward;
-            next.event = None;
+            next.event = Some(make_event_screen(
+                Event::SensoryStone,
+                labeled_choices(&["Leave"]),
+                2,
+            ));
             next.reward = Some(RewardScreen {
-                choices: cards,
-                queued_card_rewards: Vec::new(),
+                choices: Vec::new(),
+                queued_card_rewards,
                 gold_offer: 0,
                 stolen_gold_offer: 0,
                 potion_offer: None,
@@ -3646,10 +3659,14 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 pending_relic_key_offer: None,
                 queued_relic_key_offers: Vec::new(),
                 boss_relic_choices: Vec::new(),
-                card_reward_active: true,
-                card_reward_pending: false,
-                pending_card_reward_count: 0,
+                card_reward_active: false,
+                card_reward_pending: true,
+                pending_card_reward_count: reward_count,
             });
+        }
+        Event::SensoryStone if screen.stage == 2 && choice_index == 0 => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
         }
         Event::WindingHalls => match screen.stage {
             0 if choice_index == 0 => {
@@ -6761,9 +6778,29 @@ mod tests {
                 .expect("Sensory Stone memory applies");
         assert_eq!(after_memory.player_hp, 45);
         assert_eq!(after_memory.phase, RunPhase::Reward);
+        let reward = after_memory.reward.as_ref().expect("reward");
+        assert!(!reward.card_reward_active);
+        assert_eq!(reward.pending_card_reward_count(), 2);
+        assert_eq!(reward.queued_card_rewards.len(), 2);
+        assert!(reward.choices.is_empty());
+        assert!(reward
+            .queued_card_rewards
+            .iter()
+            .all(|choices| choices.len() == 3));
+
+        let opened =
+            crate::run::reward::apply_run_action(&after_memory, crate::RunAction::OpenCardReward)
+                .expect("first colorless reward opens");
+        assert!(opened.reward.as_ref().expect("reward").card_reward_active);
+        assert_eq!(opened.reward.as_ref().expect("reward").choices.len(), 3);
         assert_eq!(
-            after_memory.reward.as_ref().expect("reward").choices.len(),
-            2
+            opened
+                .event
+                .as_ref()
+                .expect("Sensory Stone leave screen")
+                .choices[0]
+                .label,
+            "Leave"
         );
     }
 }

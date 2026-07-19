@@ -831,7 +831,7 @@ fn any_color_reward_content_id(rng: &mut StsRng, rarity: CardRarity) -> ContentI
     shop_card_content_id(pool[pick])
 }
 
-fn reward_card_choice_count(run: &RunState) -> usize {
+pub(crate) fn reward_card_choice_count(run: &RunState) -> usize {
     let mut count = REWARD_CARD_COUNT;
     if run.relics.contains(&Relic::QuestionCard) {
         count += QUESTION_CARD_REWARD_BONUS;
