@@ -34,11 +34,12 @@ evidence. That evidence must show exactly one disposition for every applicable
 action, no duplicate dispositions, and no unresolved transient assertions.
 Missing integrity evidence is itself a failure.
 
-The migration is deliberately staged. Typed assessment and policy tests land
-first without changing CLI or corpus enforcement. Action dispositions are then
-recorded for every trace action, permanent traces receive explicit coverage
-expectations, and only after the generated corpus ledger has been reviewed do
-the CLI exit codes and corpus gate switch to the typed outcome.
+The `parity` command is strict complete verification: it exits `0` only for a
+`complete_pass`, `1` for invalid input, and `2` for a valid trace that fails the
+complete contract. Retained prefixes and expected boundaries must be declared
+in a corpus manifest and assessed with `status`; status uses the same exit-code
+policy across all entries. A prefix that has no raw diff therefore cannot pass
+when invoked as complete parity.
 
 ## Real-Game Comparison
 

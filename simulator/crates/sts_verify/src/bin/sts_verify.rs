@@ -114,11 +114,20 @@ fn main() {
                     exit(1);
                 })
             };
-            let report =
-                verify_communication_mod_trace_with_mode(&content, mode).unwrap_or_else(|err| {
+            let expectation = VerificationExpectation::Complete;
+            let result = verify_communication_mod_trace_with_mode(&content, mode);
+            let report = match result {
+                Ok(report) => report,
+                Err(err) => {
+                    let outcome = assess_verification(Err(&err), &expectation, None);
+                    print_verification_outcome(&outcome);
                     eprintln!("failed to verify trace: {err}");
-                    exit(1);
-                });
+                    exit(verification_outcome_exit_code(&outcome));
+                }
+            };
+            let outcome =
+                assess_verification(Ok(&report), &expectation, report.action_integrity.as_ref());
+            print_verification_outcome(&outcome);
             println!("mode={:?}", report.mode);
             println!("total_actions={}", report.total_actions);
             println!("ignored_tail_actions={}", report.ignored_tail_actions);
@@ -227,17 +236,18 @@ fn main() {
                 );
             }
 
-            if !report.unexpected_diffs.is_empty() {
-                for diff in &report.unexpected_diffs {
-                    println!(
-                        "unexpected_diff step={} command=\"{}\" label=\"{}\"",
-                        diff.action_step, diff.command, diff.label
-                    );
-                    for line in &diff.diffs {
-                        println!("  {line}");
-                    }
+            for diff in &report.unexpected_diffs {
+                println!(
+                    "unexpected_diff step={} command=\"{}\" label=\"{}\"",
+                    diff.action_step, diff.command, diff.label
+                );
+                for line in &diff.diffs {
+                    println!("  {line}");
                 }
-                exit(2);
+            }
+            let exit_code = verification_outcome_exit_code(&outcome);
+            if exit_code != 0 {
+                exit(exit_code);
             }
         }
         "slaythedata-plan" => {
@@ -591,7 +601,11 @@ fn main() {
                 eprintln!("failed to build status for {}: {err}", root.display());
                 exit(1);
             });
+            let exit_code = trace_status_exit_code(&entries);
             print_trace_status(&entries, markdown);
+            if exit_code != 0 {
+                exit(exit_code);
+            }
         }
         _ => {
             eprintln!("unknown command: {command}");
@@ -819,6 +833,31 @@ fn outcome_status(outcome: &VerificationOutcome) -> &'static str {
     }
 }
 
+fn verification_outcome_exit_code(outcome: &VerificationOutcome) -> i32 {
+    match outcome {
+        VerificationOutcome::CompletePass
+        | VerificationOutcome::RetainedPrefixPass { .. }
+        | VerificationOutcome::ExpectedBoundary { .. } => 0,
+        VerificationOutcome::InvalidInput { .. } => 1,
+        VerificationOutcome::Failed { .. } => 2,
+    }
+}
+
+fn print_verification_outcome(outcome: &VerificationOutcome) {
+    println!("outcome={}", outcome_status(outcome));
+    match outcome {
+        VerificationOutcome::InvalidInput { reason } => println!("invalid_input={reason}"),
+        VerificationOutcome::Failed { failures } => {
+            for failure in failures {
+                println!("failure={failure:?}");
+            }
+        }
+        VerificationOutcome::CompletePass
+        | VerificationOutcome::RetainedPrefixPass { .. }
+        | VerificationOutcome::ExpectedBoundary { .. } => {}
+    }
+}
+
 fn trace_error_entry(trace: String, expectation: String, error: String) -> TraceStatusEntry {
     TraceStatusEntry {
         trace,
@@ -837,6 +876,16 @@ fn trace_error_entry(trace: String, expectation: String, error: String) -> Trace
         status: "invalid_input".to_owned(),
         boundary: "-".to_owned(),
         frontier: error,
+    }
+}
+
+fn trace_status_exit_code(entries: &[TraceStatusEntry]) -> i32 {
+    if entries.iter().any(|entry| entry.status == "invalid_input") {
+        1
+    } else if entries.iter().any(|entry| entry.status == "failed") {
+        2
+    } else {
+        0
     }
 }
 
@@ -995,4 +1044,67 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
 
 fn escape_markdown_cell(value: &str) -> String {
     value.replace('|', "\\|")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_outcomes_have_stable_process_exit_codes() {
+        assert_eq!(
+            verification_outcome_exit_code(&VerificationOutcome::CompletePass),
+            0
+        );
+        assert_eq!(
+            verification_outcome_exit_code(&VerificationOutcome::RetainedPrefixPass {
+                endpoint: sts_verify::RetainedPrefixEndpoint {
+                    action_step: 12,
+                    label: "retained endpoint".to_owned(),
+                },
+            }),
+            0
+        );
+        assert_eq!(
+            verification_outcome_exit_code(&VerificationOutcome::InvalidInput {
+                reason: "bad trace".to_owned(),
+            }),
+            1
+        );
+        assert_eq!(
+            verification_outcome_exit_code(&VerificationOutcome::Failed {
+                failures: vec![sts_verify::VerificationFailure::MissingActionIntegrity],
+            }),
+            2
+        );
+    }
+
+    #[test]
+    fn status_exit_code_distinguishes_failed_and_invalid_traces() {
+        let passing = trace_error_entry(
+            "pass.jsonl".to_owned(),
+            "complete".to_owned(),
+            String::new(),
+        );
+        let mut passing = passing;
+        passing.status = "complete_pass".to_owned();
+        assert_eq!(trace_status_exit_code(&[passing]), 0);
+
+        let failed = TraceStatusEntry {
+            status: "failed".to_owned(),
+            ..trace_error_entry(
+                "failed.jsonl".to_owned(),
+                "complete".to_owned(),
+                String::new(),
+            )
+        };
+        assert_eq!(trace_status_exit_code(&[failed]), 2);
+
+        let invalid = trace_error_entry(
+            "invalid.jsonl".to_owned(),
+            "complete".to_owned(),
+            "parse error".to_owned(),
+        );
+        assert_eq!(trace_status_exit_code(&[invalid]), 1);
+    }
 }
