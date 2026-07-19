@@ -3181,7 +3181,6 @@ fn verify_seed_start_transitions(
                     ),
                 };
                 normalize_match_and_keep_transient_choices(&next, &mut observed, &simulated);
-                let diff_count_before = report.unexpected_diffs.len();
                 if next.phase == RunPhase::Event && !next.pending_obtain_cards.is_empty() {
                     compare_subset_any(
                         report,
@@ -3197,41 +3196,6 @@ fn verify_seed_start_transitions(
                     );
                 } else {
                     compare_subset(report, action, "event choice", observed, simulated);
-                }
-                if next
-                    .card_grid
-                    .as_ref()
-                    .is_some_and(|grid| seed_start_is_event_obtain_grid(grid.purpose))
-                    && report.unexpected_diffs.len() > diff_count_before
-                {
-                    report.unexpected_diffs.truncate(diff_count_before);
-                    if let Some(imported) =
-                        seed_start_import_observed_event_obtain_grid(&next, &post.message)
-                    {
-                        compare_subset(
-                            report,
-                            action,
-                            "event card grid",
-                            seed_start_grid_observed_subset(&post.message),
-                            seed_start_grid_simulated_subset(&imported, &relics),
-                        );
-                        seed_start_update_carry_from_run(&imported, &mut relics, &mut deck_ids);
-                        *sim = imported;
-                        phase = SeedStartPhase::Grid;
-                        continue;
-                    } else {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_event_card_grid_rng_divergence".to_owned(),
-                            reason: "carried card reward RNG state does not reproduce the observed event card grid and the observed grid could not be imported".to_owned(),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
                 }
                 seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                 *sim = next.clone();
@@ -6115,64 +6079,6 @@ fn grid_card_choices_from_value(game: &Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn seed_start_is_event_obtain_grid(purpose: GridPurpose) -> bool {
-    matches!(
-        purpose,
-        GridPurpose::EventObtainCard | GridPurpose::EventObtainCardReturnToEvent { .. }
-    )
-}
-
-fn seed_start_import_observed_event_obtain_grid(
-    run: &RunState,
-    message: &Value,
-) -> Option<RunState> {
-    if screen_type(message) != Some("GRID") {
-        return None;
-    }
-    let purpose = run.card_grid.as_ref()?.purpose;
-    if !seed_start_is_event_obtain_grid(purpose) {
-        return None;
-    }
-    let cards = observed_grid_cards(message, run.next_card_instance_id())?;
-    let mut imported = run.clone();
-    imported.card_grid = Some(CardGridScreen {
-        cards,
-        purpose,
-        selected: None,
-        selected_indices: Vec::new(),
-    });
-    Some(imported)
-}
-
-fn observed_grid_cards(message: &Value, base_id: u64) -> Option<Vec<CardInstance>> {
-    let cards = message
-        .get("game_state")?
-        .get("screen_state")?
-        .get("cards")?
-        .as_array()?;
-    if cards.is_empty() {
-        return None;
-    }
-
-    cards
-        .iter()
-        .enumerate()
-        .map(|(index, card)| {
-            let content_id = content_id_from_card_value(card)?;
-            let mut instance = CardInstance::new(CardId::new(base_id + index as u64), content_id);
-            instance.upgrades = observed_card_upgrade_count(card);
-            Some(instance)
-        })
-        .collect()
-}
-
-fn observed_card_upgrade_count(card: &Value) -> u8 {
-    card.get("upgrades")
-        .and_then(Value::as_u64)
-        .and_then(|value| u8::try_from(value).ok())
-        .unwrap_or(0)
 }
 
 fn seed_start_grid_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
@@ -14555,6 +14461,45 @@ mod tests {
         assert_eq!(
             seed_start_grid_simulated_subset(&run, &[])["choices"],
             json!([])
+        );
+    }
+
+    #[test]
+    fn observed_event_obtain_grid_does_not_replace_simulated_choices() {
+        let mut run = RunState::map_fixture();
+        let simulated_cards = vec![
+            CardInstance::new(CardId::new(10_001), STRIKE_R_ID),
+            CardInstance::new(CardId::new(10_002), DEFEND_R_ID),
+        ];
+        run.card_grid = Some(CardGridScreen {
+            cards: simulated_cards.clone(),
+            purpose: GridPurpose::EventObtainCardReturnToEvent {
+                event: Event::TheLibrary,
+            },
+            selected: None,
+            selected_indices: Vec::new(),
+        });
+        let forged_observation = json!({
+            "game_state": {
+                "screen_type": "GRID",
+                "choice_list": ["bash", "anger"],
+                "screen_state": {"cards": []}
+            }
+        });
+
+        let observed = seed_start_grid_observed_subset(&forged_observation);
+        let simulated = seed_start_grid_simulated_subset(&run, &[]);
+
+        assert_eq!(observed["choices"], json!(["bash", "anger"]));
+        assert_eq!(simulated["choices"], json!(["strike", "defend"]));
+        assert!(!subset_diffs(
+            json!({"choices": observed["choices"].clone()}),
+            json!({"choices": simulated["choices"].clone()}),
+        )
+        .is_empty());
+        assert_eq!(
+            run.card_grid.as_ref().expect("simulated grid").cards,
+            simulated_cards
         );
     }
 

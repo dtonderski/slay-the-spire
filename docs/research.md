@@ -583,3 +583,20 @@ Sources inspected: target 12-18-2022 desktop-jar bytecode for
   by a failing 50% Continue search and the resulting three-Sentry combat. This
   prevents verification from treating Continue as an RNG-free reward-settlement
   command or repairing the event stage from observed choices.
+
+## The Library card-grid ordering evidence
+
+Sources inspected: target 12-18-2022 desktop-jar bytecode for
+`events.city.TheLibrary` and `cards.CardGroup`, plus captured live trace
+`trace-2026-07-07T18-33-54-807Z.jsonl`.
+
+- The Library rolls 20 unique cards in a loop and calls
+  `CardGroup.addToBottom` for every accepted card.
+- Target `CardGroup.addToBottom` inserts at array index zero, so the grid's
+  visible and selectable order is the reverse of RNG roll order.
+- The captured trace pins the complete 20-card order and selects Berserk at
+  visible index 11. Carrying the unreversed roll order selects Iron Wave and
+  creates downstream deck and combat divergence.
+- Strict verification now compares the observed grid with the core-generated
+  grid and carries only the core state; it never replaces generated cards or
+  their order from the observed post-state.

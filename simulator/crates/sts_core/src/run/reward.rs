@@ -367,7 +367,9 @@ pub fn target_card_reward_choices_with_count(
 
 /// Target `TheLibrary.buttonEffect` rolls rarity again whenever a duplicate
 /// card is found, but unlike combat rewards it does not mutate the shared
-/// card-rarity factor and does not roll upgrades.
+/// card-rarity factor and does not roll upgrades. Each accepted card is added
+/// to the bottom of a target `CardGroup`, which inserts it at index zero and
+/// therefore exposes the choices in reverse roll order.
 #[must_use]
 pub fn target_library_card_choices(
     rng: &mut StsRng,
@@ -402,6 +404,7 @@ pub fn target_library_card_choices(
             break;
         }
     }
+    choices.reverse();
     choices
 }
 

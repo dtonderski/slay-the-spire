@@ -1315,6 +1315,31 @@ fn codex10_neow_transform_two_trace_verifies_through_first_map_node() {
 }
 
 #[test]
+fn library_grid_uses_target_card_group_bottom_order() {
+    let Some(content) = load_corpus_file("communication_mod/trace-2026-07-07T18-33-54-807Z.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Library grid regression trace replays");
+
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "{:#?}",
+        report.unexpected_diffs
+    );
+    assert!(report.unsupported.is_empty(), "{:#?}", report.unsupported);
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 541
+            && transition.command.eq_ignore_ascii_case("CHOOSE 0")
+            && transition.label == "event choice"
+    }));
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 542 && transition.command.eq_ignore_ascii_case("CHOOSE 11")
+    }));
+}
+
+#[test]
 fn seed_start_random_rare_neow_reward_carries_into_first_combat() {
     let Some(content) =
         load_corpus_file("permanent_traces/live-regression-2026-07-02T23-24-13-178Z.jsonl")
