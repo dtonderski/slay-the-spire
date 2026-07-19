@@ -9,7 +9,7 @@ use crate::{
         draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
         flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
         open_discard_select_with_max_choices, open_exhaust_select, open_gambling_chip_select,
-        player_draw_cards, top_draw_card_definition,
+        player_draw_cards, player_shuffle_discard_into_draw, top_draw_card_definition,
     },
     combat::{
         apply_burning_blood, CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose,
@@ -779,14 +779,24 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     let queued_targets = (0..3 * multiplier)
                         .map(|_| distilled_chaos_target(&mut combat, TargetRequirement::Enemy))
                         .collect::<SimResult<Vec<_>>>()?;
-                    // The target removes all cards selected by Distilled Chaos
-                    // from the draw pile before resolving the first one. This
-                    // matters when an early selected card (for example
-                    // Offering) draws cards: those draws must come from below
-                    // the entire queued trio.
-                    let queued_cards = (0..3 * multiplier)
-                        .filter_map(|_| combat.piles.draw_pile.pop())
-                        .collect::<Vec<_>>();
+                    // Each PlayTopCardAction moves its selected card to limbo,
+                    // but the queued cards do not resolve until all three
+                    // actions have selected. If selection finds an empty draw
+                    // pile, it shuffles the discard pile while the earlier
+                    // selections remain held out. Session 35 reaches that
+                    // branch on the third action of a second Distilled Chaos.
+                    let mut queued_cards = Vec::with_capacity((3 * multiplier) as usize);
+                    for _ in 0..3 * multiplier {
+                        if combat.piles.draw_pile.is_empty()
+                            && !combat.piles.discard_pile.is_empty()
+                        {
+                            player_shuffle_discard_into_draw(&mut combat);
+                        }
+                        let Some(card) = combat.piles.draw_pile.pop() else {
+                            break;
+                        };
+                        queued_cards.push(card);
+                    }
                     for (card, queued_target) in queued_cards.into_iter().zip(queued_targets) {
                         if combat.phase != CombatPhase::WaitingForPlayer {
                             break;
@@ -981,6 +991,35 @@ mod tests {
         crate::combat::turn_powers::apply_end_of_player_turn_powers(&mut combat);
         assert_eq!(combat.player.hp, player_hp - 1);
         assert_eq!(combat.monsters[0].hp, monster_hp - 5);
+    }
+
+    #[test]
+    fn distilled_chaos_reshuffles_to_resolve_its_third_action() {
+        use crate::content::cards::DEFEND_R_ID;
+
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::DistilledChaos];
+        run.empty_potion_slots = vec![1, 2];
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(101), DEFEND_R_ID),
+            CardInstance::new(CardId::new(102), DEFEND_R_ID),
+        ];
+        combat.piles.discard_pile = vec![CardInstance::new(CardId::new(103), DEFEND_R_ID)];
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Distilled Chaos reshuffles before its third action");
+        let combat = next.combat.expect("combat remains open");
+
+        assert_eq!(combat.player.block, 15);
+        assert!(combat.piles.draw_pile.is_empty());
+        assert_eq!(combat.piles.discard_pile.len(), 3);
     }
 
     #[test]

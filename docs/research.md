@@ -523,3 +523,22 @@ Sources inspected: target 12-18-2022 desktop-jar bytecode for
 - `session-32-floor1-tiny-house-upgrade-instance.jsonl` pins the complete
   seed-start prefix through the first upgraded-Strike play, including the
   Tiny House potion identity.
+
+## Distilled Chaos empty-draw reshuffle evidence
+
+Sources inspected: target 12-18-2022 desktop-jar bytecode for
+`potions.DistilledChaosPotion` and `actions.common.PlayTopCardAction`, plus
+captured session 35.
+
+- Distilled Chaos constructs all three `PlayTopCardAction`s up front, including
+  one `cardRandomRng` target draw per action, and appends them to the action
+  queue.
+- Each action moves one top card into limbo. If the draw pile is empty but the
+  discard pile is not, it queues `EmptyDeckShuffleAction` and a replacement
+  `PlayTopCardAction` with the same target.
+- The selected cards remain in limbo while selection continues. They are not
+  part of an intervening reshuffle. In session 35, two Defends are held out,
+  the six-card discard pile is shuffled, and Bash becomes the third selected
+  card.
+- `session-35-floor1-second-distilled-chaos.jsonl` pins the second potion use,
+  including final pile order and Louse HP/block.

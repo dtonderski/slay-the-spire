@@ -1546,6 +1546,23 @@ fn session32_tiny_house_upgrade_instance_regression_matches_first_combat() {
     }));
 }
 
+#[test]
+fn session35_second_distilled_chaos_reshuffles_before_third_card() {
+    let Some(content) =
+        load_corpus_file("fidelity_regressions/session-35-floor1-second-distilled-chaos.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("session-35 second Distilled Chaos regression replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty());
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 1109 && transition.command.eq_ignore_ascii_case("POTION USE 2")
+    }));
+}
+
 fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {
     for line in content.lines().filter(|line| !line.trim().is_empty()) {
         let value: serde_json::Value = serde_json::from_str(line).expect("trace line parses");
