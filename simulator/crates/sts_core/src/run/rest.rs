@@ -70,7 +70,11 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
             actions.push(RestAction::Smith { card_id: card.id });
         }
     }
-    actions
+    if actions.is_empty() {
+        vec![RestAction::Proceed]
+    } else {
+        actions
+    }
 }
 
 pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()> {
@@ -79,7 +83,7 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
     }
 
     match action {
-        RestAction::Proceed if run.rest_room_complete => Ok(()),
+        RestAction::Proceed if legal_rest_actions(run).contains(&action) => Ok(()),
         RestAction::Proceed => Err(SimError::IllegalAction("rest room is not complete")),
         _ if run.rest_room_complete => Err(SimError::IllegalAction("rest room is complete")),
         RestAction::Heal if run.relics.contains(&Relic::CoffeeDripper) => {

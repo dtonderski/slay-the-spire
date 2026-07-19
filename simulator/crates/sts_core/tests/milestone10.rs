@@ -374,6 +374,20 @@ fn coffee_dripper_disables_rest_heal() {
 }
 
 #[test]
+fn coffee_dripper_and_fusion_hammer_allow_immediate_campfire_proceed() {
+    let mut run = RunState::map_fixture();
+    run.phase = RunPhase::Rest;
+    run.gain_relic(Relic::CoffeeDripper);
+    run.gain_relic(Relic::FusionHammer);
+
+    assert_eq!(legal_rest_actions(&run), vec![RestAction::Proceed]);
+
+    let next = apply_rest_action(&run, RestAction::Proceed)
+        .expect("a campfire with no available activities auto-completes");
+    assert_eq!(next.phase, RunPhase::Idle);
+}
+
+#[test]
 fn coffee_dripper_energy_round_trips_through_run_state_json() {
     let mut run = RunState::map_fixture();
     run.gain_relic(Relic::CoffeeDripper);
