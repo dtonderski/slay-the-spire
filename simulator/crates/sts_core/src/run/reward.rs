@@ -12,7 +12,9 @@ use crate::{
     content::reward_pool::{
         ironclad_reward_card_rarity, random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES,
     },
-    content::shop_pool::{ironclad_combat_discovery_pool, shop_card_content_id},
+    content::shop_pool::{
+        ironclad_combat_discovery_pool, random_colorless_from_pool, shop_card_content_id,
+    },
     ids::{CardId, ContentId},
     map::{generate_target_fixed_map, RoomKind, TargetMapAct},
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
@@ -415,7 +417,7 @@ pub fn target_colorless_card_reward_choices_with_count(
         card_rarity_factor,
         next_card_id,
         choice_count,
-        RewardCardPoolKind::AnyColor,
+        RewardCardPoolKind::Colorless,
         NORMAL_REWARD_RARITY_CHANCES,
         None,
         true,
@@ -425,6 +427,7 @@ pub fn target_colorless_card_reward_choices_with_count(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RewardCardPoolKind {
     Ironclad,
+    Colorless,
     AnyColor,
 }
 
@@ -451,7 +454,7 @@ fn target_card_reward_choices_with_count_and_pool(
         let requested = forced_requested_rarity.unwrap_or(rolled);
         let rarity = match pool_kind {
             RewardCardPoolKind::Ironclad => resolve_rarity(requested, IRONCLAD_REWARD_ENTRIES),
-            RewardCardPoolKind::AnyColor => requested,
+            RewardCardPoolKind::Colorless | RewardCardPoolKind::AnyColor => requested,
         };
         match requested {
             CardRarity::Common => *card_rarity_factor = (*card_rarity_factor - 1).max(-40),
@@ -472,6 +475,7 @@ fn target_card_reward_choices_with_count_and_pool(
                     let pick = rng.random_int((candidate_indices.len() - 1) as i32) as usize;
                     IRONCLAD_REWARD_ENTRIES[candidate_indices[pick]].content_id
                 }
+                RewardCardPoolKind::Colorless => random_colorless_from_pool(rng, rarity),
                 RewardCardPoolKind::AnyColor => any_color_reward_content_id(rng, rarity),
             };
             if !choices

@@ -6787,6 +6787,11 @@ mod tests {
             .queued_card_rewards
             .iter()
             .all(|choices| choices.len() == 3));
+        assert!(reward
+            .queued_card_rewards
+            .iter()
+            .flatten()
+            .all(|card| crate::content::shop_pool::shop_card_is_colorless(card.content_id)));
 
         let opened =
             crate::run::reward::apply_run_action(&after_memory, crate::RunAction::OpenCardReward)
