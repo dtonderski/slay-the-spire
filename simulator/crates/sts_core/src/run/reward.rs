@@ -2660,6 +2660,14 @@ mod tests {
         );
         assert_eq!(next.gold, starting_gold + crate::relic::CERAMIC_FISH_GOLD);
         assert!(next.combat.as_ref().expect("combat continues").monsters[0].has_siphoned);
+        let player_powers = &next
+            .combat
+            .as_ref()
+            .expect("combat continues")
+            .player
+            .powers;
+        assert_eq!(player_powers.frail, 0);
+        assert_eq!(player_powers.weak, 0);
     }
 
     #[test]

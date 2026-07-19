@@ -9554,20 +9554,21 @@ pub fn apply_monster_intent_with_card_rng(
             (0, 0)
         }
         MonsterIntent::ApplyPlayerFrailAndWeak { frail, weak } => {
-            let applied_frail = if monster.content_id == SPIKE_SLIME_ID
-                && monster.max_hp > SPIKE_SLIME_M_A7_HP_RANGE.max
-            {
-                spike_slime_frail_amount(monster.max_hp, ascension)
-            } else {
-                frail
-            };
             if monster.content_id == WRITHING_MASS_ID {
                 // This field is the existing per-monster one-shot move marker.
                 // For Writhing Mass it mirrors `usedMegaDebuff`.
                 monster.has_siphoned = true;
+            } else {
+                let applied_frail = if monster.content_id == SPIKE_SLIME_ID
+                    && monster.max_hp > SPIKE_SLIME_M_A7_HP_RANGE.max
+                {
+                    spike_slime_frail_amount(monster.max_hp, ascension)
+                } else {
+                    frail
+                };
+                apply_player_frail(&mut player.powers, applied_frail);
+                crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
             }
-            apply_player_frail(&mut player.powers, applied_frail);
-            crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
             (0, 0)
         }
         MonsterIntent::ApplyPlayerFrailWeakVulnerable {

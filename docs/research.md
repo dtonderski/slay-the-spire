@@ -400,6 +400,8 @@ Source inspected: target 12-18-2022 desktop-jar bytecode for
   Attack-and-debuff applies Weak 2 and Vulnerable 2.
 - Session 29 seed `316L5SYDLG5KU` pins three successive attack-triggered rerolls
   followed by a 15-damage/15-block turn in the seed-start corpus regression.
-- Mega Debuff marks its one-use guard and queues `AddCardToDeckAction(Parasite)`.
-  Session 29 also proves that the master-deck addition happens during the same
-  end-turn transition and triggers Ceramic Fish's 9 gold immediately.
+- Mega Debuff/Implant marks its one-use guard and queues
+  `AddCardToDeckAction(Parasite)`; despite the intent category, it applies no
+  Frail, Weak, or other player debuff. Session 29 also proves that the
+  master-deck addition happens during the same end-turn transition, triggers
+  Ceramic Fish's 9 gold immediately, and leaves a subsequent Defend at 5 block.
