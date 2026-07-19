@@ -1134,7 +1134,7 @@ fn roll_mind_bloom_boss(run: &mut RunState) -> u8 {
 
 fn sensory_stone_choices(stage: u32) -> Vec<EventChoice> {
     match stage {
-        0 => labeled_choices(&["Continue"]),
+        0 => labeled_choices(&["Interact"]),
         1 => labeled_choices(&[
             "Memory 1 (gain 1 colorless card)",
             "Memory 2 (lose 5 HP, gain 2 colorless cards)",
@@ -6743,6 +6743,10 @@ mod tests {
         run.phase = RunPhase::Event;
         run.player_hp = 50;
         run.event = Some(event_screen_for_run(&run, Event::SensoryStone));
+        assert_eq!(
+            run.event.as_ref().expect("event").choices[0].label,
+            "Interact"
+        );
         let after_intro = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("Sensory Stone intro applies");
         let after_memory =
