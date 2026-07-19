@@ -44,6 +44,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tiny_house_upgrades_the_target_starter_instance_on_session32_seed() {
+        let mut run = RunState::placeholder_seeded_ironclad(5_556_398_760_754_084_786_u64, 0);
+        // Neow consumes one hidden miscRng draw before equipping its relic.
+        run.misc_rng_counter = 1;
+        run.relics = vec![Relic::BurningBlood];
+
+        let reward = crate::run::neow::apply_neow_boss_swap(&mut run);
+        assert_eq!(reward.relic, RelicKey::TinyHouse);
+
+        let upgraded = run
+            .deck
+            .iter()
+            .filter(|card| {
+                matches!(
+                    card.content_id,
+                    id if id == crate::content::cards::STRIKE_R_PLUS_ID
+                        || id == crate::content::cards::DEFEND_R_PLUS_ID
+                        || id == crate::content::cards::BASH_PLUS_ID
+                )
+            })
+            .map(|card| (card.id, card.content_id))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            upgraded,
+            vec![(CardId::new(2), crate::content::cards::STRIKE_R_PLUS_ID)]
+        );
+        assert_eq!(
+            run.reward.as_ref().and_then(|reward| reward.potion_offer),
+            Some(Potion::Colorless)
+        );
+    }
+
+    #[test]
     fn snecko_eye_does_not_grant_energy() {
         let mut run = RunState::map_fixture();
 
@@ -1371,8 +1404,9 @@ impl RunState {
                     reward.gold_offer += TINY_HOUSE_GOLD;
                     let mut misc_rng =
                         StsRng::with_counter(self.misc_rng_seed as i64, self.misc_rng_counter);
-                    reward.potion_offer =
-                        Some(crate::run::reward::target_random_potion(&mut misc_rng));
+                    reward.potion_offer = Some(crate::run::reward::target_uniform_random_potion(
+                        &mut misc_rng,
+                    ));
                     self.misc_rng_counter = misc_rng.counter();
                     reward.set_pending_card_rewards(reward.pending_card_reward_count() + 1);
                 }

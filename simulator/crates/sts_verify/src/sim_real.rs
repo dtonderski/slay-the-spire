@@ -5056,9 +5056,22 @@ fn seed_start_apply_neow_boss_swap(numeric_seed: i64, deck_ids: &[String]) -> Ru
     let mut run = seed_start_seeded_idle_run(numeric_seed, 0, deck_ids);
     run.gold = 99;
     run.relics = vec![Relic::BurningBlood];
+    seed_start_prepare_neow_relic_equip(&mut run);
     apply_neow_boss_swap(&mut run);
     run.event = Some(neow_screen_for_stage(&run, 2));
     run
+}
+
+fn seed_start_prepare_neow_relic_equip(run: &mut RunState) {
+    // Captured session-352 shows Neow-spawned Whetstone using the second
+    // miscRng draw for its onEquip shuffle. Session-32 proves that boss-swap
+    // Tiny House uses the same offset before choosing the upgraded starter
+    // instance. The exact UI/update-site draw before relic equip is not
+    // exposed by CommunicationMod, so keep this scoped to seed-start Neow
+    // relic replay instead of changing ordinary relic pickup.
+    if run.misc_rng_counter == 0 {
+        run.misc_rng_counter = 1;
+    }
 }
 
 fn seed_start_boss_swap_relic_ids(run: &RunState) -> Vec<String> {
@@ -5267,13 +5280,7 @@ fn seed_start_apply_neow_relic_reward_for_ascension(
         }
         drawback => apply_neow_simple_drawback(&mut run, drawback),
     }
-    // Captured session-352 shows Neow-spawned Whetstone using the second miscRng
-    // draw for its onEquip shuffle. The exact UI/update-site draw before relic
-    // equip is not exposed by CommunicationMod, so keep this scoped to
-    // seed-start Neow relic replay instead of changing ordinary relic pickup.
-    if run.misc_rng_counter == 0 {
-        run.misc_rng_counter = 1;
-    }
+    seed_start_prepare_neow_relic_equip(&mut run);
     apply_neow_relic_reward(&mut run, option.reward);
     run
 }

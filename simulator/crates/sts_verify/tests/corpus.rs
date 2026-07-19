@@ -1529,6 +1529,23 @@ fn session31_floor25_cursed_key_card_rng_regression_matches_live_reward() {
     }));
 }
 
+#[test]
+fn session32_tiny_house_upgrade_instance_regression_matches_first_combat() {
+    let Some(content) = load_corpus_file(
+        "fidelity_regressions/session-32-floor1-tiny-house-upgrade-instance.jsonl",
+    ) else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("session-32 Tiny House upgrade-instance regression replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty());
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 1062 && transition.command.eq_ignore_ascii_case("PLAY 1 0")
+    }));
+}
+
 fn captured_first_full_map(content: &str) -> Vec<CapturedMapNode> {
     for line in content.lines().filter(|line| !line.trim().is_empty()) {
         let value: serde_json::Value = serde_json::from_str(line).expect("trace line parses");

@@ -497,3 +497,29 @@ Source inspected: target 12-18-2022 desktop-jar bytecode for
   prefix and verifies the chest action against the settled 23-card state.
 - `session-31-floor25-card-reward-rng.jsonl` pins the downstream reward choices
   and prevents Cursed Key from regressing to the wrong RNG stream.
+
+## Neow relic equip misc-RNG offset evidence
+
+Sources inspected: target 12-18-2022 desktop-jar bytecode for
+`relics.TinyHouse` and `helpers.PotionHelper`, plus captured sessions 352 and
+32.
+
+- Relic effects that upgrade random cards build an eligible master-deck list,
+  seed `java.util.Random` from `AbstractDungeon.miscRng.randomLong()`, shuffle
+  with `Collections.shuffle`, and upgrade the first entry.
+- Session 352 previously established that a Neow-spawned Whetstone starts this
+  shuffle from the second `miscRng` draw because Neow consumes one hidden draw
+  before equipping the relic.
+- Session 32 proves the same offset applies to a boss swap. For seed
+  `5556398760754084786`, Tiny House upgrades starter card instance 2 (`Strike`)
+  with the offset; starting at counter 0 incorrectly upgrades instance 6
+  (`Defend`) and first-combat shuffle parity is lost when the upgraded Strike is
+  played.
+- Tiny House passes that same `miscRng` directly to
+  `PotionHelper.getRandomPotion(Random)`. The helper makes one bounded draw
+  from the complete character potion pool; it does not use the rarity-first
+  `AbstractDungeon.returnRandomPotion()` algorithm. On session 32 this produces
+  Colorless Potion after the upgrade shuffle.
+- `session-32-floor1-tiny-house-upgrade-instance.jsonl` pins the complete
+  seed-start prefix through the first upgraded-Strike play, including the
+  Tiny House potion identity.
