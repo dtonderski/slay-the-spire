@@ -276,6 +276,9 @@ pub struct RunState {
     pub treasure_room: Option<super::reward::TreasureRoomState>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub boss_chest_opened: bool,
+    /// Boss relic choices retained while the selection screen is closed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_boss_relic_choices: Vec<RelicKey>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub rest_room_complete: bool,
 }
@@ -870,6 +873,7 @@ impl RunState {
             ascension,
             treasure_room: None,
             boss_chest_opened: false,
+            pending_boss_relic_choices: Vec::new(),
             rest_room_complete: false,
         };
         let combat = run.init_combat(CombatState::initial_fixture());
@@ -967,6 +971,7 @@ impl RunState {
             ascension: 0,
             treasure_room: None,
             boss_chest_opened: false,
+            pending_boss_relic_choices: Vec::new(),
             rest_room_complete: false,
         }
     }

@@ -1061,9 +1061,15 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
 }
 
 pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
-    let boss_relic_choices = (0..3)
-        .map(|_| roll_relic_reward(run, RelicTier::Boss))
-        .collect();
+    let boss_relic_choices = if run.pending_boss_relic_choices.is_empty() {
+        let choices = (0..3)
+            .map(|_| roll_relic_reward(run, RelicTier::Boss))
+            .collect::<Vec<_>>();
+        run.pending_boss_relic_choices = choices.clone();
+        choices
+    } else {
+        run.pending_boss_relic_choices.clone()
+    };
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -1502,6 +1508,7 @@ fn enter_boss_reward_chest(run: &mut RunState) {
     run.reward = None;
     run.treasure_room = None;
     run.boss_chest_opened = false;
+    run.pending_boss_relic_choices.clear();
     run.current_floor += 1;
     run.reinit_room_rngs_for_floor();
 }
@@ -1539,6 +1546,7 @@ fn enter_next_act_map(run: &mut RunState) {
     run.combat = None;
     run.treasure_room = None;
     run.boss_chest_opened = false;
+    run.pending_boss_relic_choices.clear();
     run.current_room_override = None;
     run.normal_combat_count = 0;
     run.elite_combat_count = 0;
@@ -2092,6 +2100,10 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 reward.card_reward_active = false;
                 reward.consume_pending_card_reward();
                 return_to_event_if_reward_empty(&mut next);
+            } else if is_boss_room && !reward.boss_relic_choices.is_empty() {
+                next.phase = RunPhase::Treasure;
+                next.reward = None;
+                next.boss_chest_opened = false;
             } else if is_boss_room
                 && reward.boss_relic_choices.is_empty()
                 && reward.pending_relic_offer.is_none()
@@ -2192,6 +2204,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 reward.boss_relic_choices.clear();
                 key
             };
+            next.pending_boss_relic_choices.clear();
             next.gain_relic_key(key);
             next.phase = RunPhase::Treasure;
             next.reward = None;
@@ -2766,11 +2779,50 @@ mod tests {
             .boss_relic_choices
             .is_empty());
 
-        let picked = apply_run_action(&opened, RunAction::ChooseBossRelicReward { index: 0 })
+        let original_choices = opened
+            .reward
+            .as_ref()
+            .expect("boss relic reward")
+            .boss_relic_choices
+            .clone();
+        let boss_pool_after_open = opened
+            .relic_pools
+            .as_ref()
+            .expect("relic pools initialized")
+            .boss
+            .clone();
+        let skipped = apply_run_action(&opened, RunAction::SkipReward)
+            .expect("boss relic reward can be closed");
+        assert_eq!(skipped.phase, RunPhase::Treasure);
+        assert!(!skipped.boss_chest_opened);
+        assert!(skipped.reward.is_none());
+        assert_eq!(skipped.pending_boss_relic_choices, original_choices);
+
+        let reopened = apply_run_action(&skipped, RunAction::OpenChest)
+            .expect("closed boss relic reward can be reopened");
+        assert_eq!(
+            reopened
+                .reward
+                .as_ref()
+                .expect("reopened boss relic reward")
+                .boss_relic_choices,
+            original_choices
+        );
+        assert_eq!(
+            reopened
+                .relic_pools
+                .as_ref()
+                .expect("relic pools remain initialized")
+                .boss,
+            boss_pool_after_open
+        );
+
+        let picked = apply_run_action(&reopened, RunAction::ChooseBossRelicReward { index: 0 })
             .expect("boss relic can be picked");
         assert!(picked.boss_chest_opened);
         assert_eq!(picked.phase, RunPhase::Treasure);
         assert!(picked.reward.is_none());
+        assert!(picked.pending_boss_relic_choices.is_empty());
         assert!(validate_treasure_action(&picked, RunAction::OpenChest).is_err());
         assert!(validate_treasure_action(&picked, RunAction::Proceed).is_ok());
     }

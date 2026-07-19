@@ -2862,8 +2862,8 @@ fn verify_seed_start_transitions(
                             report,
                             action,
                             "open boss relic chest",
-                            seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_observed_subset(&post.message),
+                            seed_start_boss_reward_observed_subset(&post.message),
+                            seed_start_boss_reward_simulated_subset(sim, &relics),
                         );
                         seed_start_test_pop_last_diff(report, action, &start.external_seed);
                         phase = SeedStartPhase::BossReward;
@@ -4272,16 +4272,6 @@ fn verify_seed_start_transitions(
                     });
                 };
                 if screen_type(&pre.message) == Some("BOSS_REWARD") {
-                    let observed_choices = pre
-                        .message
-                        .get("game_state")
-                        .map(observed_boss_relic_key_choices)
-                        .unwrap_or_default();
-                    if observed_choices.len() > choose_index {
-                        if let Some(reward) = sim.reward.as_mut() {
-                            reward.boss_relic_choices = observed_choices;
-                        }
-                    }
                     let next = apply_run_action(
                         sim,
                         RunAction::ChooseBossRelicReward {
@@ -4365,7 +4355,7 @@ fn verify_seed_start_transitions(
                     });
                 };
                 let next = apply_run_action(sim, RunAction::SkipReward).map_err(|e| e.to_string());
-                let Ok(mut next) = next else {
+                let Ok(next) = next else {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_boss_reward_path".to_owned(),
@@ -4378,10 +4368,6 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
-                // CommunicationMod returns a skipped boss reward to the closed
-                // boss chest, where it can be opened again for a replacement
-                // choice. Keep that visible transition replayable.
-                next.boss_chest_opened = false;
                 seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                 compare_subset(
                     report,
@@ -5780,6 +5766,27 @@ fn seed_start_treasure_observed_subset(message: &Value) -> Value {
     })
 }
 
+fn seed_start_boss_reward_observed_subset(message: &Value) -> Value {
+    let Some(game) = message.get("game_state") else {
+        return json!({});
+    };
+    let boss_relic_ids = observed_boss_relic_key_choices(game)
+        .into_iter()
+        .map(|key| relic_key_trace_name(key).to_owned())
+        .collect::<Vec<_>>();
+    json!({
+        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "gold": int(game, "gold"),
+        "current_hp": int(game, "current_hp"),
+        "max_hp": int(game, "max_hp"),
+        "deck_ids": deck_keys_from_value(game.get("deck")),
+        "relic_ids": relic_keys_from_value(game.get("relics")),
+        "choices": boss_relic_ids.iter().map(|key| key.to_ascii_lowercase()).collect::<Vec<_>>(),
+        "boss_relic_ids": boss_relic_ids,
+    })
+}
+
 fn seed_start_rest_observed_subset(message: &Value) -> Value {
     let Some(game) = message.get("game_state") else {
         return json!({});
@@ -5862,6 +5869,31 @@ fn seed_start_treasure_simulated_subset(run: &RunState, relic_ids: &[String]) ->
         "deck_ids": deck_content_keys(&run.deck),
         "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
         "choices": choices,
+    })
+}
+
+fn seed_start_boss_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+    let boss_relic_ids = run
+        .reward
+        .as_ref()
+        .map(|reward| {
+            reward
+                .boss_relic_choices
+                .iter()
+                .map(|key| relic_key_trace_name(*key).to_owned())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    json!({
+        "screen_type": "BOSS_REWARD",
+        "floor": run.current_floor,
+        "gold": run.gold,
+        "current_hp": run.player_hp,
+        "max_hp": run.player_max_hp,
+        "deck_ids": deck_content_keys(&run.deck),
+        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "choices": boss_relic_ids.iter().map(|key| key.to_ascii_lowercase()).collect::<Vec<_>>(),
+        "boss_relic_ids": boss_relic_ids,
     })
 }
 
@@ -12364,6 +12396,70 @@ mod tests {
             "{gold_diff}"
         );
         assert!(gold_diff.contains(&forged_gold.to_string()), "{gold_diff}");
+    }
+
+    #[test]
+    fn observed_boss_relics_are_compared_without_steering_simulation() {
+        let path = crate::corpus_path("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl");
+        let content = std::fs::read_to_string(path).expect("retained trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (open_action_step, boss_reward_post) = transitions
+            .transitions
+            .iter()
+            .find_map(|(pre, action, post)| {
+                (screen_type(&pre.message) == Some("CHEST")
+                    && command_is_choose(&action.command, 0)
+                    && screen_type(&post.message) == Some("BOSS_REWARD"))
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture opens a boss relic chest");
+        let original_choices = boss_reward_post
+            .message
+            .get("game_state")
+            .map(observed_boss_relic_key_choices)
+            .expect("observed boss relic choices");
+        let forged_key = if original_choices.contains(&RelicKey::CoffeeDripper) {
+            RelicKey::Ectoplasm
+        } else {
+            RelicKey::CoffeeDripper
+        };
+        let forged_name = relic_key_trace_name(forged_key);
+
+        let mut mutated_lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let mutated_state = mutated_lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if *state == boss_reward_post => Some(state),
+                _ => None,
+            })
+            .expect("boss reward post-state remains in imported trace");
+        let first_relic = mutated_state
+            .message
+            .pointer_mut("/game_state/screen_state/relics/0")
+            .expect("first boss relic");
+        *first_relic = json!({"id": forged_name, "name": forged_name});
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
+        let report = verify_communication_mod_trace(&mutated).expect("mutated trace parses");
+        let relic_diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| {
+                diff.action_step == open_action_step && diff.label == "open boss relic chest"
+            })
+            .and_then(|diff| {
+                diff.diffs
+                    .iter()
+                    .find(|line| line.contains("boss_relic_ids"))
+            })
+            .expect("forged observed boss relic must differ from generated choices");
+        assert!(relic_diff.contains(forged_name), "{relic_diff}");
     }
 
     #[test]
