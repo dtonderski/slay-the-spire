@@ -257,7 +257,7 @@ impl PyOmniCombatEnv {
         phase_name(self.state.phase).to_owned()
     }
 
-    pub fn exact_legal_actions(&self) -> Vec<PyExactCombatAction> {
+    pub fn exact_legal_actions(&self) -> PyResult<Vec<PyExactCombatAction>> {
         exact_legal_actions(&self.state)
     }
 
@@ -286,7 +286,7 @@ impl PyOmniCombatEnv {
             snapshot_json: self.snapshot_json()?,
             snapshot_hash: resulting_hash.clone(),
             phase: self.phase(),
-            exact_legal_actions: self.exact_legal_actions(),
+            exact_legal_actions: self.exact_legal_actions()?,
             transition: PyDebugTransition {
                 action_json,
                 previous_hash,
@@ -502,14 +502,12 @@ fn slaythedata_preflight_json(content: &str, line_index: Option<usize>) -> PyRes
     to_json(&report)
 }
 
-fn exact_legal_actions(state: &CombatState) -> Vec<PyExactCombatAction> {
-    if is_terminal(state.phase) {
-        return Vec::new();
-    }
-    legal_combat_actions(state)
+fn exact_legal_actions(state: &CombatState) -> PyResult<Vec<PyExactCombatAction>> {
+    Ok(legal_combat_actions(state)
+        .map_err(|error| PyValueError::new_err(format!("invalid combat state: {error}")))?
         .into_iter()
         .map(|action| PyExactCombatAction { action })
-        .collect()
+        .collect())
 }
 
 fn snapshot_hash(state: &CombatState) -> PyResult<String> {
@@ -1330,7 +1328,7 @@ mod tests {
     #[test]
     fn fixture_exposes_exact_legal_actions() {
         let env = PyOmniCombatEnv::initial_fixture();
-        let actions = env.exact_legal_actions();
+        let actions = env.exact_legal_actions().expect("valid combat fixture");
 
         assert!(actions.iter().any(|action| action.kind() == "end_turn"));
         assert!(actions.iter().any(|action| action.card_id() == Some(1)));

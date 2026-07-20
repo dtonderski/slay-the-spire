@@ -788,6 +788,7 @@ impl SimCombatBridge {
             return Vec::new();
         }
         legal_combat_actions(combat)
+            .expect("test automation state is valid")
             .into_iter()
             .filter_map(|action| {
                 live_action_for_combat_action(&self.run, action, self.live_index_offset)

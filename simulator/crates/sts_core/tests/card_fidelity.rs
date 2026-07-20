@@ -21,6 +21,10 @@ use sts_core::{
     MonsterIntent, Relic, RunPhase, RunState, StsRng,
 };
 
+fn valid_legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
+    legal_combat_actions(state).expect("valid combat state")
+}
+
 #[test]
 fn wound_definition_matches_unplayable_status_source() {
     assert_eq!(cards::WOUND.cost, 0);
@@ -137,7 +141,7 @@ fn normality_in_hand_blocks_fourth_card_play() {
     ];
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
 
-    let legal_actions = legal_combat_actions(&state);
+    let legal_actions = valid_legal_combat_actions(&state);
     assert!(!legal_actions.contains(&CombatAction::PlayCard {
         card_id: CardId::new(2),
         target: Some(MonsterId::new(1)),
@@ -1349,7 +1353,7 @@ fn clash_requires_every_card_in_hand_to_be_an_attack() {
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
 
     assert!(
-        !legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+        !valid_legal_combat_actions(&state).contains(&CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: Some(MonsterId::new(1)),
         })
@@ -1358,7 +1362,7 @@ fn clash_requires_every_card_in_hand_to_be_an_attack() {
     state.piles.hand[1] = CardInstance::new(CardId::new(2), cards::STRIKE_R_ID);
 
     assert!(
-        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+        valid_legal_combat_actions(&state).contains(&CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: Some(MonsterId::new(1)),
         })
@@ -1497,7 +1501,7 @@ fn corruption_makes_skills_free_and_exhaust_on_use() {
     state.piles.exhaust_pile.clear();
 
     assert!(
-        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+        valid_legal_combat_actions(&state).contains(&CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: None,
         })
@@ -2406,7 +2410,7 @@ fn exhume_plus_is_playable_with_no_exhumable_cards_and_exhausts() {
     state.piles.exhaust_pile.clear();
 
     assert!(
-        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+        valid_legal_combat_actions(&state).contains(&CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: None,
         })
@@ -2693,7 +2697,7 @@ fn trip_plus_targets_all_enemies_without_selection() {
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
 
     assert!(
-        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+        valid_legal_combat_actions(&state).contains(&CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: None,
         })
@@ -2916,7 +2920,7 @@ fn forethought_plays_with_no_other_cards_and_discards_source() {
     state.piles.discard_pile.clear();
 
     assert!(
-        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+        valid_legal_combat_actions(&state).contains(&CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: None,
         })
@@ -3423,7 +3427,7 @@ fn havoc_empty_draw_and_discard_discards_source_without_top_card_effect() {
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
     let starting_hp = state.monsters[0].hp;
 
-    let legal_actions = legal_combat_actions(&state);
+    let legal_actions = valid_legal_combat_actions(&state);
     assert!(legal_actions.contains(&CombatAction::PlayCard {
         card_id: CardId::new(1),
         target: None,
@@ -3457,7 +3461,7 @@ fn havoc_empty_draw_shuffles_discard_then_plays_top_card() {
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
     let starting_hp = state.monsters[0].hp;
 
-    let legal_actions = legal_combat_actions(&state);
+    let legal_actions = valid_legal_combat_actions(&state);
     assert!(legal_actions.contains(&CombatAction::PlayCard {
         card_id: CardId::new(1),
         target: None,
@@ -4292,7 +4296,7 @@ fn impatience_plays_with_attack_in_hand_without_drawing() {
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
 
     assert!(
-        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+        valid_legal_combat_actions(&state).contains(&CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: None,
         })
@@ -4358,7 +4362,7 @@ fn sword_boomerang_definitions_target_all_enemies_without_selection() {
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
 
     assert!(
-        legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+        valid_legal_combat_actions(&state).contains(&CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: None,
         })

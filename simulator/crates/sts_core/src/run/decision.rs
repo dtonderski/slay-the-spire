@@ -86,7 +86,7 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
                     .collect());
             }
             actions.extend(
-                legal_combat_actions(combat)
+                legal_combat_actions(combat)?
                     .into_iter()
                     .map(RunDecisionAction::Combat),
             );

@@ -13,20 +13,20 @@ use crate::{
     SimError, SimResult,
 };
 
-#[must_use]
-pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
-    if state.validate().is_err() || state.phase != CombatPhase::WaitingForPlayer {
-        return Vec::new();
+pub fn legal_combat_actions(state: &CombatState) -> SimResult<Vec<CombatAction>> {
+    state.validate()?;
+    if state.phase != CombatPhase::WaitingForPlayer {
+        return Ok(Vec::new());
     }
 
     if state.decision.is_some() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let mut actions = Vec::new();
     if !can_play_card_with_relics(state) {
         actions.push(CombatAction::EndTurn);
-        return actions;
+        return Ok(actions);
     }
 
     for card in &state.piles.hand {
@@ -114,7 +114,7 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
     }
 
     actions.push(CombatAction::EndTurn);
-    actions
+    Ok(actions)
 }
 
 pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimResult<()> {
@@ -439,6 +439,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn malformed_combat_state_is_not_reported_as_no_legal_actions() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.draw_pile[0].id = state.piles.hand[0].id;
+
+        assert_eq!(
+            legal_combat_actions(&state),
+            Err(SimError::InvalidState(
+                "card instance appears in more than one pile"
+            ))
+        );
+    }
+
+    #[test]
     fn non_player_combat_phases_expose_and_accept_no_player_actions() {
         for phase in [
             CombatPhase::MonsterTurn,
@@ -448,7 +461,12 @@ mod tests {
             let mut state = CombatState::initial_fixture();
             state.phase = phase;
 
-            assert!(legal_combat_actions(&state).is_empty(), "{phase:?}");
+            assert!(
+                legal_combat_actions(&state)
+                    .expect("valid non-player combat state")
+                    .is_empty(),
+                "{phase:?}"
+            );
             assert_eq!(
                 validate_combat_action(&state, CombatAction::EndTurn),
                 Err(SimError::IllegalAction(

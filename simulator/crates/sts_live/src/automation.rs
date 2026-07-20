@@ -1182,6 +1182,7 @@ fn has_playable_card_action(state: &RunState) -> bool {
         return false;
     }
     legal_combat_actions(combat)
+        .expect("planner run state was validated before scoring")
         .into_iter()
         .any(|action| matches!(action, CombatAction::PlayCard { .. }))
 }
