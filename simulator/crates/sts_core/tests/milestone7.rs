@@ -1,8 +1,8 @@
 use sts_core::{
-    apply_combat_action_on_run, apply_run_action, card_reward_choices,
+    apply_combat_action_on_run, apply_run_action,
     content::cards::{BASH_ID, STRIKE_R_ID},
-    rng::SimulatorRng,
-    CombatAction, Potion, Relic, RunAction, RunPhase, RunState, SimError, STARTING_GOLD,
+    target_card_reward_choices, CombatAction, Potion, Relic, RunAction, RunPhase, RunState,
+    SimError, StsRng, STARTING_GOLD,
 };
 
 #[test]
@@ -41,13 +41,17 @@ fn skip_reward_preserves_master_deck_and_gold() {
 
 #[test]
 fn reward_card_choices_are_deterministic_for_seed() {
-    let mut first = SimulatorRng::new(99);
-    let mut second = SimulatorRng::new(99);
+    let mut first = StsRng::new(99);
+    let mut second = StsRng::new(99);
+    let mut first_rarity_factor = 0;
+    let mut second_rarity_factor = 0;
 
     assert_eq!(
-        card_reward_choices(&mut first, 50),
-        card_reward_choices(&mut second, 50)
+        target_card_reward_choices(&mut first, &mut first_rarity_factor, 50),
+        target_card_reward_choices(&mut second, &mut second_rarity_factor, 50)
     );
+    assert_eq!(first_rarity_factor, second_rarity_factor);
+    assert_eq!(first.counter(), second.counter());
 }
 
 #[test]

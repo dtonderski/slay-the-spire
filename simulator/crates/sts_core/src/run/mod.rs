@@ -40,12 +40,10 @@ pub use rest::{
 };
 pub use reward::{
     advance_card_rng_for_combat_entry, apply_combat_action_on_run, apply_run_action,
-    card_reward_choices, consume_neow_three_potions_hidden_card_reward,
-    enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
-    enter_elite_combat_reward_screen, enter_elite_relic_reward_screen,
-    enter_normal_combat_reward_screen, enter_reward_screen, fixed_card_reward_choices,
-    legacy_fixed_card_reward_choices, placeholder_card_reward_choices, roll_event_relic_reward,
-    setup_treasure_room, source_backed_card_reward_choices, target_card_reward_choices,
+    consume_neow_three_potions_hidden_card_reward, enter_boss_relic_reward_screen,
+    enter_chest_relic_reward_screen, enter_elite_combat_reward_screen,
+    enter_elite_relic_reward_screen, enter_normal_combat_reward_screen, enter_reward_screen,
+    roll_event_relic_reward, setup_treasure_room, target_card_reward_choices,
     target_elite_relic_tier, target_normal_combat_gold, target_potion_reward_offer,
     target_random_combat_potion, target_random_potion, target_relic_tier, CombatRewardKind,
     TreasureRoomState,

@@ -4,7 +4,7 @@ use crate::{
         apply_combat_action_with_events, finish_monster_turn_after_player_revival,
         start_player_turn, CombatPhase,
     },
-    content::cards::{upgrade_card_instance, ANGER_ID, CLEAVE_ID, PARASITE_ID, SHRUG_IT_OFF_ID},
+    content::cards::{upgrade_card_instance, PARASITE_ID},
     content::encounters::{
         generate_beyond_encounter_lists_with_rng, generate_city_encounter_lists_with_rng,
     },
@@ -22,7 +22,7 @@ use crate::{
         Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, QUESTION_CARD_REWARD_BONUS,
         SINGING_BOWL_MAX_HP,
     },
-    rng::{RngStream, SimulatorRng, StsRng},
+    rng::StsRng,
     run::event::enter_spire_heart_event,
     run::potion::{
         apply_combat_card_reward_choice, apply_combat_card_reward_skip,
@@ -200,30 +200,6 @@ fn roll_screenless_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey
 const BASE_POTION_DROP_CHANCE: i32 = 40;
 const ACT_4: i32 = 4;
 
-/// Legacy fixed reward pool used in early milestones before RNG wiring.
-///
-/// Fidelity: [`crate::FidelityCategory::LegacyFixed`]. Use only for
-/// compatibility tests and old milestone fixtures; production-like seed-start
-/// paths should use source-backed reward generation.
-#[must_use]
-pub fn legacy_fixed_card_reward_choices(next_card_id: u64) -> Vec<CardInstance> {
-    [ANGER_ID, CLEAVE_ID, SHRUG_IT_OFF_ID]
-        .iter()
-        .enumerate()
-        .map(|(index, content_id)| {
-            CardInstance::new(CardId::new(next_card_id + index as u64), *content_id)
-        })
-        .collect()
-}
-
-/// Compatibility wrapper for [`legacy_fixed_card_reward_choices`].
-///
-/// Fidelity: [`crate::FidelityCategory::LegacyFixed`].
-#[must_use]
-pub fn fixed_card_reward_choices(next_card_id: u64) -> Vec<CardInstance> {
-    legacy_fixed_card_reward_choices(next_card_id)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RewardRarityChances {
     rare: i32,
@@ -258,17 +234,6 @@ fn roll_reward_rarity(
     }
 }
 
-fn roll_placeholder_reward_rarity(rng: &mut SimulatorRng) -> CardRarity {
-    let roll = rng.next_usize(RngStream::RewardRarity, "reward_rarity", 140);
-    if roll < 100 {
-        CardRarity::Common
-    } else if roll < 137 {
-        CardRarity::Uncommon
-    } else {
-        CardRarity::Rare
-    }
-}
-
 fn resolve_rarity(requested: CardRarity, pool: &[RewardCardEntry]) -> CardRarity {
     for rarity in rarity_search_order(requested) {
         if pool.iter().any(|entry| entry.rarity == rarity) {
@@ -287,61 +252,6 @@ fn rarity_search_order(requested: CardRarity) -> [CardRarity; 3] {
         CardRarity::Uncommon => [CardRarity::Uncommon, CardRarity::Common, CardRarity::Rare],
         CardRarity::Common => [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare],
     }
-}
-
-#[must_use]
-pub fn placeholder_card_reward_choices(
-    rng: &mut SimulatorRng,
-    next_card_id: u64,
-) -> Vec<CardInstance> {
-    let mut pool: Vec<RewardCardEntry> = IRONCLAD_REWARD_ENTRIES.to_vec();
-    let mut choices = Vec::with_capacity(REWARD_CARD_COUNT);
-
-    for index in 0..REWARD_CARD_COUNT {
-        let requested = roll_placeholder_reward_rarity(rng);
-        let rarity = resolve_rarity(requested, &pool);
-        let candidate_indices: Vec<usize> = pool
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| entry.rarity == rarity)
-            .map(|(index, _)| index)
-            .collect();
-        let pick = rng.next_usize(
-            RngStream::RewardCard,
-            "reward_card",
-            candidate_indices.len(),
-        );
-        let entry = pool.remove(candidate_indices[pick]);
-        choices.push(CardInstance::new(
-            CardId::new(next_card_id + index as u64),
-            entry.content_id,
-        ));
-    }
-
-    choices
-}
-
-/// Compatibility wrapper for [`placeholder_card_reward_choices`].
-///
-/// Fidelity: [`crate::FidelityCategory::Placeholder`]. This uses the
-/// simulator-only [`SimulatorRng`] stream and is not a target-game parity claim.
-#[must_use]
-pub fn card_reward_choices(rng: &mut SimulatorRng, next_card_id: u64) -> Vec<CardInstance> {
-    placeholder_card_reward_choices(rng, next_card_id)
-}
-
-/// Source-backed target-style Ironclad card reward generation.
-///
-/// Fidelity: [`crate::FidelityCategory::SourceBacked`]. This preserves the
-/// historical `target_*` API while giving new call sites a name that states the
-/// parity evidence level.
-#[must_use]
-pub fn source_backed_card_reward_choices(
-    rng: &mut StsRng,
-    card_rarity_factor: &mut i32,
-    next_card_id: u64,
-) -> Vec<CardInstance> {
-    target_card_reward_choices(rng, card_rarity_factor, next_card_id)
 }
 
 #[must_use]
