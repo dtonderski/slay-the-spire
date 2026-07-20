@@ -1,6 +1,9 @@
 use crate::{
     card::CardInstance,
-    combat::{initialize_combat_piles_with_relics, CombatState, MonsterState, SlimeSize},
+    combat::{
+        initialize_combat_piles_with_relics, CombatRngState, CombatState, MonsterState,
+        PlayerState, SlimeSize,
+    },
     content::cards::WOUND_ID,
     content::monsters::{
         advance_reptomancer_monster_hp_rng_for_entry, content_id_from_game_monster_id,
@@ -27,10 +30,11 @@ use crate::{
         TargetEncounterSpawn, TargetSpawnIntent, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
         ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID,
         CHAMP_ID, CHOSEN_ID, DAGGER_ID, DARKLING_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID,
-        GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID,
-        LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
-        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SNAKE_PLANT_ID, SNECKO_ID,
-        SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID, WRITHING_MASS_ID,
+        GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GUARDIAN_ID, HEALER_ID, HEXAGHOST_ID,
+        JAW_WORM_ID, LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID,
+        SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID,
+        SNAKE_PLANT_ID, SNECKO_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID,
+        WRITHING_MASS_ID,
     },
     ids::CardId,
     map::{
@@ -159,22 +163,22 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
 }
 
 fn enter_normal_combat(run: &mut RunState) -> SimResult<()> {
-    let mut base = normal_combat_state_for_run(run)?;
-    enter_combat_with_base(run, &mut base)?;
+    let monsters = normal_combat_monsters_for_run(run)?;
+    enter_combat_with_monsters(run, monsters)?;
     run.normal_combat_count = run.normal_combat_count.saturating_add(1);
     Ok(())
 }
 
 fn enter_elite_combat(run: &mut RunState) -> SimResult<()> {
-    let mut base = elite_combat_state_for_run(run)?;
-    enter_combat_with_base(run, &mut base)?;
+    let monsters = elite_combat_monsters_for_run(run)?;
+    enter_combat_with_monsters(run, monsters)?;
     run.elite_combat_count = run.elite_combat_count.saturating_add(1);
     Ok(())
 }
 
 fn enter_boss_combat(run: &mut RunState) -> SimResult<()> {
-    let mut base = boss_combat_state_for_run(run)?;
-    enter_combat_with_base(run, &mut base)?;
+    let monsters = boss_combat_monsters_for_run(run)?;
+    enter_combat_with_monsters(run, monsters)?;
     Ok(())
 }
 
@@ -182,42 +186,56 @@ pub(crate) fn enter_secret_portal_boss_combat(run: &mut RunState) -> SimResult<(
     enter_boss_combat(run)
 }
 
-fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) -> SimResult<()> {
+fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -> SimResult<()> {
     run.reset_card_random_rng_for_combat();
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
-    let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
+    let monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut card_random_rng = run.card_random_rng();
     // This local field is the target game's combat aiRng. Target monsterRng is the
     // run-level encounter-list stream.
     let mut monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
-    base.piles = initialize_combat_piles_with_relics(
+    let piles = initialize_combat_piles_with_relics(
         &run.deck,
         &mut shuffle_rng,
         &mut card_random_rng,
         &run.relics,
     );
-    advance_monster_hp_rng_for_combat_entry(base, &mut monster_hp_rng, run.ascension);
-    base.rng.shuffle_rng = shuffle_rng;
-    base.rng.monster_hp_rng = monster_hp_rng;
-    apply_initial_monster_ai_rolls(base, &mut monster_rng)?;
-    record_initial_monster_moves(base);
-    base.rng.monster_rng = monster_rng.clone();
-    base.rng.card_random_rng = card_random_rng;
+    let mut combat = CombatState::new_run_entry(
+        PlayerState::new_run_entry(run.player_hp, run.player_max_hp, run.energy_per_turn)?,
+        monsters,
+        piles,
+        run.relics.clone(),
+        run.ascension,
+        CombatRngState {
+            shuffle_rng,
+            monster_rng: monster_rng.clone(),
+            monster_hp_rng,
+            card_random_rng,
+        },
+    )?;
+    advance_monster_hp_rng_for_combat_entry(
+        &combat.monsters,
+        &mut combat.rng.monster_hp_rng,
+        run.ascension,
+    );
+    apply_initial_monster_ai_rolls(&mut combat, &mut monster_rng)?;
+    record_initial_monster_moves(&mut combat);
+    combat.rng.monster_rng = monster_rng.clone();
     run.phase = RunPhase::Combat;
-    let mut combat = run.init_combat_consuming_relics(base.clone());
-    combat.rng.monster_rng = monster_rng;
-    add_mark_of_pain_wounds_to_draw_pile(run, &mut combat);
-    run.combat = Some(combat);
+    let mut initialized = run.init_combat_consuming_relics(combat);
+    initialized.rng.monster_rng = monster_rng;
+    add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized);
+    initialized.validate()?;
+    run.combat = Some(initialized);
     Ok(())
 }
 
 fn advance_monster_hp_rng_for_combat_entry(
-    combat: &CombatState,
+    monsters: &[MonsterState],
     monster_hp_rng: &mut StsRng,
     ascension: u8,
 ) {
-    if combat
-        .monsters
+    if monsters
         .iter()
         .any(|monster| monster.content_id == REPTOMANCER_ID)
     {
@@ -225,7 +243,7 @@ fn advance_monster_hp_rng_for_combat_entry(
         return;
     }
 
-    for monster in &combat.monsters {
+    for monster in monsters {
         if let Some(range) = target_monster_hp_range_for_content_id(monster.content_id, ascension) {
             range.roll(monster_hp_rng);
         }
@@ -522,7 +540,7 @@ fn gremlin_leader_alive_minion_count(monsters: &[MonsterState]) -> usize {
         .count()
 }
 
-fn normal_combat_state_for_run(run: &mut RunState) -> SimResult<CombatState> {
+fn normal_combat_monsters_for_run(run: &mut RunState) -> SimResult<Vec<MonsterState>> {
     let combat_index = normal_combat_index_for_run(run);
     let floor = u32::try_from(run.current_floor.max(1)).unwrap_or(1);
     let neow_lament = run.neow_lament_combats_remaining > 0;
@@ -569,23 +587,22 @@ fn normal_combat_state_for_run(run: &mut RunState) -> SimResult<CombatState> {
         "normal encounter spawn generation is unavailable",
     ))?;
 
-    let mut combat = CombatState::initial_fixture();
     if spawns.is_empty() {
         return Err(SimError::InvalidState(
             "normal encounter generated no monsters",
         ));
     }
-    combat.monsters = spawns
+    let mut monsters = spawns
         .iter()
         .enumerate()
         .map(|(index, spawn)| target_spawn_monster_state(spawn, index, run.ascension))
         .collect::<SimResult<Vec<_>>>()?;
-    assign_initial_gremlin_leader_slots(&mut combat.monsters);
-    assign_initial_reptomancer_dagger_slots(&mut combat.monsters);
-    Ok(combat)
+    assign_initial_gremlin_leader_slots(&mut monsters);
+    assign_initial_reptomancer_dagger_slots(&mut monsters);
+    Ok(monsters)
 }
 
-fn elite_combat_state_for_run(run: &mut RunState) -> SimResult<CombatState> {
+fn elite_combat_monsters_for_run(run: &mut RunState) -> SimResult<Vec<MonsterState>> {
     let combat_index = run.elite_combat_count as usize;
     let floor = u32::try_from(run.current_floor.max(1)).unwrap_or(1);
     let neow_lament = run.neow_lament_combats_remaining > 0;
@@ -626,20 +643,19 @@ fn elite_combat_state_for_run(run: &mut RunState) -> SimResult<CombatState> {
         "elite encounter spawn generation is unavailable",
     ))?;
 
-    let mut combat = CombatState::initial_fixture();
     if spawns.is_empty() {
         return Err(SimError::InvalidState(
             "elite encounter generated no monsters",
         ));
     }
-    combat.monsters = spawns
+    let mut monsters = spawns
         .iter()
         .enumerate()
         .map(|(index, spawn)| target_spawn_monster_state(spawn, index, run.ascension))
         .collect::<SimResult<Vec<_>>>()?;
-    assign_initial_gremlin_leader_slots(&mut combat.monsters);
-    assign_initial_reptomancer_dagger_slots(&mut combat.monsters);
-    Ok(combat)
+    assign_initial_gremlin_leader_slots(&mut monsters);
+    assign_initial_reptomancer_dagger_slots(&mut monsters);
+    Ok(monsters)
 }
 
 fn assign_initial_gremlin_leader_slots(monsters: &mut [MonsterState]) {
@@ -724,60 +740,40 @@ fn target_beyond_encounter_spawn_for_run(
     spawns
 }
 
-fn boss_combat_state_for_run(run: &RunState) -> SimResult<CombatState> {
-    if run.current_act == 1 {
-        return Ok(match run.act1_boss {
-            crate::run::Act1Boss::Hexaghost => CombatState::hexaghost_fixture(),
-            crate::run::Act1Boss::SlimeBoss => CombatState::slime_boss_fixture(),
-            crate::run::Act1Boss::Guardian => CombatState::guardian_fixture(),
-        });
-    }
-    if run.current_act == 2 {
-        let mut combat = CombatState::initial_fixture();
-        let boss_key =
-            crate::content::encounters::target_city_act_two_boss(run.monster_rng_seed as i64);
-        let content_id = content_id_from_game_monster_id(&boss_key).ok_or(
-            SimError::InvalidState("Act 2 boss has unknown monster content"),
-        )?;
-        let definition =
-            get_monster_definition(content_id).ok_or(SimError::UnknownContent(content_id))?;
-        combat.monsters = vec![monster_state_for_ascension(
-            definition,
-            crate::MonsterId::new(1),
-            run.ascension,
-        )];
-        return Ok(combat);
-    }
-    if run.current_act == 3 {
-        let mut combat = CombatState::initial_fixture();
-        combat.monsters = match run.act3_boss {
-            crate::run::Act3Boss::AwakenedOne => {
-                let definition = get_monster_definition(crate::content::monsters::AWAKENED_ONE_ID)
-                    .expect("Awakened One definition is registered");
-                vec![monster_state_for_ascension(
-                    definition,
-                    crate::MonsterId::new(1),
-                    run.ascension,
-                )]
-            }
-            crate::run::Act3Boss::TimeEater => {
-                let definition = get_monster_definition(crate::content::monsters::TIME_EATER_ID)
-                    .expect("Time Eater definition is registered");
-                vec![monster_state_for_ascension(
-                    definition,
-                    crate::MonsterId::new(1),
-                    run.ascension,
-                )]
-            }
+fn boss_combat_monsters_for_run(run: &RunState) -> SimResult<Vec<MonsterState>> {
+    let content_id = match run.current_act {
+        1 => match run.act1_boss {
+            crate::run::Act1Boss::Hexaghost => HEXAGHOST_ID,
+            crate::run::Act1Boss::SlimeBoss => SLIME_BOSS_ID,
+            crate::run::Act1Boss::Guardian => GUARDIAN_ID,
+        },
+        2 => {
+            let boss_key =
+                crate::content::encounters::target_city_act_two_boss(run.monster_rng_seed as i64);
+            content_id_from_game_monster_id(&boss_key).ok_or(SimError::InvalidState(
+                "Act 2 boss has unknown monster content",
+            ))?
+        }
+        3 => match run.act3_boss {
+            crate::run::Act3Boss::AwakenedOne => crate::content::monsters::AWAKENED_ONE_ID,
+            crate::run::Act3Boss::TimeEater => crate::content::monsters::TIME_EATER_ID,
             crate::run::Act3Boss::DonuAndDeca => {
-                donu_deca_boss_monsters_for_ascension(run.ascension)
+                return Ok(donu_deca_boss_monsters_for_ascension(run.ascension));
             }
-        };
-        return Ok(combat);
-    }
-    Err(SimError::InvalidState(
-        "boss combat requires a supported act",
-    ))
+        },
+        _ => {
+            return Err(SimError::InvalidState(
+                "boss combat requires a supported act",
+            ));
+        }
+    };
+    let definition =
+        get_monster_definition(content_id).ok_or(SimError::UnknownContent(content_id))?;
+    Ok(vec![monster_state_for_ascension(
+        definition,
+        crate::MonsterId::new(1),
+        run.ascension,
+    )])
 }
 
 fn normal_combat_index_for_run(run: &RunState) -> usize {
@@ -1088,7 +1084,7 @@ mod tests {
         run.normal_encounter_list = vec!["not-an-encounter".to_owned()];
         run.normal_combat_count = 0;
         assert_eq!(
-            normal_combat_state_for_run(&mut run),
+            normal_combat_monsters_for_run(&mut run),
             Err(SimError::InvalidState(
                 "normal encounter spawn generation is unavailable"
             ))
@@ -1096,11 +1092,29 @@ mod tests {
 
         run.current_act = 4;
         assert_eq!(
-            boss_combat_state_for_run(&run),
+            boss_combat_monsters_for_run(&run),
             Err(SimError::InvalidState(
                 "boss combat requires a supported act"
             ))
         );
+    }
+
+    #[test]
+    fn act_one_boss_entry_uses_the_run_ascension_instead_of_a0_fixtures() {
+        let mut run = RunState::map_fixture();
+        run.current_act = 1;
+        run.ascension = 9;
+        run.act1_boss = crate::run::Act1Boss::Hexaghost;
+        run.current_room_override = Some(RoomKind::Boss);
+
+        enter_boss_combat(&mut run).expect("A9 Hexaghost combat entry succeeds");
+        let combat = run.combat.as_ref().expect("combat is published");
+
+        assert_eq!(combat.monsters.len(), 1);
+        assert_eq!(combat.monsters[0].content_id, HEXAGHOST_ID);
+        assert_eq!(combat.monsters[0].max_hp, 287);
+        assert_eq!(combat.monsters[0].hp, 287);
+        combat.validate().expect("published combat is valid");
     }
 
     #[test]

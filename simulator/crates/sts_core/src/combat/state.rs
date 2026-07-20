@@ -248,6 +248,32 @@ pub struct PlayerState {
     pub vulnerable_just_applied: bool,
 }
 
+impl PlayerState {
+    pub(crate) fn new_run_entry(hp: i32, max_hp: i32, energy_per_turn: i32) -> SimResult<Self> {
+        if max_hp <= 0 || hp < 0 || hp > max_hp {
+            return Err(SimError::InvalidState("combat player HP is out of bounds"));
+        }
+        if energy_per_turn < 0 {
+            return Err(SimError::InvalidState("combat player energy is negative"));
+        }
+        Ok(Self {
+            hp,
+            max_hp,
+            block: 0,
+            energy: energy_per_turn,
+            max_energy: energy_per_turn,
+            powers: PlayerPowers::default(),
+            cannot_draw: false,
+            temp_strength: 0,
+            temp_dexterity: 0,
+            temp_thorns: 0,
+            temp_rage_block: 0,
+            no_block_turns: 0,
+            vulnerable_just_applied: false,
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonsterState {
     pub id: MonsterId,
@@ -475,10 +501,31 @@ pub enum MonsterIntent {
 }
 
 impl CombatState {
+    pub(crate) fn new_run_entry(
+        player: PlayerState,
+        monsters: Vec<MonsterState>,
+        piles: CardPiles,
+        relics: Vec<Relic>,
+        ascension: u8,
+        rng: CombatRngState,
+    ) -> SimResult<Self> {
+        if monsters.is_empty() {
+            return Err(SimError::InvalidState(
+                "production combat entry requires at least one monster",
+            ));
+        }
+        if ascension > 20 {
+            return Err(SimError::InvalidState("combat ascension exceeds 20"));
+        }
+        let state = Self::from_entry_parts(player, monsters, piles, relics, ascension, rng);
+        state.validate_unique_card_piles()?;
+        Ok(state)
+    }
+
     #[must_use]
     pub fn initial_fixture() -> Self {
-        Self {
-            player: PlayerState {
+        Self::from_entry_parts(
+            PlayerState {
                 hp: IRONCLAD_A0_BASE_HP,
                 max_hp: IRONCLAD_A0_BASE_HP,
                 block: 0,
@@ -493,8 +540,8 @@ impl CombatState {
                 no_block_turns: 0,
                 vulnerable_just_applied: false,
             },
-            monsters: vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))],
-            piles: CardPiles {
+            vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))],
+            CardPiles {
                 hand: vec![
                     CardInstance::new(CardId::new(1), STRIKE_R_ID),
                     CardInstance::new(CardId::new(2), DEFEND_R_ID),
@@ -504,12 +551,30 @@ impl CombatState {
                 discard_pile: Vec::new(),
                 exhaust_pile: Vec::new(),
             },
+            Vec::new(),
+            0,
+            CombatRngState::deterministic_fixture(0),
+        )
+    }
+
+    fn from_entry_parts(
+        player: PlayerState,
+        monsters: Vec<MonsterState>,
+        piles: CardPiles,
+        relics: Vec<Relic>,
+        ascension: u8,
+        rng: CombatRngState,
+    ) -> Self {
+        Self {
+            player,
+            monsters,
+            piles,
             phase: CombatPhase::WaitingForPlayer,
-            relics: Vec::new(),
+            relics,
             mark_of_bloom: false,
             relic_counters: RelicCounters::default(),
-            ascension: 0,
-            rng: CombatRngState::deterministic_fixture(0),
+            ascension,
+            rng,
             potion_card_reward: None,
             potion_card_reward_kind: None,
             toolbox_card_reward: None,
@@ -841,5 +906,68 @@ impl CardPiles {
             .chain(self.draw_pile.iter())
             .chain(self.discard_pile.iter())
             .chain(self.exhaust_pile.iter())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_piles() -> CardPiles {
+        CardPiles {
+            hand: Vec::new(),
+            draw_pile: Vec::new(),
+            discard_pile: Vec::new(),
+            exhaust_pile: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn production_run_entry_requires_explicit_nonempty_monsters() {
+        let result = CombatState::new_run_entry(
+            PlayerState::new_run_entry(42, 80, 4).expect("player state is valid"),
+            Vec::new(),
+            empty_piles(),
+            Vec::new(),
+            9,
+            CombatRngState::deterministic_fixture(7),
+        );
+
+        assert_eq!(
+            result,
+            Err(SimError::InvalidState(
+                "production combat entry requires at least one monster"
+            ))
+        );
+    }
+
+    #[test]
+    fn production_run_entry_retains_only_caller_supplied_authoritative_state() {
+        let rng = CombatRngState {
+            shuffle_rng: StsRng::new(1),
+            monster_rng: StsRng::new(2),
+            monster_hp_rng: StsRng::new(3),
+            card_random_rng: StsRng::new(4),
+        };
+        let monster = monster_state(&CULTIST_A0, MonsterId::new(9));
+
+        let state = CombatState::new_run_entry(
+            PlayerState::new_run_entry(42, 80, 4).expect("player state is valid"),
+            vec![monster.clone()],
+            empty_piles(),
+            Vec::new(),
+            9,
+            rng.clone(),
+        )
+        .expect("explicit run entry is valid");
+
+        assert_eq!(state.player.hp, 42);
+        assert_eq!(state.player.max_hp, 80);
+        assert_eq!(state.player.energy, 4);
+        assert_eq!(state.player.max_energy, 4);
+        assert_eq!(state.monsters, vec![monster]);
+        assert!(state.piles.all_cards().next().is_none());
+        assert_eq!(state.ascension, 9);
+        assert_eq!(state.rng, rng);
     }
 }

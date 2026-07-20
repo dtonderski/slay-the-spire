@@ -1,6 +1,6 @@
 use crate::{
     card::{CardRarity, CardType},
-    combat::initialize_combat_piles_with_relics,
+    combat::{initialize_combat_piles_with_relics, CombatRngState, PlayerState},
     content::cards::{
         card_instance_is_upgradeable, get_card_definition, is_basic_starter_card,
         is_curse_content_id, upgrade_card_instance, APPARITION_ID, ASCENDERS_BANE_ID, BASH_ID,
@@ -4804,9 +4804,7 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) ->
     let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
     let mut card_random_rng = run.card_random_rng();
-    let mut combat = CombatState::initial_fixture();
-    combat.ascension = run.ascension;
-    combat.monsters = definitions
+    let monsters = definitions
         .iter()
         .enumerate()
         .map(|(index, definition)| {
@@ -4825,23 +4823,35 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) ->
             monster
         })
         .collect();
-    apply_initial_monster_ai_rolls(&mut combat, &mut monster_rng)?;
-    for monster in &mut combat.monsters {
-        record_target_move(monster);
-    }
-    combat.piles = initialize_combat_piles_with_relics(
+    let piles = initialize_combat_piles_with_relics(
         &run.deck,
         &mut shuffle_rng,
         &mut card_random_rng,
         &run.relics,
     );
-    combat.rng.shuffle_rng = shuffle_rng;
-    combat.rng.monster_hp_rng = monster_hp_rng;
+    let mut combat = CombatState::new_run_entry(
+        PlayerState::new_run_entry(run.player_hp, run.player_max_hp, run.energy_per_turn)?,
+        monsters,
+        piles,
+        run.relics.clone(),
+        run.ascension,
+        CombatRngState {
+            shuffle_rng,
+            monster_rng: monster_rng.clone(),
+            monster_hp_rng,
+            card_random_rng,
+        },
+    )?;
+    apply_initial_monster_ai_rolls(&mut combat, &mut monster_rng)?;
+    for monster in &mut combat.monsters {
+        record_target_move(monster);
+    }
     combat.rng.monster_rng = monster_rng;
-    combat.rng.card_random_rng = card_random_rng;
     run.phase = RunPhase::Combat;
     run.event = None;
-    run.combat = Some(run.init_combat_consuming_relics(combat));
+    let initialized = run.init_combat_consuming_relics(combat);
+    initialized.validate()?;
+    run.combat = Some(initialized);
     Ok(())
 }
 
