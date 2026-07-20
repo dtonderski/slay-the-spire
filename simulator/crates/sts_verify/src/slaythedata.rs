@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, error::Error, fmt};
 use sts_core::{
     apply_run_decision_action,
     content::{cards::get_card_definition, monsters::get_monster_definition},
-    generate_neow_options, legal_event_actions, legal_map_actions_on_run, EventAction,
+    generate_neow_options, legal_run_decision_actions, validate_run_decision_action, EventAction,
     GeneratedNeowOption, MapAction, NeowDrawback, NeowRewardType, RoomKind, RunAction,
     RunDecisionAction, RunPhase, RunState,
 };
@@ -21,6 +21,16 @@ fn apply_map_action_on_run(run: &RunState, action: MapAction) -> sts_core::SimRe
 
 fn apply_run_action(run: &RunState, action: RunAction) -> sts_core::SimResult<RunState> {
     apply_run_decision_action(run, RunDecisionAction::Run(action))
+}
+
+fn legal_map_decisions(run: &RunState) -> sts_core::SimResult<Vec<MapAction>> {
+    Ok(legal_run_decision_actions(run)?
+        .into_iter()
+        .filter_map(|action| match action {
+            RunDecisionAction::Map(action) => Some(action),
+            _ => None,
+        })
+        .collect())
 }
 
 pub const SLAYTHEDATA_IMPORT_SCHEMA_VERSION: u32 = 1;
@@ -840,12 +850,13 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
         let (status, code, message, bridge_command) = match &step.kind {
             SlayTheDataReplayStepKind::NeowTalk => {
                 if let Some(current) = run.as_ref() {
-                    let actions = legal_event_actions(current);
-                    if actions.contains(&EventAction::Choose { choice_index: 0 }) {
-                        let next = apply_event_action(
-                            current,
-                            EventAction::Choose { choice_index: 0 },
-                        );
+                    let action = EventAction::Choose { choice_index: 0 };
+                    let validation = validate_run_decision_action(
+                        current,
+                        RunDecisionAction::Event(action),
+                    );
+                    if validation.is_ok() {
+                        let next = apply_event_action(current, action);
                         match next {
                             Ok(next) => {
                                 run = Some(next);
@@ -869,8 +880,9 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                             SlayTheDataPreflightStatus::Blocked,
                             "illegal_neow_talk".to_owned(),
                             format!(
-                                "Neow talk is not legal from phase {:?}; legal event actions: {:?}",
-                                current.phase, actions
+                                "Neow talk is not legal from phase {:?}: {}",
+                                current.phase,
+                                validation.expect_err("failed validation")
                             ),
                             None,
                         )
@@ -890,7 +902,11 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                         let action = EventAction::Choose {
                             choice_index: option.slot,
                         };
-                        if legal_event_actions(current).contains(&action) {
+                        let validation = validate_run_decision_action(
+                            current,
+                            RunDecisionAction::Event(action),
+                        );
+                        if validation.is_ok() {
                             match apply_event_action(current, action) {
                                 Ok(next) => {
                                     run = Some(next);
@@ -919,8 +935,10 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                                 SlayTheDataPreflightStatus::Blocked,
                                 "illegal_neow_bonus_slot".to_owned(),
                                 format!(
-                                    "matched Neow option slot {} but it is not legal from phase {:?}",
-                                    option.slot, current.phase
+                                    "matched Neow option slot {} but it is not legal from phase {:?}: {}",
+                                    option.slot,
+                                    current.phase,
+                                    validation.expect_err("failed validation")
                                 ),
                                 None,
                             )
@@ -943,26 +961,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
             SlayTheDataReplayStepKind::NeowLeave => {
                 if let Some(current) = run.as_ref() {
                     let action = EventAction::Choose { choice_index: 0 };
-                    if current.phase == RunPhase::Event && legal_event_actions(current).contains(&action) {
-                        match apply_event_action(current, action) {
-                            Ok(next) => {
-                                run = Some(next);
-                                (
-                                    SlayTheDataPreflightStatus::Checked,
-                                    "legal_neow_leave".to_owned(),
-                                    "Neow leave is legal after the selected immediate Neow option"
-                                        .to_owned(),
-                                    Some(choose_visible_hint(0)),
-                                )
-                            }
-                            Err(error) => (
-                                SlayTheDataPreflightStatus::Blocked,
-                                "neow_leave_apply_failed".to_owned(),
-                                format!("Neow leave was legal but failed to apply: {error}"),
-                                None,
-                            ),
-                        }
-                    } else {
+                    if current.phase != RunPhase::Event {
                         (
                             SlayTheDataPreflightStatus::Guided,
                             "pending_neow_followup".to_owned(),
@@ -972,6 +971,36 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                             ),
                             None,
                         )
+                    } else {
+                        match validate_run_decision_action(
+                            current,
+                            RunDecisionAction::Event(action),
+                        ) {
+                            Err(error) => (
+                                SlayTheDataPreflightStatus::Blocked,
+                                "illegal_neow_leave".to_owned(),
+                                format!("core rejected Neow leave: {error}"),
+                                None,
+                            ),
+                            Ok(()) => match apply_event_action(current, action) {
+                                Ok(next) => {
+                                    run = Some(next);
+                                    (
+                                        SlayTheDataPreflightStatus::Checked,
+                                        "legal_neow_leave".to_owned(),
+                                        "Neow leave is legal after the selected immediate Neow option"
+                                            .to_owned(),
+                                        Some(choose_visible_hint(0)),
+                                    )
+                                }
+                                Err(error) => (
+                                    SlayTheDataPreflightStatus::Blocked,
+                                    "neow_leave_apply_failed".to_owned(),
+                                    format!("Neow leave was legal but failed to apply: {error}"),
+                                    None,
+                                ),
+                            },
+                        }
                     }
                 } else {
                     (
@@ -983,11 +1012,23 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
                 }
             }
             SlayTheDataReplayStepKind::MapRoom { symbol } => match run.as_ref() {
-                Some(current) if current.phase == RunPhase::Idle => {
+                Some(current) if current.phase == RunPhase::Idle => 'map_check: {
                     if route_proof_start.is_none() {
                         route_proof_start = Some(current.clone());
                     }
-                    let actions = legal_map_actions_on_run(current);
+                    let actions = match legal_map_decisions(current) {
+                        Ok(actions) => actions,
+                        Err(error) => {
+                            break 'map_check (
+                                SlayTheDataPreflightStatus::Blocked,
+                                "invalid_core_map_state".to_owned(),
+                                format!(
+                                    "core legal-action boundary rejected map state: {error}"
+                                ),
+                                None,
+                            );
+                        }
+                    };
                     let action_symbols: Vec<_> = actions
                         .iter()
                         .filter_map(|action| map_action_room_kind(current, *action))
@@ -1302,7 +1343,9 @@ fn prove_route_suffix(
         return true;
     };
     let idle = run_completed_for_route_lookahead(run);
-    let actions = legal_map_actions_on_run(&idle);
+    let Ok(actions) = legal_map_decisions(&idle) else {
+        return false;
+    };
     let matches: Vec<_> = actions
         .iter()
         .copied()
@@ -1421,7 +1464,10 @@ fn run_state_can_match_route_suffix(
         return true;
     };
     let idle = run_completed_for_route_lookahead(run);
-    legal_map_actions_on_run(&idle).into_iter().any(|action| {
+    let Ok(actions) = legal_map_decisions(&idle) else {
+        return false;
+    };
+    actions.into_iter().any(|action| {
         let Some(kind) = map_action_room_kind(&idle, action) else {
             return false;
         };
