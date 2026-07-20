@@ -717,7 +717,7 @@ fn target_city_encounter_spawn_for_run(
         encounter_key,
         run.ascension,
         neow_lament,
-        Some(&mut misc_rng),
+        &mut misc_rng,
     );
     run.store_rng_counter(RunRngStream::Misc, &misc_rng);
     spawns

@@ -2434,7 +2434,7 @@ pub fn target_city_encounter_spawn_for_key(
         encounter_key,
         ascension,
         neow_lament,
-        Some(&mut misc_rng),
+        &mut misc_rng,
     )
 }
 
@@ -2445,7 +2445,7 @@ pub fn target_city_encounter_spawn_for_key_with_misc_rng(
     encounter_key: &str,
     ascension: u8,
     neow_lament: bool,
-    mut misc_rng: Option<&mut StsRng>,
+    misc_rng: &mut StsRng,
 ) -> Option<Vec<TargetEncounterSpawn>> {
     let group = target_city_encounter_group_for_key(encounter_key)?;
     let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
@@ -2456,7 +2456,7 @@ pub fn target_city_encounter_spawn_for_key_with_misc_rng(
             target_city_member_spawn(
                 member.monster_name,
                 &mut hp_rng,
-                misc_rng.as_deref_mut(),
+                misc_rng,
                 ascension,
                 neow_lament,
             )
@@ -2467,12 +2467,12 @@ pub fn target_city_encounter_spawn_for_key_with_misc_rng(
 fn target_city_member_spawn(
     monster_name: &str,
     hp_rng: &mut StsRng,
-    misc_rng: Option<&mut StsRng>,
+    misc_rng: &mut StsRng,
     ascension: u8,
     neow_lament: bool,
 ) -> Option<TargetEncounterSpawn> {
     let monster_name = if monster_name == "random gremlin" {
-        target_random_gremlin_name(misc_rng?)
+        target_random_gremlin_name(misc_rng)
     } else {
         monster_name
     };
@@ -3285,10 +3285,17 @@ fn target_two_fungi_beasts_spawn_states(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
+    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
     let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
     (0..2)
         .filter_map(|_| {
-            target_city_member_spawn("FungiBeast", &mut hp_rng, None, ascension, neow_lament)
+            target_city_member_spawn(
+                "FungiBeast",
+                &mut hp_rng,
+                &mut misc_rng,
+                ascension,
+                neow_lament,
+            )
         })
         .collect()
 }
@@ -9928,6 +9935,35 @@ mod tests {
     }
 
     #[test]
+    fn city_gremlin_leader_entry_requires_and_consumes_misc_rng() {
+        let seed = 772_776_727_775_i64;
+        let floor = 33;
+        let mut expected_rng = StsRng::new(seed + i64::from(floor));
+        let expected_names = vec![
+            target_random_gremlin_name(&mut expected_rng),
+            target_random_gremlin_name(&mut expected_rng),
+            "GremlinLeader",
+        ];
+        let mut misc_rng = StsRng::new(seed + i64::from(floor));
+
+        let spawns = target_city_encounter_spawn_for_key_with_misc_rng(
+            seed,
+            floor,
+            "Gremlin Leader",
+            0,
+            false,
+            &mut misc_rng,
+        )
+        .expect("Gremlin Leader encounter is implemented");
+
+        assert_eq!(
+            spawns.iter().map(|spawn| spawn.name).collect::<Vec<_>>(),
+            expected_names
+        );
+        assert_eq!(misc_rng.counter(), 2);
+    }
+
+    #[test]
     fn guardian_vent_steam_applies_weak_and_vulnerable() {
         let mut state = crate::CombatState::initial_fixture();
         let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
@@ -11302,11 +11338,13 @@ mod tests {
         let _constructor_hp = TASKMASTER_A0_HP_RANGE.roll(&mut expected_hp_rng);
         let taskmaster_hp = TASKMASTER_A8_HP_RANGE.roll(&mut expected_hp_rng);
         let mut hp_rng = StsRng::new(321);
+        let mut misc_rng = StsRng::new(654);
 
-        let spawn = target_city_member_spawn("Taskmaster", &mut hp_rng, None, 8, false)
+        let spawn = target_city_member_spawn("Taskmaster", &mut hp_rng, &mut misc_rng, 8, false)
             .expect("Taskmaster city member spawn exists");
 
         assert_eq!(hp_rng.counter(), 2);
+        assert_eq!(misc_rng.counter(), 0);
         assert_eq!(spawn.name, "Taskmaster");
         assert_eq!(
             (spawn.current_hp, spawn.max_hp),
