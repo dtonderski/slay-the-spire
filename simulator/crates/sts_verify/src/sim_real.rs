@@ -95,6 +95,7 @@ pub enum ActionDispositionKind {
     TargetRejected,
     Boundary,
     BeyondBoundary,
+    PendingTransient,
     Unclassified,
 }
 
@@ -306,6 +307,7 @@ fn verify_seed_start_trace(
         &transitions,
         &report,
         &verification.reconciled_deferred_action_steps,
+        &verification.unresolved_deferred_action_steps,
         verification.unresolved_transient_assertions,
     );
     report.action_dispositions = action_dispositions;
@@ -497,6 +499,7 @@ fn build_action_accounting(
     transitions: &TraceTransitions,
     report: &SimRealReport,
     semantic_reconciled_action_steps: &[u32],
+    semantic_pending_action_steps: &[u32],
     semantic_unresolved_transient_assertions: usize,
 ) -> (Vec<ActionDisposition>, VerificationIntegrity) {
     let actions = lines
@@ -522,6 +525,18 @@ fn build_action_accounting(
             .contains(&transitions.transitions[transition_index].1.step)
         {
             reconciled.insert(ordinal);
+        }
+    }
+    let mut pending = std::collections::HashSet::new();
+    for (transition_index, ordinal) in transitions
+        .transition_action_ordinals
+        .iter()
+        .copied()
+        .enumerate()
+    {
+        if semantic_pending_action_steps.contains(&transitions.transitions[transition_index].1.step)
+        {
+            pending.insert(ordinal);
         }
     }
     let mut duplicate_dispositions = 0;
@@ -635,6 +650,11 @@ fn build_action_accounting(
             (
                 ActionDispositionKind::Verified,
                 Some(report.verified[index].label.clone()),
+            )
+        } else if pending.contains(&ordinal) {
+            (
+                ActionDispositionKind::PendingTransient,
+                Some("deferred assertion has no stable reconciliation frame".to_owned()),
             )
         } else if boundary_step == Some(action.step) && !boundary_reached {
             let boundary = boundary.expect("boundary step came from boundary");
@@ -897,6 +917,7 @@ struct SeedStartVerification {
     boundary: SeedStartBoundary,
     final_run_state: Option<RunState>,
     reconciled_deferred_action_steps: Vec<u32>,
+    unresolved_deferred_action_steps: Vec<u32>,
     unresolved_transient_assertions: usize,
 }
 
@@ -913,6 +934,17 @@ struct PendingMapAssertion {
     transient_matches: bool,
 }
 
+struct PendingCombatTransition {
+    action: TraceAction,
+    label: String,
+    transient_matches: bool,
+}
+
+#[derive(Default)]
+struct PendingCombatAssertion {
+    transitions: Vec<PendingCombatTransition>,
+}
+
 enum SmokeBombUiState {
     Escaping {
         source: Box<RunState>,
@@ -922,15 +954,6 @@ enum SmokeBombUiState {
     Reward {
         pending_proceeds: Vec<TraceAction>,
     },
-}
-
-impl SmokeBombUiState {
-    fn unresolved_assertions(&self) -> usize {
-        match self {
-            Self::Escaping { .. } => 1,
-            Self::Reward { pending_proceeds } => pending_proceeds.len(),
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -974,23 +997,48 @@ fn verify_seed_start_transitions(
     let mut smoke_bomb_ui: Option<SmokeBombUiState> = None;
     let mut pending_deck_assertion: Option<PendingDeckAssertion> = None;
     let mut pending_map_assertion: Option<PendingMapAssertion> = None;
+    let mut pending_combat_assertion: Option<PendingCombatAssertion> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
 
     macro_rules! finish_boundary {
-        ($boundary:expr) => {
+        ($boundary:expr) => {{
+            let mut unresolved_deferred_action_steps = Vec::new();
+            if let Some(pending) = pending_deck_assertion.as_ref() {
+                unresolved_deferred_action_steps.push(pending.action.step);
+            }
+            if let Some(pending) = pending_map_assertion.as_ref() {
+                unresolved_deferred_action_steps.push(pending.action.step);
+            }
+            if let Some(pending) = pending_combat_assertion.as_ref() {
+                unresolved_deferred_action_steps.extend(
+                    pending
+                        .transitions
+                        .iter()
+                        .map(|transition| transition.action.step),
+                );
+            }
+            if let Some(pending) = smoke_bomb_ui.as_ref() {
+                match pending {
+                    SmokeBombUiState::Escaping { action, .. } => {
+                        unresolved_deferred_action_steps.push(action.step);
+                    }
+                    SmokeBombUiState::Reward { pending_proceeds } => {
+                        unresolved_deferred_action_steps
+                            .extend(pending_proceeds.iter().map(|action| action.step));
+                    }
+                }
+            }
+            unresolved_deferred_action_steps.sort_unstable();
+            unresolved_deferred_action_steps.dedup();
             seed_start_finish_boundary(
                 &seed_sim,
                 $boundary,
                 start.numeric_seed,
                 boss_unlocks,
                 reconciled_deferred_action_steps,
-                usize::from(pending_deck_assertion.is_some())
-                    + usize::from(pending_map_assertion.is_some())
-                    + smoke_bomb_ui
-                        .as_ref()
-                        .map_or(0, SmokeBombUiState::unresolved_assertions),
+                unresolved_deferred_action_steps,
             )
-        };
+        }};
     }
 
     for (pre, action, post) in transitions {
@@ -1116,6 +1164,27 @@ fn verify_seed_start_transitions(
         if action.command.eq_ignore_ascii_case("state")
             || smoke_bomb_ui.is_some() && action.command.eq_ignore_ascii_case("wait")
         {
+            if pending_combat_assertion.is_some() {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return finish_boundary!(SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_pending_combat_transition".to_owned(),
+                        reason: "pending combat assertion lost its authoritative run state"
+                            .to_owned(),
+                    });
+                };
+                seed_start_compare_or_defer_combat_transition(
+                    report,
+                    action,
+                    "combat observation poll",
+                    &post.message,
+                    seed_start_combat_observed_subset(&post.message),
+                    seed_start_simulated_combat_subset(sim, false),
+                    &mut pending_combat_assertion,
+                    &mut reconciled_deferred_action_steps,
+                );
+                continue;
+            }
             if let Some(SmokeBombUiState::Escaping {
                 source,
                 action: escape_action,
@@ -3678,13 +3747,15 @@ fn verify_seed_start_transitions(
 
                 if let Some(decision) = combat_decision {
                     if command.eq_ignore_ascii_case("WAIT") {
-                        seed_start_compare_combat_subset(
+                        seed_start_compare_or_defer_combat_transition(
                             report,
                             action,
                             "combat decision refresh",
+                            &post.message,
                             seed_start_combat_observed_subset(&post.message),
                             seed_start_simulated_combat_subset(sim, false),
-                            false,
+                            &mut pending_combat_assertion,
+                            &mut reconciled_deferred_action_steps,
                         );
                         continue;
                     }
@@ -3714,13 +3785,15 @@ fn verify_seed_start_transitions(
                             reason: format!("seed-start {label} simulation failed"),
                         });
                     };
-                    seed_start_compare_combat_subset(
+                    seed_start_compare_or_defer_combat_transition(
                         report,
                         action,
                         label,
+                        &post.message,
                         seed_start_combat_observed_subset(&post.message),
                         seed_start_simulated_combat_subset(&next, false),
-                        false,
+                        &mut pending_combat_assertion,
+                        &mut reconciled_deferred_action_steps,
                     );
                     *sim = next;
                     continue;
@@ -3819,13 +3892,15 @@ fn verify_seed_start_transitions(
                         return finish_boundary!(boundary);
                     }
                     if seed_start_run_has_combat_card_reward(&next) {
-                        seed_start_compare_combat_subset(
+                        seed_start_compare_or_defer_combat_transition(
                             report,
                             action,
                             "combat potion card reward",
+                            &post.message,
                             seed_start_combat_observed_subset(&post.message),
                             seed_start_simulated_combat_subset(&next, false),
-                            false,
+                            &mut pending_combat_assertion,
+                            &mut reconciled_deferred_action_steps,
                         );
                         *sim = next;
                         continue;
@@ -3861,13 +3936,15 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     }
-                    seed_start_compare_combat_subset(
+                    seed_start_compare_or_defer_combat_transition(
                         report,
                         action,
                         "combat potion use",
+                        &post.message,
                         seed_start_combat_observed_subset(&post.message),
                         seed_start_simulated_combat_subset(&next, false),
-                        false,
+                        &mut pending_combat_assertion,
+                        &mut reconciled_deferred_action_steps,
                     );
                     *sim = next;
                     continue;
@@ -3997,15 +4074,16 @@ fn verify_seed_start_transitions(
                 let label = combat_label(command, sim);
                 let observed = seed_start_combat_observed_subset(&post.message);
                 let simulated = seed_start_simulated_combat_subset(&next, false);
-                if seed_start_is_transient_combat_post_state(&post.message) {
-                    seed_start_compare_transient_combat_subset(
-                        report, action, &label, observed, simulated,
-                    );
-                } else {
-                    seed_start_compare_combat_subset(
-                        report, action, &label, observed, simulated, false,
-                    );
-                }
+                seed_start_compare_or_defer_combat_transition(
+                    report,
+                    action,
+                    &label,
+                    &post.message,
+                    observed,
+                    simulated,
+                    &mut pending_combat_assertion,
+                    &mut reconciled_deferred_action_steps,
+                );
                 *sim = next;
             }
             SeedStartPhase::Reward => {
@@ -5283,7 +5361,7 @@ fn seed_start_finish_boundary(
     numeric_seed: i64,
     boss_unlocks: BossUnlockState,
     reconciled_deferred_action_steps: Vec<u32>,
-    unresolved_transient_assertions: usize,
+    unresolved_deferred_action_steps: Vec<u32>,
 ) -> SeedStartVerification {
     let mut final_run_state = seed_sim.clone();
     if let Some(run) = final_run_state.as_mut() {
@@ -5293,7 +5371,8 @@ fn seed_start_finish_boundary(
         boundary,
         final_run_state,
         reconciled_deferred_action_steps,
-        unresolved_transient_assertions,
+        unresolved_transient_assertions: unresolved_deferred_action_steps.len(),
+        unresolved_deferred_action_steps,
     }
 }
 
@@ -9647,7 +9726,7 @@ fn seed_start_compare_transient_combat_subset(
     label: &str,
     mut expected: Value,
     mut actual: Value,
-) {
+) -> bool {
     for value in [&mut expected, &mut actual] {
         if let Some(object) = value.as_object_mut() {
             for key in [
@@ -9661,7 +9740,62 @@ fn seed_start_compare_transient_combat_subset(
             }
         }
     }
-    seed_start_compare_combat_subset(report, action, label, expected, actual, false);
+    seed_start_compare_deferred_combat_subset(report, action, label, expected, actual)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn seed_start_compare_or_defer_combat_transition(
+    report: &mut SimRealReport,
+    action: &TraceAction,
+    label: &str,
+    post_message: &Value,
+    observed: Value,
+    simulated: Value,
+    pending_combat_assertion: &mut Option<PendingCombatAssertion>,
+    reconciled_deferred_action_steps: &mut Vec<u32>,
+) {
+    if seed_start_is_transient_combat_post_state(post_message) {
+        let transient_matches =
+            seed_start_compare_transient_combat_subset(report, action, label, observed, simulated);
+        pending_combat_assertion
+            .get_or_insert_default()
+            .transitions
+            .push(PendingCombatTransition {
+                action: action.clone(),
+                label: label.to_owned(),
+                transient_matches,
+            });
+        return;
+    }
+
+    let diff_count = report.unexpected_diffs.len();
+    seed_start_compare_combat_subset(report, action, label, observed, simulated, false);
+    let stable_matches = report.unexpected_diffs.len() == diff_count;
+    let Some(pending) = pending_combat_assertion.take() else {
+        return;
+    };
+    for transition in pending.transitions {
+        if !transition.transient_matches {
+            continue;
+        }
+        if stable_matches {
+            report.verified.push(VerifiedTransition {
+                action_step: transition.action.step,
+                command: transition.action.command,
+                label: transition.label,
+            });
+            reconciled_deferred_action_steps.push(transition.action.step);
+        } else {
+            report.unsupported.push(UnsupportedTransition {
+                action_step: transition.action.step,
+                command: transition.action.command,
+                reason: format!(
+                    "deferred combat assertion did not reconcile at stable action step {}",
+                    action.step
+                ),
+            });
+        }
+    }
 }
 
 fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> Value {
@@ -14167,24 +14301,80 @@ mod tests {
     }
 
     #[test]
-    fn executing_combat_grid_is_treated_as_a_transient_post_state() {
-        let transient = json!({
-            "game_state": {
-                "screen_type": "GRID",
-                "action_phase": "EXECUTING_ACTIONS",
-                "current_action": "DiscardPileToTopOfDeckAction"
-            }
-        });
-        let stable = json!({
-            "game_state": {
-                "screen_type": "GRID",
-                "action_phase": "WAITING_ON_USER",
-                "current_action": null
-            }
-        });
+    fn executing_combat_selection_reconciles_only_at_the_stable_frame() {
+        let path =
+            crate::corpus_path("fidelity_regressions/session-38-floor21-hex-dazed-insertion.jsonl");
+        let content = std::fs::read_to_string(path).expect("session-38 trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let original = verify_communication_mod_trace(&content).expect("original trace verifies");
+        assert!(original.unexpected_diffs.is_empty(), "{original:#?}");
+        for step in [1592, 1593, 1594, 1595] {
+            let disposition = original
+                .action_dispositions
+                .iter()
+                .find(|entry| entry.action_step == step)
+                .unwrap_or_else(|| panic!("step {step} disposition"));
+            assert_eq!(disposition.disposition, ActionDispositionKind::Verified);
+            assert!(disposition.deferred_assertion_reconciled);
+        }
 
-        assert!(seed_start_is_transient_combat_post_state(&transient));
-        assert!(!seed_start_is_transient_combat_post_state(&stable));
+        let metadata = imported.metadata.expect("trace metadata");
+        let mut lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let transient = lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state)
+                    if state.step == 1592
+                        && seed_start_is_transient_combat_post_state(&state.message) =>
+                {
+                    Some(state)
+                }
+                _ => None,
+            })
+            .expect("Armaments executing hand-select frame");
+        *transient
+            .message
+            .pointer_mut("/game_state/screen_type")
+            .expect("transient screen type") = json!("GRID");
+
+        let forged_trace = crate::serialize_communication_mod_trace(&metadata, &lines);
+        let forged = verify_communication_mod_trace(&forged_trace).expect("forged trace parses");
+        let diff = forged
+            .unexpected_diffs
+            .iter()
+            .find(|entry| entry.action_step == 1592)
+            .expect("forged transient screen must differ");
+        assert!(
+            diff.diffs
+                .iter()
+                .any(|line| line.starts_with("screen_type:")),
+            "{diff:#?}"
+        );
+        let disposition = forged
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 1592)
+            .expect("forged Armaments disposition");
+        assert_eq!(
+            disposition.disposition,
+            ActionDispositionKind::UnexpectedDiff
+        );
+        assert!(!disposition.deferred_assertion_reconciled);
+        assert_eq!(
+            forged
+                .seed_start
+                .as_ref()
+                .and_then(|report| report.sim_run_state.as_ref()),
+            original
+                .seed_start
+                .as_ref()
+                .and_then(|report| report.sim_run_state.as_ref()),
+            "transient observation must not steer simulator state"
+        );
     }
 
     #[test]

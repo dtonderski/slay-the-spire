@@ -10,8 +10,9 @@ use sts_core::{
 };
 use sts_verify::{
     assess_verification, canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
-    verify_communication_mod_trace, verify_seed_start_communication_mod_trace, ManualFixture,
-    VerificationCorpusManifest, VerificationMode, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
+    verify_communication_mod_trace, verify_seed_start_communication_mod_trace,
+    ActionDispositionKind, ManualFixture, VerificationCorpusManifest, VerificationMode,
+    VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
 #[derive(Debug, serde::Deserialize)]
@@ -1716,7 +1717,7 @@ fn session35_second_distilled_chaos_reshuffles_before_third_card() {
 }
 
 #[test]
-fn session38_hex_dazed_waits_for_armaments_hand_select() {
+fn session38_hex_dazed_reconciles_stable_selection_and_names_unresolved_endpoint() {
     let Some(content) =
         load_corpus_file("fidelity_regressions/session-38-floor21-hex-dazed-insertion.jsonl")
     else {
@@ -1727,9 +1728,39 @@ fn session38_hex_dazed_waits_for_armaments_hand_select() {
 
     assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
     assert!(report.unsupported.is_empty());
+    for step in [1592, 1593, 1594, 1595] {
+        let disposition = report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == step)
+            .unwrap_or_else(|| panic!("step {step} disposition"));
+        assert_eq!(disposition.disposition, ActionDispositionKind::Verified);
+        assert!(
+            disposition.deferred_assertion_reconciled,
+            "step {step} must reconcile only at the stable CONFIRM frame"
+        );
+    }
     assert!(report.verified.iter().any(|transition| {
-        transition.action_step == 1986 && transition.command.eq_ignore_ascii_case("PLAY 4")
+        transition.action_step == 1596 && transition.command.eq_ignore_ascii_case("CONFIRM")
     }));
+    let endpoint = report
+        .action_dispositions
+        .iter()
+        .find(|entry| entry.action_step == 1986)
+        .expect("terminal Armaments action disposition");
+    assert_eq!(
+        endpoint.disposition,
+        ActionDispositionKind::PendingTransient
+    );
+    assert!(!endpoint.deferred_assertion_reconciled);
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        1
+    );
 }
 
 #[test]
