@@ -63,18 +63,19 @@ fn current_room_kind(run: &RunState) -> Option<RoomKind> {
     })
 }
 
-pub fn legal_map_actions_on_run(run: &RunState) -> Vec<MapAction> {
+pub fn legal_map_actions_on_run(run: &RunState) -> SimResult<Vec<MapAction>> {
+    run.validate()?;
     if run.phase != RunPhase::Idle {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     let Some(map_state) = run.map.as_ref() else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
 
-    let mut actions = legal_map_actions(map_state);
+    let mut actions = legal_map_actions(map_state)?;
     if run.relics.contains(&Relic::WingBoots) && run.wing_boots_charges > 0 {
-        for node_id in wing_boots_reachable_nodes(map_state) {
+        for node_id in wing_boots_reachable_nodes(map_state)? {
             let action = MapAction::ChooseNode { node_id };
             if !actions.contains(&action) {
                 actions.push(action);
@@ -84,7 +85,7 @@ pub fn legal_map_actions_on_run(run: &RunState) -> Vec<MapAction> {
     actions.sort_unstable_by_key(|action| match action {
         MapAction::ChooseNode { node_id } => *node_id,
     });
-    actions
+    Ok(actions)
 }
 
 pub fn validate_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<()> {
@@ -105,7 +106,7 @@ pub fn validate_map_action_on_run(run: &RunState, action: MapAction) -> SimResul
 
     if run.relics.contains(&Relic::WingBoots)
         && run.wing_boots_charges > 0
-        && wing_boots_action_is_legal(map_state, action)
+        && wing_boots_action_is_legal(map_state, action)?
     {
         Ok(())
     } else {
@@ -120,7 +121,7 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
     let last_room_was_shop = run.current_room_kind() == Some(RoomKind::Shop);
     let uses_wing_boots = run.relics.contains(&Relic::WingBoots)
         && run.wing_boots_charges > 0
-        && !reachable_nodes(map_state).contains(&chosen_node_id(action));
+        && !reachable_nodes(map_state)?.contains(&chosen_node_id(action));
     let next_map = if uses_wing_boots {
         apply_wing_boots_map_action(map_state, action)?
     } else {
@@ -891,8 +892,11 @@ fn spawn_monster_powers(spawn: &TargetEncounterSpawn) -> MonsterPowers {
     powers
 }
 
-fn wing_boots_action_is_legal(map_state: &crate::MapRunState, action: MapAction) -> bool {
-    wing_boots_reachable_nodes(map_state).contains(&chosen_node_id(action))
+fn wing_boots_action_is_legal(
+    map_state: &crate::MapRunState,
+    action: MapAction,
+) -> SimResult<bool> {
+    Ok(wing_boots_reachable_nodes(map_state)?.contains(&chosen_node_id(action)))
 }
 
 fn chosen_node_id(action: MapAction) -> crate::MapNodeId {
@@ -1407,21 +1411,21 @@ mod tests {
         run.phase = RunPhase::Idle;
         run.event = None;
 
-        let first = legal_map_actions_on_run(&run);
+        let first = legal_map_actions_on_run(&run).expect("valid first map state");
         assert_eq!(first.len(), 3);
         run = apply_map_action_on_run(&run, first[1]).expect("x=2 first node");
         assert_eq!(run.current_room_kind(), Some(RoomKind::Combat));
 
         run.phase = RunPhase::Idle;
         run.combat = None;
-        let second = legal_map_actions_on_run(&run);
+        let second = legal_map_actions_on_run(&run).expect("valid second map state");
         assert_eq!(second.len(), 1);
         run = apply_map_action_on_run(&run, second[0]).expect("x=3 second node");
         assert_eq!(run.current_room_kind(), Some(RoomKind::Combat));
 
         run.phase = RunPhase::Idle;
         run.combat = None;
-        let third = legal_map_actions_on_run(&run);
+        let third = legal_map_actions_on_run(&run).expect("valid third map state");
         assert_eq!(third.len(), 1);
         run = apply_map_action_on_run(&run, third[0]).expect("x=2 third node");
         assert_eq!(run.current_room_kind(), Some(RoomKind::Event));

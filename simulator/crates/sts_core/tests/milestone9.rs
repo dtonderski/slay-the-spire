@@ -69,6 +69,10 @@ fn proceed_rest(run: &RunState) -> RunState {
     apply_rest_action(run, RestAction::Proceed).expect("proceed from rest")
 }
 
+fn valid_map_actions(run: &RunState) -> Vec<MapAction> {
+    legal_map_actions_on_run(run).expect("valid run map state")
+}
+
 fn leave_shop_merchant_and_room(mut run: RunState) -> RunState {
     run = apply_run_action(&run, RunAction::LeaveShop).expect("leave merchant");
     leave_shop_room(&mut run);
@@ -106,7 +110,7 @@ fn entering_rest_room_exposes_heal_and_blocks_map_actions() {
     let mut run = RunState::map_fixture();
     run.player_hp = 40;
 
-    assert!(!legal_map_actions_on_run(&run).is_empty());
+    assert!(!valid_map_actions(&run).is_empty());
 
     run = apply_map_action_on_run(
         &run,
@@ -138,7 +142,7 @@ fn entering_rest_room_exposes_heal_and_blocks_map_actions() {
         }
     }
     assert_eq!(legal_rest_actions(&run), expected);
-    assert!(legal_map_actions_on_run(&run).is_empty());
+    assert!(valid_map_actions(&run).is_empty());
 }
 
 #[test]
@@ -159,7 +163,7 @@ fn heal_then_map_traversal_continues() {
     assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.player_hp, 64);
     assert_eq!(
-        legal_map_actions_on_run(&run),
+        valid_map_actions(&run),
         vec![MapAction::ChooseNode {
             node_id: MapNodeId::new(3)
         }]
@@ -216,7 +220,7 @@ fn smith_then_map_traversal_continues() {
     assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.deck[0].content_id, STRIKE_R_PLUS_ID);
     assert_eq!(
-        legal_map_actions_on_run(&run),
+        valid_map_actions(&run),
         vec![MapAction::ChooseNode {
             node_id: MapNodeId::new(3)
         }]
@@ -268,7 +272,7 @@ fn explicit_legacy_shop_fixture_exposes_anger_and_blocks_map_actions() {
             RunAction::LeaveShop,
         ]
     );
-    assert!(legal_map_actions_on_run(&run).is_empty());
+    assert!(valid_map_actions(&run).is_empty());
 }
 
 #[test]
@@ -287,7 +291,7 @@ fn buy_shop_card_then_map_traversal_continues() {
     assert_eq!(run.deck.len(), deck_len_before + 1);
     assert_eq!(run.count_content_in_deck(ANGER_ID), 1);
     assert_eq!(
-        legal_map_actions_on_run(&run),
+        valid_map_actions(&run),
         vec![MapAction::ChooseNode {
             node_id: MapNodeId::new(5)
         }]
@@ -410,7 +414,7 @@ fn entering_legacy_event_fixture_exposes_golden_shrine() {
         legal_event_actions(&run),
         vec![EventAction::Choose { choice_index: 0 }]
     );
-    assert!(legal_map_actions_on_run(&run).is_empty());
+    assert!(valid_map_actions(&run).is_empty());
 }
 
 #[test]
@@ -428,7 +432,7 @@ fn golden_shrine_choice_grants_gold_and_returns_to_map() {
         legal_event_actions(&after_pray),
         vec![EventAction::Choose { choice_index: 0 }]
     );
-    assert!(legal_map_actions_on_run(&after_pray).is_empty());
+    assert!(valid_map_actions(&after_pray).is_empty());
 
     let run = apply_event_action(&after_pray, EventAction::Choose { choice_index: 0 })
         .expect("leave shrine");
@@ -437,7 +441,7 @@ fn golden_shrine_choice_grants_gold_and_returns_to_map() {
     assert!(run.event.is_none());
     assert_eq!(run.gold, gold_before + GOLDEN_SHRINE_GOLD);
     assert_eq!(
-        legal_map_actions_on_run(&run),
+        valid_map_actions(&run),
         vec![
             MapAction::ChooseNode {
                 node_id: MapNodeId::new(1)

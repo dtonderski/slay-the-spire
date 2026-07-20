@@ -682,14 +682,13 @@ impl RunState {
         if self.current_floor < 0 || !(1..=4).contains(&self.current_act) {
             return Err(SimError::InvalidState("run floor or act is out of bounds"));
         }
-        if self
-            .map
-            .as_ref()
-            .is_some_and(|map| i32::try_from(map.floor).is_err())
-        {
-            return Err(SimError::InvalidState(
-                "map floor exceeds supported run range",
-            ));
+        if let Some(map) = self.map.as_ref() {
+            map.validate()?;
+            if i32::try_from(map.floor).is_err() {
+                return Err(SimError::InvalidState(
+                    "map floor exceeds supported run range",
+                ));
+            }
         }
 
         let mut deck_ids = BTreeSet::new();

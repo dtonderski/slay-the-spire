@@ -5,7 +5,7 @@ use crate::{
     ids::MapNodeId,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RoomKind {
@@ -55,33 +55,74 @@ impl FixedMap {
             .map(|node| node.children.as_slice())
             .ok_or(SimError::UnknownMapNode(id))
     }
+
+    pub fn validate(&self) -> SimResult<()> {
+        if self.nodes.is_empty() {
+            return Err(SimError::InvalidState("map has no nodes"));
+        }
+
+        let mut node_ids = BTreeSet::new();
+        for node in &self.nodes {
+            if !(1..=4).contains(&node.act) {
+                return Err(SimError::InvalidState("map node act is out of bounds"));
+            }
+            if !node_ids.insert(node.id) {
+                return Err(SimError::InvalidState("map has duplicate node IDs"));
+            }
+        }
+        for node in &self.nodes {
+            for child in &node.children {
+                if !node_ids.contains(child) {
+                    return Err(SimError::UnknownMapNode(*child));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
-pub fn reachable_nodes(state: &MapRunState) -> Vec<MapNodeId> {
-    let mut nodes = state
-        .map
-        .children_of(state.current_node)
-        .map(|children| children.to_vec())
-        .unwrap_or_default();
+impl MapRunState {
+    pub fn validate(&self) -> SimResult<()> {
+        self.map.validate()?;
+        let current = self
+            .map
+            .node(self.current_node)
+            .ok_or(SimError::UnknownMapNode(self.current_node))?;
+        if self.act != current.act {
+            return Err(SimError::InvalidState(
+                "map state act does not match current node",
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub fn reachable_nodes(state: &MapRunState) -> SimResult<Vec<MapNodeId>> {
+    state.validate()?;
+    let mut nodes = state.map.children_of(state.current_node)?.to_vec();
     // CommunicationMod exposes map choices from left to right. Generated edge
     // insertion order is not stable enough to use as the CHOOSE slot order.
     nodes.sort_unstable();
-    nodes
+    Ok(nodes)
 }
 
-pub fn wing_boots_reachable_nodes(state: &MapRunState) -> Vec<MapNodeId> {
+pub fn wing_boots_reachable_nodes(state: &MapRunState) -> SimResult<Vec<MapNodeId>> {
+    state.validate()?;
     let depths = node_depths_from_root(&state.map);
-    let Some(current_depth) = depths.get(&state.current_node).copied() else {
-        return Vec::new();
-    };
+    let current_depth = depths
+        .get(&state.current_node)
+        .copied()
+        .ok_or(SimError::InvalidState(
+            "map current node is unreachable from root",
+        ))?;
     let target_depth = current_depth + 1;
-    state
+    Ok(state
         .map
         .nodes
         .iter()
         .filter(|node| depths.get(&node.id).copied() == Some(target_depth))
         .map(|node| node.id)
-        .collect()
+        .collect())
 }
 
 fn node_depths_from_root(map: &FixedMap) -> BTreeMap<MapNodeId, u32> {
@@ -106,17 +147,17 @@ fn node_depths_from_root(map: &FixedMap) -> BTreeMap<MapNodeId, u32> {
     depths
 }
 
-pub fn legal_map_actions(state: &MapRunState) -> Vec<MapAction> {
-    reachable_nodes(state)
+pub fn legal_map_actions(state: &MapRunState) -> SimResult<Vec<MapAction>> {
+    Ok(reachable_nodes(state)?
         .into_iter()
         .map(|node_id| MapAction::ChooseNode { node_id })
-        .collect()
+        .collect())
 }
 
 pub fn validate_map_action(state: &MapRunState, action: MapAction) -> SimResult<()> {
     match action {
         MapAction::ChooseNode { node_id } => {
-            if reachable_nodes(state).contains(&node_id) {
+            if reachable_nodes(state)?.contains(&node_id) {
                 Ok(())
             } else {
                 Err(SimError::IllegalAction("map node is not reachable"))

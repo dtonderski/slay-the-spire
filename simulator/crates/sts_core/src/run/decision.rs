@@ -116,7 +116,7 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
             );
         }
         RunPhase::Idle => actions.extend(
-            legal_map_actions_on_run(run)
+            legal_map_actions_on_run(run)?
                 .into_iter()
                 .map(RunDecisionAction::Map),
         ),
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn top_level_map_step_matches_the_specialized_transition() {
         let run = RunState::map_fixture();
-        let action = legal_map_actions_on_run(&run)[0];
+        let action = legal_map_actions_on_run(&run).expect("valid map fixture")[0];
 
         assert_eq!(
             apply_run_decision_action(&run, RunDecisionAction::Map(action)),
@@ -378,6 +378,7 @@ mod tests {
         assert_eq!(
             actions,
             legal_map_actions_on_run(&run)
+                .expect("valid map fixture")
                 .into_iter()
                 .map(RunDecisionAction::Map)
                 .collect::<Vec<_>>()

@@ -7407,7 +7407,16 @@ fn seed_start_simulated_map_return(
                 })
                 .collect();
             let next_node_ids = if legal_node_ids.is_empty() {
-                sts_core::reachable_nodes(map_state)
+                match sts_core::reachable_nodes(map_state) {
+                    Ok(nodes) => nodes,
+                    Err(error) => {
+                        return json!({
+                            "simulator_error": format!(
+                                "core map boundary rejected map state: {error}"
+                            )
+                        });
+                    }
+                }
             } else {
                 legal_node_ids
             };

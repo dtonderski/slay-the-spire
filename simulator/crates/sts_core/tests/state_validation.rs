@@ -5,8 +5,9 @@ use sts_core::{
     content::cards,
     content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
-    enter_reward_screen, CardGridScreen, CardId, CombatAction, CombatState, ContentId, GridPurpose,
-    MonsterId, MonsterIntent, Relic, RunPhase, RunState, SimError,
+    enter_reward_screen, legal_run_decision_actions, CardGridScreen, CardId, CombatAction,
+    CombatState, ContentId, GridPurpose, MapNodeId, MonsterId, MonsterIntent, Relic, RunPhase,
+    RunState, SimError,
 };
 
 #[test]
@@ -20,6 +21,46 @@ fn explicit_combat_and_run_fixtures_are_valid() {
     RunState::map_fixture()
         .validate()
         .expect("map run fixture is valid");
+}
+
+#[test]
+fn malformed_map_identity_fails_run_and_legal_action_validation() {
+    let mut missing_current = RunState::map_fixture();
+    missing_current.map.as_mut().expect("map").current_node = MapNodeId::new(u64::MAX);
+    assert_eq!(
+        missing_current.validate(),
+        Err(SimError::UnknownMapNode(MapNodeId::new(u64::MAX)))
+    );
+    assert_eq!(
+        legal_run_decision_actions(&missing_current),
+        Err(SimError::UnknownMapNode(MapNodeId::new(u64::MAX)))
+    );
+
+    let mut duplicate = RunState::map_fixture();
+    let map = duplicate.map.as_mut().expect("map");
+    map.map.nodes[1].id = map.map.nodes[0].id;
+    assert_eq!(
+        duplicate.validate(),
+        Err(SimError::InvalidState("map has duplicate node IDs"))
+    );
+
+    let mut dangling_child = RunState::map_fixture();
+    dangling_child.map.as_mut().expect("map").map.nodes[0]
+        .children
+        .push(MapNodeId::new(u64::MAX));
+    assert_eq!(
+        dangling_child.validate(),
+        Err(SimError::UnknownMapNode(MapNodeId::new(u64::MAX)))
+    );
+
+    let mut mismatched_act = RunState::map_fixture();
+    mismatched_act.map.as_mut().expect("map").act = 2;
+    assert_eq!(
+        mismatched_act.validate(),
+        Err(SimError::InvalidState(
+            "map state act does not match current node"
+        ))
+    );
 }
 
 #[test]

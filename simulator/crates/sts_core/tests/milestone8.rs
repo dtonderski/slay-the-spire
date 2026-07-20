@@ -38,14 +38,18 @@ fn full_map_traversal_via_rest_branch_reaches_boss_at_floor_six() {
 
     for node_id in trace {
         let action = MapAction::ChooseNode { node_id };
-        assert!(legal_map_actions(&state).contains(&action));
+        assert!(legal_map_actions(&state)
+            .expect("valid fixture map")
+            .contains(&action));
         state = apply_map_action(&state, action).expect("trace step applies");
     }
 
     assert_eq!(state.floor, 5);
     assert_eq!(state.act, 1);
     assert_eq!(state.current_node, MapNodeId::new(6));
-    assert!(reachable_nodes(&state).is_empty());
+    assert!(reachable_nodes(&state)
+        .expect("valid terminal map state")
+        .is_empty());
 }
 
 #[test]
@@ -72,7 +76,9 @@ fn generated_map_placeholder_is_deterministic_and_traversable() {
 
     for node_id in path {
         let action = MapAction::ChooseNode { node_id };
-        assert!(legal_map_actions(&state).contains(&action));
+        assert!(legal_map_actions(&state)
+            .expect("valid generated map")
+            .contains(&action));
         state = apply_map_action(&state, action).expect("generated map step applies");
     }
 
