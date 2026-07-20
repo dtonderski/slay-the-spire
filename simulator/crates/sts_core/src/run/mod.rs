@@ -1,3 +1,4 @@
+pub mod decision;
 pub mod event;
 pub mod grid;
 pub mod map;
@@ -8,6 +9,7 @@ pub mod reward;
 pub mod shop;
 pub mod state;
 
+pub use decision::{apply_run_decision_action, RunDecisionAction};
 pub use event::{
     apply_event_action, enter_event_screen, event_screen, golden_shrine_gold, legal_event_actions,
     match_and_keep_group_index_for_label, match_and_keep_label_index_for_group,

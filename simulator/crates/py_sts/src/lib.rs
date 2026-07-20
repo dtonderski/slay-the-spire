@@ -2,13 +2,12 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use sts_core::combat::ExhaustSelectPurpose;
 use sts_core::{
-    apply_combat_action_on_run, apply_combat_action_with_events, apply_event_action,
-    apply_map_action_on_run, apply_rest_action, apply_run_action as apply_core_run_action,
-    cancel_grid, confirm_grid, leave_shop_room, legal_combat_actions, legal_event_actions,
-    legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, select_grid_card,
-    validate_potion_action, CardId, CombatAction, CombatPhase, CombatState, EventAction, MapAction,
-    MonsterId, MonsterIntent, Potion, RestAction, RunAction, RunPhase, RunState, Snapshot,
-    SNAPSHOT_SCHEMA_VERSION,
+    apply_combat_action_with_events, apply_run_action as apply_core_run_action,
+    apply_run_decision_action, cancel_grid, confirm_grid, legal_combat_actions,
+    legal_event_actions, legal_map_actions_on_run, legal_rest_actions, legal_shop_actions,
+    select_grid_card, validate_potion_action, CardId, CombatAction, CombatPhase, CombatState,
+    EventAction, MapAction, MonsterId, MonsterIntent, Potion, RestAction, RunAction,
+    RunDecisionAction, RunPhase, RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 
 const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
@@ -107,18 +106,7 @@ pub struct PyExactStepResult {
     pub terminal_reason: Option<String>,
 }
 
-#[derive(Clone)]
-enum ExactRunActionKind {
-    Combat(CombatAction),
-    Event(EventAction),
-    GridSelect { index: usize },
-    GridConfirm,
-    GridCancel,
-    LeaveShopRoom,
-    Map(MapAction),
-    Rest(RestAction),
-    Run(RunAction),
-}
+type ExactRunActionKind = RunDecisionAction;
 
 #[pyclass(name = "ExactRunAction")]
 #[derive(Clone)]
@@ -681,9 +669,6 @@ fn exact_run_legal_action_kinds(state: &RunState) -> Vec<ExactRunActionKind> {
                 .into_iter()
                 .map(ExactRunActionKind::Run),
         );
-        if state.shop.is_none() && state.card_grid.is_none() {
-            actions.push(ExactRunActionKind::LeaveShopRoom);
-        }
     }
 
     actions
@@ -732,9 +717,9 @@ fn rust_greedy_combat_search(
             break;
         };
         if best_first_action.is_none() {
-            best_first_action = Some(action.clone());
+            best_first_action = Some(action);
         }
-        principal_variation.push(action.clone());
+        principal_variation.push(action);
         current = apply_exact_run_action(&current, &action).map_err(|error| {
             PyValueError::new_err(format!("rust greedy selected illegal action: {error:?}"))
         })?;
@@ -826,10 +811,10 @@ fn rust_beam_combat_search(
                 let score = rust_run_score(&next_state, terminal_reason.as_deref(), objective)?
                     - rust_action_penalty(&action);
                 let mut principal_variation = node.principal_variation.clone();
-                principal_variation.push(action.clone());
+                principal_variation.push(action);
                 let child = RustBeamNode {
                     state: next_state,
-                    first_action: node.first_action.clone().or(Some(action)),
+                    first_action: node.first_action.or(Some(action)),
                     principal_variation,
                     actions: node.actions + 1,
                     score,
@@ -922,12 +907,12 @@ fn preferred_select_actions(
         .iter()
         .find(|action| is_run_select_confirm(action))?;
     if should_confirm_selected_single_exhaust(state) {
-        return Some(vec![confirm.clone()]);
+        return Some(vec![*confirm]);
     }
     if let Some(action) = preferred_bad_exhaust_action(state, actions) {
         return Some(vec![action]);
     }
-    Some(vec![confirm.clone()])
+    Some(vec![*confirm])
 }
 
 fn is_run_select_action(action: &ExactRunActionKind) -> bool {
@@ -1004,7 +989,7 @@ fn preferred_bad_exhaust_action(
                     .map(|card| is_bad_exhaust_content_id(card.content_id.get()))
                     .unwrap_or(false)
         }) {
-            return Some(action.clone());
+            return Some(*action);
         }
     }
     None
@@ -1328,21 +1313,7 @@ fn apply_exact_run_action(
     state: &RunState,
     action: &ExactRunActionKind,
 ) -> sts_core::SimResult<RunState> {
-    match action {
-        ExactRunActionKind::Combat(action) => apply_combat_action_on_run(state, *action),
-        ExactRunActionKind::Event(action) => apply_event_action(state, *action),
-        ExactRunActionKind::GridSelect { index } => select_grid_card(state, *index),
-        ExactRunActionKind::GridConfirm => confirm_grid(state),
-        ExactRunActionKind::GridCancel => cancel_grid(state),
-        ExactRunActionKind::LeaveShopRoom => {
-            let mut next = state.clone();
-            leave_shop_room(&mut next);
-            Ok(next)
-        }
-        ExactRunActionKind::Map(action) => apply_map_action_on_run(state, *action),
-        ExactRunActionKind::Rest(action) => apply_rest_action(state, *action),
-        ExactRunActionKind::Run(action) => apply_core_run_action(state, *action),
-    }
+    apply_run_decision_action(state, *action)
 }
 
 fn run_action_json(action: &ExactRunActionKind) -> PyResult<String> {
@@ -1354,7 +1325,6 @@ fn run_action_json(action: &ExactRunActionKind) -> PyResult<String> {
         }
         ExactRunActionKind::GridConfirm => to_json(&serde_json::json!("ConfirmGrid")),
         ExactRunActionKind::GridCancel => to_json(&serde_json::json!("CancelGrid")),
-        ExactRunActionKind::LeaveShopRoom => to_json(&serde_json::json!("LeaveShopRoom")),
         ExactRunActionKind::Map(action) => to_json(action),
         ExactRunActionKind::Rest(action) => to_json(action),
         ExactRunActionKind::Run(action) => to_json(action),
@@ -1368,7 +1338,6 @@ fn run_action_family(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::GridSelect { .. }
         | ExactRunActionKind::GridConfirm
         | ExactRunActionKind::GridCancel => "grid",
-        ExactRunActionKind::LeaveShopRoom => "shop",
         ExactRunActionKind::Map(_) => "map",
         ExactRunActionKind::Rest(_) => "rest",
         ExactRunActionKind::Run(_) => "run",
@@ -1383,7 +1352,6 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::GridSelect { .. } => "select_grid_card",
         ExactRunActionKind::GridConfirm => "confirm_grid",
         ExactRunActionKind::GridCancel => "cancel_grid",
-        ExactRunActionKind::LeaveShopRoom => "leave_shop_room",
         ExactRunActionKind::Map(MapAction::ChooseNode { .. }) => "choose_map_node",
         ExactRunActionKind::Rest(RestAction::Heal) => "rest_heal",
         ExactRunActionKind::Rest(RestAction::OpenSmith) => "rest_open_smith",
