@@ -26,10 +26,10 @@ use sts_core::{
     affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_map_action_on_run,
     apply_neow_boss_swap, apply_neow_relic_reward, apply_neow_simple_drawback,
     apply_neow_simple_reward, apply_rest_action, apply_run_action, apply_shop_action, cancel_grid,
-    confirm_grid, consume_neow_three_potions_hidden_card_reward, enter_boss_relic_reward_screen,
-    enter_chest_relic_reward_screen, generate_exordium_map_choices_after_path,
-    generate_exordium_map_topology, generate_neow_card_reward, generate_neow_colorless_reward,
-    generate_neow_options, generate_neow_three_potions, generate_neow_transform_reward,
+    confirm_grid, consume_neow_three_potions_hidden_card_reward,
+    generate_exordium_map_choices_after_path, generate_exordium_map_topology,
+    generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
+    generate_neow_three_potions, generate_neow_transform_reward,
     generate_target_map_choices_after_path, generate_target_map_topology, leave_shop_merchant,
     leave_shop_room, legal_map_actions_on_run, legal_rest_actions, open_neow_reward_grid,
     select_grid_card, shop_action_for_choice_index, target_room_kinds_on_path, Act1Boss, Act3Boss,
@@ -2836,7 +2836,7 @@ fn verify_seed_start_transitions(
                 return finish_boundary!(boundary);
             }
             SeedStartPhase::Treasure if action.command.trim().eq_ignore_ascii_case("PROCEED") => {
-                let (simulated_return, act_changed) = {
+                let simulated_return = {
                     let Some(sim) = seed_sim.as_mut() else {
                         return finish_boundary!(SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
@@ -2878,36 +2878,34 @@ fn verify_seed_start_transitions(
                         seed_start_project_post_boss_transition_current_node(&mut simulated_return);
                     }
                     let act_changed = next.current_act != previous_act;
+                    if next.phase != RunPhase::Idle || !act_changed {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_treasure_destination".to_owned(),
+                            reason: format!(
+                                "treasure proceed produced phase {:?} and act transition {} -> {}",
+                                next.phase, previous_act, next.current_act
+                            ),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
+                    }
                     *sim = next;
-                    (simulated_return, act_changed)
+                    simulated_return
                 };
-                let transient_act_transition = act_changed
-                    && screen_type(&post.message) == Some("NONE")
-                    && post
-                        .message
-                        .get("game_state")
-                        .and_then(|game| game.get("room_type"))
-                        .and_then(Value::as_str)
-                        == Some("TreasureRoomBoss");
-                if transient_act_transition {
-                    report.verified.push(VerifiedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        label: "boss chest proceed awaiting settled map".to_owned(),
-                    });
-                } else {
-                    compare_subset(
-                        report,
-                        action,
-                        "boss chest proceed to map",
-                        seed_start_map_return_observed_subset(&post.message),
-                        simulated_return,
-                    );
-                }
+                compare_subset(
+                    report,
+                    action,
+                    "boss chest proceed to map",
+                    seed_start_map_return_observed_subset(&post.message),
+                    simulated_return,
+                );
                 seed_start_test_pop_last_diff(report, action, &start.external_seed);
-                if act_changed || screen_type(&post.message) == Some("MAP") {
-                    phase = SeedStartPhase::Map;
-                }
+                phase = SeedStartPhase::Map;
                 continue;
             }
             SeedStartPhase::Treasure if command_head_eq(&action.command, "CHOOSE") => {
@@ -2921,47 +2919,11 @@ fn verify_seed_start_transitions(
                             .to_owned(),
                     });
                 };
-                if screen_type(&pre.message) == Some("CHEST") && choose_index == 0 {
-                    if screen_type(&post.message) == Some("BOSS_REWARD") {
-                        enter_boss_relic_reward_screen(sim);
-                        compare_subset(
-                            report,
-                            action,
-                            "open boss relic chest",
-                            seed_start_boss_reward_observed_subset(&post.message),
-                            seed_start_boss_reward_simulated_subset(sim, &relics),
-                        );
-                        seed_start_test_pop_last_diff(report, action, &start.external_seed);
-                        phase = SeedStartPhase::BossReward;
-                    } else {
-                        enter_chest_relic_reward_screen(sim);
-                        compare_subset(
-                            report,
-                            action,
-                            "open treasure chest",
-                            seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(sim, &relics),
-                        );
-                        phase = SeedStartPhase::Reward;
-                    }
-                } else if screen_type(&pre.message) == Some("BOSS_REWARD") {
-                    let _ = choose_index;
+                if choose_index != 0 {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
                         category: "unsupported_treasure_path".to_owned(),
-                        reason: "boss relic reward should use BossReward phase".to_owned(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                } else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_treasure_path".to_owned(),
-                        reason: "unsupported treasure chest choice".to_owned(),
+                        reason: format!("treasure chest choice {choose_index} is not available"),
                     };
                     report.unsupported.push(UnsupportedTransition {
                         action_step: action.step,
@@ -2970,6 +2932,68 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 }
+                let next =
+                    apply_run_action(sim, RunAction::OpenChest).map_err(|error| error.to_string());
+                let Ok(next) = next else {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_treasure_path".to_owned(),
+                        reason: next.err().unwrap_or_default(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
+                };
+                let reward = next.reward.as_ref();
+                let boss_reward = next.phase == RunPhase::Reward
+                    && next.boss_chest_opened
+                    && reward.is_some_and(|reward| !reward.boss_relic_choices.is_empty());
+                let ordinary_reward = next.phase == RunPhase::Reward
+                    && !next.boss_chest_opened
+                    && reward.is_some_and(|reward| reward.boss_relic_choices.is_empty());
+                if boss_reward {
+                    compare_subset(
+                        report,
+                        action,
+                        "open boss relic chest",
+                        seed_start_boss_reward_observed_subset(&post.message),
+                        seed_start_boss_reward_simulated_subset(&next, &relics),
+                    );
+                    seed_start_test_pop_last_diff(report, action, &start.external_seed);
+                    phase = SeedStartPhase::BossReward;
+                } else if ordinary_reward {
+                    compare_subset(
+                        report,
+                        action,
+                        "open treasure chest",
+                        seed_start_reward_observed_subset(&post.message),
+                        seed_start_reward_simulated_subset(&next, &relics),
+                    );
+                    phase = SeedStartPhase::Reward;
+                } else {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_treasure_destination".to_owned(),
+                        reason: format!(
+                            "open chest produced inconsistent simulator destination: phase={:?}, boss_chest_opened={}, reward={}, boss_choices={}",
+                            next.phase,
+                            next.boss_chest_opened,
+                            reward.is_some(),
+                            reward.map_or(0, |reward| reward.boss_relic_choices.len()),
+                        ),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
+                }
+                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                *sim = next;
             }
             SeedStartPhase::Rest if action.command.trim().eq_ignore_ascii_case("SKIP") => {
                 let Some(sim) = seed_sim.as_mut() else {
@@ -13178,6 +13202,63 @@ mod tests {
             "{gold_diff}"
         );
         assert!(gold_diff.contains(&forged_gold.to_string()), "{gold_diff}");
+    }
+
+    #[test]
+    fn observed_chest_screen_cannot_choose_boss_reward_transition() {
+        let path = crate::corpus_path("permanent_traces/trace-session-8.jsonl");
+        let content = std::fs::read_to_string(path).expect("complete trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (chest_action_step, reward_post) = transitions
+            .transitions
+            .iter()
+            .find_map(|(pre, action, post)| {
+                (screen_type(&pre.message) == Some("CHEST")
+                    && command_is_choose(&action.command, 0)
+                    && screen_type(&post.message) == Some("COMBAT_REWARD")
+                    && trace_room_type(&pre.message) != Some("TreasureRoomBoss"))
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture opens an ordinary treasure chest");
+
+        let mut mutated_lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let mutated_state = mutated_lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if *state == reward_post => Some(state),
+                _ => None,
+            })
+            .expect("treasure reward post-state remains in imported trace");
+        *mutated_state
+            .message
+            .pointer_mut("/game_state/screen_type")
+            .expect("treasure reward screen type") = json!("BOSS_REWARD");
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
+        let report = verify_communication_mod_trace(&mutated).expect("mutated trace parses");
+        let screen_diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| {
+                diff.action_step == chest_action_step && diff.label == "open treasure chest"
+            })
+            .and_then(|diff| {
+                diff.diffs
+                    .iter()
+                    .find(|line| line.starts_with("screen_type:"))
+            })
+            .expect("forged boss screen must differ from the core-owned treasure reward");
+        assert!(screen_diff.contains("BOSS_REWARD"), "{screen_diff}");
+        assert!(screen_diff.contains("COMBAT_REWARD"), "{screen_diff}");
+        assert!(report.unexpected_diffs.iter().all(|diff| {
+            diff.action_step != chest_action_step || diff.label != "open boss relic chest"
+        }));
     }
 
     #[test]
