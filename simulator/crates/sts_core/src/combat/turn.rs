@@ -505,7 +505,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     ascension,
                     &player_snapshot,
                     &state.relics,
-                    Some(&mut state.rng.card_random_rng),
+                    &mut state.rng.card_random_rng,
                 )?;
                 let painful_stabs = state.monsters[index].powers.painful_stabs;
                 apply_monster_pending_effects(state, damage, 1, painful_stabs, None, 0, 0, 0, 0, 0);
@@ -693,7 +693,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             ascension,
             &player_snapshot,
             &relics,
-            Some(&mut state.rng.card_random_rng),
+            &mut state.rng.card_random_rng,
         )?;
         if let Some(piles) = piles_before_post_damage_effects {
             // CommunicationMod observes Hexaghost/Nemesis status cards only
@@ -893,7 +893,7 @@ fn apply_monster_pending_effects(
             &mut state.piles,
             BURN_ID,
             burn_to_discard_and_draw,
-            Some(&mut state.rng.card_random_rng),
+            &mut state.rng.card_random_rng,
         );
         add_cards_to_discard(&mut state.piles, BURN_ID, burn_to_discard_and_draw);
     }
@@ -2833,13 +2833,15 @@ mod tests {
         let mut player = fixture.player;
         let before = player.clone();
         let mut piles = fixture.piles;
-        let damage = crate::content::monsters::apply_monster_intent(
+        let mut card_random_rng = StsRng::new(0);
+        let damage = crate::content::monsters::apply_monster_intent_with_card_rng(
             &mut source_monster,
             &mut player,
             &mut piles,
             17,
             &before,
             &[],
+            &mut card_random_rng,
         );
         assert_eq!(damage, Ok(0));
         assert_eq!(player.powers.constricted, 12);

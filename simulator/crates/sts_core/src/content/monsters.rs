@@ -9440,26 +9440,6 @@ pub fn target_large_acid_slime_next_intent_from_roll(
     }
 }
 
-/// Execute the monster's current intent and return player damage dealt this turn.
-pub fn apply_monster_intent(
-    monster: &mut MonsterState,
-    player: &mut crate::PlayerState,
-    piles: &mut CardPiles,
-    ascension: u8,
-    player_before: &crate::PlayerState,
-    relics: &[crate::Relic],
-) -> SimResult<i32> {
-    apply_monster_intent_with_card_rng(
-        monster,
-        player,
-        piles,
-        ascension,
-        player_before,
-        relics,
-        None,
-    )
-}
-
 pub fn apply_monster_intent_with_card_rng(
     monster: &mut MonsterState,
     player: &mut crate::PlayerState,
@@ -9467,7 +9447,7 @@ pub fn apply_monster_intent_with_card_rng(
     ascension: u8,
     player_before: &crate::PlayerState,
     relics: &[crate::Relic],
-    card_random_rng: Option<&mut StsRng>,
+    card_random_rng: &mut StsRng,
 ) -> SimResult<i32> {
     use crate::combat::damage::deal_unmodified_damage_to_monster;
     use crate::combat::turn_powers::monster_damage_to_player;
@@ -9929,7 +9909,7 @@ pub fn release_stasis_card_on_death(monster: &mut MonsterState, piles: &mut Card
 fn bronze_orb_apply_stasis(
     monster: &mut MonsterState,
     piles: &mut CardPiles,
-    card_random_rng: Option<&mut StsRng>,
+    card_random_rng: &mut StsRng,
 ) {
     if monster.content_id != BRONZE_ORB_ID || monster.stasis_card.is_some() {
         return;
@@ -9940,16 +9920,12 @@ fn bronze_orb_apply_stasis(
     monster.stasis_card = Some(card);
 }
 
-fn take_stasis_card(
-    piles: &mut CardPiles,
-    card_random_rng: Option<&mut StsRng>,
-) -> Option<CardInstance> {
-    let rng = card_random_rng?;
+fn take_stasis_card(piles: &mut CardPiles, card_random_rng: &mut StsRng) -> Option<CardInstance> {
     if !piles.draw_pile.is_empty() {
-        return take_random_card_by_stasis_priority(&mut piles.draw_pile, rng);
+        return take_random_card_by_stasis_priority(&mut piles.draw_pile, card_random_rng);
     }
     if !piles.discard_pile.is_empty() {
-        return take_random_card_by_stasis_priority(&mut piles.discard_pile, rng);
+        return take_random_card_by_stasis_priority(&mut piles.discard_pile, card_random_rng);
     }
     None
 }
@@ -10039,13 +10015,14 @@ mod tests {
         let mut player = state.player.clone();
         let player_before = player.clone();
 
-        let damage = apply_monster_intent(
+        let damage = apply_monster_intent_with_card_rng(
             &mut monster,
             &mut player,
             &mut state.piles,
             0,
             &player_before,
             &[],
+            &mut state.rng.card_random_rng,
         );
 
         assert_eq!(damage, Ok(0));
@@ -10070,13 +10047,14 @@ mod tests {
         player.powers.thorns = 3;
         let player_before = player.clone();
 
-        let damage = apply_monster_intent(
+        let damage = apply_monster_intent_with_card_rng(
             &mut monster,
             &mut player,
             &mut state.piles,
             0,
             &player_before,
             &[],
+            &mut state.rng.card_random_rng,
         );
 
         assert_eq!(damage, Ok(12));
@@ -10971,6 +10949,7 @@ mod tests {
         let mut player = state.player;
         let player_before = player.clone();
         let mut piles = state.piles;
+        let mut card_random_rng = StsRng::new(0);
 
         let damage = apply_monster_intent_with_card_rng(
             &mut source_monster,
@@ -10979,7 +10958,7 @@ mod tests {
             0,
             &player_before,
             &[],
-            None,
+            &mut card_random_rng,
         );
 
         assert_eq!(damage, Ok(0));
@@ -11686,6 +11665,7 @@ mod tests {
         let mut player = state.player;
         let player_before = player.clone();
         let mut piles = state.piles;
+        let mut card_random_rng = StsRng::new(0);
         source_monster.intent = MonsterIntent::StrengthAndBlock {
             strength: 0,
             block: 0,
@@ -11698,7 +11678,7 @@ mod tests {
             17,
             &player_before,
             &[],
-            None,
+            &mut card_random_rng,
         );
 
         assert_eq!(damage, Ok(0));
