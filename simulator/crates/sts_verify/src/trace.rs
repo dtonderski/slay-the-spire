@@ -314,7 +314,177 @@ fn validate_game_state_schema(step: u32, message: &Value) -> Result<(), serde_js
             "trace state at step {step} game_state.choice_list must be an array of strings"
         )));
     }
+    validate_optional_combat_state(step, game)?;
     validate_visible_screen_schema(step, screen_type, game)?;
+    Ok(())
+}
+
+fn validate_optional_combat_state(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let Some(value) = game.get("combat_state").filter(|value| !value.is_null()) else {
+        return Ok(());
+    };
+    let combat = value.as_object().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.combat_state must be a JSON object"
+        ))
+    })?;
+    let player = combat
+        .get("player")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.combat_state.player must be a JSON object"
+            ))
+        })?;
+    for field in ["current_hp", "block", "energy"] {
+        validate_i32_field(step, "game_state.combat_state.player", player, field)?;
+    }
+    for pile in ["hand", "draw_pile", "discard_pile"] {
+        validate_combat_card_array(step, combat, pile)?;
+    }
+    validate_combat_monsters(step, combat)
+}
+
+fn validate_combat_card_array(
+    step: u32,
+    combat: &serde_json::Map<String, Value>,
+    pile: &str,
+) -> Result<(), serde_json::Error> {
+    let path = format!("game_state.combat_state.{pile}");
+    let cards = combat.get(pile).and_then(Value::as_array).ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path} must be an array"
+        ))
+    })?;
+    for card in cards {
+        let card = card.as_object().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {path} entries must be objects"
+            ))
+        })?;
+        if card
+            .get("id")
+            .and_then(Value::as_str)
+            .is_none_or(|id| id.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {path} entries require a string id"
+            )));
+        }
+        if let Some(upgrades) = card.get("upgrades") {
+            let valid = upgrades
+                .as_u64()
+                .and_then(|upgrades| u8::try_from(upgrades).ok())
+                .is_some();
+            if !valid {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} {path} entry upgrades must be a non-negative u8"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_combat_monsters(
+    step: u32,
+    combat: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    const PATH: &str = "game_state.combat_state.monsters";
+    let monsters = combat
+        .get("monsters")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} must be an array"
+            ))
+        })?;
+    for monster in monsters {
+        let monster = monster.as_object().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries must be objects"
+            ))
+        })?;
+        if monster
+            .get("id")
+            .and_then(Value::as_str)
+            .or_else(|| monster.get("name").and_then(Value::as_str))
+            .is_none_or(|identity| identity.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries require an id or name"
+            )));
+        }
+        for field in ["current_hp", "max_hp", "block"] {
+            validate_i32_field(step, PATH, monster, field)?;
+        }
+        if monster
+            .get("intent")
+            .and_then(Value::as_str)
+            .is_none_or(|intent| intent.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries require a string intent"
+            )));
+        }
+        validate_combat_powers(step, monster)?;
+    }
+    Ok(())
+}
+
+fn validate_combat_powers(
+    step: u32,
+    monster: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    const PATH: &str = "game_state.combat_state.monsters[].powers";
+    let powers = monster
+        .get("powers")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} must be an array"
+            ))
+        })?;
+    for power in powers {
+        let power = power.as_object().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries must be objects"
+            ))
+        })?;
+        if power
+            .get("id")
+            .and_then(Value::as_str)
+            .or_else(|| power.get("name").and_then(Value::as_str))
+            .is_none_or(|identity| identity.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries require an id or name"
+            )));
+        }
+        validate_i32_field(step, PATH, power, "amount")?;
+    }
+    Ok(())
+}
+
+fn validate_i32_field(
+    step: u32,
+    path: &str,
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<(), serde_json::Error> {
+    let value = object.get(field).and_then(Value::as_i64).ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path}.{field} must be an integer"
+        ))
+    })?;
+    if i32::try_from(value).is_err() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {path}.{field} is out of range"
+        )));
+    }
     Ok(())
 }
 
@@ -637,6 +807,36 @@ mod tests {
         let error = parse_trace_jsonl(content).expect_err("incomplete visible node is invalid");
         assert!(error.to_string().contains(
             "trace state at step 11 game_state.screen_state.next_nodes entries require symbol, x, and y"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_missing_combat_player() {
+        let content = r#"{"type":"state","step":12,"message":{"game_state":{"screen_type":"NONE","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"combat_state":{"hand":[],"draw_pile":[],"discard_pile":[],"monsters":[]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing combat player is invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 12 game_state.combat_state.player must be a JSON object"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_combat_card_without_id() {
+        let content = r#"{"type":"state","step":13,"message":{"game_state":{"screen_type":"NONE","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"combat_state":{"hand":[{"name":"Strike"}],"draw_pile":[],"discard_pile":[],"player":{"current_hp":80,"block":0,"energy":3},"monsters":[]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("unprojectable combat card is invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 13 game_state.combat_state.hand entries require a string id"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_monster_without_observable_hp() {
+        let content = r#"{"type":"state","step":14,"message":{"game_state":{"screen_type":"NONE","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"combat_state":{"hand":[],"draw_pile":[],"discard_pile":[],"player":{"current_hp":80,"block":0,"energy":3},"monsters":[{"name":"Cultist","max_hp":50,"block":0,"intent":"BUFF","powers":[]}]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing monster hp is invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 14 game_state.combat_state.monsters.current_hp must be an integer"
         ));
     }
 
