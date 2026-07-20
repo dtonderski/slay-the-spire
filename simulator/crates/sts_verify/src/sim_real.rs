@@ -28,8 +28,8 @@ use sts_core::{
     consume_neow_three_potions_hidden_card_reward, generate_exordium_map_choices_after_path,
     generate_exordium_map_topology, generate_neow_card_reward, generate_neow_colorless_reward,
     generate_neow_options, generate_neow_three_potions, generate_neow_transform_reward,
-    generate_target_map_choices_after_path, generate_target_map_topology, legal_map_actions_on_run,
-    legal_rest_actions, open_neow_reward_grid, shop_action_for_choice_index,
+    generate_target_map_choices_after_path, generate_target_map_topology,
+    legal_run_decision_actions, open_neow_reward_grid, shop_action_for_choice_index,
     target_room_kinds_on_path, Act1Boss, Act3Boss, CardGridScreen, CardId, CardInstance,
     CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, GeneratedNeowOption,
     GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState, NeowDrawback, NeowRewardType,
@@ -87,6 +87,26 @@ fn confirm_grid(run: &RunState) -> sts_core::SimResult<RunState> {
 
 fn cancel_grid(run: &RunState) -> sts_core::SimResult<RunState> {
     apply_run_decision_action(run, RunDecisionAction::GridCancel)
+}
+
+fn legal_map_decisions(run: &RunState) -> sts_core::SimResult<Vec<MapAction>> {
+    Ok(legal_run_decision_actions(run)?
+        .into_iter()
+        .filter_map(|action| match action {
+            RunDecisionAction::Map(action) => Some(action),
+            _ => None,
+        })
+        .collect())
+}
+
+fn legal_rest_decisions(run: &RunState) -> sts_core::SimResult<Vec<RestAction>> {
+    Ok(legal_run_decision_actions(run)?
+        .into_iter()
+        .filter_map(|action| match action {
+            RunDecisionAction::Rest(action) => Some(action),
+            _ => None,
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2999,7 +3019,24 @@ fn verify_seed_start_transitions(
                         transition_base.deck = deck_instances_from_keys(&next_deck_ids);
                         deck_ids = next_deck_ids;
                     }
-                    let legal_actions = legal_map_actions_on_run(&transition_base);
+                    let legal_actions = match legal_map_decisions(&transition_base) {
+                        Ok(actions) => actions,
+                        Err(error) => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "invalid_map_state".to_owned(),
+                                reason: format!(
+                                    "core legal-action boundary rejected map state: {error}"
+                                ),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
+                    };
                     if let Some(choice_index) = choose_index(&action.command) {
                         if let Some(map_action) = legal_actions.get(choice_index).copied() {
                             let choice_x = transition_base
@@ -3445,9 +3482,13 @@ fn verify_seed_start_transitions(
                 };
                 let next = if screen_type(&pre.message) == Some("REST") {
                     seed_start_rest_screen_actions(sim)
-                        .get(choose_index)
-                        .copied()
-                        .ok_or_else(|| "unsupported rest choice".to_owned())
+                        .map_err(|error| error.to_string())
+                        .and_then(|actions| {
+                            actions
+                                .get(choose_index)
+                                .copied()
+                                .ok_or_else(|| "unsupported rest choice".to_owned())
+                        })
                         .and_then(|action| {
                             apply_rest_action(sim, action).map_err(|e| e.to_string())
                         })
@@ -6705,7 +6746,17 @@ fn seed_start_rest_observed_subset(message: &Value) -> Value {
 
 fn seed_start_rest_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
     let choices = if run.phase == RunPhase::Rest && !run.rest_room_complete {
-        seed_start_rest_screen_actions(run)
+        let actions = match seed_start_rest_screen_actions(run) {
+            Ok(actions) => actions,
+            Err(error) => {
+                return json!({
+                    "simulator_error": format!(
+                        "core legal-action boundary rejected rest state: {error}"
+                    )
+                });
+            }
+        };
+        actions
             .into_iter()
             .filter_map(|action| match action {
                 RestAction::Heal => Some("rest".to_owned()),
@@ -6738,8 +6789,8 @@ fn seed_start_rest_simulated_subset(run: &RunState, relic_ids: &[String]) -> Val
     })
 }
 
-fn seed_start_rest_screen_actions(run: &RunState) -> Vec<RestAction> {
-    legal_rest_actions(run)
+fn seed_start_rest_screen_actions(run: &RunState) -> sts_core::SimResult<Vec<RestAction>> {
+    Ok(legal_rest_decisions(run)?
         .into_iter()
         .filter(|action| {
             matches!(
@@ -6751,7 +6802,7 @@ fn seed_start_rest_screen_actions(run: &RunState) -> Vec<RestAction> {
                     | RestAction::Dig
             )
         })
-        .collect()
+        .collect())
 }
 
 fn seed_start_treasure_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
@@ -7413,7 +7464,26 @@ fn seed_start_simulated_map_return(
             };
             let mut map_action_run = sim.clone();
             map_action_run.phase = RunPhase::Idle;
-            let legal_node_ids: Vec<_> = legal_map_actions_on_run(&map_action_run)
+            // This is a deterministic completed-room projection, not authoritative replay state.
+            // Remove simulator-owned overlays from the temporary copy before asking the core for
+            // map decisions; no observed post-state participates in this normalization.
+            map_action_run.combat = None;
+            map_action_run.reward = None;
+            map_action_run.event = None;
+            map_action_run.shop = None;
+            map_action_run.shop_merchant_open = false;
+            map_action_run.card_grid = None;
+            let legal_actions = match legal_map_decisions(&map_action_run) {
+                Ok(actions) => actions,
+                Err(error) => {
+                    return json!({
+                        "simulator_error": format!(
+                            "core legal-action boundary rejected map state: {error}"
+                        )
+                    });
+                }
+            };
+            let legal_node_ids: Vec<_> = legal_actions
                 .into_iter()
                 .map(|action| match action {
                     sts_core::MapAction::ChooseNode { node_id } => node_id,
@@ -13234,7 +13304,10 @@ mod tests {
         run.phase = RunPhase::Rest;
         run.relics.push(Relic::FusionHammer);
 
-        assert_eq!(seed_start_rest_screen_actions(&run), vec![RestAction::Heal]);
+        assert_eq!(
+            seed_start_rest_screen_actions(&run).expect("valid rest decisions"),
+            vec![RestAction::Heal]
+        );
         assert_eq!(
             seed_start_rest_simulated_subset(&run, &[])["choices"],
             json!(["rest"])
@@ -13253,7 +13326,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            seed_start_rest_screen_actions(&run),
+            seed_start_rest_screen_actions(&run).expect("valid rest decisions"),
             vec![
                 RestAction::OpenSmith,
                 RestAction::OpenRemove,
@@ -13264,6 +13337,19 @@ mod tests {
         assert_eq!(
             seed_start_rest_simulated_subset(&run, &[])["choices"],
             json!(["smith", "toke", "lift", "dig"])
+        );
+    }
+
+    #[test]
+    fn seed_start_rest_projection_exposes_invalid_core_legal_state() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Rest;
+        run.ascension = 21;
+
+        assert!(
+            seed_start_rest_simulated_subset(&run, &[])["simulator_error"]
+                .as_str()
+                .is_some_and(|message| message.contains("run ascension exceeds 20"))
         );
     }
 
@@ -15287,7 +15373,8 @@ mod tests {
         let mut run = seed_start_seeded_idle_run(seed, 0, &ironclad_starter_deck_keys());
         run.relics.push(Relic::WingBoots);
         run.wing_boots_charges = 3;
-        let first_node = legal_map_actions_on_run(&run)
+        let first_node = legal_map_decisions(&run)
+            .expect("valid map decisions")
             .into_iter()
             .find(|action| match action {
                 sts_core::MapAction::ChooseNode { node_id } => {
@@ -16750,7 +16837,8 @@ mod tests {
         let mut run =
             seed_start_apply_neow_boss_swap(903_575_075_592_564_628, &ironclad_starter_deck_keys());
         assert!(run_has_relic_key(&run, RelicKey::RunicDome));
-        let map_action = legal_map_actions_on_run(&run)
+        let map_action = legal_map_decisions(&run)
+            .expect("valid map decisions")
             .into_iter()
             .next()
             .expect("first map action");
