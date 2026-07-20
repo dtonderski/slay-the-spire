@@ -472,7 +472,12 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
                     }
                 }
             }
-            TraceLine::Metadata(_) => {}
+            TraceLine::Metadata(_)
+            | TraceLine::CommandAccept(_)
+            | TraceLine::Response(_)
+            | TraceLine::SlayTheData(_)
+            | TraceLine::Automation(_)
+            | TraceLine::CommandObservedTimeout(_) => {}
         }
     }
     if let Some(pending_action) = pending {
@@ -13246,6 +13251,24 @@ mod tests {
 
         let error = verify_communication_mod_trace(content).expect_err("strict replay needs START");
         assert!(matches!(error, SimRealError::MissingStartCommand));
+    }
+
+    #[test]
+    fn unknown_trace_record_is_invalid_input_instead_of_disappearing() {
+        let content = r#"{"type":"metadata","schema":1,"source":"communication_mod"}
+{"type":"exit","ended_at":"now"}"#;
+
+        let error = verify_communication_mod_trace(content).expect_err("unknown record rejected");
+        assert!(matches!(error, SimRealError::Trace(_)));
+        assert!(matches!(
+            crate::assess_verification(
+                Err(&error),
+                &crate::VerificationExpectation::Complete,
+                None,
+            ),
+            crate::VerificationOutcome::InvalidInput { reason }
+                if reason.contains("unknown variant `exit`")
+        ));
     }
 
     #[test]

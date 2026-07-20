@@ -1,5 +1,6 @@
 //! Trace JSONL formats for verification corpora.
 
+use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sts_core::content::encounters::BossUnlockState;
@@ -12,6 +13,43 @@ pub enum TraceLine {
     State(TraceState),
     Action(TraceAction),
     Error(TraceError),
+    CommandAccept(TraceCommandAccept),
+    Response(TraceResponse),
+    SlayTheData(TraceSlayTheData),
+    Automation(TraceAutomation),
+    CommandObservedTimeout(TraceCommandObservedTimeout),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceCommandAccept {
+    pub step: u32,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceResponse {
+    pub sequence: u64,
+    pub response: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceSlayTheData {
+    pub sequence: u64,
+    pub event: String,
+    pub details: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceAutomation {
+    pub sequence: u64,
+    pub event: String,
+    pub details: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceCommandObservedTimeout {
+    pub step: u32,
+    pub command: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -77,7 +115,7 @@ pub struct CommunicationModTrace {
     pub lines: Vec<TraceLine>,
 }
 
-/// Parse JSONL trace content into typed lines. Unknown `type` values are skipped.
+/// Parse every nonblank JSONL record into one known typed trace line.
 pub fn parse_trace_jsonl(content: &str) -> Result<Vec<TraceLine>, serde_json::Error> {
     let mut lines = Vec::new();
     for line in content.lines() {
@@ -86,72 +124,151 @@ pub fn parse_trace_jsonl(content: &str) -> Result<Vec<TraceLine>, serde_json::Er
             continue;
         }
         let value: Value = serde_json::from_str(line)?;
-        let Some(type_name) = value.get("type").and_then(Value::as_str) else {
-            continue;
+        let parsed = match value.get("type").and_then(Value::as_str) {
+            Some("metadata") => TraceLine::Metadata(serde_json::from_value(value)?),
+            Some("state") => TraceLine::State(parse_state_line(value)?),
+            Some("action") => TraceLine::Action(parse_action_line(value)?),
+            Some("error") => TraceLine::Error(serde_json::from_value(value)?),
+            Some("command_accept") => TraceLine::CommandAccept(parse_command_accept_line(value)?),
+            Some("response") => TraceLine::Response(parse_response_line(value)?),
+            Some("slay_the_data") => TraceLine::SlayTheData(parse_slay_the_data_line(value)?),
+            Some("automation") => TraceLine::Automation(parse_automation_line(value)?),
+            Some("command_observed_timeout") => {
+                TraceLine::CommandObservedTimeout(parse_command_observed_timeout_line(value)?)
+            }
+            _ => serde_json::from_value::<TraceLine>(value)?,
         };
-        match type_name {
-            "metadata" => lines.push(TraceLine::Metadata(serde_json::from_value(value)?)),
-            "state" => lines.push(TraceLine::State(parse_state_line(value)?)),
-            "action" => lines.push(TraceLine::Action(parse_action_line(value)?)),
-            "error" => lines.push(TraceLine::Error(serde_json::from_value(value)?)),
-            _ => {}
-        }
+        lines.push(parsed);
     }
     Ok(lines)
 }
 
-fn parse_state_line(value: Value) -> Result<TraceState, serde_json::Error> {
-    if value.get("step").is_some() && value.get("message").is_some() {
-        return serde_json::from_value(value);
+fn parse_command_accept_line(value: Value) -> Result<TraceCommandAccept, serde_json::Error> {
+    let accepted: TraceCommandAccept = serde_json::from_value(value)?;
+    if accepted.command.trim().is_empty() {
+        return Err(serde_json::Error::custom(
+            "trace command acceptance must name a command",
+        ));
     }
+    Ok(accepted)
+}
 
-    let step = value
-        .pointer("/state/raw/current_state/step")
-        .or_else(|| value.pointer("/state/raw/status/step"))
-        .or_else(|| value.get("sequence"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let message = value
-        .pointer("/state/raw/current_state/message")
-        .cloned()
-        .unwrap_or(Value::Null);
-    let received_at = value
-        .pointer("/state/raw/current_state/received_at")
-        .cloned()
-        .unwrap_or(Value::Null);
+fn parse_response_line(value: Value) -> Result<TraceResponse, serde_json::Error> {
+    let response: TraceResponse = serde_json::from_value(value)?;
+    if !response.response.is_object() {
+        return Err(serde_json::Error::custom(
+            "trace response payload must be a JSON object",
+        ));
+    }
+    Ok(response)
+}
 
-    serde_json::from_value(serde_json::json!({
-        "step": step,
-        "received_at": received_at,
-        "message": message,
-    }))
+fn parse_slay_the_data_line(value: Value) -> Result<TraceSlayTheData, serde_json::Error> {
+    let guidance: TraceSlayTheData = serde_json::from_value(value)?;
+    if guidance.event.trim().is_empty() {
+        return Err(serde_json::Error::custom(
+            "SlayTheData trace guidance must name an event",
+        ));
+    }
+    if !guidance.details.is_object() {
+        return Err(serde_json::Error::custom(
+            "SlayTheData trace guidance details must be a JSON object",
+        ));
+    }
+    Ok(guidance)
+}
+
+fn parse_automation_line(value: Value) -> Result<TraceAutomation, serde_json::Error> {
+    let automation: TraceAutomation = serde_json::from_value(value)?;
+    if automation.event.trim().is_empty() {
+        return Err(serde_json::Error::custom(
+            "automation trace telemetry must name an event",
+        ));
+    }
+    if !automation.details.is_object() {
+        return Err(serde_json::Error::custom(
+            "automation trace telemetry details must be a JSON object",
+        ));
+    }
+    Ok(automation)
+}
+
+fn parse_command_observed_timeout_line(
+    value: Value,
+) -> Result<TraceCommandObservedTimeout, serde_json::Error> {
+    let timeout: TraceCommandObservedTimeout = serde_json::from_value(value)?;
+    if timeout.command.trim().is_empty() {
+        return Err(serde_json::Error::custom(
+            "trace command observation timeout must name a command",
+        ));
+    }
+    Ok(timeout)
+}
+
+fn parse_state_line(value: Value) -> Result<TraceState, serde_json::Error> {
+    let state: TraceState = if value.get("step").is_some() && value.get("message").is_some() {
+        serde_json::from_value(value)?
+    } else {
+        let step = value
+            .pointer("/state/raw/current_state/step")
+            .or_else(|| value.pointer("/state/raw/status/step"))
+            .or_else(|| value.get("sequence"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let message = value
+            .pointer("/state/raw/current_state/message")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let received_at = value
+            .pointer("/state/raw/current_state/received_at")
+            .cloned()
+            .unwrap_or(Value::Null);
+
+        serde_json::from_value(serde_json::json!({
+            "step": step,
+            "received_at": received_at,
+            "message": message,
+        }))?
+    };
+    if !state.message.is_object() {
+        return Err(serde_json::Error::custom(
+            "trace state message must be a JSON object",
+        ));
+    }
+    Ok(state)
 }
 
 fn parse_action_line(value: Value) -> Result<TraceAction, serde_json::Error> {
-    if value.get("step").is_some() && value.get("command").is_some() {
-        return serde_json::from_value(value);
+    let action: TraceAction = if value.get("step").is_some() && value.get("command").is_some() {
+        serde_json::from_value(value)?
+    } else {
+        let step = value
+            .pointer("/action/command/source_state_seq")
+            .or_else(|| value.get("sequence"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let command = value
+            .pointer("/action/command/command")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let playtime_seconds = value
+            .pointer("/action/playtime_seconds")
+            .or_else(|| value.pointer("/action/command/playtime_seconds"))
+            .cloned()
+            .unwrap_or(Value::Null);
+
+        serde_json::from_value(serde_json::json!({
+            "step": step,
+            "command": command,
+            "playtime_seconds": playtime_seconds,
+        }))?
+    };
+    if action.command.trim().is_empty() {
+        return Err(serde_json::Error::custom(
+            "trace action command must not be empty",
+        ));
     }
-
-    let step = value
-        .pointer("/action/command/source_state_seq")
-        .or_else(|| value.get("sequence"))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let command = value
-        .pointer("/action/command/command")
-        .cloned()
-        .unwrap_or(Value::Null);
-    let playtime_seconds = value
-        .pointer("/action/playtime_seconds")
-        .or_else(|| value.pointer("/action/command/playtime_seconds"))
-        .cloned()
-        .unwrap_or(Value::Null);
-
-    serde_json::from_value(serde_json::json!({
-        "step": step,
-        "command": command,
-        "playtime_seconds": playtime_seconds,
-    }))
+    Ok(action)
 }
 
 /// Import a CommunicationMod trace, collecting metadata and ordered lines.
@@ -174,15 +291,83 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_trace_skips_unknown_line_types() {
+    fn parse_trace_rejects_unknown_line_types() {
         let content = r#"{"type":"metadata","schema":1,"source":"communication_mod"}
 {"type":"state","step":0,"message":{}}
 {"type":"action","step":1,"command":"PLAY 1 0"}
 {"type":"exit","ended_at":"now"}"#;
 
-        let lines = parse_trace_jsonl(content).expect("parses");
-        assert_eq!(lines.len(), 3);
-        assert!(matches!(lines[2], TraceLine::Action(_)));
+        let error = parse_trace_jsonl(content).expect_err("unknown record type is invalid");
+        assert!(error.to_string().contains("unknown variant `exit`"));
+    }
+
+    #[test]
+    fn parse_trace_preserves_known_auxiliary_records() {
+        let content = r#"{"type":"command_accept","step":1,"command":"CHOOSE 0"}
+{"type":"response","sequence":2,"response":{"kind":"bridge_command_result"}}
+{"type":"slay_the_data","sequence":3,"event":"send_action","details":{"step_index":1}}
+{"type":"automation","sequence":4,"event":"plan_ready","details":{"state":"ready_to_send"}}
+{"type":"command_observed_timeout","step":5,"command":"END"}"#;
+
+        let lines = parse_trace_jsonl(content).expect("known auxiliary records parse");
+        assert!(matches!(
+            &lines[0],
+            TraceLine::CommandAccept(accepted)
+                if accepted.step == 1 && accepted.command == "CHOOSE 0"
+        ));
+        assert!(matches!(
+            &lines[1],
+            TraceLine::Response(response)
+                if response.sequence == 2
+                    && response.response["kind"] == "bridge_command_result"
+        ));
+        assert!(matches!(
+            &lines[2],
+            TraceLine::SlayTheData(guidance)
+                if guidance.sequence == 3
+                    && guidance.event == "send_action"
+                    && guidance.details["step_index"] == 1
+        ));
+        assert!(matches!(
+            &lines[3],
+            TraceLine::Automation(automation)
+                if automation.sequence == 4
+                    && automation.event == "plan_ready"
+                    && automation.details["state"] == "ready_to_send"
+        ));
+        assert!(matches!(
+            &lines[4],
+            TraceLine::CommandObservedTimeout(timeout)
+                if timeout.step == 5 && timeout.command == "END"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_missing_line_type() {
+        let error = parse_trace_jsonl(r#"{"step":1,"command":"PLAY 1 0"}"#)
+            .expect_err("missing record type is invalid");
+
+        assert!(error.to_string().contains("missing field `type`"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_null_state_message() {
+        let error = parse_trace_jsonl(r#"{"type":"state","step":1,"message":null}"#)
+            .expect_err("null state message is invalid");
+
+        assert!(error
+            .to_string()
+            .contains("trace state message must be a JSON object"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_empty_action_command() {
+        let error = parse_trace_jsonl(r#"{"type":"action","step":1,"command":"  "}"#)
+            .expect_err("empty action command is invalid");
+
+        assert!(error
+            .to_string()
+            .contains("trace action command must not be empty"));
     }
 
     #[test]

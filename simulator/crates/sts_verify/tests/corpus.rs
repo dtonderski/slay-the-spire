@@ -942,6 +942,11 @@ fn test_m32c_20260625_retained_trace_records_32b_shop_reward_deck_evidence() {
         sts_verify::TraceLine::Action(action) => action.step <= 541,
         sts_verify::TraceLine::Error(error) => error.step <= 541,
         sts_verify::TraceLine::Metadata(_) => true,
+        sts_verify::TraceLine::CommandAccept(accepted) => accepted.step <= 541,
+        sts_verify::TraceLine::Response(response) => response.sequence <= 541,
+        sts_verify::TraceLine::SlayTheData(_) => false,
+        sts_verify::TraceLine::Automation(_) => false,
+        sts_verify::TraceLine::CommandObservedTimeout(timeout) => timeout.step <= 541,
     }));
 
     let last = state_message_at_step(&content, 541).expect("step 541 state");
@@ -981,6 +986,11 @@ fn test_m33_manual01_selected_neow_random_rare_card_prefix() {
         sts_verify::TraceLine::Action(action) => action.step <= 4,
         sts_verify::TraceLine::Error(error) => error.step <= 4,
         sts_verify::TraceLine::Metadata(_) => true,
+        sts_verify::TraceLine::CommandAccept(accepted) => accepted.step <= 4,
+        sts_verify::TraceLine::Response(response) => response.sequence <= 4,
+        sts_verify::TraceLine::SlayTheData(_) => false,
+        sts_verify::TraceLine::Automation(_) => false,
+        sts_verify::TraceLine::CommandObservedTimeout(timeout) => timeout.step <= 4,
     }));
 
     let options = state_message_at_step(&content, 2).expect("step 2 state");
@@ -1054,6 +1064,11 @@ fn test_m33_m290005_selected_neow_remove_card_grid_prefix() {
         sts_verify::TraceLine::Action(action) => action.step <= 7,
         sts_verify::TraceLine::Error(error) => error.step <= 7,
         sts_verify::TraceLine::Metadata(_) => true,
+        sts_verify::TraceLine::CommandAccept(accepted) => accepted.step <= 7,
+        sts_verify::TraceLine::Response(response) => response.sequence <= 7,
+        sts_verify::TraceLine::SlayTheData(_) => false,
+        sts_verify::TraceLine::Automation(_) => false,
+        sts_verify::TraceLine::CommandObservedTimeout(timeout) => timeout.step <= 7,
     }));
 
     let options = state_message_at_step(&content, 3).expect("step 3 state");

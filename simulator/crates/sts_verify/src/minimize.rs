@@ -137,6 +137,11 @@ pub fn filter_trace_lines(lines: &[TraceLine], max_step: u32) -> Vec<TraceLine> 
             TraceLine::State(state) => state.step <= max_step,
             TraceLine::Action(action) => action.step <= max_step,
             TraceLine::Error(error) => error.step <= max_step,
+            TraceLine::CommandAccept(accepted) => accepted.step <= max_step,
+            TraceLine::Response(response) => response.sequence <= u64::from(max_step),
+            TraceLine::SlayTheData(_) => false,
+            TraceLine::Automation(_) => false,
+            TraceLine::CommandObservedTimeout(timeout) => timeout.step <= max_step,
         })
         .cloned()
         .collect()
@@ -285,6 +290,13 @@ mod tests {
             TraceLine::Action(action) => action.step <= report.failure_step,
             TraceLine::Error(error) => error.step <= report.failure_step,
             TraceLine::Metadata(_) => true,
+            TraceLine::CommandAccept(accepted) => accepted.step <= report.failure_step,
+            TraceLine::Response(response) => {
+                response.sequence <= u64::from(report.failure_step)
+            }
+            TraceLine::SlayTheData(_) => false,
+            TraceLine::Automation(_) => false,
+            TraceLine::CommandObservedTimeout(timeout) => timeout.step <= report.failure_step,
         }));
     }
 }
