@@ -2668,6 +2668,11 @@ fn verify_seed_start_transitions(
             {
                 if let Some(sim) = seed_sim.as_ref() {
                     let mut transition_base = sim.clone();
+                    seed_start_apply_boss_unlocks(
+                        &mut transition_base,
+                        start.numeric_seed,
+                        boss_unlocks,
+                    );
                     if let Some(curse) = pending_neow_room_entry_curse.take() {
                         let mut next_deck_ids = deck_content_keys(&transition_base.deck);
                         let delayed_tail = delayed_neow_curse_before_last_deck_card
@@ -8813,7 +8818,7 @@ fn seed_start_monsters_from_sim(combat: &CombatState, end_turn_snapshot: bool) -
         .iter()
         .map(|monster| {
             let name = seed_start_trace_monster_name(monster);
-            let strength = (monster.powers.strength - monster.powers.ritual).max(0);
+            let strength = monster.powers.strength;
             let vulnerable = monster.powers.vulnerable;
             if end_turn_snapshot {
                 let _ = vulnerable;
@@ -8899,9 +8904,18 @@ fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> V
     if let Some(monsters) = obj.get_mut("monsters").and_then(Value::as_array_mut) {
         for monster in monsters {
             if let Some(fields) = monster.as_object_mut() {
-                fields.remove("strength");
-                fields.remove("ritual");
-                fields.remove("vulnerable");
+                // CommunicationMod exposes dead-monster powers inconsistently across
+                // lethal and settling frames. They no longer affect simulation, so
+                // compare powers only while the monster is alive.
+                if fields
+                    .get("current_hp")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|hp| hp <= 0)
+                {
+                    fields.remove("strength");
+                    fields.remove("ritual");
+                    fields.remove("vulnerable");
+                }
                 fields.remove("intent");
             }
         }
@@ -11443,6 +11457,50 @@ mod tests {
         let diffs = subset_diffs(json!(["Offering+"]), json!(["unknown"]));
 
         assert_eq!(diffs, vec!["[0]: \"Offering+\" != \"unknown\""]);
+    }
+
+    #[test]
+    fn combat_normalization_preserves_living_monster_powers_only() {
+        let value = json!({
+            "monsters": [
+                {
+                    "current_hp": 10,
+                    "strength": 3,
+                    "ritual": 5,
+                    "vulnerable": 2,
+                    "intent": "ATTACK_BUFF",
+                },
+                {
+                    "current_hp": 0,
+                    "strength": 7,
+                    "ritual": 4,
+                    "vulnerable": 1,
+                    "intent": "DEAD",
+                },
+            ]
+        });
+
+        let normalized = seed_start_normalize_combat_compare(value, false);
+        assert_eq!(normalized["monsters"][0]["strength"], json!(3));
+        assert_eq!(normalized["monsters"][0]["ritual"], json!(5));
+        assert_eq!(normalized["monsters"][0]["vulnerable"], json!(2));
+        assert!(normalized["monsters"][0].get("intent").is_none());
+        assert!(normalized["monsters"][1].get("strength").is_none());
+        assert!(normalized["monsters"][1].get("ritual").is_none());
+        assert!(normalized["monsters"][1].get("vulnerable").is_none());
+        assert!(normalized["monsters"][1].get("intent").is_none());
+    }
+
+    #[test]
+    fn simulated_monster_projection_reports_strength_separately_from_ritual() {
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters[0].powers.strength = 3;
+        combat.monsters[0].powers.ritual = 3;
+
+        let projected = seed_start_monsters_from_sim(&combat, false);
+
+        assert_eq!(projected[0]["strength"], json!(3));
+        assert_eq!(projected[0]["ritual"], json!(3));
     }
 
     #[test]

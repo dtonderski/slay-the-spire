@@ -2156,12 +2156,9 @@ pub fn apply_monster_vulnerable_with_relics(
     relics: &[Relic],
     amount: i32,
 ) {
-    if amount <= 0 {
-        return;
-    }
-    powers.vulnerable += amount;
-    if relics.contains(&Relic::ChampionBelt) {
-        powers.weak += CHAMPION_BELT_WEAK;
+    let applied = crate::power::apply_monster_vulnerable(powers, amount);
+    if applied && relics.contains(&Relic::ChampionBelt) {
+        crate::power::apply_monster_weak(powers, CHAMPION_BELT_WEAK);
     }
 }
 
@@ -2310,5 +2307,39 @@ fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i3
     }
     for monster_id in dead {
         crate::combat::transition::apply_monster_death_hooks(state, monster_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::power::MonsterPowers;
+
+    #[test]
+    fn relic_vulnerable_respects_artifact() {
+        let mut powers = MonsterPowers {
+            artifact: 1,
+            ..MonsterPowers::default()
+        };
+
+        apply_monster_vulnerable_with_relics(
+            &mut powers,
+            &[Relic::BagOfMarbles, Relic::ChampionBelt],
+            1,
+        );
+
+        assert_eq!(powers.artifact, 0);
+        assert_eq!(powers.vulnerable, 0);
+        assert_eq!(powers.weak, 0);
+    }
+
+    #[test]
+    fn champion_belt_applies_weak_after_vulnerable_lands() {
+        let mut powers = MonsterPowers::default();
+
+        apply_monster_vulnerable_with_relics(&mut powers, &[Relic::ChampionBelt], 2);
+
+        assert_eq!(powers.vulnerable, 2);
+        assert_eq!(powers.weak, CHAMPION_BELT_WEAK);
     }
 }

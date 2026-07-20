@@ -3923,7 +3923,7 @@ pub fn donu_deca_boss_monsters_for_ascension(ascension: u8) -> Vec<MonsterState>
     let mut deca = monster_state_for_ascension(&DECA_A0, MonsterId::new(1), ascension);
     let mut donu = monster_state_for_ascension(&DONU_A0, MonsterId::new(2), ascension);
     let max_hp = if ascension >= 9 { 265 } else { 250 };
-    let artifact = if ascension >= 19 { 3 } else { 0 };
+    let artifact = if ascension >= 19 { 3 } else { 2 };
     deca.hp = max_hp;
     deca.max_hp = max_hp;
     deca.powers.artifact = artifact;
@@ -11370,6 +11370,10 @@ mod tests {
 
     #[test]
     fn donu_deca_pair_uses_source_opening_state_and_move_bytes() {
+        let baseline = donu_deca_boss_monsters_for_ascension(0);
+        assert_eq!(baseline[0].powers.artifact, 2);
+        assert_eq!(baseline[1].powers.artifact, 2);
+
         let monsters = donu_deca_boss_monsters_for_ascension(19);
 
         assert_eq!(monsters.len(), 2);

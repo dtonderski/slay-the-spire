@@ -427,6 +427,10 @@ fn run_monster_turn(state: &mut CombatState) {
                 state.monsters[index].alive = true;
                 state.monsters[index].escaped = false;
                 state.monsters[index].hp = state.monsters[index].max_hp / 2;
+                if state.relics.contains(&crate::Relic::PhilosophersStone) {
+                    state.monsters[index].powers.strength +=
+                        crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH;
+                }
                 state.monsters[index].moves_executed += 1;
                 prepare_next_intent_for_actor(state, actor_id);
                 continue;
@@ -2755,6 +2759,7 @@ mod tests {
         state.monsters[0].rolled_attack_damage = Some(11);
         state.monsters[0].intent = crate::MonsterIntent::Stun;
         state.monsters[0].move_history = vec![4, 5];
+        state.relics.push(Relic::PhilosophersStone);
         state.monster_rng = Some(StsRng::new(222));
         let mut expected_rng = StsRng::new(222);
         let roll = expected_rng.random_int(99);
@@ -2775,6 +2780,7 @@ mod tests {
         assert!(state.monsters[0].alive);
         assert!(!state.monsters[0].escaped);
         assert_eq!(state.monsters[0].hp, 29);
+        assert_eq!(state.monsters[0].powers.strength, 1);
         assert_eq!(state.monsters[0].intent, expected_intent);
         assert_eq!(
             state.monsters[0].move_history.last().copied(),
