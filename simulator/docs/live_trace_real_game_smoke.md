@@ -93,23 +93,19 @@ Expected evidence:
 
 ## Trace Validation
 
-For traces containing CommunicationMod-style state/action records, run replay:
+The verifier has one strict replay contract: reconstruct from `START`, typed
+commands, and simulator state. For a trace containing enough history for that
+contract, run:
 
 ```powershell
 cd D:\dev\slay-the-spire\simulator
-cargo run -p sts_verify --bin sts_verify -- parity --mode observed-state <trace-path>
-```
-
-If the trace starts from `START ...` and covers enough history for seed-start
-verification, seed-start parity may also be run:
-
-```powershell
-cargo run -p sts_verify --bin sts_verify -- parity --mode seed-start <trace-path>
+uv run -- cargo run -p sts_verify --bin sts_verify -- parity <trace-path>
 ```
 
 Do not claim seed-start fidelity unless `sts_live` reports seed-start `ok` for
-that trace or this command passes manually. Observed-state success proves only
-the supported observed transitions.
+that trace or this command passes manually. A trace without the required
+`START` history is not eligible for strict parity; observed state is comparison
+evidence and must not be used to hydrate simulator state.
 
 ## Pass Criteria
 

@@ -8,8 +8,8 @@ use sts_verify::{
     assess_verification, canonical_diff, corpus_path, import_communication_mod_trace,
     import_slaythedata_jsonl_line, import_slaythedata_run_json, load_corpus_file,
     minimize_communication_mod_trace, slaythedata_replay_plan, slaythedata_replay_preflight,
-    verify_communication_mod_trace_with_mode, MinimizeError, SlayTheDataDiagnosticSeverity,
-    VerificationCorpusManifest, VerificationExpectation, VerificationMode, VerificationOutcome,
+    verify_communication_mod_trace, MinimizeError, SlayTheDataDiagnosticSeverity,
+    VerificationCorpusManifest, VerificationExpectation, VerificationOutcome,
     VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
@@ -78,29 +78,10 @@ fn main() {
             }
         }
         "parity" => {
-            let mut mode = VerificationMode::SeedStart;
-            let Some(mut path) = args.next() else {
-                eprintln!("usage: sts_verify parity [--mode seed-start] <trace.jsonl>");
+            let Some(path) = args.next() else {
+                eprintln!("usage: sts_verify parity <trace.jsonl>");
                 exit(1);
             };
-            if path == "--mode" {
-                let Some(mode_name) = args.next() else {
-                    eprintln!("usage: sts_verify parity [--mode seed-start] <trace.jsonl>");
-                    exit(1);
-                };
-                mode = match mode_name.as_str() {
-                    "seed-start" => VerificationMode::SeedStart,
-                    _ => {
-                        eprintln!("unknown parity mode: {mode_name}");
-                        exit(1);
-                    }
-                };
-                let Some(next_path) = args.next() else {
-                    eprintln!("usage: sts_verify parity [--mode seed-start] <trace.jsonl>");
-                    exit(1);
-                };
-                path = next_path;
-            }
             let content = if path == "-" {
                 use std::io::Read;
                 let mut buffer = String::new();
@@ -115,7 +96,7 @@ fn main() {
                 })
             };
             let expectation = VerificationExpectation::Complete;
-            let result = verify_communication_mod_trace_with_mode(&content, mode);
+            let result = verify_communication_mod_trace(&content);
             let report = match result {
                 Ok(report) => report,
                 Err(err) => {
@@ -128,7 +109,6 @@ fn main() {
             let outcome =
                 assess_verification(Ok(&report), &expectation, report.action_integrity.as_ref());
             print_verification_outcome(&outcome);
-            println!("mode={:?}", report.mode);
             println!("total_actions={}", report.total_actions);
             println!("ignored_tail_actions={}", report.ignored_tail_actions);
             println!("verified={}", report.verified.len());
@@ -463,26 +443,10 @@ fn main() {
             }
         }
         "minimize" => {
-            let mut mode = VerificationMode::SeedStart;
             let mut output_path: Option<String> = None;
             let mut path: Option<String> = None;
             while let Some(arg) = args.next() {
                 match arg.as_str() {
-                    "--mode" => {
-                        let Some(mode_name) = args.next() else {
-                            eprintln!(
-                                "usage: sts_verify minimize [--mode seed-start] [-o path] <trace.jsonl>"
-                            );
-                            exit(1);
-                        };
-                        mode = match mode_name.as_str() {
-                            "seed-start" => VerificationMode::SeedStart,
-                            _ => {
-                                eprintln!("unknown minimize mode: {mode_name}");
-                                exit(1);
-                            }
-                        };
-                    }
                     "-o" | "--output" => {
                         output_path = Some(args.next().unwrap_or_else(|| {
                             eprintln!("usage: sts_verify minimize [-o path] <trace.jsonl>");
@@ -500,7 +464,7 @@ fn main() {
                 }
             }
             let Some(path) = path else {
-                eprintln!("usage: sts_verify minimize [--mode seed-start] [-o path] <trace.jsonl>");
+                eprintln!("usage: sts_verify minimize [-o path] <trace.jsonl>");
                 exit(1);
             };
             let content = fs::read_to_string(&path).unwrap_or_else(|err| {
@@ -508,7 +472,7 @@ fn main() {
                 exit(1);
             });
             let report =
-                minimize_communication_mod_trace(&content, mode).unwrap_or_else(|err| match err {
+                minimize_communication_mod_trace(&content).unwrap_or_else(|err| match err {
                     MinimizeError::NoFailure => {
                         eprintln!("minimize: {err}");
                         exit(0);
@@ -518,7 +482,6 @@ fn main() {
                         exit(1);
                     }
                 });
-            eprintln!("minimize.mode={:?}", report.mode);
             eprintln!("minimize.failure_kind={:?}", report.failure_kind);
             eprintln!("minimize.failure_step={}", report.failure_step);
             eprintln!("minimize.failure_command=\"{}\"", report.failure_command);
@@ -564,26 +527,10 @@ fn main() {
             }
         }
         "status" => {
-            let mut mode = VerificationMode::SeedStart;
             let mut markdown = false;
             let mut path: Option<String> = None;
-            while let Some(arg) = args.next() {
+            for arg in args {
                 match arg.as_str() {
-                    "--mode" => {
-                        let Some(mode_name) = args.next() else {
-                            eprintln!(
-                                "usage: sts_verify status [--mode seed-start] [--markdown] [permanent_traces|path]"
-                            );
-                            exit(1);
-                        };
-                        mode = match mode_name.as_str() {
-                            "seed-start" => VerificationMode::SeedStart,
-                            _ => {
-                                eprintln!("unknown status mode: {mode_name}");
-                                exit(1);
-                            }
-                        };
-                    }
                     "--markdown" => markdown = true,
                     other if other.starts_with('-') => {
                         eprintln!("unknown status flag: {other}");
@@ -597,7 +544,7 @@ fn main() {
             }
 
             let root = status_path(path.as_deref().unwrap_or("permanent_traces"));
-            let entries = trace_status_entries(&root, mode).unwrap_or_else(|err| {
+            let entries = trace_status_entries(&root).unwrap_or_else(|err| {
                 eprintln!("failed to build status for {}: {err}", root.display());
                 exit(1);
             });
@@ -649,10 +596,7 @@ fn status_path(input: &str) -> PathBuf {
     }
 }
 
-fn trace_status_entries(
-    root: &Path,
-    mode: VerificationMode,
-) -> Result<Vec<TraceStatusEntry>, String> {
+fn trace_status_entries(root: &Path) -> Result<Vec<TraceStatusEntry>, String> {
     let inputs = status_trace_inputs(root)?;
     let mut entries = Vec::new();
     for input in inputs {
@@ -668,7 +612,7 @@ fn trace_status_entries(
                 continue;
             }
         };
-        let report = match verify_communication_mod_trace_with_mode(&content, mode) {
+        let report = match verify_communication_mod_trace(&content) {
             Ok(report) => report,
             Err(err) => {
                 entries.push(trace_error_entry(

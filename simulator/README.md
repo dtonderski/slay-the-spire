@@ -20,7 +20,7 @@ From this directory:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo run -p sts_verify -- parity --mode seed-start verification\corpus\communication_mod\<trace>.jsonl
+uv run -- cargo run -p sts_verify -- parity verification\corpus\communication_mod\<trace>.jsonl
 ```
 
 The verifier always derives simulator state from the recorded `START` seed and

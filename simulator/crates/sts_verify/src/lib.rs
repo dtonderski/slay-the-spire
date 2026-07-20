@@ -35,12 +35,9 @@ pub use seed::{
     STS_SEED_ALPHABET,
 };
 pub use sim_real::{
-    verify_communication_mod_trace, verify_communication_mod_trace_with_mode,
-    verify_seed_start_communication_mod_trace,
-    verify_seed_start_communication_mod_trace_with_options, ActionDisposition,
-    ActionDispositionKind, RngBoundary, SeedStartBoundary, SeedStartReport, SeedStartVerifyOptions,
-    SimRealError, SimRealReport, StartRunCommand, UnexpectedDiff, UnsupportedTransition,
-    VerificationMode, VerifiedTransition,
+    verify_communication_mod_trace, verify_seed_start_communication_mod_trace, ActionDisposition,
+    ActionDispositionKind, RngBoundary, SeedStartBoundary, SeedStartReport, SimRealError,
+    SimRealReport, StartRunCommand, UnexpectedDiff, UnsupportedTransition, VerifiedTransition,
 };
 pub use slaythedata::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,

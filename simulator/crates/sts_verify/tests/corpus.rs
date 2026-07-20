@@ -11,7 +11,7 @@ use sts_core::{
 use sts_verify::{
     assess_verification, canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
     verify_communication_mod_trace, verify_seed_start_communication_mod_trace,
-    ActionDispositionKind, ManualFixture, VerificationCorpusManifest, VerificationMode,
+    ActionDispositionKind, ManualFixture, VerificationCorpusManifest,
     VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
@@ -485,7 +485,6 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
     };
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(report.unexpected_diffs.is_empty());
 
     let seed_start = report.seed_start.expect("seed-start details");
@@ -691,7 +690,6 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
     };
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(report.unexpected_diffs.is_empty());
 
     let seed_start = report.seed_start.expect("seed-start details");
@@ -780,7 +778,6 @@ fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
     };
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(report.unexpected_diffs.is_empty());
 
     let seed_start = report.seed_start.expect("seed-start details");
@@ -825,7 +822,6 @@ fn test_seed_start_m28_shop_entry_parity() {
     };
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
 
     let prefix_diffs: Vec<_> = report
         .unexpected_diffs
@@ -857,7 +853,6 @@ fn test_seed_start_m29_m290001_sentries_prefix_zero_diffs() {
     };
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(
         report.unexpected_diffs.is_empty(),
         "unexpected diffs: {:?}",
@@ -895,7 +890,6 @@ fn test_seed_start_m30_m290008_hexaghost_early_act1_slice() {
     };
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(
         report.unexpected_diffs.is_empty(),
         "unexpected diffs: {:?}",
@@ -1007,7 +1001,6 @@ fn test_m33_manual01_selected_neow_random_rare_card_prefix() {
     assert_eq!(deck_names(&map).len(), 11);
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(
         report.unexpected_diffs.is_empty(),
         "unexpected diffs: {:?}",
@@ -1090,7 +1083,6 @@ fn test_m33_m290005_selected_neow_remove_card_grid_prefix() {
     assert_eq!(deck_name_count(&map, "Strike"), 4);
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(
         report.unexpected_diffs.is_empty(),
         "unexpected diffs: {:?}",
@@ -1132,7 +1124,6 @@ fn test_seed_start_boss_relic_retained_trace() {
     };
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(
         report.unexpected_diffs.is_empty(),
         "unexpected diffs: {:?}",
@@ -1191,7 +1182,6 @@ fn m35_act1_manifest_entries_pass_seed_start() {
             .unwrap_or_else(|| panic!("manifest trace is readable: {}", entry.path));
         let report = verify_seed_start_communication_mod_trace(&content)
             .unwrap_or_else(|err| panic!("seed-start report for {}: {err}", entry.path));
-        assert_eq!(report.mode, VerificationMode::SeedStart, "{}", entry.path);
         assert!(
             report.unexpected_diffs.is_empty(),
             "{} unexpected diffs: {:?}",
@@ -1238,7 +1228,6 @@ fn live_regression_manifest_entries_pass_seed_start() {
             .unwrap_or_else(|| panic!("live regression trace is readable: {}", entry.path));
         let report = verify_seed_start_communication_mod_trace(&content)
             .unwrap_or_else(|err| panic!("seed-start report for {}: {err}", entry.path));
-        assert_eq!(report.mode, VerificationMode::SeedStart, "{}", entry.path);
         assert_eq!(
             report.unexpected_diffs.len(),
             entry.rust_seed_start_unexpected_diffs,
@@ -1272,7 +1261,6 @@ fn codex10_neow_transform_two_trace_verifies_through_first_map_node() {
     };
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
-    assert_eq!(report.mode, VerificationMode::SeedStart);
     assert!(
         report.unexpected_diffs.is_empty(),
         "unexpected diffs: {:?}",
@@ -1439,7 +1427,6 @@ fn permanent_trace_entries_pass_seed_start() {
             .unwrap_or_else(|err| panic!("permanent trace is readable: {display_path}: {err}"));
         let report = verify_seed_start_communication_mod_trace(&content)
             .unwrap_or_else(|err| panic!("seed-start report for {display_path}: {err}"));
-        assert_eq!(report.mode, VerificationMode::SeedStart, "{display_path}");
         assert!(
             report.unexpected_diffs.is_empty(),
             "{display_path} unexpected diffs: {:?}",
@@ -1531,7 +1518,6 @@ fn fidelity_regression_trace_entries_pass_seed_start() {
         });
         let report = verify_seed_start_communication_mod_trace(&content)
             .unwrap_or_else(|err| panic!("seed-start report for {display_path}: {err}"));
-        assert_eq!(report.mode, VerificationMode::SeedStart, "{display_path}");
         assert!(
             report.unexpected_diffs.is_empty(),
             "{display_path} unexpected diffs: {:?}",

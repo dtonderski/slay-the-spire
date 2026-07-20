@@ -93,7 +93,7 @@ target\release\live-trace.exe trace verify session-N
 
 `run_ended_before_target` is a terminal game outcome, not a bridge failure, and
 therefore has no recovery command. A fidelity break reproduces with
-`sts_verify parity --mode seed-start`. A missing guided shop purchase preserves
+`sts_verify parity`. A missing guided shop purchase preserves
 the session and points to `skip-shop`; an agent may instead inspect legal
 actions, send a chosen action, and resume.
 

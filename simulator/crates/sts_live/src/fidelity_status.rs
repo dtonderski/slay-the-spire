@@ -1,11 +1,11 @@
 use crate::model::{FidelityKind, FidelityStatus, LiveResult};
 use sts_core::RunState;
-use sts_verify::{verify_communication_mod_trace_with_mode, VerificationMode};
+use sts_verify::verify_communication_mod_trace;
 
 pub(super) fn verify_seed_start_trace(
     jsonl: &str,
 ) -> LiveResult<(FidelityStatus, Option<RunState>)> {
-    match verify_communication_mod_trace_with_mode(jsonl, VerificationMode::SeedStart) {
+    match verify_communication_mod_trace(jsonl) {
         Ok(report) => {
             let sim_run_state = report
                 .seed_start
@@ -90,7 +90,6 @@ mod tests {
     use crate::model::FidelityKind;
     use sts_verify::{
         SeedStartBoundary, SeedStartReport, SimRealReport, StartRunCommand, UnexpectedDiff,
-        VerificationMode,
     };
 
     #[test]
@@ -103,7 +102,6 @@ mod tests {
         };
 
         let status = unexpected_diff_status(&SimRealReport {
-            mode: VerificationMode::SeedStart,
             total_actions: 1,
             ignored_tail_actions: 0,
             action_dispositions: Vec::new(),
@@ -122,7 +120,6 @@ mod tests {
     #[test]
     fn seed_start_unexpected_diff_takes_priority_over_later_boundary() {
         let status = seed_start_status(&SimRealReport {
-            mode: VerificationMode::SeedStart,
             total_actions: 2,
             ignored_tail_actions: 0,
             action_dispositions: Vec::new(),

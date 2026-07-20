@@ -81,7 +81,7 @@ Current seed-start harness command:
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- parity --mode seed-start verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
+uv run -- cargo run -p sts_verify -- parity verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
 ```
 
 This mode parses the real `START IRONCLAD 0 VERIFY01` command and verifies the captured Ironclad A0 trace through return to map without restoring from observed pre-state. It verifies the selected Neow path, first map choice, first Cultist encounter entry, captured Cultist combat through lethal Strike, simulation-driven reward offers, gold pickup, card reward choices, Twin Strike pickup, and post-reward `PROCEED`. For the captured trace, it reports `seed_start.expected_failure=false`, `seed_start.first_boundary.path=$.actions[complete]`, and `unexpected_diffs=0`.
@@ -90,14 +90,14 @@ The same seed-start mode also covers the captured `CODEX04` path through the fir
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- parity --mode seed-start verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
+uv run -- cargo run -p sts_verify -- parity verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
 ```
 
 For `CODEX04`, it verifies talk, the captured colorless-card reward choices `Deep Breath`, `Dramatic Entrance`, and `Jack Of All Trades`, picking `Dramatic Entrance`, leaving Neow with that card in the deck, entering the captured map path, simulation-driven floor-1/floor-2 reward screens (gold, card, potion skip), and replaying through floor-3 combat completion with `seed_start.expected_failure=false` and `unexpected_diffs=0`. For `CODEX03`, seed-start replay covers Neow's Lament, three normal combats, deferred card-reward RNG (rolled when the player opens the card screen), combat-entry `cardRng` advancement, simulation-driven rewards and map returns, and ends after floor-3 return-to-map with `unexpected_diffs=0`.
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- parity --mode seed-start verification\corpus\communication_mod\trace-2026-06-18T16-45-23-530Z.jsonl
+uv run -- cargo run -p sts_verify -- parity verification\corpus\communication_mod\trace-2026-06-18T16-45-23-530Z.jsonl
 ```
 
 Seed-start output also includes `seed_start.m22_encounter_report`, which separates captured verified combat-entry spawn state from source-backed predictions: CODEX04 and CODEX03 have three captured verified combat-entry rosters, while VERIFY01 has one captured verified entry plus two source-backed predictions because the available VERIFY01 trace ends after the first combat reward.
@@ -132,7 +132,7 @@ When a trace fails parity, build a prefix JSONL that reproduces the first failur
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- minimize --mode seed-start -o verification\corpus\bugs\my-bug.jsonl verification\corpus\communication_mod\trace.jsonl
+uv run -- cargo run -p sts_verify -- minimize -o verification\corpus\bugs\my-bug.jsonl verification\corpus\communication_mod\trace.jsonl
 ```
 
 `minimize` runs parity, finds the first `unexpected_diff` or expected-failure boundary, and writes metadata plus all state/action lines through that step. Summary fields go to stderr; the minimized trace goes to stdout or `-o`. Passing traces exit 0 with `minimize: trace has no unexpected diff or expected-failure boundary to minimize`.

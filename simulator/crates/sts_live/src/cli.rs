@@ -2142,7 +2142,7 @@ fn collect_reproduce_command(
     if status == "simulator_mismatch" {
         return snapshot.map(|snapshot| {
             format!(
-                "cargo run -p sts_verify --bin sts_verify -- parity --mode seed-start {}",
+                "uv run -- cargo run -p sts_verify --bin sts_verify -- parity {}",
                 shell_arg(&snapshot.trace_path)
             )
         });
@@ -3301,7 +3301,7 @@ mod tests {
         assert!(attempt["repair_packet"]["reproduce_command"]
             .as_str()
             .unwrap()
-            .contains("sts_verify --bin sts_verify -- parity --mode seed-start"));
+            .contains("sts_verify --bin sts_verify -- parity"));
         assert!(!attempt["repair_packet"]["reproduce_command"]
             .as_str()
             .unwrap()

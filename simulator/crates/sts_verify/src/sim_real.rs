@@ -111,7 +111,6 @@ fn legal_rest_decisions(run: &RunState) -> sts_core::SimResult<Vec<RestAction>> 
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SimRealReport {
-    pub mode: VerificationMode,
     pub total_actions: usize,
     pub ignored_tail_actions: usize,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -151,12 +150,6 @@ pub enum ActionDispositionKind {
     BeyondBoundary,
     PendingTransient,
     Unclassified,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum VerificationMode {
-    SeedStart,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -217,9 +210,6 @@ pub struct RngBoundary {
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SeedStartVerifyOptions {}
-
 #[derive(Debug)]
 pub enum SimRealError {
     Trace(serde_json::Error),
@@ -259,48 +249,10 @@ pub fn verify_communication_mod_trace(content: &str) -> Result<SimRealReport, Si
 pub fn verify_seed_start_communication_mod_trace(
     content: &str,
 ) -> Result<SimRealReport, SimRealError> {
-    verify_seed_start_communication_mod_trace_with_options(
-        content,
-        SeedStartVerifyOptions::default(),
-    )
+    verify_seed_start_trace(content)
 }
 
-pub fn verify_seed_start_communication_mod_trace_with_options(
-    content: &str,
-    options: SeedStartVerifyOptions,
-) -> Result<SimRealReport, SimRealError> {
-    verify_communication_mod_trace_with_mode_and_options(
-        content,
-        VerificationMode::SeedStart,
-        options,
-    )
-}
-
-pub fn verify_communication_mod_trace_with_mode(
-    content: &str,
-    mode: VerificationMode,
-) -> Result<SimRealReport, SimRealError> {
-    verify_communication_mod_trace_with_mode_and_options(
-        content,
-        mode,
-        SeedStartVerifyOptions::default(),
-    )
-}
-
-fn verify_communication_mod_trace_with_mode_and_options(
-    content: &str,
-    mode: VerificationMode,
-    options: SeedStartVerifyOptions,
-) -> Result<SimRealReport, SimRealError> {
-    match mode {
-        VerificationMode::SeedStart => verify_seed_start_trace(content, options),
-    }
-}
-
-fn verify_seed_start_trace(
-    content: &str,
-    options: SeedStartVerifyOptions,
-) -> Result<SimRealReport, SimRealError> {
+fn verify_seed_start_trace(content: &str) -> Result<SimRealReport, SimRealError> {
     let trace = import_communication_mod_trace(content)?;
     let boss_unlocks = trace
         .metadata
@@ -323,7 +275,6 @@ fn verify_seed_start_trace(
     let start = start.ok_or(SimRealError::MissingStartCommand)?;
 
     let mut report = SimRealReport {
-        mode: VerificationMode::SeedStart,
         total_actions,
         ignored_tail_actions: transitions.ignored_tail_actions,
         action_dispositions: Vec::new(),
@@ -334,13 +285,8 @@ fn verify_seed_start_trace(
         seed_start: None,
     };
 
-    let verification = verify_seed_start_transitions(
-        &transitions.transitions,
-        &start,
-        &mut report,
-        options,
-        boss_unlocks,
-    );
+    let verification =
+        verify_seed_start_transitions(&transitions.transitions, &start, &mut report, boss_unlocks);
     let failed = verification.boundary.category != "none";
     let m22_encounter_report = Some(crate::m22::verify_m22_encounter_spawn_prefix(
         &trace.lines,
@@ -1022,7 +968,6 @@ fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
     report: &mut SimRealReport,
-    _options: SeedStartVerifyOptions,
     boss_unlocks: BossUnlockState,
 ) -> SeedStartVerification {
     let mut phase = SeedStartPhase::BeforeStart;
@@ -1454,7 +1399,6 @@ fn verify_seed_start_transitions(
                 seed_start_reward_observed_subset(&post.message),
                 seed_start_reward_simulated_subset(sim, &relics),
             );
-            seed_start_test_pop_last_diff(report, action, &start.external_seed);
             phase = SeedStartPhase::Reward;
             continue;
         }
@@ -1492,7 +1436,6 @@ fn verify_seed_start_transitions(
                 seed_start_treasure_observed_subset(&post.message),
                 seed_start_treasure_simulated_subset(sim, &relics),
             );
-            seed_start_test_pop_last_diff(report, action, &start.external_seed);
             continue;
         }
         match phase {
@@ -3284,7 +3227,6 @@ fn verify_seed_start_transitions(
                     seed_start_map_return_observed_subset(&post.message),
                     simulated_return,
                 );
-                seed_start_test_pop_last_diff(report, action, &start.external_seed);
                 phase = SeedStartPhase::Map;
                 continue;
             }
@@ -3342,7 +3284,6 @@ fn verify_seed_start_transitions(
                         seed_start_boss_reward_observed_subset(&post.message),
                         seed_start_boss_reward_simulated_subset(&next, &relics),
                     );
-                    seed_start_test_pop_last_diff(report, action, &start.external_seed);
                     phase = SeedStartPhase::BossReward;
                 } else if ordinary_reward {
                     compare_subset(
@@ -3464,7 +3405,6 @@ fn verify_seed_start_transitions(
                         &deck_ids,
                     ),
                 );
-                seed_start_test_pop_last_diff(report, action, &start.external_seed);
                 *sim = next;
                 phase = SeedStartPhase::Map;
                 continue;
@@ -4462,7 +4402,6 @@ fn verify_seed_start_transitions(
                             seed_start_treasure_observed_subset(&post.message),
                             seed_start_treasure_simulated_subset(&next, &relics),
                         );
-                        seed_start_test_pop_last_diff(report, action, &start.external_seed);
                         *sim = next;
                         phase = SeedStartPhase::Treasure;
                         continue;
@@ -4809,7 +4748,6 @@ fn verify_seed_start_transitions(
                             seed_start_treasure_simulated_subset(&next, &relics),
                         );
                     }
-                    seed_start_test_pop_last_diff(report, action, &start.external_seed);
                     *sim = next;
                     phase = if sim.card_grid.is_some() {
                         SeedStartPhase::Grid
@@ -4861,7 +4799,6 @@ fn verify_seed_start_transitions(
                     seed_start_treasure_observed_subset(&post.message),
                     seed_start_treasure_simulated_subset(&next, &relics),
                 );
-                seed_start_test_pop_last_diff(report, action, &start.external_seed);
                 *sim = next;
                 phase = SeedStartPhase::Treasure;
             }
@@ -5393,7 +5330,6 @@ fn verify_seed_start_transitions(
                             seed_start_treasure_observed_subset(&post.message),
                             seed_start_treasure_simulated_subset(&next, &relics),
                         );
-                        seed_start_test_pop_last_diff(report, action, &start.external_seed);
                         *sim = next;
                         phase = SeedStartPhase::Treasure;
                         continue;
@@ -7162,14 +7098,6 @@ fn reward_card_id_from_choose(run: &RunState, choose_index: usize) -> Option<Car
         .map(|card| card.id)
 }
 
-fn seed_start_test_pop_last_diff(
-    report: &mut SimRealReport,
-    action: &TraceAction,
-    external_seed: &str,
-) {
-    let _ = (report, action, external_seed);
-}
-
 #[allow(clippy::too_many_arguments)]
 fn seed_start_handle_proceed_to_map(
     report: &mut SimRealReport,
@@ -7326,7 +7254,6 @@ fn seed_start_handle_proceed_to_map(
         &deck,
     );
     compare_subset(report, action, &label, observed, simulated);
-    seed_start_test_pop_last_diff(report, action, &start.external_seed);
     if let Some(sim) = seed_sim.as_mut() {
         seed_start_update_carry_from_run(sim, carried_relics, carried_deck_ids);
     }
@@ -19383,9 +19310,6 @@ mod tests {
             let report =
                 verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
 
-            if report.mode != VerificationMode::SeedStart {
-                failures.push(format!("{} wrong mode: {:?}", case.path, report.mode));
-            }
             if !report.unexpected_diffs.is_empty() {
                 failures.push(format!(
                     "{} unexpected diffs: {:?}",

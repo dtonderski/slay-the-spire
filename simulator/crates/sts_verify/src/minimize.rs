@@ -1,14 +1,13 @@
 //! Build prefix traces that reproduce the first strict seed-start divergence.
 
 use crate::{
-    import_communication_mod_trace, verify_communication_mod_trace_with_mode, SimRealReport,
-    TraceLine, TraceMetadata, VerificationMode,
+    import_communication_mod_trace, verify_communication_mod_trace, SimRealReport, TraceLine,
+    TraceMetadata,
 };
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MinimizeReport {
-    pub mode: VerificationMode,
     pub failure_kind: MinimizeFailureKind,
     pub failure_step: u32,
     pub failure_command: String,
@@ -49,11 +48,8 @@ impl std::fmt::Display for MinimizeError {
 impl std::error::Error for MinimizeError {}
 
 /// Run parity on `content` and return a JSONL prefix through the first failing action.
-pub fn minimize_communication_mod_trace(
-    content: &str,
-    mode: VerificationMode,
-) -> Result<MinimizeReport, MinimizeError> {
-    let report = verify_communication_mod_trace_with_mode(content, mode)
+pub fn minimize_communication_mod_trace(content: &str) -> Result<MinimizeReport, MinimizeError> {
+    let report = verify_communication_mod_trace(content)
         .map_err(|err| MinimizeError::Parse(err.to_string()))?;
     let trace = import_communication_mod_trace(content)
         .map_err(|err| MinimizeError::Parse(err.to_string()))?;
@@ -63,11 +59,10 @@ pub fn minimize_communication_mod_trace(
         .iter()
         .filter(|line| matches!(line, TraceLine::Action(_)))
         .count();
-    let metadata = minimized_metadata(trace.metadata.as_ref(), failure.step, mode);
+    let metadata = minimized_metadata(trace.metadata.as_ref(), failure.step);
     let minimized_trace = serialize_communication_mod_trace(&metadata, &minimized_lines);
 
     Ok(MinimizeReport {
-        mode,
         failure_kind: failure.kind,
         failure_step: failure.step,
         failure_command: failure.command,
@@ -147,11 +142,7 @@ pub fn filter_trace_lines(lines: &[TraceLine], max_step: u32) -> Vec<TraceLine> 
         .collect()
 }
 
-fn minimized_metadata(
-    original: Option<&TraceMetadata>,
-    failure_step: u32,
-    mode: VerificationMode,
-) -> TraceMetadata {
+fn minimized_metadata(original: Option<&TraceMetadata>, failure_step: u32) -> TraceMetadata {
     let mut metadata = original.cloned().unwrap_or(TraceMetadata {
         schema: 1,
         source: "communication_mod".to_owned(),
@@ -162,7 +153,7 @@ fn minimized_metadata(
         event: None,
         boss_unlocks: None,
     });
-    metadata.event = Some(format!("minimized_to_step={failure_step}; mode={mode:?}"));
+    metadata.event = Some(format!("minimized_to_step={failure_step}"));
     metadata
 }
 
@@ -268,8 +259,7 @@ mod tests {
             .map(|line| line.to_string())
             .collect::<Vec<_>>()
             .join("\n");
-        let err = minimize_communication_mod_trace(&content, VerificationMode::SeedStart)
-            .expect_err("passing trace");
+        let err = minimize_communication_mod_trace(&content).expect_err("passing trace");
         assert_eq!(err, MinimizeError::NoFailure);
     }
 
@@ -280,16 +270,13 @@ mod tests {
         else {
             return;
         };
-        let full_report =
-            verify_communication_mod_trace_with_mode(&content, VerificationMode::SeedStart)
-                .expect("report");
+        let full_report = verify_communication_mod_trace(&content).expect("report");
         if full_report.unexpected_diffs.is_empty()
             && !full_report.seed_start.as_ref().is_some_and(|s| s.failed)
         {
             return;
         }
-        let report = minimize_communication_mod_trace(&content, VerificationMode::SeedStart)
-            .expect("minimize failing prefix");
+        let report = minimize_communication_mod_trace(&content).expect("minimize failing prefix");
         assert!(report.minimized_action_count <= report.original_action_count);
         assert!(report.minimized_trace.contains("\"type\":\"metadata\""));
         let reparsed = import_communication_mod_trace(&report.minimized_trace).expect("reparses");

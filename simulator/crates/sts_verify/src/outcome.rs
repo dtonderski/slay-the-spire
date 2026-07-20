@@ -272,13 +272,10 @@ pub fn assess_verification(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        SeedStartReport, StartRunCommand, UnexpectedDiff, UnsupportedTransition, VerificationMode,
-    };
+    use crate::{SeedStartReport, StartRunCommand, UnexpectedDiff, UnsupportedTransition};
 
     fn report() -> SimRealReport {
         SimRealReport {
-            mode: VerificationMode::SeedStart,
             total_actions: 1,
             ignored_tail_actions: 0,
             action_dispositions: Vec::new(),
