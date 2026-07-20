@@ -356,12 +356,18 @@ impl PyOmniRunEnv {
     }
 
     #[staticmethod]
-    pub fn new_ironclad(seed: Option<&str>, ascension: Option<u8>) -> PyResult<Self> {
+    #[pyo3(signature = (seed, ascension=None))]
+    pub fn new_ironclad(seed: &str, ascension: Option<u8>) -> PyResult<Self> {
+        if seed.trim().is_empty() {
+            return Err(PyValueError::new_err(
+                "new_ironclad requires a nonempty seed",
+            ));
+        }
         let ascension = ascension.unwrap_or(0);
-        let state = match seed {
-            Some(seed) => RunState::placeholder_seeded_ironclad(stable_seed(seed), ascension),
-            None => RunState::combat_fixture_with_ascension(ascension),
-        };
+        let state = RunState::placeholder_seeded_ironclad(stable_seed(seed), ascension);
+        state
+            .validate()
+            .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;
         Ok(Self { state })
     }
 
@@ -1815,9 +1821,9 @@ mod tests {
 
     #[test]
     fn seed_start_constructor_uses_placeholder_generated_map() {
-        let first = PyOmniRunEnv::new_ironclad(Some("TEST"), Some(0)).expect("seed starts");
-        let second = PyOmniRunEnv::new_ironclad(Some("TEST"), Some(0)).expect("seed starts");
-        let other = PyOmniRunEnv::new_ironclad(Some("OTHER"), Some(0)).expect("seed starts");
+        let first = PyOmniRunEnv::new_ironclad("TEST", Some(0)).expect("seed starts");
+        let second = PyOmniRunEnv::new_ironclad("TEST", Some(0)).expect("seed starts");
+        let other = PyOmniRunEnv::new_ironclad("OTHER", Some(0)).expect("seed starts");
 
         assert_eq!(first.phase(), "event");
         assert_eq!(first.current_decision(), "event");
@@ -1833,5 +1839,12 @@ mod tests {
             .exact_legal_actions()
             .iter()
             .any(|action| action.family() == "event"));
+    }
+
+    #[test]
+    fn seed_start_constructor_rejects_missing_identity_and_invalid_ascension() {
+        assert!(PyOmniRunEnv::new_ironclad("", Some(0)).is_err());
+        assert!(PyOmniRunEnv::new_ironclad("   ", Some(0)).is_err());
+        assert!(PyOmniRunEnv::new_ironclad("TEST", Some(21)).is_err());
     }
 }
