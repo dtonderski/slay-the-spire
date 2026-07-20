@@ -2206,12 +2206,8 @@ fn verify_seed_start_transitions(
                                 .to_owned(),
                     });
                 };
-                let label = match seed_start_apply_reward_choose(
-                    sim,
-                    &action.command,
-                    &pre.message,
-                    &start.external_seed,
-                ) {
+                let label = match seed_start_apply_reward_choose(sim, &action.command, &pre.message)
+                {
                     Ok(label) => label,
                     Err(reason) => {
                         let boundary = SeedStartBoundary {
@@ -3165,7 +3161,6 @@ fn verify_seed_start_transitions(
                     sim,
                     choose_index,
                     &pre.message,
-                    &post.message,
                 ) else {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -4211,12 +4206,7 @@ fn verify_seed_start_transitions(
                     continue;
                 }
 
-                match seed_start_apply_reward_choose(
-                    sim,
-                    &action.command,
-                    &pre.message,
-                    &start.external_seed,
-                ) {
+                match seed_start_apply_reward_choose(sim, &action.command, &pre.message) {
                     Ok(label) => {
                         seed_start_update_carry_from_run(sim, &mut relics, &mut deck_ids);
                         if seed_start_reward_sequence_complete(sim)
@@ -8090,7 +8080,6 @@ fn seed_start_event_choice_index_for_communication_mod(
     run: &RunState,
     visible_choice_index: usize,
     pre_message: &Value,
-    _post_message: &Value,
 ) -> Option<usize> {
     if let Some(observed_choice_label) = pre_message
         .get("game_state")
@@ -8568,9 +8557,7 @@ fn seed_start_apply_reward_choose(
     sim: &mut RunState,
     command: &str,
     pre: &Value,
-    external_seed: &str,
 ) -> Result<String, String> {
-    let _ = external_seed;
     let choose_index = choose_index(command)
         .ok_or_else(|| format!("seed-start verifier could not parse reward command {command:?}"))?;
 
@@ -12262,7 +12249,7 @@ mod tests {
                 }
             }
         });
-        let error = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre, "MANUAL01")
+        let error = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre)
             .expect_err("full-belt potion reward must fail closed");
 
         assert_eq!(error, "illegal action: potion belt is full");
@@ -12304,7 +12291,7 @@ mod tests {
             }
         });
 
-        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 0", &pre, "MANUAL01")
+        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 0", &pre)
             .expect("available simulator potion reward is taken");
 
         assert_eq!(label, "potion reward");
@@ -12349,7 +12336,7 @@ mod tests {
 
         let pre = json!({"game_state": {"choice_list": ["strike", "bowl"]}});
         let max_hp = run.player_max_hp;
-        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre, "")
+        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre)
             .expect("Singing Bowl choice applies");
         assert_eq!(label, "singing bowl card reward");
         assert!(run.player_max_hp > max_hp);
@@ -13694,12 +13681,7 @@ mod tests {
         });
 
         assert_eq!(
-            seed_start_event_choice_index_for_communication_mod(
-                &run,
-                1,
-                &pre_message,
-                &pre_message,
-            ),
+            seed_start_event_choice_index_for_communication_mod(&run, 1, &pre_message),
             Some(1)
         );
     }
