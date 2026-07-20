@@ -69,6 +69,13 @@ fn proceed_rest(run: &RunState) -> RunState {
     apply_rest_action(run, RestAction::Proceed).expect("proceed from rest")
 }
 
+fn rest_fixture() -> RunState {
+    let mut run = RunState::map_fixture();
+    run.phase = RunPhase::Rest;
+    run.current_room_override = Some(RoomKind::Rest);
+    run
+}
+
 fn valid_map_actions(run: &RunState) -> Vec<MapAction> {
     legal_map_actions_on_run(run).expect("valid run map state")
 }
@@ -93,8 +100,7 @@ fn leave_shop_merchant_and_room(mut run: RunState) -> RunState {
 
 #[test]
 fn rest_heal_restores_thirty_percent_max_hp_floored() {
-    let mut run = RunState::map_fixture();
-    run.phase = RunPhase::Rest;
+    let mut run = rest_fixture();
     run.player_hp = 30;
     run.player_max_hp = 80;
 
@@ -108,8 +114,7 @@ fn rest_heal_restores_thirty_percent_max_hp_floored() {
 
 #[test]
 fn rest_heal_caps_at_max_hp() {
-    let mut run = RunState::map_fixture();
-    run.phase = RunPhase::Rest;
+    let mut run = rest_fixture();
     run.player_hp = IRONCLAD_A0_BASE_HP - 3;
 
     let after = apply_rest_action(&run, RestAction::Heal).expect("heal applies");
@@ -196,8 +201,7 @@ fn rest_heal_is_illegal_outside_rest_phase() {
 
 #[test]
 fn smith_upgrades_strike_r_to_strike_r_plus() {
-    let mut run = RunState::map_fixture();
-    run.phase = RunPhase::Rest;
+    let run = rest_fixture();
     let strike_id = run
         .deck
         .iter()

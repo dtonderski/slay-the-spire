@@ -749,6 +749,9 @@ impl RunState {
             RunPhase::Shop if self.shop.is_none() => {
                 return Err(SimError::InvalidState("shop phase has no shop screen"));
             }
+            RunPhase::Rest if self.current_room_kind() != Some(RoomKind::Rest) => {
+                return Err(SimError::InvalidState("rest phase is not in a rest room"));
+            }
             RunPhase::Treasure
                 if self.treasure_room.is_none()
                     && self.current_room_kind() != Some(RoomKind::Boss) =>

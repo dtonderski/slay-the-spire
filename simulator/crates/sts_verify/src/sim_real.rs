@@ -12726,6 +12726,7 @@ mod tests {
     fn fusion_hammer_removes_smith_from_seed_start_rest_projection() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Rest;
+        run.current_room_override = Some(RoomKind::Rest);
         run.relics.push(Relic::FusionHammer);
 
         assert_eq!(
@@ -12742,6 +12743,7 @@ mod tests {
     fn seed_start_rest_projection_uses_dynamic_relic_action_order() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Rest;
+        run.current_room_override = Some(RoomKind::Rest);
         run.relics.extend([
             Relic::CoffeeDripper,
             Relic::PeacePipe,
@@ -12768,6 +12770,7 @@ mod tests {
     fn seed_start_rest_projection_exposes_invalid_core_legal_state() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Rest;
+        run.current_room_override = Some(RoomKind::Rest);
         run.ascension = 21;
 
         assert!(

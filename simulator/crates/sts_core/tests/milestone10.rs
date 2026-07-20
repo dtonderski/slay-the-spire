@@ -2,9 +2,9 @@ use sts_core::{
     apply_combat_action, apply_combat_action_on_run, apply_rest_action, apply_run_action,
     content::cards::{DEFEND_R_ID, STRIKE_R_ID},
     end_player_turn, legal_rest_actions, CardId, CardInstance, CombatAction, Relic, RestAction,
-    RunAction, RunPhase, RunState, ANCHOR_BLOCK, BASE_PLAYER_ENERGY, COFFEE_DRIPPER_ENERGY,
-    INK_BOTTLE_THRESHOLD, ODDLY_SMOOTH_STONE_DEXTERITY, ORNAMENTAL_FAN_BLOCK, STRAWBERRY_MAX_HP,
-    VAJRA_STRENGTH,
+    RoomKind, RunAction, RunPhase, RunState, ANCHOR_BLOCK, BASE_PLAYER_ENERGY,
+    COFFEE_DRIPPER_ENERGY, INK_BOTTLE_THRESHOLD, ODDLY_SMOOTH_STONE_DEXTERITY,
+    ORNAMENTAL_FAN_BLOCK, STRAWBERRY_MAX_HP, VAJRA_STRENGTH,
 };
 
 #[test]
@@ -363,6 +363,7 @@ fn coffee_dripper_energy_applies_to_combat_and_next_turn_refill() {
 fn coffee_dripper_disables_rest_heal() {
     let mut run = RunState::map_fixture();
     run.phase = RunPhase::Rest;
+    run.current_room_override = Some(RoomKind::Rest);
     run.player_hp = 40;
     run.gain_relic(Relic::CoffeeDripper);
 
@@ -381,6 +382,7 @@ fn coffee_dripper_disables_rest_heal() {
 fn coffee_dripper_and_fusion_hammer_allow_immediate_campfire_proceed() {
     let mut run = RunState::map_fixture();
     run.phase = RunPhase::Rest;
+    run.current_room_override = Some(RoomKind::Rest);
     run.gain_relic(Relic::CoffeeDripper);
     run.gain_relic(Relic::FusionHammer);
 

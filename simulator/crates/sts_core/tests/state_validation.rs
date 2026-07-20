@@ -5,9 +5,9 @@ use sts_core::{
     content::cards,
     content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
-    enter_reward_screen, legal_event_actions, legal_run_decision_actions, legal_shop_actions,
-    CardGridScreen, CardId, CombatAction, CombatState, ContentId, GridPurpose, MapNodeId,
-    MonsterId, MonsterIntent, Relic, RunPhase, RunState, SimError,
+    enter_reward_screen, legal_event_actions, legal_rest_actions, legal_run_decision_actions,
+    legal_shop_actions, CardGridScreen, CardId, CombatAction, CombatState, ContentId, GridPurpose,
+    MapNodeId, MonsterId, MonsterIntent, Relic, RunPhase, RunState, SimError,
 };
 
 #[test]
@@ -365,6 +365,21 @@ fn screen_backed_phases_require_their_authoritative_state() {
         Err(SimError::InvalidState(
             "treasure phase has no treasure room"
         ))
+    );
+}
+
+#[test]
+fn rest_phase_requires_a_rest_room() {
+    let mut run = RunState::map_fixture();
+    run.phase = RunPhase::Rest;
+
+    assert_eq!(
+        run.validate(),
+        Err(SimError::InvalidState("rest phase is not in a rest room"))
+    );
+    assert_eq!(
+        legal_rest_actions(&run),
+        Err(SimError::InvalidState("rest phase is not in a rest room"))
     );
 }
 
