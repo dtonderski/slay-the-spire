@@ -3559,7 +3559,6 @@ fn verify_seed_start_transitions(
                         }
                     }
                 };
-                normalize_match_and_keep_transient_choices(&next, &mut observed, &simulated);
                 if next.phase == RunPhase::Event && !next.pending_obtain_cards.is_empty() {
                     let observed_deck = observed
                         .as_object_mut()
@@ -8580,137 +8579,6 @@ fn seed_start_event_simulated_subset_with_delayed_deck_append(
     seed_start_event_simulated_subset_with_deck(run, relic_ids, visible_deck)
 }
 
-fn normalize_match_and_keep_transient_choices(
-    run: &RunState,
-    observed: &mut Value,
-    simulated: &Value,
-) {
-    if !run
-        .event
-        .as_ref()
-        .is_some_and(|screen| screen.event == Event::MatchAndKeep)
-    {
-        return;
-    }
-    let Some(observed_choices) = observed.get("choices").and_then(Value::as_array) else {
-        return;
-    };
-    let Some(simulated_choices) = simulated.get("choices").and_then(Value::as_array) else {
-        return;
-    };
-    let card_label = |value: &Value| {
-        value.as_str().is_some_and(|label| {
-            label
-                .strip_prefix("card")
-                .is_some_and(|number| number.parse::<usize>().is_ok())
-        })
-    };
-    if observed_choices.iter().all(card_label)
-        && simulated_choices.iter().all(card_label)
-        && observed_choices
-            .iter()
-            .all(|choice| simulated_choices.contains(choice))
-        && observed_choices.len() < simulated_choices.len()
-    {
-        if let Some(object) = observed.as_object_mut() {
-            object.insert(
-                "choices".to_owned(),
-                Value::Array(simulated_choices.clone()),
-            );
-        }
-        return;
-    }
-
-    // MatchAndKeep's grid can publish a stale duplicate card identity for one
-    // frame while flipped cards turn back over. The available slots are still
-    // authoritative: normalize only when every hidden `cardN` slot is in the
-    // same position and the set of revealed identities is unchanged. Final
-    // matching/deck effects remain independently verified.
-    let same_hidden_slots = observed_choices.len() == simulated_choices.len()
-        && observed_choices
-            .iter()
-            .zip(simulated_choices)
-            .all(|(observed, simulated)| {
-                if card_label(observed) || card_label(simulated) {
-                    observed == simulated
-                } else {
-                    true
-                }
-            });
-    let revealed_identity_set = |choices: &[Value]| {
-        let mut identities = choices
-            .iter()
-            .filter(|choice| !card_label(choice))
-            .filter_map(Value::as_str)
-            .map(normalized_trace_relic_name)
-            .collect::<Vec<_>>();
-        identities.sort_unstable();
-        identities.dedup();
-        identities
-    };
-    if same_hidden_slots
-        && revealed_identity_set(observed_choices) == revealed_identity_set(simulated_choices)
-    {
-        if let Some(object) = observed.as_object_mut() {
-            object.insert(
-                "choices".to_owned(),
-                Value::Array(simulated_choices.clone()),
-            );
-        }
-        return;
-    }
-
-    let Some(state) = run.match_and_keep.as_ref() else {
-        return;
-    };
-    let Some(first_index) = state.first_flipped_index else {
-        return;
-    };
-    let Some(second_index) = state.second_flipped_index else {
-        return;
-    };
-    let mut observed_reveals = observed_choices
-        .iter()
-        .filter(|choice| !card_label(choice))
-        .filter_map(Value::as_str)
-        .map(normalized_trace_relic_name)
-        .collect::<Vec<_>>();
-    let simulated_reveals = simulated_choices
-        .iter()
-        .filter(|choice| !card_label(choice))
-        .filter_map(Value::as_str)
-        .map(normalized_trace_relic_name)
-        .collect::<Vec<_>>();
-    for reveal in simulated_reveals {
-        if let Some(position) = observed_reveals
-            .iter()
-            .position(|candidate| *candidate == reveal)
-        {
-            observed_reveals.remove(position);
-        } else {
-            return;
-        }
-    }
-    let mut expected_reveals = [first_index, second_index]
-        .into_iter()
-        .filter_map(|index| state.cards.get(index))
-        .filter_map(|card| sts_core::content::cards::get_card_definition(card.content_id))
-        .map(|definition| normalized_trace_relic_name(definition.name))
-        .collect::<Vec<_>>();
-    observed_reveals.sort();
-    expected_reveals.sort();
-    if observed_choices.len() == simulated_choices.len().saturating_add(2)
-        && observed_reveals == expected_reveals
-    {
-        if let Some(object) = observed.as_object_mut() {
-            object.insert(
-                "choices".to_owned(),
-                Value::Array(simulated_choices.clone()),
-            );
-        }
-    }
-}
-
 fn seed_start_event_simulated_subset_with_deck(
     run: &RunState,
     relic_ids: &[String],
@@ -13428,35 +13296,87 @@ mod tests {
     }
 
     #[test]
-    fn match_and_keep_transient_choices_ignore_only_stale_omissions() {
-        let mut run = RunState::map_fixture();
-        run.phase = RunPhase::Event;
-        run.event = Some(event_screen(Event::MatchAndKeep));
-        let simulated = json!({"choices": ["card0", "card1", "card2", "card3", "card4"]});
-        let mut transient = json!({"choices": ["card0", "card1", "card2", "card4"]});
-        normalize_match_and_keep_transient_choices(&run, &mut transient, &simulated);
-        assert_eq!(transient, simulated);
-
-        let mut wrong = json!({"choices": ["card0", "card1", "card5"]});
-        normalize_match_and_keep_transient_choices(&run, &mut wrong, &simulated);
-        assert_ne!(wrong, simulated);
-
-        let duplicate_simulated = json!({"choices": ["bash", "card1", "brutality", "bash"]});
-        let mut stale_duplicate = json!({"choices": ["bash", "card1", "brutality", "brutality"]});
-        normalize_match_and_keep_transient_choices(
-            &run,
-            &mut stale_duplicate,
-            &duplicate_simulated,
+    fn match_and_keep_choice_omission_is_not_normalized() {
+        let path = crate::corpus_path(
+            "fidelity_regressions/session-19-match-and-keep-flip-identity.jsonl",
         );
-        assert_eq!(stale_duplicate, duplicate_simulated);
+        let content = std::fs::read_to_string(path).expect("Match and Keep trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (action_step, post_state) = transitions
+            .transitions
+            .iter()
+            .find_map(|(pre, action, post)| {
+                let choices = post
+                    .message
+                    .pointer("/game_state/choice_list")
+                    .and_then(Value::as_array)?;
+                (first_choice(&pre.message) == Some("play")
+                    && command_is_choose(&action.command, 0)
+                    && choices.len() == 12
+                    && choices.iter().all(|choice| {
+                        choice
+                            .as_str()
+                            .is_some_and(|label| label.starts_with("card"))
+                    }))
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture opens the twelve-card Match and Keep board");
 
-        let mut different_reveal = json!({"choices": ["bash", "card1", "brutality", "cleave"]});
-        normalize_match_and_keep_transient_choices(
-            &run,
-            &mut different_reveal,
-            &duplicate_simulated,
+        let original = verify_communication_mod_trace(&content).expect("original trace verifies");
+        assert!(original.unexpected_diffs.is_empty());
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mut lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let forged_post = lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if *state == post_state => Some(state),
+                _ => None,
+            })
+            .expect("Match and Keep post-state remains in trace");
+        forged_post
+            .message
+            .pointer_mut("/game_state/choice_list")
+            .and_then(Value::as_array_mut)
+            .expect("Match and Keep choice list")
+            .remove(3);
+
+        let forged_trace = crate::serialize_communication_mod_trace(&metadata, &lines);
+        let forged = verify_communication_mod_trace(&forged_trace).expect("forged trace parses");
+        let diff = forged
+            .unexpected_diffs
+            .iter()
+            .find(|entry| entry.action_step == action_step && entry.label == "event choice")
+            .expect("omitted Match and Keep slot must differ");
+        assert!(
+            diff.diffs.iter().any(|line| line.starts_with("choices[")),
+            "{diff:#?}"
         );
-        assert_ne!(different_reveal, duplicate_simulated);
+        let disposition = forged
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == action_step)
+            .expect("forged event action disposition");
+        assert_eq!(
+            disposition.disposition,
+            ActionDispositionKind::UnexpectedDiff
+        );
+        assert_eq!(
+            forged
+                .seed_start
+                .as_ref()
+                .and_then(|report| report.sim_run_state.as_ref()),
+            original
+                .seed_start
+                .as_ref()
+                .and_then(|report| report.sim_run_state.as_ref()),
+            "the forged observation must not steer simulator state"
+        );
     }
 
     #[test]
