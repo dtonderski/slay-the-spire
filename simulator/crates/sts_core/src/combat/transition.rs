@@ -13,36 +13,10 @@ use crate::{
         HandSelectPurpose,
     },
     content::cards::{
-        card_instance_is_upgradeable, get_card_definition, ritual_dagger_card_damage,
-        ritual_dagger_card_growth, searing_blow_card_damage, upgrade_card_instance,
-        upgrade_content_id, ANGER_ID, ANGER_PLUS_ID, BASH_ID, BATTLE_TRANCE_ID,
-        BATTLE_TRANCE_PLUS_ID, BLIND_PLUS_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID,
-        BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BURN_ID, CARNAGE_ID, CARNAGE_PLUS_ID, CHRYSALIS_ID,
-        CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
-        CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
-        DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DOUBLE_TAP_ID,
-        DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID, DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID,
-        DROPKICK_PLUS_ID, DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID,
-        ENTRENCH_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID, FINESSE_ID,
-        FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID,
-        FLEX_ID, FLEX_PLUS_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID,
-        HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID,
-        IMPATIENCE_PLUS_ID, INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INTIMIDATE_ID,
-        INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID,
-        MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID, PAIN_ID,
-        PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID,
-        PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID,
-        PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID,
-        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID, RUPTURE_ID,
-        RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
-        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
-        SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
-        THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID,
-        TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID,
-        WOUND_ID,
+        card_instance_is_upgradeable, get_card_definition, upgrade_card_instance,
+        upgrade_content_id, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, DAZED_ID,
+        DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, PAIN_ID, PURITY_PLUS_ID, SENTINEL_ID,
+        SENTINEL_PLUS_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
@@ -1062,7 +1036,9 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::IncreaseRampageDamage { card_id, amount } => {
-            find_hand_card_mut(state, card_id)?.rampage_damage_bonus += amount;
+            find_combat_card_mut(state, card_id)
+                .ok_or(SimError::UnknownCard(card_id))?
+                .rampage_damage_bonus += amount;
             Ok(Vec::new())
         }
         InternalAction::GainFeelNoPain { amount } => {
@@ -1325,11 +1301,28 @@ fn apply_internal_action(
                     | crate::combat::ExhaustSelectPurpose::BurningPactDraw3
                     | crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand
             ) {
-                Some(remove_card_from_pile(
-                    state,
-                    source_card_id,
-                    CardPile::Hand,
-                )?)
+                if state
+                    .piles
+                    .hand
+                    .iter()
+                    .any(|card| card.id == source_card_id)
+                {
+                    Some(remove_card_from_pile(
+                        state,
+                        source_card_id,
+                        CardPile::Hand,
+                    )?)
+                } else if state
+                    .piles
+                    .discard_pile
+                    .iter()
+                    .chain(state.piles.exhaust_pile.iter())
+                    .any(|card| card.id == source_card_id)
+                {
+                    None
+                } else {
+                    return Err(SimError::UnknownCard(source_card_id));
+                }
             } else if purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 {
                 state
                     .piles
@@ -1979,10 +1972,6 @@ fn add_generated_card_to_draw_pile_random_spot(
     state.piles.draw_pile.insert(index, card);
 }
 
-fn generated_card_zero_cost_if_positive(content_id: ContentId) -> Option<u8> {
-    get_card_definition(content_id).and_then(|definition| (definition.cost > 0).then_some(0))
-}
-
 fn random_colorless_card(state: &mut CombatState) -> ContentId {
     let pool = colorless_discovery_pool();
     let idx = state
@@ -2102,13 +2091,6 @@ fn card_printed_cost(card: &CardInstance) -> i8 {
         .unwrap_or(0)
 }
 
-fn draw_pile_has_card_type(state: &CombatState, card_type: CardType) -> bool {
-    state.piles.draw_pile.iter().any(|card| {
-        get_card_definition(card.content_id)
-            .is_some_and(|definition| definition.card_type == card_type)
-    })
-}
-
 fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) {
     for card in &mut state.piles.hand {
         if card.id == excluded_card_id {
@@ -2139,15 +2121,13 @@ fn apply_play_top_draw_card(
         player_shuffle_discard_into_draw(state);
     }
 
-    let mut card = state
+    let card = state
         .piles
         .draw_pile
         .pop()
         .ok_or(SimError::IllegalAction("draw pile is empty"))?;
-    let card_id = card.id;
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
-
     let random_target = random_living_target.then(|| random_living_monster_id(state));
     let target = target.or_else(|| {
         if definition.target == TargetRequirement::Enemy {
@@ -2157,659 +2137,21 @@ fn apply_play_top_draw_card(
         }
     });
 
-    if !crate::relic::can_play_card_with_relics(state) {
+    if definition.keywords.unplayable || !crate::relic::can_play_card_with_relics(state) {
         let mut follow_ups = Vec::new();
         if exhaust_played_card || definition.keywords.exhaust {
             state.piles.exhaust_pile.push(card);
-            follow_ups.push(InternalAction::CardExhausted { card_id });
+            follow_ups.push(InternalAction::CardExhausted { card_id: card.id });
         } else if !card.combat_only {
             state.piles.discard_pile.push(card);
         }
         return Ok(follow_ups);
     }
 
-    card_effects::validate_havoc_target(definition, target, false)?;
-    apply_enrage_on_card_type(state, definition.card_type);
-    apply_rage_on_card_type(state, definition.card_type);
-
-    let mut follow_ups = Vec::new();
-    match definition.id {
-        STRIKE_R_ID
-        | STRIKE_R_PLUS_ID
-        | ANGER_ID
-        | ANGER_PLUS_ID
-        | POMMEL_STRIKE_ID
-        | POMMEL_STRIKE_PLUS_ID
-        | FLASH_OF_STEEL_ID
-        | FLASH_OF_STEEL_PLUS_ID
-        | SEARING_BLOW_ID
-        | SEARING_BLOW_PLUS_ID
-        | BASH_ID
-        | CLASH_ID
-        | CLASH_PLUS_ID
-        | CARNAGE_ID
-        | CARNAGE_PLUS_ID
-        | DROPKICK_ID
-        | DROPKICK_PLUS_ID
-        | HEMOKINESIS_ID
-        | HEMOKINESIS_PLUS_ID
-        | RECKLESS_CHARGE_ID
-        | RECKLESS_CHARGE_PLUS_ID
-        | WILD_STRIKE_ID
-        | WILD_STRIKE_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: searing_blow_card_damage(&card)
-                        .unwrap_or_else(|| definition.values.damage.unwrap_or(0)),
-                },
-            });
-            if definition.id == HEMOKINESIS_ID || definition.id == HEMOKINESIS_PLUS_ID {
-                follow_ups.push(InternalAction::LoseHp {
-                    amount: 2,
-                    source: HpLossSource::Card(card_id),
-                });
-            }
-            if definition.id == RECKLESS_CHARGE_ID || definition.id == RECKLESS_CHARGE_PLUS_ID {
-                follow_ups.push(InternalAction::AddGeneratedCardToDrawPileRandomSpot {
-                    content_id: DAZED_ID,
-                });
-            }
-            if definition.id == ANGER_ID || definition.id == ANGER_PLUS_ID {
-                follow_ups.push(InternalAction::AddStatEquivalentCopyToPile {
-                    card,
-                    to: CardPile::DiscardPile,
-                });
-            }
-            if definition.id == WILD_STRIKE_ID || definition.id == WILD_STRIKE_PLUS_ID {
-                follow_ups.push(InternalAction::AddGeneratedCardToDrawPileRandomSpot {
-                    content_id: WOUND_ID,
-                });
-            }
-            if definition.id == FLASH_OF_STEEL_ID || definition.id == FLASH_OF_STEEL_PLUS_ID {
-                follow_ups.push(InternalAction::DrawCards { count: 1 });
-            }
-            if definition.id == POMMEL_STRIKE_ID || definition.id == POMMEL_STRIKE_PLUS_ID {
-                follow_ups.push(InternalAction::DrawCards {
-                    count: if definition.id == POMMEL_STRIKE_PLUS_ID {
-                        2
-                    } else {
-                        1
-                    },
-                });
-            }
-            if definition.id == DROPKICK_ID || definition.id == DROPKICK_PLUS_ID {
-                let target_has_vulnerable = state
-                    .monsters
-                    .iter()
-                    .find(|monster| monster.id == target)
-                    .map(|monster| monster.powers.vulnerable > 0)
-                    .unwrap_or(false);
-                if target_has_vulnerable {
-                    follow_ups.push(InternalAction::GainEnergy { amount: 1 });
-                    follow_ups.push(InternalAction::DrawCards { count: 1 });
-                }
-            }
-            if definition.id == BASH_ID {
-                follow_ups.push(InternalAction::ApplyVulnerable {
-                    target,
-                    amount: definition.values.vulnerable.unwrap_or(0),
-                });
-            }
-        }
-        FEED_ID | FEED_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::DealFeedDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: definition.values.damage.unwrap_or(0),
-                },
-                max_hp_gain: if definition.id == FEED_PLUS_ID { 4 } else { 3 },
-            });
-        }
-        HEADBUTT_ID | HEADBUTT_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: definition.values.damage.unwrap_or(0),
-                },
-            });
-            if !state.piles.discard_pile.is_empty() {
-                follow_ups.push(InternalAction::AwaitDiscardSelect {
-                    source_card_id: card_id,
-                    purpose: DiscardSelectPurpose::HeadbuttPutOnDraw,
-                });
-            }
-        }
-        RAMPAGE_ID | RAMPAGE_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: definition.values.damage.unwrap_or(0) + card.rampage_damage_bonus,
-                },
-            });
-            // Rampage.upgradeDamage mutates the played card before
-            // PlayTopCardAction moves it to exhaust.
-            card.rampage_damage_bonus += if definition.id == RAMPAGE_PLUS_ID {
-                8
-            } else {
-                5
-            };
-        }
-        RITUAL_DAGGER_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::DealRitualDaggerDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: ritual_dagger_card_damage(&card)
-                        .unwrap_or_else(|| definition.values.damage.unwrap_or(0)),
-                },
-                growth: ritual_dagger_card_growth(&card).unwrap_or(3),
-            });
-        }
-        IRON_WAVE_ID | IRON_WAVE_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
-            });
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: definition.values.damage.unwrap_or(0),
-                },
-            });
-        }
-        BODY_SLAM_ID | BODY_SLAM_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: state.player.block,
-                },
-            });
-        }
-        HEAVY_BLADE_ID | HEAVY_BLADE_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            let multiplier = if definition.id == HEAVY_BLADE_PLUS_ID {
-                5
-            } else {
-                3
-            };
-            let extra_strength =
-                (multiplier - 1) * (state.player.powers.strength + state.player.temp_strength);
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: (definition.values.damage.unwrap_or(0) + extra_strength).max(0),
-                },
-            });
-        }
-        PERFECTED_STRIKE_ID | PERFECTED_STRIKE_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            let strike_count =
-                card_effects::combat_strike_named_card_count_with_extra(state, Some(definition))
-                    as i32;
-            let strike_bonus = if definition.id == PERFECTED_STRIKE_PLUS_ID {
-                3
-            } else {
-                2
-            };
-            let damage = definition.values.damage.unwrap_or(0) + (strike_bonus * strike_count);
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: crate::relic::strike_damage_with_relics(&state.relics, damage),
-                },
-            });
-        }
-        PUMMEL_ID | PUMMEL_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            let damage = definition.values.damage.unwrap_or(0);
-            let hits = if definition.id == PUMMEL_PLUS_ID {
-                5
-            } else {
-                4
-            };
-            for _ in 0..hits {
-                follow_ups.push(InternalAction::DealDamage {
-                    info: DamageInfo {
-                        source: DamageSource::Card(card_id),
-                        target,
-                        amount: damage,
-                    },
-                });
-            }
-        }
-        SWORD_BOOMERANG_ID | SWORD_BOOMERANG_PLUS_ID => {
-            let hits = if definition.id == SWORD_BOOMERANG_PLUS_ID {
-                4
-            } else {
-                3
-            };
-            for _ in 0..hits {
-                follow_ups.push(InternalAction::DealDamageRandomEnemy {
-                    source: card_id,
-                    amount: definition.values.damage.unwrap_or(0),
-                });
-            }
-        }
-        MIND_BLAST_ID | MIND_BLAST_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: i32::try_from(state.piles.draw_pile.len())
-                        .expect("draw pile count fits in i32"),
-                },
-            });
-        }
-        MASTER_OF_STRATEGY_ID | MASTER_OF_STRATEGY_PLUS_ID => {
-            let count = if definition.id == MASTER_OF_STRATEGY_PLUS_ID {
-                4
-            } else {
-                3
-            };
-            follow_ups.push(InternalAction::DrawCards { count });
-        }
-        TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            let damage = definition.values.damage.unwrap_or(0);
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: damage,
-                },
-            });
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: damage,
-                },
-            });
-        }
-        CLEAVE_ID | CLEAVE_PLUS_ID | DRAMATIC_ENTRANCE_ID | DRAMATIC_ENTRANCE_PLUS_ID => {
-            follow_ups.push(InternalAction::DealDamageAll {
-                source: card_id,
-                amount: definition.values.damage.unwrap_or(0),
-            });
-        }
-        IMMOLATE_ID | IMMOLATE_PLUS_ID => {
-            follow_ups.push(InternalAction::DealDamageAll {
-                source: card_id,
-                amount: definition.values.damage.unwrap_or(0),
-            });
-            follow_ups.push(InternalAction::AddGeneratedCardToPile {
-                content_id: BURN_ID,
-                to: CardPile::DiscardPile,
-                temp_cost: None,
-                temp_cost_turn_only: false,
-            });
-        }
-        THUNDERCLAP_ID | THUNDERCLAP_PLUS_ID => {
-            follow_ups.push(InternalAction::DealDamageAll {
-                source: card_id,
-                amount: definition.values.damage.unwrap_or(0),
-            });
-            for monster in state.monsters.iter().filter(|monster| monster.alive) {
-                follow_ups.push(InternalAction::ApplyVulnerable {
-                    target: monster.id,
-                    amount: definition.values.vulnerable.unwrap_or(0),
-                });
-            }
-        }
-        REAPER_ID | REAPER_PLUS_ID => {
-            follow_ups.push(InternalAction::DealDamageAllAndHealUnblocked {
-                source: card_id,
-                amount: definition.values.damage.unwrap_or(0),
-            });
-        }
-        WHIRLWIND_ID | WHIRLWIND_PLUS_ID => {
-            let chemical_x_bonus = if state.relics.contains(&Relic::ChemicalX) {
-                crate::relic::CHEMICAL_X_BONUS_X
-            } else {
-                0
-            };
-            follow_ups.push(InternalAction::DealDamageAllRepeated {
-                source: card_id,
-                amount: definition.values.damage.unwrap_or(0),
-                times: state.player.energy + chemical_x_bonus,
-            });
-        }
-        DEFEND_R_ID => {
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
-            });
-        }
-        SHRUG_IT_OFF_ID | SHRUG_IT_OFF_PLUS_ID => {
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
-            });
-            follow_ups.push(InternalAction::DrawCards { count: 1 });
-        }
-        IMPATIENCE_ID => {
-            follow_ups.push(InternalAction::DrawCardsIfNoAttacksInHand { count: 2 });
-        }
-        IMPATIENCE_PLUS_ID => {
-            follow_ups.push(InternalAction::DrawCardsIfNoAttacksInHand { count: 3 });
-        }
-        BATTLE_TRANCE_ID | BATTLE_TRANCE_PLUS_ID => {
-            let count = if definition.id == BATTLE_TRANCE_PLUS_ID {
-                4
-            } else {
-                3
-            };
-            follow_ups.push(InternalAction::DrawCards { count });
-            follow_ups.push(InternalAction::SetCannotDraw);
-        }
-        CHRYSALIS_ID | CHRYSALIS_PLUS_ID => {
-            let count = if definition.id == CHRYSALIS_PLUS_ID {
-                5
-            } else {
-                3
-            };
-            for content_id in card_effects::chrysalis_generated_skills(state, count) {
-                follow_ups.push(
-                    InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost {
-                        content_id,
-                        temp_cost: generated_card_zero_cost_if_positive(content_id),
-                        temp_cost_turn_only: false,
-                    },
-                );
-            }
-        }
-        PANIC_BUTTON_ID | PANIC_BUTTON_PLUS_ID => {
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
-            });
-            follow_ups.push(InternalAction::PreventBlockGain { turns: 2 });
-        }
-        ENTRENCH_ID | ENTRENCH_PLUS_ID => {
-            follow_ups.push(InternalAction::DoublePlayerBlock);
-        }
-        FLAME_BARRIER_ID | FLAME_BARRIER_PLUS_ID => {
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
-            });
-            follow_ups.push(InternalAction::GainTemporaryThorns {
-                amount: card_effects::flame_barrier_thorns_amount(definition),
-            });
-        }
-        FLEX_ID | FLEX_PLUS_ID => {
-            follow_ups.push(InternalAction::GainTempStrength {
-                amount: card_effects::flex_temp_strength_amount(definition),
-            });
-        }
-        PURITY_ID | PURITY_PLUS_ID => {
-            if !state.piles.hand.is_empty() {
-                follow_ups.push(InternalAction::AwaitExhaustSelect {
-                    source_card_id: card_id,
-                    purpose: crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3,
-                });
-            }
-        }
-        CLOTHESLINE_ID | CLOTHESLINE_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: definition.values.damage.unwrap_or(0),
-                },
-            });
-            follow_ups.push(InternalAction::ApplyWeak {
-                target,
-                amount: if definition.id == CLOTHESLINE_PLUS_ID {
-                    3
-                } else {
-                    2
-                },
-            });
-        }
-        INTIMIDATE_ID | INTIMIDATE_PLUS_ID => {
-            for monster in state.monsters.iter().filter(|monster| monster.alive) {
-                follow_ups.push(InternalAction::ApplyWeak {
-                    target: monster.id,
-                    amount: if definition.id == INTIMIDATE_PLUS_ID {
-                        2
-                    } else {
-                        1
-                    },
-                });
-            }
-        }
-        DISARM_ID | DISARM_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            follow_ups.push(InternalAction::ReduceMonsterStrength {
-                target,
-                amount: if definition.id == DISARM_PLUS_ID {
-                    3
-                } else {
-                    2
-                },
-            });
-        }
-        RAGE_ID | RAGE_PLUS_ID => {
-            follow_ups.push(InternalAction::GainRage {
-                amount: if definition.id == RAGE_PLUS_ID { 5 } else { 3 },
-            });
-        }
-        SEVER_SOUL_ID | SEVER_SOUL_PLUS_ID => {
-            let target = target.expect("validated havoc attack target");
-            let exhausted = state
-                .piles
-                .hand
-                .iter()
-                .filter_map(|card| {
-                    get_card_definition(card.content_id)
-                        .filter(|definition| definition.card_type != CardType::Attack)
-                        .map(|_| card.id)
-                })
-                .collect::<Vec<_>>();
-            for card_id in exhausted {
-                follow_ups.push(InternalAction::MoveCard {
-                    card_id,
-                    from: CardPile::Hand,
-                    to: CardPile::ExhaustPile,
-                });
-            }
-            follow_ups.push(InternalAction::DealDamage {
-                info: DamageInfo {
-                    source: DamageSource::Card(card_id),
-                    target,
-                    amount: definition.values.damage.unwrap_or(0),
-                },
-            });
-        }
-        FINESSE_ID => {
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
-            });
-            follow_ups.push(InternalAction::DrawCards { count: 1 });
-        }
-        BLIND_PLUS_ID => {
-            for monster in state.monsters.iter().filter(|monster| monster.alive) {
-                follow_ups.push(InternalAction::ApplyWeak {
-                    target: monster.id,
-                    amount: 2,
-                });
-            }
-        }
-        TRIP_PLUS_ID => {
-            for monster in state.monsters.iter().filter(|monster| monster.alive) {
-                follow_ups.push(InternalAction::ApplyVulnerable {
-                    target: monster.id,
-                    amount: definition.values.vulnerable.unwrap_or(0),
-                });
-            }
-        }
-        DEEP_BREATH_ID | DEEP_BREATH_PLUS_ID => {
-            let count = if definition.id == DEEP_BREATH_PLUS_ID {
-                2
-            } else {
-                1
-            };
-            follow_ups.push(InternalAction::DeepBreathShuffleDiscardIntoDraw);
-            follow_ups.push(InternalAction::DrawCards { count });
-        }
-        ENLIGHTENMENT_ID | ENLIGHTENMENT_PLUS_ID => {
-            follow_ups.extend(card_effects::enlightenment_cost_actions(
-                state,
-                card_id,
-                definition.id == ENLIGHTENMENT_PLUS_ID,
-            ));
-        }
-        SECRET_TECHNIQUE_ID | SECRET_TECHNIQUE_PLUS_ID => {
-            if draw_pile_has_card_type(state, CardType::Skill) {
-                follow_ups.push(InternalAction::AwaitDrawSelect {
-                    source_card_id: card_id,
-                    purpose: crate::combat::DrawSelectPurpose::SecretTechniqueSkillToHand,
-                });
-            }
-        }
-        SECRET_WEAPON_ID | SECRET_WEAPON_PLUS_ID => {
-            if draw_pile_has_card_type(state, CardType::Attack) {
-                follow_ups.push(InternalAction::AwaitDrawSelect {
-                    source_card_id: card_id,
-                    purpose: crate::combat::DrawSelectPurpose::SecretWeaponAttackToHand,
-                });
-            }
-        }
-        OFFERING_ID => {
-            follow_ups.push(InternalAction::LoseHp {
-                amount: 6,
-                source: HpLossSource::Card(card_id),
-            });
-            follow_ups.push(InternalAction::GainEnergy { amount: 2 });
-            follow_ups.push(InternalAction::DrawCards { count: 3 });
-        }
-        INFERNAL_BLADE_ID | INFERNAL_BLADE_PLUS_ID => {
-            let generated = card_effects::infernal_blade_generated_attack(state);
-            follow_ups.push(InternalAction::AddGeneratedCardToPile {
-                content_id: generated,
-                to: CardPile::Hand,
-                temp_cost: Some(0),
-                temp_cost_turn_only: true,
-            });
-        }
-        SEEING_RED_ID | SEEING_RED_PLUS_ID => {
-            follow_ups.push(InternalAction::GainEnergy { amount: 2 });
-        }
-        DOUBLE_TAP_ID | DOUBLE_TAP_PLUS_ID => {
-            follow_ups.push(InternalAction::GainDoubleTap {
-                amount: if definition.id == DOUBLE_TAP_PLUS_ID {
-                    2
-                } else {
-                    1
-                },
-            });
-        }
-        SLIMED_ID => {}
-        RUPTURE_ID | RUPTURE_PLUS_ID => {
-            follow_ups.push(InternalAction::GainRupture {
-                amount: if definition.id == RUPTURE_PLUS_ID {
-                    2
-                } else {
-                    1
-                },
-            });
-        }
-        COMBUST_ID | COMBUST_PLUS_ID => {
-            follow_ups.push(InternalAction::GainCombust {
-                amount: definition.values.damage.unwrap_or(0),
-            });
-        }
-        PANACEA_ID | PANACEA_PLUS_ID => {
-            let amount = if definition.id == PANACEA_PLUS_ID {
-                2
-            } else {
-                1
-            };
-            follow_ups.push(InternalAction::GainArtifact { amount });
-        }
-        PANACHE_ID | PANACHE_PLUS_ID => {
-            follow_ups.push(InternalAction::GainPanache {
-                amount: definition.values.damage.unwrap_or(0),
-            });
-        }
-        SADISTIC_NATURE_ID | SADISTIC_NATURE_PLUS_ID => {
-            follow_ups.push(InternalAction::GainSadisticNature {
-                amount: definition.values.damage.unwrap_or(0),
-            });
-        }
-        POWER_THROUGH_ID | POWER_THROUGH_PLUS_ID => {
-            follow_ups.push(InternalAction::AddGeneratedCardToPile {
-                content_id: WOUND_ID,
-                to: CardPile::Hand,
-                temp_cost: None,
-                temp_cost_turn_only: false,
-            });
-            follow_ups.push(InternalAction::AddGeneratedCardToPile {
-                content_id: WOUND_ID,
-                to: CardPile::Hand,
-                temp_cost: None,
-                temp_cost_turn_only: false,
-            });
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
-            });
-        }
-        TRUE_GRIT_ID | TRUE_GRIT_PLUS_ID => {
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
-            });
-            if !state.piles.hand.is_empty() {
-                if definition.id == TRUE_GRIT_PLUS_ID {
-                    follow_ups.push(InternalAction::AwaitExhaustSelect {
-                        source_card_id: card_id,
-                        purpose: crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
-                    });
-                } else {
-                    follow_ups.push(InternalAction::ExhaustRandomHandCardExcept {
-                        excluded_card_id: card_id,
-                    });
-                }
-            }
-        }
-        _ if definition.keywords.unplayable => {}
-        _ if definition.values.block.is_some() => {
-            follow_ups.push(InternalAction::GainBlock {
-                amount: definition.values.block.unwrap_or(0),
-            });
-        }
-        _ => return Err(SimError::UnsupportedMechanic(definition.id)),
-    }
-
-    if (exhaust_played_card || definition.keywords.exhaust)
-        && definition.card_type != CardType::Power
-    {
-        state.piles.exhaust_pile.push(card);
-        follow_ups.push(InternalAction::CardExhausted { card_id });
-    } else if !card.combat_only && definition.card_type != CardType::Power {
-        state.piles.discard_pile.push(card);
-    }
-
-    follow_ups.extend(crate::relic::apply_on_card_play_relics(
-        state,
-        definition.card_type,
-    ));
-    follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
-
-    Ok(follow_ups)
+    let (queued_state, queue) =
+        card_effects::play_top_draw_card_queue(state, card, target, exhaust_played_card)?;
+    *state = queued_state;
+    Ok(queue.into())
 }
 
 pub fn choose_hand_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
@@ -3082,16 +2424,7 @@ fn confirm_warcry_select(
 }
 
 fn finish_warcry_source(state: &mut CombatState, source_card_id: CardId) -> SimResult<()> {
-    let source = remove_card_from_pile(state, source_card_id, CardPile::Hand)?;
-    let definition = get_card_definition(source.content_id)
-        .ok_or(SimError::UnknownContent(source.content_id))?;
-    if definition.keywords.exhaust {
-        state.piles.exhaust_pile.push(source);
-        apply_on_exhaust_effects(state, source_card_id);
-    } else {
-        state.piles.discard_pile.push(source);
-    }
-    Ok(())
+    move_delayed_played_source_with_strange_spoon(state, source_card_id)
 }
 
 fn confirm_thinking_ahead_select(
@@ -3109,15 +2442,26 @@ fn move_delayed_played_source_with_strange_spoon(
     state: &mut CombatState,
     source_card_id: CardId,
 ) -> SimResult<()> {
-    let source = state
+    let Some(source) = state
         .piles
         .hand
         .iter()
         .find(|card| card.id == source_card_id)
         .copied()
-        .ok_or(SimError::IllegalAction(
-            "delayed source card is not in hand",
-        ))?;
+    else {
+        if state
+            .piles
+            .discard_pile
+            .iter()
+            .chain(state.piles.exhaust_pile.iter())
+            .any(|card| card.id == source_card_id)
+        {
+            return Ok(());
+        }
+        return Err(SimError::IllegalAction(
+            "delayed source card is not in a resolved destination",
+        ));
+    };
     let definition = get_card_definition(source.content_id)
         .ok_or(SimError::UnknownContent(source.content_id))?;
     let destination = delayed_source_card_destination(state, definition);
@@ -3185,13 +2529,7 @@ fn confirm_armaments_select(
     if selected.id == source_card_id {
         return Err(SimError::IllegalAction("cannot upgrade Armaments"));
     }
-    let source_definition = state
-        .piles
-        .hand
-        .iter()
-        .find(|card| card.id == source_card_id)
-        .and_then(|card| get_card_definition(card.content_id))
-        .ok_or(SimError::IllegalAction("Armaments source card missing"))?;
+    card_content_definition(state, source_card_id)?;
     let upgraded = upgrade_card_instance(selected)
         .ok_or(SimError::IllegalAction("selected card cannot be upgraded"))?;
     let upgradeable_count = state
@@ -3218,11 +2556,7 @@ fn confirm_armaments_select(
     let selected_card_id = selected.id;
     let _removed = remove_card_from_pile(state, selected_card_id, CardPile::Hand)?;
     let card = upgraded;
-    let source_destination = delayed_source_card_destination(state, source_definition);
-    move_card(state, source_card_id, CardPile::Hand, source_destination)?;
-    if source_destination == CardPile::ExhaustPile {
-        apply_on_exhaust_effects(state, source_card_id);
-    }
+    move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
     state.piles.hand.push(card);
     state.piles.hand.extend(cannot_upgrade);
     Ok(())
@@ -3285,13 +2619,7 @@ fn forethought_source_definition(
     state: &CombatState,
     source_card_id: CardId,
 ) -> SimResult<&'static crate::card::CardDefinition> {
-    state
-        .piles
-        .hand
-        .iter()
-        .find(|card| card.id == source_card_id)
-        .and_then(|card| get_card_definition(card.content_id))
-        .ok_or(SimError::IllegalAction("Forethought source card missing"))
+    card_content_definition(state, source_card_id)
 }
 
 fn move_forethought_selected_card_to_draw_bottom(
@@ -3307,14 +2635,9 @@ fn move_forethought_selected_card_to_draw_bottom(
 fn move_forethought_source_card(
     state: &mut CombatState,
     source_card_id: CardId,
-    source_definition: &'static crate::card::CardDefinition,
+    _source_definition: &'static crate::card::CardDefinition,
 ) -> SimResult<()> {
-    let source_destination = delayed_source_card_destination(state, source_definition);
-    move_card(state, source_card_id, CardPile::Hand, source_destination)?;
-    if source_destination == CardPile::ExhaustPile {
-        apply_on_exhaust_effects(state, source_card_id);
-    }
-    Ok(())
+    move_delayed_played_source_with_strange_spoon(state, source_card_id)
 }
 
 fn confirm_dual_wield_select(
@@ -3325,17 +2648,13 @@ fn confirm_dual_wield_select(
     if index >= state.piles.hand.len() {
         return Err(SimError::IllegalAction("hand select index out of range"));
     }
-    let source_card = state
+    let source_card_in_hand = state
         .piles
         .hand
         .iter()
         .find(|card| card.id == source_card_id)
-        .cloned()
-        .ok_or(SimError::IllegalAction(
-            "Dual Wield source card is not in hand",
-        ))?;
-    let source_definition = get_card_definition(source_card.content_id)
-        .ok_or(SimError::UnknownContent(source_card.content_id))?;
+        .copied();
+    let source_definition = card_content_definition(state, source_card_id)?;
     let copy_count = if source_definition.id == DUAL_WIELD_PLUS_ID {
         2
     } else {
@@ -3371,12 +2690,10 @@ fn confirm_dual_wield_select(
         state.piles.hand.push(copy);
         next_id += 1;
     }
-    state.piles.hand.push(source_card);
-    let source_destination = delayed_source_card_destination(state, source_definition);
-    move_card(state, source_card_id, CardPile::Hand, source_destination)?;
-    if source_destination == CardPile::ExhaustPile {
-        apply_on_exhaust_effects(state, source_card_id);
+    if let Some(source_card) = source_card_in_hand {
+        state.piles.hand.push(source_card);
     }
+    move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
     Ok(())
 }
 
@@ -3770,7 +3087,7 @@ fn confirm_burning_pact_select(
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.discard_pile.push(source_card);
     } else {
-        move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
+        move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
     }
     Ok(())
 }
@@ -3931,10 +3248,18 @@ fn confirm_exhume_select(
     state.piles.hand.push(card);
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.exhaust_pile.push(source_card);
+        apply_on_exhaust_effects(state, source_card_id);
     } else {
-        move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
+        let source_is_already_exhausted = state
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == source_card_id);
+        if !source_is_already_exhausted {
+            move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
+            apply_on_exhaust_effects(state, source_card_id);
+        }
     }
-    apply_on_exhaust_effects(state, source_card_id);
     Ok(())
 }
 
@@ -4120,11 +3445,7 @@ fn upgrade_combat_cards(state: &mut CombatState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BASH_ID, BLUDGEON_ID, DOUBT_ID, DUAL_WIELD_ID, FEED_ID,
-        FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, INFERNAL_BLADE_ID,
-        RAMPAGE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
-    };
+    use crate::content::cards::*;
     use crate::content::monsters::{
         monster_state, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
     };
@@ -4737,6 +4058,71 @@ mod tests {
         assert_eq!(next.piles.exhaust_pile.len(), 1);
         assert_eq!(next.piles.exhaust_pile[0].content_id, RAMPAGE_ID);
         assert_eq!(next.piles.exhaust_pile[0].rampage_damage_bonus, 5);
+    }
+
+    #[test]
+    fn havoc_played_burning_pact_resolves_selection_after_source_exhaust() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), DEFEND_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), BURNING_PACT_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut staged = state;
+        let queue = apply_play_top_draw_card(&mut staged, None, true, false)
+            .expect("top-draw Burning Pact queue");
+        let mut next = process_internal_queue(&staged, queue.into())
+            .expect("top-draw Burning Pact opens exhaust selection")
+            .state;
+        assert!(next.exhaust_select.is_some());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, BURNING_PACT_ID);
+
+        choose_exhaust_select(&mut next, 0).expect("select Defend");
+        confirm_exhaust_select(&mut next).expect("resolve Burning Pact selection");
+
+        assert!(next.exhaust_select.is_none());
+        assert_eq!(next.piles.hand.len(), 2);
+        assert_eq!(next.piles.exhaust_pile.len(), 2);
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .filter(|card| card.content_id == BURNING_PACT_ID)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn havoc_played_dual_wield_resolves_without_duplicating_source() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), DUAL_WIELD_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut staged = state;
+        let queue = apply_play_top_draw_card(&mut staged, None, true, false)
+            .expect("top-draw Dual Wield queue");
+        let mut next = process_internal_queue(&staged, queue.into())
+            .expect("top-draw Dual Wield opens hand selection")
+            .state;
+        choose_hand_select(&mut next, 0).expect("select Strike");
+        confirm_hand_select(&mut next).expect("resolve Dual Wield selection");
+
+        assert_eq!(next.piles.hand.len(), 2);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id == STRIKE_R_ID));
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DUAL_WIELD_ID);
     }
 
     #[test]

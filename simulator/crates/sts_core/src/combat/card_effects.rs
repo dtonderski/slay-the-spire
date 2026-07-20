@@ -395,6 +395,153 @@ pub(super) fn play_card_queue(
     Ok((queued_state, queue))
 }
 
+pub(super) fn play_top_draw_card_queue(
+    state: &CombatState,
+    card: CardInstance,
+    target: Option<MonsterId>,
+    force_exhaust: bool,
+) -> SimResult<(CombatState, VecDeque<InternalAction>)> {
+    let definition =
+        get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
+    validate_havoc_target(definition, target, false)?;
+
+    // Card effect builders operate on the authoritative hand-play shape. A
+    // top-draw play stages its extracted card in that slot while the shared
+    // builder constructs effects, then changes only the play envelope: no
+    // energy payment and a top-draw-specific final destination.
+    let mut staged = state.clone();
+    // Put the staged source first so test/debug states with duplicate card IDs
+    // cannot redirect effect construction to an unrelated hand card. Validated
+    // production states still require globally unique card IDs.
+    staged.piles.hand.insert(0, card);
+    let (mut queued_state, mut queue) = play_card_queue(&staged, card.id, target)?;
+
+    queue.retain(|action| {
+        !matches!(
+            action,
+            InternalAction::SpendEnergy { .. } | InternalAction::SpendCardEnergy { .. }
+        ) && !matches!(
+            action,
+            InternalAction::RemoveCard {
+                card_id,
+                from: CardPile::Hand,
+            } if *card_id == card.id
+        )
+    });
+    for action in &mut queue {
+        if let InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count } = *action {
+            if card_id == card.id {
+                *action = InternalAction::DrawCards { count };
+            }
+        }
+    }
+    if definition.id == WHIRLWIND_ID || definition.id == WHIRLWIND_PLUS_ID {
+        queue = coalesce_top_draw_all_enemy_hits(queue, card.id);
+    }
+
+    let shared_destination = queue.iter().rev().find_map(|action| match action {
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to,
+        } if *card_id == card.id => Some(*to),
+        _ => None,
+    });
+    let destination = top_draw_card_destination(
+        &mut queued_state,
+        definition,
+        force_exhaust,
+        shared_destination,
+    );
+    queue.retain(|action| !is_card_move_for(*action, card.id));
+    let movement = InternalAction::MoveCard {
+        card_id: card.id,
+        from: CardPile::Hand,
+        to: destination,
+    };
+    let played_index = queue
+        .iter()
+        .position(
+            |action| matches!(action, InternalAction::PlayCard { card_id } if *card_id == card.id),
+        )
+        .ok_or(SimError::InvalidState(
+            "top-draw card queue has no play action",
+        ))?;
+    queue.insert(played_index + 1, movement);
+
+    Ok((queued_state, queue))
+}
+
+fn coalesce_top_draw_all_enemy_hits(
+    mut queue: VecDeque<InternalAction>,
+    card_id: CardId,
+) -> VecDeque<InternalAction> {
+    let mut grouped = VecDeque::with_capacity(queue.len());
+    while let Some(action) = queue.pop_front() {
+        let InternalAction::DealDamageAll { source, amount } = action else {
+            grouped.push_back(action);
+            continue;
+        };
+        if source != card_id {
+            grouped.push_back(action);
+            continue;
+        }
+
+        let mut times = 1;
+        while matches!(
+            queue.front(),
+            Some(InternalAction::DealDamageAll {
+                source: next_source,
+                amount: next_amount,
+            }) if *next_source == source && *next_amount == amount
+        ) {
+            queue.pop_front();
+            times += 1;
+        }
+        if times == 1 {
+            grouped.push_back(action);
+        } else {
+            grouped.push_back(InternalAction::DealDamageAllRepeated {
+                source,
+                amount,
+                times,
+            });
+        }
+    }
+    grouped
+}
+
+fn top_draw_card_destination(
+    state: &mut CombatState,
+    definition: &CardDefinition,
+    force_exhaust: bool,
+    shared_destination: Option<CardPile>,
+) -> CardPile {
+    if definition.card_type == CardType::Power {
+        return CardPile::DiscardPile;
+    }
+    let shared_destination_is_authoritative = !force_exhaust
+        || definition.keywords.exhaust
+        || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0);
+    if shared_destination_is_authoritative {
+        if let Some(destination) = shared_destination {
+            return destination;
+        }
+    }
+
+    let exhaust = force_exhaust
+        || definition.keywords.exhaust
+        || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0);
+    if !exhaust {
+        return CardPile::DiscardPile;
+    }
+    if state.relics.contains(&Relic::StrangeSpoon) && state.rng.card_random_rng.random_bool() {
+        CardPile::DiscardPile
+    } else {
+        CardPile::ExhaustPile
+    }
+}
+
 fn apply_effective_cost_to_played_card_queue(
     card: &CardInstance,
     definition: &CardDefinition,
@@ -1322,17 +1469,6 @@ pub(super) fn combat_strike_named_card_count(state: &CombatState) -> usize {
                 .unwrap_or(false)
         })
         .count()
-}
-
-pub(super) fn combat_strike_named_card_count_with_extra(
-    state: &CombatState,
-    extra: Option<&CardDefinition>,
-) -> usize {
-    combat_strike_named_card_count(state)
-        + extra
-            .filter(|definition| is_strike_named_definition(definition))
-            .map(|_| 1)
-            .unwrap_or(0)
 }
 
 fn is_strike_named_definition(definition: &CardDefinition) -> bool {

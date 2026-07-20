@@ -2740,20 +2740,22 @@ mod tests {
     }
 
     #[test]
-    fn mayhem_unimplemented_top_card_fails_without_no_effect_play() {
+    fn mayhem_uses_shared_card_effects_for_demon_form() {
         let mut state = CombatState::initial_fixture();
         state.player.powers.mayhem = 1;
         state.piles.hand = (1..=10)
             .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
             .collect();
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(11), DEMON_FORM_ID)];
-        let before = state.clone();
+        start_player_turn(&mut state).expect("Mayhem plays Demon Form through shared effects");
 
-        assert_eq!(
-            start_player_turn(&mut state),
-            Err(crate::SimError::UnsupportedMechanic(DEMON_FORM_ID))
-        );
-        assert_eq!(state, before);
+        assert_eq!(state.player.powers.ritual, 2);
+        assert!(state.piles.draw_pile.is_empty());
+        assert!(!state
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DEMON_FORM_ID));
     }
 
     #[test]
