@@ -435,7 +435,7 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
                 &monster.move_history,
                 roll,
                 can_spawn,
-                Some(rng),
+                rng,
                 combat.ascension,
             );
         } else if monster.content_id == ORB_WALKER_ID {
@@ -457,7 +457,7 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
             monster.intent = target_gremlin_leader_next_intent_from_roll(
                 &monster.move_history,
                 roll,
-                Some(rng),
+                rng,
                 alive_gremlin_count,
                 combat.ascension,
             );
@@ -495,13 +495,15 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
             let attack_damage = monster.rolled_attack_damage.ok_or(SimError::InvalidState(
                 "monster requires rolled attack damage",
             ))?;
-            monster.intent = crate::content::monsters::target_darkling_next_intent_from_roll(
-                &monster.move_history,
-                roll,
-                index,
-                attack_damage,
-                combat.ascension,
-            );
+            monster.intent =
+                crate::content::monsters::target_darkling_next_intent_from_roll_with_rng(
+                    &monster.move_history,
+                    roll,
+                    index,
+                    attack_damage,
+                    combat.ascension,
+                    rng,
+                );
         } else if monster.content_id == SHELLED_PARASITE_ID
             && monster.moves_executed == 0
             && combat.ascension < 17

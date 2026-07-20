@@ -1175,7 +1175,7 @@ fn prepare_next_intents_for_ids(
                 monster.intent = target_looter_direct_next_intent_after_turn(
                     &monster.move_history,
                     monster.moves_executed,
-                    Some(&mut state.rng.monster_rng),
+                    &mut state.rng.monster_rng,
                     state.ascension,
                 );
                 record_target_move(monster);
@@ -1185,7 +1185,7 @@ fn prepare_next_intents_for_ids(
                 monster.intent = target_mugger_direct_next_intent_after_turn(
                     &monster.move_history,
                     monster.moves_executed,
-                    Some(&mut state.rng.monster_rng),
+                    &mut state.rng.monster_rng,
                     state.ascension,
                 );
                 record_target_move(monster);
@@ -1273,7 +1273,7 @@ fn prepare_next_intents_for_ids(
                     monster.moves_executed,
                     &monster.move_history,
                     roll,
-                    Some(&mut state.rng.monster_rng),
+                    &mut state.rng.monster_rng,
                     state.ascension,
                 )
             } else if monster.content_id == JAW_WORM_ID {
@@ -1430,7 +1430,7 @@ fn prepare_next_intents_for_ids(
                 target_gremlin_leader_next_intent_from_roll(
                     &monster.move_history,
                     roll,
-                    Some(&mut state.rng.monster_rng),
+                    &mut state.rng.monster_rng,
                     alive_gremlin_count,
                     state.ascension,
                 )
@@ -1453,7 +1453,7 @@ fn prepare_next_intents_for_ids(
                     &monster.move_history,
                     roll,
                     living_monster_count.saturating_sub(1) <= 3,
-                    Some(&mut state.rng.monster_rng),
+                    &mut state.rng.monster_rng,
                     state.ascension,
                 )
             } else if monster.content_id == REPULSOR_ID {
@@ -2187,7 +2187,7 @@ mod tests {
     fn looter_second_mug_uses_source_half_chance_without_roll_move() {
         let mut expected_rng = StsRng::new(456);
         let expected =
-            target_looter_direct_next_intent_after_turn(&[1, 1], 2, Some(&mut expected_rng), 0);
+            target_looter_direct_next_intent_after_turn(&[1, 1], 2, &mut expected_rng, 0);
         let actor_id = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
         state.monsters = vec![monster_state_for_ascension(&LOOTER_A0, actor_id, 0)];
@@ -2234,7 +2234,7 @@ mod tests {
         let expected = crate::content::monsters::target_mugger_direct_next_intent_after_turn(
             &[1, 1],
             2,
-            Some(&mut expected_rng),
+            &mut expected_rng,
             17,
         );
         let actor_id = MonsterId::new(1);
@@ -2926,25 +2926,26 @@ mod tests {
 
     #[test]
     fn nemesis_uses_source_replacement_booleans_burns_hp_and_intangible() {
+        let mut no_reroll_rng = StsRng::new(0);
         assert_eq!(
-            target_nemesis_next_intent_from_roll(0, &[], 49, None, 3),
+            target_nemesis_next_intent_from_roll(0, &[], 49, &mut no_reroll_rng, 3),
             crate::MonsterIntent::AttackMultiple { damage: 7, hits: 3 }
         );
         assert_eq!(
-            target_nemesis_next_intent_from_roll(0, &[], 50, None, 18),
+            target_nemesis_next_intent_from_roll(0, &[], 50, &mut no_reroll_rng, 18),
             crate::MonsterIntent::AddBurnToDiscard {
                 count: 5,
                 damage: 0
             }
         );
         assert_eq!(
-            target_nemesis_next_intent_from_roll(1, &[2], 29, None, 0),
+            target_nemesis_next_intent_from_roll(1, &[2], 29, &mut no_reroll_rng, 0),
             crate::MonsterIntent::Attack { damage: 45 }
         );
+        assert_eq!(no_reroll_rng.counter(), 0);
 
         let mut expected_rng = StsRng::new(4242);
-        let expected =
-            target_nemesis_next_intent_from_roll(2, &[2, 3], 20, Some(&mut expected_rng), 18);
+        let expected = target_nemesis_next_intent_from_roll(2, &[2, 3], 20, &mut expected_rng, 18);
         assert_eq!(expected_rng.counter(), 1);
         assert!(matches!(
             expected,

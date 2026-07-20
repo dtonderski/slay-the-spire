@@ -4300,24 +4300,6 @@ pub fn target_louse_entry_intent_from_roll(
     }
 }
 
-#[must_use]
-pub fn target_darkling_next_intent_from_roll(
-    move_history: &[u8],
-    roll: i32,
-    monster_index: usize,
-    attack_damage: i32,
-    ascension: u8,
-) -> MonsterIntent {
-    target_darkling_next_intent_from_roll_inner(
-        move_history,
-        roll,
-        monster_index,
-        attack_damage,
-        ascension,
-        None,
-    )
-}
-
 pub fn target_darkling_next_intent_from_roll_with_rng(
     move_history: &[u8],
     roll: i32,
@@ -4332,7 +4314,7 @@ pub fn target_darkling_next_intent_from_roll_with_rng(
         monster_index,
         attack_damage,
         ascension,
-        Some(rng),
+        rng,
     )
 }
 
@@ -4342,7 +4324,7 @@ fn target_darkling_next_intent_from_roll_inner(
     monster_index: usize,
     attack_damage: i32,
     ascension: u8,
-    mut rng: Option<&mut StsRng>,
+    rng: &mut StsRng,
 ) -> MonsterIntent {
     if move_history.is_empty() {
         return if roll < 50 {
@@ -4361,9 +4343,7 @@ fn target_darkling_next_intent_from_roll_inner(
                 hits: 2,
             }
         } else {
-            let reroll = rng
-                .as_deref_mut()
-                .map_or(40, |rng| rng.random_int_range(40, 99));
+            let reroll = rng.random_int_range(40, 99);
             target_darkling_next_intent_from_roll_inner(
                 move_history,
                 reroll,
@@ -4386,9 +4366,7 @@ fn target_darkling_next_intent_from_roll_inner(
             damage: attack_damage,
         }
     } else {
-        let reroll = rng
-            .as_deref_mut()
-            .map_or(0, |rng| rng.random_int_range(0, 99));
+        let reroll = rng.random_int_range(0, 99);
         target_darkling_next_intent_from_roll_inner(
             move_history,
             reroll,
@@ -4572,7 +4550,7 @@ pub fn target_nemesis_next_intent_from_roll(
     moves_executed: u32,
     move_history: &[u8],
     roll: i32,
-    rng: Option<&mut StsRng>,
+    rng: &mut StsRng,
     ascension: u8,
 ) -> MonsterIntent {
     if moves_executed == 0 {
@@ -4588,7 +4566,7 @@ pub fn target_nemesis_next_intent_from_roll(
         if scythe_available {
             return nemesis_scythe_intent();
         }
-        if rng.is_some_and(|rng| rng.random_bool()) {
+        if rng.random_bool() {
             if !last_two_moves(move_history, 2) {
                 return nemesis_tri_attack_intent(ascension);
             }
@@ -4603,7 +4581,7 @@ pub fn target_nemesis_next_intent_from_roll(
         if !last_two_moves(move_history, 2) {
             return nemesis_tri_attack_intent(ascension);
         }
-        if rng.is_some_and(|rng| rng.random_bool()) {
+        if rng.random_bool() {
             if scythe_available {
                 return nemesis_scythe_intent();
             }
@@ -4614,7 +4592,7 @@ pub fn target_nemesis_next_intent_from_roll(
     if !last_move(move_history, 4) {
         return nemesis_burn_intent(ascension);
     }
-    if rng.is_some_and(|rng| rng.random_bool()) && scythe_available {
+    if rng.random_bool() && scythe_available {
         return nemesis_scythe_intent();
     }
     nemesis_tri_attack_intent(ascension)
@@ -4869,18 +4847,18 @@ pub fn target_looter_next_intent_from_roll(
 pub fn target_looter_direct_next_intent_after_turn(
     move_history: &[u8],
     moves_executed: u32,
-    rng: Option<&mut StsRng>,
+    rng: &mut StsRng,
     ascension: u8,
 ) -> MonsterIntent {
     if last_move(move_history, 1) && moves_executed == 1 {
-        let _ = rng.map(|rng| rng.random_float() < 0.6);
+        let _ = rng.random_float() < 0.6;
         return MonsterIntent::AttackStealGold {
             damage: looter_swipe_damage(ascension),
             amount: looter_theft(ascension),
         };
     }
     if last_move(move_history, 1) && moves_executed == 2 {
-        if rng.is_some_and(|rng| rng.random_float() < 0.5) {
+        if rng.random_float() < 0.5 {
             return MonsterIntent::Block {
                 block: LOOTER_SMOKE_BOMB_BLOCK,
             };
@@ -4956,27 +4934,23 @@ fn mugger_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
 pub fn target_mugger_direct_next_intent_after_turn(
     move_history: &[u8],
     moves_executed: u32,
-    mut rng: Option<&mut StsRng>,
+    rng: &mut StsRng,
     ascension: u8,
 ) -> MonsterIntent {
     if last_move(move_history, 1) && moves_executed == 1 {
-        if let Some(rng) = rng.as_deref_mut() {
-            let _ = rng.random_int(2);
-        }
+        let _ = rng.random_int(2);
         return MonsterIntent::AttackStealGold {
             damage: mugger_swipe_damage(ascension),
             amount: mugger_theft(ascension),
         };
     }
     if last_move(move_history, 1) && moves_executed == 2 {
-        if let Some(rng) = rng.as_deref_mut() {
-            let _ = rng.random_int(2);
-            let _ = rng.random_float() < 0.6;
-            if rng.random_float() < 0.5 {
-                return MonsterIntent::Block {
-                    block: mugger_escape_block(ascension),
-                };
-            }
+        let _ = rng.random_int(2);
+        let _ = rng.random_float() < 0.6;
+        if rng.random_float() < 0.5 {
+            return MonsterIntent::Block {
+                block: mugger_escape_block(ascension),
+            };
         }
         return MonsterIntent::AttackStealGold {
             damage: mugger_big_swipe_damage(ascension),
@@ -4984,9 +4958,7 @@ pub fn target_mugger_direct_next_intent_after_turn(
         };
     }
     if last_move(move_history, 4) {
-        if let Some(rng) = rng {
-            let _ = rng.random_int(2);
-        }
+        let _ = rng.random_int(2);
         return MonsterIntent::Block {
             block: mugger_escape_block(ascension),
         };
@@ -6632,11 +6604,10 @@ fn gremlin_leader_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
 pub fn target_gremlin_leader_next_intent_from_roll(
     move_history: &[u8],
     roll: i32,
-    rng: Option<&mut StsRng>,
+    rng: &mut StsRng,
     alive_gremlin_count: usize,
     ascension: u8,
 ) -> MonsterIntent {
-    let mut rng = rng;
     if alive_gremlin_count == 0 {
         if roll < 75 {
             if !last_move(move_history, 2) {
@@ -6655,9 +6626,7 @@ pub fn target_gremlin_leader_next_intent_from_roll(
             if !last_move(move_history, 2) {
                 return gremlin_leader_rally_intent();
             }
-            let replacement_roll = rng
-                .as_deref_mut()
-                .map_or(50, |rng| rng.random_int_range(50, 99));
+            let replacement_roll = rng.random_int_range(50, 99);
             return target_gremlin_leader_next_intent_from_roll(
                 move_history,
                 replacement_roll,
@@ -6675,7 +6644,7 @@ pub fn target_gremlin_leader_next_intent_from_roll(
         if !last_move(move_history, 4) {
             return gremlin_leader_stab_intent();
         }
-        let replacement_roll = rng.as_deref_mut().map_or(80, |rng| rng.random_int(80));
+        let replacement_roll = rng.random_int(80);
         return target_gremlin_leader_next_intent_from_roll(
             move_history,
             replacement_roll,
@@ -6720,10 +6689,9 @@ pub fn target_reptomancer_next_intent_from_roll(
     move_history: &[u8],
     roll: i32,
     can_spawn: bool,
-    rng: Option<&mut StsRng>,
+    rng: &mut StsRng,
     ascension: u8,
 ) -> MonsterIntent {
-    let mut rng = rng;
     if move_history.is_empty() {
         return reptomancer_spawn_intent(ascension);
     }
@@ -6732,9 +6700,7 @@ pub fn target_reptomancer_next_intent_from_roll(
         if !last_move(move_history, 1) {
             return reptomancer_snake_strike_intent(ascension);
         }
-        let replacement_roll = rng
-            .as_deref_mut()
-            .map_or(33, |rng| rng.random_int_range(33, 99));
+        let replacement_roll = rng.random_int_range(33, 99);
         return target_reptomancer_next_intent_from_roll(
             move_history,
             replacement_roll,
@@ -6755,7 +6721,7 @@ pub fn target_reptomancer_next_intent_from_roll(
     if !last_move(move_history, 3) {
         return reptomancer_big_bite_intent(ascension);
     }
-    let replacement_roll = rng.as_deref_mut().map_or(65, |rng| rng.random_int(65));
+    let replacement_roll = rng.random_int(65);
     target_reptomancer_next_intent_from_roll(
         move_history,
         replacement_roll,
@@ -7154,14 +7120,12 @@ fn public_backlog_monster_intent(
         GIANT_HEAD_ID => {
             target_giant_head_next_intent_from_roll(moves_executed, &[], 99, ascension)
         }
-        NEMESIS_ID => {
-            target_nemesis_next_intent_from_roll(moves_executed, &[], 99, None, ascension)
-        }
+        NEMESIS_ID => nemesis_burn_intent(ascension),
         REPTOMANCER_ID => {
             if moves_executed == 0 {
-                target_reptomancer_next_intent_from_roll(&[], 99, true, None, ascension)
+                reptomancer_spawn_intent(ascension)
             } else {
-                target_reptomancer_next_intent_from_roll(&[1], 99, true, None, ascension)
+                reptomancer_big_bite_intent(ascension)
             }
         }
         REPULSOR_ID => match moves_executed % 2 {
@@ -10080,42 +10044,52 @@ mod tests {
     fn gremlin_leader_helper_consumes_source_replacement_roll_ranges() {
         let mut low_branch_expected_rng = StsRng::new(123);
         let low_branch_replacement = low_branch_expected_rng.random_int_range(50, 99);
-        let low_branch_expected =
-            target_gremlin_leader_next_intent_from_roll(&[2], low_branch_replacement, None, 1, 18);
+        let mut low_branch_scratch_rng = StsRng::new(0);
+        let low_branch_expected = target_gremlin_leader_next_intent_from_roll(
+            &[2],
+            low_branch_replacement,
+            &mut low_branch_scratch_rng,
+            1,
+            18,
+        );
         let mut low_branch_rng = StsRng::new(123);
 
         let low_branch_actual =
-            target_gremlin_leader_next_intent_from_roll(&[2], 0, Some(&mut low_branch_rng), 1, 18);
+            target_gremlin_leader_next_intent_from_roll(&[2], 0, &mut low_branch_rng, 1, 18);
 
         assert_eq!(low_branch_actual, low_branch_expected);
+        assert_eq!(low_branch_scratch_rng.counter(), 0);
         assert_eq!(low_branch_rng.counter(), 1);
 
         let mut high_branch_expected_rng = StsRng::new(456);
         let high_branch_replacement = high_branch_expected_rng.random_int(80);
-        let high_branch_expected =
-            target_gremlin_leader_next_intent_from_roll(&[4], high_branch_replacement, None, 1, 18);
-        let mut high_branch_rng = StsRng::new(456);
-
-        let high_branch_actual = target_gremlin_leader_next_intent_from_roll(
+        let mut high_branch_scratch_rng = StsRng::new(0);
+        let high_branch_expected = target_gremlin_leader_next_intent_from_roll(
             &[4],
-            90,
-            Some(&mut high_branch_rng),
+            high_branch_replacement,
+            &mut high_branch_scratch_rng,
             1,
             18,
         );
+        let mut high_branch_rng = StsRng::new(456);
+
+        let high_branch_actual =
+            target_gremlin_leader_next_intent_from_roll(&[4], 90, &mut high_branch_rng, 1, 18);
 
         assert_eq!(high_branch_actual, high_branch_expected);
+        assert_eq!(high_branch_scratch_rng.counter(), 0);
         assert_eq!(high_branch_rng.counter(), 1);
     }
 
     #[test]
     fn reptomancer_helper_uses_source_table_can_spawn_and_replacements() {
+        let mut no_reroll_rng = StsRng::new(0);
         assert_eq!(
-            target_reptomancer_next_intent_from_roll(&[], 99, false, None, 18),
+            target_reptomancer_next_intent_from_roll(&[], 99, false, &mut no_reroll_rng, 18,),
             MonsterIntent::SummonGremlins { count: 2 }
         );
         assert_eq!(
-            target_reptomancer_next_intent_from_roll(&[2], 32, true, None, 3),
+            target_reptomancer_next_intent_from_roll(&[2], 32, true, &mut no_reroll_rng, 3,),
             MonsterIntent::AttackMultipleApplyPlayerWeak {
                 damage: REPTOMANCER_A3_SNAKE_STRIKE_DAMAGE,
                 hits: REPTOMANCER_SNAKE_STRIKE_HITS,
@@ -10123,7 +10097,7 @@ mod tests {
             }
         );
         assert_eq!(
-            target_reptomancer_next_intent_from_roll(&[1], 50, false, None, 3),
+            target_reptomancer_next_intent_from_roll(&[1], 50, false, &mut no_reroll_rng, 3,),
             MonsterIntent::AttackMultipleApplyPlayerWeak {
                 damage: REPTOMANCER_A3_SNAKE_STRIKE_DAMAGE,
                 hits: REPTOMANCER_SNAKE_STRIKE_HITS,
@@ -10131,33 +10105,43 @@ mod tests {
             }
         );
         assert_eq!(
-            target_reptomancer_next_intent_from_roll(&[1], 50, true, None, 18),
+            target_reptomancer_next_intent_from_roll(&[1], 50, true, &mut no_reroll_rng, 18,),
             MonsterIntent::SummonGremlins { count: 2 }
         );
+        assert_eq!(no_reroll_rng.counter(), 0);
 
         let mut low_branch_expected_rng = StsRng::new(123);
         let low_branch_replacement = low_branch_expected_rng.random_int_range(33, 99);
-        let low_branch_expected =
-            target_reptomancer_next_intent_from_roll(&[1], low_branch_replacement, true, None, 18);
+        let mut low_branch_scratch_rng = StsRng::new(0);
+        let low_branch_expected = target_reptomancer_next_intent_from_roll(
+            &[1],
+            low_branch_replacement,
+            true,
+            &mut low_branch_scratch_rng,
+            18,
+        );
         let mut low_branch_rng = StsRng::new(123);
         let low_branch_actual =
-            target_reptomancer_next_intent_from_roll(&[1], 0, true, Some(&mut low_branch_rng), 18);
+            target_reptomancer_next_intent_from_roll(&[1], 0, true, &mut low_branch_rng, 18);
         assert_eq!(low_branch_actual, low_branch_expected);
+        assert_eq!(low_branch_scratch_rng.counter(), 0);
         assert_eq!(low_branch_rng.counter(), 1);
 
         let mut high_branch_expected_rng = StsRng::new(456);
         let high_branch_replacement = high_branch_expected_rng.random_int(65);
-        let high_branch_expected =
-            target_reptomancer_next_intent_from_roll(&[3], high_branch_replacement, true, None, 18);
-        let mut high_branch_rng = StsRng::new(456);
-        let high_branch_actual = target_reptomancer_next_intent_from_roll(
+        let mut high_branch_scratch_rng = StsRng::new(0);
+        let high_branch_expected = target_reptomancer_next_intent_from_roll(
             &[3],
-            90,
+            high_branch_replacement,
             true,
-            Some(&mut high_branch_rng),
+            &mut high_branch_scratch_rng,
             18,
         );
+        let mut high_branch_rng = StsRng::new(456);
+        let high_branch_actual =
+            target_reptomancer_next_intent_from_roll(&[3], 90, true, &mut high_branch_rng, 18);
         assert_eq!(high_branch_actual, high_branch_expected);
+        assert_eq!(high_branch_scratch_rng.counter(), 0);
         assert_eq!(high_branch_rng.counter(), 1);
     }
 
