@@ -3980,6 +3980,11 @@ pub fn prepare_monster_intent_for_ascension(
     if is_unsupported_approximate_monster_intent(monster.content_id) {
         return Err(SimError::UnsupportedMechanic(monster.content_id));
     }
+    if requires_rolled_attack_damage(monster.content_id) && monster.rolled_attack_damage.is_none() {
+        return Err(SimError::InvalidState(
+            "monster requires rolled attack damage",
+        ));
+    }
     let mut intent = prepare_monster_intent_for_monster(
         definition,
         monster.moves_executed,
@@ -4044,6 +4049,11 @@ pub fn prepare_monster_intent_for_ascension(
         };
     }
     Ok(intent)
+}
+
+#[must_use]
+pub(crate) fn requires_rolled_attack_damage(content_id: ContentId) -> bool {
+    matches!(content_id, RED_LOUSE_ID | GREEN_LOUSE_ID | DARKLING_ID)
 }
 
 #[must_use]
@@ -4240,9 +4250,9 @@ fn red_louse_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) -> M
             strength: LOUSE_CURL_STRENGTH,
             block: 0,
         },
-        _ => MonsterIntent::Attack {
-            damage: rolled_attack_damage.unwrap_or(RED_LOUSE_BITE_DAMAGE),
-        },
+        _ => rolled_attack_damage.map_or(MonsterIntent::PendingAiRoll, |damage| {
+            MonsterIntent::Attack { damage }
+        }),
     }
 }
 
@@ -4252,45 +4262,38 @@ fn green_louse_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) ->
         0 => MonsterIntent::ApplyPlayerWeak {
             amount: GREEN_LOUSE_WEAK,
         },
-        _ => MonsterIntent::Attack {
-            damage: rolled_attack_damage.unwrap_or(GREEN_LOUSE_BITE_DAMAGE),
-        },
+        _ => rolled_attack_damage.map_or(MonsterIntent::PendingAiRoll, |damage| {
+            MonsterIntent::Attack { damage }
+        }),
     }
 }
 
 pub fn target_louse_next_intent_from_roll(
     move_history: &[u8],
     roll: i32,
-    rolled_attack_damage: Option<i32>,
-    fallback_damage: i32,
+    attack_damage: i32,
     non_attack_intent: MonsterIntent,
 ) -> MonsterIntent {
     if last_two_moves(move_history, LOUSE_NON_ATTACK_MOVE) {
         return MonsterIntent::Attack {
-            damage: rolled_attack_damage.unwrap_or(fallback_damage),
+            damage: attack_damage,
         };
     }
     if last_two_moves(move_history, LOUSE_ATTACK_MOVE) {
         return non_attack_intent;
     }
-    target_louse_entry_intent_from_roll(
-        roll,
-        rolled_attack_damage,
-        fallback_damage,
-        non_attack_intent,
-    )
+    target_louse_entry_intent_from_roll(roll, attack_damage, non_attack_intent)
 }
 
 #[must_use]
 pub fn target_louse_entry_intent_from_roll(
     roll: i32,
-    rolled_attack_damage: Option<i32>,
-    fallback_damage: i32,
+    attack_damage: i32,
     non_attack_intent: MonsterIntent,
 ) -> MonsterIntent {
     if roll >= 25 {
         MonsterIntent::Attack {
-            damage: rolled_attack_damage.unwrap_or(fallback_damage),
+            damage: attack_damage,
         }
     } else {
         non_attack_intent
@@ -4302,14 +4305,14 @@ pub fn target_darkling_next_intent_from_roll(
     move_history: &[u8],
     roll: i32,
     monster_index: usize,
-    rolled_attack_damage: Option<i32>,
+    attack_damage: i32,
     ascension: u8,
 ) -> MonsterIntent {
     target_darkling_next_intent_from_roll_inner(
         move_history,
         roll,
         monster_index,
-        rolled_attack_damage,
+        attack_damage,
         ascension,
         None,
     )
@@ -4319,7 +4322,7 @@ pub fn target_darkling_next_intent_from_roll_with_rng(
     move_history: &[u8],
     roll: i32,
     monster_index: usize,
-    rolled_attack_damage: Option<i32>,
+    attack_damage: i32,
     ascension: u8,
     rng: &mut StsRng,
 ) -> MonsterIntent {
@@ -4327,7 +4330,7 @@ pub fn target_darkling_next_intent_from_roll_with_rng(
         move_history,
         roll,
         monster_index,
-        rolled_attack_damage,
+        attack_damage,
         ascension,
         Some(rng),
     )
@@ -4337,11 +4340,10 @@ fn target_darkling_next_intent_from_roll_inner(
     move_history: &[u8],
     roll: i32,
     monster_index: usize,
-    rolled_attack_damage: Option<i32>,
+    attack_damage: i32,
     ascension: u8,
     mut rng: Option<&mut StsRng>,
 ) -> MonsterIntent {
-    let attack_damage = rolled_attack_damage.unwrap_or(DARKLING_CHOMP_DAMAGE);
     if move_history.is_empty() {
         return if roll < 50 {
             darkling_block_intent(ascension)
@@ -4366,7 +4368,7 @@ fn target_darkling_next_intent_from_roll_inner(
                 move_history,
                 reroll,
                 monster_index,
-                rolled_attack_damage,
+                attack_damage,
                 ascension,
                 rng,
             )
@@ -4391,7 +4393,7 @@ fn target_darkling_next_intent_from_roll_inner(
             move_history,
             reroll,
             monster_index,
-            rolled_attack_damage,
+            attack_damage,
             ascension,
             rng,
         )
@@ -4400,9 +4402,9 @@ fn target_darkling_next_intent_from_roll_inner(
 
 fn darkling_intent(moves_executed: u32, rolled_attack_damage: Option<i32>) -> MonsterIntent {
     if moves_executed == 0 {
-        MonsterIntent::Attack {
-            damage: rolled_attack_damage.unwrap_or(DARKLING_CHOMP_DAMAGE),
-        }
+        rolled_attack_damage.map_or(MonsterIntent::PendingAiRoll, |damage| {
+            MonsterIntent::Attack { damage }
+        })
     } else {
         darkling_block_intent(0)
     }
@@ -9471,7 +9473,7 @@ pub fn apply_monster_intent(
     ascension: u8,
     player_before: &crate::PlayerState,
     relics: &[crate::Relic],
-) -> i32 {
+) -> SimResult<i32> {
     apply_monster_intent_with_card_rng(
         monster,
         player,
@@ -9491,7 +9493,7 @@ pub fn apply_monster_intent_with_card_rng(
     player_before: &crate::PlayerState,
     relics: &[crate::Relic],
     card_random_rng: Option<&mut StsRng>,
-) -> i32 {
+) -> SimResult<i32> {
     use crate::combat::damage::deal_unmodified_damage_to_monster;
     use crate::combat::turn_powers::monster_damage_to_player;
     use crate::power::{
@@ -9538,6 +9540,11 @@ pub fn apply_monster_intent_with_card_rng(
     let total_thorns = player.powers.thorns + player.temp_thorns;
     let mut thorns_already_applied = false;
     let (damage, thorns_hits) = match monster.intent {
+        MonsterIntent::PendingAiRoll => {
+            return Err(SimError::InvalidState(
+                "combat monster intent is pending AI roll",
+            ));
+        }
         MonsterIntent::Attack { damage } => {
             let damage_taken =
                 monster_damage_to_player(player_before, monster, scale_damage(damage));
@@ -9876,7 +9883,7 @@ pub fn apply_monster_intent_with_card_rng(
     if !lagavulin_sleep_or_stun(monster.content_id, monster.intent) {
         monster.moves_executed += 1;
     }
-    damage
+    Ok(damage)
 }
 
 fn apply_multi_hit_thorns(
@@ -10066,7 +10073,7 @@ mod tests {
             &[],
         );
 
-        assert_eq!(damage, 0);
+        assert_eq!(damage, Ok(0));
         assert_eq!(player.powers.weak, GUARDIAN_VENT_DEBUFF);
         assert_eq!(player.powers.vulnerable, GUARDIAN_VENT_DEBUFF);
         assert!(player.vulnerable_just_applied);
@@ -10097,7 +10104,7 @@ mod tests {
             &[],
         );
 
-        assert_eq!(damage, 12);
+        assert_eq!(damage, Ok(12));
         assert_eq!(monster.hp, 28);
         assert_eq!(player.hp, 11);
     }
@@ -11000,7 +11007,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(damage, 0);
+        assert_eq!(damage, Ok(0));
         assert_eq!(source_monster.powers.malleable, SNAKE_PLANT_MALLEABLE);
         assert_eq!(source_monster.powers.malleable_base, SNAKE_PLANT_MALLEABLE);
         assert_eq!(player.powers.frail, SNAKE_PLANT_SPORES_DEBUFF);
@@ -11719,7 +11726,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(damage, 0);
+        assert_eq!(damage, Ok(0));
         assert_eq!(source_monster.powers.spiker_thorns_buffs, 1);
         assert_eq!(
             source_monster.powers.spikes,

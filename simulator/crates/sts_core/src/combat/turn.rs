@@ -47,11 +47,10 @@ use crate::{
         target_writhing_mass_next_intent_from_roll, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
         ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
         CENTURION_ID, CHAMP_ID, CHOSEN_ID, DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID,
-        GIANT_HEAD_ID, GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
-        GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_THIEF_ID, GREMLIN_TSUNDERE_ID,
-        GREMLIN_WARRIOR_ID, GREMLIN_WIZARD_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID,
-        LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID, NEMESIS_ID, ORB_WALKER_ID,
-        RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
+        GIANT_HEAD_ID, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GREMLIN_NOB_ID,
+        GREMLIN_THIEF_ID, GREMLIN_TSUNDERE_ID, GREMLIN_WARRIOR_ID, GREMLIN_WIZARD_ID, HEALER_ID,
+        HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID,
+        NEMESIS_ID, ORB_WALKER_ID, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
         SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID, SNAKE_PLANT_ID,
         SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIKE_SLIME_L_SPIT_DAMAGE,
         SPIKE_SLIME_S_A7_HP_RANGE, SPIRE_GROWTH_ID, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
@@ -503,7 +502,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     &player_snapshot,
                     &state.relics,
                     Some(&mut state.rng.card_random_rng),
-                );
+                )?;
                 let painful_stabs = state.monsters[index].powers.painful_stabs;
                 apply_monster_pending_effects(state, damage, 1, painful_stabs, None, 0, 0, 0, 0, 0);
                 record_target_move(&mut state.monsters[index]);
@@ -691,7 +690,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             &player_snapshot,
             &relics,
             Some(&mut state.rng.card_random_rng),
-        );
+        )?;
         if let Some(piles) = piles_before_post_damage_effects {
             // CommunicationMod observes Hexaghost/Nemesis status cards only
             // after attack damage resolves. In particular, a lethal Inferno
@@ -1280,22 +1279,32 @@ fn prepare_next_intents_for_ids(
                     &mut state.rng.monster_rng,
                 )
             } else if monster.content_id == RED_LOUSE_ID {
+                let attack_damage =
+                    monster
+                        .rolled_attack_damage
+                        .ok_or(crate::SimError::InvalidState(
+                            "monster requires rolled attack damage",
+                        ))?;
                 target_louse_next_intent_from_roll(
                     &monster.move_history,
                     roll,
-                    monster.rolled_attack_damage,
-                    RED_LOUSE_BITE_DAMAGE,
+                    attack_damage,
                     crate::MonsterIntent::StrengthAndBlock {
                         strength: LOUSE_CURL_STRENGTH,
                         block: 0,
                     },
                 )
             } else if monster.content_id == GREEN_LOUSE_ID {
+                let attack_damage =
+                    monster
+                        .rolled_attack_damage
+                        .ok_or(crate::SimError::InvalidState(
+                            "monster requires rolled attack damage",
+                        ))?;
                 target_louse_next_intent_from_roll(
                     &monster.move_history,
                     roll,
-                    monster.rolled_attack_damage,
-                    GREEN_LOUSE_BITE_DAMAGE,
+                    attack_damage,
                     crate::MonsterIntent::ApplyPlayerWeak {
                         amount: GREEN_LOUSE_WEAK,
                     },
@@ -1446,11 +1455,17 @@ fn prepare_next_intents_for_ids(
             } else if monster.content_id == REPULSOR_ID {
                 target_repulsor_next_intent_from_roll(&monster.move_history, roll, state.ascension)
             } else if monster.content_id == DARKLING_ID {
+                let attack_damage =
+                    monster
+                        .rolled_attack_damage
+                        .ok_or(crate::SimError::InvalidState(
+                            "monster requires rolled attack damage",
+                        ))?;
                 crate::content::monsters::target_darkling_next_intent_from_roll_with_rng(
                     &monster.move_history,
                     roll,
                     monster_index,
-                    monster.rolled_attack_damage,
+                    attack_damage,
                     state.ascension,
                     &mut state.rng.monster_rng,
                 )
@@ -2457,6 +2472,7 @@ mod tests {
         state.monsters[0].alive = false;
         state.monsters[0].escaped = true;
         state.monsters[0].hp = 0;
+        state.monsters[0].rolled_attack_damage = Some(8);
         state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 0 };
         state.monsters[0].move_history = vec![4];
         state.rng.monster_rng = StsRng::new(111);
@@ -2497,7 +2513,7 @@ mod tests {
                 &[4, 5],
                 roll,
                 0,
-                Some(11),
+                11,
                 state.ascension,
                 &mut expected_rng,
             );
@@ -2784,7 +2800,7 @@ mod tests {
             &before,
             &[],
         );
-        assert_eq!(damage, 0);
+        assert_eq!(damage, Ok(0));
         assert_eq!(player.powers.constricted, 12);
 
         let actor_id = MonsterId::new(1);

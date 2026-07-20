@@ -12248,6 +12248,7 @@ fn intent_key(monster: &MonsterState) -> String {
     };
 
     match monster.intent {
+        MonsterIntent::PendingAiRoll => "PENDING_AI_ROLL".to_owned(),
         MonsterIntent::Attack { .. }
         | MonsterIntent::AttackAddSlimedToDiscard { .. }
         | MonsterIntent::AttackAddWoundsToDiscard { .. }

@@ -4236,6 +4236,8 @@ mod tests {
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
         state.monsters = vec![monster_state(&DARKLING_A0, target)];
+        state.monsters[0].rolled_attack_damage = Some(8);
+        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 8 };
         state.monsters[0].hp = 1;
         state.monsters[0].max_hp = 1;
         state.player.hp = 81;

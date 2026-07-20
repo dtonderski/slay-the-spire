@@ -5,8 +5,8 @@ use sts_core::{
     content::cards,
     content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
-    enter_reward_screen, CardId, CombatAction, CombatState, ContentId, MonsterId, RunPhase,
-    RunState, SimError,
+    enter_reward_screen, CardId, CombatAction, CombatState, ContentId, MonsterId, MonsterIntent,
+    RunPhase, RunState, SimError,
 };
 
 #[test]
@@ -87,6 +87,48 @@ fn known_approximate_monster_fails_before_action_execution() {
     assert_eq!(
         apply_combat_action(&state, CombatAction::EndTurn),
         Err(SimError::UnsupportedMechanic(AWAKENED_ONE_A0.content_id))
+    );
+    assert_eq!(state, original);
+}
+
+#[test]
+fn missing_variable_monster_damage_fails_before_action_execution() {
+    let mut state = CombatState::red_louse_fixture();
+    state.monsters[0].rolled_attack_damage = None;
+    let original = state.clone();
+
+    assert_eq!(
+        state.validate(),
+        Err(SimError::InvalidState(
+            "monster requires rolled attack damage"
+        ))
+    );
+    assert_eq!(
+        apply_combat_action(&state, CombatAction::EndTurn),
+        Err(SimError::InvalidState(
+            "monster requires rolled attack damage"
+        ))
+    );
+    assert_eq!(state, original);
+}
+
+#[test]
+fn unresolved_initial_ai_roll_fails_before_action_execution() {
+    let mut state = CombatState::initial_fixture();
+    state.monsters[0].intent = MonsterIntent::PendingAiRoll;
+    let original = state.clone();
+
+    assert_eq!(
+        state.validate(),
+        Err(SimError::InvalidState(
+            "combat monster intent is pending AI roll"
+        ))
+    );
+    assert_eq!(
+        apply_combat_action(&state, CombatAction::EndTurn),
+        Err(SimError::InvalidState(
+            "combat monster intent is pending AI roll"
+        ))
     );
     assert_eq!(state, original);
 }

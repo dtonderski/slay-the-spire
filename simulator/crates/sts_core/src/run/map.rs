@@ -6,7 +6,7 @@ use crate::{
         advance_reptomancer_monster_hp_rng_for_entry, content_id_from_game_monster_id,
         donu_deca_boss_monsters_for_ascension, get_monster_definition, living_monster_missing_hp,
         monster_state_for_ascension, prepare_monster_intent_for_ascension, record_target_move,
-        target_acid_slime_entry_intent_from_roll,
+        requires_rolled_attack_damage, target_acid_slime_entry_intent_from_roll,
         target_beyond_encounter_spawn_for_key_with_misc_rng,
         target_book_of_stabbing_next_intent_from_roll_with_stab_count,
         target_bronze_orb_next_intent_from_roll, target_byrd_next_intent_from_roll,
@@ -27,11 +27,10 @@ use crate::{
         TargetEncounterSpawn, TargetSpawnIntent, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
         ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID,
         CHAMP_ID, CHOSEN_ID, DAGGER_ID, DARKLING_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID,
-        GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, HEALER_ID,
-        JAW_WORM_ID, LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID,
-        REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID,
-        SNAKE_PLANT_ID, SNECKO_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID,
-        WRITHING_MASS_ID,
+        GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID,
+        LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
+        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SNAKE_PLANT_ID, SNECKO_ID,
+        SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID, WRITHING_MASS_ID,
     },
     ids::CardId,
     map::{
@@ -262,6 +261,15 @@ fn add_mark_of_pain_wounds_to_draw_pile(run: &mut RunState, combat: &mut CombatS
 }
 
 pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) -> SimResult<()> {
+    if combat.monsters.iter().any(|monster| {
+        monster.alive
+            && requires_rolled_attack_damage(monster.content_id)
+            && monster.rolled_attack_damage.is_none()
+    }) {
+        return Err(SimError::InvalidState(
+            "monster requires rolled attack damage",
+        ));
+    }
     let living_monster_count = combat
         .monsters
         .iter()
@@ -309,20 +317,24 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
             monster.intent =
                 target_jaw_worm_next_intent_from_roll(&monster.move_history, roll, rng);
         } else if monster.content_id == RED_LOUSE_ID {
+            let attack_damage = monster.rolled_attack_damage.ok_or(SimError::InvalidState(
+                "monster requires rolled attack damage",
+            ))?;
             monster.intent = target_louse_entry_intent_from_roll(
                 roll,
-                monster.rolled_attack_damage,
-                RED_LOUSE_BITE_DAMAGE,
+                attack_damage,
                 crate::MonsterIntent::StrengthAndBlock {
                     strength: LOUSE_CURL_STRENGTH,
                     block: 0,
                 },
             );
         } else if monster.content_id == GREEN_LOUSE_ID {
+            let attack_damage = monster.rolled_attack_damage.ok_or(SimError::InvalidState(
+                "monster requires rolled attack damage",
+            ))?;
             monster.intent = target_louse_entry_intent_from_roll(
                 roll,
-                monster.rolled_attack_damage,
-                GREEN_LOUSE_BITE_DAMAGE,
+                attack_damage,
                 crate::MonsterIntent::ApplyPlayerWeak {
                     amount: GREEN_LOUSE_WEAK,
                 },
@@ -462,11 +474,14 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
                 combat.ascension,
             );
         } else if monster.content_id == DARKLING_ID {
+            let attack_damage = monster.rolled_attack_damage.ok_or(SimError::InvalidState(
+                "monster requires rolled attack damage",
+            ))?;
             monster.intent = crate::content::monsters::target_darkling_next_intent_from_roll(
                 &monster.move_history,
                 roll,
                 index,
-                monster.rolled_attack_damage,
+                attack_damage,
                 combat.ascension,
             );
         } else if monster.content_id == SHELLED_PARASITE_ID
@@ -793,7 +808,7 @@ fn target_spawn_monster_state(
     monster.powers = spawn_monster_powers(spawn);
     monster.rolled_attack_damage = spawn.rolled_attack_damage;
     monster.intent = match spawn.intent {
-        TargetSpawnIntent::PendingAiRoll => monster.intent,
+        TargetSpawnIntent::PendingAiRoll => crate::MonsterIntent::PendingAiRoll,
         TargetSpawnIntent::Attack { damage } => crate::MonsterIntent::Attack { damage },
         TargetSpawnIntent::AttackAndBlock { damage, block } => {
             crate::MonsterIntent::AttackAndBlock { damage, block }
@@ -1113,6 +1128,79 @@ mod tests {
             }
         );
         assert_eq!(monster.rolled_attack_damage, None);
+    }
+
+    #[test]
+    fn variable_damage_spawns_resolve_pending_ai_before_validation() {
+        let spawns = [
+            TargetEncounterSpawn {
+                name: "FuzzyLouseNormal",
+                current_hp: 12,
+                max_hp: 12,
+                block: 0,
+                intent: TargetSpawnIntent::PendingAiRoll,
+                powers: Vec::new(),
+                rolled_attack_damage: Some(7),
+            },
+            TargetEncounterSpawn {
+                name: "Darkling",
+                current_hp: 50,
+                max_hp: 50,
+                block: 0,
+                intent: TargetSpawnIntent::PendingAiRoll,
+                powers: Vec::new(),
+                rolled_attack_damage: Some(10),
+            },
+        ];
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters = spawns
+            .iter()
+            .enumerate()
+            .map(|(index, spawn)| {
+                target_spawn_monster_state(spawn, index, 0).expect("known target spawn")
+            })
+            .collect();
+        assert!(combat
+            .monsters
+            .iter()
+            .all(|monster| monster.intent == MonsterIntent::PendingAiRoll));
+
+        let mut rng = StsRng::new(123);
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng).expect("complete rolled profiles");
+
+        assert_eq!(rng.counter(), 2);
+        assert!(combat
+            .monsters
+            .iter()
+            .all(|monster| monster.intent != MonsterIntent::PendingAiRoll));
+        combat.validate().expect("initial AI is fully resolved");
+    }
+
+    #[test]
+    fn missing_variable_damage_fails_before_initial_ai_rng_is_consumed() {
+        let spawn = TargetEncounterSpawn {
+            name: "FuzzyLouseNormal",
+            current_hp: 12,
+            max_hp: 12,
+            block: 0,
+            intent: TargetSpawnIntent::PendingAiRoll,
+            powers: Vec::new(),
+            rolled_attack_damage: None,
+        };
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters =
+            vec![target_spawn_monster_state(&spawn, 0, 0).expect("known target spawn")];
+        let original = combat.clone();
+        let mut rng = StsRng::new(123);
+
+        assert_eq!(
+            apply_initial_monster_ai_rolls(&mut combat, &mut rng),
+            Err(SimError::InvalidState(
+                "monster requires rolled attack damage"
+            ))
+        );
+        assert_eq!(rng.counter(), 0);
+        assert_eq!(combat, original);
     }
 
     #[test]

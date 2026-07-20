@@ -5,8 +5,9 @@ use crate::{
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
         get_monster_definition, is_unsupported_approximate_monster_intent, monster_state,
-        ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREEN_LOUSE_A0, GREMLIN_NOB_A0,
-        GUARDIAN_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0, RED_LOUSE_A0, SENTRY_A0,
+        requires_rolled_attack_damage, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER,
+        GREEN_LOUSE_A0, GREEN_LOUSE_BITE_DAMAGE, GREMLIN_NOB_A0, GUARDIAN_A0, HEXAGHOST_A0,
+        JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0, RED_LOUSE_A0, RED_LOUSE_BITE_DAMAGE, SENTRY_A0,
         SLIME_BOSS_A0, SPIKE_SLIME_A0,
     },
     ids::{CardId, MonsterId},
@@ -319,6 +320,9 @@ pub enum CombatPhase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MonsterIntent {
+    /// Encounter construction has not yet consumed this monster's initial AI
+    /// roll. Authoritative combat validation rejects this transient state.
+    PendingAiRoll,
     Attack {
         damage: i32,
     },
@@ -552,6 +556,7 @@ impl CombatState {
     pub fn red_louse_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&RED_LOUSE_A0, MonsterId::new(1))];
+        state.monsters[0].rolled_attack_damage = Some(RED_LOUSE_BITE_DAMAGE);
         state
     }
 
@@ -559,6 +564,7 @@ impl CombatState {
     pub fn green_louse_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&GREEN_LOUSE_A0, MonsterId::new(1))];
+        state.monsters[0].rolled_attack_damage = Some(GREEN_LOUSE_BITE_DAMAGE);
         state
     }
 
@@ -681,6 +687,18 @@ impl CombatState {
             }
             if is_unsupported_approximate_monster_intent(monster.content_id) {
                 return Err(SimError::UnsupportedMechanic(monster.content_id));
+            }
+            if requires_rolled_attack_damage(monster.content_id)
+                && monster.rolled_attack_damage.is_none()
+            {
+                return Err(SimError::InvalidState(
+                    "monster requires rolled attack damage",
+                ));
+            }
+            if matches!(monster.intent, MonsterIntent::PendingAiRoll) {
+                return Err(SimError::InvalidState(
+                    "combat monster intent is pending AI roll",
+                ));
             }
             if monster.max_hp <= 0
                 || monster.hp < 0
