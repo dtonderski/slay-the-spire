@@ -35,7 +35,7 @@ use crate::{
     SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, num::NonZeroU8};
 
 pub const STARTING_GOLD: i32 = 99;
 const ENCHIRIDION_HAND_LIMIT: usize = 10;
@@ -107,6 +107,53 @@ mod tests {
         assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY);
         assert_eq!(combat.player.max_energy, BASE_PLAYER_ENERGY);
         assert_eq!(combat.player.energy, BASE_PLAYER_ENERGY);
+    }
+
+    #[test]
+    fn card_reward_flow_opens_closes_and_consumes_exactly_once() {
+        let reward = CardRewardFlow::pending(2);
+
+        let mut screen = RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            relic_key_offer: None,
+            pending_relic_offer: None,
+            pending_relic_key_offer: None,
+            queued_relic_key_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: reward,
+        };
+
+        screen.open_card_reward().expect("first reward opens");
+        assert_eq!(screen.card_reward_flow, CardRewardFlow::active(2));
+        screen.close_card_reward().expect("first reward closes");
+        assert_eq!(screen.card_reward_flow, CardRewardFlow::pending(2));
+        screen.open_card_reward().expect("first reward reopens");
+        screen
+            .consume_active_card_reward()
+            .expect("first reward consumes");
+        assert_eq!(screen.card_reward_flow, CardRewardFlow::pending(1));
+        screen.open_card_reward().expect("second reward opens");
+        screen
+            .consume_active_card_reward()
+            .expect("second reward consumes");
+        assert_eq!(screen.card_reward_flow, CardRewardFlow::None);
+    }
+
+    #[test]
+    fn zero_count_reward_flows_are_invalid() {
+        assert!(
+            serde_json::from_str::<CardRewardFlow>(r#"{"state":"pending","remaining":0}"#).is_err()
+        );
+        assert!(
+            serde_json::from_str::<CardRewardFlow>(r#"{"state":"active","remaining":0}"#).is_err()
+        );
     }
 }
 
@@ -428,6 +475,7 @@ fn apply_neow_lament_to_combat(combat: &mut CombatState) {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RewardScreen {
     #[serde(default)]
     pub continuation: RewardContinuation,
@@ -452,14 +500,9 @@ pub struct RewardScreen {
     pub queued_relic_key_offers: Vec<RelicKey>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub boss_relic_choices: Vec<RelicKey>,
+    /// State of the card-reward subflow. `remaining` includes an active screen.
     #[serde(default)]
-    pub card_reward_active: bool,
-    /// Normal combat rewards defer card RNG until the player opens the card screen.
-    #[serde(default)]
-    pub card_reward_pending: bool,
-    /// Number of unopened card reward screens remaining.
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
-    pub pending_card_reward_count: u8,
+    pub card_reward_flow: CardRewardFlow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -469,26 +512,113 @@ pub enum RewardContinuation {
     Rest,
 }
 
-impl RewardScreen {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum CardRewardFlow {
+    #[default]
+    None,
+    Pending {
+        remaining: NonZeroU8,
+    },
+    Active {
+        remaining: NonZeroU8,
+    },
+}
+
+impl CardRewardFlow {
     #[must_use]
-    pub fn pending_card_reward_count(&self) -> u8 {
-        if self.pending_card_reward_count > 0 {
-            self.pending_card_reward_count
-        } else if self.card_reward_pending {
-            1
-        } else {
-            0
+    pub const fn pending(remaining: u8) -> Self {
+        match NonZeroU8::new(remaining) {
+            Some(remaining) => Self::Pending { remaining },
+            None => panic!("pending card reward flow requires a positive count"),
         }
     }
 
-    pub fn set_pending_card_rewards(&mut self, count: u8) {
-        self.pending_card_reward_count = count;
-        self.card_reward_pending = count > 0;
+    #[must_use]
+    pub const fn active(remaining: u8) -> Self {
+        match NonZeroU8::new(remaining) {
+            Some(remaining) => Self::Active { remaining },
+            None => panic!("active card reward flow requires a positive count"),
+        }
     }
 
-    pub fn consume_pending_card_reward(&mut self) {
-        let count = self.pending_card_reward_count().saturating_sub(1);
-        self.set_pending_card_rewards(count);
+    #[must_use]
+    pub const fn is_active(self) -> bool {
+        matches!(self, Self::Active { .. })
+    }
+
+    #[must_use]
+    pub const fn is_pending(self) -> bool {
+        matches!(self, Self::Pending { .. })
+    }
+
+    #[must_use]
+    pub const fn remaining(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Pending { remaining } | Self::Active { remaining } => remaining.get(),
+        }
+    }
+}
+
+impl RewardScreen {
+    #[must_use]
+    pub fn remaining_card_reward_count(&self) -> u8 {
+        self.card_reward_flow.remaining()
+    }
+
+    #[must_use]
+    pub fn card_reward_is_active(&self) -> bool {
+        self.card_reward_flow.is_active()
+    }
+
+    #[must_use]
+    pub fn card_reward_is_pending(&self) -> bool {
+        self.card_reward_flow.is_pending()
+    }
+
+    pub(crate) fn set_card_reward_remaining(&mut self, count: u8) {
+        self.card_reward_flow = match (self.card_reward_flow, count) {
+            (_, 0) => CardRewardFlow::None,
+            (CardRewardFlow::Active { .. }, remaining) => CardRewardFlow::active(remaining),
+            (_, remaining) => CardRewardFlow::pending(remaining),
+        };
+    }
+
+    pub fn open_card_reward(&mut self) -> SimResult<()> {
+        self.card_reward_flow = match self.card_reward_flow {
+            CardRewardFlow::Pending { remaining } => CardRewardFlow::active(remaining.get()),
+            CardRewardFlow::None => {
+                return Err(SimError::InvalidState(
+                    "cannot open absent card reward flow",
+                ));
+            }
+            CardRewardFlow::Active { .. } => {
+                return Err(SimError::InvalidState("card reward flow is already active"));
+            }
+        };
+        Ok(())
+    }
+
+    pub fn close_card_reward(&mut self) -> SimResult<()> {
+        self.card_reward_flow = match self.card_reward_flow {
+            CardRewardFlow::Active { remaining } => CardRewardFlow::pending(remaining.get()),
+            CardRewardFlow::None | CardRewardFlow::Pending { .. } => {
+                return Err(SimError::InvalidState("card reward flow is not active"));
+            }
+        };
+        Ok(())
+    }
+
+    pub fn consume_active_card_reward(&mut self) -> SimResult<()> {
+        self.card_reward_flow = match self.card_reward_flow {
+            CardRewardFlow::Active { remaining } if remaining.get() == 1 => CardRewardFlow::None,
+            CardRewardFlow::Active { remaining } => CardRewardFlow::pending(remaining.get() - 1),
+            CardRewardFlow::None | CardRewardFlow::Pending { .. } => {
+                return Err(SimError::InvalidState("card reward flow is not active"));
+            }
+        };
+        Ok(())
     }
 }
 
@@ -687,6 +817,27 @@ impl RunState {
             validate_run_choice_cards(&reward.choices)?;
             for choices in &reward.queued_card_rewards {
                 validate_run_choice_cards(choices)?;
+            }
+            match reward.card_reward_flow {
+                CardRewardFlow::None
+                    if !reward.choices.is_empty() || !reward.queued_card_rewards.is_empty() =>
+                {
+                    return Err(SimError::InvalidState(
+                        "card reward choices exist without a card reward flow",
+                    ));
+                }
+                CardRewardFlow::Active { .. } if reward.choices.is_empty() => {
+                    return Err(SimError::InvalidState("active card reward has no choices"));
+                }
+                CardRewardFlow::None
+                | CardRewardFlow::Pending { .. }
+                | CardRewardFlow::Active { .. } => {}
+            }
+            if reward.queued_card_rewards.len() > usize::from(reward.remaining_card_reward_count())
+            {
+                return Err(SimError::InvalidState(
+                    "queued card rewards exceed remaining card reward screens",
+                ));
             }
             if reward.gold_offer < 0 || reward.stolen_gold_offer < 0 {
                 return Err(SimError::InvalidState("reward gold is negative"));
@@ -1636,13 +1787,13 @@ impl RunState {
                         &mut misc_rng,
                     ));
                     self.misc_rng_counter = misc_rng.counter();
-                    reward.set_pending_card_rewards(reward.pending_card_reward_count() + 1);
+                    reward.set_card_reward_remaining(reward.remaining_card_reward_count() + 1);
                 }
             }
             Relic::Orrery => {
                 if let Some(reward) = self.reward.as_mut() {
-                    reward.set_pending_card_rewards(
-                        reward.pending_card_reward_count() + ORRERY_CARD_REWARDS,
+                    reward.set_card_reward_remaining(
+                        reward.remaining_card_reward_count() + ORRERY_CARD_REWARDS,
                     );
                 }
             }
@@ -1866,7 +2017,7 @@ impl RunState {
         match action {
             RunAction::SkipReward => Ok(()),
             RunAction::CloseCardReward => {
-                if reward.card_reward_active {
+                if reward.card_reward_is_active() {
                     Ok(())
                 } else {
                     Err(SimError::IllegalAction("card reward is not open"))
@@ -1940,10 +2091,10 @@ impl RunState {
                 }
             }
             RunAction::OpenCardReward => {
-                if reward.pending_card_reward_count() == 0 {
+                if reward.remaining_card_reward_count() == 0 {
                     return Err(SimError::IllegalAction("no card reward offered"));
                 }
-                if reward.card_reward_active {
+                if reward.card_reward_is_active() {
                     return Err(SimError::IllegalAction("card reward already open"));
                 }
                 Ok(())
@@ -1956,6 +2107,9 @@ impl RunState {
                 Ok(())
             }
             RunAction::TakeCardReward { card_id } => {
+                if !reward.card_reward_is_active() {
+                    return Err(SimError::IllegalAction("card reward is not open"));
+                }
                 if reward.choices.iter().any(|choice| choice.id == card_id) {
                     Ok(())
                 } else {
@@ -1966,7 +2120,7 @@ impl RunState {
                 if !self.relics.contains(&Relic::SingingBowl) {
                     return Err(SimError::IllegalAction("singing bowl is not owned"));
                 }
-                if !reward.card_reward_active || reward.choices.is_empty() {
+                if !reward.card_reward_is_active() || reward.choices.is_empty() {
                     return Err(SimError::IllegalAction("no open card reward to bowl"));
                 }
                 Ok(())

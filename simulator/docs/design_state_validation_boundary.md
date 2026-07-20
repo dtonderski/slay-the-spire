@@ -56,12 +56,14 @@ normalization.
 
 ## Snapshot compatibility
 
-New snapshots use schema version 2. Schema-version-1 snapshots may be restored
-only if the deserialized state already satisfies the version-2 invariants. This
-is the only honest automatic migration: absent RNG state cannot be inferred
-from post-state or replaced with a seed without changing mechanics. Invalid
-version-1 snapshots fail with a validation error and must be recreated from an
-authoritative seed/trace or an earlier valid snapshot.
+New snapshots use schema version 3. Schema-version-1 and version-2 snapshots
+are restored through core-owned typed entry points and normalized to version 3.
+Their legacy card-reward flags and count are explicitly migrated to the single
+`CardRewardFlow` authority described in `reward_flow_migration.md`. All other
+state must already satisfy current invariants: absent RNG state cannot be
+inferred from post-state or replaced with a seed without changing mechanics.
+Invalid historical snapshots fail with a parse or validation error and must be
+recreated from an authoritative seed/trace or an earlier valid snapshot.
 
 Raw JSON imports are retained temporarily for debugging compatibility, but
 they validate before becoming executable environments. A later API cleanup can

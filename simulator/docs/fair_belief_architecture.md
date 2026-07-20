@@ -127,7 +127,7 @@ debugging, calibration)
   its intent number is displayed, `stasis_card` identity before reveal,
   internal mode counters not mirrored by a visible power).
 - Unrealized generation: card reward contents before the screen opens
-  (`card_reward_pending`), shop stock before entry, chest contents, potion
+  (`CardRewardFlow::Pending`), shop stock before entry, chest contents, potion
   drops, event identity before entering the room, all pool orders.
 - Internal identity: `CardId`, `MonsterId`, `ContentId`, UUIDs, generation
   provenance.

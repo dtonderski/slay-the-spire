@@ -828,9 +828,7 @@ fn reward_sequence_has_remaining_choices(run: &RunState) -> bool {
             || reward.pending_relic_key_offer.is_some()
             || !reward.queued_relic_key_offers.is_empty()
             || !reward.boss_relic_choices.is_empty()
-            || reward.card_reward_active
-            || reward.card_reward_pending
-            || reward.pending_card_reward_count() > 0
+            || reward.remaining_card_reward_count() > 0
             || !reward.choices.is_empty()
     })
 }

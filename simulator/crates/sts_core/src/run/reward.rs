@@ -151,9 +151,7 @@ pub(crate) fn enter_orrery_reward_screen(run: &mut RunState) {
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
-        card_reward_active: false,
-        card_reward_pending: false,
-        pending_card_reward_count: 0,
+        card_reward_flow: crate::run::CardRewardFlow::None,
     });
 }
 
@@ -975,9 +973,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
         pending_relic_key_offer,
         queued_relic_key_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
-        card_reward_active: false,
-        card_reward_pending: false,
-        pending_card_reward_count: 0,
+        card_reward_flow: crate::run::CardRewardFlow::None,
     });
 }
 
@@ -1009,9 +1005,7 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
         boss_relic_choices,
-        card_reward_active: false,
-        card_reward_pending: false,
-        pending_card_reward_count: 0,
+        card_reward_flow: crate::run::CardRewardFlow::None,
     });
 }
 
@@ -1037,9 +1031,7 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
         pending_relic_key_offer: None,
         queued_relic_key_offers: vec![uncommon, rare],
         boss_relic_choices: Vec::new(),
-        card_reward_active: false,
-        card_reward_pending: false,
-        pending_card_reward_count: 0,
+        card_reward_flow: crate::run::CardRewardFlow::None,
     });
 }
 
@@ -1284,9 +1276,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
-        card_reward_active: false,
-        card_reward_pending: true,
-        pending_card_reward_count,
+        card_reward_flow: crate::run::CardRewardFlow::pending(pending_card_reward_count),
     });
     if pending_card_reward_count == 1 {
         roll_pending_card_reward_choices(run);
@@ -1376,9 +1366,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
         pending_relic_key_offer,
         queued_relic_key_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
-        card_reward_active: false,
-        card_reward_pending: true,
-        pending_card_reward_count: 1,
+        card_reward_flow: crate::run::CardRewardFlow::pending(1),
     });
     roll_pending_card_reward_choices(run);
 }
@@ -1421,9 +1409,7 @@ pub fn enter_boss_combat_reward_screen(run: &mut RunState) {
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
-        card_reward_active: false,
-        card_reward_pending: true,
-        pending_card_reward_count: 1,
+        card_reward_flow: crate::run::CardRewardFlow::pending(1),
     });
     roll_pending_card_reward_choices(run);
 }
@@ -1586,9 +1572,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         pending_relic_key_offer,
         queued_relic_key_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
-        card_reward_active: false,
-        card_reward_pending: false,
-        pending_card_reward_count: 0,
+        card_reward_flow: crate::run::CardRewardFlow::None,
     });
 }
 
@@ -2024,10 +2008,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
         RunAction::SkipReward => {
             let is_boss_room = next.current_room_kind() == Some(RoomKind::Boss);
             let reward = next.reward.as_mut().expect("validated reward screen");
-            if reward.card_reward_active {
+            if reward.card_reward_is_active() {
                 reward.choices.clear();
-                reward.card_reward_active = false;
-                reward.consume_pending_card_reward();
+                reward.consume_active_card_reward()?;
                 return_to_event_if_reward_empty(&mut next);
             } else if is_boss_room && !reward.boss_relic_choices.is_empty() {
                 next.phase = RunPhase::Treasure;
@@ -2054,11 +2037,12 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .as_ref()
                 .is_some_and(|reward| reward.continuation == RewardContinuation::Rest);
             let reward = next.reward.as_mut().expect("validated reward screen");
-            reward.card_reward_active = false;
             if return_to_rest {
                 reward.choices.clear();
-                reward.consume_pending_card_reward();
+                reward.consume_active_card_reward()?;
                 return_to_event_if_reward_empty(&mut next);
+            } else {
+                reward.close_card_reward()?;
             }
         }
         RunAction::TakeCardReward { card_id } => {
@@ -2070,16 +2054,14 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .copied()
                 .expect("validated reward card");
             reward.choices.clear();
-            reward.card_reward_active = false;
-            reward.consume_pending_card_reward();
+            reward.consume_active_card_reward()?;
             next.add_deck_card(choice);
             return_to_event_if_reward_empty(&mut next);
         }
         RunAction::TakeSingingBowlReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
             reward.choices.clear();
-            reward.card_reward_active = false;
-            reward.consume_pending_card_reward();
+            reward.consume_active_card_reward()?;
             next.player_max_hp += SINGING_BOWL_MAX_HP;
             next.player_hp += SINGING_BOWL_MAX_HP;
             return_to_event_if_reward_empty(&mut next);
@@ -2169,7 +2151,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
         }
         RunAction::OpenCardReward => {
             if next.reward.as_ref().is_some_and(|reward| {
-                reward.choices.is_empty() && reward.pending_card_reward_count() > 0
+                reward.choices.is_empty() && reward.remaining_card_reward_count() > 0
             }) {
                 let queued = next.reward.as_mut().and_then(|reward| {
                     (!reward.queued_card_rewards.is_empty())
@@ -2185,7 +2167,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             next.reward
                 .as_mut()
                 .expect("validated reward screen")
-                .card_reward_active = true;
+                .open_card_reward()?;
         }
         RunAction::SkipPotionReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
@@ -2227,9 +2209,7 @@ fn return_to_event_if_reward_empty(run: &mut RunState) {
     let Some(reward) = run.reward.as_ref() else {
         return;
     };
-    if reward.card_reward_active
-        || reward.card_reward_pending
-        || reward.pending_card_reward_count() > 0
+    if reward.remaining_card_reward_count() > 0
         || !reward.choices.is_empty()
         || reward.gold_offer > 0
         || reward.stolen_gold_offer > 0
@@ -2257,9 +2237,7 @@ fn return_to_event_if_reward_empty(run: &mut RunState) {
 }
 
 pub(crate) fn reward_is_empty(reward: &RewardScreen) -> bool {
-    !reward.card_reward_active
-        && !reward.card_reward_pending
-        && reward.pending_card_reward_count() == 0
+    reward.remaining_card_reward_count() == 0
         && reward.choices.is_empty()
         && reward.queued_card_rewards.is_empty()
         && reward.gold_offer == 0
@@ -2402,9 +2380,7 @@ mod tests {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: false,
-            card_reward_pending: false,
-            pending_card_reward_count: 0,
+            card_reward_flow: crate::run::CardRewardFlow::None,
         });
 
         let next = apply_run_action(&run, RunAction::Proceed)
@@ -2516,7 +2492,7 @@ mod tests {
         enter_normal_combat_reward_screen(&mut run);
 
         let reward = run.reward.as_ref().expect("combat reward");
-        assert_eq!(reward.pending_card_reward_count(), 2);
+        assert_eq!(reward.remaining_card_reward_count(), 2);
         assert!(reward.choices.is_empty());
         assert_eq!(reward.queued_card_rewards.len(), 2);
         assert!(reward
@@ -2540,17 +2516,29 @@ mod tests {
         let opened = apply_run_action(&run, RunAction::OpenCardReward).expect("card reward opens");
         let original = reward_choice_ids(&opened);
         let opened_card_rng_counter = opened.card_rng_counter;
-        assert!(opened.reward.as_ref().expect("reward").card_reward_active);
+        assert!(opened
+            .reward
+            .as_ref()
+            .expect("reward")
+            .card_reward_is_active());
 
         let closed =
             apply_run_action(&opened, RunAction::CloseCardReward).expect("card reward closes");
-        assert!(!closed.reward.as_ref().expect("reward").card_reward_active);
+        assert!(!closed
+            .reward
+            .as_ref()
+            .expect("reward")
+            .card_reward_is_active());
         assert_eq!(reward_choice_ids(&closed), original);
         assert_eq!(closed.card_rng_counter, opened_card_rng_counter);
 
         let reopened =
             apply_run_action(&closed, RunAction::OpenCardReward).expect("card reward reopens");
-        assert!(reopened.reward.as_ref().expect("reward").card_reward_active);
+        assert!(reopened
+            .reward
+            .as_ref()
+            .expect("reward")
+            .card_reward_is_active());
         assert_eq!(reward_choice_ids(&reopened), original);
         assert_eq!(reopened.card_rng_counter, opened_card_rng_counter);
     }

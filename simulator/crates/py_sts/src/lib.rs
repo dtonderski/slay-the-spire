@@ -3,9 +3,10 @@ use pyo3::prelude::*;
 use sts_core::combat::ExhaustSelectPurpose;
 use sts_core::{
     apply_combat_action_with_events, apply_run_decision_action, legal_combat_actions,
-    legal_run_decision_actions, CardId, CombatAction, CombatPhase, CombatState, EventAction,
-    MapAction, MonsterId, MonsterIntent, RestAction, RunAction, RunDecisionAction, RunPhase,
-    RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    legal_run_decision_actions, restore_combat_snapshot_json, restore_run_snapshot_json, CardId,
+    CombatAction, CombatPhase, CombatState, EventAction, MapAction, MonsterId, MonsterIntent,
+    RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot,
+    SNAPSHOT_SCHEMA_VERSION,
 };
 
 const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
@@ -222,19 +223,8 @@ impl PyOmniCombatEnv {
 
     #[staticmethod]
     pub fn from_snapshot_json(json: &str) -> PyResult<Self> {
-        let snapshot: Snapshot<CombatState> = serde_json::from_str(json).map_err(|error| {
-            PyValueError::new_err(format!("invalid combat snapshot JSON: {error}"))
-        })?;
-        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION
-            && snapshot.schema_version != sts_core::LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION
-        {
-            return Err(PyValueError::new_err(format!(
-                "unsupported snapshot schema version: expected {}, got {}",
-                SNAPSHOT_SCHEMA_VERSION, snapshot.schema_version
-            )));
-        }
-        snapshot.state.validate().map_err(|error| {
-            PyValueError::new_err(format!("invalid combat snapshot state: {error}"))
+        let snapshot = restore_combat_snapshot_json(json).map_err(|error| {
+            PyValueError::new_err(format!("invalid combat snapshot JSON or state: {error}"))
         })?;
         Ok(Self {
             state: snapshot.state,
@@ -369,19 +359,8 @@ impl PyOmniRunEnv {
 
     #[staticmethod]
     pub fn from_snapshot_json(json: &str) -> PyResult<Self> {
-        let snapshot: Snapshot<RunState> = serde_json::from_str(json).map_err(|error| {
-            PyValueError::new_err(format!("invalid run snapshot JSON: {error}"))
-        })?;
-        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION
-            && snapshot.schema_version != sts_core::LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION
-        {
-            return Err(PyValueError::new_err(format!(
-                "unsupported snapshot schema version: expected {}, got {}",
-                SNAPSHOT_SCHEMA_VERSION, snapshot.schema_version
-            )));
-        }
-        snapshot.state.validate().map_err(|error| {
-            PyValueError::new_err(format!("invalid run snapshot state: {error}"))
+        let snapshot = restore_run_snapshot_json(json).map_err(|error| {
+            PyValueError::new_err(format!("invalid run snapshot JSON or state: {error}"))
         })?;
         Ok(Self {
             state: snapshot.state,
@@ -1483,9 +1462,7 @@ mod tests {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: false,
-            card_reward_pending: false,
-            pending_card_reward_count: 0,
+            card_reward_flow: sts_core::CardRewardFlow::None,
         });
         env.state.potions.clear();
 

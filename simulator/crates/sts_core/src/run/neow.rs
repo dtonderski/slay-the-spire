@@ -236,9 +236,7 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: false,
-            card_reward_pending: false,
-            pending_card_reward_count: 0,
+            card_reward_flow: crate::run::CardRewardFlow::None,
         });
     }
     run.gain_relic_key(relic);

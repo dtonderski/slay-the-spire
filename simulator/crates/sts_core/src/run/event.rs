@@ -676,9 +676,7 @@ fn open_cursed_tome_book_reward(run: &mut RunState, key: RelicKey) {
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
-        card_reward_active: false,
-        card_reward_pending: false,
-        pending_card_reward_count: 0,
+        card_reward_flow: crate::run::CardRewardFlow::None,
     });
 }
 
@@ -2454,9 +2452,7 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) {
         pending_relic_key_offer: None,
         queued_relic_key_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
-        card_reward_active: true,
-        card_reward_pending: false,
-        pending_card_reward_count: 1,
+        card_reward_flow: crate::run::CardRewardFlow::active(1),
     });
 }
 
@@ -3254,9 +3250,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 pending_relic_key_offer: None,
                 queued_relic_key_offers: Vec::new(),
                 boss_relic_choices: Vec::new(),
-                card_reward_active: false,
-                card_reward_pending: false,
-                pending_card_reward_count: 0,
+                card_reward_flow: crate::run::CardRewardFlow::None,
             });
         }
         Event::TheWomanInBlue if screen.stage == 0 && choice_index == 3 => {
@@ -3699,9 +3693,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 pending_relic_key_offer: None,
                 queued_relic_key_offers: Vec::new(),
                 boss_relic_choices: Vec::new(),
-                card_reward_active: false,
-                card_reward_pending: true,
-                pending_card_reward_count: reward_count,
+                card_reward_flow: crate::run::CardRewardFlow::pending(reward_count),
             });
         }
         Event::SensoryStone if screen.stage == 2 && choice_index == 0 => {
@@ -4475,9 +4467,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                         pending_relic_key_offer: None,
                         queued_relic_key_offers: Vec::new(),
                         boss_relic_choices: Vec::new(),
-                        card_reward_active: false,
-                        card_reward_pending: false,
-                        pending_card_reward_count: 0,
+                        card_reward_flow: crate::run::CardRewardFlow::None,
                     });
                 }
                 2 => {
@@ -4545,9 +4535,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 pending_relic_key_offer: None,
                 queued_relic_key_offers: Vec::new(),
                 boss_relic_choices: Vec::new(),
-                card_reward_active: false,
-                card_reward_pending: false,
-                pending_card_reward_count: 0,
+                card_reward_flow: crate::run::CardRewardFlow::None,
             });
         }
         Event::TombOfLordRedMask if screen.stage == 0 && choice_index == 0 => {
@@ -6945,8 +6933,8 @@ mod tests {
         assert_eq!(after_memory.player_hp, 45);
         assert_eq!(after_memory.phase, RunPhase::Reward);
         let reward = after_memory.reward.as_ref().expect("reward");
-        assert!(!reward.card_reward_active);
-        assert_eq!(reward.pending_card_reward_count(), 2);
+        assert!(!reward.card_reward_is_active());
+        assert_eq!(reward.remaining_card_reward_count(), 2);
         assert_eq!(reward.queued_card_rewards.len(), 2);
         assert!(reward.choices.is_empty());
         assert!(reward
@@ -6962,7 +6950,11 @@ mod tests {
         let opened =
             crate::run::reward::apply_run_action(&after_memory, crate::RunAction::OpenCardReward)
                 .expect("first colorless reward opens");
-        assert!(opened.reward.as_ref().expect("reward").card_reward_active);
+        assert!(opened
+            .reward
+            .as_ref()
+            .expect("reward")
+            .card_reward_is_active());
         assert_eq!(opened.reward.as_ref().expect("reward").choices.len(), 3);
         assert_eq!(
             opened

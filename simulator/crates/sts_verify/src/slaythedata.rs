@@ -1797,7 +1797,7 @@ fn slaythedata_card_reward_action(
     let Some(reward) = run.reward.as_ref() else {
         return Err("card reward cannot be checked because reward screen is missing".to_owned());
     };
-    if !reward.card_reward_active {
+    if !reward.card_reward_is_active() {
         return Err(
             "card reward cannot be checked because the card reward screen is not open".to_owned(),
         );

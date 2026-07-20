@@ -3528,7 +3528,7 @@ fn verify_seed_start_transitions(
                             if next
                                 .reward
                                 .as_ref()
-                                .is_some_and(|reward| reward.card_reward_active) =>
+                                .is_some_and(RewardScreen::card_reward_is_active) =>
                         {
                             (
                                 seed_start_reward_observed_subset(&post.message),
@@ -3563,7 +3563,11 @@ fn verify_seed_start_transitions(
                 *sim = next;
                 if sim.card_grid.is_some() {
                     phase = SeedStartPhase::Grid;
-                } else if sim.reward.as_ref().is_some_and(|r| r.card_reward_active) {
+                } else if sim
+                    .reward
+                    .as_ref()
+                    .is_some_and(RewardScreen::card_reward_is_active)
+                {
                     phase = SeedStartPhase::Reward;
                 } else if sim.phase == RunPhase::Idle {
                     phase = SeedStartPhase::Proceed;
@@ -9451,7 +9455,7 @@ fn seed_start_reward_sequence_complete(run: &RunState) -> bool {
     let Some(reward) = run.reward.as_ref() else {
         return true;
     };
-    if reward.card_reward_active {
+    if reward.card_reward_is_active() {
         return reward.choices.is_empty();
     }
     reward.gold_offer == 0
@@ -9462,7 +9466,7 @@ fn seed_start_reward_sequence_complete(run: &RunState) -> bool {
         && reward.relic_key_offer.is_none()
         && reward.pending_relic_offer.is_none()
         && reward.pending_relic_key_offer.is_none()
-        && !reward.card_reward_pending
+        && !reward.card_reward_is_pending()
         && reward.choices.is_empty()
 }
 
@@ -9517,12 +9521,12 @@ fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
     } else if reward.potion_offer.is_some() {
         choices.push("potion".to_owned());
     }
-    if !reward.choices.is_empty() && !reward.card_reward_active {
+    if !reward.choices.is_empty() && !reward.card_reward_is_active() {
         choices.push("card".to_owned());
-    } else if reward.card_reward_pending && !reward.card_reward_active {
+    } else if reward.card_reward_is_pending() {
         choices.extend(std::iter::repeat_n(
             "card".to_owned(),
-            reward.pending_card_reward_count() as usize,
+            reward.remaining_card_reward_count() as usize,
         ));
     }
     choices
@@ -9571,7 +9575,7 @@ fn seed_start_apply_reward_choose(
     if sim
         .reward
         .as_ref()
-        .is_some_and(|reward| reward.card_reward_active)
+        .is_some_and(RewardScreen::card_reward_is_active)
     {
         let live_card_choices = choice_list_from_value(pre.pointer("/game_state/choice_list"));
         if live_card_choices
@@ -9666,7 +9670,7 @@ fn seed_start_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> V
     if run
         .reward
         .as_ref()
-        .is_some_and(|reward| reward.card_reward_active)
+        .is_some_and(RewardScreen::card_reward_is_active)
     {
         let reward = run.reward.as_ref().expect("card reward active");
         let mut card_choices = reward
@@ -13287,9 +13291,9 @@ mod tests {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: false,
-            card_reward_pending: true,
-            pending_card_reward_count: sts_core::relic::ORRERY_CARD_REWARDS,
+            card_reward_flow: sts_core::CardRewardFlow::pending(
+                sts_core::relic::ORRERY_CARD_REWARDS,
+            ),
         };
 
         assert_eq!(
@@ -13472,9 +13476,7 @@ mod tests {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: false,
-            card_reward_pending: false,
-            pending_card_reward_count: 0,
+            card_reward_flow: sts_core::CardRewardFlow::None,
         });
         let pre = json!({
             "game_state": {
@@ -13515,9 +13517,7 @@ mod tests {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: false,
-            card_reward_pending: false,
-            pending_card_reward_count: 0,
+            card_reward_flow: sts_core::CardRewardFlow::None,
         });
         let pre = json!({
             "game_state": {
@@ -13562,9 +13562,7 @@ mod tests {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: true,
-            card_reward_pending: false,
-            pending_card_reward_count: 0,
+            card_reward_flow: sts_core::CardRewardFlow::active(1),
         });
         run.current_floor = 8;
         let subset = seed_start_reward_simulated_subset(&run, &[]);
@@ -13600,9 +13598,7 @@ mod tests {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: false,
-            card_reward_pending: true,
-            pending_card_reward_count: 1,
+            card_reward_flow: sts_core::CardRewardFlow::pending(1),
         });
         let observed_message = json!({
             "game_state": {
@@ -13653,9 +13649,7 @@ mod tests {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: false,
-            card_reward_pending: false,
-            pending_card_reward_count: 0,
+            card_reward_flow: sts_core::CardRewardFlow::None,
         });
 
         let before = run.clone();
@@ -15335,9 +15329,7 @@ mod tests {
             pending_relic_key_offer: None,
             queued_relic_key_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
-            card_reward_active: false,
-            card_reward_pending: false,
-            pending_card_reward_count: 0,
+            card_reward_flow: sts_core::CardRewardFlow::None,
         });
 
         assert!(seed_start_reward_sequence_complete(&run));

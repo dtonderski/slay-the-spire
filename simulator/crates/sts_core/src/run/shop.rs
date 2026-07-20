@@ -915,7 +915,7 @@ mod tests {
             .expect("Orrery purchase succeeds");
         assert_eq!(next.phase, RunPhase::Reward);
         assert_eq!(
-            next.reward.as_ref().unwrap().pending_card_reward_count(),
+            next.reward.as_ref().unwrap().remaining_card_reward_count(),
             crate::relic::ORRERY_CARD_REWARDS
         );
         assert!(next.shop_merchant_open);
@@ -930,7 +930,7 @@ mod tests {
             if remaining > 0 {
                 assert_eq!(next.phase, RunPhase::Reward);
                 assert_eq!(
-                    next.reward.as_ref().unwrap().pending_card_reward_count(),
+                    next.reward.as_ref().unwrap().remaining_card_reward_count(),
                     remaining
                 );
             }

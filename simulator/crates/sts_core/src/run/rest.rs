@@ -163,15 +163,13 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     pending_relic_key_offer: None,
                     queued_relic_key_offers: Vec::new(),
                     boss_relic_choices: Vec::new(),
-                    card_reward_active: false,
-                    card_reward_pending: true,
-                    pending_card_reward_count: 1,
+                    card_reward_flow: crate::run::CardRewardFlow::pending(1),
                 });
                 roll_pending_card_reward_choices(&mut next);
                 next.reward
                     .as_mut()
                     .expect("rest card reward")
-                    .card_reward_active = true;
+                    .open_card_reward()?;
             }
         }
         RestAction::OpenSmith => {
@@ -207,9 +205,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                 pending_relic_key_offer: None,
                 queued_relic_key_offers: Vec::new(),
                 boss_relic_choices: Vec::new(),
-                card_reward_active: false,
-                card_reward_pending: false,
-                pending_card_reward_count: 0,
+                card_reward_flow: crate::run::CardRewardFlow::None,
             });
         }
         RestAction::Smith { card_id } => {
@@ -265,7 +261,7 @@ mod tests {
         assert!(reward
             .reward
             .as_ref()
-            .is_some_and(|reward| reward.card_reward_active));
+            .is_some_and(RewardScreen::card_reward_is_active));
 
         let snapshot = Snapshot {
             schema_version: SNAPSHOT_SCHEMA_VERSION,

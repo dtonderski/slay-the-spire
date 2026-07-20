@@ -19,8 +19,8 @@ fn combat_win_transitions_to_reward_phase() {
     assert_eq!(run.phase, RunPhase::Reward);
     let reward = run.reward.as_ref().expect("reward screen");
     assert_eq!(reward.choices.len(), 3);
-    assert!(!reward.card_reward_active);
-    assert!(reward.card_reward_pending);
+    assert!(!reward.card_reward_is_active());
+    assert!(reward.card_reward_is_pending());
     assert_eq!(reward.gold_offer, 11);
     assert_eq!(reward.potion_offer, None);
     assert_eq!(reward.relic_offer, None);
