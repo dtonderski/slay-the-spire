@@ -297,10 +297,11 @@ fn compare_spawn_sets(
                 actual.block, expected_spawn.block
             ));
         }
-        if actual.intent != expected_spawn.intent {
+        let expected_intent = expected_spawn.intent.trace_label();
+        if actual.intent != expected_intent {
             return Some(format!(
                 "monster {index} intent mismatch: captured {}, expected {}",
-                actual.intent, expected_spawn.intent
+                actual.intent, expected_intent
             ));
         }
         if let Some(message) = compare_powers(&actual.powers, &expected_spawn.powers) {

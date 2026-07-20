@@ -471,9 +471,35 @@ pub struct TargetEncounterSpawn {
     pub current_hp: i32,
     pub max_hp: i32,
     pub block: i32,
-    pub intent: &'static str,
+    pub intent: TargetSpawnIntent,
     pub powers: Vec<TargetSpawnPower>,
     pub rolled_attack_damage: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetSpawnIntent {
+    PendingAiRoll,
+    Attack { damage: i32 },
+    AttackAndBlock { damage: i32, block: i32 },
+    StrengthAndBlock { strength: i32, block: i32 },
+    ApplyPlayerFrailAndWeak { frail: i32, weak: i32 },
+    AttackAddSlimedToDiscard { damage: i32, count: i32 },
+    AddDazedToDraw { count: i32 },
+}
+
+impl TargetSpawnIntent {
+    #[must_use]
+    pub const fn trace_label(self) -> &'static str {
+        match self {
+            Self::PendingAiRoll => "DEBUG",
+            Self::Attack { .. } => "Attack",
+            Self::AttackAndBlock { .. } => "AttackAndBlock",
+            Self::StrengthAndBlock { .. } => "StrengthAndBlock",
+            Self::ApplyPlayerFrailAndWeak { .. } => "ApplyPlayerFrailAndWeak",
+            Self::AttackAddSlimedToDiscard { .. } => "AttackAddSlimedToDiscard",
+            Self::AddDazedToDraw { .. } => "AddDazedToDraw",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2062,15 +2088,17 @@ pub fn target_beyond_encounter_spawn_for_key_with_misc_rng(
                     amount: ORB_WALKER_STRENGTH_UP,
                 }],
             );
-            spawn.intent = "Attack";
-            spawn.rolled_attack_damage = Some(orb_walker_laser_damage(ascension));
+            let damage = orb_walker_laser_damage(ascension);
+            spawn.intent = TargetSpawnIntent::Attack { damage };
+            spawn.rolled_attack_damage = Some(damage);
             Some(vec![spawn])
         }
         "Transient" => {
             let mut spawn =
                 target_combat_entry_spawn("Transient", TRANSIENT_HP, neow_lament, vec![]);
-            spawn.intent = "Attack";
-            spawn.rolled_attack_damage = Some(transient_attack_damage(0, ascension));
+            let damage = transient_attack_damage(0, ascension);
+            spawn.intent = TargetSpawnIntent::Attack { damage };
+            spawn.rolled_attack_damage = Some(damage);
             Some(vec![spawn])
         }
         "Sphere and 2 Shapes" => Some(target_sphere_and_two_shapes_encounter_spawn(
@@ -2162,13 +2190,21 @@ fn target_jaw_worm_horde_spawn(
         spawn.block = JAW_WORM_HORDE_STARTING_BLOCK;
         let roll = ai_rng.random_int(99);
         if roll < 25 {
-            spawn.intent = "Attack";
+            spawn.intent = TargetSpawnIntent::Attack {
+                damage: JAW_WORM_CHOMP_DAMAGE,
+            };
             spawn.rolled_attack_damage = Some(JAW_WORM_CHOMP_DAMAGE);
         } else if roll < 55 {
-            spawn.intent = "AttackAndBlock";
+            spawn.intent = TargetSpawnIntent::AttackAndBlock {
+                damage: JAW_WORM_THRASH_DAMAGE,
+                block: JAW_WORM_THRASH_BLOCK,
+            };
             spawn.rolled_attack_damage = Some(JAW_WORM_THRASH_DAMAGE);
         } else {
-            spawn.intent = "StrengthAndBlock";
+            spawn.intent = TargetSpawnIntent::StrengthAndBlock {
+                strength: JAW_WORM_BELLOW_STRENGTH,
+                block: JAW_WORM_BELLOW_BLOCK,
+            };
         }
         spawns.push(spawn);
     }
@@ -2343,7 +2379,9 @@ fn target_ancient_shape_spawn(
                     amount: spiker_thorns,
                 }],
             );
-            spawn.intent = "Attack";
+            spawn.intent = TargetSpawnIntent::Attack {
+                damage: spiker_damage,
+            };
             spawn.rolled_attack_damage = Some(spiker_damage);
             spawn
         }
@@ -2354,7 +2392,9 @@ fn target_ancient_shape_spawn(
                 neow_lament,
                 Vec::new(),
             );
-            spawn.intent = "AddDazedToDraw";
+            spawn.intent = TargetSpawnIntent::AddDazedToDraw {
+                count: REPULSOR_DAZES,
+            };
             spawn.rolled_attack_damage = Some(repulsor_damage);
             spawn
         }
@@ -2369,7 +2409,9 @@ fn target_ancient_shape_spawn(
                     amount: EXPLODER_EXPLOSIVE,
                 }],
             );
-            spawn.intent = "Attack";
+            spawn.intent = TargetSpawnIntent::Attack {
+                damage: exploder_damage,
+            };
             spawn.rolled_attack_damage = Some(exploder_damage);
             spawn
         }
@@ -3303,18 +3345,19 @@ fn target_exordium_thugs_spawn_states(
             1 => {
                 let mut spawn =
                     target_combat_entry_spawn("Spike Slime (M)", spike_hp, neow_lament, Vec::new());
-                spawn.intent = "ApplyPlayerFrailAndWeak";
+                spawn.intent = TargetSpawnIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 };
                 spawn
             }
             _ => {
                 let mut spawn =
                     target_combat_entry_spawn("Acid Slime (M)", acid_hp, neow_lament, Vec::new());
-                spawn.intent = "AttackAddSlimedToDiscard";
-                spawn.rolled_attack_damage = Some(if ascension >= 2 {
+                let damage = if ascension >= 2 {
                     8
                 } else {
                     ACID_SLIME_ATTACK_DAMAGE
-                });
+                };
+                spawn.intent = TargetSpawnIntent::AttackAddSlimedToDiscard { damage, count: 1 };
+                spawn.rolled_attack_damage = Some(damage);
                 spawn
             }
         },
@@ -3328,12 +3371,13 @@ fn target_exordium_thugs_spawn_states(
                 };
                 let mut spawn = target_combat_entry_spawn(name, slaver_hp, neow_lament, Vec::new());
                 if slaver_is_red {
-                    spawn.intent = "Attack";
-                    spawn.rolled_attack_damage = Some(if ascension >= 2 {
+                    let damage = if ascension >= 2 {
                         SLAVER_RED_A2_STAB_DAMAGE
                     } else {
                         SLAVER_RED_STAB_DAMAGE
-                    });
+                    };
+                    spawn.intent = TargetSpawnIntent::Attack { damage };
+                    spawn.rolled_attack_damage = Some(damage);
                 }
                 spawn
             }
@@ -3417,18 +3461,19 @@ fn target_exordium_wildlife_spawn_states(
             1 => {
                 let mut spawn =
                     target_combat_entry_spawn("Spike Slime (M)", spike_hp, neow_lament, Vec::new());
-                spawn.intent = "ApplyPlayerFrailAndWeak";
+                spawn.intent = TargetSpawnIntent::ApplyPlayerFrailAndWeak { frail: 1, weak: 0 };
                 spawn
             }
             _ => {
                 let mut spawn =
                     target_combat_entry_spawn("Acid Slime (M)", acid_hp, neow_lament, Vec::new());
-                spawn.intent = "AttackAddSlimedToDiscard";
-                spawn.rolled_attack_damage = Some(if ascension >= 2 {
+                let damage = if ascension >= 2 {
                     8
                 } else {
                     ACID_SLIME_ATTACK_DAMAGE
-                });
+                };
+                spawn.intent = TargetSpawnIntent::AttackAddSlimedToDiscard { damage, count: 1 };
+                spawn.rolled_attack_damage = Some(damage);
                 spawn
             }
         },
@@ -3539,8 +3584,9 @@ fn target_three_sentries_spawn_states(
                 }],
             );
             if index % 2 == 1 {
-                spawn.intent = "Attack";
-                spawn.rolled_attack_damage = Some(target_sentry_attack_damage(ascension));
+                let damage = target_sentry_attack_damage(ascension);
+                spawn.intent = TargetSpawnIntent::Attack { damage };
+                spawn.rolled_attack_damage = Some(damage);
             }
             spawn
         })
@@ -3573,7 +3619,7 @@ fn target_combat_entry_spawn(
         current_hp: if neow_lament { 1 } else { max_hp },
         max_hp,
         block: 0,
-        intent: "DEBUG",
+        intent: TargetSpawnIntent::PendingAiRoll,
         powers,
         rolled_attack_damage: None,
     }
@@ -11500,7 +11546,12 @@ mod tests {
             (spawns[0].current_hp, spawns[0].max_hp),
             (TRANSIENT_HP, TRANSIENT_HP)
         );
-        assert_eq!(spawns[0].intent, "Attack");
+        assert_eq!(
+            spawns[0].intent,
+            TargetSpawnIntent::Attack {
+                damage: TRANSIENT_A4_ATTACK_DAMAGE
+            }
+        );
         assert_eq!(
             spawns[0].rolled_attack_damage,
             Some(TRANSIENT_A4_ATTACK_DAMAGE)

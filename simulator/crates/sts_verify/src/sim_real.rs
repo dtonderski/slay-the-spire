@@ -7642,7 +7642,7 @@ fn seed_start_monster_from_spawn(
         "current_hp": spawn.current_hp,
         "max_hp": spawn.max_hp,
         "block": spawn.block,
-        "intent": spawn.intent,
+        "intent": spawn.intent.trace_label(),
         "strength": spawn_power_amount(&spawn.powers, "Strength"),
         "ritual": spawn_power_amount(&spawn.powers, "Ritual"),
         "vulnerable": spawn_power_amount(&spawn.powers, "Vulnerable"),

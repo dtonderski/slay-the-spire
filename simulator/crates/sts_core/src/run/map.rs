@@ -24,13 +24,14 @@ use crate::{
         target_small_acid_slime_entry_intent_from_bool, target_snake_plant_next_intent_from_roll,
         target_snecko_next_intent_from_roll, target_spike_slime_entry_intent_from_roll,
         target_spire_growth_next_intent_from_roll, target_writhing_mass_next_intent_from_roll,
-        TargetEncounterSpawn, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE,
-        BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID, DAGGER_ID,
-        DARKLING_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID, GREEN_LOUSE_BITE_DAMAGE,
-        GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, HEALER_ID, JAW_WORM_ID,
-        LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID, REPTOMANCER_ID,
-        REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SNAKE_PLANT_ID,
-        SNECKO_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID, WRITHING_MASS_ID,
+        TargetEncounterSpawn, TargetSpawnIntent, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
+        ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID,
+        CHAMP_ID, CHOSEN_ID, DAGGER_ID, DARKLING_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID,
+        GREEN_LOUSE_BITE_DAMAGE, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, HEALER_ID,
+        JAW_WORM_ID, LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_BITE_DAMAGE, RED_LOUSE_ID,
+        REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID,
+        SNAKE_PLANT_ID, SNECKO_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID,
+        WRITHING_MASS_ID,
     },
     ids::CardId,
     map::{
@@ -791,49 +792,27 @@ fn target_spawn_monster_state(
     monster.alive = spawn.current_hp > 0;
     monster.powers = spawn_monster_powers(spawn);
     monster.rolled_attack_damage = spawn.rolled_attack_damage;
-    if spawn.intent == "AttackAddSlimedToDiscard" {
-        if let Some(damage) = spawn.rolled_attack_damage {
-            monster.intent = crate::MonsterIntent::AttackAddSlimedToDiscard {
-                damage,
-                count: if spawn.name.ends_with("(L)") { 2 } else { 1 },
-            };
+    monster.intent = match spawn.intent {
+        TargetSpawnIntent::PendingAiRoll => monster.intent,
+        TargetSpawnIntent::Attack { damage } => crate::MonsterIntent::Attack { damage },
+        TargetSpawnIntent::AttackAndBlock { damage, block } => {
+            crate::MonsterIntent::AttackAndBlock { damage, block }
         }
-    } else if spawn.intent == "ApplyPlayerWeak" {
-        monster.intent = crate::MonsterIntent::ApplyPlayerWeak { amount: 1 };
-    } else if spawn.intent == "ApplyPlayerFrailAndWeak" {
-        monster.intent = crate::MonsterIntent::ApplyPlayerFrailAndWeak {
-            frail: observed_spike_slime_frail_amount(spawn, ascension),
-            weak: 0,
-        };
-    } else if spawn.intent == "AddDazedToDiscard" {
-        monster.intent = crate::MonsterIntent::AddDazedToDiscard { count: 2 };
-    } else if spawn.intent == "AddDazedToDraw" {
-        monster.intent = crate::MonsterIntent::AddDazedToDraw { count: 2 };
-    } else if spawn.intent == "AddBurnToDiscardAndDraw" {
-        monster.intent = crate::MonsterIntent::AddBurnToDiscardAndDraw {
-            count: 1,
-            damage: spawn.rolled_attack_damage.unwrap_or(10),
-        };
-        monster.rolled_attack_damage = None;
-    } else if spawn.intent == "StrengthAndBlock" {
-        let (strength, block) = if spawn.name == "Spiker" {
-            (0, 0)
-        } else {
-            (3, 6)
-        };
-        monster.intent = crate::MonsterIntent::StrengthAndBlock { strength, block };
-    } else if spawn.intent == "AttackAndBlock" {
-        monster.intent = crate::MonsterIntent::AttackAndBlock {
-            damage: spawn.rolled_attack_damage.unwrap_or(7),
-            block: 5,
-        };
-    } else if spawn.intent == "Attack" {
-        if let Some(damage) = spawn.rolled_attack_damage {
-            monster.intent = crate::MonsterIntent::Attack { damage };
+        TargetSpawnIntent::StrengthAndBlock { strength, block } => {
+            crate::MonsterIntent::StrengthAndBlock { strength, block }
         }
-        if spawn.name == "Sentry" {
-            monster.moves_executed = 1;
+        TargetSpawnIntent::ApplyPlayerFrailAndWeak { frail, weak } => {
+            crate::MonsterIntent::ApplyPlayerFrailAndWeak { frail, weak }
         }
+        TargetSpawnIntent::AttackAddSlimedToDiscard { damage, count } => {
+            crate::MonsterIntent::AttackAddSlimedToDiscard { damage, count }
+        }
+        TargetSpawnIntent::AddDazedToDraw { count } => {
+            crate::MonsterIntent::AddDazedToDraw { count }
+        }
+    };
+    if matches!(spawn.intent, TargetSpawnIntent::Attack { .. }) && spawn.name == "Sentry" {
+        monster.moves_executed = 1;
     }
     if spawn.name == "Jaw Worm"
         && spawn.block == 6
@@ -859,20 +838,6 @@ fn target_spawn_slime_size(name: &str) -> Option<SlimeSize> {
             Some(SlimeSize::Large)
         }
         _ => None,
-    }
-}
-
-fn observed_spike_slime_frail_amount(spawn: &TargetEncounterSpawn, ascension: u8) -> i32 {
-    let large = spawn.name.ends_with("(L)")
-        || spawn.max_hp > crate::content::monsters::SPIKE_SLIME_M_A7_HP_RANGE.max;
-    if large {
-        if ascension >= 17 {
-            3
-        } else {
-            2
-        }
-    } else {
-        1
     }
 }
 
@@ -1092,7 +1057,7 @@ mod tests {
             current_hp: 10,
             max_hp: 10,
             block: 0,
-            intent: "DEBUG",
+            intent: TargetSpawnIntent::PendingAiRoll,
             powers: Vec::new(),
             rolled_attack_damage: None,
         };
@@ -1121,6 +1086,33 @@ mod tests {
                 "boss combat requires a supported act"
             ))
         );
+    }
+
+    #[test]
+    fn typed_spawn_intent_carries_complete_payload_without_damage_fallback() {
+        let spawn = TargetEncounterSpawn {
+            name: "Jaw Worm",
+            current_hp: 40,
+            max_hp: 40,
+            block: 0,
+            intent: TargetSpawnIntent::AttackAndBlock {
+                damage: 123,
+                block: 17,
+            },
+            powers: Vec::new(),
+            rolled_attack_damage: None,
+        };
+
+        let monster =
+            target_spawn_monster_state(&spawn, 0, 0).expect("typed spawn intent converts");
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::AttackAndBlock {
+                damage: 123,
+                block: 17,
+            }
+        );
+        assert_eq!(monster.rolled_attack_damage, None);
     }
 
     #[test]
