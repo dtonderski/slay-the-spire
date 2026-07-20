@@ -827,7 +827,7 @@ fn should_confirm_selected_single_exhaust(state: &RunState) -> bool {
     let Some(combat) = state.combat.as_ref() else {
         return false;
     };
-    let Some(select) = combat.exhaust_select.as_ref() else {
+    let Some(select) = combat.exhaust_select() else {
         return false;
     };
     !select.selected_hand_indices.is_empty()
@@ -844,7 +844,7 @@ fn preferred_bad_exhaust_action(
     actions: &[ExactRunActionKind],
 ) -> Option<ExactRunActionKind> {
     let combat = state.combat.as_ref()?;
-    let before = combat.exhaust_select.as_ref()?;
+    let before = combat.exhaust_select()?;
     for action in actions {
         if !matches!(
             action,
@@ -858,7 +858,7 @@ fn preferred_bad_exhaust_action(
         let Some(next_combat) = next.combat.as_ref() else {
             continue;
         };
-        let Some(after) = next_combat.exhaust_select.as_ref() else {
+        let Some(after) = next_combat.exhaust_select() else {
             continue;
         };
         if after.selected_hand_indices.len() <= before.selected_hand_indices.len() {

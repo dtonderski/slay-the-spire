@@ -1,7 +1,7 @@
 use crate::{
     action::CombatAction,
     card::{CardDefinition, CardType, TargetRequirement},
-    combat::{transition::top_draw_card_definition, CombatPhase, CombatState},
+    combat::{transition::top_draw_card_definition, CombatDecisionState, CombatPhase, CombatState},
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
         DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, NORMALITY_ID,
@@ -19,14 +19,7 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
         return Vec::new();
     }
 
-    if state.hand_select.is_some()
-        || state.draw_select.is_some()
-        || state.discard_select.is_some()
-        || state.exhaust_select.is_some()
-        || state.potion_card_reward.is_some()
-        || state.toolbox_card_reward.is_some()
-        || state.discovery_card_reward.is_some()
-    {
+    if state.decision.is_some() {
         return Vec::new();
     }
 
@@ -133,26 +126,17 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
         ));
     }
 
-    if state.hand_select.is_some() {
-        return Err(SimError::IllegalAction("hand select is open"));
-    }
-    if state.draw_select.is_some() {
-        return Err(SimError::IllegalAction("draw select is open"));
-    }
-    if state.discard_select.is_some() {
-        return Err(SimError::IllegalAction("discard select is open"));
-    }
-    if state.exhaust_select.is_some() {
-        return Err(SimError::IllegalAction("exhaust select is open"));
-    }
-    if state.potion_card_reward.is_some() {
-        return Err(SimError::IllegalAction("combat card reward is open"));
-    }
-    if state.toolbox_card_reward.is_some() {
-        return Err(SimError::IllegalAction("combat card reward is open"));
-    }
-    if state.discovery_card_reward.is_some() {
-        return Err(SimError::IllegalAction("combat card reward is open"));
+    if let Some(decision) = &state.decision {
+        let reason = match decision {
+            CombatDecisionState::HandSelect { .. } => "hand select is open",
+            CombatDecisionState::DrawSelect { .. } => "draw select is open",
+            CombatDecisionState::DiscardSelect { .. } => "discard select is open",
+            CombatDecisionState::ExhaustSelect { .. } => "exhaust select is open",
+            CombatDecisionState::PotionCardReward { .. }
+            | CombatDecisionState::ToolboxCardReward { .. }
+            | CombatDecisionState::DiscoveryCardReward { .. } => "combat card reward is open",
+        };
+        return Err(SimError::IllegalAction(reason));
     }
 
     match action {

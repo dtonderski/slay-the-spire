@@ -283,13 +283,13 @@ fn live_selection_confirm<'a>(
     state: &'a LiveState,
 ) -> Option<(&'a LegalAction, &'static str)> {
     let combat = run.combat.as_ref()?;
-    let planner_action = if combat.hand_select.is_some() {
+    let planner_action = if combat.hand_select().is_some() {
         "confirm_hand_select"
-    } else if combat.draw_select.is_some() {
+    } else if combat.draw_select().is_some() {
         "confirm_draw_select"
-    } else if combat.discard_select.is_some() {
+    } else if combat.discard_select().is_some() {
         "confirm_discard_select"
-    } else if combat.exhaust_select.is_some() {
+    } else if combat.exhaust_select().is_some() {
         "confirm_exhaust_select"
     } else {
         return None;
@@ -1660,13 +1660,7 @@ fn planner_action_display_label(run: &RunState, action: &PlannerAction) -> Strin
             let card = run
                 .combat
                 .as_ref()
-                .and_then(|combat| {
-                    combat
-                        .potion_card_reward
-                        .as_ref()
-                        .or(combat.toolbox_card_reward.as_ref())
-                        .or(combat.discovery_card_reward.as_ref())
-                })
+                .and_then(CombatState::combat_card_reward_choices)
                 .and_then(|choices| choices.get(*index))
                 .map(|card| card_display_name(card.content_id))
                 .unwrap_or_else(|| format!("card reward {index}"));
@@ -1725,7 +1719,7 @@ mod tests {
             WARCRY_ID,
         },
         potion::Potion,
-        CardInstance,
+        CardInstance, CombatDecisionState,
     };
     use sts_verify::{
         import_communication_mod_trace, serialize_communication_mod_trace,
@@ -1909,11 +1903,14 @@ mod tests {
     #[test]
     fn toolbox_choices_are_planned_as_combat_card_rewards() {
         let mut run = RunState::combat_fixture();
-        run.combat.as_mut().expect("combat").toolbox_card_reward = Some(vec![
-            CardInstance::new(CardId::new(101), CHRYSALIS_ID),
-            CardInstance::new(CardId::new(102), SADISTIC_NATURE_ID),
-            CardInstance::new(CardId::new(103), DARK_SHACKLES_ID),
-        ]);
+        run.combat.as_mut().expect("combat").decision =
+            Some(CombatDecisionState::ToolboxCardReward {
+                choices: vec![
+                    CardInstance::new(CardId::new(101), CHRYSALIS_ID),
+                    CardInstance::new(CardId::new(102), SADISTIC_NATURE_ID),
+                    CardInstance::new(CardId::new(103), DARK_SHACKLES_ID),
+                ],
+            });
         let state = LiveState {
             sequence: 7692,
             phase: LivePhase::Combat,
@@ -2004,11 +2001,14 @@ mod tests {
         let source = CardInstance::new(CardId::new(90), WARCRY_ID);
         let target = CardInstance::new(CardId::new(91), STRIKE_R_ID);
         combat.piles.hand = vec![source, target];
-        combat.hand_select = Some(HandSelectState {
-            purpose: HandSelectPurpose::WarcryPutOnDraw,
-            source_card_id: source.id,
-            selected_hand_index: None,
-            selected_hand_indices: Vec::new(),
+        combat.decision = Some(CombatDecisionState::HandSelect {
+            state: HandSelectState {
+                purpose: HandSelectPurpose::WarcryPutOnDraw,
+                source_card_id: source.id,
+                selected_hand_index: None,
+                selected_hand_indices: Vec::new(),
+            },
+            pending_actions: Default::default(),
         });
 
         let state = LiveState {

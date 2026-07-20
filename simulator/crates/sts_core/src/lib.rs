@@ -24,8 +24,9 @@ pub use card::{
 pub use combat::{
     apply_burning_blood, apply_combat_action, apply_combat_action_with_events, draw_cards,
     end_player_turn, initialize_combat_piles_with_relics, legal_combat_actions, starter_only_deck,
-    validate_combat_action, CardPiles, CombatPhase, CombatState, CombatTransition, DamageInfo,
-    DamageSource, MonsterIntent, MonsterState, PlayerState, SlimeSize, BASE_PLAYER_ENERGY,
+    validate_combat_action, CardPiles, CombatDecisionState, CombatPhase, CombatState,
+    CombatTransition, DamageInfo, DamageSource, MonsterIntent, MonsterState, PlayerState,
+    SlimeSize, BASE_PLAYER_ENERGY,
 };
 pub use content::ascension::AscensionConfig;
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
@@ -94,7 +95,8 @@ pub use run::{
 };
 pub use snapshot::{
     restore_combat_snapshot_json, restore_run_snapshot_json, PlaceholderState, Snapshot,
-    SnapshotHash, SnapshotRestoreError, LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION,
-    LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION, LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,
-    PREVIOUS_SNAPSHOT_SCHEMA_VERSION, SNAPSHOT_SCHEMA_VERSION,
+    SnapshotHash, SnapshotRestoreError, LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION,
+    LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION, LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION,
+    LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION, PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+    SNAPSHOT_SCHEMA_VERSION,
 };

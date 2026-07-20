@@ -66,39 +66,12 @@ pub struct CombatState {
     pub ascension: u8,
     #[serde(flatten)]
     pub rng: CombatRngState,
-    /// In-combat zero-cost card reward from potions such as Power Potion.
-    #[serde(default)]
-    pub potion_card_reward: Option<Vec<CardInstance>>,
-    /// Pool used by the open potion reward, retained until pick/skip because
-    /// target DiscoveryAction burns additional cardRandomRng draws while the
-    /// screen settles.
+    /// The single active player decision overlay, if combat is waiting on one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub potion_card_reward_kind: Option<PotionCardRewardKind>,
-    /// In-combat normal-cost colorless reward from Toolbox.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub toolbox_card_reward: Option<Vec<CardInstance>>,
-    /// In-combat zero-cost card reward from Discovery.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discovery_card_reward: Option<Vec<CardInstance>>,
-    /// Source Discovery card waiting to move after the generated-card choice closes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discovery_source_card: Option<CardInstance>,
-    /// Awaiting player choice for Warcry, Armaments, Forethought, and similar hand-select effects.
-    #[serde(default)]
-    pub hand_select: Option<HandSelectState>,
-    /// Target actions queued behind an open hand-select screen. The action
-    /// manager does not resume these until the player closes the screen.
+    pub decision: Option<CombatDecisionState>,
+    /// Later decision overlays that become active after the current one closes.
     #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
-    pub pending_after_hand_select_actions: VecDeque<InternalAction>,
-    /// Awaiting player choice for draw-pile search effects such as Secret Technique.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub draw_select: Option<DrawSelectState>,
-    /// Awaiting player choice for discard-pile effects such as Liquid Memories or Headbutt.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub discard_select: Option<DiscardSelectState>,
-    /// Awaiting player choice for exhaust-related effects such as Elixir, Gambling Chip, or Exhume.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exhaust_select: Option<ExhaustSelectState>,
+    pub queued_decisions: VecDeque<CombatDecisionState>,
     /// One-shot flag from Duplication Potion: the next played card resolves twice.
     #[serde(default, skip_serializing_if = "is_false")]
     pub duplication_potion_pending: bool,
@@ -211,6 +184,37 @@ pub struct ExhaustSelectState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_card: Option<CardInstance>,
     pub selected_hand_indices: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CombatDecisionState {
+    PotionCardReward {
+        choices: Vec<CardInstance>,
+        reward_kind: PotionCardRewardKind,
+    },
+    ToolboxCardReward {
+        choices: Vec<CardInstance>,
+    },
+    DiscoveryCardReward {
+        choices: Vec<CardInstance>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_card: Option<CardInstance>,
+    },
+    HandSelect {
+        state: HandSelectState,
+        #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+        pending_actions: VecDeque<InternalAction>,
+    },
+    DrawSelect {
+        state: DrawSelectState,
+    },
+    DiscardSelect {
+        state: DiscardSelectState,
+    },
+    ExhaustSelect {
+        state: ExhaustSelectState,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -503,6 +507,159 @@ pub enum MonsterIntent {
 }
 
 impl CombatState {
+    #[must_use]
+    pub fn combat_card_reward_choices(&self) -> Option<&[CardInstance]> {
+        match self.decision.as_ref()? {
+            CombatDecisionState::PotionCardReward { choices, .. }
+            | CombatDecisionState::ToolboxCardReward { choices }
+            | CombatDecisionState::DiscoveryCardReward { choices, .. } => Some(choices),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn potion_card_reward_choices(&self) -> Option<&[CardInstance]> {
+        match self.decision.as_ref()? {
+            CombatDecisionState::PotionCardReward { choices, .. } => Some(choices),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn toolbox_card_reward_choices(&self) -> Option<&[CardInstance]> {
+        match self.decision.as_ref()? {
+            CombatDecisionState::ToolboxCardReward { choices } => Some(choices),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn discovery_card_reward_choices(&self) -> Option<&[CardInstance]> {
+        match self.decision.as_ref()? {
+            CombatDecisionState::DiscoveryCardReward { choices, .. } => Some(choices),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn hand_select(&self) -> Option<&HandSelectState> {
+        match self.decision.as_ref()? {
+            CombatDecisionState::HandSelect { state, .. } => Some(state),
+            _ => None,
+        }
+    }
+
+    pub fn hand_select_mut(&mut self) -> Option<&mut HandSelectState> {
+        match self.decision.as_mut()? {
+            CombatDecisionState::HandSelect { state, .. } => Some(state),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn draw_select(&self) -> Option<&DrawSelectState> {
+        match self.decision.as_ref()? {
+            CombatDecisionState::DrawSelect { state } => Some(state),
+            _ => None,
+        }
+    }
+
+    pub fn draw_select_mut(&mut self) -> Option<&mut DrawSelectState> {
+        match self.decision.as_mut()? {
+            CombatDecisionState::DrawSelect { state } => Some(state),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn discard_select(&self) -> Option<&DiscardSelectState> {
+        match self.decision.as_ref()? {
+            CombatDecisionState::DiscardSelect { state } => Some(state),
+            _ => None,
+        }
+    }
+
+    pub fn discard_select_mut(&mut self) -> Option<&mut DiscardSelectState> {
+        match self.decision.as_mut()? {
+            CombatDecisionState::DiscardSelect { state } => Some(state),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn exhaust_select(&self) -> Option<&ExhaustSelectState> {
+        match self.decision.as_ref()? {
+            CombatDecisionState::ExhaustSelect { state } => Some(state),
+            _ => None,
+        }
+    }
+
+    pub fn exhaust_select_mut(&mut self) -> Option<&mut ExhaustSelectState> {
+        match self.decision.as_mut()? {
+            CombatDecisionState::ExhaustSelect { state } => Some(state),
+            _ => None,
+        }
+    }
+
+    pub fn take_hand_select(&mut self) -> Option<(HandSelectState, VecDeque<InternalAction>)> {
+        match self.decision.take() {
+            Some(CombatDecisionState::HandSelect {
+                state,
+                pending_actions,
+            }) => Some((state, pending_actions)),
+            other => {
+                self.decision = other;
+                None
+            }
+        }
+    }
+
+    pub fn take_draw_select(&mut self) -> Option<DrawSelectState> {
+        match self.decision.take() {
+            Some(CombatDecisionState::DrawSelect { state }) => Some(state),
+            other => {
+                self.decision = other;
+                None
+            }
+        }
+    }
+
+    pub fn take_discard_select(&mut self) -> Option<DiscardSelectState> {
+        match self.decision.take() {
+            Some(CombatDecisionState::DiscardSelect { state }) => Some(state),
+            other => {
+                self.decision = other;
+                None
+            }
+        }
+    }
+
+    pub fn take_exhaust_select(&mut self) -> Option<ExhaustSelectState> {
+        match self.decision.take() {
+            Some(CombatDecisionState::ExhaustSelect { state }) => Some(state),
+            other => {
+                self.decision = other;
+                None
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn pending_hand_select_action_count(&self) -> usize {
+        match &self.decision {
+            Some(CombatDecisionState::HandSelect {
+                pending_actions, ..
+            }) => pending_actions.len(),
+            _ => 0,
+        }
+    }
+
+    pub fn activate_next_queued_decision_if_idle(&mut self) {
+        if self.decision.is_none() {
+            self.decision = self.queued_decisions.pop_front();
+        }
+    }
+
     pub(crate) fn new_run_entry(
         player: PlayerState,
         monsters: Vec<MonsterState>,
@@ -577,16 +734,8 @@ impl CombatState {
             relic_counters: RelicCounters::default(),
             ascension,
             rng,
-            potion_card_reward: None,
-            potion_card_reward_kind: None,
-            toolbox_card_reward: None,
-            discovery_card_reward: None,
-            discovery_source_card: None,
-            hand_select: None,
-            pending_after_hand_select_actions: VecDeque::new(),
-            draw_select: None,
-            discard_select: None,
-            exhaust_select: None,
+            decision: None,
+            queued_decisions: VecDeque::new(),
             duplication_potion_pending: false,
             duplication_potion_stacks: 0,
             double_tap_pending: 0,
@@ -813,36 +962,16 @@ impl CombatState {
             }
         }
 
-        let active_decisions = [
-            self.hand_select.is_some(),
-            self.draw_select.is_some(),
-            self.discard_select.is_some(),
-            self.exhaust_select.is_some(),
-            self.potion_card_reward.is_some(),
-            self.toolbox_card_reward.is_some(),
-            self.discovery_card_reward.is_some(),
-        ]
-        .into_iter()
-        .filter(|active| *active)
-        .count();
-        if active_decisions > 1 {
-            return Err(SimError::InvalidState(
-                "multiple combat decisions are active",
-            ));
-        }
-        if active_decisions > 0 && self.phase != CombatPhase::WaitingForPlayer {
+        if (self.decision.is_some() || !self.queued_decisions.is_empty())
+            && self.phase != CombatPhase::WaitingForPlayer
+        {
             return Err(SimError::InvalidState(
                 "combat decision is active outside the player phase",
             ));
         }
-        if self.potion_card_reward.is_some() != self.potion_card_reward_kind.is_some() {
+        if self.decision.is_none() && !self.queued_decisions.is_empty() {
             return Err(SimError::InvalidState(
-                "combat potion reward metadata is inconsistent",
-            ));
-        }
-        if !self.pending_after_hand_select_actions.is_empty() && self.hand_select.is_none() {
-            return Err(SimError::InvalidState(
-                "queued hand-select actions have no active selection",
+                "queued combat decision has no active predecessor",
             ));
         }
         if self.duplication_potion_stacks < 0
@@ -864,23 +993,29 @@ impl CombatState {
         Ok(())
     }
 
-    fn authoritative_cards(&self) -> impl Iterator<Item = &CardInstance> {
-        self.piles
-            .all_cards()
-            .chain(self.potion_card_reward.iter().flatten())
-            .chain(self.toolbox_card_reward.iter().flatten())
-            .chain(self.discovery_card_reward.iter().flatten())
-            .chain(self.discovery_source_card.iter())
-            .chain(
-                self.discard_select
-                    .iter()
-                    .filter_map(|select| select.source_card.as_ref()),
-            )
-            .chain(
-                self.exhaust_select
-                    .iter()
-                    .filter_map(|select| select.source_card.as_ref()),
-            )
+    fn authoritative_cards(&self) -> Vec<&CardInstance> {
+        let mut cards = self.piles.all_cards().collect::<Vec<_>>();
+        if let Some(decision) = &self.decision {
+            extend_decision_cards(&mut cards, decision);
+        }
+        for decision in &self.queued_decisions {
+            extend_decision_cards(&mut cards, decision);
+        }
+        cards
+    }
+}
+
+fn extend_decision_cards<'a>(cards: &mut Vec<&'a CardInstance>, decision: &'a CombatDecisionState) {
+    match decision {
+        CombatDecisionState::PotionCardReward { choices, .. }
+        | CombatDecisionState::ToolboxCardReward { choices }
+        | CombatDecisionState::DiscoveryCardReward { choices, .. } => cards.extend(choices),
+        CombatDecisionState::DiscardSelect { state } => cards.extend(state.source_card.iter()),
+        CombatDecisionState::ExhaustSelect { state } => cards.extend(state.source_card.iter()),
+        CombatDecisionState::HandSelect { .. } | CombatDecisionState::DrawSelect { .. } => {}
+    }
+    if let CombatDecisionState::DiscoveryCardReward { source_card, .. } = decision {
+        cards.extend(source_card.iter());
     }
 }
 
@@ -906,6 +1041,7 @@ impl CombatState {
     #[must_use]
     pub fn next_card_instance_id(&self) -> u64 {
         self.authoritative_cards()
+            .into_iter()
             .chain(
                 self.monsters
                     .iter()

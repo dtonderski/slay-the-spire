@@ -3,7 +3,7 @@ use crate::{
     card::{CardDefinition, CardType, TargetRequirement},
     combat::{
         damage::{DamageInfo, DamageSource},
-        CombatState, HandSelectPurpose,
+        CombatDecisionState, CombatState, HandSelectPurpose,
     },
     content::cards::{
         card_instance_is_upgradeable, get_card_definition, is_curse_content_id,
@@ -1720,15 +1720,16 @@ fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) 
     }
 
     let next_card_id = state.next_card_instance_id();
-    state.discovery_card_reward = Some(
-        content_choices
+    state.decision = Some(CombatDecisionState::DiscoveryCardReward {
+        choices: content_choices
             .into_iter()
             .enumerate()
             .map(|(index, content_id)| {
                 CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
             })
             .collect(),
-    );
+        source_card: None,
+    });
 }
 
 fn discovery_choices_from_pool(rng: &mut crate::rng::StsRng, pool: &[ContentId]) -> Vec<ContentId> {

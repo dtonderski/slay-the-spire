@@ -21,10 +21,10 @@ pub use setup::{
     starter_only_deck,
 };
 pub use state::{
-    BombTimer, CardPiles, CombatPhase, CombatRngState, CombatState, DiscardSelectPurpose,
-    DiscardSelectState, DrawSelectPurpose, DrawSelectState, ExhaustSelectPurpose,
-    ExhaustSelectState, HandSelectPurpose, HandSelectState, MonsterIntent, MonsterState,
-    PlayerState, PotionCardRewardKind, SlimeSize, BASE_PLAYER_ENERGY,
+    BombTimer, CardPiles, CombatDecisionState, CombatPhase, CombatRngState, CombatState,
+    DiscardSelectPurpose, DiscardSelectState, DrawSelectPurpose, DrawSelectState,
+    ExhaustSelectPurpose, ExhaustSelectState, HandSelectPurpose, HandSelectState, MonsterIntent,
+    MonsterState, PlayerState, PotionCardRewardKind, SlimeSize, BASE_PLAYER_ENERGY,
 };
 pub use transition::{
     apply_combat_action, apply_combat_action_with_events, choose_draw_select, choose_hand_select,

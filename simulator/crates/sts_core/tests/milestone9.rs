@@ -350,7 +350,7 @@ fn toy_ornithopter_heals_when_attack_potion_opens_combat_card_reward() {
     let combat = run.combat.as_ref().expect("combat continues");
     assert_eq!(combat.player.hp, hp_before);
     assert_eq!(run.player_hp, hp_before);
-    assert!(combat.potion_card_reward.is_some());
+    assert!(combat.potion_card_reward_choices().is_some());
     assert!(run.potions.is_empty());
 
     let run = apply_run_action(&run, RunAction::ChooseCombatCardReward { index: 0 })
@@ -359,7 +359,7 @@ fn toy_ornithopter_heals_when_attack_potion_opens_combat_card_reward() {
     let combat = run.combat.expect("combat continues");
     assert_eq!(combat.player.hp, hp_before + 5);
     assert_eq!(run.player_hp, hp_before + 5);
-    assert!(combat.potion_card_reward.is_none());
+    assert!(combat.potion_card_reward_choices().is_none());
     assert!(run.potions.is_empty());
 }
 

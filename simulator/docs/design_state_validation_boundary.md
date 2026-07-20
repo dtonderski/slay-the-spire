@@ -56,12 +56,17 @@ normalization.
 
 ## Snapshot compatibility
 
-New snapshots use schema version 5. Schema-version-1 through version-3 snapshots
+New snapshots use schema version 6. Schema-version-1 through version-3 snapshots
 explicitly migrate their legacy card-reward and relic authorities, while
 schema-version-1 through version-4 snapshots migrate missing legacy Combust
-damage from the recorded stack count. Every successful restore is validated and
-normalized to version 5. Current snapshots must carry canonical Combust stack
-and damage fields; combat no longer repairs them while executing mechanics.
+damage from the recorded stack count. Schema-version-1 through version-5
+snapshots migrate the former independent combat-decision fields into one active
+typed decision plus an ordered queue, preserving the old legal-action priority
+when multiple overlays were recorded. Every successful restore is validated and
+normalized to version 6. Current snapshots must carry canonical Combust stack
+and damage fields and the typed combat-decision representation; retired fields
+fail closed rather than disappearing during deserialization. Combat no longer
+repairs these authorities while executing mechanics.
 Absent RNG state cannot be inferred from post-state or replaced with a seed
 without changing mechanics. Invalid historical snapshots fail with a parse or
 validation error and must be recreated from an authoritative seed/trace or an
@@ -75,5 +80,5 @@ restoration contract.
 
 Regression tests must prove that valid fixtures and snapshot round trips still
 work, that the flattened RNG wire shape remains stable, and that missing or null
-RNG, duplicate identities, unknown content, impossible bounds, and conflicting
-decisions fail before any transition executes.
+RNG, duplicate identities, unknown content, impossible bounds, and malformed
+decision migrations fail before any transition executes.

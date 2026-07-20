@@ -1,7 +1,7 @@
 use crate::{
     card::{CardInstance, CardType},
     combat::state::BASE_PLAYER_ENERGY,
-    combat::CombatState,
+    combat::{CombatDecisionState, CombatState},
     content::ascension::AscensionConfig,
     content::cards::{
         card_instance_is_upgradeable, card_type_and_rarity, get_card_definition,
@@ -1054,7 +1054,12 @@ impl RunState {
                     CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
                 })
                 .collect();
-            combat.toolbox_card_reward = Some(choices);
+            if let Some(existing) = combat
+                .decision
+                .replace(CombatDecisionState::ToolboxCardReward { choices })
+            {
+                combat.queued_decisions.push_back(existing);
+            }
         }
         crate::relic::apply_start_of_player_turn_post_draw_relics(&mut combat);
         combat

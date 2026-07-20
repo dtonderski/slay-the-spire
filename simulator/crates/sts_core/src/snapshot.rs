@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{error::Error, fmt};
 
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 5;
-pub const PREVIOUS_SNAPSHOT_SCHEMA_VERSION: u32 = 4;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 6;
+pub const PREVIOUS_SNAPSHOT_SCHEMA_VERSION: u32 = 5;
+pub const LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION: u32 = 4;
 pub const LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION: u32 = 3;
 pub const LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 pub const LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
@@ -112,6 +113,7 @@ fn validate_supported_schema(version: u32) -> Result<(), SnapshotRestoreError> {
         version,
         SNAPSHOT_SCHEMA_VERSION
             | PREVIOUS_SNAPSHOT_SCHEMA_VERSION
+            | LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION
@@ -120,6 +122,157 @@ fn validate_supported_schema(version: u32) -> Result<(), SnapshotRestoreError> {
     } else {
         Err(SnapshotRestoreError::UnsupportedSchemaVersion(version))
     }
+}
+
+const LEGACY_COMBAT_DECISION_FIELDS: [&str; 10] = [
+    "potion_card_reward",
+    "potion_card_reward_kind",
+    "toolbox_card_reward",
+    "discovery_card_reward",
+    "discovery_source_card",
+    "hand_select",
+    "pending_after_hand_select_actions",
+    "draw_select",
+    "discard_select",
+    "exhaust_select",
+];
+
+fn take_optional_field(object: &mut Map<String, Value>, field: &str) -> Option<Value> {
+    object.remove(field).filter(|value| !value.is_null())
+}
+
+fn tagged_decision(
+    kind: &'static str,
+    fields: impl IntoIterator<Item = (&'static str, Value)>,
+) -> Value {
+    let mut decision = Map::new();
+    decision.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    for (field, value) in fields {
+        decision.insert(field.to_owned(), value);
+    }
+    Value::Object(decision)
+}
+
+fn migrate_legacy_combat_decisions(combat: &mut Value) -> Result<(), SnapshotRestoreError> {
+    let object = combat
+        .as_object_mut()
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "combat state must be an object",
+        ))?;
+
+    let potion_choices = take_optional_field(object, "potion_card_reward");
+    let potion_kind = take_optional_field(object, "potion_card_reward_kind");
+    let toolbox_choices = take_optional_field(object, "toolbox_card_reward");
+    let discovery_choices = take_optional_field(object, "discovery_card_reward");
+    let discovery_source = take_optional_field(object, "discovery_source_card");
+    let hand_select = take_optional_field(object, "hand_select");
+    let pending_actions = object
+        .remove("pending_after_hand_select_actions")
+        .unwrap_or_else(|| Value::Array(Vec::new()));
+    let draw_select = take_optional_field(object, "draw_select");
+    let discard_select = take_optional_field(object, "discard_select");
+    let exhaust_select = take_optional_field(object, "exhaust_select");
+
+    if potion_choices.is_none() && potion_kind.is_some() {
+        return Err(SnapshotRestoreError::InvalidDocument(
+            "legacy potion reward kind has no reward choices",
+        ));
+    }
+    if potion_choices.is_some() && potion_kind.is_none() {
+        return Err(SnapshotRestoreError::InvalidDocument(
+            "legacy potion reward choices have no reward kind",
+        ));
+    }
+    if discovery_choices.is_none() && discovery_source.is_some() {
+        return Err(SnapshotRestoreError::InvalidDocument(
+            "legacy Discovery source has no reward choices",
+        ));
+    }
+    let pending_actions_are_empty = pending_actions.as_array().is_some_and(Vec::is_empty);
+    if hand_select.is_none() && !pending_actions_are_empty {
+        return Err(SnapshotRestoreError::InvalidDocument(
+            "legacy pending hand-select actions have no hand selection",
+        ));
+    }
+
+    let mut decisions = Vec::new();
+    if let (Some(choices), Some(reward_kind)) = (potion_choices, potion_kind) {
+        decisions.push(tagged_decision(
+            "potion_card_reward",
+            [("choices", choices), ("reward_kind", reward_kind)],
+        ));
+    }
+    if let Some(choices) = toolbox_choices {
+        decisions.push(tagged_decision(
+            "toolbox_card_reward",
+            [("choices", choices)],
+        ));
+    }
+    if let Some(choices) = discovery_choices {
+        let mut fields = vec![("choices", choices)];
+        if let Some(source) = discovery_source {
+            fields.push(("source_card", source));
+        }
+        decisions.push(tagged_decision("discovery_card_reward", fields));
+    }
+    if let Some(state) = hand_select {
+        decisions.push(tagged_decision(
+            "hand_select",
+            [("state", state), ("pending_actions", pending_actions)],
+        ));
+    }
+    for (kind, state) in [
+        ("draw_select", draw_select),
+        ("discard_select", discard_select),
+        ("exhaust_select", exhaust_select),
+    ] {
+        if let Some(state) = state {
+            decisions.push(tagged_decision(kind, [("state", state)]));
+        }
+    }
+
+    if decisions.is_empty() {
+        return Ok(());
+    }
+    if object.get("decision").is_some_and(|value| !value.is_null())
+        || object
+            .get("queued_decisions")
+            .is_some_and(|value| value.as_array().is_none_or(|queue| !queue.is_empty()))
+    {
+        return Err(SnapshotRestoreError::InvalidDocument(
+            "snapshot contains both canonical and legacy combat decisions",
+        ));
+    }
+
+    let mut decisions = decisions.into_iter();
+    let active = decisions
+        .next()
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "legacy combat decision migration produced no active decision",
+        ))?;
+    object.insert("decision".to_owned(), active);
+    object.insert(
+        "queued_decisions".to_owned(),
+        Value::Array(decisions.collect()),
+    );
+    Ok(())
+}
+
+fn reject_legacy_combat_decisions(combat: &Value) -> Result<(), SnapshotRestoreError> {
+    let object = combat
+        .as_object()
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "combat state must be an object",
+        ))?;
+    if LEGACY_COMBAT_DECISION_FIELDS
+        .iter()
+        .any(|field| object.contains_key(*field))
+    {
+        return Err(SnapshotRestoreError::InvalidDocument(
+            "current snapshot contains retired combat decision fields",
+        ));
+    }
+    Ok(())
 }
 
 fn migrate_legacy_combust_damage(combat: &mut Value) -> Result<(), SnapshotRestoreError> {
@@ -331,8 +484,13 @@ pub fn restore_combat_snapshot_json(
     let mut value: Value = serde_json::from_str(json)?;
     let version = schema_version(&value)?;
     validate_supported_schema(version)?;
-    if version <= PREVIOUS_SNAPSHOT_SCHEMA_VERSION {
-        if let Some(state) = value.get_mut("state") {
+    if let Some(state) = value.get_mut("state") {
+        if version <= PREVIOUS_SNAPSHOT_SCHEMA_VERSION {
+            migrate_legacy_combat_decisions(state)?;
+        } else {
+            reject_legacy_combat_decisions(state)?;
+        }
+        if version <= LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION {
             migrate_legacy_combust_damage(state)?;
         }
     }
@@ -353,8 +511,16 @@ pub fn restore_run_snapshot_json(json: &str) -> Result<Snapshot<RunState>, Snaps
         migrate_legacy_reward_flow(&mut value)?;
         migrate_legacy_relic_storage(&mut value)?;
     }
-    if version <= PREVIOUS_SNAPSHOT_SCHEMA_VERSION {
-        if let Some(combat) = value.pointer_mut("/state/combat") {
+    if let Some(combat) = value
+        .pointer_mut("/state/combat")
+        .filter(|combat| !combat.is_null())
+    {
+        if version <= PREVIOUS_SNAPSHOT_SCHEMA_VERSION {
+            migrate_legacy_combat_decisions(combat)?;
+        } else {
+            reject_legacy_combat_decisions(combat)?;
+        }
+        if version <= LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION {
             migrate_legacy_combust_damage(combat)?;
         }
     }
@@ -382,7 +548,12 @@ fn stable_hash64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CardRewardFlow, Relic, RewardContinuation, RewardScreen, RoomKind, RunPhase};
+    use crate::{
+        combat::{ExhaustSelectPurpose, ExhaustSelectState, HandSelectState},
+        content::cards::STRIKE_R_ID,
+        CardId, CardInstance, CardRewardFlow, CombatDecisionState, Relic, RewardContinuation,
+        RewardScreen, RoomKind, RunPhase,
+    };
     use serde_json::json;
 
     fn legacy_run_snapshot_json(version: u32, active: bool, pending: bool, count: u8) -> String {
@@ -426,7 +597,7 @@ mod tests {
 
         assert_eq!(
             snapshot.canonical_json().expect("snapshot serializes"),
-            r#"{"schema_version":5,"state":{}}"#
+            r#"{"schema_version":6,"state":{}}"#
         );
     }
 
@@ -447,7 +618,7 @@ mod tests {
         combat.player.powers.combust = 2;
         combat.player.powers.combust_damage = 10;
         let mut value = serde_json::to_value(Snapshot {
-            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            schema_version: LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION,
             state: combat,
         })
         .expect("combat snapshot serializes");
@@ -476,7 +647,7 @@ mod tests {
         combat.player.powers.combust_damage = 5;
         run.combat = Some(combat);
         let mut value = serde_json::to_value(Snapshot {
-            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            schema_version: LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION,
             state: run,
         })
         .expect("run snapshot serializes");
@@ -517,6 +688,115 @@ mod tests {
         .expect_err("current Combust state must be canonical");
 
         assert!(matches!(error, SnapshotRestoreError::InvalidState(_)));
+    }
+
+    #[test]
+    fn schema_five_combat_snapshot_migrates_hand_selection() {
+        let combat = CombatState::initial_fixture();
+        let source_card_id = combat.piles.hand[0].id;
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            state: combat,
+        })
+        .expect("combat snapshot serializes");
+        value["state"]["hand_select"] = serde_json::to_value(HandSelectState {
+            purpose: Default::default(),
+            source_card_id,
+            selected_hand_index: None,
+            selected_hand_indices: Vec::new(),
+        })
+        .expect("hand selection serializes");
+
+        let restored = restore_combat_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect("schema-five hand selection migrates");
+
+        assert_eq!(restored.schema_version, SNAPSHOT_SCHEMA_VERSION);
+        assert!(matches!(
+            restored.state.decision,
+            Some(CombatDecisionState::HandSelect { .. })
+        ));
+        assert!(restored.state.queued_decisions.is_empty());
+    }
+
+    #[test]
+    fn schema_five_multiple_decisions_preserve_legacy_priority_in_queue() {
+        let combat = CombatState::initial_fixture();
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            state: combat,
+        })
+        .expect("combat snapshot serializes");
+        value["state"]["toolbox_card_reward"] =
+            json!([CardInstance::new(CardId::new(900), STRIKE_R_ID)]);
+        value["state"]["exhaust_select"] = serde_json::to_value(ExhaustSelectState {
+            purpose: ExhaustSelectPurpose::GamblingChip,
+            source_card_id: None,
+            source_card: None,
+            selected_hand_indices: Vec::new(),
+        })
+        .expect("exhaust selection serializes");
+
+        let restored = restore_combat_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect("schema-five decisions migrate");
+
+        assert!(matches!(
+            restored.state.decision,
+            Some(CombatDecisionState::ToolboxCardReward { .. })
+        ));
+        assert!(matches!(
+            restored.state.queued_decisions.front(),
+            Some(CombatDecisionState::ExhaustSelect { .. })
+        ));
+    }
+
+    #[test]
+    fn schema_five_run_snapshot_migrates_nested_combat_decision() {
+        let run = RunState::combat_fixture();
+        let source_card_id = run.combat.as_ref().expect("combat fixture").piles.hand[0].id;
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("run snapshot serializes");
+        value["state"]["combat"]["hand_select"] = serde_json::to_value(HandSelectState {
+            purpose: Default::default(),
+            source_card_id,
+            selected_hand_index: None,
+            selected_hand_indices: Vec::new(),
+        })
+        .expect("hand selection serializes");
+
+        let restored = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect("nested schema-five decision migrates");
+
+        assert!(matches!(
+            restored.state.combat.expect("combat restored").decision,
+            Some(CombatDecisionState::HandSelect { .. })
+        ));
+    }
+
+    #[test]
+    fn current_snapshot_rejects_retired_combat_decision_fields() {
+        let combat = CombatState::initial_fixture();
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: combat,
+        })
+        .expect("combat snapshot serializes");
+        value["state"]["hand_select"] = Value::Null;
+
+        let error = restore_combat_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("current snapshots reject retired decision fields");
+
+        assert!(matches!(error, SnapshotRestoreError::InvalidDocument(_)));
     }
 
     #[test]

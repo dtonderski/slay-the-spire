@@ -3,17 +3,17 @@ use crate::{
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
         apply_monster_death_hooks, apply_play_top_draw_card_action, choose_discard_select,
-        choose_draw_select, choose_exhaust_select, choose_hand_select,
-        close_discovery_card_reward_source, confirm_discard_select, confirm_draw_select,
-        confirm_exhaust_select, confirm_hand_select, discard_select_ui_to_discard_index,
-        draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
-        flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
-        open_discard_select_with_max_choices, open_exhaust_select, open_gambling_chip_select,
-        player_draw_cards, player_shuffle_discard_into_draw, top_draw_card_definition,
+        choose_draw_select, choose_exhaust_select, choose_hand_select, close_discovery_source_card,
+        confirm_discard_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
+        discard_select_ui_to_discard_index, draw_select_ui_to_draw_index,
+        exhaust_select_ui_to_hand_index, flush_pending_player_spikes_damage_if_ready,
+        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
+        open_gambling_chip_select, player_draw_cards, player_shuffle_discard_into_draw,
+        top_draw_card_definition,
     },
     combat::{
-        apply_burning_blood, CombatPhase, CombatState, DiscardSelectPurpose, ExhaustSelectPurpose,
-        HandSelectPurpose, PotionCardRewardKind,
+        apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
+        ExhaustSelectPurpose, HandSelectPurpose, PotionCardRewardKind,
     },
     content::cards::{get_card_definition, upgrade_card_instance},
     content::monsters::wake_lagavulin_on_damage,
@@ -134,7 +134,7 @@ pub fn validate_combat_card_reward_skip(run: &RunState) -> SimResult<()> {
     let combat = run.combat.as_ref().ok_or(SimError::IllegalAction(
         "combat card reward requires combat",
     ))?;
-    if combat.potion_card_reward.is_some() {
+    if combat.potion_card_reward_choices().is_some() {
         Ok(())
     } else {
         Err(SimError::IllegalAction(
@@ -148,10 +148,7 @@ pub fn validate_combat_card_reward_choice(run: &RunState, index: usize) -> SimRe
         "combat card reward requires combat",
     ))?;
     let choices = combat
-        .potion_card_reward
-        .as_ref()
-        .or(combat.toolbox_card_reward.as_ref())
-        .or(combat.discovery_card_reward.as_ref())
+        .combat_card_reward_choices()
         .ok_or(SimError::IllegalAction("no combat card reward is open"))?;
     if index >= choices.len() {
         return Err(SimError::IllegalAction(
@@ -168,8 +165,7 @@ pub fn validate_hand_select_choice(run: &RunState, index: usize) -> SimResult<()
         .ok_or(SimError::IllegalAction("hand select requires combat"))?;
     let hand_index = hand_select_ui_to_hand_index(combat, index)?;
     let hand_select = combat
-        .hand_select
-        .as_ref()
+        .hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
     if hand_select.purpose != HandSelectPurpose::ForethoughtPutAnyOnDraw
         && hand_select.selected_hand_index == Some(hand_index)
@@ -187,8 +183,7 @@ pub fn validate_hand_select_confirm(run: &RunState) -> SimResult<()> {
         .as_ref()
         .ok_or(SimError::IllegalAction("hand select requires combat"))?;
     let hand_select = combat
-        .hand_select
-        .as_ref()
+        .hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
     if hand_select.purpose != HandSelectPurpose::ForethoughtPutAnyOnDraw
         && hand_select.selected_hand_index.is_none()
@@ -205,8 +200,7 @@ pub fn validate_draw_select_choice(run: &RunState, index: usize) -> SimResult<()
         .ok_or(SimError::IllegalAction("draw select requires combat"))?;
     let draw_index = draw_select_ui_to_draw_index(combat, index)?;
     let draw_select = combat
-        .draw_select
-        .as_ref()
+        .draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
     if draw_select.selected_draw_index == Some(draw_index) {
         return Err(SimError::IllegalAction(
@@ -222,8 +216,7 @@ pub fn validate_draw_select_confirm(run: &RunState) -> SimResult<()> {
         .as_ref()
         .ok_or(SimError::IllegalAction("draw select requires combat"))?;
     let draw_select = combat
-        .draw_select
-        .as_ref()
+        .draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
     if draw_select.selected_draw_index.is_none() {
         return Err(SimError::IllegalAction("draw select choice is required"));
@@ -246,8 +239,7 @@ pub fn validate_discard_select_confirm(run: &RunState) -> SimResult<()> {
         .as_ref()
         .ok_or(SimError::IllegalAction("discard select requires combat"))?;
     let discard_select = combat
-        .discard_select
-        .as_ref()
+        .discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
     if discard_select.selected_discard_index.is_none() {
         return Err(SimError::IllegalAction("discard select choice is required"));
@@ -270,8 +262,7 @@ pub fn validate_exhaust_select_confirm(run: &RunState) -> SimResult<()> {
         .as_ref()
         .ok_or(SimError::IllegalAction("exhaust select requires combat"))?;
     let exhaust_select = combat
-        .exhaust_select
-        .as_ref()
+        .exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
     if exhaust_select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand
         && exhaust_select.selected_hand_indices.is_empty()
@@ -334,16 +325,14 @@ pub fn apply_discard_select_choice(run: &RunState, index: usize) -> SimResult<Ru
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
     let purpose = combat
-        .discard_select
-        .as_ref()
+        .discard_select()
         .map(|select| select.purpose)
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
     choose_discard_select(combat, index)?;
     if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw
         || (purpose == DiscardSelectPurpose::LiquidMemoriesReturnToHand
             && combat
-                .discard_select
-                .as_ref()
+                .discard_select()
                 .is_some_and(|select| select.max_choices == 1))
     {
         confirm_discard_select(combat)?;
@@ -367,7 +356,7 @@ pub fn apply_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<Ru
     let purpose = next
         .combat
         .as_ref()
-        .and_then(|combat| combat.exhaust_select.as_ref())
+        .and_then(CombatState::exhaust_select)
         .map(|select| select.purpose)
         .expect("validated exhaust select");
     let combat = next.combat.as_mut().expect("validated combat");
@@ -402,7 +391,7 @@ fn exhaust_count_for_confirmed_select(
     after: &CombatState,
     exhaust_before: usize,
 ) -> usize {
-    let Some(select) = before.exhaust_select.as_ref() else {
+    let Some(select) = before.exhaust_select() else {
         return after
             .piles
             .exhaust_pile
@@ -439,52 +428,66 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     validate_combat_card_reward_choice(run, index)?;
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
-    if combat.potion_card_reward.is_some() {
-        settle_potion_card_reward_rng(combat, true)?;
-        let choices = combat
-            .potion_card_reward
-            .take()
-            .expect("potion reward checked above");
-        let choice = choices[index];
-        let card_id = CardId::new(combat.next_card_instance_id());
-        let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
-        card.temp_cost_turn_only = true;
-        // CommunicationMod exposes potion-generated cards after the cards that
-        // were already in hand, unlike Toolbox and Discovery rewards.
-        combat.piles.hand.push(card);
-        crate::relic::apply_potion_use_relics_to_combat(combat);
-        next.player_hp = combat.player.hp;
-        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-    } else if let Some(choices) = combat.discovery_card_reward.take() {
-        // After a card-played Discovery is selected, DiscoveryAction keeps
-        // regenerating its three choices for four hidden fast-action updates.
-        burn_all_discovery_card_choice_generations(
-            &mut combat.rng.card_random_rng,
-            3,
-            PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
-        );
-        let choice = choices[index];
-        let card_id = CardId::new(combat.next_card_instance_id());
-        let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
-        card.temp_cost_turn_only = true;
-        // DiscoveryAction adds the generated card after the cards already in hand.
-        combat.piles.hand.push(card);
-        close_discovery_card_reward_source(combat)?;
-        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-    } else {
-        let choices = combat.toolbox_card_reward.take().expect("validated reward");
-        let choice = choices[index];
-        let card_id = CardId::new(combat.next_card_instance_id());
-        combat.piles.hand.insert(
-            0,
-            CardInstance {
-                combat_only: true,
-                ..CardInstance::new(card_id, choice.content_id)
-            },
-        );
-        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-        crate::relic::settle_pending_start_of_turn_relic_actions(combat);
+    let decision = combat
+        .decision
+        .take()
+        .ok_or(SimError::IllegalAction("no combat card reward is open"))?;
+    match decision {
+        CombatDecisionState::PotionCardReward {
+            choices,
+            reward_kind,
+        } => {
+            settle_potion_card_reward_rng(combat, reward_kind, true);
+            let choice = choices[index];
+            let card_id = CardId::new(combat.next_card_instance_id());
+            let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
+            card.temp_cost_turn_only = true;
+            // CommunicationMod exposes potion-generated cards after the cards that
+            // were already in hand, unlike Toolbox and Discovery rewards.
+            combat.piles.hand.push(card);
+            crate::relic::apply_potion_use_relics_to_combat(combat);
+            next.player_hp = combat.player.hp;
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+        }
+        CombatDecisionState::DiscoveryCardReward {
+            choices,
+            source_card,
+        } => {
+            // After a card-played Discovery is selected, DiscoveryAction keeps
+            // regenerating its three choices for four hidden fast-action updates.
+            burn_all_discovery_card_choice_generations(
+                &mut combat.rng.card_random_rng,
+                3,
+                PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
+            );
+            let choice = choices[index];
+            let card_id = CardId::new(combat.next_card_instance_id());
+            let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
+            card.temp_cost_turn_only = true;
+            // DiscoveryAction adds the generated card after the cards already in hand.
+            combat.piles.hand.push(card);
+            close_discovery_source_card(combat, source_card)?;
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+        }
+        CombatDecisionState::ToolboxCardReward { choices } => {
+            let choice = choices[index];
+            let card_id = CardId::new(combat.next_card_instance_id());
+            combat.piles.hand.insert(
+                0,
+                CardInstance {
+                    combat_only: true,
+                    ..CardInstance::new(card_id, choice.content_id)
+                },
+            );
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            crate::relic::settle_pending_start_of_turn_relic_actions(combat);
+        }
+        other => {
+            combat.decision = Some(other);
+            return Err(SimError::IllegalAction("no combat card reward is open"));
+        }
     }
+    combat.activate_next_queued_decision_if_idle();
     Ok(next)
 }
 
@@ -492,25 +495,25 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
     validate_combat_card_reward_skip(run)?;
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
-    if combat.discovery_card_reward.take().is_some() {
-        close_discovery_card_reward_source(combat)?;
-    } else {
-        settle_potion_card_reward_rng(combat, false)?;
-        combat.potion_card_reward = None;
-        crate::relic::apply_potion_use_relics_to_combat(combat);
-        next.player_hp = combat.player.hp;
-        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-    }
+    let Some(CombatDecisionState::PotionCardReward { reward_kind, .. }) = combat.decision.take()
+    else {
+        return Err(SimError::IllegalAction(
+            "no skippable combat card reward is open",
+        ));
+    };
+    settle_potion_card_reward_rng(combat, reward_kind, false);
+    crate::relic::apply_potion_use_relics_to_combat(combat);
+    next.player_hp = combat.player.hp;
+    next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+    combat.activate_next_queued_decision_if_idle();
     Ok(next)
 }
 
-fn settle_potion_card_reward_rng(combat: &mut CombatState, picked: bool) -> SimResult<()> {
-    let kind = combat
-        .potion_card_reward_kind
-        .take()
-        .ok_or(SimError::InvalidState(
-            "potion card reward is missing its discovery pool",
-        ))?;
+fn settle_potion_card_reward_rng(
+    combat: &mut CombatState,
+    kind: PotionCardRewardKind,
+    picked: bool,
+) {
     let rng = &mut combat.rng.card_random_rng;
     let (mut hidden_generations, settle_draws) = if picked {
         (
@@ -544,7 +547,6 @@ fn settle_potion_card_reward_rng(combat: &mut CombatState, picked: bool) -> SimR
             burn_colorless_discovery_card_choice_draws(rng, settle_draws);
         }
     }
-    Ok(())
 }
 
 fn distilled_chaos_target(
@@ -890,8 +892,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                             CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
                         })
                         .collect();
-                    combat.potion_card_reward = Some(reward_cards);
-                    combat.potion_card_reward_kind = Some(kind);
+                    combat.decision = Some(CombatDecisionState::PotionCardReward {
+                        choices: reward_cards,
+                        reward_kind: kind,
+                    });
                     next.combat = Some(combat);
                 }
                 _ => {
@@ -1108,11 +1112,13 @@ mod tests {
             .collect::<Vec<_>>();
         let chosen_id = CardId::new(combat.next_card_instance_id());
         let choice_content = combat.piles.hand[0].content_id;
-        combat.potion_card_reward = Some(vec![CardInstance::new(
-            CardId::new(chosen_id.get() + 1),
-            choice_content,
-        )]);
-        combat.potion_card_reward_kind = Some(PotionCardRewardKind::Colorless);
+        combat.decision = Some(CombatDecisionState::PotionCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                choice_content,
+            )],
+            reward_kind: PotionCardRewardKind::Colorless,
+        });
         combat.rng.card_random_rng = StsRng::new(123);
         let rng_counter_before = combat.rng.card_random_rng.counter();
 
@@ -1160,7 +1166,7 @@ mod tests {
             reward
                 .combat
                 .as_ref()
-                .and_then(|combat| combat.potion_card_reward.as_ref())
+                .and_then(CombatState::potion_card_reward_choices)
                 .expect("potion reward")
                 .iter()
                 .map(|card| card.content_id)
@@ -1196,10 +1202,13 @@ mod tests {
             .collect::<Vec<_>>();
         let chosen_id = CardId::new(combat.next_card_instance_id());
         let choice_content = combat.piles.hand[0].content_id;
-        combat.discovery_card_reward = Some(vec![CardInstance::new(
-            CardId::new(chosen_id.get() + 1),
-            choice_content,
-        )]);
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                choice_content,
+            )],
+            source_card: None,
+        });
 
         let next = apply_combat_card_reward_choice(&run, 0).expect("Discovery card choice");
         let combat = next.combat.expect("combat remains open");
@@ -1232,10 +1241,12 @@ mod tests {
             .collect::<Vec<_>>();
         let chosen_id = CardId::new(combat.next_card_instance_id());
         let choice_content = combat.piles.hand[0].content_id;
-        combat.toolbox_card_reward = Some(vec![CardInstance::new(
-            CardId::new(chosen_id.get() + 1),
-            choice_content,
-        )]);
+        combat.decision = Some(CombatDecisionState::ToolboxCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                choice_content,
+            )],
+        });
 
         let next = apply_combat_card_reward_choice(&run, 0).expect("Toolbox card choice");
         let hand = &next.combat.expect("combat remains open").piles.hand;
@@ -1259,7 +1270,7 @@ mod tests {
         run.happy_flower_turns = 2;
 
         let combat = run.init_combat(CombatState::initial_fixture());
-        assert!(combat.toolbox_card_reward.is_some());
+        assert!(combat.toolbox_card_reward_choices().is_some());
         assert_eq!(combat.relic_counters.happy_flower_turns, 0);
         assert_eq!(combat.player.energy, 3);
         assert_eq!(combat.pending_start_of_turn_relic_energy, 1);
@@ -1272,5 +1283,40 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(combat.player.energy, 4);
         assert_eq!(combat.pending_start_of_turn_relic_energy, 0);
+    }
+
+    #[test]
+    fn toolbox_choice_activates_queued_gambling_chip_selection() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![
+            crate::relic::Relic::GamblingChip,
+            crate::relic::Relic::Toolbox,
+        ];
+
+        let combat = run.init_combat(CombatState::initial_fixture());
+        assert!(matches!(
+            combat.decision.as_ref(),
+            Some(CombatDecisionState::ToolboxCardReward { .. })
+        ));
+        assert!(matches!(
+            combat.queued_decisions.front(),
+            Some(CombatDecisionState::ExhaustSelect { state })
+                if state.purpose == ExhaustSelectPurpose::GamblingChip
+        ));
+        run.combat = Some(combat);
+
+        let next = apply_combat_card_reward_choice(&run, 0).expect("Toolbox card choice");
+        let combat = next.combat.as_ref().expect("combat remains open");
+        assert!(matches!(
+            combat.decision.as_ref(),
+            Some(CombatDecisionState::ExhaustSelect { state })
+                if state.purpose == ExhaustSelectPurpose::GamblingChip
+        ));
+        assert!(combat.queued_decisions.is_empty());
+
+        let next = apply_exhaust_select_confirm(&next).expect("Gambling Chip confirmation");
+        assert!(next.combat.expect("combat remains open").decision.is_none());
     }
 }

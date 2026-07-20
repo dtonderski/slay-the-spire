@@ -9,8 +9,8 @@ use crate::{
             reflect_spikes_to_player, DamageInfo, DamageSource,
         },
         state::BombTimer,
-        validate_combat_action, CombatPhase, DiscardSelectPurpose, DrawSelectPurpose,
-        HandSelectPurpose,
+        validate_combat_action, CombatDecisionState, CombatPhase, DiscardSelectPurpose,
+        DrawSelectPurpose, HandSelectPurpose,
     },
     content::cards::{
         card_instance_is_upgradeable, get_card_definition, upgrade_card_instance,
@@ -181,10 +181,14 @@ fn process_internal_queue(
         for follow_up in follow_ups {
             push_follow_up(&mut queue, follow_up);
         }
-        if next.hand_select.is_some() && !queue.is_empty() {
-            next.pending_after_hand_select_actions
-                .extend(queue.drain(..));
-            break;
+        if !queue.is_empty() {
+            if let Some(CombatDecisionState::HandSelect {
+                pending_actions, ..
+            }) = next.decision.as_mut()
+            {
+                pending_actions.extend(queue.drain(..));
+                break;
+            }
         }
     }
 
@@ -293,15 +297,7 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
 }
 
 pub fn flush_pending_player_spikes_damage_if_ready(state: &mut CombatState) {
-    if state.pending_player_spikes_damage <= 0
-        || state.discard_select.is_some()
-        || state.draw_select.is_some()
-        || state.exhaust_select.is_some()
-        || state.hand_select.is_some()
-        || state.discovery_card_reward.is_some()
-        || state.potion_card_reward.is_some()
-        || state.toolbox_card_reward.is_some()
-    {
+    if state.pending_player_spikes_damage <= 0 || state.decision.is_some() {
         return;
     }
     let damage = std::mem::take(&mut state.pending_player_spikes_damage);
@@ -310,15 +306,7 @@ pub fn flush_pending_player_spikes_damage_if_ready(state: &mut CombatState) {
 }
 
 pub fn flush_pending_monster_death_relics_if_ready(state: &mut CombatState) {
-    if state.pending_monster_death_relic_triggers == 0
-        || state.discard_select.is_some()
-        || state.draw_select.is_some()
-        || state.exhaust_select.is_some()
-        || state.hand_select.is_some()
-        || state.discovery_card_reward.is_some()
-        || state.potion_card_reward.is_some()
-        || state.toolbox_card_reward.is_some()
-    {
+    if state.pending_monster_death_relic_triggers == 0 || state.decision.is_some() {
         return;
     }
     let triggers = std::mem::take(&mut state.pending_monster_death_relic_triggers);
@@ -1200,11 +1188,14 @@ fn apply_internal_action(
                 finish_warcry_source(state, source_card_id)?;
                 return Ok(Vec::new());
             }
-            state.hand_select = Some(crate::combat::HandSelectState {
-                purpose,
-                source_card_id,
-                selected_hand_index: None,
-                selected_hand_indices: Vec::new(),
+            state.decision = Some(CombatDecisionState::HandSelect {
+                state: crate::combat::HandSelectState {
+                    purpose,
+                    source_card_id,
+                    selected_hand_index: None,
+                    selected_hand_indices: Vec::new(),
+                },
+                pending_actions: VecDeque::new(),
             });
             Ok(Vec::new())
         }
@@ -1212,10 +1203,12 @@ fn apply_internal_action(
             source_card_id,
             purpose,
         } => {
-            state.draw_select = Some(crate::combat::DrawSelectState {
-                purpose,
-                source_card_id,
-                selected_draw_index: None,
+            state.decision = Some(CombatDecisionState::DrawSelect {
+                state: crate::combat::DrawSelectState {
+                    purpose,
+                    source_card_id,
+                    selected_draw_index: None,
+                },
             });
             Ok(Vec::new())
         }
@@ -1271,23 +1264,27 @@ fn apply_internal_action(
                     }
                     return Ok(Vec::new());
                 }
-                state.discard_select = Some(crate::combat::DiscardSelectState {
-                    purpose,
-                    source_card_id: source_card.map(|_| source_card_id),
-                    source_card,
-                    selected_discard_indices: Vec::new(),
-                    max_choices: 1,
-                    selected_discard_index: None,
+                state.decision = Some(CombatDecisionState::DiscardSelect {
+                    state: crate::combat::DiscardSelectState {
+                        purpose,
+                        source_card_id: source_card.map(|_| source_card_id),
+                        source_card,
+                        selected_discard_indices: Vec::new(),
+                        max_choices: 1,
+                        selected_discard_index: None,
+                    },
                 });
                 return Ok(Vec::new());
             }
-            state.discard_select = Some(crate::combat::DiscardSelectState {
-                purpose,
-                source_card_id: Some(source_card_id),
-                source_card: None,
-                selected_discard_indices: Vec::new(),
-                max_choices: 1,
-                selected_discard_index: None,
+            state.decision = Some(CombatDecisionState::DiscardSelect {
+                state: crate::combat::DiscardSelectState {
+                    purpose,
+                    source_card_id: Some(source_card_id),
+                    source_card: None,
+                    selected_discard_indices: Vec::new(),
+                    max_choices: 1,
+                    selected_discard_index: None,
+                },
             });
             Ok(Vec::new())
         }
@@ -1333,21 +1330,33 @@ fn apply_internal_action(
             } else {
                 None
             };
-            state.exhaust_select = Some(crate::combat::ExhaustSelectState {
-                purpose,
-                source_card_id: Some(source_card_id),
-                source_card,
-                selected_hand_indices: Vec::new(),
+            state.decision = Some(CombatDecisionState::ExhaustSelect {
+                state: crate::combat::ExhaustSelectState {
+                    purpose,
+                    source_card_id: Some(source_card_id),
+                    source_card,
+                    selected_hand_indices: Vec::new(),
+                },
             });
             Ok(Vec::new())
         }
         InternalAction::OpenDiscoveryCardReward { source_card_id } => {
-            state.discovery_source_card = state
+            let source_card = state
                 .piles
                 .hand
                 .iter()
                 .position(|card| card.id == source_card_id)
                 .map(|index| state.piles.hand.remove(index));
+            let Some(CombatDecisionState::DiscoveryCardReward {
+                source_card: decision_source,
+                ..
+            }) = state.decision.as_mut()
+            else {
+                return Err(SimError::InvalidState(
+                    "Discovery source opened without its card reward",
+                ));
+            };
+            *decision_source = source_card;
             Ok(Vec::new())
         }
     }
@@ -2157,8 +2166,7 @@ fn apply_play_top_draw_card(
 pub fn choose_hand_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
     let hand_index = hand_select_ui_to_hand_index(state, ui_index)?;
     let hand_select = state
-        .hand_select
-        .as_mut()
+        .hand_select_mut()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
     if hand_select.purpose == HandSelectPurpose::ForethoughtPutAnyOnDraw {
         if let Some(position) = hand_select
@@ -2178,8 +2186,7 @@ pub fn choose_hand_select(state: &mut CombatState, ui_index: usize) -> SimResult
 
 pub fn hand_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> SimResult<usize> {
     let hand_select = state
-        .hand_select
-        .as_ref()
+        .hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
     let selectable: Vec<usize> = state
         .piles
@@ -2214,9 +2221,8 @@ fn hand_select_allows_card(
 }
 
 pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
-    let hand_select = state
-        .hand_select
-        .take()
+    let (hand_select, pending_actions) = state
+        .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw => confirm_warcry_select(
@@ -2250,15 +2256,19 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
             required_hand_select_index(&hand_select)?,
         ),
     }?;
-    resume_actions_after_hand_select(state)
+    resume_actions_after_hand_select(state, pending_actions)?;
+    state.activate_next_queued_decision_if_idle();
+    Ok(())
 }
 
-fn resume_actions_after_hand_select(state: &mut CombatState) -> SimResult<()> {
-    if state.pending_after_hand_select_actions.is_empty() {
+fn resume_actions_after_hand_select(
+    state: &mut CombatState,
+    pending_actions: VecDeque<InternalAction>,
+) -> SimResult<()> {
+    if pending_actions.is_empty() {
         return Ok(());
     }
-    let queue = std::mem::take(&mut state.pending_after_hand_select_actions);
-    let transition = process_internal_queue(state, queue)?;
+    let transition = process_internal_queue(state, pending_actions)?;
     *state = transition.state;
     Ok(())
 }
@@ -2272,8 +2282,7 @@ fn required_hand_select_index(hand_select: &crate::combat::HandSelectState) -> S
 pub fn choose_draw_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
     let draw_index = draw_select_ui_to_draw_index(state, ui_index)?;
     let draw_select = state
-        .draw_select
-        .as_mut()
+        .draw_select_mut()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
     draw_select.selected_draw_index = Some(draw_index);
     Ok(())
@@ -2281,8 +2290,7 @@ pub fn choose_draw_select(state: &mut CombatState, ui_index: usize) -> SimResult
 
 pub fn draw_select_ui_to_draw_index(state: &CombatState, ui_index: usize) -> SimResult<usize> {
     let draw_select = state
-        .draw_select
-        .as_ref()
+        .draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
     let selectable: Vec<usize> = state
         .piles
@@ -2312,8 +2320,7 @@ fn draw_select_allows_card(
 
 pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<()> {
     let draw_select = state
-        .draw_select
-        .take()
+        .take_draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
     let index = draw_select
         .selected_draw_index
@@ -2325,7 +2332,9 @@ pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<()> {
         DrawSelectPurpose::SecretWeaponAttackToHand => {
             confirm_secret_weapon_select(state, draw_select.source_card_id, index)
         }
-    }
+    }?;
+    state.activate_next_queued_decision_if_idle();
+    Ok(())
 }
 
 fn confirm_secret_technique_select(
@@ -2473,7 +2482,22 @@ fn move_delayed_played_source_with_strange_spoon(
 }
 
 pub fn close_discovery_card_reward_source(state: &mut CombatState) -> SimResult<()> {
-    let Some(source) = state.discovery_source_card.take() else {
+    let source = {
+        let Some(CombatDecisionState::DiscoveryCardReward { source_card, .. }) =
+            state.decision.as_mut()
+        else {
+            return Ok(());
+        };
+        source_card.take()
+    };
+    close_discovery_source_card(state, source)
+}
+
+pub fn close_discovery_source_card(
+    state: &mut CombatState,
+    source: Option<CardInstance>,
+) -> SimResult<()> {
+    let Some(source) = source else {
         return Ok(());
     };
     let source_card_id = source.id;
@@ -2714,13 +2738,15 @@ pub fn open_discard_select_with_max_choices(
     if state.piles.discard_pile.is_empty() {
         return Err(SimError::IllegalAction("discard pile is empty"));
     }
-    state.discard_select = Some(crate::combat::DiscardSelectState {
-        purpose: DiscardSelectPurpose::LiquidMemoriesReturnToHand,
-        source_card_id: None,
-        source_card: None,
-        selected_discard_indices: Vec::new(),
-        max_choices,
-        selected_discard_index: None,
+    state.decision = Some(CombatDecisionState::DiscardSelect {
+        state: crate::combat::DiscardSelectState {
+            purpose: DiscardSelectPurpose::LiquidMemoriesReturnToHand,
+            source_card_id: None,
+            source_card: None,
+            selected_discard_indices: Vec::new(),
+            max_choices,
+            selected_discard_index: None,
+        },
     });
     Ok(())
 }
@@ -2728,8 +2754,7 @@ pub fn open_discard_select_with_max_choices(
 pub fn choose_discard_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
     discard_select_ui_to_discard_index(state, ui_index)?;
     let discard_select = state
-        .discard_select
-        .as_mut()
+        .discard_select_mut()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
     if discard_select.purpose == DiscardSelectPurpose::LiquidMemoriesReturnToHand {
         if let Some(position) = discard_select
@@ -2757,8 +2782,7 @@ pub fn discard_select_ui_to_discard_index(
     ui_index: usize,
 ) -> SimResult<usize> {
     state
-        .discard_select
-        .as_ref()
+        .discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
     if ui_index >= state.piles.discard_pile.len() {
         return Err(SimError::IllegalAction("discard select index out of range"));
@@ -2768,8 +2792,7 @@ pub fn discard_select_ui_to_discard_index(
 
 pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> {
     let discard_select = state
-        .discard_select
-        .take()
+        .take_discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
     if discard_select.purpose != DiscardSelectPurpose::LiquidMemoriesReturnToHand {
         return Err(SimError::IllegalAction("discard select purpose mismatch"));
@@ -2800,13 +2823,13 @@ pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> 
     }
     cards.reverse();
     state.piles.hand.extend(cards);
+    state.activate_next_queued_decision_if_idle();
     Ok(())
 }
 
 pub fn confirm_discard_select(state: &mut CombatState) -> SimResult<()> {
     let purpose = state
-        .discard_select
-        .as_ref()
+        .discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?
         .purpose;
     match purpose {
@@ -2817,8 +2840,7 @@ pub fn confirm_discard_select(state: &mut CombatState) -> SimResult<()> {
 
 pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
     let discard_select = state
-        .discard_select
-        .take()
+        .take_discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
     if discard_select.purpose != DiscardSelectPurpose::HeadbuttPutOnDraw {
         return Err(SimError::IllegalAction("discard select purpose mismatch"));
@@ -2840,15 +2862,18 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
         move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
     }
     flush_pending_monster_death_relics_if_ready(state);
+    state.activate_next_queued_decision_if_idle();
     Ok(())
 }
 
 pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
-    state.exhaust_select = Some(crate::combat::ExhaustSelectState {
-        purpose: crate::combat::ExhaustSelectPurpose::Exhaust,
-        source_card_id: None,
-        source_card: None,
-        selected_hand_indices: Vec::new(),
+    state.decision = Some(CombatDecisionState::ExhaustSelect {
+        state: crate::combat::ExhaustSelectState {
+            purpose: crate::combat::ExhaustSelectPurpose::Exhaust,
+            source_card_id: None,
+            source_card: None,
+            selected_hand_indices: Vec::new(),
+        },
     });
     Ok(())
 }
@@ -2857,11 +2882,13 @@ pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
     if state.piles.hand.is_empty() {
         return Ok(());
     }
-    state.exhaust_select = Some(crate::combat::ExhaustSelectState {
-        purpose: crate::combat::ExhaustSelectPurpose::GamblingChip,
-        source_card_id: None,
-        source_card: None,
-        selected_hand_indices: Vec::new(),
+    state.decision = Some(CombatDecisionState::ExhaustSelect {
+        state: crate::combat::ExhaustSelectState {
+            purpose: crate::combat::ExhaustSelectPurpose::GamblingChip,
+            source_card_id: None,
+            source_card: None,
+            selected_hand_indices: Vec::new(),
+        },
     });
     Ok(())
 }
@@ -2869,8 +2896,7 @@ pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
 pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
     let pile_index = exhaust_select_ui_to_hand_index(state, ui_index)?;
     let purity_cap = state
-        .exhaust_select
-        .as_ref()
+        .exhaust_select()
         .filter(|select| select.purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3)
         .map(|select| {
             let source_card_id = select
@@ -2880,8 +2906,7 @@ pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimRes
         })
         .transpose()?;
     let exhaust_select = state
-        .exhaust_select
-        .as_mut()
+        .exhaust_select_mut()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
     if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
         exhaust_select.selected_hand_indices.clear();
@@ -2912,8 +2937,7 @@ pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimRes
 
 pub fn exhaust_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> SimResult<usize> {
     let exhaust_select = state
-        .exhaust_select
-        .as_ref()
+        .exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
     if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
         return exhumable_ui_to_exhaust_index(state, ui_index);
@@ -2947,7 +2971,7 @@ pub fn exhaust_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> 
 }
 
 fn exhaust_select_visible_hand_indices(state: &CombatState) -> Vec<usize> {
-    let Some(exhaust_select) = state.exhaust_select.as_ref() else {
+    let Some(exhaust_select) = state.exhaust_select() else {
         return Vec::new();
     };
     state
@@ -2962,47 +2986,52 @@ fn exhaust_select_visible_hand_indices(state: &CombatState) -> Vec<usize> {
 
 pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
     let exhaust_select = state
-        .exhaust_select
-        .take()
+        .take_exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
-    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::GamblingChip {
-        return confirm_gambling_chip_select(state, exhaust_select.selected_hand_indices);
-    }
-    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
-        return confirm_exhume_select(state, exhaust_select);
-    }
-    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 {
-        return confirm_purity_select(state, exhaust_select);
-    }
-    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::BurningPactDraw2 {
-        return confirm_burning_pact_select(state, exhaust_select, 2);
-    }
-    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::BurningPactDraw3 {
-        return confirm_burning_pact_select(state, exhaust_select, 3);
-    }
-    if exhaust_select.purpose == crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne {
-        return confirm_true_grit_select(state, exhaust_select);
-    }
-    let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
-    let mut removal_order = selected.clone();
-    removal_order.sort_unstable();
-    for index in &removal_order {
-        if *index >= state.piles.hand.len() {
-            return Err(SimError::IllegalAction("exhaust select index out of range"));
+    match exhaust_select.purpose {
+        crate::combat::ExhaustSelectPurpose::GamblingChip => {
+            confirm_gambling_chip_select(state, exhaust_select.selected_hand_indices)?;
+        }
+        crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand => {
+            confirm_exhume_select(state, exhaust_select)?;
+        }
+        crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 => {
+            confirm_purity_select(state, exhaust_select)?;
+        }
+        crate::combat::ExhaustSelectPurpose::BurningPactDraw2 => {
+            confirm_burning_pact_select(state, exhaust_select, 2)?;
+        }
+        crate::combat::ExhaustSelectPurpose::BurningPactDraw3 => {
+            confirm_burning_pact_select(state, exhaust_select, 3)?;
+        }
+        crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne => {
+            confirm_true_grit_select(state, exhaust_select)?;
+        }
+        crate::combat::ExhaustSelectPurpose::Exhaust => {
+            let selected =
+                unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
+            let mut removal_order = selected.clone();
+            removal_order.sort_unstable();
+            for index in &removal_order {
+                if *index >= state.piles.hand.len() {
+                    return Err(SimError::IllegalAction("exhaust select index out of range"));
+                }
+            }
+            let exhausted = selected
+                .iter()
+                .map(|index| state.piles.hand[*index])
+                .collect::<Vec<_>>();
+            for index in removal_order.into_iter().rev() {
+                state.piles.hand.remove(index);
+            }
+            for card in exhausted {
+                let card_id = card.id;
+                state.piles.exhaust_pile.push(card);
+                apply_on_exhaust_effects(state, card_id);
+            }
         }
     }
-    let exhausted = selected
-        .iter()
-        .map(|index| state.piles.hand[*index])
-        .collect::<Vec<_>>();
-    for index in removal_order.into_iter().rev() {
-        state.piles.hand.remove(index);
-    }
-    for card in exhausted {
-        let card_id = card.id;
-        state.piles.exhaust_pile.push(card);
-        apply_on_exhaust_effects(state, card_id);
-    }
+    state.activate_next_queued_decision_if_idle();
     Ok(())
 }
 
@@ -3188,8 +3217,7 @@ fn purity_select_cap(state: &CombatState, source_card_id: CardId) -> SimResult<u
         .chain(state.piles.discard_pile.iter())
         .chain(
             state
-                .exhaust_select
-                .as_ref()
+                .exhaust_select()
                 .and_then(|select| select.source_card.as_ref()),
         )
         .find(|card| card.id == source_card_id)
@@ -3476,7 +3504,7 @@ mod tests {
         )
         .expect("Armaments should open its hand-select screen");
 
-        assert!(next.hand_select.is_some());
+        assert!(next.hand_select().is_some());
         assert_eq!(
             next.piles
                 .draw_pile
@@ -3485,12 +3513,12 @@ mod tests {
                 .count(),
             0
         );
-        assert_eq!(next.pending_after_hand_select_actions.len(), 1);
+        assert_eq!(next.pending_hand_select_action_count(), 1);
 
         choose_hand_select(&mut next, 0).expect("Strike is selectable");
         confirm_hand_select(&mut next).expect("Armaments selection should resolve");
 
-        assert!(next.pending_after_hand_select_actions.is_empty());
+        assert_eq!(next.pending_hand_select_action_count(), 0);
         assert_eq!(
             next.piles
                 .draw_pile
@@ -4078,14 +4106,14 @@ mod tests {
         let mut next = process_internal_queue(&staged, queue.into())
             .expect("top-draw Burning Pact opens exhaust selection")
             .state;
-        assert!(next.exhaust_select.is_some());
+        assert!(next.exhaust_select().is_some());
         assert_eq!(next.piles.exhaust_pile.len(), 1);
         assert_eq!(next.piles.exhaust_pile[0].content_id, BURNING_PACT_ID);
 
         choose_exhaust_select(&mut next, 0).expect("select Defend");
         confirm_exhaust_select(&mut next).expect("resolve Burning Pact selection");
 
-        assert!(next.exhaust_select.is_none());
+        assert!(next.exhaust_select().is_none());
         assert_eq!(next.piles.hand.len(), 2);
         assert_eq!(next.piles.exhaust_pile.len(), 2);
         assert_eq!(
@@ -4182,8 +4210,8 @@ mod tests {
         assert_eq!(next.player.energy, 2);
         assert_eq!(next.piles.exhaust_pile.len(), 1);
         assert_eq!(next.piles.exhaust_pile[0].content_id, HEADBUTT_ID);
-        assert_eq!(next.discard_select.as_ref().unwrap().source_card_id, None);
-        assert_eq!(next.discard_select.as_ref().unwrap().source_card, None);
+        assert_eq!(next.discard_select().unwrap().source_card_id, None);
+        assert_eq!(next.discard_select().unwrap().source_card, None);
 
         choose_discard_select(&mut next, 0).expect("select Power Through");
         confirm_headbutt_select(&mut next).expect("confirm forced Headbutt selection");
@@ -4262,7 +4290,7 @@ mod tests {
         .expect("Havoc+ should play top-deck True Grit+");
 
         assert_eq!(next.player.block, 9);
-        assert!(next.exhaust_select.is_some());
+        assert!(next.exhaust_select().is_some());
         assert!(next
             .piles
             .exhaust_pile
@@ -4384,8 +4412,7 @@ mod tests {
 
         assert_eq!(
             state
-                .exhaust_select
-                .as_ref()
+                .exhaust_select()
                 .expect("exhaust select")
                 .selected_hand_indices,
             vec![0, 5, 4]

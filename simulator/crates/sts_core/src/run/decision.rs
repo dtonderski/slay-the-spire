@@ -1,6 +1,9 @@
 use crate::{
     action::{CombatAction, EventAction, RestAction},
-    combat::{legal_combat_actions, validate_combat_action, CombatState, ExhaustSelectPurpose},
+    combat::{
+        legal_combat_actions, validate_combat_action, CombatDecisionState, CombatState,
+        ExhaustSelectPurpose,
+    },
     map::MapAction,
     potion::Potion,
     RunPhase, SimError, SimResult,
@@ -217,49 +220,51 @@ fn legal_combat_select_actions_on_run(
     run: &RunState,
     combat: &CombatState,
 ) -> SimResult<Vec<RunAction>> {
-    if let Some(choices) = combat
-        .potion_card_reward
-        .as_ref()
-        .or(combat.toolbox_card_reward.as_ref())
-        .or(combat.discovery_card_reward.as_ref())
-    {
-        let mut candidates = (0..choices.len())
-            .map(|index| RunAction::ChooseCombatCardReward { index })
-            .collect::<Vec<_>>();
-        if combat.potion_card_reward.is_some() {
+    let mut candidates = Vec::new();
+    match combat.decision.as_ref() {
+        Some(CombatDecisionState::PotionCardReward { choices, .. }) => {
+            candidates.extend(
+                (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),
+            );
             candidates.push(RunAction::SkipCombatCardReward);
         }
-        return validated_run_action_candidates(run, candidates);
-    }
-
-    let mut candidates = Vec::new();
-    if combat.hand_select.is_some() {
-        candidates.extend(
-            (0..combat.piles.hand.len()).map(|index| RunAction::ChooseHandSelect { index }),
-        );
-        candidates.push(RunAction::ConfirmHandSelect);
-    }
-    if combat.draw_select.is_some() {
-        candidates.extend(
-            (0..combat.piles.draw_pile.len()).map(|index| RunAction::ChooseDrawSelect { index }),
-        );
-        candidates.push(RunAction::ConfirmDrawSelect);
-    }
-    if combat.discard_select.is_some() {
-        candidates.extend(
-            (0..combat.piles.discard_pile.len())
-                .map(|index| RunAction::ChooseDiscardSelect { index }),
-        );
-        candidates.push(RunAction::ConfirmDiscardSelect);
-    }
-    if let Some(select) = combat.exhaust_select.as_ref() {
-        let choice_count = if select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
-            combat.piles.exhaust_pile.len()
-        } else {
-            combat.piles.hand.len()
-        };
-        candidates.extend((0..choice_count).map(|index| RunAction::ChooseExhaustSelect { index }));
-        candidates.push(RunAction::ConfirmExhaustSelect);
+        Some(CombatDecisionState::ToolboxCardReward { choices })
+        | Some(CombatDecisionState::DiscoveryCardReward { choices, .. }) => {
+            candidates.extend(
+                (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),
+            );
+        }
+        Some(CombatDecisionState::HandSelect { .. }) => {
+            candidates.extend(
+                (0..combat.piles.hand.len()).map(|index| RunAction::ChooseHandSelect { index }),
+            );
+            candidates.push(RunAction::ConfirmHandSelect);
+        }
+        Some(CombatDecisionState::DrawSelect { .. }) => {
+            candidates.extend(
+                (0..combat.piles.draw_pile.len())
+                    .map(|index| RunAction::ChooseDrawSelect { index }),
+            );
+            candidates.push(RunAction::ConfirmDrawSelect);
+        }
+        Some(CombatDecisionState::DiscardSelect { .. }) => {
+            candidates.extend(
+                (0..combat.piles.discard_pile.len())
+                    .map(|index| RunAction::ChooseDiscardSelect { index }),
+            );
+            candidates.push(RunAction::ConfirmDiscardSelect);
+        }
+        Some(CombatDecisionState::ExhaustSelect { state: select }) => {
+            let choice_count = if select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
+                combat.piles.exhaust_pile.len()
+            } else {
+                combat.piles.hand.len()
+            };
+            candidates
+                .extend((0..choice_count).map(|index| RunAction::ChooseExhaustSelect { index }));
+            candidates.push(RunAction::ConfirmExhaustSelect);
+        }
+        None => {}
     }
     validated_run_action_candidates(run, candidates)
 }
@@ -431,11 +436,14 @@ mod tests {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
         let source_card_id = combat.piles.hand[0].id;
-        combat.hand_select = Some(HandSelectState {
-            purpose: HandSelectPurpose::WarcryPutOnDraw,
-            source_card_id,
-            selected_hand_index: None,
-            selected_hand_indices: Vec::new(),
+        combat.decision = Some(CombatDecisionState::HandSelect {
+            state: HandSelectState {
+                purpose: HandSelectPurpose::WarcryPutOnDraw,
+                source_card_id,
+                selected_hand_index: None,
+                selected_hand_indices: Vec::new(),
+            },
+            pending_actions: Default::default(),
         });
 
         let selected = apply_run_decision_action(
@@ -459,10 +467,12 @@ mod tests {
         let combat = run.combat.as_mut().expect("combat fixture");
         let source_card_id = combat.piles.hand[0].id;
         combat.piles.draw_pile = vec![CardInstance::new(CardId::new(900), DEFEND_R_ID)];
-        combat.draw_select = Some(DrawSelectState {
-            purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
-            source_card_id,
-            selected_draw_index: None,
+        combat.decision = Some(CombatDecisionState::DrawSelect {
+            state: DrawSelectState {
+                purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
+                source_card_id,
+                selected_draw_index: None,
+            },
         });
 
         let selected = apply_run_decision_action(

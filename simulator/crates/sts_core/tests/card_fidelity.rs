@@ -710,12 +710,12 @@ fn true_grit_plus_gains_block_then_exhausts_selected_card() {
     )
     .expect("True Grit+ opens exhaust selection");
     assert_eq!(next.player.block, 9);
-    assert!(next.exhaust_select.is_some());
+    assert!(next.exhaust_select().is_some());
 
     choose_exhaust_select(&mut next, 1).expect("select Defend");
     confirm_exhaust_select(&mut next).expect("confirm True Grit+ selection");
 
-    assert!(next.exhaust_select.is_none());
+    assert!(next.exhaust_select().is_none());
     assert_eq!(next.piles.exhaust_pile[0].content_id, cards::DEFEND_R_ID);
     assert_eq!(
         next.piles.discard_pile[0].content_id,
@@ -743,7 +743,7 @@ fn warcry_plus_can_draw_into_the_card_put_on_top() {
     )
     .expect("Warcry+ draws before choosing a card");
 
-    assert!(next.hand_select.is_some());
+    assert!(next.hand_select().is_some());
     let selected_content_id = next
         .piles
         .hand
@@ -754,7 +754,7 @@ fn warcry_plus_can_draw_into_the_card_put_on_top() {
     choose_hand_select(&mut next, 0).expect("select drawn card");
     confirm_hand_select(&mut next).expect("confirm Warcry+ selection");
 
-    assert!(next.hand_select.is_none());
+    assert!(next.hand_select().is_none());
     assert_eq!(
         next.piles
             .draw_pile
@@ -784,7 +784,7 @@ fn warcry_with_no_card_after_draw_exhausts_without_opening_selection() {
     )
     .expect("Warcry plays with no card to put back");
 
-    assert!(next.hand_select.is_none());
+    assert!(next.hand_select().is_none());
     assert!(next.piles.hand.is_empty());
     assert_eq!(next.piles.exhaust_pile[0].content_id, cards::WARCRY_ID);
 }
@@ -810,7 +810,7 @@ fn thinking_ahead_with_no_other_card_draws_without_putting_card_back() {
     )
     .expect("Thinking Ahead plays without a pre-existing card to put back");
 
-    assert!(next.hand_select.is_none());
+    assert!(next.hand_select().is_none());
     assert_eq!(next.piles.hand.len(), 2);
     assert!(next.piles.draw_pile.is_empty());
     assert_eq!(
@@ -843,7 +843,7 @@ fn thinking_ahead_plus_with_no_other_card_draws_and_discards_without_selection()
     )
     .expect("Thinking Ahead+ plays without a pre-existing card to put back");
 
-    assert!(next.hand_select.is_none());
+    assert!(next.hand_select().is_none());
     assert_eq!(next.piles.hand.len(), 2);
     assert!(next.piles.draw_pile.is_empty());
     assert!(next.piles.exhaust_pile.is_empty());
@@ -876,7 +876,7 @@ fn thinking_ahead_plus_can_put_a_drawn_card_on_top_when_pre_hand_was_nonempty() 
     )
     .expect("Thinking Ahead+ opens put-on-draw selection after drawing");
 
-    assert!(next.hand_select.is_some());
+    assert!(next.hand_select().is_some());
     let selected_index = next
         .piles
         .hand
@@ -893,7 +893,7 @@ fn thinking_ahead_plus_can_put_a_drawn_card_on_top_when_pre_hand_was_nonempty() 
     choose_hand_select(&mut next, selected_ui_index).expect("select drawn Defend");
     confirm_hand_select(&mut next).expect("confirm Thinking Ahead+ selection");
 
-    assert!(next.hand_select.is_none());
+    assert!(next.hand_select().is_none());
     assert!(
         next.piles
             .draw_pile
@@ -1064,7 +1064,7 @@ fn armaments_plus_upgrades_all_other_hand_cards_without_selection() {
     .expect("Armaments+ plays without opening hand selection");
 
     assert_eq!(next.player.block, 5);
-    assert!(next.hand_select.is_none());
+    assert!(next.hand_select().is_none());
     assert_eq!(next.piles.hand[0].content_id, cards::STRIKE_R_PLUS_ID);
     assert_eq!(next.piles.hand[1].content_id, cards::DEFEND_R_PLUS_ID);
     assert_eq!(next.piles.discard_pile.len(), 1);
@@ -1321,13 +1321,13 @@ fn burning_pact_plus_exhausts_one_other_card_then_draws_three() {
         },
     )
     .expect("Burning Pact+ opens exhaust selection");
-    assert!(next.exhaust_select.is_some());
+    assert!(next.exhaust_select().is_some());
 
     choose_exhaust_select(&mut next, 0).expect("select the other hand card");
     confirm_exhaust_select(&mut next).expect("confirm Burning Pact+ selection");
 
     assert_eq!(next.player.energy, 0);
-    assert!(next.exhaust_select.is_none());
+    assert!(next.exhaust_select().is_none());
     assert_eq!(next.piles.exhaust_pile.len(), 1);
     assert_eq!(next.piles.exhaust_pile[0].content_id, cards::STRIKE_R_ID);
     assert_eq!(next.piles.hand.len(), 3);
@@ -1782,13 +1782,13 @@ fn dual_wield_plus_creates_two_temporary_copies_and_discards_source() {
         },
     )
     .expect("Dual Wield+ opens hand selection");
-    assert!(next.hand_select.is_some());
+    assert!(next.hand_select().is_some());
 
     choose_hand_select(&mut next, 0).expect("select upgraded Strike");
     confirm_hand_select(&mut next).expect("confirm Dual Wield+ selection");
 
     assert_eq!(next.player.energy, 0);
-    assert!(next.hand_select.is_none());
+    assert!(next.hand_select().is_none());
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(
         next.piles.discard_pile[0].content_id,
@@ -2124,7 +2124,7 @@ fn headbutt_plus_auto_places_single_discard_card_on_draw_pile() {
     )
     .expect("Headbutt+ plays against an enemy");
 
-    assert!(next.discard_select.is_none());
+    assert!(next.discard_select().is_none());
     assert_eq!(next.monsters[0].hp, starting_hp - 12);
     assert_eq!(next.piles.draw_pile.len(), 1);
     assert_eq!(next.piles.draw_pile[0].content_id, cards::DEFEND_R_ID);
@@ -2162,7 +2162,7 @@ fn lethal_headbutt_defers_gremlin_horn_until_after_discard_choice() {
     )
     .expect("Headbutt kills the first monster");
 
-    assert!(selecting.discard_select.is_some());
+    assert!(selecting.discard_select().is_some());
     assert_eq!(selecting.player.energy, 2);
     assert_eq!(selecting.pending_monster_death_relic_triggers, 1);
     assert_eq!(selecting.piles.draw_pile[0].content_id, cards::BASH_ID);
@@ -2170,7 +2170,7 @@ fn lethal_headbutt_defers_gremlin_horn_until_after_discard_choice() {
     choose_discard_select(&mut selecting, 0).expect("select Rampage");
     confirm_headbutt_select(&mut selecting).expect("confirm Headbutt selection");
 
-    assert!(selecting.discard_select.is_none());
+    assert!(selecting.discard_select().is_none());
     assert_eq!(selecting.pending_monster_death_relic_triggers, 0);
     assert_eq!(selecting.player.energy, 3);
     assert_eq!(
@@ -2421,7 +2421,7 @@ fn exhume_plus_is_playable_with_no_exhumable_cards_and_exhausts() {
     )
     .expect("Exhume+ can play with no exhumable cards");
 
-    assert!(next.exhaust_select.is_none());
+    assert!(next.exhaust_select().is_none());
     assert!(next.piles.hand.is_empty());
     assert_eq!(next.piles.exhaust_pile.len(), 1);
     assert_eq!(next.piles.exhaust_pile[0].content_id, cards::EXHUME_PLUS_ID);
@@ -2443,7 +2443,7 @@ fn exhume_plus_auto_returns_the_only_exhumable_card() {
     )
     .expect("Exhume+ auto-returns a sole exhumable card");
 
-    assert!(next.exhaust_select.is_none());
+    assert!(next.exhaust_select().is_none());
     assert_eq!(next.piles.hand.len(), 1);
     assert_eq!(next.piles.hand[0].content_id, cards::WOUND_ID);
     assert_eq!(next.piles.exhaust_pile.len(), 1);
@@ -2851,11 +2851,13 @@ fn discovery_plus_spends_one_energy_and_delays_non_exhausting_source() {
     assert_eq!(next.player.energy, 0);
     assert!(next.piles.hand.is_empty());
     assert!(next.piles.exhaust_pile.is_empty());
-    assert!(next.discovery_card_reward.is_some());
+    assert!(next.discovery_card_reward_choices().is_some());
     assert_eq!(
-        next.discovery_source_card
-            .as_ref()
-            .map(|card| card.content_id),
+        match next.decision.as_ref() {
+            Some(sts_core::CombatDecisionState::DiscoveryCardReward { source_card, .. }) =>
+                source_card.as_ref().map(|card| card.content_id),
+            _ => None,
+        },
         Some(cards::DISCOVERY_PLUS_ID)
     );
 
@@ -2929,7 +2931,7 @@ fn forethought_plays_with_no_other_cards_and_discards_source() {
     )
     .expect("Forethought is playable with no other hand cards");
 
-    assert!(next.hand_select.is_none());
+    assert!(next.hand_select().is_none());
     assert!(next.piles.hand.is_empty());
     assert_eq!(next.piles.draw_pile.len(), 1);
     assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
@@ -2957,7 +2959,7 @@ fn base_forethought_auto_places_only_other_card_on_bottom_of_draw_pile() {
     )
     .expect("base Forethought auto-moves the only other hand card");
 
-    assert!(next.hand_select.is_none());
+    assert!(next.hand_select().is_none());
     assert!(next.piles.hand.is_empty());
     assert_eq!(next.piles.draw_pile.len(), 2);
     assert_eq!(next.piles.draw_pile[0].content_id, cards::BASH_ID);
@@ -3803,7 +3805,7 @@ fn top_draw_purity_plus_exhausts_up_to_five_hand_cards() {
 
     let mut next = apply_play_top_draw_card_action(&state, None)
         .expect("top-draw Purity+ opens exhaust selection");
-    assert!(next.exhaust_select.is_some());
+    assert!(next.exhaust_select().is_some());
 
     for _ in 0..5 {
         choose_exhaust_select(&mut next, 0).expect("select next hand card");
@@ -3817,7 +3819,7 @@ fn top_draw_purity_plus_exhausts_up_to_five_hand_cards() {
         .exhaust_pile
         .iter()
         .any(|card| card.content_id == cards::PURITY_PLUS_ID));
-    assert!(next.exhaust_select.is_none());
+    assert!(next.exhaust_select().is_none());
 }
 
 #[test]
@@ -3841,7 +3843,7 @@ fn hand_played_purity_source_is_hidden_until_confirm() {
     )
     .expect("hand-played Purity opens exhaust selection");
 
-    assert!(next.exhaust_select.is_some());
+    assert!(next.exhaust_select().is_some());
     assert!(
         next.piles.exhaust_pile.is_empty(),
         "hand-played Purity stays out of the visible exhaust pile until selection is confirmed"
@@ -3956,7 +3958,7 @@ fn top_draw_secret_technique_fetches_skill_and_exhausts_source() {
 
     let mut next = apply_play_top_draw_card_action(&state, None)
         .expect("top-draw Secret Technique opens draw selection");
-    assert!(next.draw_select.is_some());
+    assert!(next.draw_select().is_some());
 
     choose_draw_select(&mut next, 0).expect("select Defend skill");
     confirm_draw_select(&mut next).expect("confirm Secret Technique draw selection");
@@ -3971,7 +3973,7 @@ fn top_draw_secret_technique_fetches_skill_and_exhausts_source() {
         next.piles.exhaust_pile[0].content_id,
         cards::SECRET_TECHNIQUE_ID
     );
-    assert!(next.draw_select.is_none());
+    assert!(next.draw_select().is_none());
 }
 
 #[test]
@@ -3988,7 +3990,7 @@ fn top_draw_secret_weapon_plus_fetches_attack_and_discards_source() {
 
     let mut next = apply_play_top_draw_card_action(&state, None)
         .expect("top-draw Secret Weapon+ opens draw selection");
-    assert!(next.draw_select.is_some());
+    assert!(next.draw_select().is_some());
 
     choose_draw_select(&mut next, 0).expect("select Strike attack");
     confirm_draw_select(&mut next).expect("confirm Secret Weapon+ draw selection");
@@ -4003,7 +4005,7 @@ fn top_draw_secret_weapon_plus_fetches_attack_and_discards_source() {
         cards::SECRET_WEAPON_PLUS_ID
     );
     assert!(next.piles.exhaust_pile.is_empty());
-    assert!(next.draw_select.is_none());
+    assert!(next.draw_select().is_none());
 }
 
 #[test]

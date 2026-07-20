@@ -1,7 +1,7 @@
 use sts_core::{
     apply_combat_action,
     card::CardInstance,
-    combat::{DrawSelectPurpose, DrawSelectState, HandSelectState},
+    combat::{CombatDecisionState, DrawSelectPurpose, DrawSelectState, HandSelectState},
     content::cards,
     content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
@@ -207,24 +207,53 @@ fn nonpositive_monster_max_hp_fails_before_action_execution() {
 }
 
 #[test]
-fn multiple_active_combat_decisions_fail_validation() {
+fn combat_decisions_have_one_active_value_and_an_ordered_queue() {
     let mut state = CombatState::initial_fixture();
-    state.hand_select = Some(HandSelectState {
-        purpose: Default::default(),
-        source_card_id: state.piles.hand[0].id,
-        selected_hand_index: None,
-        selected_hand_indices: Vec::new(),
+    let source_card_id = state.piles.hand[0].id;
+    state.decision = Some(CombatDecisionState::HandSelect {
+        state: HandSelectState {
+            purpose: Default::default(),
+            source_card_id,
+            selected_hand_index: None,
+            selected_hand_indices: Vec::new(),
+        },
+        pending_actions: Default::default(),
     });
-    state.draw_select = Some(DrawSelectState {
-        purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
-        source_card_id: state.piles.hand[0].id,
-        selected_draw_index: None,
-    });
+    state
+        .queued_decisions
+        .push_back(CombatDecisionState::DrawSelect {
+            state: DrawSelectState {
+                purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
+                source_card_id,
+                selected_draw_index: None,
+            },
+        });
+
+    state
+        .validate()
+        .expect("one active decision and its queue validate");
+    assert!(state.hand_select().is_some());
+    assert_eq!(state.queued_decisions.len(), 1);
+}
+
+#[test]
+fn queued_combat_decision_without_active_predecessor_fails_validation() {
+    let mut state = CombatState::initial_fixture();
+    let source_card_id = state.piles.hand[0].id;
+    state
+        .queued_decisions
+        .push_back(CombatDecisionState::DrawSelect {
+            state: DrawSelectState {
+                purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
+                source_card_id,
+                selected_draw_index: None,
+            },
+        });
 
     assert_eq!(
         state.validate(),
         Err(SimError::InvalidState(
-            "multiple combat decisions are active"
+            "queued combat decision has no active predecessor"
         ))
     );
 }

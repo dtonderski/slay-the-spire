@@ -31,10 +31,10 @@ use sts_core::{
     generate_target_map_choices_after_path, generate_target_map_topology,
     legal_run_decision_actions, open_neow_reward_grid, shop_action_for_choice_index,
     target_room_kinds_on_path, Act1Boss, Act3Boss, CardGridScreen, CardId, CardInstance,
-    CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, GeneratedNeowOption,
-    GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState, NeowDrawback, NeowRewardType,
-    Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase,
-    RunState, ShopPick, TargetMapAct,
+    CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventAction,
+    GeneratedNeowOption, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState,
+    NeowDrawback, NeowRewardType, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
+    RunDecisionAction, RunPhase, RunState, ShopPick, TargetMapAct,
 };
 
 #[cfg(test)]
@@ -8493,11 +8493,9 @@ fn seed_start_simulated_combat_subset(run: &RunState, end_turn_snapshot: bool) -
 }
 
 fn seed_start_run_has_combat_card_reward(run: &RunState) -> bool {
-    run.combat.as_ref().is_some_and(|combat| {
-        combat.potion_card_reward.is_some()
-            || combat.discovery_card_reward.is_some()
-            || combat.toolbox_card_reward.is_some()
-    })
+    run.combat
+        .as_ref()
+        .is_some_and(|combat| combat.combat_card_reward_choices().is_some())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8515,29 +8513,15 @@ fn seed_start_active_combat_decision(
     let Some(combat) = run.combat.as_ref() else {
         return Ok(None);
     };
-    let mut decisions = Vec::new();
-    if seed_start_run_has_combat_card_reward(run) {
-        decisions.push(SeedStartCombatDecision::CardReward);
-    }
-    if combat.hand_select.is_some() {
-        decisions.push(SeedStartCombatDecision::HandSelect);
-    }
-    if combat.draw_select.is_some() {
-        decisions.push(SeedStartCombatDecision::DrawSelect);
-    }
-    if combat.discard_select.is_some() {
-        decisions.push(SeedStartCombatDecision::DiscardSelect);
-    }
-    if combat.exhaust_select.is_some() {
-        decisions.push(SeedStartCombatDecision::ExhaustSelect);
-    }
-    match decisions.as_slice() {
-        [] => Ok(None),
-        [decision] => Ok(Some(*decision)),
-        _ => Err(format!(
-            "combat exposes multiple authoritative decisions: {decisions:?}"
-        )),
-    }
+    Ok(combat.decision.as_ref().map(|decision| match decision {
+        CombatDecisionState::PotionCardReward { .. }
+        | CombatDecisionState::ToolboxCardReward { .. }
+        | CombatDecisionState::DiscoveryCardReward { .. } => SeedStartCombatDecision::CardReward,
+        CombatDecisionState::HandSelect { .. } => SeedStartCombatDecision::HandSelect,
+        CombatDecisionState::DrawSelect { .. } => SeedStartCombatDecision::DrawSelect,
+        CombatDecisionState::DiscardSelect { .. } => SeedStartCombatDecision::DiscardSelect,
+        CombatDecisionState::ExhaustSelect { .. } => SeedStartCombatDecision::ExhaustSelect,
+    }))
 }
 
 fn seed_start_bind_combat_decision_command(
@@ -8654,7 +8638,7 @@ fn seed_start_simulated_combat_subset_with_options(
                 .iter()
                 .enumerate()
                 .filter(|(index, card)| {
-                    let hidden_by_hand_select = combat.hand_select.as_ref().is_some_and(|hand_select| {
+                    let hidden_by_hand_select = combat.hand_select().is_some_and(|hand_select| {
                         card.id == hand_select.source_card_id
                             || hand_select.selected_hand_index == Some(*index)
                             || (hand_select.purpose == HandSelectPurpose::ArmamentsUpgrade
@@ -8665,8 +8649,7 @@ fn seed_start_simulated_combat_subset_with_options(
                                 }))
                     });
                     let hidden_by_exhaust_select = combat
-                        .exhaust_select
-                        .as_ref()
+                        .exhaust_select()
                         .is_some_and(|exhaust_select| exhaust_select.selected_hand_indices.contains(index));
                     !hidden_by_hand_select && !hidden_by_exhaust_select
                 })
@@ -8681,12 +8664,7 @@ fn seed_start_simulated_combat_subset_with_options(
             monster_intents_visible,
         ),
     });
-    if let Some(choices) = combat
-        .potion_card_reward
-        .as_ref()
-        .or(combat.discovery_card_reward.as_ref())
-        .or(combat.toolbox_card_reward.as_ref())
-    {
+    if let Some(choices) = combat.combat_card_reward_choices() {
         if let Value::Object(map) = &mut subset {
             map.insert(
                 "card_reward_ids".to_owned(),
@@ -8703,23 +8681,18 @@ fn seed_start_simulated_combat_subset_with_options(
 fn seed_start_simulated_combat_screen_type(combat: &CombatState) -> &'static str {
     if combat.phase == CombatPhase::Lost {
         "GAME_OVER"
-    } else if combat.potion_card_reward.is_some()
-        || combat.discovery_card_reward.is_some()
-        || combat.toolbox_card_reward.is_some()
-    {
+    } else if combat.combat_card_reward_choices().is_some() {
         "CARD_REWARD"
-    } else if combat.hand_select.is_some()
+    } else if combat.hand_select().is_some()
         || combat
-            .exhaust_select
-            .as_ref()
+            .exhaust_select()
             .is_some_and(|select| select.purpose != ExhaustSelectPurpose::ExhumeReturnToHand)
     {
         "HAND_SELECT"
-    } else if combat.draw_select.is_some()
-        || combat.discard_select.is_some()
+    } else if combat.draw_select().is_some()
+        || combat.discard_select().is_some()
         || combat
-            .exhaust_select
-            .as_ref()
+            .exhaust_select()
             .is_some_and(|select| select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand)
     {
         "GRID"
@@ -12427,11 +12400,14 @@ mod tests {
             CardInstance::new(CardId::new(3), DEFEND_R_ID),
             CardInstance::new(CardId::new(4), COMBUST_ID),
         ];
-        combat.hand_select = Some(sts_core::combat::HandSelectState {
-            purpose: HandSelectPurpose::DualWieldCopy,
-            source_card_id: CardId::new(2),
-            selected_hand_index: None,
-            selected_hand_indices: Vec::new(),
+        combat.decision = Some(CombatDecisionState::HandSelect {
+            state: sts_core::combat::HandSelectState {
+                purpose: HandSelectPurpose::DualWieldCopy,
+                source_card_id: CardId::new(2),
+                selected_hand_index: None,
+                selected_hand_indices: Vec::new(),
+            },
+            pending_actions: Default::default(),
         });
         run.combat = Some(combat);
         let projected = seed_start_simulated_combat_subset(&run, false);
@@ -15551,7 +15527,9 @@ mod tests {
         );
         combat.phase = CombatPhase::WaitingForPlayer;
 
-        combat.toolbox_card_reward = Some(vec![CardInstance::new(source_card_id, STRIKE_R_ID)]);
+        combat.decision = Some(CombatDecisionState::ToolboxCardReward {
+            choices: vec![CardInstance::new(source_card_id, STRIKE_R_ID)],
+        });
         assert_eq!(
             seed_start_simulated_combat_screen_type(&combat),
             "CARD_REWARD"
@@ -15564,37 +15542,43 @@ mod tests {
             toolbox_subset["card_reward_ids"],
             json!([STRIKE_R_ID.get()])
         );
-        combat.toolbox_card_reward = None;
+        combat.decision = None;
 
-        combat.exhaust_select = Some(ExhaustSelectState {
-            purpose: ExhaustSelectPurpose::BurningPactDraw2,
-            source_card_id: Some(source_card_id),
-            source_card: None,
-            selected_hand_indices: Vec::new(),
+        combat.decision = Some(CombatDecisionState::ExhaustSelect {
+            state: ExhaustSelectState {
+                purpose: ExhaustSelectPurpose::BurningPactDraw2,
+                source_card_id: Some(source_card_id),
+                source_card: None,
+                selected_hand_indices: Vec::new(),
+            },
         });
         assert_eq!(
             seed_start_simulated_combat_screen_type(&combat),
             "HAND_SELECT"
         );
-        combat.exhaust_select.as_mut().unwrap().purpose = ExhaustSelectPurpose::ExhumeReturnToHand;
+        combat.exhaust_select_mut().unwrap().purpose = ExhaustSelectPurpose::ExhumeReturnToHand;
         assert_eq!(seed_start_simulated_combat_screen_type(&combat), "GRID");
-        combat.exhaust_select = None;
+        combat.decision = None;
 
-        combat.draw_select = Some(DrawSelectState {
-            purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
-            source_card_id,
-            selected_draw_index: None,
+        combat.decision = Some(CombatDecisionState::DrawSelect {
+            state: DrawSelectState {
+                purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
+                source_card_id,
+                selected_draw_index: None,
+            },
         });
         assert_eq!(seed_start_simulated_combat_screen_type(&combat), "GRID");
-        combat.draw_select = None;
+        combat.decision = None;
 
-        combat.discard_select = Some(DiscardSelectState {
-            purpose: DiscardSelectPurpose::HeadbuttPutOnDraw,
-            source_card_id: Some(source_card_id),
-            source_card: None,
-            selected_discard_indices: Vec::new(),
-            max_choices: 1,
-            selected_discard_index: None,
+        combat.decision = Some(CombatDecisionState::DiscardSelect {
+            state: DiscardSelectState {
+                purpose: DiscardSelectPurpose::HeadbuttPutOnDraw,
+                source_card_id: Some(source_card_id),
+                source_card: None,
+                selected_discard_indices: Vec::new(),
+                max_choices: 1,
+                selected_discard_index: None,
+            },
         });
         assert_eq!(seed_start_simulated_combat_screen_type(&combat), "GRID");
 
@@ -15621,15 +15605,21 @@ mod tests {
             Ok((RunAction::ConfirmDrawSelect, "draw select confirm"))
         ));
 
-        run.combat.as_mut().expect("combat").draw_select = Some(DrawSelectState {
-            purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
-            source_card_id,
-            selected_draw_index: None,
-        });
-        let error = seed_start_active_combat_decision(&run)
-            .expect_err("multiple decisions must fail closed");
-        assert!(error.contains("DrawSelect"), "{error}");
-        assert!(error.contains("DiscardSelect"), "{error}");
+        run.combat
+            .as_mut()
+            .expect("combat")
+            .queued_decisions
+            .push_back(CombatDecisionState::DrawSelect {
+                state: DrawSelectState {
+                    purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
+                    source_card_id,
+                    selected_draw_index: None,
+                },
+            });
+        assert_eq!(
+            seed_start_active_combat_decision(&run).expect("active decision remains unique"),
+            Some(SeedStartCombatDecision::DiscardSelect)
+        );
     }
 
     #[test]
@@ -15667,11 +15657,14 @@ mod tests {
 
         let mut run = RunState::map_fixture();
         let mut combat = run.init_combat(CombatState::initial_fixture());
-        combat.discovery_card_reward = Some(vec![
-            CardInstance::new(CardId::new(100), SHRUG_IT_OFF_ID),
-            CardInstance::new(CardId::new(101), PUMMEL_ID),
-            CardInstance::new(CardId::new(102), SEARING_BLOW_ID),
-        ]);
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![
+                CardInstance::new(CardId::new(100), SHRUG_IT_OFF_ID),
+                CardInstance::new(CardId::new(101), PUMMEL_ID),
+                CardInstance::new(CardId::new(102), SEARING_BLOW_ID),
+            ],
+            source_card: None,
+        });
         run.combat = Some(combat);
 
         let subset = seed_start_simulated_combat_subset(&run, false);
