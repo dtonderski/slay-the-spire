@@ -627,15 +627,25 @@ impl RunState {
         if self.shop_merchant_open && self.shop.is_none() {
             return Err(SimError::InvalidState("open merchant has no shop screen"));
         }
-        if self.phase == RunPhase::Reward && self.reward.is_none() && self.card_grid.is_none() {
-            return Err(SimError::InvalidState(
-                "reward phase has no reward or card grid",
-            ));
-        }
-        if self.phase == RunPhase::Event && self.event.is_none() && self.card_grid.is_none() {
-            return Err(SimError::InvalidState(
-                "event phase has no event or card grid",
-            ));
+        match self.phase {
+            RunPhase::Reward if self.reward.is_none() => {
+                return Err(SimError::InvalidState("reward phase has no reward screen"));
+            }
+            RunPhase::Event if self.event.is_none() => {
+                return Err(SimError::InvalidState("event phase has no event screen"));
+            }
+            RunPhase::Shop if self.shop.is_none() => {
+                return Err(SimError::InvalidState("shop phase has no shop screen"));
+            }
+            RunPhase::Treasure
+                if self.treasure_room.is_none()
+                    && self.current_room_kind() != Some(RoomKind::Boss) =>
+            {
+                return Err(SimError::InvalidState(
+                    "treasure phase has no treasure room",
+                ));
+            }
+            _ => {}
         }
 
         if self.potions.len() + self.empty_potion_slots.len() > self.potion_capacity() {

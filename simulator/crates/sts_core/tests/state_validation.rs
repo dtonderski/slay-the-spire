@@ -5,8 +5,8 @@ use sts_core::{
     content::cards,
     content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
-    enter_reward_screen, CardId, CombatAction, CombatState, ContentId, MonsterId, MonsterIntent,
-    RunPhase, RunState, SimError,
+    enter_reward_screen, CardGridScreen, CardId, CombatAction, CombatState, ContentId, GridPurpose,
+    MonsterId, MonsterIntent, RunPhase, RunState, SimError,
 };
 
 #[test]
@@ -198,6 +198,54 @@ fn run_phase_ownership_is_validated() {
         run.validate(),
         Err(SimError::InvalidState(
             "combat state exists outside combat phase"
+        ))
+    );
+}
+
+#[test]
+fn overlay_state_cannot_replace_the_required_phase_owner() {
+    let mut reward = RunState::map_fixture();
+    reward.phase = RunPhase::Reward;
+    reward.card_grid = Some(CardGridScreen {
+        cards: reward.deck.clone(),
+        purpose: GridPurpose::EmptyCage { remaining: 2 },
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+    assert_eq!(
+        reward.validate(),
+        Err(SimError::InvalidState("reward phase has no reward screen"))
+    );
+
+    let mut event = RunState::map_fixture();
+    event.phase = RunPhase::Event;
+    event.card_grid = Some(CardGridScreen {
+        cards: event.deck.clone(),
+        purpose: GridPurpose::EventRemove,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+    assert_eq!(
+        event.validate(),
+        Err(SimError::InvalidState("event phase has no event screen"))
+    );
+}
+
+#[test]
+fn screen_backed_phases_require_their_authoritative_state() {
+    let mut shop = RunState::map_fixture();
+    shop.phase = RunPhase::Shop;
+    assert_eq!(
+        shop.validate(),
+        Err(SimError::InvalidState("shop phase has no shop screen"))
+    );
+
+    let mut treasure = RunState::map_fixture();
+    treasure.phase = RunPhase::Treasure;
+    assert_eq!(
+        treasure.validate(),
+        Err(SimError::InvalidState(
+            "treasure phase has no treasure room"
         ))
     );
 }

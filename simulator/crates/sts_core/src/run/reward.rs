@@ -2368,6 +2368,7 @@ mod tests {
     #[test]
     fn boss_calling_bell_relics_return_to_treasure_proceed() {
         let mut run = RunState::placeholder_seeded_ironclad(7, 0);
+        run.current_room_override = Some(RoomKind::Boss);
         run.boss_chest_opened = true;
         enter_calling_bell_reward_screen(&mut run);
 

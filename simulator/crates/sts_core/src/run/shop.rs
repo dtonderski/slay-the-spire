@@ -551,7 +551,7 @@ pub fn shop_choice_labels(run: &RunState) -> Vec<String> {
 
 #[must_use]
 pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
-    if run.phase != RunPhase::Shop {
+    if run.phase != RunPhase::Shop || run.shop.is_none() {
         return Vec::new();
     }
 
@@ -814,21 +814,24 @@ mod tests {
     }
 
     #[test]
-    fn missing_shop_inventory_does_not_expose_room_proceed() {
+    fn missing_shop_inventory_is_invalid_and_exposes_no_actions() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Shop;
         run.shop = None;
         run.shop_merchant_open = false;
 
-        assert_eq!(legal_shop_actions(&run), vec![RunAction::EnterShop]);
-        assert!(validate_shop_action(&run, RunAction::Proceed).is_err());
+        assert!(legal_shop_actions(&run).is_empty());
+        assert_eq!(
+            validate_shop_action(&run, RunAction::EnterShop),
+            Err(SimError::InvalidState("shop phase has no shop screen"))
+        );
     }
 
     #[test]
     fn leaving_merchant_preserves_inventory_until_shop_room_exit() {
         let mut run = RunState::map_fixture();
-        run.phase = RunPhase::Shop;
         run.gold = 999;
+        enter_shop_room(&mut run);
 
         let opened = apply_shop_action(&run, RunAction::EnterShop).expect("shop opens");
         assert!(opened.shop_merchant_open);

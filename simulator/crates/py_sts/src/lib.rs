@@ -1544,6 +1544,22 @@ mod tests {
     }
 
     #[test]
+    fn run_snapshot_with_missing_phase_owner_is_rejected() {
+        pyo3::Python::initialize();
+        let env = PyOmniRunEnv::map_fixture();
+        let mut snapshot: serde_json::Value =
+            serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
+        snapshot["state"]["phase"] = serde_json::Value::String("Shop".to_owned());
+        snapshot["state"]["shop"] = serde_json::Value::Null;
+
+        let error = PyOmniRunEnv::from_snapshot_json(&snapshot.to_string())
+            .err()
+            .expect("missing authoritative screen must fail");
+
+        assert!(error.to_string().contains("shop phase has no shop screen"));
+    }
+
+    #[test]
     fn schema_one_run_snapshot_migrates_when_state_is_valid() {
         let env = PyOmniRunEnv::map_fixture();
         let mut snapshot: serde_json::Value =
