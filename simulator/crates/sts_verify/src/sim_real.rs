@@ -4441,7 +4441,7 @@ fn verify_seed_start_transitions(
                     })
                 })
                 .flatten();
-                let next = seed_start_apply_grid_command(sim, command, &post.message);
+                let next = seed_start_apply_grid_command(sim, command);
                 let Ok(next) = next else {
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -8549,24 +8549,11 @@ fn post_potion_count(message: &Value) -> usize {
         .unwrap_or(0)
 }
 
-fn seed_start_apply_grid_command(
-    sim: &RunState,
-    command: &str,
-    post_message: &Value,
-) -> Result<RunState, String> {
+fn seed_start_apply_grid_command(sim: &RunState, command: &str) -> Result<RunState, String> {
     if command_head_eq(command, "CHOOSE") {
         let index = choose_index(command)
             .ok_or_else(|| format!("malformed grid CHOOSE command {command:?}"))?;
-        let mut next = select_grid_card(sim, index).map_err(|err| err.to_string())?;
-
-        // Multi-select grids such as Augmenter's two-card transform close as
-        // soon as the final card is picked; CommunicationMod emits no separate
-        // CONFIRM. The observed screen transition is the authoritative signal
-        // that the game auto-confirmed the selection.
-        if screen_type(post_message) != Some("GRID") && next.card_grid.is_some() {
-            next = confirm_grid(&next).map_err(|err| err.to_string())?;
-        }
-        Ok(next)
+        select_grid_card(sim, index).map_err(|err| err.to_string())
     } else if command.eq_ignore_ascii_case("CONFIRM") {
         confirm_grid(sim).map_err(|err| err.to_string())
     } else if command.eq_ignore_ascii_case("CANCEL") {
@@ -13439,7 +13426,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_event_grid_auto_confirms_drug_dealer_transform_transiently() {
+    fn seed_start_event_grid_requires_explicit_confirm_after_final_selection() {
         let mut run = RunState::placeholder_seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(EventScreen {
@@ -13461,15 +13448,16 @@ mod tests {
         let original_deck_len = run.deck.len();
         let opened = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
             .expect("Drug Dealer transform grid opens");
-        let grid_post = json!({"game_state": {"screen_type": "GRID"}});
-        let event_post = json!({"game_state": {"screen_type": "EVENT"}});
-
-        let after_first = seed_start_apply_grid_command(&opened, "CHOOSE 0", &grid_post)
-            .expect("first source is selected");
+        let after_first =
+            seed_start_apply_grid_command(&opened, "CHOOSE 0").expect("first source is selected");
         assert!(after_first.card_grid.is_some());
 
-        let completed = seed_start_apply_grid_command(&after_first, "CHOOSE 1", &event_post)
-            .expect("second source auto-confirms the live grid");
+        let after_second = seed_start_apply_grid_command(&after_first, "CHOOSE 1")
+            .expect("second source is selected");
+        assert!(after_second.card_grid.is_some());
+
+        let completed = seed_start_apply_grid_command(&after_second, "CONFIRM")
+            .expect("explicit confirmation resolves the grid");
         assert!(completed.card_grid.is_none());
         assert_eq!(completed.deck.len(), original_deck_len);
         assert_eq!(completed.phase, RunPhase::Event);
