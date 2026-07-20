@@ -763,6 +763,10 @@ impl RunState {
             _ => {}
         }
 
+        if let Some(screen) = &self.event {
+            super::event::validate_event_screen_authority(screen)?;
+        }
+
         match (&self.event, &self.match_and_keep) {
             (Some(screen), Some(state)) if screen.event == super::event::Event::MatchAndKeep => {
                 for card in &state.cards {

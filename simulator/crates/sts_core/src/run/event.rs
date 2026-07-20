@@ -408,16 +408,20 @@ fn dead_adventurer_event_data(order: [u8; 3], enemy: u8, attempts: u8) -> u32 {
         | (u32::from(attempts) << 8)
 }
 
-fn dead_adventurer_order(event_data: u32) -> [u8; 3] {
-    if event_data == 0 {
-        [0, 1, 2]
-    } else {
-        [
-            (event_data & 0b11) as u8,
-            ((event_data >> 2) & 0b11) as u8,
-            ((event_data >> 4) & 0b11) as u8,
-        ]
+fn dead_adventurer_order(event_data: u32) -> SimResult<[u8; 3]> {
+    let order = [
+        (event_data & 0b11) as u8,
+        ((event_data >> 2) & 0b11) as u8,
+        ((event_data >> 4) & 0b11) as u8,
+    ];
+    let mut sorted = order;
+    sorted.sort_unstable();
+    if sorted != [0, 1, 2] {
+        return Err(SimError::InvalidState(
+            "Dead Adventurer reward order is invalid",
+        ));
     }
+    Ok(order)
 }
 
 fn dead_adventurer_enemy(event_data: u32) -> u8 {
@@ -432,6 +436,38 @@ const DEAD_ADVENTURER_PENDING_ENCOUNTER: u32 = 1 << 10;
 
 fn dead_adventurer_pending_encounter(event_data: u32) -> bool {
     event_data & DEAD_ADVENTURER_PENDING_ENCOUNTER != 0
+}
+
+pub(super) fn validate_event_screen_authority(screen: &EventScreen) -> SimResult<()> {
+    if screen.event != Event::DeadAdventurer {
+        return Ok(());
+    }
+    if screen.event_data & !0x7ff != 0 {
+        return Err(SimError::InvalidState(
+            "Dead Adventurer event data has unknown bits",
+        ));
+    }
+    if screen.stage > 3 {
+        return Err(SimError::InvalidState("Dead Adventurer stage is invalid"));
+    }
+    dead_adventurer_order(screen.event_data)?;
+    if dead_adventurer_enemy(screen.event_data) > 2 {
+        return Err(SimError::InvalidState(
+            "Dead Adventurer enemy identity is invalid",
+        ));
+    }
+    let attempts = dead_adventurer_attempts(screen.event_data);
+    if screen.stage == 0 && attempts >= 3 {
+        return Err(SimError::InvalidState(
+            "Dead Adventurer search stage has no rewards remaining",
+        ));
+    }
+    if screen.stage == 2 && attempts == 0 {
+        return Err(SimError::InvalidState(
+            "Dead Adventurer continuation has no completed search",
+        ));
+    }
+    Ok(())
 }
 
 fn dead_adventurer_encounter_chance(run: &RunState, attempts: u8) -> i32 {
@@ -2989,14 +3025,18 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let encounter = misc_rng.random_int(99) < encounter_chance;
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
                 let event_data = dead_adventurer_event_data(
-                    dead_adventurer_order(screen.event_data),
+                    dead_adventurer_order(screen.event_data)?,
                     dead_adventurer_enemy(screen.event_data),
                     attempts + 1,
                 );
                 if encounter {
                     next.event = Some(dead_adventurer_screen(&next, 3, event_data));
                 } else {
-                    let reward = dead_adventurer_order(screen.event_data)[attempts as usize];
+                    let reward = *dead_adventurer_order(screen.event_data)?
+                        .get(attempts as usize)
+                        .ok_or(SimError::InvalidState(
+                            "Dead Adventurer search attempts exceed reward count",
+                        ))?;
                     match reward {
                         0 => next.gain_gold(30),
                         2 => {
@@ -3022,8 +3062,11 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     next.event = Some(dead_adventurer_screen(&next, 3, screen.event_data));
                 } else {
                     let attempts = dead_adventurer_attempts(screen.event_data);
-                    let reward = dead_adventurer_order(screen.event_data)
-                        [attempts.saturating_sub(1) as usize];
+                    let reward = *dead_adventurer_order(screen.event_data)?
+                        .get(attempts.saturating_sub(1) as usize)
+                        .ok_or(SimError::InvalidState(
+                            "Dead Adventurer continuation attempts exceed reward count",
+                        ))?;
                     match reward {
                         0 => next.gain_gold(30),
                         2 => {
@@ -6262,7 +6305,8 @@ mod tests {
             }
         }
         run.misc_rng_counter = search_counter.expect("a non-encounter RNG draw exists");
-        run.event = Some(dead_adventurer_screen(&run, 0, 0));
+        let event_data = dead_adventurer_event_data([0, 1, 2], 0, 0);
+        run.event = Some(dead_adventurer_screen(&run, 0, event_data));
 
         let after_search = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("Dead Adventurer search applies");
@@ -6276,6 +6320,35 @@ mod tests {
         assert_eq!(
             dead_adventurer_attempts(after_search.event.as_ref().expect("event").event_data),
             1
+        );
+    }
+
+    #[test]
+    fn dead_adventurer_missing_packed_state_fails_closed() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(dead_adventurer_screen(&run, 0, 0));
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "Dead Adventurer reward order is invalid"
+            ))
+        );
+        assert_eq!(
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }),
+            Err(SimError::InvalidState(
+                "Dead Adventurer reward order is invalid"
+            ))
+        );
+
+        let event_data = dead_adventurer_event_data([0, 1, 2], 3, 0);
+        run.event = Some(dead_adventurer_screen(&run, 0, event_data));
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "Dead Adventurer enemy identity is invalid"
+            ))
         );
     }
 
