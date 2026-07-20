@@ -418,6 +418,7 @@ fn power_through_plus_adds_two_generated_wounds_then_gains_twenty_block() {
             .hand
             .push(CardInstance::new(CardId::new(id), cards::STRIKE_R_ID));
     }
+    state.piles.draw_pile.clear();
     state.piles.discard_pile.clear();
 
     let next = apply_combat_action(
@@ -961,7 +962,9 @@ fn the_bomb_plus_arms_three_turn_fifty_damage_timer() {
         monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
     ];
     state.monsters[0].hp = 60;
+    state.monsters[0].max_hp = 60;
     state.monsters[1].hp = 70;
+    state.monsters[1].max_hp = 70;
 
     let mut next = apply_combat_action(
         &state,
@@ -1006,8 +1009,6 @@ fn violence_plus_draws_four_attacks_from_draw_pile_and_exhausts() {
 
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
-    state.card_random_rng = None;
-    state.shuffle_rng = None;
     state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::VIOLENCE_PLUS_ID)];
     state.piles.draw_pile = vec![
         CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
@@ -1880,6 +1881,7 @@ fn second_wind_plus_gains_block_once_per_exhausted_non_attack_card() {
         CardInstance::new(CardId::new(3), cards::BASH_ID),
         CardInstance::new(CardId::new(4), cards::WOUND_ID),
     ];
+    state.piles.draw_pile.clear();
     state.piles.exhaust_pile.clear();
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
     let starting_hp = state.monsters[0].hp;
@@ -1920,6 +1922,7 @@ fn sever_soul_plus_exhausts_non_attacks_before_dealing_damage() {
         CardInstance::new(CardId::new(3), cards::BASH_ID),
         CardInstance::new(CardId::new(4), cards::WOUND_ID),
     ];
+    state.piles.draw_pile.clear();
     state.piles.exhaust_pile.clear();
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
     let starting_hp = state.monsters[0].hp;

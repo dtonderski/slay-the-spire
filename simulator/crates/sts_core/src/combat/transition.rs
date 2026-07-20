@@ -81,10 +81,12 @@ pub fn apply_combat_action_with_events(
 ) -> SimResult<CombatTransition> {
     validate_combat_action(state, action)?;
 
-    match action {
+    let transition = match action {
         CombatAction::PlayCard { card_id, target } => apply_play_card(state, card_id, target),
         CombatAction::EndTurn => Ok(apply_end_turn(state)),
-    }
+    }?;
+    transition.state.validate()?;
+    Ok(transition)
 }
 
 fn apply_end_turn(state: &CombatState) -> CombatTransition {
@@ -1200,7 +1202,7 @@ fn apply_internal_action(
         }
         InternalAction::CopyHandCardToHand { card_id } => {
             let card = find_hand_card(state, card_id)?;
-            let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+            let next_id = CardId::new(state.next_card_instance_id());
             state
                 .piles
                 .hand
@@ -1935,7 +1937,7 @@ fn apply_unceasing_top_after_hand_emptied(state: &mut CombatState) {
 }
 
 fn add_card_to_pile(state: &mut CombatState, content_id: ContentId, to: CardPile) {
-    let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+    let next_id = CardId::new(state.next_card_instance_id());
     let card = CardInstance::new(next_id, content_id);
     push_card_to_pile(state, card, to);
 }
@@ -1947,7 +1949,7 @@ fn add_generated_card_to_pile(
     temp_cost: Option<u8>,
     temp_cost_turn_only: bool,
 ) {
-    let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+    let next_id = CardId::new(state.next_card_instance_id());
     let mut card = CardInstance {
         combat_only: true,
         ..CardInstance::new(next_id, content_id)
@@ -1963,7 +1965,7 @@ fn add_generated_card_to_pile(
 }
 
 fn add_stat_equivalent_copy_to_pile(state: &mut CombatState, source: CardInstance, to: CardPile) {
-    let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+    let next_id = CardId::new(state.next_card_instance_id());
     let mut copy = source;
     copy.id = next_id;
     copy.bottled = false;
@@ -1985,7 +1987,7 @@ fn add_generated_card_to_draw_pile_random_spot(
     temp_cost: Option<u8>,
     temp_cost_turn_only: bool,
 ) {
-    let next_id = CardId::new(state.piles.max_card_instance_id() + 1);
+    let next_id = CardId::new(state.next_card_instance_id());
     let mut card = CardInstance {
         combat_only: true,
         ..CardInstance::new(next_id, content_id)
@@ -3369,7 +3371,7 @@ fn confirm_dual_wield_select(
     } else {
         1
     };
-    let mut next_id = state.piles.max_card_instance_id() + 1;
+    let mut next_id = state.next_card_instance_id();
     let mut selected = None;
     let mut unselected_selectable = Vec::new();
     let mut nonselectable = Vec::new();
@@ -4514,6 +4516,7 @@ mod tests {
             CardInstance::new(CardId::new(3), DEFEND_R_ID),
             CardInstance::new(CardId::new(4), BASH_ID),
         ];
+        state.piles.draw_pile.clear();
 
         let next = apply_combat_action(
             &state,
@@ -4647,7 +4650,6 @@ mod tests {
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), RAMPAGE_ID)];
         state.piles.discard_pile.clear();
         state.piles.exhaust_pile.clear();
-        state.card_random_rng = None;
         let starting_hp = state.monsters[0].hp;
 
         let next = apply_combat_action(
@@ -4754,7 +4756,6 @@ mod tests {
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(4), TRUE_GRIT_ID)];
         state.piles.discard_pile.clear();
         state.piles.exhaust_pile.clear();
-        state.card_random_rng = None;
 
         let next = apply_combat_action(
             &state,
@@ -4876,7 +4877,6 @@ mod tests {
         state.piles.draw_pile.clear();
         state.piles.discard_pile.clear();
         state.piles.exhaust_pile.clear();
-        state.card_random_rng = None;
 
         let next = apply_combat_action(
             &state,

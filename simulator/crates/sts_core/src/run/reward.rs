@@ -165,11 +165,16 @@ pub(crate) fn queue_orrery_card_reward_choices(run: &mut RunState) {
 
 fn queue_eager_card_reward_choices(run: &mut RunState, count: u8) {
     let mut queued = Vec::with_capacity(count as usize);
+    let mut next_card_id = run.next_card_instance_id();
     for _ in 0..count {
         roll_pending_card_reward_choices(run);
-        queued.push(std::mem::take(
-            &mut run.reward.as_mut().expect("card reward screen").choices,
-        ));
+        let mut choices =
+            std::mem::take(&mut run.reward.as_mut().expect("card reward screen").choices);
+        for choice in &mut choices {
+            choice.id = CardId::new(next_card_id);
+            next_card_id += 1;
+        }
+        queued.push(choices);
     }
     run.reward
         .as_mut()
@@ -1706,6 +1711,8 @@ fn apply_cursed_key_chest_curse(run: &mut RunState) {
 }
 
 pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimResult<RunState> {
+    run.validate()?;
+
     if run.phase != RunPhase::Combat {
         return Err(SimError::IllegalAction(
             "combat actions require combat phase",
@@ -1951,10 +1958,9 @@ fn apply_dead_branch_for_exhaust_count_with_placement(
     let mut rng = run.card_random_rng();
     let available_hand_slots = MAX_HAND_SIZE.saturating_sub(combat.piles.hand.len());
     let mut generated = Vec::with_capacity(exhaust_count);
-    for _ in 0..exhaust_count {
+    for next_id in (combat.next_card_instance_id()..).take(exhaust_count) {
         let index = rng.random_int((pool.len() - 1) as i32) as usize;
-        let next_id = CardId::new(combat.piles.max_card_instance_id() + 1);
-        let mut card = CardInstance::new(next_id, pool[index]);
+        let mut card = CardInstance::new(CardId::new(next_id), pool[index]);
         card.combat_only = true;
         if generated.len() < available_hand_slots {
             generated.push(card);
@@ -2018,7 +2024,9 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
 }
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
-    match action {
+    run.validate()?;
+
+    let next = match action {
         RunAction::OpenChest => apply_treasure_action(run, action),
         RunAction::Proceed if run.phase == RunPhase::Reward => apply_reward_action(run, action),
         RunAction::Proceed if run.phase == RunPhase::Shop => apply_shop_action(run, action),
@@ -2043,10 +2051,14 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
         RunAction::ChooseExhaustSelect { index } => apply_exhaust_select_choice(run, index),
         RunAction::ConfirmExhaustSelect => apply_exhaust_select_confirm(run),
         _ => apply_reward_action(run, action),
-    }
+    }?;
+    next.validate()?;
+    Ok(next)
 }
 
 pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<()> {
+    run.validate()?;
+
     if run.phase != RunPhase::Treasure {
         return Err(SimError::IllegalAction(
             "treasure actions require treasure phase",

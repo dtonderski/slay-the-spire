@@ -28,6 +28,7 @@ fn vajra_strength_boosts_strike_damage_in_combat() {
     let mut run = RunState::combat_fixture_with_relics(vec![Relic::Vajra]);
     let combat = run.combat.as_mut().expect("combat initialized");
     combat.monsters[0].hp = 50;
+    combat.monsters[0].max_hp = 50;
 
     let strike_id = combat
         .piles
@@ -181,6 +182,7 @@ fn ornamental_fan_grants_block_after_three_attacks_in_turn() {
     let mut combat = run.combat.expect("combat initialized");
     combat.player.energy = 10;
     combat.monsters[0].hp = 100;
+    combat.monsters[0].max_hp = 100;
     for index in 0..2 {
         combat
             .piles

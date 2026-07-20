@@ -2509,6 +2509,8 @@ pub fn legal_event_actions(run: &RunState) -> Vec<EventAction> {
 }
 
 pub fn validate_event_action(run: &RunState, action: EventAction) -> SimResult<()> {
+    run.validate()?;
+
     if run.phase != RunPhase::Event {
         return Err(SimError::IllegalAction("event actions require event phase"));
     }

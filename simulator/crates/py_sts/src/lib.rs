@@ -225,9 +225,12 @@ impl PyOmniCombatEnv {
 
     #[staticmethod]
     pub fn from_state_json(json: &str) -> PyResult<Self> {
-        let state = serde_json::from_str(json).map_err(|error| {
+        let state: CombatState = serde_json::from_str(json).map_err(|error| {
             PyValueError::new_err(format!("invalid combat state JSON: {error}"))
         })?;
+        state
+            .validate()
+            .map_err(|error| PyValueError::new_err(format!("invalid combat state: {error}")))?;
         Ok(Self { state })
     }
 
@@ -236,12 +239,17 @@ impl PyOmniCombatEnv {
         let snapshot: Snapshot<CombatState> = serde_json::from_str(json).map_err(|error| {
             PyValueError::new_err(format!("invalid combat snapshot JSON: {error}"))
         })?;
-        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
+        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION
+            && snapshot.schema_version != sts_core::LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION
+        {
             return Err(PyValueError::new_err(format!(
                 "unsupported snapshot schema version: expected {}, got {}",
                 SNAPSHOT_SCHEMA_VERSION, snapshot.schema_version
             )));
         }
+        snapshot.state.validate().map_err(|error| {
+            PyValueError::new_err(format!("invalid combat snapshot state: {error}"))
+        })?;
         Ok(Self {
             state: snapshot.state,
         })
@@ -257,6 +265,9 @@ impl PyOmniCombatEnv {
     }
 
     pub fn snapshot_json(&self) -> PyResult<String> {
+        self.state
+            .validate()
+            .map_err(|error| PyRuntimeError::new_err(format!("invalid combat state: {error}")))?;
         self.state.snapshot().canonical_json().map_err(|error| {
             PyRuntimeError::new_err(format!("snapshot serialization failed: {error:?}"))
         })
@@ -356,8 +367,11 @@ impl PyOmniRunEnv {
 
     #[staticmethod]
     pub fn from_state_json(json: &str) -> PyResult<Self> {
-        let state = serde_json::from_str(json)
+        let state: RunState = serde_json::from_str(json)
             .map_err(|error| PyValueError::new_err(format!("invalid run state JSON: {error}")))?;
+        state
+            .validate()
+            .map_err(|error| PyValueError::new_err(format!("invalid run state: {error}")))?;
         Ok(Self { state })
     }
 
@@ -366,12 +380,17 @@ impl PyOmniRunEnv {
         let snapshot: Snapshot<RunState> = serde_json::from_str(json).map_err(|error| {
             PyValueError::new_err(format!("invalid run snapshot JSON: {error}"))
         })?;
-        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
+        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION
+            && snapshot.schema_version != sts_core::LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION
+        {
             return Err(PyValueError::new_err(format!(
                 "unsupported snapshot schema version: expected {}, got {}",
                 SNAPSHOT_SCHEMA_VERSION, snapshot.schema_version
             )));
         }
+        snapshot.state.validate().map_err(|error| {
+            PyValueError::new_err(format!("invalid run snapshot state: {error}"))
+        })?;
         Ok(Self {
             state: snapshot.state,
         })
@@ -387,6 +406,9 @@ impl PyOmniRunEnv {
     }
 
     pub fn snapshot_json(&self) -> PyResult<String> {
+        self.state
+            .validate()
+            .map_err(|error| PyRuntimeError::new_err(format!("invalid run state: {error}")))?;
         run_snapshot(&self.state).canonical_json().map_err(|error| {
             PyRuntimeError::new_err(format!("snapshot serialization failed: {error:?}"))
         })
@@ -1470,6 +1492,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn schema_one_combat_snapshot_migrates_when_state_is_valid() {
+        let env = PyOmniCombatEnv::initial_fixture();
+        let mut snapshot: serde_json::Value =
+            serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
+        snapshot["schema_version"] = serde_json::Value::from(1);
+
+        PyOmniCombatEnv::from_snapshot_json(&snapshot.to_string())
+            .expect("validated schema-one snapshot migrates");
+    }
+
+    #[test]
+    fn snapshot_with_missing_combat_rng_is_rejected() {
+        pyo3::Python::initialize();
+        let env = PyOmniCombatEnv::initial_fixture();
+        let mut snapshot: serde_json::Value =
+            serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
+        snapshot["state"]["card_random_rng"] = serde_json::Value::Null;
+
+        let error = PyOmniCombatEnv::from_snapshot_json(&snapshot.to_string())
+            .err()
+            .expect("missing authoritative RNG must fail");
+
+        assert!(error.to_string().contains("combat RNG state is incomplete"));
+    }
+
+    #[test]
+    fn raw_run_state_with_contradictory_phase_is_rejected() {
+        pyo3::Python::initialize();
+        let env = PyOmniRunEnv::combat_fixture();
+        let mut state: serde_json::Value =
+            serde_json::from_str(&env.state_json().expect("state JSON")).expect("valid JSON");
+        state["phase"] = serde_json::Value::String("Idle".to_owned());
+
+        let error = PyOmniRunEnv::from_state_json(&state.to_string())
+            .err()
+            .expect("contradictory run phase must fail");
+
+        assert!(error
+            .to_string()
+            .contains("combat state exists outside combat phase"));
+    }
+
+    #[test]
+    fn schema_one_run_snapshot_migrates_when_state_is_valid() {
+        let env = PyOmniRunEnv::map_fixture();
+        let mut snapshot: serde_json::Value =
+            serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
+        snapshot["schema_version"] = serde_json::Value::from(1);
+
+        PyOmniRunEnv::from_snapshot_json(&snapshot.to_string())
+            .expect("validated schema-one run snapshot migrates");
+    }
+
+    #[test]
     fn initial_fixture_round_trips_through_snapshot_json() {
         let env = PyOmniCombatEnv::initial_fixture();
         let restored =
@@ -1577,8 +1653,7 @@ mod tests {
     #[test]
     fn reward_exact_actions_expose_fruit_juice_without_combat_state() {
         let mut env = PyOmniRunEnv::combat_fixture();
-        env.state.phase = RunPhase::Reward;
-        env.state.combat = None;
+        sts_core::enter_reward_screen(&mut env.state);
         env.state.player_hp = 75;
         env.state.player_max_hp = 80;
         env.state.potions = vec![Potion::Attack, Potion::FruitJuice];

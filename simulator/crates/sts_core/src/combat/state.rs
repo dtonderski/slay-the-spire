@@ -1,12 +1,12 @@
 use crate::{
     action::InternalAction,
     card::CardInstance,
-    content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
+    content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
-        monster_state, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREEN_LOUSE_A0,
-        GREMLIN_NOB_A0, GUARDIAN_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0,
-        RED_LOUSE_A0, SENTRY_A0, SLIME_BOSS_A0, SPIKE_SLIME_A0,
+        get_monster_definition, monster_state, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER,
+        GREEN_LOUSE_A0, GREMLIN_NOB_A0, GUARDIAN_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0,
+        LOOTER_A0, RED_LOUSE_A0, SENTRY_A0, SLIME_BOSS_A0, SPIKE_SLIME_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -484,10 +484,10 @@ impl CombatState {
             mark_of_bloom: false,
             relic_counters: RelicCounters::default(),
             ascension: 0,
-            shuffle_rng: None,
-            monster_rng: None,
-            monster_hp_rng: None,
-            card_random_rng: None,
+            shuffle_rng: Some(StsRng::new(0)),
+            monster_rng: Some(StsRng::new(0)),
+            monster_hp_rng: Some(StsRng::new(0)),
+            card_random_rng: Some(StsRng::new(0)),
             potion_card_reward: None,
             potion_card_reward_kind: None,
             toolbox_card_reward: None,
@@ -623,6 +623,143 @@ impl CombatState {
         }
         Ok(())
     }
+
+    /// Validates invariants required by authoritative combat transitions.
+    ///
+    /// This check is pure: it must not advance RNG or normalize malformed
+    /// imported state into a plausible state.
+    pub fn validate(&self) -> SimResult<()> {
+        if self.ascension > 20 {
+            return Err(SimError::InvalidState("combat ascension exceeds 20"));
+        }
+        if self.player.max_hp <= 0 || self.player.hp < 0 || self.player.hp > self.player.max_hp {
+            return Err(SimError::InvalidState("combat player HP is out of bounds"));
+        }
+        if self.player.block < 0 || self.player.energy < 0 || self.player.max_energy < 0 {
+            return Err(SimError::InvalidState(
+                "combat player block or energy is negative",
+            ));
+        }
+        if self.shuffle_rng.is_none()
+            || self.monster_rng.is_none()
+            || self.monster_hp_rng.is_none()
+            || self.card_random_rng.is_none()
+        {
+            return Err(SimError::InvalidState("combat RNG state is incomplete"));
+        }
+
+        self.validate_unique_card_piles()?;
+        let mut card_ids = BTreeSet::new();
+        for card in self.authoritative_cards() {
+            if !card_ids.insert(card.id) {
+                return Err(SimError::InvalidState(
+                    "duplicate authoritative card instance ID",
+                ));
+            }
+            if get_card_definition(card.content_id).is_none() {
+                return Err(SimError::UnknownContent(card.content_id));
+            }
+        }
+
+        let mut monster_ids = BTreeSet::new();
+        for monster in &self.monsters {
+            if !monster_ids.insert(monster.id) {
+                return Err(SimError::InvalidState("duplicate monster instance ID"));
+            }
+            if get_monster_definition(monster.content_id).is_none() {
+                return Err(SimError::UnknownContent(monster.content_id));
+            }
+            if monster.max_hp <= 0
+                || monster.hp < 0
+                || monster.hp > monster.max_hp
+                || monster.block < 0
+                || monster.stolen_gold < 0
+            {
+                return Err(SimError::InvalidState(
+                    "combat monster HP, block, or stolen gold is out of bounds",
+                ));
+            }
+            if let Some(card) = &monster.stasis_card {
+                if !card_ids.insert(card.id) {
+                    return Err(SimError::InvalidState(
+                        "duplicate authoritative card instance ID",
+                    ));
+                }
+                if get_card_definition(card.content_id).is_none() {
+                    return Err(SimError::UnknownContent(card.content_id));
+                }
+            }
+        }
+
+        let active_decisions = [
+            self.hand_select.is_some(),
+            self.draw_select.is_some(),
+            self.discard_select.is_some(),
+            self.exhaust_select.is_some(),
+            self.potion_card_reward.is_some(),
+            self.toolbox_card_reward.is_some(),
+            self.discovery_card_reward.is_some(),
+        ]
+        .into_iter()
+        .filter(|active| *active)
+        .count();
+        if active_decisions > 1 {
+            return Err(SimError::InvalidState(
+                "multiple combat decisions are active",
+            ));
+        }
+        if active_decisions > 0 && self.phase != CombatPhase::WaitingForPlayer {
+            return Err(SimError::InvalidState(
+                "combat decision is active outside the player phase",
+            ));
+        }
+        if self.potion_card_reward.is_some() != self.potion_card_reward_kind.is_some() {
+            return Err(SimError::InvalidState(
+                "combat potion reward metadata is inconsistent",
+            ));
+        }
+        if !self.pending_after_hand_select_actions.is_empty() && self.hand_select.is_none() {
+            return Err(SimError::InvalidState(
+                "queued hand-select actions have no active selection",
+            ));
+        }
+        if self.duplication_potion_stacks < 0
+            || self.double_tap_pending < 0
+            || self.pending_player_spikes_damage < 0
+            || self.pending_start_of_turn_relic_energy < 0
+            || self.combat_gold_gained < 0
+        {
+            return Err(SimError::InvalidState("combat pending counter is negative"));
+        }
+        if self
+            .bomb_timers
+            .iter()
+            .any(|timer| timer.turns_remaining <= 0 || timer.damage < 0)
+        {
+            return Err(SimError::InvalidState("combat bomb timer is invalid"));
+        }
+
+        Ok(())
+    }
+
+    fn authoritative_cards(&self) -> impl Iterator<Item = &CardInstance> {
+        self.piles
+            .all_cards()
+            .chain(self.potion_card_reward.iter().flatten())
+            .chain(self.toolbox_card_reward.iter().flatten())
+            .chain(self.discovery_card_reward.iter().flatten())
+            .chain(self.discovery_source_card.iter())
+            .chain(
+                self.discard_select
+                    .iter()
+                    .filter_map(|select| select.source_card.as_ref()),
+            )
+            .chain(
+                self.exhaust_select
+                    .iter()
+                    .filter_map(|select| select.source_card.as_ref()),
+            )
+    }
 }
 
 fn is_false(value: &bool) -> bool {
@@ -639,6 +776,24 @@ fn is_zero_i32(value: &i32) -> bool {
 
 fn is_zero_u32(value: &u32) -> bool {
     *value == 0
+}
+
+impl CombatState {
+    /// Returns an unused card-instance ID across every authoritative combat
+    /// card location, including open choices and monster stasis.
+    #[must_use]
+    pub fn next_card_instance_id(&self) -> u64 {
+        self.authoritative_cards()
+            .chain(
+                self.monsters
+                    .iter()
+                    .filter_map(|monster| monster.stasis_card.as_ref()),
+            )
+            .map(|card| card.id.get())
+            .max()
+            .unwrap_or(0)
+            + 1
+    }
 }
 
 impl CardPiles {

@@ -54,6 +54,8 @@ const DISCOVERY_ACTION_SKIPPED_SCREEN_SETTLE_DRAWS: usize = 3;
 const PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 4;
 
 pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()> {
+    run.validate()?;
+
     match action {
         RunAction::UsePotion { slot, target } => {
             let potion = run
@@ -417,7 +419,6 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     validate_combat_card_reward_choice(run, index)?;
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
-    let card_id = CardId::new(combat.piles.max_card_instance_id() + 1);
     if combat.potion_card_reward.is_some() {
         settle_potion_card_reward_rng(combat, true)?;
         let choices = combat
@@ -425,6 +426,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             .take()
             .expect("potion reward checked above");
         let choice = choices[index];
+        let card_id = CardId::new(combat.next_card_instance_id());
         let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
         card.temp_cost_turn_only = true;
         // CommunicationMod exposes potion-generated cards after the cards that
@@ -447,6 +449,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             );
         }
         let choice = choices[index];
+        let card_id = CardId::new(combat.next_card_instance_id());
         let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
         card.temp_cost_turn_only = true;
         // DiscoveryAction adds the generated card after the cards already in hand.
@@ -459,6 +462,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     } else {
         let choices = combat.toolbox_card_reward.take().expect("validated reward");
         let choice = choices[index];
+        let card_id = CardId::new(combat.next_card_instance_id());
         combat.piles.hand.insert(
             0,
             CardInstance {
@@ -877,7 +881,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     let mut rng = combat
                         .card_random_rng
                         .take()
-                        .unwrap_or_else(|| next.card_random_rng());
+                        .ok_or(SimError::InvalidState("combat card-random RNG is missing"))?;
                     let (kind, content_ids) = match potion {
                         Potion::Attack => (
                             PotionCardRewardKind::Attack,
@@ -898,7 +902,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         _ => unreachable!("matched discovery potion"),
                     };
                     next.card_random_rng_counter = rng.counter();
-                    let next_card_id = next.next_card_instance_id();
+                    let next_card_id = combat.next_card_instance_id();
                     let reward_cards = content_ids
                         .into_iter()
                         .enumerate()
@@ -1123,7 +1127,7 @@ mod tests {
             .iter()
             .map(|card| card.id)
             .collect::<Vec<_>>();
-        let chosen_id = CardId::new(combat.piles.max_card_instance_id() + 1);
+        let chosen_id = CardId::new(combat.next_card_instance_id());
         let choice_content = combat.piles.hand[0].content_id;
         combat.potion_card_reward = Some(vec![CardInstance::new(
             CardId::new(chosen_id.get() + 1),
@@ -1216,7 +1220,7 @@ mod tests {
             .iter()
             .map(|card| card.id)
             .collect::<Vec<_>>();
-        let chosen_id = CardId::new(combat.piles.max_card_instance_id() + 1);
+        let chosen_id = CardId::new(combat.next_card_instance_id());
         let choice_content = combat.piles.hand[0].content_id;
         combat.discovery_card_reward = Some(vec![CardInstance::new(
             CardId::new(chosen_id.get() + 1),
@@ -1252,7 +1256,7 @@ mod tests {
             .iter()
             .map(|card| card.id)
             .collect::<Vec<_>>();
-        let chosen_id = CardId::new(combat.piles.max_card_instance_id() + 1);
+        let chosen_id = CardId::new(combat.next_card_instance_id());
         let choice_content = combat.piles.hand[0].content_id;
         combat.toolbox_card_reward = Some(vec![CardInstance::new(
             CardId::new(chosen_id.get() + 1),

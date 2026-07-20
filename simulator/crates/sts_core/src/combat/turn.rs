@@ -295,7 +295,7 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) {
 
     for _ in 0..state.player.powers.magnetism.max(0) {
         let content_id = crate::combat::card_effects::magnetism_generated_colorless_card(state);
-        let next_id = crate::CardId::new(state.piles.max_card_instance_id() + 1);
+        let next_id = crate::CardId::new(state.next_card_instance_id());
         let generated = crate::CardInstance {
             combat_only: true,
             ..crate::CardInstance::new(next_id, content_id)
@@ -1009,7 +1009,7 @@ fn apply_painful_stabs_after_player_damage(
     }
 
     for _ in 0..painful_stabs {
-        let next_id = crate::CardId::new(state.piles.max_card_instance_id() + 1);
+        let next_id = crate::CardId::new(state.next_card_instance_id());
         state
             .piles
             .discard_pile

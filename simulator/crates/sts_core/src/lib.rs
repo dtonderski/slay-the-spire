@@ -96,4 +96,7 @@ pub use run::{
     ShopScreen, GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, SHOP_ANGER_PRICE,
     SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, STARTING_GOLD,
 };
-pub use snapshot::{PlaceholderState, Snapshot, SnapshotHash, SNAPSHOT_SCHEMA_VERSION};
+pub use snapshot::{
+    PlaceholderState, Snapshot, SnapshotHash, LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,
+    SNAPSHOT_SCHEMA_VERSION,
+};

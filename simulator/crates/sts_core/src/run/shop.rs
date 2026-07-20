@@ -644,6 +644,8 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
 }
 
 pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> {
+    run.validate()?;
+
     if run.phase != RunPhase::Shop {
         return Err(SimError::IllegalAction("shop actions require shop phase"));
     }

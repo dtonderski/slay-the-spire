@@ -1594,7 +1594,7 @@ fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) 
         None => content_choices.extend(pool.into_iter().take(3)),
     }
 
-    let next_card_id = state.piles.max_card_instance_id() + 1;
+    let next_card_id = state.next_card_instance_id();
     state.discovery_card_reward = Some(
         content_choices
             .into_iter()

@@ -84,6 +84,8 @@ pub fn legal_map_actions_on_run(run: &RunState) -> Vec<MapAction> {
 }
 
 pub fn validate_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<()> {
+    run.validate()?;
+
     if run.phase != RunPhase::Idle {
         return Err(SimError::IllegalAction("map actions require idle phase"));
     }
@@ -244,7 +246,7 @@ fn add_mark_of_pain_wounds_to_draw_pile(run: &mut RunState, combat: &mut CombatS
     }
     let mut rng = run.card_random_rng();
     for _ in 0..MARK_OF_PAIN_WOUNDS {
-        let next_id = CardId::new(combat.piles.max_card_instance_id() + 1);
+        let next_id = CardId::new(combat.next_card_instance_id());
         let wound = CardInstance::new(next_id, WOUND_ID);
         if combat.piles.draw_pile.is_empty() {
             combat.piles.draw_pile.push(wound);

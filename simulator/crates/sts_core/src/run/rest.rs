@@ -78,6 +78,8 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
 }
 
 pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()> {
+    run.validate()?;
+
     if run.phase != RunPhase::Rest {
         return Err(SimError::IllegalAction("rest actions require rest phase"));
     }

@@ -2,7 +2,8 @@ use crate::{SimError, SimResult};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 2;
+pub const LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot<T = PlaceholderState> {
@@ -88,7 +89,7 @@ mod tests {
 
         assert_eq!(
             snapshot.canonical_json().expect("snapshot serializes"),
-            r#"{"schema_version":1,"state":{}}"#
+            r#"{"schema_version":2,"state":{}}"#
         );
     }
 

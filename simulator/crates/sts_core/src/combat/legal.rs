@@ -15,7 +15,7 @@ use crate::{
 
 #[must_use]
 pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
-    if state.phase != CombatPhase::WaitingForPlayer {
+    if state.validate().is_err() || state.phase != CombatPhase::WaitingForPlayer {
         return Vec::new();
     }
 
@@ -125,6 +125,8 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
 }
 
 pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimResult<()> {
+    state.validate()?;
+
     if state.phase != CombatPhase::WaitingForPlayer {
         return Err(SimError::IllegalAction(
             "combat is not waiting for player input",

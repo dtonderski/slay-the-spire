@@ -29,6 +29,7 @@ fn bomb_fixture() -> CombatState {
     ];
     for monster in &mut state.monsters {
         monster.hp = 50;
+        monster.max_hp = 50;
     }
     state
 }

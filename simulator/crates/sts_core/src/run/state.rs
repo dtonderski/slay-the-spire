@@ -8,6 +8,7 @@ use crate::{
         is_basic_starter_card, is_curse_content_id, upgrade_card_instance, upgrade_content_id,
     },
     content::character::IRONCLAD_A0_BASE_HP,
+    content::reward_pool::ironclad_reward_card_rarity,
     content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
     ids::{CardId, ContentId, MonsterId},
     map::{generate_target_fixed_map, milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
@@ -31,6 +32,7 @@ use crate::{
     SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 
 pub const STARTING_GOLD: i32 = 99;
 const ENCHIRIDION_HAND_LIMIT: usize = 10;
@@ -97,9 +99,9 @@ fn add_enchiridion_power_to_hand(combat: &mut CombatState) {
     let mut rng = combat
         .card_random_rng
         .take()
-        .unwrap_or_else(|| StsRng::new(0));
+        .expect("combat initialization installs card-random RNG");
     let content_id = discovery_card_choices(&mut rng, CardType::Power, 1)[0];
-    let next_id = CardId::new(combat.piles.max_card_instance_id() + 1);
+    let next_id = CardId::new(combat.next_card_instance_id());
     let mut card = CardInstance {
         combat_only: true,
         ..CardInstance::new(next_id, content_id)
@@ -476,6 +478,30 @@ impl RewardScreen {
     }
 }
 
+fn validate_run_card_content(card: &CardInstance) -> SimResult<()> {
+    get_card_definition(card.content_id)
+        .map(|_| ())
+        .ok_or(SimError::UnknownContent(card.content_id))
+}
+
+fn validate_run_choice_card_content(card: &CardInstance) -> SimResult<()> {
+    if get_card_definition(card.content_id).is_some()
+        || ironclad_reward_card_rarity(card.content_id).is_some()
+        || super::reward::any_color_reward_card_key(card.content_id).is_some()
+    {
+        Ok(())
+    } else {
+        Err(SimError::UnknownContent(card.content_id))
+    }
+}
+
+fn validate_run_choice_cards(cards: &[CardInstance]) -> SimResult<()> {
+    for card in cards {
+        validate_run_choice_card_content(card)?;
+    }
+    Ok(())
+}
+
 fn is_zero_u8(value: &u8) -> bool {
     *value == 0
 }
@@ -543,6 +569,133 @@ pub enum RunAction {
 }
 
 impl RunState {
+    /// Validates invariants required by authoritative run transitions.
+    ///
+    /// Overlay screens may legitimately coexist with their owning phase, so
+    /// this rejects contradictory ownership without normalizing valid
+    /// event/reward/grid subflows.
+    pub fn validate(&self) -> SimResult<()> {
+        if self.ascension > 20 {
+            return Err(SimError::InvalidState("run ascension exceeds 20"));
+        }
+        if self.player_max_hp <= 0 || self.player_hp < 0 || self.player_hp > self.player_max_hp {
+            return Err(SimError::InvalidState("run player HP is out of bounds"));
+        }
+        if self.gold < 0 || self.energy_per_turn < 0 {
+            return Err(SimError::InvalidState("run gold or energy is negative"));
+        }
+        if self.current_floor < 0 || !(1..=4).contains(&self.current_act) {
+            return Err(SimError::InvalidState("run floor or act is out of bounds"));
+        }
+
+        let mut deck_ids = BTreeSet::new();
+        for card in &self.deck {
+            if !deck_ids.insert(card.id) {
+                return Err(SimError::InvalidState(
+                    "duplicate run deck card instance ID",
+                ));
+            }
+            validate_run_card_content(card)?;
+        }
+        for content_id in &self.pending_obtain_cards {
+            if get_card_definition(*content_id).is_none() {
+                return Err(SimError::UnknownContent(*content_id));
+            }
+        }
+        if get_card_definition(self.note_card_content_id).is_none() {
+            return Err(SimError::UnknownContent(self.note_card_content_id));
+        }
+
+        match (&self.phase, &self.combat) {
+            (RunPhase::Combat, Some(combat)) => {
+                combat.validate()?;
+                if combat.ascension != self.ascension {
+                    return Err(SimError::InvalidState(
+                        "run and combat ascension do not match",
+                    ));
+                }
+            }
+            (RunPhase::Combat, None) => {
+                return Err(SimError::InvalidState("combat phase has no combat state"));
+            }
+            (_, Some(_)) => {
+                return Err(SimError::InvalidState(
+                    "combat state exists outside combat phase",
+                ));
+            }
+            (_, None) => {}
+        }
+
+        if self.shop_merchant_open && self.shop.is_none() {
+            return Err(SimError::InvalidState("open merchant has no shop screen"));
+        }
+        if self.phase == RunPhase::Reward && self.reward.is_none() && self.card_grid.is_none() {
+            return Err(SimError::InvalidState(
+                "reward phase has no reward or card grid",
+            ));
+        }
+        if self.phase == RunPhase::Event && self.event.is_none() && self.card_grid.is_none() {
+            return Err(SimError::InvalidState(
+                "event phase has no event or card grid",
+            ));
+        }
+
+        if self.potions.len() + self.empty_potion_slots.len() > self.potion_capacity() {
+            return Err(SimError::InvalidState("potion slots exceed capacity"));
+        }
+        let mut empty_slots = BTreeSet::new();
+        for slot in &self.empty_potion_slots {
+            if *slot >= self.potion_capacity() || !empty_slots.insert(*slot) {
+                return Err(SimError::InvalidState("empty potion slot is invalid"));
+            }
+        }
+
+        if let Some(reward) = &self.reward {
+            validate_run_choice_cards(&reward.choices)?;
+            for choices in &reward.queued_card_rewards {
+                validate_run_choice_cards(choices)?;
+            }
+            if reward.gold_offer < 0 || reward.stolen_gold_offer < 0 {
+                return Err(SimError::InvalidState("reward gold is negative"));
+            }
+        }
+        if let Some(grid) = &self.card_grid {
+            validate_run_choice_cards(&grid.cards)?;
+            if grid.selected.is_some_and(|index| index >= grid.cards.len())
+                || grid
+                    .selected_indices
+                    .iter()
+                    .any(|index| *index >= grid.cards.len())
+            {
+                return Err(SimError::InvalidState(
+                    "card grid selection index is out of bounds",
+                ));
+            }
+        }
+        if let Some(shop) = &self.shop {
+            for slot in &shop.cards {
+                validate_run_choice_card_content(&slot.card)?;
+                if slot.price < 0 {
+                    return Err(SimError::InvalidState("shop card price is negative"));
+                }
+            }
+            if shop.relics.iter().any(|slot| slot.price < 0)
+                || shop.potions.iter().any(|slot| slot.price < 0)
+                || shop.remove_cost < 0
+            {
+                return Err(SimError::InvalidState("shop price is negative"));
+            }
+            if shop
+                .sale_slot
+                .is_some_and(|index| index >= shop.cards.len())
+            {
+                return Err(SimError::InvalidState("shop sale slot is out of bounds"));
+            }
+        }
+
+        Ok(())
+    }
+
     #[must_use]
     pub fn rng_stream_state(&self, stream: RunRngStream) -> RunRngStreamState {
         match stream {
@@ -700,8 +853,8 @@ impl RunState {
             let mut rng = combat
                 .card_random_rng
                 .take()
-                .unwrap_or_else(|| self.card_random_rng());
-            let next_card_id = combat.piles.max_card_instance_id() + 1;
+                .expect("combat initialization installs card-random RNG");
+            let next_card_id = combat.next_card_instance_id();
             let choices = colorless_discovery_card_choices(&mut rng, 3)
                 .into_iter()
                 .enumerate()
