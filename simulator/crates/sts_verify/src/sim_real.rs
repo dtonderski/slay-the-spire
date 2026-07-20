@@ -12,8 +12,8 @@ use sts_core::card::CardType;
 use sts_core::combat::{ExhaustSelectPurpose, HandSelectPurpose};
 use sts_core::content::cards::{card_type_and_rarity, STRIKE_R_ID};
 use sts_core::content::encounters::{
-    target_beyond_act_three_boss_with_unlocks, target_exordium_act_one_boss_with_unlocks,
-    BossUnlockState,
+    target_beyond_act_three_boss_kind_with_unlocks, target_exordium_act_one_boss_kind_with_unlocks,
+    target_exordium_act_one_boss_with_unlocks, BossUnlockState,
 };
 use sts_core::content::monsters::target_move_byte_for_monster;
 use sts_core::potion::Potion;
@@ -30,8 +30,8 @@ use sts_core::{
     generate_neow_options, generate_neow_three_potions, generate_neow_transform_reward,
     generate_target_map_choices_after_path, generate_target_map_topology,
     legal_run_decision_actions, open_neow_reward_grid, shop_action_for_choice_index,
-    target_room_kinds_on_path, Act1Boss, Act3Boss, CardGridScreen, CardId, CardInstance,
-    CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventAction,
+    target_room_kinds_on_path, CardGridScreen, CardId, CardInstance, CombatAction,
+    CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventAction,
     GeneratedNeowOption, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState,
     NeowDrawback, NeowRewardType, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
     RunDecisionAction, RunPhase, RunState, ShopPick, TargetMapAct,
@@ -5455,15 +5455,8 @@ fn seed_start_apply_boss_unlocks(
     numeric_seed: i64,
     boss_unlocks: BossUnlockState,
 ) {
-    run.act1_boss = Act1Boss::from_trace_name(&target_exordium_act_one_boss_with_unlocks(
-        numeric_seed,
-        boss_unlocks,
-    ))
-    .unwrap_or_default();
-    run.act3_boss = Act3Boss::from_game_key(&target_beyond_act_three_boss_with_unlocks(
-        numeric_seed,
-        boss_unlocks,
-    ));
+    run.act1_boss = target_exordium_act_one_boss_kind_with_unlocks(numeric_seed, boss_unlocks);
+    run.act3_boss = target_beyond_act_three_boss_kind_with_unlocks(numeric_seed, boss_unlocks);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

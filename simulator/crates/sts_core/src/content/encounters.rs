@@ -37,6 +37,72 @@ impl Default for BossUnlockState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Act1Boss {
+    #[default]
+    Hexaghost,
+    SlimeBoss,
+    Guardian,
+}
+
+impl Act1Boss {
+    #[must_use]
+    pub fn from_trace_name(name: &str) -> Option<Self> {
+        match name {
+            "Hexaghost" => Some(Self::Hexaghost),
+            "Slime Boss" | "SlimeBoss" => Some(Self::SlimeBoss),
+            "The Guardian" | "TheGuardian" | "Guardian" => Some(Self::Guardian),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn trace_name(self) -> &'static str {
+        match self {
+            Self::Hexaghost => "Hexaghost",
+            Self::SlimeBoss => "Slime Boss",
+            Self::Guardian => "The Guardian",
+        }
+    }
+
+    pub(crate) fn is_default(value: &Self) -> bool {
+        *value == Self::Hexaghost
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Act3Boss {
+    #[default]
+    AwakenedOne,
+    TimeEater,
+    DonuAndDeca,
+}
+
+impl Act3Boss {
+    #[must_use]
+    pub fn from_trace_name(name: &str) -> Option<Self> {
+        match name {
+            "Awakened One" | "AwakenedOne" => Some(Self::AwakenedOne),
+            "Time Eater" | "TimeEater" => Some(Self::TimeEater),
+            "Donu and Deca" | "DonuAndDeca" => Some(Self::DonuAndDeca),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn trace_name(self) -> &'static str {
+        match self {
+            Self::AwakenedOne => "Awakened One",
+            Self::TimeEater => "Time Eater",
+            Self::DonuAndDeca => "Donu and Deca",
+        }
+    }
+
+    pub(crate) fn is_default(value: &Self) -> bool {
+        *value == Self::AwakenedOne
+    }
+}
+
 pub const EXORDIUM_WEAK_ENCOUNTERS: [(&str, f32); 4] = [
     ("Cultist", 2.0),
     ("Jaw Worm", 2.0),
@@ -126,27 +192,44 @@ pub fn generate_exordium_elite_encounters(seed: i64) -> Vec<String> {
 
 #[must_use]
 pub fn target_exordium_act_one_boss(seed: i64) -> String {
-    target_exordium_act_one_boss_with_unlocks(seed, BossUnlockState::default())
+    target_exordium_act_one_boss_kind(seed)
+        .trace_name()
+        .to_owned()
 }
 
 #[must_use]
 pub fn target_exordium_act_one_boss_with_unlocks(seed: i64, unlocks: BossUnlockState) -> String {
+    target_exordium_act_one_boss_kind_with_unlocks(seed, unlocks)
+        .trace_name()
+        .to_owned()
+}
+
+#[must_use]
+pub fn target_exordium_act_one_boss_kind(seed: i64) -> Act1Boss {
+    target_exordium_act_one_boss_kind_with_unlocks(seed, BossUnlockState::default())
+}
+
+#[must_use]
+pub fn target_exordium_act_one_boss_kind_with_unlocks(
+    seed: i64,
+    unlocks: BossUnlockState,
+) -> Act1Boss {
     if !unlocks.guardian_seen {
-        return "The Guardian".to_owned();
+        return Act1Boss::Guardian;
     }
     if !unlocks.hexaghost_seen {
-        return "Hexaghost".to_owned();
+        return Act1Boss::Hexaghost;
     }
     if !unlocks.slime_boss_seen {
-        return "Slime Boss".to_owned();
+        return Act1Boss::SlimeBoss;
     }
     let mut rng = StsRng::new(seed);
     let mut normal_encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3);
     append_exordium_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
     let _elite_encounters = generate_exordium_elite_encounters_with_rng(&mut rng, 10);
-    let mut bosses = ["The Guardian", "Hexaghost", "Slime Boss"];
+    let mut bosses = [Act1Boss::Guardian, Act1Boss::Hexaghost, Act1Boss::SlimeBoss];
     JavaRng::new(rng.random_long()).collections_shuffle(&mut bosses);
-    bosses[0].to_owned()
+    bosses[0]
 }
 
 #[must_use]
@@ -177,19 +260,36 @@ pub fn target_city_act_two_boss_with_unlocks(seed: i64, unlocks: BossUnlockState
 
 #[must_use]
 pub fn target_beyond_act_three_boss(seed: i64) -> String {
-    target_beyond_act_three_boss_with_unlocks(seed, BossUnlockState::default())
+    target_beyond_act_three_boss_kind(seed)
+        .trace_name()
+        .to_owned()
 }
 
 #[must_use]
 pub fn target_beyond_act_three_boss_with_unlocks(seed: i64, unlocks: BossUnlockState) -> String {
+    target_beyond_act_three_boss_kind_with_unlocks(seed, unlocks)
+        .trace_name()
+        .to_owned()
+}
+
+#[must_use]
+pub fn target_beyond_act_three_boss_kind(seed: i64) -> Act3Boss {
+    target_beyond_act_three_boss_kind_with_unlocks(seed, BossUnlockState::default())
+}
+
+#[must_use]
+pub fn target_beyond_act_three_boss_kind_with_unlocks(
+    seed: i64,
+    unlocks: BossUnlockState,
+) -> Act3Boss {
     if !unlocks.awakened_one_seen {
-        return "Awakened One".to_owned();
+        return Act3Boss::AwakenedOne;
     }
     if !unlocks.donu_deca_seen {
-        return "Donu and Deca".to_owned();
+        return Act3Boss::DonuAndDeca;
     }
     if !unlocks.time_eater_seen {
-        return "Time Eater".to_owned();
+        return Act3Boss::TimeEater;
     }
     let mut rng = StsRng::new(seed);
     advance_exordium_content_generation_rng(&mut rng);
@@ -197,9 +297,13 @@ pub fn target_beyond_act_three_boss_with_unlocks(seed: i64, unlocks: BossUnlockS
     let mut normal_encounters = generate_beyond_weak_encounters_with_rng(&mut rng, 2);
     append_beyond_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
     let _elite_encounters = generate_beyond_elite_encounters_with_rng(&mut rng, 10);
-    let mut bosses = ["Awakened One", "Time Eater", "Donu and Deca"];
+    let mut bosses = [
+        Act3Boss::AwakenedOne,
+        Act3Boss::TimeEater,
+        Act3Boss::DonuAndDeca,
+    ];
     JavaRng::new(rng.random_long()).collections_shuffle(&mut bosses);
-    bosses[0].to_owned()
+    bosses[0]
 }
 
 #[must_use]
@@ -506,9 +610,10 @@ fn roll_monster_info<'a>(entries: &'a [(&'a str, f32)], roll: f32) -> &'a str {
 mod tests {
     use super::{
         generate_beyond_normal_encounters, target_beyond_act_three_boss,
-        target_beyond_act_three_boss_with_unlocks, target_city_act_two_boss,
-        target_city_act_two_boss_with_unlocks, target_exordium_act_one_boss,
-        target_exordium_act_one_boss_with_unlocks, BossUnlockState,
+        target_beyond_act_three_boss_kind_with_unlocks, target_beyond_act_three_boss_with_unlocks,
+        target_city_act_two_boss, target_city_act_two_boss_with_unlocks,
+        target_exordium_act_one_boss, target_exordium_act_one_boss_kind_with_unlocks,
+        target_exordium_act_one_boss_with_unlocks, Act1Boss, Act3Boss, BossUnlockState,
     };
 
     #[test]
@@ -521,6 +626,10 @@ mod tests {
         assert_eq!(
             target_exordium_act_one_boss_with_unlocks(1, unlocks),
             "The Guardian"
+        );
+        assert_eq!(
+            target_exordium_act_one_boss_kind_with_unlocks(1, unlocks),
+            Act1Boss::Guardian
         );
 
         let unlocks = BossUnlockState {
@@ -539,6 +648,16 @@ mod tests {
             target_beyond_act_three_boss_with_unlocks(1, unlocks),
             "Awakened One"
         );
+        assert_eq!(
+            target_beyond_act_three_boss_kind_with_unlocks(1, unlocks),
+            Act3Boss::AwakenedOne
+        );
+    }
+
+    #[test]
+    fn observed_boss_name_parsing_rejects_unknown_content() {
+        assert_eq!(Act1Boss::from_trace_name("unknown act 1 boss"), None);
+        assert_eq!(Act3Boss::from_trace_name("unknown act 3 boss"), None);
     }
 
     #[test]

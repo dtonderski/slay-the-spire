@@ -37,6 +37,8 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, num::NonZeroU8};
 
+pub use crate::content::encounters::{Act1Boss, Act3Boss};
+
 pub const STARTING_GOLD: i32 = 99;
 const ENCHIRIDION_HAND_LIMIT: usize = 10;
 
@@ -345,59 +347,6 @@ pub struct RunState {
     pub pending_boss_relic_choices: Vec<RelicKey>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub rest_room_complete: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum Act1Boss {
-    #[default]
-    Hexaghost,
-    SlimeBoss,
-    Guardian,
-}
-
-impl Act1Boss {
-    #[must_use]
-    pub fn from_trace_name(name: &str) -> Option<Self> {
-        match name {
-            "Hexaghost" => Some(Self::Hexaghost),
-            "Slime Boss" | "SlimeBoss" => Some(Self::SlimeBoss),
-            "The Guardian" | "TheGuardian" | "Guardian" => Some(Self::Guardian),
-            _ => None,
-        }
-    }
-
-    fn is_default(value: &Self) -> bool {
-        *value == Self::Hexaghost
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum Act3Boss {
-    #[default]
-    AwakenedOne,
-    TimeEater,
-    DonuAndDeca,
-}
-
-impl Act3Boss {
-    #[must_use]
-    pub fn from_trace_name(name: &str) -> Option<Self> {
-        match name {
-            "Awakened One" | "AwakenedOne" => Some(Self::AwakenedOne),
-            "Time Eater" | "TimeEater" => Some(Self::TimeEater),
-            "Donu and Deca" | "DonuAndDeca" => Some(Self::DonuAndDeca),
-            _ => None,
-        }
-    }
-
-    #[must_use]
-    pub fn from_game_key(name: &str) -> Self {
-        Self::from_trace_name(name).unwrap_or_default()
-    }
-
-    fn is_default(value: &Self) -> bool {
-        *value == Self::AwakenedOne
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1449,18 +1398,13 @@ impl RunState {
             seed as i64,
             TargetMapAct::Exordium,
         ));
-        run.act1_boss = Act1Boss::from_trace_name(
-            &crate::content::encounters::target_exordium_act_one_boss_with_unlocks(
-                seed as i64,
-                boss_unlocks,
-            ),
-        )
-        .unwrap_or_default();
-        run.act3_boss = Act3Boss::from_game_key(
-            &crate::content::encounters::target_beyond_act_three_boss_with_unlocks(
-                seed as i64,
-                boss_unlocks,
-            ),
+        run.act1_boss = crate::content::encounters::target_exordium_act_one_boss_kind_with_unlocks(
+            seed as i64,
+            boss_unlocks,
+        );
+        run.act3_boss = crate::content::encounters::target_beyond_act_three_boss_kind_with_unlocks(
+            seed as i64,
+            boss_unlocks,
         );
         run.relics = vec![Relic::BurningBlood];
         run.phase = RunPhase::Event;
