@@ -224,7 +224,7 @@ impl PyOmniCombatEnv {
     }
 
     #[staticmethod]
-    pub fn from_state_json(json: &str) -> PyResult<Self> {
+    pub fn from_state_json_for_debugging(json: &str) -> PyResult<Self> {
         let state: CombatState = serde_json::from_str(json).map_err(|error| {
             PyValueError::new_err(format!("invalid combat state JSON: {error}"))
         })?;
@@ -372,7 +372,7 @@ impl PyOmniRunEnv {
     }
 
     #[staticmethod]
-    pub fn from_state_json(json: &str) -> PyResult<Self> {
+    pub fn from_state_json_for_debugging(json: &str) -> PyResult<Self> {
         let state: RunState = serde_json::from_str(json)
             .map_err(|error| PyValueError::new_err(format!("invalid run state JSON: {error}")))?;
         state
@@ -1534,7 +1534,7 @@ mod tests {
             serde_json::from_str(&env.state_json().expect("state JSON")).expect("valid JSON");
         state["phase"] = serde_json::Value::String("Idle".to_owned());
 
-        let error = PyOmniRunEnv::from_state_json(&state.to_string())
+        let error = PyOmniRunEnv::from_state_json_for_debugging(&state.to_string())
             .err()
             .expect("contradictory run phase must fail");
 
