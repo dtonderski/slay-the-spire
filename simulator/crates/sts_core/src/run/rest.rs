@@ -183,9 +183,10 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
         RestAction::Dig => {
             let act = next.current_act;
             let key = roll_event_relic_reward(&mut next, act);
+            next.rest_room_complete = true;
             next.phase = RunPhase::Reward;
             next.reward = Some(RewardScreen {
-                continuation: RewardContinuation::None,
+                continuation: RewardContinuation::Rest,
                 choices: Vec::new(),
                 queued_card_rewards: Vec::new(),
                 gold_offer: 0,
@@ -288,6 +289,33 @@ mod tests {
 
         let settled = apply_run_action(&reward, RunAction::CloseCardReward)
             .expect("Dream Catcher reward can be skipped");
+        assert_eq!(settled.phase, RunPhase::Rest);
+        assert!(settled.rest_room_complete);
+        assert!(settled.reward.is_none());
+    }
+
+    #[test]
+    fn shovel_reward_returns_to_completed_rest_room_after_relic_pickup() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Rest;
+        run.current_room_override = Some(RoomKind::Rest);
+        run.event = None;
+        run.relics.push(Relic::Shovel);
+
+        let reward =
+            apply_rest_action(&run, RestAction::Dig).expect("Shovel dig opens a relic reward");
+        assert_eq!(reward.phase, RunPhase::Reward);
+        assert!(reward.rest_room_complete);
+        assert_eq!(
+            reward.reward.as_ref().expect("dig reward").continuation,
+            RewardContinuation::Rest
+        );
+
+        let claimed = apply_run_action(&reward, RunAction::TakeRelicReward)
+            .expect("Shovel relic can be collected");
+        assert_eq!(claimed.phase, RunPhase::Reward);
+        let settled = apply_run_action(&claimed, RunAction::Proceed)
+            .expect("completed Shovel reward returns to rest");
         assert_eq!(settled.phase, RunPhase::Rest);
         assert!(settled.rest_room_complete);
         assert!(settled.reward.is_none());

@@ -56,14 +56,16 @@ normalization.
 
 ## Snapshot compatibility
 
-New snapshots use schema version 6. Schema-version-1 through version-3 snapshots
+New snapshots use schema version 7. Schema-version-1 through version-3 snapshots
 explicitly migrate their legacy card-reward and relic authorities, while
 schema-version-1 through version-4 snapshots migrate missing legacy Combust
 damage from the recorded stack count. Schema-version-1 through version-5
 snapshots migrate the former independent combat-decision fields into one active
 typed decision plus an ordered queue, preserving the old legal-action priority
 when multiple overlays were recorded. Every successful restore is validated and
-normalized to version 6. Current snapshots must carry canonical Combust stack
+normalized to version 7. Schema-version-6 and older run snapshots derive an
+explicit reward continuation once from an unambiguous retained event, shop,
+rest, or treasure owner. Current snapshots must carry canonical Combust stack
 and damage fields and the typed combat-decision representation; retired fields
 fail closed rather than disappearing during deserialization. Combat no longer
 repairs these authorities while executing mechanics.

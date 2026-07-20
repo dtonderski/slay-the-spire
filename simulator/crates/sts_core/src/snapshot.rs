@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{error::Error, fmt};
 
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 6;
-pub const PREVIOUS_SNAPSHOT_SCHEMA_VERSION: u32 = 5;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 7;
+pub const PREVIOUS_SNAPSHOT_SCHEMA_VERSION: u32 = 6;
+pub const LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION: u32 = 5;
 pub const LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION: u32 = 4;
 pub const LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION: u32 = 3;
 pub const LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION: u32 = 2;
@@ -113,6 +114,7 @@ fn validate_supported_schema(version: u32) -> Result<(), SnapshotRestoreError> {
         version,
         SNAPSHOT_SCHEMA_VERSION
             | PREVIOUS_SNAPSHOT_SCHEMA_VERSION
+            | LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION
@@ -478,6 +480,94 @@ fn migrate_legacy_relic_storage(value: &mut Value) -> Result<(), SnapshotRestore
     Ok(())
 }
 
+fn migrate_legacy_reward_continuation(value: &mut Value) -> Result<(), SnapshotRestoreError> {
+    let state = value
+        .get_mut("state")
+        .and_then(Value::as_object_mut)
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "state must be an object",
+        ))?;
+    let Some(reward) = state.get("reward").filter(|reward| !reward.is_null()) else {
+        return Ok(());
+    };
+    let reward = reward
+        .as_object()
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "reward screen must be an object",
+        ))?;
+
+    match reward.get("continuation") {
+        Some(Value::String(continuation)) if continuation != "None" => return Ok(()),
+        None | Some(Value::String(_)) => {}
+        Some(_) => {
+            return Err(SnapshotRestoreError::InvalidDocument(
+                "reward continuation must be a string",
+            ));
+        }
+    }
+
+    let mut owners = Vec::new();
+    if let Some(event) = state.get("event").filter(|event| !event.is_null()) {
+        let neow_exit = event.get("event").and_then(Value::as_str) == Some("Neow")
+            && event.get("stage").and_then(Value::as_u64) == Some(2)
+            && state
+                .get("relics")
+                .and_then(Value::as_array)
+                .is_some_and(|relics| relics.contains(&Value::String("TinyHouse".to_owned())));
+        owners.push(if neow_exit { "Neow" } else { "Event" });
+    }
+    if state.get("shop").is_some_and(|shop| !shop.is_null())
+        && state
+            .get("shop_merchant_open")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    {
+        owners.push("Shop");
+    }
+    if state
+        .get("rest_room_complete")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        owners.push("Rest");
+    }
+    if state
+        .get("treasure_room")
+        .is_some_and(|treasure| !treasure.is_null())
+    {
+        owners.push("Map");
+    }
+    if state
+        .get("boss_chest_opened")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        owners.push("Treasure");
+    }
+
+    match owners.as_slice() {
+        [] | [_] => {}
+        _ => {
+            return Err(SnapshotRestoreError::InvalidDocument(
+                "legacy reward has multiple possible continuation owners",
+            ));
+        }
+    }
+    let reward = state
+        .get_mut("reward")
+        .and_then(Value::as_object_mut)
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "reward screen must be an object",
+        ))?;
+    if let [owner] = owners.as_slice() {
+        reward.insert(
+            "continuation".to_owned(),
+            Value::String((*owner).to_owned()),
+        );
+    }
+    Ok(())
+}
+
 pub fn restore_combat_snapshot_json(
     json: &str,
 ) -> Result<Snapshot<CombatState>, SnapshotRestoreError> {
@@ -485,7 +575,7 @@ pub fn restore_combat_snapshot_json(
     let version = schema_version(&value)?;
     validate_supported_schema(version)?;
     if let Some(state) = value.get_mut("state") {
-        if version <= PREVIOUS_SNAPSHOT_SCHEMA_VERSION {
+        if version <= LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION {
             migrate_legacy_combat_decisions(state)?;
         } else {
             reject_legacy_combat_decisions(state)?;
@@ -507,6 +597,9 @@ pub fn restore_run_snapshot_json(json: &str) -> Result<Snapshot<RunState>, Snaps
     let mut value: Value = serde_json::from_str(json)?;
     let version = schema_version(&value)?;
     validate_supported_schema(version)?;
+    if version <= PREVIOUS_SNAPSHOT_SCHEMA_VERSION {
+        migrate_legacy_reward_continuation(&mut value)?;
+    }
     if version <= LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION {
         migrate_legacy_reward_flow(&mut value)?;
         migrate_legacy_relic_storage(&mut value)?;
@@ -515,7 +608,7 @@ pub fn restore_run_snapshot_json(json: &str) -> Result<Snapshot<RunState>, Snaps
         .pointer_mut("/state/combat")
         .filter(|combat| !combat.is_null())
     {
-        if version <= PREVIOUS_SNAPSHOT_SCHEMA_VERSION {
+        if version <= LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION {
             migrate_legacy_combat_decisions(combat)?;
         } else {
             reject_legacy_combat_decisions(combat)?;
@@ -580,6 +673,37 @@ mod tests {
         serde_json::to_string(&value).expect("legacy snapshot serializes")
     }
 
+    fn reward_snapshot_value(version: u32) -> Value {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Reward;
+        run.current_room_override = None;
+        run.event = None;
+        run.shop = None;
+        run.shop_merchant_open = false;
+        run.treasure_room = None;
+        run.boss_chest_opened = false;
+        run.rest_room_complete = false;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: CardRewardFlow::None,
+        });
+        serde_json::to_value(Snapshot {
+            schema_version: version,
+            state: run,
+        })
+        .expect("reward snapshot serializes")
+    }
+
     #[test]
     fn same_snapshot_hashes_identically() {
         let first = Snapshot::placeholder();
@@ -597,7 +721,7 @@ mod tests {
 
         assert_eq!(
             snapshot.canonical_json().expect("snapshot serializes"),
-            r#"{"schema_version":6,"state":{}}"#
+            r#"{"schema_version":7,"state":{}}"#
         );
     }
 
@@ -695,7 +819,7 @@ mod tests {
         let combat = CombatState::initial_fixture();
         let source_card_id = combat.piles.hand[0].id;
         let mut value = serde_json::to_value(Snapshot {
-            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            schema_version: LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION,
             state: combat,
         })
         .expect("combat snapshot serializes");
@@ -724,7 +848,7 @@ mod tests {
     fn schema_five_multiple_decisions_preserve_legacy_priority_in_queue() {
         let combat = CombatState::initial_fixture();
         let mut value = serde_json::to_value(Snapshot {
-            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            schema_version: LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION,
             state: combat,
         })
         .expect("combat snapshot serializes");
@@ -758,7 +882,7 @@ mod tests {
         let run = RunState::combat_fixture();
         let source_card_id = run.combat.as_ref().expect("combat fixture").piles.hand[0].id;
         let mut value = serde_json::to_value(Snapshot {
-            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            schema_version: LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION,
             state: run,
         })
         .expect("run snapshot serializes");
@@ -797,6 +921,140 @@ mod tests {
         .expect_err("current snapshots reject retired decision fields");
 
         assert!(matches!(error, SnapshotRestoreError::InvalidDocument(_)));
+    }
+
+    #[test]
+    fn schema_six_reward_snapshots_derive_each_unambiguous_continuation() {
+        let cases = [
+            (
+                RewardContinuation::Event,
+                json!({
+                    "event": crate::run::event::event_screen(crate::Event::Neow),
+                }),
+            ),
+            (
+                RewardContinuation::Shop,
+                json!({
+                    "shop": {
+                        "cards": [],
+                        "relics": [],
+                        "potions": [],
+                        "remove_cost": 75,
+                        "remove_available": true,
+                        "sale_slot": null
+                    },
+                    "shop_merchant_open": true,
+                }),
+            ),
+            (
+                RewardContinuation::Rest,
+                json!({
+                    "current_room_override": "Rest",
+                    "rest_room_complete": true,
+                }),
+            ),
+            (
+                RewardContinuation::Map,
+                json!({
+                    "current_room_override": "Treasure",
+                    "treasure_room": {
+                        "chest_size": "Small",
+                        "relic_tier": "Common",
+                        "have_gold": false
+                    },
+                }),
+            ),
+            (
+                RewardContinuation::Treasure,
+                json!({
+                    "current_room_override": "Boss",
+                    "boss_chest_opened": true,
+                }),
+            ),
+        ];
+
+        for (expected, owner_fields) in cases {
+            let mut value = reward_snapshot_value(PREVIOUS_SNAPSHOT_SCHEMA_VERSION);
+            let state = value["state"].as_object_mut().expect("state object");
+            state.extend(owner_fields.as_object().expect("owner fields").clone());
+
+            let restored = restore_run_snapshot_json(
+                &serde_json::to_string(&value).expect("snapshot value serializes"),
+            )
+            .expect("schema-six continuation migrates");
+
+            assert_eq!(
+                restored.state.reward.expect("reward restored").continuation,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn schema_six_reward_snapshot_rejects_ambiguous_continuation_owner() {
+        let mut value = reward_snapshot_value(PREVIOUS_SNAPSHOT_SCHEMA_VERSION);
+        value["state"]["event"] =
+            serde_json::to_value(crate::run::event::event_screen(crate::Event::Neow))
+                .expect("event serializes");
+        value["state"]["current_room_override"] = Value::String("Rest".to_owned());
+        value["state"]["rest_room_complete"] = Value::Bool(true);
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("ambiguous legacy owner must fail closed");
+
+        assert!(matches!(error, SnapshotRestoreError::InvalidDocument(_)));
+    }
+
+    #[test]
+    fn schema_six_neow_tiny_house_reward_migrates_to_explicit_exit() {
+        let mut value = reward_snapshot_value(PREVIOUS_SNAPSHOT_SCHEMA_VERSION);
+        value["state"]["event"] = serde_json::to_value(crate::run::event::neow_screen_for_stage(
+            &RunState::seeded_ironclad(7, 0),
+            2,
+        ))
+        .expect("Neow leave screen serializes");
+        value["state"]["relics"]
+            .as_array_mut()
+            .expect("relic array")
+            .push(Value::String("TinyHouse".to_owned()));
+
+        let restored = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect("schema-six Tiny House continuation migrates");
+        assert_eq!(
+            restored
+                .state
+                .reward
+                .as_ref()
+                .expect("reward restored")
+                .continuation,
+            RewardContinuation::Neow
+        );
+
+        let settled =
+            crate::run::reward::apply_run_action(&restored.state, crate::RunAction::Proceed)
+                .expect("Neow reward proceeds to the map");
+        assert_eq!(settled.phase, RunPhase::Idle);
+        assert!(settled.event.is_none());
+        assert!(settled.reward.is_none());
+    }
+
+    #[test]
+    fn current_reward_snapshot_rejects_retained_owner_without_continuation() {
+        let mut value = reward_snapshot_value(SNAPSHOT_SCHEMA_VERSION);
+        value["state"]["event"] =
+            serde_json::to_value(crate::run::event::event_screen(crate::Event::Neow))
+                .expect("event serializes");
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("current reward owner requires a typed continuation");
+
+        assert!(matches!(error, SnapshotRestoreError::InvalidState(_)));
     }
 
     #[test]

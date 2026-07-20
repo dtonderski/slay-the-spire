@@ -220,9 +220,18 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
         .expect("relic pools initialized")
         .return_random_relic(RelicTier::Boss, &context);
     if relic == RelicKey::TinyHouse && run.reward.is_none() {
+        let continuation = if run
+            .event
+            .as_ref()
+            .is_some_and(|event| event.event == crate::Event::Neow)
+        {
+            crate::RewardContinuation::Neow
+        } else {
+            crate::RewardContinuation::None
+        };
         run.phase = RunPhase::Reward;
         run.reward = Some(RewardScreen {
-            continuation: crate::RewardContinuation::None,
+            continuation,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 0,

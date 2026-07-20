@@ -35,8 +35,8 @@ use crate::{
         RunRngStream, DEFAULT_EVENT_ROOM_MONSTER_CHANCE, DEFAULT_EVENT_ROOM_SHOP_CHANCE,
         DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
     },
-    CombatAction, Event, MonsterState, RewardContinuation, RewardScreen, RunAction, RunPhase,
-    RunState, SimError, SimResult,
+    CombatAction, MonsterState, RewardContinuation, RewardScreen, RunAction, RunPhase, RunState,
+    SimError, SimResult,
 };
 
 /// Source-backed combat reward categories from target `createCombatReward` variants.
@@ -133,12 +133,20 @@ pub fn setup_treasure_room(run: &mut RunState) {
     });
 }
 
+fn combat_reward_continuation(run: &RunState) -> RewardContinuation {
+    if run.event.is_some() {
+        RewardContinuation::Event
+    } else {
+        RewardContinuation::None
+    }
+}
+
 /// Prepare the reward overlay that Orrery opens while preserving the shop
 /// underneath it. The relic pickup itself adds the five pending card rewards.
 pub(crate) fn enter_orrery_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.reward = Some(RewardScreen {
-        continuation: RewardContinuation::None,
+        continuation: RewardContinuation::Shop,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -911,6 +919,7 @@ fn target_matryoshka_relic_tier(relic_rng: &mut StsRng) -> RelicTier {
 }
 
 pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
+    let continuation = combat_reward_continuation(run);
     run.ensure_ironclad_relic_pools();
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = match kind {
@@ -944,7 +953,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
-        continuation: RewardContinuation::None,
+        continuation,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -974,7 +983,7 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
     run.combat = None;
     run.boss_chest_opened = true;
     run.reward = Some(RewardScreen {
-        continuation: RewardContinuation::None,
+        continuation: RewardContinuation::Treasure,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -990,6 +999,15 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
 }
 
 pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
+    let continuation = if run
+        .event
+        .as_ref()
+        .is_some_and(|event| event.event == crate::Event::Neow)
+    {
+        RewardContinuation::Neow
+    } else {
+        RewardContinuation::Treasure
+    };
     let common = roll_screenless_relic_reward(run, RelicTier::Common);
     let uncommon = roll_screenless_relic_reward(run, RelicTier::Uncommon);
     let rare = roll_screenless_relic_reward(run, RelicTier::Rare);
@@ -997,7 +1015,7 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
-        continuation: RewardContinuation::None,
+        continuation,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -1185,6 +1203,7 @@ pub fn any_color_reward_card_key_from_identity(identity: &str) -> Option<&'stati
 }
 
 pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
+    let continuation = combat_reward_continuation(run);
     let all_monsters_escaped = run
         .combat
         .as_ref()
@@ -1236,7 +1255,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
-        continuation: RewardContinuation::None,
+        continuation,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer,
@@ -1287,6 +1306,7 @@ pub fn enter_reward_screen(run: &mut RunState) {
 }
 
 pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
+    let continuation = combat_reward_continuation(run);
     let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
     let gold_offer =
         combat_gold_offer_with_relics(run, target_elite_combat_gold(&mut treasure_rng));
@@ -1322,7 +1342,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
-        continuation: RewardContinuation::None,
+        continuation,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer,
@@ -1339,6 +1359,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
 }
 
 pub fn enter_boss_combat_reward_screen(run: &mut RunState) {
+    let continuation = combat_reward_continuation(run);
     let mut misc_rng = run.rng_for_stream(RunRngStream::Misc);
     let gold_offer = combat_gold_offer_with_relics(run, target_boss_combat_gold(&mut misc_rng));
     run.store_rng_counter(RunRngStream::Misc, &misc_rng);
@@ -1363,7 +1384,7 @@ pub fn enter_boss_combat_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
-        continuation: RewardContinuation::None,
+        continuation,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer,
@@ -1510,7 +1531,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
-        continuation: RewardContinuation::None,
+        continuation: RewardContinuation::Map,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer,
@@ -1953,7 +1974,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             if reward.card_reward_is_active() {
                 reward.choices.clear();
                 reward.consume_active_card_reward()?;
-                return_to_event_if_reward_empty(&mut next);
+                return_to_reward_continuation_if_empty(&mut next);
             } else if is_boss_room && !reward.boss_relic_choices.is_empty() {
                 next.phase = RunPhase::Treasure;
                 next.reward = None;
@@ -1964,12 +1985,8 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 && reward.queued_relic_offers.is_empty()
             {
                 enter_boss_reward_chest(&mut next);
-            } else if next.event.is_some() {
-                next.phase = RunPhase::Event;
-                next.reward = None;
             } else {
-                next.phase = RunPhase::Idle;
-                next.reward = None;
+                close_reward_overlay(&mut next, RewardCloseReason::Automatic);
             }
         }
         RunAction::CloseCardReward => {
@@ -1981,7 +1998,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             if return_to_rest {
                 reward.choices.clear();
                 reward.consume_active_card_reward()?;
-                return_to_event_if_reward_empty(&mut next);
+                return_to_reward_continuation_if_empty(&mut next);
             } else {
                 reward.close_card_reward()?;
             }
@@ -1997,7 +2014,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             reward.choices.clear();
             reward.consume_active_card_reward()?;
             next.add_deck_card(choice);
-            return_to_event_if_reward_empty(&mut next);
+            return_to_reward_continuation_if_empty(&mut next);
         }
         RunAction::TakeSingingBowlReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
@@ -2005,7 +2022,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             reward.consume_active_card_reward()?;
             next.player_max_hp += SINGING_BOWL_MAX_HP;
             next.player_hp += SINGING_BOWL_MAX_HP;
-            return_to_event_if_reward_empty(&mut next);
+            return_to_reward_continuation_if_empty(&mut next);
         }
         RunAction::TakeGoldReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
@@ -2071,19 +2088,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 enter_spire_heart_event(&mut next);
                 return Ok(next);
             }
-            let neow_leave = next
-                .event
-                .as_ref()
-                .is_some_and(|event| event.event == Event::Neow && event.stage == 2);
-            next.phase = if neow_leave {
-                RunPhase::Idle
-            } else {
-                RunPhase::Event
-            };
-            next.reward = None;
-            if neow_leave {
-                next.event = None;
-            }
+            close_reward_overlay(&mut next, RewardCloseReason::Proceed);
         }
         RunAction::OpenChest => {
             unreachable!("validated reward action")
@@ -2144,7 +2149,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
     Ok(next)
 }
 
-fn return_to_event_if_reward_empty(run: &mut RunState) {
+fn return_to_reward_continuation_if_empty(run: &mut RunState) {
     let Some(reward) = run.reward.as_ref() else {
         return;
     };
@@ -2160,16 +2165,36 @@ fn return_to_event_if_reward_empty(run: &mut RunState) {
     {
         return;
     }
-    let continuation = reward.continuation;
-    if continuation == RewardContinuation::Rest {
-        run.phase = RunPhase::Rest;
-        run.reward = None;
-    } else if run.shop.is_some() && run.shop_merchant_open {
-        run.phase = RunPhase::Shop;
-        run.reward = None;
-    } else if run.event.is_some() {
-        run.phase = RunPhase::Event;
-        run.reward = None;
+    if reward.continuation != RewardContinuation::None {
+        close_reward_overlay(run, RewardCloseReason::Automatic);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RewardCloseReason {
+    Automatic,
+    Proceed,
+}
+
+fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) {
+    let continuation = run
+        .reward
+        .as_ref()
+        .map(|reward| reward.continuation)
+        .unwrap_or(RewardContinuation::None);
+    run.phase = match continuation {
+        RewardContinuation::None => RunPhase::Idle,
+        RewardContinuation::Rest => RunPhase::Rest,
+        RewardContinuation::Event => RunPhase::Event,
+        RewardContinuation::Shop => RunPhase::Shop,
+        RewardContinuation::Map => RunPhase::Idle,
+        RewardContinuation::Treasure => RunPhase::Treasure,
+        RewardContinuation::Neow if reason == RewardCloseReason::Automatic => RunPhase::Event,
+        RewardContinuation::Neow => RunPhase::Idle,
+    };
+    run.reward = None;
+    if continuation == RewardContinuation::Neow && reason == RewardCloseReason::Proceed {
+        run.event = None;
     }
 }
 
@@ -2219,7 +2244,8 @@ mod tests {
             neow::{generate_neow_colorless_reward, NeowRewardType},
             RunState,
         },
-        CardId, CardInstance, CombatAction, CombatState, MonsterId, Relic, RelicKey, RoomKind,
+        CardId, CardInstance, CombatAction, CombatState, Event, MonsterId, Relic, RelicKey,
+        RoomKind,
     };
 
     fn reward_choice_ids(run: &RunState) -> Vec<ContentId> {
@@ -2268,6 +2294,7 @@ mod tests {
     fn boss_calling_bell_relics_return_to_treasure_proceed() {
         let mut run = RunState::seeded_ironclad(7, 0);
         run.current_room_override = Some(RoomKind::Boss);
+        run.event = None;
         run.boss_chest_opened = true;
         enter_calling_bell_reward_screen(&mut run);
 
@@ -2287,6 +2314,7 @@ mod tests {
         run.current_act = 3;
         run.current_floor = 50;
         run.current_room_override = Some(RoomKind::Boss);
+        run.event = None;
         run.reward = Some(RewardScreen {
             continuation: RewardContinuation::None,
             choices: Vec::new(),

@@ -6373,9 +6373,9 @@ fn seed_start_apply_neow_boss_swap(numeric_seed: i64, deck_ids: &[String]) -> Ru
     let mut run = seed_start_seeded_idle_run(numeric_seed, 0, deck_ids);
     run.gold = 99;
     run.relics = vec![Relic::BurningBlood];
+    run.event = Some(neow_screen_for_stage(&run, 2));
     seed_start_prepare_neow_relic_equip(&mut run);
     apply_neow_boss_swap(&mut run);
-    run.event = Some(neow_screen_for_stage(&run, 2));
     run
 }
 

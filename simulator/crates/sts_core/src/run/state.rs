@@ -79,6 +79,10 @@ mod tests {
             run.reward.as_ref().and_then(|reward| reward.potion_offer),
             Some(Potion::Colorless)
         );
+        assert_eq!(
+            run.reward.as_ref().map(|reward| reward.continuation),
+            Some(RewardContinuation::Neow)
+        );
     }
 
     #[test]
@@ -503,6 +507,11 @@ pub enum RewardContinuation {
     #[default]
     None,
     Rest,
+    Event,
+    Shop,
+    Map,
+    Treasure,
+    Neow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -814,6 +823,85 @@ impl RunState {
         }
 
         if let Some(reward) = &self.reward {
+            let retained_event = self.event.is_some();
+            let retained_shop = self.shop.is_some() && self.shop_merchant_open;
+            let retained_rest =
+                self.rest_room_complete && self.current_room_kind() == Some(RoomKind::Rest);
+            let retained_map_treasure = self.treasure_room.is_some()
+                && self.current_room_kind() == Some(RoomKind::Treasure);
+            let retained_boss_treasure =
+                self.current_room_kind() == Some(RoomKind::Boss) && self.boss_chest_opened;
+            let retained_treasure = retained_map_treasure || retained_boss_treasure;
+            match reward.continuation {
+                RewardContinuation::None => {
+                    if self.phase == RunPhase::Reward
+                        && (retained_event || retained_shop || retained_rest || retained_treasure)
+                    {
+                        return Err(SimError::InvalidState(
+                            "reward retained owner has no typed continuation",
+                        ));
+                    }
+                }
+                RewardContinuation::Rest => {
+                    if !retained_rest || retained_event || retained_shop || retained_treasure {
+                        return Err(SimError::InvalidState(
+                            "rest reward continuation has no completed rest room",
+                        ));
+                    }
+                }
+                RewardContinuation::Event
+                    if !retained_event || retained_shop || retained_rest || retained_treasure =>
+                {
+                    return Err(SimError::InvalidState(
+                        "event reward continuation has no event screen",
+                    ));
+                }
+                RewardContinuation::Shop
+                    if !retained_shop || retained_event || retained_rest || retained_treasure =>
+                {
+                    return Err(SimError::InvalidState(
+                        "shop reward continuation has no open merchant",
+                    ));
+                }
+                RewardContinuation::Map
+                    if !retained_map_treasure
+                        || retained_event
+                        || retained_shop
+                        || retained_rest
+                        || retained_boss_treasure =>
+                {
+                    return Err(SimError::InvalidState(
+                        "map reward continuation has no opened treasure-room chest",
+                    ));
+                }
+                RewardContinuation::Treasure
+                    if !retained_boss_treasure
+                        || retained_event
+                        || retained_shop
+                        || retained_rest
+                        || retained_map_treasure =>
+                {
+                    return Err(SimError::InvalidState(
+                        "treasure reward continuation has no opened chest",
+                    ));
+                }
+                RewardContinuation::Neow
+                    if !self.event.as_ref().is_some_and(|event| {
+                        event.event == super::event::Event::Neow && event.stage == 2
+                    }) || retained_shop
+                        || retained_rest
+                        || retained_treasure =>
+                {
+                    return Err(SimError::InvalidState(
+                        "Neow reward continuation has no Neow leave screen",
+                    ));
+                }
+                RewardContinuation::Event
+                | RewardContinuation::Shop
+                | RewardContinuation::Map
+                | RewardContinuation::Treasure
+                | RewardContinuation::Neow => {}
+            }
             validate_run_choice_cards(&reward.choices)?;
             for choices in &reward.queued_card_rewards {
                 validate_run_choice_cards(choices)?;
@@ -2071,7 +2159,8 @@ impl RunState {
                 let final_boss_victory =
                     self.current_act == 3 && self.current_room_kind() == Some(RoomKind::Boss);
                 if final_boss_victory
-                    || (self.event.is_some() && super::reward::reward_is_empty(reward))
+                    || (reward.continuation != RewardContinuation::None
+                        && super::reward::reward_is_empty(reward))
                 {
                     Ok(())
                 } else {

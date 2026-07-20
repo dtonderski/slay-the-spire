@@ -905,6 +905,7 @@ mod tests {
     fn buying_orrery_opens_five_card_rewards_then_returns_to_shop() {
         let mut run = RunState::seeded_ironclad(3_840_209_149_409_335_969, 0);
         run.phase = RunPhase::Shop;
+        run.event = None;
         run.gold = 999;
         let shop = generate_shop_screen(&mut run);
         run.shop = Some(shop);
