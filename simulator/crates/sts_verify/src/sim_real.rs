@@ -4626,93 +4626,133 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
-                let label = if screen_type(&post.message) == Some("SHOP_SCREEN") {
-                    "shop grid"
-                } else if screen_type(&post.message) == Some("EVENT") {
-                    "event grid"
-                } else if screen_type(&post.message) == Some("REST") {
-                    "rest grid"
-                } else {
-                    "grid"
+                let destination = match seed_start_grid_destination(&next) {
+                    Ok(destination) => destination,
+                    Err(reason) => {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_grid_destination".to_owned(),
+                            reason,
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
+                    }
                 };
-                if screen_type(&post.message) == Some("SHOP_SCREEN") {
-                    compare_subset(
-                        report,
-                        action,
-                        label,
+                let (label, mut observed, mut simulated, next_phase) = match destination {
+                    SeedStartGridDestination::Grid => (
+                        "grid",
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&next, &relics),
+                        SeedStartPhase::Grid,
+                    ),
+                    SeedStartGridDestination::Shop => (
+                        "shop grid",
                         seed_start_shop_observed_subset(&post.message),
                         seed_start_shop_screen_simulated_subset(&next, &relics),
-                    );
-                } else if screen_type(&post.message) == Some("EVENT") {
-                    let simulated = seed_start_event_simulated_subset_with_delayed_deck_append(
-                        &next,
-                        &relics,
-                        delayed_event_deck_append_count,
-                    );
-                    compare_subset(
-                        report,
-                        action,
-                        label,
+                        SeedStartPhase::Shop,
+                    ),
+                    SeedStartGridDestination::Event => (
+                        "event grid",
                         seed_start_event_observed_subset(&post.message),
-                        simulated,
-                    );
-                } else if screen_type(&post.message) == Some("REST") {
-                    compare_subset(
-                        report,
-                        action,
-                        label,
+                        seed_start_event_simulated_subset_with_delayed_deck_append(
+                            &next,
+                            &relics,
+                            delayed_event_deck_append_count,
+                        ),
+                        SeedStartPhase::Event,
+                    ),
+                    SeedStartGridDestination::Rest => (
+                        "rest grid",
                         seed_start_rest_observed_subset(&post.message),
                         seed_start_rest_simulated_subset(&next, &relics),
-                    );
-                } else if screen_type(&post.message) == Some("COMBAT_REWARD") {
-                    compare_subset(
-                        report,
-                        action,
-                        label,
+                        SeedStartPhase::Rest,
+                    ),
+                    SeedStartGridDestination::Reward => (
+                        "grid",
                         seed_start_reward_observed_subset(&post.message),
                         seed_start_reward_simulated_subset(&next, &relics),
-                    );
-                } else if screen_type(&post.message) == Some("CHEST")
-                    && next.phase == RunPhase::Treasure
-                    && next.card_grid.is_none()
-                {
-                    compare_subset(
-                        report,
-                        action,
+                        if seed_start_reward_sequence_complete(&next) {
+                            seed_start_phase_after_reward_completion(&next)
+                        } else {
+                            SeedStartPhase::Reward
+                        },
+                    ),
+                    SeedStartGridDestination::Treasure => (
                         "boss relic grid confirm",
                         seed_start_treasure_observed_subset(&post.message),
                         seed_start_treasure_simulated_subset(&next, &relics),
-                    );
+                        SeedStartPhase::Treasure,
+                    ),
+                    SeedStartGridDestination::Proceed => (
+                        "grid proceed",
+                        seed_start_observed_subset(&post.message),
+                        seed_start_proceed_simulated_subset(&next, &relics),
+                        SeedStartPhase::Proceed,
+                    ),
+                };
+                if destination == SeedStartGridDestination::Event
+                    && delayed_event_deck_append_count.is_some()
+                    && next.card_grid.is_none()
+                {
+                    let observed_deck = observed
+                        .as_object_mut()
+                        .and_then(|object| object.remove("deck_ids"))
+                        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                        .unwrap_or_default();
+                    let simulated_deck = simulated
+                        .as_object_mut()
+                        .and_then(|object| object.remove("deck_ids"))
+                        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                        .unwrap_or_default();
+                    let mut diffs = subset_diffs(observed, simulated);
+                    let expected_deck = deck_content_keys(&next.deck);
+                    match classify_deferred_deck_observation(
+                        &observed_deck,
+                        &simulated_deck,
+                        &expected_deck,
+                    ) {
+                        PendingDeckObservation::Settled if diffs.is_empty() => {
+                            report.verified.push(VerifiedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                label: label.to_owned(),
+                            });
+                        }
+                        PendingDeckObservation::Deferred if diffs.is_empty() => {
+                            pending_deck_assertion = Some(PendingDeckAssertion {
+                                action: action.clone(),
+                                label: label.to_owned(),
+                                expected_deck,
+                            });
+                        }
+                        PendingDeckObservation::Diverged(deck_diffs) => {
+                            diffs.extend(deck_diffs);
+                            report.unexpected_diffs.push(UnexpectedDiff {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                label: label.to_owned(),
+                                diffs,
+                            });
+                        }
+                        PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+                            report.unexpected_diffs.push(UnexpectedDiff {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                label: label.to_owned(),
+                                diffs,
+                            });
+                        }
+                    }
                 } else {
-                    compare_subset(
-                        report,
-                        action,
-                        label,
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next, &relics),
-                    );
+                    compare_subset(report, action, label, observed, simulated);
                 }
                 seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                 *sim = next;
-                if sim.card_grid.is_some() {
-                    phase = SeedStartPhase::Grid;
-                } else if sim.shop.is_some() {
-                    phase = SeedStartPhase::Shop;
-                } else if sim.phase == RunPhase::Event {
-                    phase = SeedStartPhase::Event;
-                } else if sim.phase == RunPhase::Idle {
-                    phase = SeedStartPhase::Proceed;
-                } else if sim.phase == RunPhase::Reward {
-                    if seed_start_reward_sequence_complete(sim) {
-                        phase = seed_start_phase_after_reward_completion(sim);
-                    } else {
-                        phase = SeedStartPhase::Reward;
-                    }
-                } else if sim.phase == RunPhase::Treasure {
-                    phase = SeedStartPhase::Treasure;
-                } else {
-                    phase = SeedStartPhase::Rest;
-                }
+                phase = next_phase;
             }
             SeedStartPhase::Shop => {
                 let Some(sim) = seed_sim.as_mut() else {
@@ -5130,6 +5170,47 @@ enum SeedStartPhase {
     Complete,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SeedStartGridDestination {
+    Grid,
+    Shop,
+    Event,
+    Rest,
+    Reward,
+    Treasure,
+    Proceed,
+}
+
+fn seed_start_grid_destination(run: &RunState) -> Result<SeedStartGridDestination, String> {
+    if run.card_grid.is_some() {
+        return Ok(SeedStartGridDestination::Grid);
+    }
+
+    match run.phase {
+        RunPhase::Shop if run.shop.is_some() => Ok(SeedStartGridDestination::Shop),
+        RunPhase::Event if run.event.is_some() => Ok(SeedStartGridDestination::Event),
+        RunPhase::Rest => Ok(SeedStartGridDestination::Rest),
+        RunPhase::Reward if run.reward.is_some() => Ok(SeedStartGridDestination::Reward),
+        RunPhase::Treasure => Ok(SeedStartGridDestination::Treasure),
+        RunPhase::Idle
+            if run.shop.is_none()
+                && run.event.is_none()
+                && run.reward.is_none()
+                && run.combat.is_none() =>
+        {
+            Ok(SeedStartGridDestination::Proceed)
+        }
+        phase => Err(format!(
+            "grid command produced inconsistent simulator destination: phase={phase:?}, grid={}, shop={}, event={}, reward={}, combat={}",
+            run.card_grid.is_some(),
+            run.shop.is_some(),
+            run.event.is_some(),
+            run.reward.is_some(),
+            run.combat.is_some(),
+        )),
+    }
+}
+
 fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, SimRealError>> {
     let parts: Vec<_> = action.command.split_whitespace().collect();
     if !parts
@@ -5205,6 +5286,20 @@ fn seed_start_observed_subset(message: &Value) -> Value {
         "deck_ids": deck_keys_from_value(game.get("deck")),
         "relic_ids": relic_keys_from_value(game.get("relics")),
         "choices": choice_list_from_value(game.get("choice_list")),
+    })
+}
+
+fn seed_start_proceed_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+    json!({
+        "screen_type": "NONE",
+        "ascension": run.ascension as u64,
+        "floor": run.current_floor,
+        "gold": run.gold,
+        "current_hp": run.player_hp,
+        "max_hp": run.player_max_hp,
+        "deck_ids": deck_content_keys(&run.deck),
+        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "choices": Vec::<String>::new(),
     })
 }
 
@@ -13139,6 +13234,61 @@ mod tests {
                 .any(|diff| diff.starts_with("screen_type:") || diff.contains("card_reward_ids")),
             "{reward_diff:#?}"
         );
+    }
+
+    #[test]
+    fn observed_grid_destination_cannot_steer_projection() {
+        let path = crate::corpus_path("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl");
+        let content = std::fs::read_to_string(path).expect("retained trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (grid_action_step, shop_post) = transitions
+            .transitions
+            .iter()
+            .find_map(|(pre, action, post)| {
+                (screen_type(&pre.message) == Some("GRID")
+                    && action.command.eq_ignore_ascii_case("CONFIRM")
+                    && screen_type(&post.message) == Some("SHOP_SCREEN"))
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture confirms a shop purge grid");
+
+        let mut mutated_lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let mutated_state = mutated_lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if *state == shop_post => Some(state),
+                _ => None,
+            })
+            .expect("shop grid post-state remains in imported trace");
+        *mutated_state
+            .message
+            .pointer_mut("/game_state/screen_type")
+            .expect("shop screen type") = json!("EVENT");
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
+        let report = verify_communication_mod_trace(&mutated).expect("mutated trace parses");
+        let destination_diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| diff.action_step == grid_action_step && diff.label == "shop grid")
+            .expect("forged destination must be compared against the core-owned shop projection");
+        assert!(
+            destination_diff
+                .diffs
+                .iter()
+                .any(|diff| diff.starts_with("screen_type:")),
+            "{destination_diff:#?}"
+        );
+        assert!(report
+            .unexpected_diffs
+            .iter()
+            .all(|diff| diff.action_step != grid_action_step || diff.label != "event grid"));
     }
 
     #[test]

@@ -1556,6 +1556,19 @@ fn session13_golden_shrine_curse_is_deferred_until_the_stable_deck_frame() {
         sts_verify::ActionDispositionKind::Verified
     );
     assert!(disposition.deferred_assertion_reconciled);
+    let grid_disposition = report
+        .action_dispositions
+        .iter()
+        .find(|entry| entry.action_step == 4482 && entry.command == "CONFIRM")
+        .expect("Transmogrifier grid confirmation has a disposition");
+    assert_eq!(
+        grid_disposition.disposition,
+        sts_verify::ActionDispositionKind::Verified
+    );
+    assert!(
+        grid_disposition.deferred_assertion_reconciled,
+        "the transient event deck must reconcile before grid confirmation verifies"
+    );
     assert_eq!(
         report
             .action_integrity
