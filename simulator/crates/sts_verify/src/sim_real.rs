@@ -3440,49 +3440,26 @@ fn verify_seed_start_transitions(
                 let command = action.command.trim();
                 let command_head = command.split_whitespace().next().unwrap_or("");
                 let is_play_command = command_head.eq_ignore_ascii_case("PLAY");
-                let is_choose_command = command_head.eq_ignore_ascii_case("CHOOSE");
-                let hand_select = screen_type(&pre.message) == Some("HAND_SELECT")
-                    || screen_type(&post.message) == Some("HAND_SELECT");
-                let _enters_hand_select =
-                    is_play_command && screen_type(&post.message) == Some("HAND_SELECT");
-                let combat_card_reward_choose = is_choose_command
-                    && seed_sim
-                        .as_ref()
-                        .is_some_and(seed_start_run_has_combat_card_reward);
-                let combat_card_reward_skip = command.eq_ignore_ascii_case("SKIP")
-                    && seed_sim
-                        .as_ref()
-                        .is_some_and(seed_start_run_has_combat_card_reward);
-                let combat_hand_select_choose = is_choose_command
-                    && seed_sim
-                        .as_ref()
-                        .and_then(|run| run.combat.as_ref())
-                        .is_some_and(|combat| combat.hand_select.is_some());
-                let combat_hand_select_confirm = command.eq_ignore_ascii_case("CONFIRM")
-                    && seed_sim
-                        .as_ref()
-                        .and_then(|run| run.combat.as_ref())
-                        .is_some_and(|combat| combat.hand_select.is_some());
-                let combat_discard_select_choose = is_choose_command
-                    && seed_sim
-                        .as_ref()
-                        .and_then(|run| run.combat.as_ref())
-                        .is_some_and(|combat| combat.discard_select.is_some());
-                let combat_discard_select_confirm = command.eq_ignore_ascii_case("CONFIRM")
-                    && seed_sim
-                        .as_ref()
-                        .and_then(|run| run.combat.as_ref())
-                        .is_some_and(|combat| combat.discard_select.is_some());
-                let combat_exhaust_select_choose = is_choose_command
-                    && seed_sim
-                        .as_ref()
-                        .and_then(|run| run.combat.as_ref())
-                        .is_some_and(|combat| combat.exhaust_select.is_some());
-                let combat_exhaust_select_confirm = command.eq_ignore_ascii_case("CONFIRM")
-                    && seed_sim
-                        .as_ref()
-                        .and_then(|run| run.combat.as_ref())
-                        .is_some_and(|combat| combat.exhaust_select.is_some());
+                let combat_decision = match seed_sim
+                    .as_ref()
+                    .map(seed_start_active_combat_decision)
+                    .transpose()
+                {
+                    Ok(decision) => decision.flatten(),
+                    Err(reason) => {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_combat_decision_state".to_owned(),
+                            reason,
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
+                    }
+                };
                 let potion_use = parse_potion_use(command);
                 let Some(sim) = seed_sim.as_mut() else {
                     let boundary = SeedStartBoundary {
@@ -3498,6 +3475,56 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
+
+                if let Some(decision) = combat_decision {
+                    if command.eq_ignore_ascii_case("WAIT") {
+                        seed_start_compare_combat_subset(
+                            report,
+                            action,
+                            "combat decision refresh",
+                            seed_start_combat_observed_subset(&post.message),
+                            seed_start_simulated_combat_subset(sim, false),
+                            false,
+                        );
+                        continue;
+                    }
+                    let (decision_action, label) =
+                        match seed_start_bind_combat_decision_command(decision, command) {
+                            Ok(bound) => bound,
+                            Err(reason) => {
+                                let boundary = SeedStartBoundary {
+                                    path: format!("$.actions[step={}].command", action.step),
+                                    category: "unsupported_combat_decision_command".to_owned(),
+                                    reason,
+                                };
+                                report.unsupported.push(UnsupportedTransition {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    reason: boundary.reason.clone(),
+                                });
+                                return finish_boundary!(boundary);
+                            }
+                        };
+                    let next = apply_run_action(sim, decision_action);
+                    let Ok(next) = next else {
+                        push_sim_error(report, action, label, next.err().unwrap());
+                        return finish_boundary!(SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_combat_path".to_owned(),
+                            reason: format!("seed-start {label} simulation failed"),
+                        });
+                    };
+                    seed_start_compare_combat_subset(
+                        report,
+                        action,
+                        label,
+                        seed_start_combat_observed_subset(&post.message),
+                        seed_start_simulated_combat_subset(&next, false),
+                        false,
+                    );
+                    *sim = next;
+                    continue;
+                }
 
                 if let Some(potion_use) = potion_use {
                     let is_smoke_bomb =
@@ -3596,302 +3623,6 @@ fn verify_seed_start_transitions(
                         false,
                     );
                     *sim = next;
-                    continue;
-                }
-
-                if combat_card_reward_choose {
-                    let Some(index) = choose_index(command) else {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: format!(
-                                "seed-start verifier could not parse combat card reward command {command:?}"
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    };
-                    let next = apply_run_action(sim, RunAction::ChooseCombatCardReward { index });
-                    let Ok(next) = next else {
-                        push_sim_error(
-                            report,
-                            action,
-                            "combat potion card reward",
-                            next.err().unwrap(),
-                        );
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat potion card reward simulation failed"
-                                .to_owned(),
-                        });
-                    };
-                    seed_start_compare_combat_subset(
-                        report,
-                        action,
-                        "combat potion card reward",
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        false,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if combat_card_reward_skip {
-                    let next = apply_run_action(sim, RunAction::SkipCombatCardReward);
-                    let Ok(next) = next else {
-                        push_sim_error(
-                            report,
-                            action,
-                            "combat potion card reward skip",
-                            next.err().unwrap(),
-                        );
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat potion card reward skip simulation failed"
-                                .to_owned(),
-                        });
-                    };
-                    seed_start_compare_combat_subset(
-                        report,
-                        action,
-                        "combat potion card reward skip",
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        false,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if combat_hand_select_confirm {
-                    let next = apply_run_action(sim, RunAction::ConfirmHandSelect);
-                    let Ok(next) = next else {
-                        push_sim_error(
-                            report,
-                            action,
-                            "combat hand select confirm",
-                            next.err().unwrap(),
-                        );
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat hand select confirm simulation failed"
-                                .to_owned(),
-                        });
-                    };
-                    seed_start_compare_combat_subset(
-                        report,
-                        action,
-                        "hand select confirm",
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        false,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if combat_hand_select_choose {
-                    let Some(index) = choose_index(command) else {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: format!(
-                                "seed-start verifier could not parse combat hand select command {command:?}"
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    };
-                    let next = apply_run_action(sim, RunAction::ChooseHandSelect { index });
-                    let Ok(next) = next else {
-                        push_sim_error(report, action, "combat hand select", next.err().unwrap());
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat hand select simulation failed".to_owned(),
-                        });
-                    };
-                    seed_start_compare_combat_subset(
-                        report,
-                        action,
-                        "hand select",
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        false,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if combat_discard_select_confirm {
-                    let next = apply_run_action(sim, RunAction::ConfirmDiscardSelect);
-                    let Ok(next) = next else {
-                        push_sim_error(
-                            report,
-                            action,
-                            "combat discard select confirm",
-                            next.err().unwrap(),
-                        );
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat discard select confirm simulation failed"
-                                .to_owned(),
-                        });
-                    };
-                    seed_start_compare_combat_subset(
-                        report,
-                        action,
-                        "discard select confirm",
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        false,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if combat_discard_select_choose {
-                    let Some(index) = choose_index(command) else {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: format!(
-                                "seed-start verifier could not parse combat discard select command {command:?}"
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    };
-                    let next = apply_run_action(sim, RunAction::ChooseDiscardSelect { index });
-                    let Ok(next) = next else {
-                        push_sim_error(
-                            report,
-                            action,
-                            "combat discard select",
-                            next.err().unwrap(),
-                        );
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat discard select simulation failed".to_owned(),
-                        });
-                    };
-                    seed_start_compare_combat_subset(
-                        report,
-                        action,
-                        "discard select",
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        false,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if combat_exhaust_select_confirm {
-                    let next = apply_run_action(sim, RunAction::ConfirmExhaustSelect);
-                    let Ok(next) = next else {
-                        push_sim_error(
-                            report,
-                            action,
-                            "combat exhaust select confirm",
-                            next.err().unwrap(),
-                        );
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat exhaust select confirm simulation failed"
-                                .to_owned(),
-                        });
-                    };
-                    seed_start_compare_combat_subset(
-                        report,
-                        action,
-                        "exhaust select confirm",
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        false,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if combat_exhaust_select_choose {
-                    let Some(index) = choose_index(command) else {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: format!(
-                                "seed-start verifier could not parse combat exhaust select command {command:?}"
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    };
-                    let next = apply_run_action(sim, RunAction::ChooseExhaustSelect { index });
-                    let Ok(next) = next else {
-                        push_sim_error(
-                            report,
-                            action,
-                            "combat exhaust select",
-                            next.err().unwrap(),
-                        );
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat exhaust select simulation failed".to_owned(),
-                        });
-                    };
-                    seed_start_compare_combat_subset(
-                        report,
-                        action,
-                        "exhaust select",
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        false,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if hand_select
-                    && (command.eq_ignore_ascii_case("state")
-                        || command.eq_ignore_ascii_case("wait"))
-                {
-                    seed_start_compare_combat_subset(
-                        report,
-                        action,
-                        "hand select refresh",
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(sim, false),
-                        false,
-                    );
-                    report.verified.push(VerifiedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        label: "hand select refresh".to_owned(),
-                    });
                     continue;
                 }
 
@@ -8631,6 +8362,103 @@ fn seed_start_run_has_combat_card_reward(run: &RunState) -> bool {
             || combat.discovery_card_reward.is_some()
             || combat.toolbox_card_reward.is_some()
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SeedStartCombatDecision {
+    CardReward,
+    HandSelect,
+    DrawSelect,
+    DiscardSelect,
+    ExhaustSelect,
+}
+
+fn seed_start_active_combat_decision(
+    run: &RunState,
+) -> Result<Option<SeedStartCombatDecision>, String> {
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(None);
+    };
+    let mut decisions = Vec::new();
+    if seed_start_run_has_combat_card_reward(run) {
+        decisions.push(SeedStartCombatDecision::CardReward);
+    }
+    if combat.hand_select.is_some() {
+        decisions.push(SeedStartCombatDecision::HandSelect);
+    }
+    if combat.draw_select.is_some() {
+        decisions.push(SeedStartCombatDecision::DrawSelect);
+    }
+    if combat.discard_select.is_some() {
+        decisions.push(SeedStartCombatDecision::DiscardSelect);
+    }
+    if combat.exhaust_select.is_some() {
+        decisions.push(SeedStartCombatDecision::ExhaustSelect);
+    }
+    match decisions.as_slice() {
+        [] => Ok(None),
+        [decision] => Ok(Some(*decision)),
+        _ => Err(format!(
+            "combat exposes multiple authoritative decisions: {decisions:?}"
+        )),
+    }
+}
+
+fn seed_start_bind_combat_decision_command(
+    decision: SeedStartCombatDecision,
+    command: &str,
+) -> Result<(RunAction, &'static str), String> {
+    if command_head_eq(command, "CHOOSE") {
+        let index = choose_index(command)
+            .ok_or_else(|| format!("malformed combat decision command {command:?}"))?;
+        return Ok(match decision {
+            SeedStartCombatDecision::CardReward => (
+                RunAction::ChooseCombatCardReward { index },
+                "combat potion card reward",
+            ),
+            SeedStartCombatDecision::HandSelect => {
+                (RunAction::ChooseHandSelect { index }, "hand select")
+            }
+            SeedStartCombatDecision::DrawSelect => {
+                (RunAction::ChooseDrawSelect { index }, "draw select")
+            }
+            SeedStartCombatDecision::DiscardSelect => {
+                (RunAction::ChooseDiscardSelect { index }, "discard select")
+            }
+            SeedStartCombatDecision::ExhaustSelect => {
+                (RunAction::ChooseExhaustSelect { index }, "exhaust select")
+            }
+        });
+    }
+    if command.eq_ignore_ascii_case("CONFIRM") {
+        return match decision {
+            SeedStartCombatDecision::HandSelect => {
+                Ok((RunAction::ConfirmHandSelect, "hand select confirm"))
+            }
+            SeedStartCombatDecision::DrawSelect => {
+                Ok((RunAction::ConfirmDrawSelect, "draw select confirm"))
+            }
+            SeedStartCombatDecision::DiscardSelect => {
+                Ok((RunAction::ConfirmDiscardSelect, "discard select confirm"))
+            }
+            SeedStartCombatDecision::ExhaustSelect => {
+                Ok((RunAction::ConfirmExhaustSelect, "exhaust select confirm"))
+            }
+            SeedStartCombatDecision::CardReward => Err(
+                "combat card rewards do not accept a CONFIRM command; choose or skip the offer"
+                    .to_owned(),
+            ),
+        };
+    }
+    if command.eq_ignore_ascii_case("SKIP") && decision == SeedStartCombatDecision::CardReward {
+        return Ok((
+            RunAction::SkipCombatCardReward,
+            "combat potion card reward skip",
+        ));
+    }
+    Err(format!(
+        "command {command:?} is not valid for active combat decision {decision:?}"
+    ))
 }
 
 fn seed_start_simulated_map_combat_subset(
@@ -15079,6 +14907,39 @@ mod tests {
             selected_discard_index: None,
         });
         assert_eq!(seed_start_simulated_combat_screen_type(&combat), "GRID");
+
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.combat = Some(combat.clone());
+        assert_eq!(
+            seed_start_active_combat_decision(&run).expect("one decision"),
+            Some(SeedStartCombatDecision::DiscardSelect)
+        );
+
+        let (draw_choice, draw_label) = seed_start_bind_combat_decision_command(
+            SeedStartCombatDecision::DrawSelect,
+            "CHOOSE 2",
+        )
+        .expect("draw selection binds");
+        assert!(matches!(
+            draw_choice,
+            RunAction::ChooseDrawSelect { index: 2 }
+        ));
+        assert_eq!(draw_label, "draw select");
+        assert!(matches!(
+            seed_start_bind_combat_decision_command(SeedStartCombatDecision::DrawSelect, "CONFIRM"),
+            Ok((RunAction::ConfirmDrawSelect, "draw select confirm"))
+        ));
+
+        run.combat.as_mut().expect("combat").draw_select = Some(DrawSelectState {
+            purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
+            source_card_id,
+            selected_draw_index: None,
+        });
+        let error = seed_start_active_combat_decision(&run)
+            .expect_err("multiple decisions must fail closed");
+        assert!(error.contains("DrawSelect"), "{error}");
+        assert!(error.contains("DiscardSelect"), "{error}");
     }
 
     #[test]
