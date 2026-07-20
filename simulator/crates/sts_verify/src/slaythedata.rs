@@ -76,6 +76,8 @@ pub struct SlayTheDataPreflightReport {
 pub struct SlayTheDataPreflightStep {
     pub floor: u32,
     pub ordinal: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<SlayTheDataReplayStepKind>,
     pub status: SlayTheDataPreflightStatus,
     pub code: String,
     pub message: String,
@@ -1278,6 +1280,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
         steps.push(SlayTheDataPreflightStep {
             floor: step.floor,
             ordinal: step.ordinal,
+            intent: Some(step.kind.clone()),
             status,
             code,
             message,
@@ -2696,6 +2699,30 @@ mod tests {
             let report = slaythedata_replay_preflight(&plan);
             assert_eq!(report.steps[0].code, "guided_event_sequence");
         }
+    }
+
+    #[test]
+    fn preflight_preserves_typed_replay_intent_through_json() {
+        let intent = SlayTheDataReplayStepKind::EventChoice {
+            event_name: Some("Accursed Blacksmith".to_owned()),
+            player_choice: Some("Rummage".to_owned()),
+            cards_obtained: vec![SlayTheDataCardName {
+                raw: "Inflame+1".to_owned(),
+                base: "Inflame".to_owned(),
+                upgraded: true,
+            }],
+            cards_removed: Vec::new(),
+            cards_transformed: Vec::new(),
+            cards_upgraded: Vec::new(),
+            relics_obtained: vec!["Molten Egg 2".to_owned()],
+            relics_lost: Vec::new(),
+        };
+        let report = slaythedata_replay_preflight(&empty_plan_with_step(3, intent.clone()));
+
+        assert_eq!(report.steps[0].intent.as_ref(), Some(&intent));
+        let json = serde_json::to_string(&report).unwrap();
+        let restored: SlayTheDataPreflightReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.steps[0].intent.as_ref(), Some(&intent));
     }
 
     #[test]

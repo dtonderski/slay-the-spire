@@ -19,7 +19,7 @@ use std::{
 };
 use sts_verify::{
     import_communication_mod_trace, verify_seed_start_communication_mod_trace, SimRealReport,
-    TraceLine,
+    SlayTheDataReplayStepKind, TraceLine,
 };
 
 pub fn run_cli<B, F>(
@@ -1962,7 +1962,7 @@ fn guided_event_choice_event_name_mismatch(snapshot: &SessionSnapshot) -> bool {
     if !is_guided_event_code(&advisor.code) {
         return false;
     }
-    let Some(expected) = advisor_event_name_from_message(&advisor.message) else {
+    let Some(expected) = advisor_event_name(advisor) else {
         return false;
     };
     let Some(live) = snapshot
@@ -1979,12 +1979,11 @@ fn is_guided_event_code(code: &str) -> bool {
     matches!(code, "guided_event_choice" | "guided_event_sequence")
 }
 
-fn advisor_event_name_from_message(message: &str) -> Option<&str> {
-    let prefix = "event Some(\"";
-    let start = message.find(prefix)? + prefix.len();
-    let rest = &message[start..];
-    let end = rest.find('"')?;
-    Some(&rest[..end])
+fn advisor_event_name(advisor: &crate::model::SlayTheDataAdvisorStep) -> Option<&str> {
+    match advisor.intent.as_ref()? {
+        SlayTheDataReplayStepKind::EventChoice { event_name, .. } => event_name.as_deref(),
+        _ => None,
+    }
 }
 
 fn live_event_name_from_state(state: &LiveState) -> Option<&str> {
@@ -2350,11 +2349,34 @@ mod tests {
     use rusqlite::Connection;
     use std::{fs, time::SystemTime};
 
-    #[test]
-    fn guided_event_choice_parses_advisor_event_name() {
-        let message = "event Some(\"Liars Game\") choice Some(\"Ignored\") obtained [] removed [] upgraded [] is high-level guidance";
+    fn test_advisor_event(event_name: &str, player_choice: &str) -> SlayTheDataAdvisorStep {
+        SlayTheDataAdvisorStep {
+            floor: 0,
+            ordinal: 0,
+            intent: Some(SlayTheDataReplayStepKind::EventChoice {
+                event_name: Some(event_name.to_owned()),
+                player_choice: Some(player_choice.to_owned()),
+                cards_obtained: Vec::new(),
+                cards_removed: Vec::new(),
+                cards_transformed: Vec::new(),
+                cards_upgraded: Vec::new(),
+                relics_obtained: Vec::new(),
+                relics_lost: Vec::new(),
+            }),
+            status: "guided".to_owned(),
+            code: "guided_event_choice".to_owned(),
+            message: "display-only test message".to_owned(),
+            command: None,
+            action_id: None,
+            action_label: None,
+        }
+    }
 
-        assert_eq!(advisor_event_name_from_message(message), Some("Liars Game"));
+    #[test]
+    fn guided_event_choice_reads_typed_advisor_event_name() {
+        let advisor = test_advisor_event("Liars Game", "Ignored");
+
+        assert_eq!(advisor_event_name(&advisor), Some("Liars Game"));
     }
 
     #[test]
@@ -2385,6 +2407,7 @@ mod tests {
                 advisor: Some(SlayTheDataAdvisorStep {
                     floor: 5,
                     ordinal: 18,
+                    intent: test_advisor_event("We Meet Again!", "Attack").intent,
                     status: "guided".to_owned(),
                     code: "guided_event_choice".to_owned(),
                     message: "event Some(\"We Meet Again!\") choice Some(\"Attack\") is high-level guidance".to_owned(),
@@ -2432,6 +2455,10 @@ mod tests {
         snapshot.slaythedata.advisor = Some(SlayTheDataAdvisorStep {
             floor: 4,
             ordinal: 12,
+            intent: Some(SlayTheDataReplayStepKind::ShopPurchase {
+                item: "Blood for Blood".to_owned(),
+                base_item: "Blood for Blood".to_owned(),
+            }),
             status: "guided".to_owned(),
             code: "guided_shop_purchase".to_owned(),
             message: "shop purchase \"Blood for Blood\" is high-level guidance".to_owned(),
@@ -2465,6 +2492,10 @@ mod tests {
                 advisor: Some(SlayTheDataAdvisorStep {
                     floor: 7,
                     ordinal: 28,
+                    intent: Some(SlayTheDataReplayStepKind::Campfire {
+                        key: Some("SMITH".to_owned()),
+                        target_card: None,
+                    }),
                     status: "guided".to_owned(),
                     code: "guided_campfire".to_owned(),
                     message:
@@ -3222,6 +3253,7 @@ mod tests {
                 advisor: Some(SlayTheDataAdvisorStep {
                     floor: 2,
                     ordinal: 7,
+                    intent: test_advisor_event("Match and Keep!", "Played").intent,
                     status: "guided".to_owned(),
                     code: "guided_event_choice".to_owned(),
                     message: "event Some(\"Match and Keep!\")".to_owned(),

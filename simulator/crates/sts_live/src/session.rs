@@ -8,8 +8,8 @@ use crate::{
         ActionId, AutomationConfig, AutomationJobSnapshot, AutomationState, BlockedState, BridgeId,
         BrokenSlayTheDataRun, FidelityKind, FidelityStatus, LegalAction, LegalActionKind,
         LiveError, LivePhase, LiveResult, LiveState, RunConfig, SessionId, SessionLifecycle,
-        SessionListItem, SessionSnapshot, SlayTheDataRunSummary, SlayTheDataSearchFilters,
-        TraceRecord,
+        SessionListItem, SessionSnapshot, SlayTheDataGuidedDivergenceKind, SlayTheDataRunSummary,
+        SlayTheDataSearchFilters, TraceRecord,
     },
     operator_actions::{request_state_action, start_run_action},
     session_blocking::record_blocked,
@@ -597,13 +597,27 @@ where
                     attached.skip_unavailable_pending_card_reward(&post_action_state)
                 });
             if let Some(step_index) = skipped_pending_card_reward {
+                let reason =
+                    "manual card reward resolution advanced beyond an unavailable recorded reward";
+                let divergence =
+                    self.session(session_id)?
+                        .slaythedata
+                        .as_ref()
+                        .and_then(|attached| {
+                            attached.guided_divergence(
+                                step_index,
+                                SlayTheDataGuidedDivergenceKind::RecordedCardRewardUnavailable,
+                                reason,
+                            )
+                        });
                 let snapshot = self.session(session_id)?.snapshot();
                 self.append_slaythedata_trace(
                     session_id,
                     "skip_guidance",
                     json!({
                         "step_index": step_index,
-                        "reason": "manual card reward resolution advanced beyond an unavailable recorded reward",
+                        "reason": reason,
+                        "guided_divergence": divergence,
                         "slaythedata": snapshot.slaythedata,
                     }),
                 )?;
@@ -827,13 +841,26 @@ where
                 .and_then(|attached| attached.skip_unavailable_pending_card_reward(&state))
         };
         if let Some(step_index) = skipped_pending_card_reward {
+            let reason = "pending card reward is unavailable outside a reward screen";
+            let divergence = self
+                .session(session_id)?
+                .slaythedata
+                .as_ref()
+                .and_then(|attached| {
+                    attached.guided_divergence(
+                        step_index,
+                        SlayTheDataGuidedDivergenceKind::RecordedCardRewardUnavailable,
+                        reason,
+                    )
+                });
             let snapshot = self.session(session_id)?.snapshot();
             self.append_slaythedata_trace(
                 session_id,
                 "skip_guidance",
                 json!({
                     "step_index": step_index,
-                    "reason": "pending card reward is unavailable outside a reward screen",
+                    "reason": reason,
+                    "guided_divergence": divergence,
                     "slaythedata": snapshot.slaythedata,
                 }),
             )?;
@@ -849,6 +876,18 @@ where
         if let Some((skipped_step_index, aligned_step_index, skipped_code)) =
             aligned_past_completed_guidance
         {
+            let reason = format!("live map floor is past unavailable {skipped_code} guidance");
+            let divergence = self
+                .session(session_id)?
+                .slaythedata
+                .as_ref()
+                .and_then(|attached| {
+                    attached.guided_divergence(
+                        skipped_step_index,
+                        SlayTheDataGuidedDivergenceKind::CompletedGuidancePastLiveFloor,
+                        reason.clone(),
+                    )
+                });
             let snapshot = self.session(session_id)?.snapshot();
             self.append_slaythedata_trace(
                 session_id,
@@ -856,9 +895,8 @@ where
                 json!({
                     "step_index": skipped_step_index,
                     "aligned_step_index": aligned_step_index,
-                    "reason": format!(
-                        "live map floor is past unavailable {skipped_code} guidance"
-                    ),
+                    "reason": reason,
+                    "guided_divergence": divergence,
                     "slaythedata": snapshot.slaythedata,
                 }),
             )?;
@@ -872,13 +910,26 @@ where
                 .and_then(|attached| attached.skip_unavailable_shop_purge(&state))
         };
         if let Some((step_index, target)) = unavailable_shop_purge {
+            let reason = "shop purge target is absent from the live deck";
+            let divergence = self
+                .session(session_id)?
+                .slaythedata
+                .as_ref()
+                .and_then(|attached| {
+                    attached.guided_divergence(
+                        step_index,
+                        SlayTheDataGuidedDivergenceKind::RecordedShopPurgeTargetUnavailable,
+                        reason,
+                    )
+                });
             let snapshot = self.session(session_id)?.snapshot();
             self.append_slaythedata_trace(
                 session_id,
                 "skip_guidance",
                 json!({
                     "step_index": step_index,
-                    "reason": "shop purge target is absent from the live deck",
+                    "reason": reason,
+                    "guided_divergence": divergence,
                     "target": target,
                     "slaythedata": snapshot.slaythedata,
                 }),
@@ -1337,12 +1388,30 @@ where
                 "SlayTheData has no remaining shop purchases to skip".to_owned(),
             ));
         }
+        let divergences = self
+            .session(session_id)?
+            .slaythedata
+            .as_ref()
+            .map(|attached| {
+                skipped
+                    .iter()
+                    .filter_map(|(step_index, item)| {
+                        attached.guided_divergence(
+                            *step_index,
+                            SlayTheDataGuidedDivergenceKind::RecordedShopPurchaseSkipped,
+                            format!("recorded shop purchase {item:?} was explicitly skipped"),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         let snapshot = self.session(session_id)?.snapshot();
         self.append_slaythedata_trace(
             session_id,
             "skip_shop",
             json!({
                 "purchases": skipped,
+                "guided_divergences": divergences,
                 "completed_manual_purge_step": completed_purge_step,
                 "slaythedata": snapshot.slaythedata,
             }),
@@ -3158,6 +3227,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 27,
                         ordinal: 71,
+                        intent: None,
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "pending_room_resolution".to_owned(),
                         message: "route symbol \"?\" waits for the map".to_owned(),
@@ -3166,6 +3236,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 27,
                         ordinal: 72,
+                        intent: None,
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "guided_event_choice".to_owned(),
                         message: "Augmenter event choice".to_owned(),

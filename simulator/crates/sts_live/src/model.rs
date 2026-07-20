@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt, io};
+use sts_verify::SlayTheDataReplayStepKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BridgeId(pub String);
@@ -367,6 +368,8 @@ pub struct BrokenSlayTheDataRun {
 pub struct SlayTheDataAdvisorStep {
     pub floor: u32,
     pub ordinal: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent: Option<SlayTheDataReplayStepKind>,
     pub status: String,
     pub code: String,
     pub message: String,
@@ -478,6 +481,25 @@ pub enum SlayTheDataCollectionBlockerKind {
     RunEndedBeforeTarget,
     BridgeOrBackendError,
     CompletedTrace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlayTheDataGuidedDivergenceKind {
+    RecordedCardRewardUnavailable,
+    CompletedGuidancePastLiveFloor,
+    RecordedShopPurgeTargetUnavailable,
+    RecordedShopPurchaseSkipped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlayTheDataGuidedDivergence {
+    pub kind: SlayTheDataGuidedDivergenceKind,
+    pub step_index: usize,
+    pub floor: u32,
+    pub intent: SlayTheDataReplayStepKind,
+    pub source_build_version: Option<String>,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

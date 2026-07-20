@@ -109,6 +109,22 @@ reattaches only the recorded SlayTheData guidance cursor. `sim_run_state` is
 produced exclusively by a fresh strict seed-start replay. If replay does not
 produce a clean simulator state, guided automation remains blocked.
 
+## Typed guidance and divergence contract
+
+Each preflight step retains its original `SlayTheDataReplayStepKind`. The live
+binder reads route symbols, reward picks, event effects, shop items, purge
+targets, and campfire targets only from that typed intent. `code` remains a
+workflow/status label and `message` is display-only. Session recovery rebuilds
+the typed report from the persisted raw run and restores only its recorded
+cursor; a production attachment is rejected if any step lacks typed intent.
+
+When a legal current-build run moves past unavailable guidance from the
+2020-07-30 dataset, the existing SlayTheData trace event includes a typed
+`SlayTheDataGuidedDivergence` with its source build, step, floor, intent, and
+reason. These records describe guided-source divergence. They are separate
+from strict simulator fidelity status and never convert a simulator mismatch
+into a guided success.
+
 ## 2026-07-18 validation campaign
 
 The autonomous CLI processed 22 unique source runs that had not previously been
