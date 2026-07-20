@@ -6312,48 +6312,76 @@ fn seed_start_handle_proceed_to_map(
     carried_relics: &mut Vec<String>,
     carried_deck_ids: &mut Vec<String>,
 ) -> Option<SeedStartBoundary> {
+    let Some(sim) = seed_sim.as_ref() else {
+        return Some(SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_post_reward_map".to_owned(),
+            reason: "proceed-to-map command without initialized deterministic replay".to_owned(),
+        });
+    };
     let transient_boss_act_transition = screen_type(post_message) == Some("NONE")
         && post_message
             .get("game_state")
             .and_then(|game| game.get("room_type"))
             .and_then(Value::as_str)
             == Some("TreasureRoomBoss");
-    if transient_boss_act_transition {
-        let ftue_open = post_message
-            .get("game_state")
-            .and_then(|game| game.get("screen_name"))
-            .and_then(Value::as_str)
-            .is_some_and(|screen| screen.eq_ignore_ascii_case("FTUE"));
-        if ftue_open
-            && seed_sim
+    let ftue_open = post_message
+        .get("game_state")
+        .and_then(|game| game.get("screen_name"))
+        .and_then(Value::as_str)
+        .is_some_and(|screen| screen.eq_ignore_ascii_case("FTUE"));
+    if transient_boss_act_transition && ftue_open && sim.phase == RunPhase::Reward {
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            label: "boss reward proceed intercepted by FTUE overlay".to_owned(),
+        });
+        *phase = SeedStartPhase::Reward;
+        return None;
+    }
+
+    let next: Result<RunState, String> = match sim.phase {
+        RunPhase::Reward if sim.event.is_none() => {
+            apply_run_action(sim, RunAction::SkipReward).map_err(|err| err.to_string())
+        }
+        RunPhase::Treasure => {
+            apply_run_action(sim, RunAction::Proceed).map_err(|err| err.to_string())
+        }
+        RunPhase::Event
+            if sim
+                .event
                 .as_ref()
-                .is_some_and(|sim| sim.phase == RunPhase::Reward)
+                .is_some_and(|event| event.event == Event::Neow && event.stage == 2) =>
         {
-            report.verified.push(VerifiedTransition {
-                action_step: action.step,
-                command: action.command.clone(),
-                label: "boss reward proceed intercepted by FTUE overlay".to_owned(),
+            apply_event_action(sim, EventAction::Choose { choice_index: 0 })
+                .map_err(|err| err.to_string())
+        }
+        RunPhase::Idle => Ok(sim.clone()),
+        phase => Err(format!("simulator phase {phase:?} cannot proceed to map")),
+    };
+    let next = match next {
+        Ok(next) => next,
+        Err(reason) => {
+            return Some(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_post_reward_map".to_owned(),
+                reason,
             });
-            *phase = SeedStartPhase::Reward;
-            return None;
         }
-        if let Some(sim) = seed_sim.as_mut() {
-            if sim.boss_chest_opened && sim.current_floor == sim.current_act * 17 {
-                sim.phase = RunPhase::Treasure;
-                sim.current_room_override = Some(RoomKind::Boss);
-            }
-        }
-        if seed_sim
-            .as_ref()
-            .is_some_and(|sim| sim.phase == RunPhase::Treasure)
-        {
-            if let Some(next) = seed_sim
-                .as_ref()
-                .and_then(|sim| apply_run_action(sim, RunAction::Proceed).ok())
-            {
-                *seed_sim = Some(next);
-            }
-        }
+    };
+    if next.phase != RunPhase::Idle {
+        return Some(SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_post_reward_map".to_owned(),
+            reason: format!(
+                "proceed-to-map transition ended in simulator phase {:?}",
+                next.phase
+            ),
+        });
+    }
+    *seed_sim = Some(next);
+
+    if transient_boss_act_transition {
         if seed_sim.as_ref().is_none_or(|sim| sim.current_act <= 1) {
             let replay_state = seed_sim.as_ref().map(|sim| {
                 format!(
@@ -6404,19 +6432,8 @@ fn seed_start_handle_proceed_to_map(
     );
     compare_subset(report, action, &label, observed, simulated);
     seed_start_test_pop_last_diff(report, action, &start.external_seed);
-    if screen_type(post_message) == Some("MAP") {
-        if let Some(sim) = seed_sim.as_mut() {
-            // A reward overlay opened from the merchant (notably Orrery) can
-            // proceed directly to the map. The target has left both the
-            // overlay and the shop room at this point; retaining the shop
-            // would misclassify the next combat reward as shop state.
-            sim.shop = None;
-            sim.shop_merchant_open = false;
-            sim.phase = RunPhase::Idle;
-            sim.reward = None;
-            sim.card_grid = None;
-            seed_start_update_carry_from_run(sim, carried_relics, carried_deck_ids);
-        }
+    if let Some(sim) = seed_sim.as_mut() {
+        seed_start_update_carry_from_run(sim, carried_relics, carried_deck_ids);
     }
     *combat_index += 1;
     *reward_step = 0;
