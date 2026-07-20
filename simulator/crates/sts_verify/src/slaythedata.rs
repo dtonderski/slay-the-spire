@@ -2,14 +2,26 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::BTreeMap, error::Error, fmt};
 use sts_core::{
-    apply_event_action, apply_map_action_on_run, apply_run_action,
+    apply_run_decision_action,
     content::{cards::get_card_definition, monsters::get_monster_definition},
     generate_neow_options, legal_event_actions, legal_map_actions_on_run, EventAction,
-    GeneratedNeowOption, MapAction, NeowDrawback, NeowRewardType, RoomKind, RunAction, RunPhase,
-    RunState,
+    GeneratedNeowOption, MapAction, NeowDrawback, NeowRewardType, RoomKind, RunAction,
+    RunDecisionAction, RunPhase, RunState,
 };
 
 use crate::try_sts_seed_string_to_long;
+
+fn apply_event_action(run: &RunState, action: EventAction) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::Event(action))
+}
+
+fn apply_map_action_on_run(run: &RunState, action: MapAction) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::Map(action))
+}
+
+fn apply_run_action(run: &RunState, action: RunAction) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::Run(action))
+}
 
 pub const SLAYTHEDATA_IMPORT_SCHEMA_VERSION: u32 = 1;
 pub const SLAYTHEDATA_NORMAL_MAX_FLOOR_REACHED: i32 = 57;

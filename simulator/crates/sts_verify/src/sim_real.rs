@@ -23,19 +23,18 @@ use sts_core::run::neow::{
     generate_neow_colorless_reward_with_card_rng_counter,
 };
 use sts_core::{
-    affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_map_action_on_run,
-    apply_neow_boss_swap, apply_neow_relic_reward, apply_neow_simple_drawback,
-    apply_neow_simple_reward, apply_rest_action, apply_run_action, cancel_grid, confirm_grid,
+    affordable_shop_picks, apply_neow_boss_swap, apply_neow_relic_reward,
+    apply_neow_simple_drawback, apply_neow_simple_reward, apply_run_decision_action,
     consume_neow_three_potions_hidden_card_reward, generate_exordium_map_choices_after_path,
     generate_exordium_map_topology, generate_neow_card_reward, generate_neow_colorless_reward,
     generate_neow_options, generate_neow_three_potions, generate_neow_transform_reward,
     generate_target_map_choices_after_path, generate_target_map_topology, legal_map_actions_on_run,
-    legal_rest_actions, open_neow_reward_grid, select_grid_card, shop_action_for_choice_index,
+    legal_rest_actions, open_neow_reward_grid, shop_action_for_choice_index,
     target_room_kinds_on_path, Act1Boss, Act3Boss, CardGridScreen, CardId, CardInstance,
     CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, GeneratedNeowOption,
-    GridPurpose, MonsterId, MonsterIntent, MonsterState, NeowDrawback, NeowRewardType, Relic,
-    RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick,
-    TargetMapAct,
+    GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState, NeowDrawback, NeowRewardType,
+    Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase,
+    RunState, ShopPick, TargetMapAct,
 };
 
 #[cfg(test)]
@@ -54,6 +53,41 @@ use sts_core::{
     exordium_room_kinds_on_path, initialize_combat_piles_with_relics, CardPiles, EventChoice,
     EventScreen, MonsterPowers, PlayerPowers, RelicCounters, StsRng,
 };
+
+fn apply_combat_action_on_run(
+    run: &RunState,
+    action: CombatAction,
+) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::Combat(action))
+}
+
+fn apply_event_action(run: &RunState, action: EventAction) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::Event(action))
+}
+
+fn apply_map_action_on_run(run: &RunState, action: MapAction) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::Map(action))
+}
+
+fn apply_rest_action(run: &RunState, action: RestAction) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::Rest(action))
+}
+
+fn apply_run_action(run: &RunState, action: RunAction) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::Run(action))
+}
+
+fn select_grid_card(run: &RunState, index: usize) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::GridSelect { index })
+}
+
+fn confirm_grid(run: &RunState) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::GridConfirm)
+}
+
+fn cancel_grid(run: &RunState) -> sts_core::SimResult<RunState> {
+    apply_run_decision_action(run, RunDecisionAction::GridCancel)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SimRealReport {
