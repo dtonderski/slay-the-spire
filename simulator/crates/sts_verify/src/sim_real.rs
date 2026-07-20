@@ -3232,12 +3232,21 @@ fn verify_seed_start_transitions(
                     *sim = next;
                     continue;
                 }
-                if post
-                    .message
-                    .get("game_state")
-                    .and_then(|game| game.get("combat_state"))
-                    .is_some()
-                {
+                if next.phase == RunPhase::Combat {
+                    if next.combat.is_none() {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_event_destination".to_owned(),
+                            reason: "event choice entered combat phase without combat state"
+                                .to_owned(),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
+                    }
                     let label = "event combat";
                     let observed = seed_start_encounter_observed_subset(&post.message);
                     let simulated = seed_start_simulated_combat_subset(&next, false);
@@ -3249,32 +3258,53 @@ fn verify_seed_start_transitions(
                     phase = SeedStartPhase::Combat;
                     continue;
                 }
-                let mut observed = match screen_type(&post.message) {
-                    Some("MAP") => seed_start_map_return_observed_subset(&post.message),
-                    Some("COMBAT_REWARD") | Some("CARD_REWARD") | Some("BOSS_REWARD") => {
-                        seed_start_reward_observed_subset(&post.message)
+                let (mut observed, mut simulated) = if next.card_grid.is_some() {
+                    (
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&next, &relics),
+                    )
+                } else {
+                    match next.phase {
+                        RunPhase::Idle if next.event.is_none() => (
+                            seed_start_map_return_observed_subset(&post.message),
+                            seed_start_simulated_map_return(
+                                start.numeric_seed,
+                                &map_path_xs,
+                                Some(&next),
+                                &relics,
+                                &deck_ids,
+                                &deck_ids,
+                            ),
+                        ),
+                        RunPhase::Reward if next.reward.is_some() => (
+                            seed_start_reward_observed_subset(&post.message),
+                            seed_start_reward_simulated_subset(&next, &relics),
+                        ),
+                        RunPhase::Event if next.event.is_some() => (
+                            seed_start_event_observed_subset(&post.message),
+                            seed_start_event_simulated_subset_with_delayed_deck_append(
+                                &next,
+                                &relics,
+                                delayed_event_deck_append_count,
+                            ),
+                        ),
+                        _ => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "invalid_event_destination".to_owned(),
+                                reason: format!(
+                                    "event choice produced unsupported simulator phase {:?}",
+                                    next.phase
+                                ),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
                     }
-                    Some("GRID") => seed_start_grid_observed_subset(&post.message),
-                    _ => seed_start_event_observed_subset(&post.message),
-                };
-                let mut simulated = match next.phase {
-                    _ if next.card_grid.is_some() => {
-                        seed_start_grid_simulated_subset(&next, &relics)
-                    }
-                    RunPhase::Idle if next.event.is_none() => seed_start_simulated_map_return(
-                        start.numeric_seed,
-                        &map_path_xs,
-                        Some(&next),
-                        &relics,
-                        &deck_ids,
-                        &deck_ids,
-                    ),
-                    RunPhase::Reward => seed_start_reward_simulated_subset(&next, &relics),
-                    _ => seed_start_event_simulated_subset_with_delayed_deck_append(
-                        &next,
-                        &relics,
-                        delayed_event_deck_append_count,
-                    ),
                 };
                 normalize_match_and_keep_transient_choices(&next, &mut observed, &simulated);
                 if next.phase == RunPhase::Event && !next.pending_obtain_cards.is_empty() {
