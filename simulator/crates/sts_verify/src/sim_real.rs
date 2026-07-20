@@ -3108,43 +3108,49 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
-                let (observed, simulated, label) =
-                    if screen_type(&post.message) == Some("CARD_REWARD") {
-                        (
-                            seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next, &relics),
-                            "rest card reward",
-                        )
-                    } else if screen_type(&post.message) == Some("GRID") {
-                        (
-                            seed_start_grid_observed_subset(&post.message),
-                            seed_start_grid_simulated_subset(&next, &relics),
-                            "rest grid",
-                        )
-                    } else {
-                        (
+                let (observed, simulated, label) = if next.card_grid.is_some() {
+                    (
+                        seed_start_grid_observed_subset(&post.message),
+                        seed_start_grid_simulated_subset(&next, &relics),
+                        "rest grid",
+                    )
+                } else {
+                    match next.phase {
+                        RunPhase::Reward
+                            if next
+                                .reward
+                                .as_ref()
+                                .is_some_and(|reward| reward.card_reward_active) =>
+                        {
+                            (
+                                seed_start_reward_observed_subset(&post.message),
+                                seed_start_reward_simulated_subset(&next, &relics),
+                                "rest card reward",
+                            )
+                        }
+                        RunPhase::Rest if next.reward.is_none() => (
                             seed_start_rest_observed_subset(&post.message),
                             seed_start_rest_simulated_subset(&next, &relics),
                             "rest choice",
-                        )
-                    };
-                let diff_count_before = report.unexpected_diffs.len();
+                        ),
+                        phase => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "invalid_rest_destination".to_owned(),
+                                reason: format!(
+                                    "rest choice produced unsupported simulator phase {phase:?}"
+                                ),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
+                    }
+                };
                 compare_subset(report, action, label, observed, simulated);
-                if label == "rest card reward" && report.unexpected_diffs.len() > diff_count_before
-                {
-                    report.unexpected_diffs.truncate(diff_count_before);
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_card_reward_rng_divergence".to_owned(),
-                        reason: "carried card reward RNG state does not reproduce the observed TEST rest-card reward without an implemented simulator transition".to_owned(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                }
                 seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                 *sim = next;
                 if sim.card_grid.is_some() {
@@ -13077,6 +13083,62 @@ mod tests {
             "{gold_diff}"
         );
         assert!(gold_diff.contains(&forged_gold.to_string()), "{gold_diff}");
+    }
+
+    #[test]
+    fn rest_card_reward_projection_and_diffs_are_core_owned() {
+        let path = crate::corpus_path("permanent_traces/trace-session-8.jsonl");
+        let content = std::fs::read_to_string(path).expect("complete trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (rest_action_step, reward_post) = transitions
+            .transitions
+            .iter()
+            .find_map(|(pre, action, post)| {
+                (screen_type(&pre.message) == Some("REST")
+                    && command_head_eq(&action.command, "CHOOSE")
+                    && screen_type(&post.message) == Some("CARD_REWARD"))
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture opens a rest-site card reward");
+
+        let mut mutated_lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let mutated_state = mutated_lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if *state == reward_post => Some(state),
+                _ => None,
+            })
+            .expect("rest card reward post-state remains in imported trace");
+        *mutated_state
+            .message
+            .pointer_mut("/game_state/screen_type")
+            .expect("reward screen type") = json!("REST");
+        *mutated_state
+            .message
+            .pointer_mut("/game_state/screen_state/cards/0")
+            .expect("first rest card reward") =
+            json!({"id": "Strike_R", "name": "Strike", "upgrades": 0});
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
+        let report = verify_communication_mod_trace(&mutated).expect("mutated trace parses");
+        let reward_diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| diff.action_step == rest_action_step && diff.label == "rest card reward")
+            .expect("forged rest reward must remain an unexpected diff");
+        assert!(
+            reward_diff
+                .diffs
+                .iter()
+                .any(|diff| diff.starts_with("screen_type:") || diff.contains("card_reward_ids")),
+            "{reward_diff:#?}"
+        );
     }
 
     #[test]
