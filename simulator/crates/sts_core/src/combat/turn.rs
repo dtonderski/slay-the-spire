@@ -520,37 +520,37 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     apply_bronze_automaton_orb_spawn(
                         &mut state.monsters,
                         summoner_id,
-                        Some(&mut state.rng.monster_rng),
-                        Some(&mut state.rng.monster_hp_rng),
+                        &mut state.rng.monster_rng,
+                        &mut state.rng.monster_hp_rng,
                         ascension,
                     );
                 } else if state.monsters[index].content_id == THE_COLLECTOR_ID {
                     apply_collector_spawn_torch_heads(
                         &mut state.monsters,
                         count,
-                        Some(&mut state.rng.monster_rng),
-                        Some(&mut state.rng.monster_hp_rng),
+                        &mut state.rng.monster_rng,
+                        &mut state.rng.monster_hp_rng,
                         ascension,
                     );
                 } else if state.monsters[index].content_id == ACID_SLIME_ID {
                     apply_large_acid_slime_split(
                         &mut state.monsters,
                         summoner_id,
-                        Some(&mut state.rng.monster_rng),
+                        &mut state.rng.monster_rng,
                         ascension,
                     );
                 } else if state.monsters[index].content_id == SPIKE_SLIME_ID {
                     apply_large_spike_slime_split(
                         &mut state.monsters,
                         summoner_id,
-                        Some(&mut state.rng.monster_rng),
+                        &mut state.rng.monster_rng,
                         ascension,
                     );
                 } else if state.monsters[index].content_id == SLIME_BOSS_ID {
                     apply_slime_boss_split(
                         &mut state.monsters,
                         summoner_id,
-                        Some(&mut state.rng.monster_rng),
+                        &mut state.rng.monster_rng,
                         ascension,
                     );
                 } else if state.monsters[index].content_id == REPTOMANCER_ID {
@@ -558,8 +558,8 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                         &mut state.monsters,
                         summoner_id,
                         count,
-                        Some(&mut state.rng.monster_rng),
-                        Some(&mut state.rng.monster_hp_rng),
+                        &mut state.rng.monster_rng,
+                        &mut state.rng.monster_hp_rng,
                     );
                 } else {
                     apply_gremlin_leader_rally_target(
@@ -589,8 +589,8 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 apply_collector_spawn_torch_heads(
                     &mut state.monsters,
                     count,
-                    Some(&mut state.rng.monster_rng),
-                    Some(&mut state.rng.monster_hp_rng),
+                    &mut state.rng.monster_rng,
+                    &mut state.rng.monster_hp_rng,
                     ascension,
                 );
                 if let Some(monster) = state

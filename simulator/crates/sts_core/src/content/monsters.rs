@@ -7860,16 +7860,14 @@ pub fn apply_gremlin_leader_rally_target(
 pub fn apply_collector_spawn_torch_heads(
     monsters: &mut Vec<MonsterState>,
     count: i32,
-    ai_rng: Option<&mut crate::rng::StsRng>,
-    hp_rng: Option<&mut crate::rng::StsRng>,
+    ai_rng: &mut crate::rng::StsRng,
+    hp_rng: &mut crate::rng::StsRng,
     ascension: u8,
 ) {
     if count <= 0 {
         return;
     }
 
-    let mut ai_rng = ai_rng;
-    let mut hp_rng = hp_rng;
     let range = if ascension >= 9 {
         TORCH_HEAD_A9_HP_RANGE
     } else {
@@ -7883,12 +7881,10 @@ pub fn apply_collector_spawn_torch_heads(
         + 1;
     let mut hp_values = (0..count)
         .map(|_| {
-            hp_rng.as_deref_mut().map_or(TORCH_HEAD_A0.hp, |rng| {
-                // TorchHead rolls the A0 range for AbstractMonster's hp
-                // argument, then its own setHp call rolls the active range.
-                let _constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(rng);
-                range.roll(rng)
-            })
+            // TorchHead rolls the A0 range for AbstractMonster's hp
+            // argument, then its own setHp call rolls the active range.
+            let _constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(hp_rng);
+            range.roll(hp_rng)
         })
         .collect::<Vec<_>>();
     // The Collector constructs slot 1 before slot 2, but SpawnMonsterAction
@@ -7909,7 +7905,7 @@ pub fn apply_collector_spawn_torch_heads(
         monster.intent = MonsterIntent::Attack {
             damage: TORCH_HEAD_ATTACK_DAMAGE,
         };
-        let _ = ai_rng.as_deref_mut().map(|rng| rng.random_int(99));
+        let _ = ai_rng.random_int(99);
         record_target_move(&mut monster);
         let insert_index = monsters
             .iter()
@@ -7933,8 +7929,8 @@ pub fn apply_collector_spawn_torch_heads(
 pub fn apply_bronze_automaton_orb_spawn(
     monsters: &mut Vec<MonsterState>,
     automaton_id: MonsterId,
-    mut ai_rng: Option<&mut StsRng>,
-    mut hp_rng: Option<&mut StsRng>,
+    ai_rng: &mut StsRng,
+    hp_rng: &mut StsRng,
     ascension: u8,
 ) {
     let Some(automaton_index) = monsters.iter().position(|monster| {
@@ -7958,30 +7954,22 @@ pub fn apply_bronze_automaton_orb_spawn(
     let mut left = monster_state(&BRONZE_ORB_A0, MonsterId::new(next_id));
     let mut right = monster_state(&BRONZE_ORB_A0, MonsterId::new(next_id + 1));
     let hp_range = bronze_orb_hp_range(ascension);
-    if let Some(rng) = &mut hp_rng {
-        let _constructor_hp = BRONZE_ORB_A0_HP_RANGE.roll(rng);
-        let max_hp = hp_range.roll(rng);
-        left.hp = max_hp;
-        left.max_hp = max_hp;
-    }
+    let _constructor_hp = BRONZE_ORB_A0_HP_RANGE.roll(hp_rng);
+    let max_hp = hp_range.roll(hp_rng);
+    left.hp = max_hp;
+    left.max_hp = max_hp;
     left.powers.minion = 1;
-    if let Some(rng) = &mut ai_rng {
-        let roll = rng.random_int(99);
-        left.intent = target_bronze_orb_next_intent_from_roll(&left.move_history, roll);
-        record_target_move(&mut left);
-    }
-    if let Some(rng) = &mut hp_rng {
-        let _constructor_hp = BRONZE_ORB_A0_HP_RANGE.roll(rng);
-        let max_hp = hp_range.roll(rng);
-        right.hp = max_hp;
-        right.max_hp = max_hp;
-    }
+    let roll = ai_rng.random_int(99);
+    left.intent = target_bronze_orb_next_intent_from_roll(&left.move_history, roll);
+    record_target_move(&mut left);
+    let _constructor_hp = BRONZE_ORB_A0_HP_RANGE.roll(hp_rng);
+    let max_hp = hp_range.roll(hp_rng);
+    right.hp = max_hp;
+    right.max_hp = max_hp;
     right.powers.minion = 1;
-    if let Some(rng) = &mut ai_rng {
-        let roll = rng.random_int(99);
-        right.intent = target_bronze_orb_next_intent_from_roll(&right.move_history, roll);
-        record_target_move(&mut right);
-    }
+    let roll = ai_rng.random_int(99);
+    right.intent = target_bronze_orb_next_intent_from_roll(&right.move_history, roll);
+    record_target_move(&mut right);
 
     monsters.insert(automaton_index, left);
     monsters.insert(automaton_index + 2, right);
@@ -8000,8 +7988,8 @@ pub fn apply_reptomancer_dagger_spawn(
     monsters: &mut Vec<MonsterState>,
     reptomancer_id: MonsterId,
     count: i32,
-    mut ai_rng: Option<&mut StsRng>,
-    mut hp_rng: Option<&mut StsRng>,
+    ai_rng: &mut StsRng,
+    hp_rng: &mut StsRng,
 ) {
     let Some(_reptomancer_index) = monsters
         .iter()
@@ -8028,21 +8016,17 @@ pub fn apply_reptomancer_dagger_spawn(
             continue;
         }
         let mut dagger = monster_state(&DAGGER_A0, MonsterId::new(next_id));
-        if let Some(rng) = &mut hp_rng {
-            let max_hp = DAGGER_HP_RANGE.roll(rng);
-            dagger.hp = max_hp;
-            dagger.max_hp = max_hp;
-        }
+        let max_hp = DAGGER_HP_RANGE.roll(hp_rng);
+        dagger.hp = max_hp;
+        dagger.max_hp = max_hp;
         dagger.powers.minion = 1;
         dagger.gremlin_leader_slot = Some(slot);
-        if let Some(rng) = &mut ai_rng {
-            let _roll = rng.random_int(99);
-            dagger.intent = MonsterIntent::AttackAddWoundsToDiscard {
-                damage: DAGGER_WOUND_DAMAGE,
-                count: 1,
-            };
-            record_target_move(&mut dagger);
-        }
+        let _roll = ai_rng.random_int(99);
+        dagger.intent = MonsterIntent::AttackAddWoundsToDiscard {
+            damage: DAGGER_WOUND_DAMAGE,
+            count: 1,
+        };
+        record_target_move(&mut dagger);
         let insert_index = reptomancer_dagger_insert_index(monsters, slot);
         monsters.insert(insert_index, dagger);
         next_id += 1;
@@ -8099,7 +8083,7 @@ fn reptomancer_position_key_for_slot(slot: u8) -> u8 {
 pub fn apply_large_acid_slime_split(
     monsters: &mut Vec<MonsterState>,
     slime_id: MonsterId,
-    rng: Option<&mut StsRng>,
+    rng: &mut StsRng,
     ascension: u8,
 ) {
     let Some(slime_index) = monsters
@@ -8127,32 +8111,22 @@ pub fn apply_large_acid_slime_split(
     right.hp = split_hp;
     right.max_hp = split_hp;
     right.slime_size = Some(SlimeSize::Medium);
-    if let Some(rng) = rng {
-        let left_roll = rng.random_int(99);
-        left.intent = target_medium_acid_slime_next_intent_from_roll(
-            &left.move_history,
-            left_roll,
-            rng,
-            ascension,
-        );
-        record_target_move(&mut left);
-        let right_roll = rng.random_int(99);
-        right.intent = target_medium_acid_slime_next_intent_from_roll(
-            &right.move_history,
-            right_roll,
-            rng,
-            ascension,
-        );
-        record_target_move(&mut right);
-    } else {
-        left.intent = MonsterIntent::Attack {
-            damage: ACID_SLIME_M_NORMAL_TACKLE_DAMAGE,
-        };
-        right.intent = MonsterIntent::AttackAddSlimedToDiscard {
-            damage: ACID_SLIME_ATTACK_DAMAGE,
-            count: 1,
-        };
-    }
+    let left_roll = rng.random_int(99);
+    left.intent = target_medium_acid_slime_next_intent_from_roll(
+        &left.move_history,
+        left_roll,
+        rng,
+        ascension,
+    );
+    record_target_move(&mut left);
+    let right_roll = rng.random_int(99);
+    right.intent = target_medium_acid_slime_next_intent_from_roll(
+        &right.move_history,
+        right_roll,
+        rng,
+        ascension,
+    );
+    record_target_move(&mut right);
 
     monsters[slime_index].hp = 0;
     monsters[slime_index].alive = false;
@@ -8173,7 +8147,7 @@ pub fn apply_large_acid_slime_split(
 pub fn apply_large_spike_slime_split(
     monsters: &mut Vec<MonsterState>,
     slime_id: MonsterId,
-    mut rng: Option<&mut StsRng>,
+    rng: &mut StsRng,
     ascension: u8,
 ) {
     let Some(slime_index) = monsters
@@ -8201,46 +8175,33 @@ pub fn apply_large_spike_slime_split(
     right.hp = split_hp;
     right.max_hp = split_hp;
     right.slime_size = Some(SlimeSize::Medium);
-    if let Some(rng) = rng.as_deref_mut() {
-        let left_roll = rng.random_int(99);
-        left.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
-            left.hp,
-            &left.move_history,
-            left_roll,
-            ascension,
-        );
-        record_target_move(&mut left);
-        let right_roll = rng.random_int(99);
-        right.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
-            right.hp,
-            &right.move_history,
-            right_roll,
-            ascension,
-        );
-        record_target_move(&mut right);
-    } else {
-        left.intent = MonsterIntent::AttackAddSlimedToDiscard {
-            damage: SPIKE_SLIME_M_SPIT_DAMAGE,
-            count: 1,
-        };
-        right.intent = MonsterIntent::AttackAddSlimedToDiscard {
-            damage: SPIKE_SLIME_M_SPIT_DAMAGE,
-            count: 1,
-        };
-    }
+    let left_roll = rng.random_int(99);
+    left.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
+        left.hp,
+        &left.move_history,
+        left_roll,
+        ascension,
+    );
+    record_target_move(&mut left);
+    let right_roll = rng.random_int(99);
+    right.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
+        right.hp,
+        &right.move_history,
+        right_roll,
+        ascension,
+    );
+    record_target_move(&mut right);
 
     monsters[slime_index].hp = 0;
     monsters[slime_index].alive = false;
     monsters[slime_index].block = 0;
-    if let Some(rng) = rng {
-        let parent_roll = rng.random_int(99);
-        monsters[slime_index].intent = target_medium_or_large_spike_slime_next_intent_from_roll(
-            monsters[slime_index].max_hp,
-            &monsters[slime_index].move_history,
-            parent_roll,
-            ascension,
-        );
-    }
+    let parent_roll = rng.random_int(99);
+    monsters[slime_index].intent = target_medium_or_large_spike_slime_next_intent_from_roll(
+        monsters[slime_index].max_hp,
+        &monsters[slime_index].move_history,
+        parent_roll,
+        ascension,
+    );
     monsters.insert(slime_index, left);
     monsters.insert(slime_index + 2, right);
 }
@@ -8248,7 +8209,7 @@ pub fn apply_large_spike_slime_split(
 pub fn apply_slime_boss_split(
     monsters: &mut Vec<MonsterState>,
     boss_id: MonsterId,
-    mut rng: Option<&mut StsRng>,
+    rng: &mut StsRng,
     ascension: u8,
 ) {
     let Some(boss_index) = monsters
@@ -8278,16 +8239,14 @@ pub fn apply_slime_boss_split(
     } else {
         SPIKE_SLIME_L_SPIT_DAMAGE
     });
-    if let Some(rng) = rng.as_deref_mut() {
-        let roll = rng.random_int(99);
-        spike.intent = target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
-            true,
-            &spike.move_history,
-            roll,
-            ascension,
-        );
-        record_target_move(&mut spike);
-    }
+    let roll = rng.random_int(99);
+    spike.intent = target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+        true,
+        &spike.move_history,
+        roll,
+        ascension,
+    );
+    record_target_move(&mut spike);
     acid.hp = split_hp;
     acid.max_hp = split_hp;
     acid.slime_size = Some(SlimeSize::Large);
@@ -8296,12 +8255,10 @@ pub fn apply_slime_boss_split(
     } else {
         ACID_SLIME_L_NORMAL_TACKLE_DAMAGE
     });
-    if let Some(rng) = rng {
-        let roll = rng.random_int(99);
-        acid.intent =
-            target_large_acid_slime_next_intent_from_roll(&acid.move_history, roll, rng, ascension);
-        record_target_move(&mut acid);
-    }
+    let roll = rng.random_int(99);
+    acid.intent =
+        target_large_acid_slime_next_intent_from_roll(&acid.move_history, roll, rng, ascension);
+    record_target_move(&mut acid);
 
     monsters[boss_index].hp = 0;
     monsters[boss_index].alive = false;
@@ -10529,8 +10486,9 @@ mod tests {
         parent.hp = 20;
         parent.max_hp = SPIKE_SLIME_L_A7_HP_RANGE.max;
         let mut monsters = vec![parent];
+        let mut rng = StsRng::new(0);
 
-        apply_large_spike_slime_split(&mut monsters, parent_id, None, 17);
+        apply_large_spike_slime_split(&mut monsters, parent_id, &mut rng, 17);
 
         let children = monsters
             .iter()
@@ -10543,6 +10501,7 @@ mod tests {
         assert!(children
             .iter()
             .all(|monster| monster.slime_size == Some(SlimeSize::Medium)));
+        assert_eq!(rng.counter(), 3);
     }
 
     #[test]
@@ -10552,8 +10511,9 @@ mod tests {
         parent.hp = 17;
         parent.max_hp = ACID_SLIME_L_A7_HP_RANGE.max;
         let mut monsters = vec![parent];
+        let mut rng = StsRng::new(0);
 
-        apply_large_acid_slime_split(&mut monsters, parent_id, None, 0);
+        apply_large_acid_slime_split(&mut monsters, parent_id, &mut rng, 0);
 
         let children = monsters
             .iter()
@@ -10566,6 +10526,7 @@ mod tests {
         assert!(children
             .iter()
             .all(|monster| monster.slime_size == Some(SlimeSize::Medium)));
+        assert_eq!(rng.counter(), 2);
     }
 
     #[test]
@@ -10583,7 +10544,7 @@ mod tests {
             .expect("test seed range should include a Spike Slime Spit roll");
         let mut rng = StsRng::new(seed);
 
-        apply_slime_boss_split(&mut monsters, boss_id, Some(&mut rng), 0);
+        apply_slime_boss_split(&mut monsters, boss_id, &mut rng, 0);
 
         let spike = monsters
             .iter()
@@ -10618,13 +10579,7 @@ mod tests {
         let right_roll = expected_ai_rng.random_int(99);
         let right_intent = target_bronze_orb_next_intent_from_roll(&[], right_roll);
 
-        apply_bronze_automaton_orb_spawn(
-            &mut monsters,
-            automaton_id,
-            Some(&mut ai_rng),
-            Some(&mut hp_rng),
-            9,
-        );
+        apply_bronze_automaton_orb_spawn(&mut monsters, automaton_id, &mut ai_rng, &mut hp_rng, 9);
 
         assert_eq!(hp_rng.counter(), 4);
         assert_eq!(ai_rng.counter(), 2);
@@ -10650,13 +10605,7 @@ mod tests {
         let mut ai_rng = StsRng::new(1_435_099_163_226 + 33);
 
         MonsterHpRange::new(300, 300).roll(&mut hp_rng);
-        apply_bronze_automaton_orb_spawn(
-            &mut monsters,
-            automaton_id,
-            Some(&mut ai_rng),
-            Some(&mut hp_rng),
-            0,
-        );
+        apply_bronze_automaton_orb_spawn(&mut monsters, automaton_id, &mut ai_rng, &mut hp_rng, 0);
 
         assert_eq!((monsters[0].hp, monsters[0].max_hp), (53, 53));
         assert_eq!((monsters[2].hp, monsters[2].max_hp), (52, 52));
@@ -11243,13 +11192,7 @@ mod tests {
         let slot_two_hp = DAGGER_HP_RANGE.roll(&mut expected_hp_rng);
         let slot_three_hp = DAGGER_HP_RANGE.roll(&mut expected_hp_rng);
 
-        apply_reptomancer_dagger_spawn(
-            &mut monsters,
-            reptomancer_id,
-            2,
-            Some(&mut ai_rng),
-            Some(&mut hp_rng),
-        );
+        apply_reptomancer_dagger_spawn(&mut monsters, reptomancer_id, 2, &mut ai_rng, &mut hp_rng);
 
         assert_eq!(hp_rng.counter(), 2);
         assert_eq!(ai_rng.counter(), 2);
@@ -11398,13 +11341,7 @@ mod tests {
         let _second_constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
         let second_hp = TORCH_HEAD_A9_HP_RANGE.roll(&mut expected_hp_rng);
 
-        apply_collector_spawn_torch_heads(
-            &mut monsters,
-            2,
-            Some(&mut ai_rng),
-            Some(&mut hp_rng),
-            9,
-        );
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 9);
 
         assert_eq!(hp_rng.counter(), 4);
         assert_eq!(ai_rng.counter(), 2);
@@ -11431,13 +11368,7 @@ mod tests {
         let _second_constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
         let second_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
 
-        apply_collector_spawn_torch_heads(
-            &mut monsters,
-            2,
-            Some(&mut ai_rng),
-            Some(&mut hp_rng),
-            0,
-        );
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
 
         assert_eq!(hp_rng.counter(), 4);
         assert_eq!(ai_rng.counter(), 2);
@@ -11455,13 +11386,7 @@ mod tests {
             .expect("Collector has a fixed setHp roll")
             .roll(&mut hp_rng);
         assert_eq!(collector_hp, 282);
-        apply_collector_spawn_torch_heads(
-            &mut monsters,
-            2,
-            Some(&mut ai_rng),
-            Some(&mut hp_rng),
-            0,
-        );
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
         assert_eq!(
             monsters
                 .iter()
@@ -11477,13 +11402,7 @@ mod tests {
                 monster.hp = 0;
             }
         }
-        apply_collector_spawn_torch_heads(
-            &mut monsters,
-            2,
-            Some(&mut ai_rng),
-            Some(&mut hp_rng),
-            0,
-        );
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
 
         assert_eq!(hp_rng.counter(), 9);
         assert_eq!(
