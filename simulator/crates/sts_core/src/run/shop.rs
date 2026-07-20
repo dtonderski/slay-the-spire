@@ -600,7 +600,11 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
     }
 
     if !run.shop_merchant_open {
-        return vec![RunAction::EnterShop];
+        let mut actions = vec![RunAction::EnterShop];
+        if run.shop.is_some() {
+            actions.push(RunAction::Proceed);
+        }
+        return actions;
     }
 
     let Some(shop) = run.shop.as_ref() else {
@@ -648,6 +652,11 @@ pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> 
         RunAction::EnterShop if !run.shop_merchant_open && run.card_grid.is_none() => Ok(()),
         RunAction::LeaveShop
             if run.shop_merchant_open && run.shop.is_some() && run.card_grid.is_none() =>
+        {
+            Ok(())
+        }
+        RunAction::Proceed
+            if !run.shop_merchant_open && run.shop.is_some() && run.card_grid.is_none() =>
         {
             Ok(())
         }
@@ -745,6 +754,9 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
         RunAction::LeaveShop => {
             leave_shop_merchant(&mut next);
         }
+        RunAction::Proceed => {
+            leave_shop_room(&mut next);
+        }
         RunAction::OpenShopRemove => {
             open_shop_remove_grid(&mut next);
         }
@@ -821,6 +833,17 @@ mod tests {
     use crate::content::cards::ANGER_ID;
 
     #[test]
+    fn missing_shop_inventory_does_not_expose_room_proceed() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.shop = None;
+        run.shop_merchant_open = false;
+
+        assert_eq!(legal_shop_actions(&run), vec![RunAction::EnterShop]);
+        assert!(validate_shop_action(&run, RunAction::Proceed).is_err());
+    }
+
+    #[test]
     fn leaving_merchant_preserves_inventory_until_shop_room_exit() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Shop;
@@ -839,7 +862,15 @@ mod tests {
             closed.shop.as_ref().unwrap().cards[0].card.content_id,
             ANGER_ID
         );
-        assert_eq!(legal_shop_actions(&closed), vec![RunAction::EnterShop]);
+        assert_eq!(
+            legal_shop_actions(&closed),
+            vec![RunAction::EnterShop, RunAction::Proceed]
+        );
+
+        let left_room = apply_shop_action(&closed, RunAction::Proceed).expect("shop room closes");
+        assert_eq!(left_room.phase, RunPhase::Idle);
+        assert!(left_room.shop.is_none());
+        assert!(!left_room.shop_merchant_open);
 
         let reopened = apply_shop_action(&closed, RunAction::EnterShop).expect("merchant reopens");
         assert!(reopened.shop_merchant_open);
@@ -847,11 +878,6 @@ mod tests {
             reopened.shop.as_ref().unwrap().cards[0].card.content_id,
             opened.shop.as_ref().unwrap().cards[0].card.content_id
         );
-
-        let mut left_room = reopened;
-        leave_shop_room(&mut left_room);
-        assert!(left_room.shop.is_none());
-        assert!(!left_room.shop_merchant_open);
     }
 
     #[test]

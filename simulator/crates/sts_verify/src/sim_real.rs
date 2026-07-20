@@ -25,18 +25,17 @@ use sts_core::run::neow::{
 use sts_core::{
     affordable_shop_picks, apply_combat_action_on_run, apply_event_action, apply_map_action_on_run,
     apply_neow_boss_swap, apply_neow_relic_reward, apply_neow_simple_drawback,
-    apply_neow_simple_reward, apply_rest_action, apply_run_action, apply_shop_action, cancel_grid,
-    confirm_grid, consume_neow_three_potions_hidden_card_reward,
-    generate_exordium_map_choices_after_path, generate_exordium_map_topology,
-    generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
-    generate_neow_three_potions, generate_neow_transform_reward,
-    generate_target_map_choices_after_path, generate_target_map_topology, leave_shop_merchant,
-    leave_shop_room, legal_map_actions_on_run, legal_rest_actions, open_neow_reward_grid,
-    select_grid_card, shop_action_for_choice_index, target_room_kinds_on_path, Act1Boss, Act3Boss,
-    CardGridScreen, CardId, CardInstance, CombatAction, CombatPhase, CombatState, ContentId, Event,
-    EventAction, GeneratedNeowOption, GridPurpose, MonsterId, MonsterIntent, MonsterState,
-    NeowDrawback, NeowRewardType, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
-    RunPhase, RunState, ShopPick, TargetMapAct,
+    apply_neow_simple_reward, apply_rest_action, apply_run_action, cancel_grid, confirm_grid,
+    consume_neow_three_potions_hidden_card_reward, generate_exordium_map_choices_after_path,
+    generate_exordium_map_topology, generate_neow_card_reward, generate_neow_colorless_reward,
+    generate_neow_options, generate_neow_three_potions, generate_neow_transform_reward,
+    generate_target_map_choices_after_path, generate_target_map_topology, legal_map_actions_on_run,
+    legal_rest_actions, open_neow_reward_grid, select_grid_card, shop_action_for_choice_index,
+    target_room_kinds_on_path, Act1Boss, Act3Boss, CardGridScreen, CardId, CardInstance,
+    CombatAction, CombatPhase, CombatState, ContentId, Event, EventAction, GeneratedNeowOption,
+    GridPurpose, MonsterId, MonsterIntent, MonsterState, NeowDrawback, NeowRewardType, Relic,
+    RelicKey, RestAction, RewardScreen, RoomKind, RunAction, RunPhase, RunState, ShopPick,
+    TargetMapAct,
 };
 
 #[cfg(test)]
@@ -4713,51 +4712,29 @@ fn verify_seed_start_transitions(
                 };
                 let command = action.command.trim();
                 if command.eq_ignore_ascii_case("LEAVE") {
-                    leave_shop_merchant(sim);
-                    compare_subset(
-                        report,
-                        action,
-                        "leave shop merchant",
-                        seed_start_shop_observed_subset(&post.message),
-                        seed_start_shop_room_simulated_subset(sim, &relics),
-                    );
-                    continue;
-                }
-                if command.eq_ignore_ascii_case("PROCEED")
-                    && screen_type(&pre.message) == Some("SHOP_ROOM")
-                {
-                    leave_shop_room(sim);
-                    sim.phase = RunPhase::Idle;
-                    sim.reward = None;
-                    sim.card_grid = None;
-                    seed_start_update_carry_from_run(sim, &mut relics, &mut deck_ids);
-                    compare_subset(
-                        report,
-                        action,
-                        "leave shop room",
-                        seed_start_map_return_observed_subset(&post.message),
-                        seed_start_simulated_map_return(
-                            start.numeric_seed,
-                            &map_path_xs,
-                            Some(sim),
-                            &relics,
-                            &deck_ids,
-                            &deck_ids,
-                        ),
-                    );
-                    phase = SeedStartPhase::Map;
-                    continue;
-                }
-                if command_head_eq(command, "CHOOSE") {
-                    let choose_index = choose_index(command)
-                        .expect("malformed CHOOSE rejected before phase dispatch");
-                    if screen_type(&pre.message) == Some("SHOP_SCREEN")
-                        && screen_type(&post.message) == Some("NONE")
-                    {
+                    let next = match apply_run_action(sim, RunAction::LeaveShop) {
+                        Ok(next) => next,
+                        Err(err) => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "unsupported_shop_path".to_owned(),
+                                reason: format!("core rejected shop merchant leave: {err}"),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
+                    };
+                    if seed_start_shop_destination(&next) != Ok(SeedStartShopDestination::Room) {
                         let boundary = SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
-                            category: "trace_client_shop_transient".to_owned(),
-                            reason: "shop CHOOSE produced a transient NONE state without a stable observed purchase; verifier refused to infer a purchase or shop exit from a later poll".to_owned(),
+                            category: "invalid_shop_destination".to_owned(),
+                            reason: seed_start_shop_destination(&next).err().unwrap_or_else(|| {
+                                "shop merchant leave did not reach the shop room".to_owned()
+                            }),
                         };
                         report.unsupported.push(UnsupportedTransition {
                             action_step: action.step,
@@ -4766,21 +4743,88 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     }
-                    let next = if screen_type(&pre.message) == Some("SHOP_ROOM") {
-                        apply_shop_action(sim, RunAction::EnterShop).map_err(|e| e.to_string())
-                    } else if screen_type(&pre.message) == Some("SHOP_SCREEN") {
-                        match shop_action_for_choice_index(sim, choose_index) {
-                            Ok(shop_action) => {
-                                apply_shop_action(sim, shop_action).map_err(|e| e.to_string())
-                            }
-                            Err(err) => Err(err.to_string()),
+                    compare_subset(
+                        report,
+                        action,
+                        "leave shop merchant",
+                        seed_start_shop_observed_subset(&post.message),
+                        seed_start_shop_room_simulated_subset(&next, &relics),
+                    );
+                    *sim = next;
+                    continue;
+                }
+                if command.eq_ignore_ascii_case("PROCEED") {
+                    let next = match apply_run_action(sim, RunAction::Proceed) {
+                        Ok(next) => next,
+                        Err(err) => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "unsupported_shop_path".to_owned(),
+                                reason: format!("core rejected shop room proceed: {err}"),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
                         }
-                    } else {
-                        Err(format!(
-                            "unsupported shop choose in {:?}",
-                            screen_type(&pre.message)
-                        ))
                     };
+                    if seed_start_shop_destination(&next) != Ok(SeedStartShopDestination::Map) {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_shop_destination".to_owned(),
+                            reason: seed_start_shop_destination(&next).err().unwrap_or_else(|| {
+                                "shop room proceed did not reach the map".to_owned()
+                            }),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
+                    }
+                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    compare_subset(
+                        report,
+                        action,
+                        "leave shop room",
+                        seed_start_map_return_observed_subset(&post.message),
+                        seed_start_simulated_map_return(
+                            start.numeric_seed,
+                            &map_path_xs,
+                            Some(&next),
+                            &relics,
+                            &deck_ids,
+                            &deck_ids,
+                        ),
+                    );
+                    *sim = next;
+                    phase = SeedStartPhase::Map;
+                    continue;
+                }
+                if command_head_eq(command, "CHOOSE") {
+                    let choose_index = choose_index(command)
+                        .expect("malformed CHOOSE rejected before phase dispatch");
+                    let (shop_action, label) = match seed_start_bind_shop_choose(sim, choose_index)
+                    {
+                        Ok(bound) => bound,
+                        Err(reason) => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "unsupported_shop_path".to_owned(),
+                                reason,
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
+                    };
+                    let next = apply_run_action(sim, shop_action).map_err(|err| err.to_string());
                     let Ok(next) = next else {
                         let boundary = SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
@@ -4794,63 +4838,129 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     };
-                    let label = if (screen_type(&pre.message) == Some("SHOP_ROOM")
-                        && screen_type(&post.message) == Some("SHOP_SCREEN"))
-                        || screen_type(&post.message) == Some("SHOP_ROOM")
-                    {
-                        "enter shop merchant"
-                    } else if screen_type(&post.message) == Some("GRID") {
-                        "shop purge grid"
-                    } else {
-                        "shop purchase"
+                    let destination = match seed_start_shop_destination(&next) {
+                        Ok(destination) => destination,
+                        Err(reason) => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "invalid_shop_destination".to_owned(),
+                                reason,
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
                     };
-                    if screen_type(&post.message) == Some("GRID") {
-                        compare_subset(
+                    if screen_type(&post.message) == Some("NONE") {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "trace_client_shop_transient".to_owned(),
+                            reason: format!(
+                                "shop {shop_action:?} reached a transient NONE frame before its core-owned {destination:?} destination became observable"
+                            ),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
+                    }
+                    match destination {
+                        SeedStartShopDestination::Screen => {
+                            let mut observed = seed_start_shop_observed_subset(&post.message);
+                            let mut simulated =
+                                seed_start_shop_screen_simulated_subset(&next, &relics);
+                            let observed_deck = observed
+                                .as_object_mut()
+                                .and_then(|fields| fields.remove("deck_ids"))
+                                .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                                .unwrap_or_default();
+                            if let Some(fields) = simulated.as_object_mut() {
+                                fields.remove("deck_ids");
+                            }
+                            let mut diffs = subset_diffs(observed, simulated);
+                            let expected_deck = deck_content_keys(&next.deck);
+                            match classify_deferred_deck_observation(
+                                &observed_deck,
+                                &deck_content_keys(&sim.deck),
+                                &expected_deck,
+                            ) {
+                                PendingDeckObservation::Settled if diffs.is_empty() => {
+                                    report.verified.push(VerifiedTransition {
+                                        action_step: action.step,
+                                        command: action.command.clone(),
+                                        label: label.to_owned(),
+                                    });
+                                }
+                                PendingDeckObservation::Deferred if diffs.is_empty() => {
+                                    pending_deck_assertion = Some(PendingDeckAssertion {
+                                        action: action.clone(),
+                                        label: label.to_owned(),
+                                        expected_deck,
+                                    });
+                                }
+                                PendingDeckObservation::Diverged(deck_diffs) => {
+                                    diffs.extend(deck_diffs);
+                                    report.unexpected_diffs.push(UnexpectedDiff {
+                                        action_step: action.step,
+                                        command: action.command.clone(),
+                                        label: label.to_owned(),
+                                        diffs,
+                                    });
+                                }
+                                PendingDeckObservation::Settled
+                                | PendingDeckObservation::Deferred => {
+                                    report.unexpected_diffs.push(UnexpectedDiff {
+                                        action_step: action.step,
+                                        command: action.command.clone(),
+                                        label: label.to_owned(),
+                                        diffs,
+                                    });
+                                }
+                            }
+                        }
+                        SeedStartShopDestination::Grid => compare_subset(
                             report,
                             action,
                             label,
                             seed_start_grid_observed_subset(&post.message),
                             seed_start_grid_simulated_subset(&next, &relics),
-                        );
-                    } else if screen_type(&post.message) == Some("COMBAT_REWARD")
-                        && next.phase == RunPhase::Reward
-                    {
-                        compare_subset(
+                        ),
+                        SeedStartShopDestination::Reward => compare_subset(
                             report,
                             action,
                             label,
                             seed_start_reward_observed_subset(&post.message),
                             seed_start_reward_simulated_subset(&next, &relics),
-                        );
-                    } else {
-                        let stale_observed_deck = seed_start_shop_purchase_has_stale_observed_deck(
-                            sim,
-                            &next,
-                            &post.message,
-                        );
-                        let mut observed = seed_start_shop_observed_subset(&post.message);
-                        let mut simulated = seed_start_shop_screen_simulated_subset(&next, &relics);
-                        if stale_observed_deck {
-                            // CommunicationMod can publish spent gold and removed stock one
-                            // state before the purchased card appears in the deck. The selected
-                            // live slot is unambiguous, so verify every stable shop field here
-                            // and let subsequent transitions validate the updated deck.
-                            if let Some(fields) = observed.as_object_mut() {
-                                fields.remove("deck_ids");
-                            }
-                            if let Some(fields) = simulated.as_object_mut() {
-                                fields.remove("deck_ids");
-                            }
+                        ),
+                        destination => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "invalid_shop_destination".to_owned(),
+                                reason: format!(
+                                    "shop CHOOSE {choose_index} produced unsupported destination {destination:?}"
+                                ),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
                         }
-                        compare_subset(report, action, label, observed, simulated);
                     }
                     seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                     *sim = next;
-                    if sim.card_grid.is_some() {
-                        phase = SeedStartPhase::Grid;
-                    } else if sim.phase == RunPhase::Reward {
-                        phase = SeedStartPhase::Reward;
-                    }
+                    phase = match destination {
+                        SeedStartShopDestination::Grid => SeedStartPhase::Grid,
+                        SeedStartShopDestination::Reward => SeedStartPhase::Reward,
+                        SeedStartShopDestination::Screen => SeedStartPhase::Shop,
+                        _ => unreachable!("shop CHOOSE destination checked above"),
+                    };
                     continue;
                 }
                 let boundary = SeedStartBoundary {
@@ -5127,6 +5237,75 @@ enum SeedStartGridDestination {
     Reward,
     Treasure,
     Proceed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SeedStartShopDestination {
+    Room,
+    Screen,
+    Grid,
+    Reward,
+    Map,
+}
+
+fn seed_start_shop_destination(run: &RunState) -> Result<SeedStartShopDestination, String> {
+    if run.card_grid.is_some() {
+        return if run.phase == RunPhase::Shop && run.shop.is_some() {
+            Ok(SeedStartShopDestination::Grid)
+        } else {
+            Err(format!(
+                "shop grid has inconsistent simulator state: phase={:?}, shop={}",
+                run.phase,
+                run.shop.is_some()
+            ))
+        };
+    }
+    match run.phase {
+        RunPhase::Shop if run.shop.is_some() && run.shop_merchant_open => {
+            Ok(SeedStartShopDestination::Screen)
+        }
+        RunPhase::Shop if run.shop.is_some() => Ok(SeedStartShopDestination::Room),
+        RunPhase::Reward if run.reward.is_some() => Ok(SeedStartShopDestination::Reward),
+        RunPhase::Idle if run.shop.is_none() && run.reward.is_none() => {
+            Ok(SeedStartShopDestination::Map)
+        }
+        phase => Err(format!(
+            "shop command produced inconsistent simulator destination: phase={phase:?}, shop={}, merchant_open={}, grid={}, reward={}",
+            run.shop.is_some(),
+            run.shop_merchant_open,
+            run.card_grid.is_some(),
+            run.reward.is_some(),
+        )),
+    }
+}
+
+fn seed_start_bind_shop_choose(
+    run: &RunState,
+    choose_index: usize,
+) -> Result<(RunAction, &'static str), String> {
+    if run.phase != RunPhase::Shop || run.shop.is_none() || run.card_grid.is_some() {
+        return Err(format!(
+            "shop CHOOSE requires an available simulator-owned shop decision: phase={:?}, shop={}, grid={}",
+            run.phase,
+            run.shop.is_some(),
+            run.card_grid.is_some(),
+        ));
+    }
+    if !run.shop_merchant_open {
+        if choose_index != 0 {
+            return Err(format!(
+                "shop room exposes only merchant choice zero, received {choose_index}"
+            ));
+        }
+        return Ok((RunAction::EnterShop, "enter shop merchant"));
+    }
+    let action = shop_action_for_choice_index(run, choose_index).map_err(|err| err.to_string())?;
+    let label = if action == RunAction::OpenShopRemove {
+        "shop purge grid"
+    } else {
+        "shop purchase"
+    };
+    Ok((action, label))
 }
 
 fn seed_start_grid_destination(run: &RunState) -> Result<SeedStartGridDestination, String> {
@@ -9300,25 +9479,6 @@ fn seed_start_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> V
         }
     }
     out
-}
-
-fn seed_start_shop_purchase_has_stale_observed_deck(
-    before: &RunState,
-    after: &RunState,
-    post_message: &Value,
-) -> bool {
-    if screen_type(post_message) != Some("SHOP_SCREEN") {
-        return false;
-    }
-    let before_deck = deck_content_keys(&before.deck);
-    let after_deck = deck_content_keys(&after.deck);
-    if after_deck.len() != before_deck.len() + 1 {
-        return false;
-    }
-    let Some(game) = post_message.get("game_state") else {
-        return false;
-    };
-    deck_keys_from_value(game.get("deck")) == before_deck
 }
 
 fn seed_start_monsters_from_sim(
@@ -13613,6 +13773,64 @@ mod tests {
     }
 
     #[test]
+    fn observed_shop_post_screen_cannot_choose_purchase_destination() {
+        let path = crate::corpus_path("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl");
+        let content = std::fs::read_to_string(path).expect("retained trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (purchase_step, shop_post) = transitions
+            .transitions
+            .iter()
+            .find_map(|(pre, action, post)| {
+                (screen_type(&pre.message) == Some("SHOP_SCREEN")
+                    && command_head_eq(&action.command, "CHOOSE")
+                    && screen_type(&post.message) == Some("SHOP_SCREEN")
+                    && trace_deck_len(&pre.message)
+                        .zip(trace_deck_len(&post.message))
+                        .is_some_and(|(before, after)| after > before))
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture buys a card while remaining in the merchant screen");
+
+        let mut mutated_lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let mutated_state = mutated_lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if *state == shop_post => Some(state),
+                _ => None,
+            })
+            .expect("shop purchase post-state remains in imported trace");
+        *mutated_state
+            .message
+            .pointer_mut("/game_state/screen_type")
+            .expect("shop screen type") = json!("GRID");
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
+        let report = verify_communication_mod_trace(&mutated).expect("mutated trace parses");
+        let destination_diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| diff.action_step == purchase_step && diff.label == "shop purchase")
+            .expect("forged grid must differ from the core-owned merchant destination");
+        assert!(
+            destination_diff
+                .diffs
+                .iter()
+                .any(|diff| diff.starts_with("screen_type:")),
+            "{destination_diff:#?}"
+        );
+        assert!(report
+            .unexpected_diffs
+            .iter()
+            .all(|diff| { diff.action_step != purchase_step || diff.label != "shop purge grid" }));
+    }
+
+    #[test]
     fn observed_boss_relics_are_compared_without_steering_simulation() {
         let path = crate::corpus_path("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl");
         let content = std::fs::read_to_string(path).expect("retained trace");
@@ -15415,6 +15633,41 @@ mod tests {
 
         assert_eq!(shop_card_display_key(&run, WARCRY_ID), "Warcry+");
         assert_eq!(shop_card_display_key(&run, PANACEA_ID), "Panacea+");
+    }
+
+    #[test]
+    fn shop_choose_binding_uses_core_merchant_state_and_rejects_room_index_drift() {
+        let mut run = RunState::placeholder_seeded_ironclad(1_218_623, 0);
+        run.gold = 999;
+        sts_core::enter_shop_room(&mut run);
+        assert_eq!(
+            seed_start_shop_destination(&run),
+            Ok(SeedStartShopDestination::Room)
+        );
+        assert_eq!(
+            seed_start_bind_shop_choose(&run, 0),
+            Ok((RunAction::EnterShop, "enter shop merchant"))
+        );
+        assert!(seed_start_bind_shop_choose(&run, 1)
+            .expect_err("shop room choice drift must fail closed")
+            .contains("choice zero"));
+
+        let open = apply_run_action(&run, RunAction::EnterShop).expect("merchant opens");
+        assert_eq!(
+            seed_start_shop_destination(&open),
+            Ok(SeedStartShopDestination::Screen)
+        );
+        let (purchase, label) = seed_start_bind_shop_choose(&open, 0)
+            .expect("open merchant binds its simulator-owned first choice");
+        assert_eq!(purchase, RunAction::OpenShopRemove);
+        assert_eq!(label, "shop purge grid");
+
+        let room = apply_run_action(&open, RunAction::LeaveShop).expect("merchant closes");
+        let map = apply_run_action(&room, RunAction::Proceed).expect("shop room proceeds");
+        assert_eq!(
+            seed_start_shop_destination(&map),
+            Ok(SeedStartShopDestination::Map)
+        );
     }
 
     #[test]

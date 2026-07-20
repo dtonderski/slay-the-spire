@@ -2021,6 +2021,7 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
     match action {
         RunAction::OpenChest => apply_treasure_action(run, action),
         RunAction::Proceed if run.phase == RunPhase::Reward => apply_reward_action(run, action),
+        RunAction::Proceed if run.phase == RunPhase::Shop => apply_shop_action(run, action),
         RunAction::Proceed => apply_treasure_action(run, action),
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
