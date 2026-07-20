@@ -2578,8 +2578,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
             3 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.phase = RunPhase::Complete;
+                next.event = Some(make_event_screen(Event::SpireHeart, Vec::new(), 4));
             }
             _ => {
                 return Err(SimError::IllegalAction(

@@ -2487,6 +2487,31 @@ mod tests {
         let restored: RunState =
             serde_json::from_str(&json).expect("restore Spire Heart run state");
         assert_eq!(restored, next);
+
+        let mut completed = next;
+        for expected_label in ["Continue", "Attack", "Continue", "Sleep"] {
+            let event = completed.event.as_ref().expect("Spire Heart stage");
+            assert_eq!(event.choices.len(), 1);
+            assert_eq!(event.choices[0].label, expected_label);
+            completed = crate::apply_event_action(
+                &completed,
+                crate::EventAction::Choose { choice_index: 0 },
+            )
+            .expect("Spire Heart choice advances");
+        }
+        assert_eq!(completed.phase, RunPhase::Complete);
+        let terminal_event = completed
+            .event
+            .as_ref()
+            .expect("terminal Spire Heart state");
+        assert_eq!(terminal_event.event, Event::SpireHeart);
+        assert_eq!(terminal_event.stage, 4);
+        assert!(terminal_event.choices.is_empty());
+        assert!(crate::legal_event_actions(&completed).is_empty());
+
+        let json = serde_json::to_string(&completed).expect("serialize completed run state");
+        let restored: RunState = serde_json::from_str(&json).expect("restore completed run state");
+        assert_eq!(restored, completed);
     }
 
     #[test]

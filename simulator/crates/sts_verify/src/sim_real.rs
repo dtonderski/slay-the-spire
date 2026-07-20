@@ -1019,20 +1019,6 @@ fn verify_seed_start_transitions(
         ) {
             sim.playtime_seconds = playtime_seconds;
         }
-        if pre
-            .message
-            .get("game_state")
-            .and_then(|game| game.get("room_type"))
-            .and_then(Value::as_str)
-            == Some("VictoryRoom")
-        {
-            report.verified.push(VerifiedTransition {
-                action_step: action.step,
-                command: action.command.clone(),
-                label: "Spire Heart event".to_owned(),
-            });
-            continue;
-        }
         if action.command.eq_ignore_ascii_case("state") {
             if pending_smoke_bomb_reward.is_some()
                 && screen_type(&post.message) == Some("COMBAT_REWARD")
@@ -2812,6 +2798,20 @@ fn verify_seed_start_transitions(
                                     seed_sim = Some(next);
                                     phase = SeedStartPhase::Reward;
                                 }
+                                RunPhase::Complete => {
+                                    let boundary = SeedStartBoundary {
+                                        path: format!("$.actions[step={}].command", action.step),
+                                        category: "unsupported_map_path".to_owned(),
+                                        reason: "map choice unexpectedly completed the run"
+                                            .to_owned(),
+                                    };
+                                    report.unsupported.push(UnsupportedTransition {
+                                        action_step: action.step,
+                                        command: action.command.clone(),
+                                        reason: boundary.reason.clone(),
+                                    });
+                                    return finish_boundary!(boundary);
+                                }
                             }
                             seed_start_update_carry_from_run(
                                 seed_sim.as_ref().expect("map transition stored run"),
@@ -3182,6 +3182,11 @@ fn verify_seed_start_transitions(
                         && sim_choice_index < screen.choices.len().saturating_sub(1))
                     .then_some(VAMPIRES_BITE_COUNT)
                 });
+                let spire_heart_stage = sim
+                    .event
+                    .as_ref()
+                    .filter(|screen| screen.event == Event::SpireHeart)
+                    .map(|screen| screen.stage);
                 let Ok(next) = apply_event_action(
                     sim,
                     EventAction::Choose {
@@ -3200,6 +3205,33 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
+                if let Some(spire_heart_stage) = spire_heart_stage {
+                    if spire_heart_stage == 3 {
+                        compare_subset(
+                            report,
+                            action,
+                            "Spire Heart completion",
+                            seed_start_game_over_observed_subset(&post.message),
+                            seed_start_game_over_simulated_subset(&next),
+                        );
+                    } else {
+                        compare_subset(
+                            report,
+                            action,
+                            "Spire Heart choice",
+                            seed_start_event_observed_subset(&post.message),
+                            seed_start_event_simulated_subset(&next, &relics),
+                        );
+                    }
+                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    phase = if next.phase == RunPhase::Complete {
+                        SeedStartPhase::Complete
+                    } else {
+                        SeedStartPhase::Event
+                    };
+                    *sim = next;
+                    continue;
+                }
                 if post
                     .message
                     .get("game_state")
@@ -4855,6 +4887,43 @@ fn verify_seed_start_transitions(
                     return finish_boundary!(boundary);
                 }
             }
+            SeedStartPhase::Complete if action.command.eq_ignore_ascii_case("PROCEED") => {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return finish_boundary!(SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_complete_path".to_owned(),
+                        reason: "terminal proceed without initialized run simulation".to_owned(),
+                    });
+                };
+                if sim.phase != RunPhase::Complete
+                    || !sim
+                        .event
+                        .as_ref()
+                        .is_some_and(|event| event.event == Event::SpireHeart && event.stage == 4)
+                {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_complete_path".to_owned(),
+                        reason: "terminal proceed requires completed Spire Heart state".to_owned(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
+                }
+                compare_subset(
+                    report,
+                    action,
+                    "leave completed run",
+                    json!({
+                        "in_game": post.message.get("in_game").and_then(Value::as_bool),
+                    }),
+                    json!({ "in_game": false }),
+                );
+                continue;
+            }
             _ => {
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
@@ -4944,6 +5013,7 @@ enum SeedStartPhase {
     Combat,
     Reward,
     Proceed,
+    Complete,
 }
 
 fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, SimRealError>> {
@@ -8561,6 +8631,36 @@ fn seed_start_spire_heart_simulated_subset(run: &RunState) -> Value {
     json!({
         "screen_type": "EVENT",
         "event_id": event_id,
+        "floor": run.current_floor,
+        "gold": run.gold,
+        "current_hp": run.player_hp,
+        "max_hp": run.player_max_hp,
+    })
+}
+
+fn seed_start_game_over_observed_subset(message: &Value) -> Value {
+    let Some(game) = message.get("game_state") else {
+        return json!({});
+    };
+    json!({
+        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+        "victory": game.pointer("/screen_state/victory").and_then(Value::as_bool),
+        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "gold": int(game, "gold"),
+        "current_hp": int(game, "current_hp"),
+        "max_hp": int(game, "max_hp"),
+    })
+}
+
+fn seed_start_game_over_simulated_subset(run: &RunState) -> Value {
+    let victory = run.phase == RunPhase::Complete
+        && run
+            .event
+            .as_ref()
+            .is_some_and(|event| event.event == Event::SpireHeart && event.stage == 4);
+    json!({
+        "screen_type": if victory { "GAME_OVER" } else { "" },
+        "victory": victory,
         "floor": run.current_floor,
         "gold": run.gold,
         "current_hp": run.player_hp,

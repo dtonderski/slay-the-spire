@@ -364,6 +364,7 @@ pub enum RunPhase {
     Event,
     Shop,
     Idle,
+    Complete,
 }
 
 pub const REWARD_GOLD_AMOUNT: i32 = 20;

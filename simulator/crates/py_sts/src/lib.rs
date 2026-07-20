@@ -1416,10 +1416,14 @@ fn run_current_decision(state: &RunState) -> &'static str {
         RunPhase::Shop => "shop",
         RunPhase::Idle if state.map.is_some() => "map",
         RunPhase::Idle => "idle",
+        RunPhase::Complete => "complete",
     }
 }
 
 fn run_unsupported_reason(state: &RunState) -> Option<&'static str> {
+    if state.phase == RunPhase::Complete {
+        return None;
+    }
     if exact_run_legal_actions(state).is_empty() {
         Some("no exact run legal-action adapter for current decision")
     } else {
@@ -1436,6 +1440,7 @@ fn run_phase_name(phase: RunPhase) -> &'static str {
         RunPhase::Event => "event",
         RunPhase::Shop => "shop",
         RunPhase::Idle => "idle",
+        RunPhase::Complete => "complete",
     }
 }
 
@@ -1709,6 +1714,24 @@ mod tests {
             .exact_legal_actions()
             .iter()
             .any(|action| action.family() == "map"));
+    }
+
+    #[test]
+    fn completed_run_round_trips_without_exposing_a_decision() {
+        let mut env = PyOmniRunEnv::map_fixture();
+        env.state.phase = RunPhase::Complete;
+        let restored =
+            PyOmniRunEnv::from_snapshot_json(&env.snapshot_json().expect("snapshot JSON"))
+                .expect("completed snapshot restores");
+
+        assert_eq!(restored.phase(), "complete");
+        assert_eq!(restored.current_decision(), "complete");
+        assert!(restored.exact_legal_actions().is_empty());
+        assert!(restored.unsupported_reason().is_none());
+        assert_eq!(
+            restored.snapshot_hash().expect("restored hashes"),
+            env.snapshot_hash().expect("run hashes")
+        );
     }
 
     #[test]
