@@ -9,7 +9,10 @@ use crate::{
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::reward_pool::ironclad_reward_card_rarity,
-    content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices},
+    content::shop_pool::{
+        colorless_discovery_card_choices, discovery_card_choices, shop_card_is_colorless,
+        shop_card_type,
+    },
     ids::{CardId, ContentId, MonsterId},
     map::{generate_target_fixed_map, milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
     potion::{Potion, MAX_POTIONS},
@@ -670,6 +673,11 @@ impl RunState {
         if let Some(shop) = &self.shop {
             for slot in &shop.cards {
                 validate_run_choice_card_content(&slot.card)?;
+                if !shop_card_is_colorless(slot.card.content_id)
+                    && shop_card_type(slot.card.content_id).is_none()
+                {
+                    return Err(SimError::UnsupportedMechanic(slot.card.content_id));
+                }
                 if slot.price < 0 {
                     return Err(SimError::InvalidState("shop card price is negative"));
                 }

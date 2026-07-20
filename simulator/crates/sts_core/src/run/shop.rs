@@ -299,7 +299,11 @@ fn courier_restock_relic_key(run: &mut RunState, merchant_rng: &mut StsRng) -> (
     }
 }
 
-fn restock_courier_card_slot(next: &mut RunState, slot: usize, purchased: CardInstance) {
+fn restock_courier_card_slot(
+    next: &mut RunState,
+    slot: usize,
+    purchased: CardInstance,
+) -> SimResult<()> {
     let mut card_rng = StsRng::with_counter(next.reward_rng_seed as i64, next.card_rng_counter);
     let mut merchant_rng =
         StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
@@ -311,7 +315,8 @@ fn restock_courier_card_slot(next: &mut RunState, slot: usize, purchased: CardIn
         };
         random_colorless_from_pool(&mut card_rng, rarity)
     } else {
-        let card_type = shop_card_type(purchased.content_id).unwrap_or(CardType::Attack);
+        let card_type = shop_card_type(purchased.content_id)
+            .ok_or(SimError::UnsupportedMechanic(purchased.content_id))?;
         loop {
             let rarity = roll_card_rarity_shop(&mut card_rng, next.card_rarity_factor);
             let id = random_class_card_of_type_and_rarity_with_fallback(
@@ -336,6 +341,7 @@ fn restock_courier_card_slot(next: &mut RunState, slot: usize, purchased: CardIn
     next.merchant_rng_counter = merchant_rng.counter();
     let shop = next.shop.as_mut().expect("validated shop screen");
     shop.cards[slot] = offer;
+    Ok(())
 }
 
 fn restock_courier_relic_slot(next: &mut RunState, slot: usize) {
@@ -726,7 +732,7 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             next.break_maw_bank_on_shop_spend();
             next.add_deck_card(card);
             if has_the_courier(&next) {
-                restock_courier_card_slot(&mut next, slot, card);
+                restock_courier_card_slot(&mut next, slot, card)?;
             }
         }
         RunAction::BuyShopRelic { slot } => {
@@ -786,6 +792,26 @@ pub fn shop_action_for_choice_index(run: &RunState, choice_index: usize) -> SimR
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn non_shop_card_offer_is_rejected_before_courier_restock() {
+        let mut run = RunState::placeholder_seeded_ironclad(7, 10);
+        run.phase = RunPhase::Shop;
+        run.gold = 999;
+        run.relics.push(Relic::TheCourier);
+        let mut shop = generate_shop_screen(&mut run);
+        shop.cards[0].card.content_id = crate::content::cards::ASCENDERS_BANE_ID;
+        shop.cards[0].price = 0;
+        run.shop = Some(shop);
+        run.shop_merchant_open = true;
+
+        assert_eq!(
+            apply_shop_action(&run, RunAction::BuyShopCard { slot: 0 }),
+            Err(SimError::UnsupportedMechanic(
+                crate::content::cards::ASCENDERS_BANE_ID
+            ))
+        );
+    }
 
     #[test]
     fn missing_shop_inventory_does_not_expose_room_proceed() {
