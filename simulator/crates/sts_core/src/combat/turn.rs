@@ -20,7 +20,7 @@ use crate::{
         apply_large_acid_slime_split, apply_large_spike_slime_split,
         apply_monster_intent_with_card_rng, apply_reptomancer_dagger_spawn, apply_slime_boss_split,
         apply_strength_all_monsters, champ_strength_amount, clear_lagavulin_metallicize_if_awake,
-        heal_monster_to_definition_cap, living_monster_missing_hp,
+        heal_monster_to_stored_cap, living_monster_missing_hp,
         prepare_monster_intent_for_ascension, record_target_move,
         target_book_of_stabbing_next_intent_from_roll_with_stab_count,
         target_bronze_automaton_next_intent, target_bronze_orb_next_intent_from_roll,
@@ -1027,7 +1027,7 @@ fn apply_attack_heal_self_after_player_damage(
         .iter_mut()
         .find(|monster| monster.id == monster_id && monster.alive)
     {
-        heal_monster_to_definition_cap(monster, state.ascension, hp_damage);
+        heal_monster_to_stored_cap(monster, hp_damage);
     }
 }
 

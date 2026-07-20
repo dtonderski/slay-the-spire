@@ -145,6 +145,28 @@ fn invalid_player_bounds_fail_validation() {
 }
 
 #[test]
+fn nonpositive_monster_max_hp_fails_before_action_execution() {
+    let mut state = CombatState::initial_fixture();
+    state.monsters[0].hp = 0;
+    state.monsters[0].max_hp = 0;
+    let original = state.clone();
+
+    assert_eq!(
+        state.validate(),
+        Err(SimError::InvalidState(
+            "combat monster HP, block, or stolen gold is out of bounds"
+        ))
+    );
+    assert_eq!(
+        apply_combat_action(&state, CombatAction::EndTurn),
+        Err(SimError::InvalidState(
+            "combat monster HP, block, or stolen gold is out of bounds"
+        ))
+    );
+    assert_eq!(state, original);
+}
+
+#[test]
 fn multiple_active_combat_decisions_fail_validation() {
     let mut state = CombatState::initial_fixture();
     state.hand_select = Some(HandSelectState {

@@ -7739,22 +7739,6 @@ fn slaver_red_scrape_intent(ascension: u8) -> MonsterIntent {
     }
 }
 
-#[must_use]
-pub fn monster_max_hp_for_current_definition(monster: &MonsterState, ascension: u8) -> i32 {
-    let definition = get_monster_definition(monster.content_id).unwrap_or(&FIXED_SIMPLE_MONSTER);
-    if definition.content_id == SPHERIC_GUARDIAN_ID {
-        definition.hp
-    } else if definition.content_id == SPIRE_GROWTH_ID {
-        spire_growth_max_hp(ascension)
-    } else if definition.content_id == GIANT_HEAD_ID {
-        giant_head_max_hp(ascension)
-    } else if definition.content_id == NEMESIS_ID {
-        nemesis_max_hp(ascension)
-    } else {
-        AscensionConfig::new(ascension).scaled_enemy_hp(definition.hp)
-    }
-}
-
 pub fn apply_heal_all_monsters(monsters: &mut [MonsterState], amount: i32) {
     for monster in monsters.iter_mut().filter(|monster| monster.alive) {
         monster.hp = (monster.hp + amount).min(monster.max_hp);
@@ -8437,17 +8421,8 @@ pub fn apply_collector_death_escape(monsters: &mut [MonsterState], monster_id: M
     }
 }
 
-pub(crate) fn heal_monster_to_definition_cap(
-    monster: &mut MonsterState,
-    ascension: u8,
-    amount: i32,
-) {
-    let max_hp = if monster.max_hp > 0 {
-        monster.max_hp
-    } else {
-        monster_max_hp_for_current_definition(monster, ascension)
-    };
-    monster.hp = (monster.hp + amount).min(max_hp);
+pub(crate) fn heal_monster_to_stored_cap(monster: &mut MonsterState, amount: i32) {
+    monster.hp = (monster.hp + amount).min(monster.max_hp);
 }
 
 /// Spike Slime (S) opens with Spit, then Lick.
