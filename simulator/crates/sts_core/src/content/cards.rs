@@ -259,6 +259,8 @@ pub const STRIKE_R: CardDefinition = CardDefinition {
     name: "Strike",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(STRIKE_R_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(6),
@@ -274,6 +276,8 @@ pub const STRIKE_R_PLUS: CardDefinition = CardDefinition {
     name: "Strike+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(9),
@@ -289,6 +293,8 @@ pub const DEFEND_R: CardDefinition = CardDefinition {
     name: "Defend",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(DEFEND_R_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -304,6 +310,8 @@ pub const DEFEND_R_PLUS: CardDefinition = CardDefinition {
     name: "Defend+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -319,6 +327,8 @@ pub const BASH: CardDefinition = CardDefinition {
     name: "Bash",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(BASH_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(8),
@@ -334,6 +344,8 @@ pub const BASH_PLUS: CardDefinition = CardDefinition {
     name: "Bash+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(10),
@@ -349,6 +361,8 @@ pub const WOUND: CardDefinition = CardDefinition {
     name: "Wound",
     cost: 0,
     card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -370,6 +384,8 @@ pub const ASCENDERS_BANE: CardDefinition = CardDefinition {
     name: "Ascender's Bane",
     cost: 0,
     card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -391,6 +407,8 @@ pub const DAZED: CardDefinition = CardDefinition {
     name: "Dazed",
     cost: 0,
     card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -423,6 +441,8 @@ pub const BURN: CardDefinition = CardDefinition {
     name: "Burn",
     cost: 0,
     card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(BURN_END_TURN_DAMAGE),
@@ -444,6 +464,8 @@ pub const REGRET: CardDefinition = CardDefinition {
     name: "Regret",
     cost: 0,
     card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -465,6 +487,8 @@ pub const DOUBT: CardDefinition = CardDefinition {
     name: "Doubt",
     cost: 0,
     card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -486,6 +510,8 @@ pub const CURSE_OF_THE_BELL: CardDefinition = CardDefinition {
     name: "Curse of the Bell",
     cost: 0,
     card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -524,6 +550,8 @@ const fn inert_curse(
         name,
         cost: 0,
         card_type: CardType::Status,
+        rarity: None,
+        upgrade: None,
         target: TargetRequirement::None,
         values: CardValues {
             damage: None,
@@ -546,6 +574,8 @@ pub const SLIMED: CardDefinition = CardDefinition {
     name: "Slimed",
     cost: 1,
     card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -567,6 +597,8 @@ pub const ETHEREAL_STRIKE: CardDefinition = CardDefinition {
     name: "Ethereal Strike",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(6),
@@ -588,6 +620,8 @@ pub const RETAIN_DEFEND: CardDefinition = CardDefinition {
     name: "Retain Defend",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: None,
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -609,6 +643,8 @@ pub const ANGER: CardDefinition = CardDefinition {
     name: "Anger",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(ANGER_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(6),
@@ -624,6 +660,8 @@ pub const CLEAVE: CardDefinition = CardDefinition {
     name: "Cleave",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(CLEAVE_PLUS_ID),
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(8),
@@ -639,6 +677,8 @@ pub const TWIN_STRIKE: CardDefinition = CardDefinition {
     name: "Twin Strike",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(TWIN_STRIKE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(5),
@@ -654,6 +694,8 @@ pub const ANGER_PLUS: CardDefinition = CardDefinition {
     name: "Anger+",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(8),
@@ -669,6 +711,8 @@ pub const CLEAVE_PLUS: CardDefinition = CardDefinition {
     name: "Cleave+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(11),
@@ -684,6 +728,8 @@ pub const TWIN_STRIKE_PLUS: CardDefinition = CardDefinition {
     name: "Twin Strike+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(7),
@@ -699,6 +745,8 @@ pub const SHRUG_IT_OFF: CardDefinition = CardDefinition {
     name: "Shrug It Off",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(SHRUG_IT_OFF_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -714,6 +762,8 @@ pub const SHRUG_IT_OFF_PLUS: CardDefinition = CardDefinition {
     name: "Shrug It Off+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -729,6 +779,8 @@ pub const TRUE_GRIT: CardDefinition = CardDefinition {
     name: "True Grit",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(TRUE_GRIT_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -744,6 +796,8 @@ pub const TRUE_GRIT_PLUS: CardDefinition = CardDefinition {
     name: "True Grit+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -759,6 +813,8 @@ pub const BURNING_PACT: CardDefinition = CardDefinition {
     name: "Burning Pact",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(BURNING_PACT_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -774,6 +830,8 @@ pub const BURNING_PACT_PLUS: CardDefinition = CardDefinition {
     name: "Burning Pact+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -789,6 +847,8 @@ pub const FEEL_NO_PAIN: CardDefinition = CardDefinition {
     name: "Feel No Pain",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(FEEL_NO_PAIN_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -804,6 +864,8 @@ pub const FEEL_NO_PAIN_PLUS: CardDefinition = CardDefinition {
     name: "Feel No Pain+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -819,6 +881,8 @@ pub const DARK_EMBRACE: CardDefinition = CardDefinition {
     name: "Dark Embrace",
     cost: 2,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(DARK_EMBRACE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -834,6 +898,8 @@ pub const DARK_EMBRACE_PLUS: CardDefinition = CardDefinition {
     name: "Dark Embrace+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -849,6 +915,8 @@ pub const COMBUST: CardDefinition = CardDefinition {
     name: "Combust",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(COMBUST_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(COMBUST_DAMAGE),
@@ -864,6 +932,8 @@ pub const COMBUST_PLUS: CardDefinition = CardDefinition {
     name: "Combust+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(COMBUST_PLUS_DAMAGE),
@@ -879,6 +949,8 @@ pub const DEMON_FORM: CardDefinition = CardDefinition {
     name: "Demon Form",
     cost: 3,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(DEMON_FORM_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -894,6 +966,8 @@ pub const DEMON_FORM_PLUS: CardDefinition = CardDefinition {
     name: "Demon Form+",
     cost: 3,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: DEMON_FORM.values,
     keywords: CARD_KEYWORDS_NONE,
@@ -905,6 +979,8 @@ pub const EVOLVE: CardDefinition = CardDefinition {
     name: "Evolve",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(EVOLVE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -920,6 +996,8 @@ pub const EVOLVE_PLUS: CardDefinition = CardDefinition {
     name: "Evolve+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -935,6 +1013,8 @@ pub const CORRUPTION: CardDefinition = CardDefinition {
     name: "Corruption",
     cost: 3,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(CORRUPTION_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -950,6 +1030,8 @@ pub const CORRUPTION_PLUS: CardDefinition = CardDefinition {
     name: "Corruption+",
     cost: 2,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -965,6 +1047,8 @@ pub const BARRICADE: CardDefinition = CardDefinition {
     name: "Barricade",
     cost: 3,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(BARRICADE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -980,6 +1064,8 @@ pub const BARRICADE_PLUS: CardDefinition = CardDefinition {
     name: "Barricade+",
     cost: 2,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -995,6 +1081,8 @@ pub const BERSERK: CardDefinition = CardDefinition {
     name: "Berserk",
     cost: 0,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(BERSERK_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1010,6 +1098,8 @@ pub const BERSERK_PLUS: CardDefinition = CardDefinition {
     name: "Berserk+",
     cost: 0,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1025,6 +1115,8 @@ pub const RUPTURE: CardDefinition = CardDefinition {
     name: "Rupture",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(RUPTURE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1040,6 +1132,8 @@ pub const RUPTURE_PLUS: CardDefinition = CardDefinition {
     name: "Rupture+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1055,6 +1149,8 @@ pub const JUGGERNAUT: CardDefinition = CardDefinition {
     name: "Juggernaut",
     cost: 2,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(JUGGERNAUT_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(5),
@@ -1070,6 +1166,8 @@ pub const JUGGERNAUT_PLUS: CardDefinition = CardDefinition {
     name: "Juggernaut+",
     cost: 2,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(7),
@@ -1085,6 +1183,8 @@ pub const BRUTALITY: CardDefinition = CardDefinition {
     name: "Brutality",
     cost: 0,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(BRUTALITY_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1100,6 +1200,8 @@ pub const MAYHEM: CardDefinition = CardDefinition {
     name: "Mayhem",
     cost: 2,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(MAYHEM_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1115,6 +1217,8 @@ pub const MAYHEM_PLUS: CardDefinition = CardDefinition {
     name: "Mayhem+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1130,6 +1234,8 @@ pub const DOUBLE_TAP: CardDefinition = CardDefinition {
     name: "Double Tap",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(DOUBLE_TAP_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1145,6 +1251,8 @@ pub const DOUBLE_TAP_PLUS: CardDefinition = CardDefinition {
     name: "Double Tap+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1160,6 +1268,8 @@ pub const FIRE_BREATHING: CardDefinition = CardDefinition {
     name: "Fire Breathing",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(FIRE_BREATHING_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(6),
@@ -1175,6 +1285,8 @@ pub const FIRE_BREATHING_PLUS: CardDefinition = CardDefinition {
     name: "Fire Breathing+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(10),
@@ -1190,6 +1302,8 @@ pub const LIMIT_BREAK: CardDefinition = CardDefinition {
     name: "Limit Break",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(LIMIT_BREAK_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1211,6 +1325,8 @@ pub const LIMIT_BREAK_PLUS: CardDefinition = CardDefinition {
     name: "Limit Break+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1226,6 +1342,8 @@ pub const OFFERING: CardDefinition = CardDefinition {
     name: "Offering",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(OFFERING_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1247,6 +1365,8 @@ pub const OFFERING_PLUS: CardDefinition = CardDefinition {
     name: "Offering+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1268,6 +1388,8 @@ pub const ARMAMENTS: CardDefinition = CardDefinition {
     name: "Armaments",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(ARMAMENTS_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1283,6 +1405,8 @@ pub const ARMAMENTS_PLUS: CardDefinition = CardDefinition {
     name: "Armaments+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1298,6 +1422,8 @@ pub const HEADBUTT: CardDefinition = CardDefinition {
     name: "Headbutt",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(HEADBUTT_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(9),
@@ -1313,6 +1439,8 @@ pub const POMMEL_STRIKE: CardDefinition = CardDefinition {
     name: "Pommel Strike",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(POMMEL_STRIKE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(9),
@@ -1328,6 +1456,8 @@ pub const BATTLE_TRANCE: CardDefinition = CardDefinition {
     name: "Battle Trance",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(BATTLE_TRANCE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1343,6 +1473,8 @@ pub const SEEING_RED: CardDefinition = CardDefinition {
     name: "Seeing Red",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SEEING_RED_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1361,6 +1493,8 @@ pub const POMMEL_STRIKE_PLUS: CardDefinition = CardDefinition {
     name: "Pommel Strike+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(10),
@@ -1376,6 +1510,8 @@ pub const BATTLE_TRANCE_PLUS: CardDefinition = CardDefinition {
     name: "Battle Trance+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1391,6 +1527,8 @@ pub const SEEING_RED_PLUS: CardDefinition = CardDefinition {
     name: "Seeing Red+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1409,6 +1547,8 @@ pub const INFLAME: CardDefinition = CardDefinition {
     name: "Inflame",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(INFLAME_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1424,6 +1564,8 @@ pub const FLEX: CardDefinition = CardDefinition {
     name: "Flex",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(FLEX_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1439,6 +1581,8 @@ pub const SPOT_WEAKNESS: CardDefinition = CardDefinition {
     name: "Spot Weakness",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SPOT_WEAKNESS_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -1454,6 +1598,8 @@ pub const INFLAME_PLUS: CardDefinition = CardDefinition {
     name: "Inflame+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1469,6 +1615,8 @@ pub const FLEX_PLUS: CardDefinition = CardDefinition {
     name: "Flex+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1484,6 +1632,8 @@ pub const SPOT_WEAKNESS_PLUS: CardDefinition = CardDefinition {
     name: "Spot Weakness+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -1499,6 +1649,8 @@ pub const WHIRLWIND: CardDefinition = CardDefinition {
     name: "Whirlwind",
     cost: -1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(WHIRLWIND_PLUS_ID),
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(5),
@@ -1514,6 +1666,8 @@ pub const WHIRLWIND_PLUS: CardDefinition = CardDefinition {
     name: "Whirlwind+",
     cost: -1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(8),
@@ -1529,6 +1683,8 @@ pub const HAVOC: CardDefinition = CardDefinition {
     name: "Havoc",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(HAVOC_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1544,6 +1700,8 @@ pub const HAVOC_PLUS: CardDefinition = CardDefinition {
     name: "Havoc+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1559,6 +1717,8 @@ pub const WARCRY: CardDefinition = CardDefinition {
     name: "Warcry",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(WARCRY_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1580,6 +1740,8 @@ pub const WARCRY_PLUS: CardDefinition = CardDefinition {
     name: "Warcry+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1601,6 +1763,8 @@ pub const DUAL_WIELD: CardDefinition = CardDefinition {
     name: "Dual Wield",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(DUAL_WIELD_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1616,6 +1780,8 @@ pub const DUAL_WIELD_PLUS: CardDefinition = CardDefinition {
     name: "Dual Wield+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1631,6 +1797,8 @@ pub const SEARING_BLOW: CardDefinition = CardDefinition {
     name: "Searing Blow",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SEARING_BLOW_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(12),
@@ -1646,6 +1814,8 @@ pub const SEARING_BLOW_PLUS: CardDefinition = CardDefinition {
     name: "Searing Blow+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SEARING_BLOW_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(16),
@@ -1661,6 +1831,8 @@ pub const DRAMATIC_ENTRANCE: CardDefinition = CardDefinition {
     name: "Dramatic Entrance",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(DRAMATIC_ENTRANCE_PLUS_ID),
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(8),
@@ -1682,6 +1854,8 @@ pub const DRAMATIC_ENTRANCE_PLUS: CardDefinition = CardDefinition {
     name: "Dramatic Entrance+",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(12),
@@ -1703,6 +1877,8 @@ pub const BANDAGE_UP: CardDefinition = CardDefinition {
     name: "Bandage Up",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(BANDAGE_UP_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1724,6 +1900,8 @@ pub const HEADBUTT_PLUS: CardDefinition = CardDefinition {
     name: "Headbutt+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(12),
@@ -1739,6 +1917,8 @@ pub const BRUTALITY_PLUS: CardDefinition = CardDefinition {
     name: "Brutality+",
     cost: 0,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1757,6 +1937,8 @@ pub const BANDAGE_UP_PLUS: CardDefinition = CardDefinition {
     name: "Bandage Up+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1778,6 +1960,8 @@ pub const APOTHEOSIS: CardDefinition = CardDefinition {
     name: "Apotheosis",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(APOTHEOSIS_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1799,6 +1983,8 @@ pub const BLIND: CardDefinition = CardDefinition {
     name: "Blind",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(BLIND_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -1814,6 +2000,8 @@ pub const BLIND_PLUS: CardDefinition = CardDefinition {
     name: "Blind+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: None,
@@ -1829,6 +2017,8 @@ pub const ENLIGHTENMENT: CardDefinition = CardDefinition {
     name: "Enlightenment",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(ENLIGHTENMENT_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1844,6 +2034,8 @@ pub const SWIFT_STRIKE: CardDefinition = CardDefinition {
     name: "Swift Strike",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SWIFT_STRIKE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(7),
@@ -1859,6 +2051,8 @@ pub const ENLIGHTENMENT_PLUS: CardDefinition = CardDefinition {
     name: "Enlightenment+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: ENLIGHTENMENT.values,
     keywords: ENLIGHTENMENT.keywords,
@@ -1870,6 +2064,8 @@ pub const SWIFT_STRIKE_PLUS: CardDefinition = CardDefinition {
     name: "Swift Strike+",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(10),
@@ -1885,6 +2081,8 @@ pub const BITE: CardDefinition = CardDefinition {
     name: "Bite",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(BITE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(7),
@@ -1900,6 +2098,8 @@ pub const BITE_PLUS: CardDefinition = CardDefinition {
     name: "Bite+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(8),
@@ -1915,6 +2115,8 @@ pub const RITUAL_DAGGER: CardDefinition = CardDefinition {
     name: "Ritual Dagger",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(15),
@@ -1936,6 +2138,8 @@ pub const APPARITION: CardDefinition = CardDefinition {
     name: "Apparition",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(APPARITION_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1957,6 +2161,8 @@ pub const APPARITION_PLUS: CardDefinition = CardDefinition {
     name: "Apparition+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -1978,6 +2184,8 @@ pub const JAX: CardDefinition = CardDefinition {
     name: "J.A.X.",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(JAX_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(3),
@@ -1993,6 +2201,8 @@ pub const JAX_PLUS: CardDefinition = CardDefinition {
     name: "J.A.X.+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(3),
@@ -2008,6 +2218,8 @@ pub const DEEP_BREATH: CardDefinition = CardDefinition {
     name: "Deep Breath",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(DEEP_BREATH_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2023,6 +2235,8 @@ pub const DEEP_BREATH_PLUS: CardDefinition = CardDefinition {
     name: "Deep Breath+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2038,6 +2252,8 @@ pub const DISCOVERY: CardDefinition = CardDefinition {
     name: "Discovery",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(DISCOVERY_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2059,6 +2275,8 @@ pub const FLASH_OF_STEEL: CardDefinition = CardDefinition {
     name: "Flash of Steel",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(FLASH_OF_STEEL_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(3),
@@ -2074,6 +2292,8 @@ pub const FLASH_OF_STEEL_PLUS: CardDefinition = CardDefinition {
     name: "Flash of Steel+",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(6),
@@ -2089,6 +2309,8 @@ pub const MIND_BLAST: CardDefinition = CardDefinition {
     name: "Mind Blast",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(MIND_BLAST_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -2110,6 +2332,8 @@ pub const DISCOVERY_PLUS: CardDefinition = CardDefinition {
     name: "Discovery+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: DISCOVERY.values,
     keywords: CARD_KEYWORDS_NONE,
@@ -2121,6 +2345,8 @@ pub const APOTHEOSIS_PLUS: CardDefinition = CardDefinition {
     name: "Apotheosis+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: APOTHEOSIS.values,
     keywords: APOTHEOSIS.keywords,
@@ -2132,6 +2358,8 @@ pub const MIND_BLAST_PLUS: CardDefinition = CardDefinition {
     name: "Mind Blast+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -2153,6 +2381,8 @@ pub const DARK_SHACKLES: CardDefinition = CardDefinition {
     name: "Dark Shackles",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(DARK_SHACKLES_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -2174,6 +2404,8 @@ pub const DARK_SHACKLES_PLUS: CardDefinition = CardDefinition {
     name: "Dark Shackles+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -2195,6 +2427,8 @@ pub const FORETHOUGHT: CardDefinition = CardDefinition {
     name: "Forethought",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(FORETHOUGHT_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2210,6 +2444,8 @@ pub const GOOD_INSTINCTS: CardDefinition = CardDefinition {
     name: "Good Instincts",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(GOOD_INSTINCTS_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2225,6 +2461,8 @@ pub const FORETHOUGHT_PLUS: CardDefinition = CardDefinition {
     name: "Forethought+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: FORETHOUGHT.values,
     keywords: FORETHOUGHT.keywords,
@@ -2236,6 +2474,8 @@ pub const GOOD_INSTINCTS_PLUS: CardDefinition = CardDefinition {
     name: "Good Instincts+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2251,6 +2491,8 @@ pub const HAND_OF_GREED: CardDefinition = CardDefinition {
     name: "Hand Of Greed",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(HAND_OF_GREED_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(20),
@@ -2266,6 +2508,8 @@ pub const FINESSE: CardDefinition = CardDefinition {
     name: "Finesse",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(FINESSE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2281,6 +2525,8 @@ pub const HAND_OF_GREED_PLUS: CardDefinition = CardDefinition {
     name: "Hand Of Greed+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(25),
@@ -2296,6 +2542,8 @@ pub const FINESSE_PLUS: CardDefinition = CardDefinition {
     name: "Finesse+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2311,6 +2559,8 @@ pub const PANACEA: CardDefinition = CardDefinition {
     name: "Panacea",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(PANACEA_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2332,6 +2582,8 @@ pub const PANACEA_PLUS: CardDefinition = CardDefinition {
     name: "Panacea+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2353,6 +2605,8 @@ pub const PANACHE: CardDefinition = CardDefinition {
     name: "Panache",
     cost: 0,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(PANACHE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(10),
@@ -2368,6 +2622,8 @@ pub const PURITY: CardDefinition = CardDefinition {
     name: "Purity",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(PURITY_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2389,6 +2645,8 @@ pub const MADNESS: CardDefinition = CardDefinition {
     name: "Madness",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(MADNESS_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2410,6 +2668,8 @@ pub const PURITY_PLUS: CardDefinition = CardDefinition {
     name: "Purity+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: PURITY.values,
     keywords: PURITY.keywords,
@@ -2421,6 +2681,8 @@ pub const MADNESS_PLUS: CardDefinition = CardDefinition {
     name: "Madness+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2442,6 +2704,8 @@ pub const MASTER_OF_STRATEGY: CardDefinition = CardDefinition {
     name: "Master of Strategy",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(MASTER_OF_STRATEGY_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2463,6 +2727,8 @@ pub const SECRET_TECHNIQUE: CardDefinition = CardDefinition {
     name: "Secret Technique",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(SECRET_TECHNIQUE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2484,6 +2750,8 @@ pub const MASTER_OF_STRATEGY_PLUS: CardDefinition = CardDefinition {
     name: "Master of Strategy+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: MASTER_OF_STRATEGY.values,
     keywords: MASTER_OF_STRATEGY.keywords,
@@ -2495,6 +2763,8 @@ pub const SECRET_TECHNIQUE_PLUS: CardDefinition = CardDefinition {
     name: "Secret Technique+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2510,6 +2780,8 @@ pub const PANACHE_PLUS: CardDefinition = CardDefinition {
     name: "Panache+",
     cost: 0,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(14),
@@ -2525,6 +2797,8 @@ pub const SECRET_WEAPON: CardDefinition = CardDefinition {
     name: "Secret Weapon",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(SECRET_WEAPON_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2546,6 +2820,8 @@ pub const SECRET_WEAPON_PLUS: CardDefinition = CardDefinition {
     name: "Secret Weapon+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2561,6 +2837,8 @@ pub const VIOLENCE: CardDefinition = CardDefinition {
     name: "Violence",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(VIOLENCE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2582,6 +2860,8 @@ pub const VIOLENCE_PLUS: CardDefinition = CardDefinition {
     name: "Violence+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2603,6 +2883,8 @@ pub const THE_BOMB: CardDefinition = CardDefinition {
     name: "The Bomb",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(THE_BOMB_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(THE_BOMB_DAMAGE),
@@ -2618,6 +2900,8 @@ pub const THINKING_AHEAD: CardDefinition = CardDefinition {
     name: "Thinking Ahead",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(THINKING_AHEAD_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2639,6 +2923,8 @@ pub const TRANSMUTATION: CardDefinition = CardDefinition {
     name: "Transmutation",
     cost: -1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(TRANSMUTATION_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2660,6 +2946,8 @@ pub const TRANSMUTATION_PLUS: CardDefinition = CardDefinition {
     name: "Transmutation+",
     cost: -1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2681,6 +2969,8 @@ pub const METAMORPHOSIS: CardDefinition = CardDefinition {
     name: "Metamorphosis",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(METAMORPHOSIS_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2702,6 +2992,8 @@ pub const JACK_OF_ALL_TRADES: CardDefinition = CardDefinition {
     name: "Jack Of All Trades",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(JACK_OF_ALL_TRADES_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2723,6 +3015,8 @@ pub const IMPATIENCE: CardDefinition = CardDefinition {
     name: "Impatience",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(IMPATIENCE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2738,6 +3032,8 @@ pub const CHRYSALIS: CardDefinition = CardDefinition {
     name: "Chrysalis",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(CHRYSALIS_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2759,6 +3055,8 @@ pub const SADISTIC_NATURE: CardDefinition = CardDefinition {
     name: "Sadistic Nature",
     cost: 0,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(SADISTIC_NATURE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(5),
@@ -2774,6 +3072,8 @@ pub const PANIC_BUTTON: CardDefinition = CardDefinition {
     name: "Panic Button",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(PANIC_BUTTON_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2795,6 +3095,8 @@ pub const JACK_OF_ALL_TRADES_PLUS: CardDefinition = CardDefinition {
     name: "Jack Of All Trades+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2816,6 +3118,8 @@ pub const MAGNETISM: CardDefinition = CardDefinition {
     name: "Magnetism",
     cost: 2,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(MAGNETISM_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2831,6 +3135,8 @@ pub const THE_BOMB_PLUS: CardDefinition = CardDefinition {
     name: "The Bomb+",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(50),
@@ -2846,6 +3152,8 @@ pub const THINKING_AHEAD_PLUS: CardDefinition = CardDefinition {
     name: "Thinking Ahead+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2861,6 +3169,8 @@ pub const METAMORPHOSIS_PLUS: CardDefinition = CardDefinition {
     name: "Metamorphosis+",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2882,6 +3192,8 @@ pub const IMPATIENCE_PLUS: CardDefinition = CardDefinition {
     name: "Impatience+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2897,6 +3209,8 @@ pub const CHRYSALIS_PLUS: CardDefinition = CardDefinition {
     name: "Chrysalis+",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2918,6 +3232,8 @@ pub const SADISTIC_NATURE_PLUS: CardDefinition = CardDefinition {
     name: "Sadistic Nature+",
     cost: 0,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: Some(7),
@@ -2933,6 +3249,8 @@ pub const PANIC_BUTTON_PLUS: CardDefinition = CardDefinition {
     name: "Panic Button+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2954,6 +3272,8 @@ pub const MAGNETISM_PLUS: CardDefinition = CardDefinition {
     name: "Magnetism+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -2969,6 +3289,8 @@ pub const TRIP: CardDefinition = CardDefinition {
     name: "Trip",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(TRIP_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -2984,6 +3306,8 @@ pub const TRIP_PLUS: CardDefinition = CardDefinition {
     name: "Trip+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: None,
@@ -2999,6 +3323,8 @@ pub const IRON_WAVE: CardDefinition = CardDefinition {
     name: "Iron Wave",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(IRON_WAVE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(5),
@@ -3014,6 +3340,8 @@ pub const IRON_WAVE_PLUS: CardDefinition = CardDefinition {
     name: "Iron Wave+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(7),
@@ -3029,6 +3357,8 @@ pub const BODY_SLAM: CardDefinition = CardDefinition {
     name: "Body Slam",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(BODY_SLAM_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -3044,6 +3374,8 @@ pub const BODY_SLAM_PLUS: CardDefinition = CardDefinition {
     name: "Body Slam+",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: BODY_SLAM.values,
     keywords: CARD_KEYWORDS_NONE,
@@ -3055,6 +3387,8 @@ pub const CLASH: CardDefinition = CardDefinition {
     name: "Clash",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(CLASH_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(14),
@@ -3070,6 +3404,8 @@ pub const CLASH_PLUS: CardDefinition = CardDefinition {
     name: "Clash+",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(18),
@@ -3085,6 +3421,8 @@ pub const WILD_STRIKE: CardDefinition = CardDefinition {
     name: "Wild Strike",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(WILD_STRIKE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(12),
@@ -3100,6 +3438,8 @@ pub const WILD_STRIKE_PLUS: CardDefinition = CardDefinition {
     name: "Wild Strike+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(17),
@@ -3115,6 +3455,8 @@ pub const HEAVY_BLADE: CardDefinition = CardDefinition {
     name: "Heavy Blade",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(HEAVY_BLADE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(14),
@@ -3130,6 +3472,8 @@ pub const HEAVY_BLADE_PLUS: CardDefinition = CardDefinition {
     name: "Heavy Blade+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: HEAVY_BLADE.values,
     keywords: CARD_KEYWORDS_NONE,
@@ -3141,6 +3485,8 @@ pub const PERFECTED_STRIKE: CardDefinition = CardDefinition {
     name: "Perfected Strike",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(PERFECTED_STRIKE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(6),
@@ -3156,6 +3502,8 @@ pub const PERFECTED_STRIKE_PLUS: CardDefinition = CardDefinition {
     name: "Perfected Strike+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: PERFECTED_STRIKE.values,
     keywords: CARD_KEYWORDS_NONE,
@@ -3167,6 +3515,8 @@ pub const RAMPAGE: CardDefinition = CardDefinition {
     name: "Rampage",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(RAMPAGE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(8),
@@ -3182,6 +3532,8 @@ pub const RAMPAGE_PLUS: CardDefinition = CardDefinition {
     name: "Rampage+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(8),
@@ -3197,6 +3549,8 @@ pub const POWER_THROUGH: CardDefinition = CardDefinition {
     name: "Power Through",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(POWER_THROUGH_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3212,6 +3566,8 @@ pub const POWER_THROUGH_PLUS: CardDefinition = CardDefinition {
     name: "Power Through+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3227,6 +3583,8 @@ pub const INFERNAL_BLADE: CardDefinition = CardDefinition {
     name: "Infernal Blade",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(INFERNAL_BLADE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3245,6 +3603,8 @@ pub const INFERNAL_BLADE_PLUS: CardDefinition = CardDefinition {
     name: "Infernal Blade+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: INFERNAL_BLADE.values,
     keywords: INFERNAL_BLADE.keywords,
@@ -3256,6 +3616,8 @@ pub const ENTRENCH: CardDefinition = CardDefinition {
     name: "Entrench",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(ENTRENCH_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3271,6 +3633,8 @@ pub const ENTRENCH_PLUS: CardDefinition = CardDefinition {
     name: "Entrench+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: ENTRENCH.values,
     keywords: CARD_KEYWORDS_NONE,
@@ -3282,6 +3646,8 @@ pub const GHOSTLY_ARMOR: CardDefinition = CardDefinition {
     name: "Ghostly Armor",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(GHOSTLY_ARMOR_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3303,6 +3669,8 @@ pub const GHOSTLY_ARMOR_PLUS: CardDefinition = CardDefinition {
     name: "Ghostly Armor+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3318,6 +3686,8 @@ pub const FLAME_BARRIER: CardDefinition = CardDefinition {
     name: "Flame Barrier",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(FLAME_BARRIER_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3333,6 +3703,8 @@ pub const FLAME_BARRIER_PLUS: CardDefinition = CardDefinition {
     name: "Flame Barrier+",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3348,6 +3720,8 @@ pub const RECKLESS_CHARGE: CardDefinition = CardDefinition {
     name: "Reckless Charge",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(RECKLESS_CHARGE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(7),
@@ -3363,6 +3737,8 @@ pub const RECKLESS_CHARGE_PLUS: CardDefinition = CardDefinition {
     name: "Reckless Charge+",
     cost: 0,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(10),
@@ -3378,6 +3754,8 @@ pub const PUMMEL: CardDefinition = CardDefinition {
     name: "Pummel",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(PUMMEL_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(2),
@@ -3399,6 +3777,8 @@ pub const PUMMEL_PLUS: CardDefinition = CardDefinition {
     name: "Pummel+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: PUMMEL.values,
     keywords: PUMMEL.keywords,
@@ -3410,6 +3790,8 @@ pub const CLOTHESLINE: CardDefinition = CardDefinition {
     name: "Clothesline",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(CLOTHESLINE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(12),
@@ -3425,6 +3807,8 @@ pub const CLOTHESLINE_PLUS: CardDefinition = CardDefinition {
     name: "Clothesline+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(14),
@@ -3440,6 +3824,8 @@ pub const INTIMIDATE: CardDefinition = CardDefinition {
     name: "Intimidate",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(INTIMIDATE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3461,6 +3847,8 @@ pub const INTIMIDATE_PLUS: CardDefinition = CardDefinition {
     name: "Intimidate+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: INTIMIDATE.values,
     keywords: INTIMIDATE.keywords,
@@ -3472,6 +3860,8 @@ pub const SHOCKWAVE: CardDefinition = CardDefinition {
     name: "Shockwave",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SHOCKWAVE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3493,6 +3883,8 @@ pub const SHOCKWAVE_PLUS: CardDefinition = CardDefinition {
     name: "Shockwave+",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3514,6 +3906,8 @@ pub const DISARM: CardDefinition = CardDefinition {
     name: "Disarm",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(DISARM_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: None,
@@ -3535,6 +3929,8 @@ pub const DISARM_PLUS: CardDefinition = CardDefinition {
     name: "Disarm+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: DISARM.values,
     keywords: DISARM.keywords,
@@ -3546,6 +3942,8 @@ pub const RAGE: CardDefinition = CardDefinition {
     name: "Rage",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(RAGE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3561,6 +3959,8 @@ pub const RAGE_PLUS: CardDefinition = CardDefinition {
     name: "Rage+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: RAGE.values,
     keywords: CARD_KEYWORDS_NONE,
@@ -3572,6 +3972,8 @@ pub const SEVER_SOUL: CardDefinition = CardDefinition {
     name: "Sever Soul",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SEVER_SOUL_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(16),
@@ -3587,6 +3989,8 @@ pub const SEVER_SOUL_PLUS: CardDefinition = CardDefinition {
     name: "Sever Soul+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(22),
@@ -3602,6 +4006,8 @@ pub const SECOND_WIND: CardDefinition = CardDefinition {
     name: "Second Wind",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SECOND_WIND_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3623,6 +4029,8 @@ pub const SECOND_WIND_PLUS: CardDefinition = CardDefinition {
     name: "Second Wind+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3638,6 +4046,8 @@ pub const SENTINEL: CardDefinition = CardDefinition {
     name: "Sentinel",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SENTINEL_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3653,6 +4063,8 @@ pub const SENTINEL_PLUS: CardDefinition = CardDefinition {
     name: "Sentinel+",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3668,6 +4080,8 @@ pub const BLOODLETTING: CardDefinition = CardDefinition {
     name: "Bloodletting",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(BLOODLETTING_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3683,6 +4097,8 @@ pub const BLOODLETTING_PLUS: CardDefinition = CardDefinition {
     name: "Bloodletting+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: BLOODLETTING.values,
     keywords: CARD_KEYWORDS_NONE,
@@ -3694,6 +4110,8 @@ pub const CARNAGE: CardDefinition = CardDefinition {
     name: "Carnage",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(CARNAGE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(20),
@@ -3715,6 +4133,8 @@ pub const CARNAGE_PLUS: CardDefinition = CardDefinition {
     name: "Carnage+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(28),
@@ -3730,6 +4150,8 @@ pub const DROPKICK: CardDefinition = CardDefinition {
     name: "Dropkick",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(DROPKICK_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(5),
@@ -3745,6 +4167,8 @@ pub const DROPKICK_PLUS: CardDefinition = CardDefinition {
     name: "Dropkick+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(8),
@@ -3760,6 +4184,8 @@ pub const SWORD_BOOMERANG: CardDefinition = CardDefinition {
     name: "Sword Boomerang",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(SWORD_BOOMERANG_PLUS_ID),
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(3),
@@ -3775,6 +4201,8 @@ pub const SWORD_BOOMERANG_PLUS: CardDefinition = CardDefinition {
     name: "Sword Boomerang+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(3),
@@ -3790,6 +4218,8 @@ pub const HEMOKINESIS: CardDefinition = CardDefinition {
     name: "Hemokinesis",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(HEMOKINESIS_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(15),
@@ -3805,6 +4235,8 @@ pub const HEMOKINESIS_PLUS: CardDefinition = CardDefinition {
     name: "Hemokinesis+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(20),
@@ -3820,6 +4252,8 @@ pub const BLOOD_FOR_BLOOD: CardDefinition = CardDefinition {
     name: "Blood for Blood",
     cost: 4,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(BLOOD_FOR_BLOOD_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(18),
@@ -3835,6 +4269,8 @@ pub const BLOOD_FOR_BLOOD_PLUS: CardDefinition = CardDefinition {
     name: "Blood for Blood+",
     cost: 3,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(22),
@@ -3850,6 +4286,8 @@ pub const IMMOLATE: CardDefinition = CardDefinition {
     name: "Immolate",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(IMMOLATE_PLUS_ID),
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(21),
@@ -3871,6 +4309,8 @@ pub const IMMOLATE_PLUS: CardDefinition = CardDefinition {
     name: "Immolate+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(28),
@@ -3892,6 +4332,8 @@ pub const BLUDGEON: CardDefinition = CardDefinition {
     name: "Bludgeon",
     cost: 3,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(BLUDGEON_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(32),
@@ -3907,6 +4349,8 @@ pub const BLUDGEON_PLUS: CardDefinition = CardDefinition {
     name: "Bludgeon+",
     cost: 3,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(42),
@@ -3922,6 +4366,8 @@ pub const FEED: CardDefinition = CardDefinition {
     name: "Feed",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(FEED_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(10),
@@ -3943,6 +4389,8 @@ pub const FEED_PLUS: CardDefinition = CardDefinition {
     name: "Feed+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(12),
@@ -3964,6 +4412,8 @@ pub const IMPERVIOUS: CardDefinition = CardDefinition {
     name: "Impervious",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(IMPERVIOUS_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -3985,6 +4435,8 @@ pub const IMPERVIOUS_PLUS: CardDefinition = CardDefinition {
     name: "Impervious+",
     cost: 2,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -4000,6 +4452,8 @@ pub const FIEND_FIRE: CardDefinition = CardDefinition {
     name: "Fiend Fire",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(FIEND_FIRE_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(7),
@@ -4021,6 +4475,8 @@ pub const FIEND_FIRE_PLUS: CardDefinition = CardDefinition {
     name: "Fiend Fire+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(10),
@@ -4042,6 +4498,8 @@ pub const REAPER: CardDefinition = CardDefinition {
     name: "Reaper",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(REAPER_PLUS_ID),
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(4),
@@ -4063,6 +4521,8 @@ pub const REAPER_PLUS: CardDefinition = CardDefinition {
     name: "Reaper+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(5),
@@ -4084,6 +4544,8 @@ pub const EXHUME: CardDefinition = CardDefinition {
     name: "Exhume",
     cost: 1,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(EXHUME_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -4105,6 +4567,8 @@ pub const EXHUME_PLUS: CardDefinition = CardDefinition {
     name: "Exhume+",
     cost: 0,
     card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -4126,6 +4590,8 @@ pub const METALLICIZE: CardDefinition = CardDefinition {
     name: "Metallicize",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(METALLICIZE_PLUS_ID),
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -4141,6 +4607,8 @@ pub const METALLICIZE_PLUS: CardDefinition = CardDefinition {
     name: "Metallicize+",
     cost: 1,
     card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
         damage: None,
@@ -4156,6 +4624,8 @@ pub const THUNDERCLAP: CardDefinition = CardDefinition {
     name: "Thunderclap",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: Some(THUNDERCLAP_PLUS_ID),
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(4),
@@ -4171,6 +4641,8 @@ pub const THUNDERCLAP_PLUS: CardDefinition = CardDefinition {
     name: "Thunderclap+",
     cost: 1,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
     target: TargetRequirement::AllEnemies,
     values: CardValues {
         damage: Some(7),
@@ -4186,6 +4658,8 @@ pub const UPPERCUT: CardDefinition = CardDefinition {
     name: "Uppercut",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(UPPERCUT_PLUS_ID),
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(13),
@@ -4201,6 +4675,8 @@ pub const UPPERCUT_PLUS: CardDefinition = CardDefinition {
     name: "Uppercut+",
     cost: 2,
     card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
         damage: Some(13),
@@ -4544,401 +5020,14 @@ pub fn is_pandoras_box_removed_starter(id: ContentId) -> bool {
 
 #[must_use]
 pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
-    match id {
-        id if id == STRIKE_R_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == DEFEND_R_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == DEFEND_R_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == BASH_ID || id == BASH_PLUS_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == BANDAGE_UP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == BANDAGE_UP_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == BLIND_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == BLIND_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == DEEP_BREATH_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == DEEP_BREATH_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == DISCOVERY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == DISCOVERY_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == ENLIGHTENMENT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == ENLIGHTENMENT_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == IRON_WAVE_ID || id == IRON_WAVE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == BODY_SLAM_ID || id == BODY_SLAM_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == CLASH_ID || id == CLASH_PLUS_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == ARMAMENTS_ID || id == ARMAMENTS_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Common))
-        }
-        id if id == HEADBUTT_ID || id == HEADBUTT_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == WILD_STRIKE_ID || id == WILD_STRIKE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == HEAVY_BLADE_ID || id == HEAVY_BLADE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == PERFECTED_STRIKE_ID || id == PERFECTED_STRIKE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == RAMPAGE_ID || id == RAMPAGE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == POWER_THROUGH_ID || id == POWER_THROUGH_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == INFERNAL_BLADE_ID || id == INFERNAL_BLADE_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == ENTRENCH_ID || id == ENTRENCH_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == GHOSTLY_ARMOR_ID || id == GHOSTLY_ARMOR_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == FLAME_BARRIER_ID || id == FLAME_BARRIER_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == RECKLESS_CHARGE_ID || id == RECKLESS_CHARGE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == PUMMEL_ID || id == PUMMEL_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == BLOODLETTING_ID || id == BLOODLETTING_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == CARNAGE_ID || id == CARNAGE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == DROPKICK_ID || id == DROPKICK_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == HEMOKINESIS_ID || id == HEMOKINESIS_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == BLOOD_FOR_BLOOD_ID || id == BLOOD_FOR_BLOOD_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == CLOTHESLINE_ID || id == CLOTHESLINE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == ANGER_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == CLEAVE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == TWIN_STRIKE_ID => Some((CardType::Attack, CardRarity::Common)),
-        id if id == SWORD_BOOMERANG_ID || id == SWORD_BOOMERANG_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == SHRUG_IT_OFF_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == SHRUG_IT_OFF_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == TRUE_GRIT_ID || id == TRUE_GRIT_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Common))
-        }
-        id if id == POMMEL_STRIKE_ID || id == POMMEL_STRIKE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == BATTLE_TRANCE_ID || id == BATTLE_TRANCE_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == SEEING_RED_ID || id == SEEING_RED_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == BURNING_PACT_ID || id == BURNING_PACT_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == FEEL_NO_PAIN_ID || id == FEEL_NO_PAIN_PLUS_ID => {
-            Some((CardType::Power, CardRarity::Uncommon))
-        }
-        id if id == DARK_EMBRACE_ID || id == DARK_EMBRACE_PLUS_ID => {
-            Some((CardType::Power, CardRarity::Uncommon))
-        }
-        id if id == COMBUST_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == COMBUST_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == DEMON_FORM_ID || id == DEMON_FORM_PLUS_ID => {
-            Some((CardType::Power, CardRarity::Rare))
-        }
-        id if id == EVOLVE_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == EVOLVE_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == CORRUPTION_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == CORRUPTION_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == BARRICADE_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == BARRICADE_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == BERSERK_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == BERSERK_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == RUPTURE_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == RUPTURE_PLUS_ID => Some((CardType::Power, CardRarity::Uncommon)),
-        id if id == JUGGERNAUT_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == JUGGERNAUT_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == BRUTALITY_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == BRUTALITY_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == MAYHEM_ID || id == MAYHEM_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == DOUBLE_TAP_ID || id == DOUBLE_TAP_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Rare))
-        }
-        id if id == FIRE_BREATHING_ID || id == FIRE_BREATHING_PLUS_ID => {
-            Some((CardType::Power, CardRarity::Uncommon))
-        }
-        id if id == LIMIT_BREAK_ID || id == LIMIT_BREAK_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Rare))
-        }
-        id if id == OFFERING_ID || id == OFFERING_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Rare))
-        }
-        id if id == INFLAME_ID || id == INFLAME_PLUS_ID => {
-            Some((CardType::Power, CardRarity::Uncommon))
-        }
-        id if id == METALLICIZE_ID || id == METALLICIZE_PLUS_ID => {
-            Some((CardType::Power, CardRarity::Uncommon))
-        }
-        id if id == FLEX_ID || id == FLEX_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == SPOT_WEAKNESS_ID || id == SPOT_WEAKNESS_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == THUNDERCLAP_ID || id == THUNDERCLAP_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == WHIRLWIND_ID || id == WHIRLWIND_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == HAVOC_ID || id == HAVOC_PLUS_ID => Some((CardType::Skill, CardRarity::Common)),
-        id if id == WARCRY_ID || id == WARCRY_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Common))
-        }
-        id if id == DUAL_WIELD_ID || id == DUAL_WIELD_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == SEARING_BLOW_ID || id == SEARING_BLOW_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == SECOND_WIND_ID || id == SECOND_WIND_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == SENTINEL_ID || id == SENTINEL_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == INTIMIDATE_ID || id == INTIMIDATE_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == SHOCKWAVE_ID || id == SHOCKWAVE_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == THUNDERCLAP_ID || id == THUNDERCLAP_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Common))
-        }
-        id if id == DISARM_ID || id == DISARM_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Uncommon))
-        }
-        id if id == RAGE_ID || id == RAGE_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == SEVER_SOUL_ID || id == SEVER_SOUL_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == IMMOLATE_ID || id == IMMOLATE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Rare))
-        }
-        id if id == BLUDGEON_ID || id == BLUDGEON_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Rare))
-        }
-        id if id == FEED_ID || id == FEED_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
-        id if id == UPPERCUT_ID || id == UPPERCUT_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == IMPERVIOUS_ID || id == IMPERVIOUS_PLUS_ID => {
-            Some((CardType::Skill, CardRarity::Rare))
-        }
-        id if id == FIEND_FIRE_ID || id == FIEND_FIRE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Rare))
-        }
-        id if id == REAPER_ID || id == REAPER_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
-        id if id == EXHUME_ID || id == EXHUME_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == DRAMATIC_ENTRANCE_ID || id == DRAMATIC_ENTRANCE_PLUS_ID => {
-            Some((CardType::Attack, CardRarity::Uncommon))
-        }
-        id if id == APOTHEOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == APOTHEOSIS_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == SWIFT_STRIKE_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == SWIFT_STRIKE_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == BITE_ID || id == BITE_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == RITUAL_DAGGER_ID => Some((CardType::Attack, CardRarity::Rare)),
-        id if id == APPARITION_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == APPARITION_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == JAX_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == JAX_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == FLASH_OF_STEEL_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == FLASH_OF_STEEL_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == MIND_BLAST_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == MIND_BLAST_PLUS_ID => Some((CardType::Attack, CardRarity::Uncommon)),
-        id if id == DARK_SHACKLES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == DARK_SHACKLES_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == FORETHOUGHT_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == FORETHOUGHT_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == GOOD_INSTINCTS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == GOOD_INSTINCTS_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == HAND_OF_GREED_ID => Some((CardType::Attack, CardRarity::Rare)),
-        id if id == HAND_OF_GREED_PLUS_ID => Some((CardType::Attack, CardRarity::Rare)),
-        id if id == FINESSE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == FINESSE_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == MAGNETISM_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == MAGNETISM_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == PANACEA_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == PANACEA_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == PANACHE_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == PANACHE_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == PANIC_BUTTON_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == PANIC_BUTTON_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == PURITY_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == PURITY_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == SADISTIC_NATURE_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == SADISTIC_NATURE_PLUS_ID => Some((CardType::Power, CardRarity::Rare)),
-        id if id == TRIP_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == TRIP_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == IMPATIENCE_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == IMPATIENCE_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == CHRYSALIS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == CHRYSALIS_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == JACK_OF_ALL_TRADES_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == JACK_OF_ALL_TRADES_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == MADNESS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == MADNESS_PLUS_ID => Some((CardType::Skill, CardRarity::Uncommon)),
-        id if id == MASTER_OF_STRATEGY_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == MASTER_OF_STRATEGY_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == SECRET_TECHNIQUE_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == SECRET_TECHNIQUE_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == SECRET_WEAPON_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == SECRET_WEAPON_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == VIOLENCE_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == VIOLENCE_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == THE_BOMB_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == THE_BOMB_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == THINKING_AHEAD_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == THINKING_AHEAD_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == TRANSMUTATION_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == TRANSMUTATION_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == METAMORPHOSIS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        id if id == METAMORPHOSIS_PLUS_ID => Some((CardType::Skill, CardRarity::Rare)),
-        _ => None,
-    }
+    let definition = get_card_definition(id)?;
+    Some((definition.card_type, definition.rarity?))
 }
 
 /// Maps a base card content id to its upgraded (+) version, if one exists.
 #[must_use]
 pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
-    match id {
-        APPARITION_ID => Some(APPARITION_PLUS_ID),
-        ARMAMENTS_ID => Some(ARMAMENTS_PLUS_ID),
-        HEADBUTT_ID => Some(HEADBUTT_PLUS_ID),
-        BLOOD_FOR_BLOOD_ID => Some(BLOOD_FOR_BLOOD_PLUS_ID),
-        FLAME_BARRIER_ID => Some(FLAME_BARRIER_PLUS_ID),
-        SECOND_WIND_ID => Some(SECOND_WIND_PLUS_ID),
-        INFERNAL_BLADE_ID => Some(INFERNAL_BLADE_PLUS_ID),
-        IRON_WAVE_ID => Some(IRON_WAVE_PLUS_ID),
-        BODY_SLAM_ID => Some(BODY_SLAM_PLUS_ID),
-        CLASH_ID => Some(CLASH_PLUS_ID),
-        THUNDERCLAP_ID => Some(THUNDERCLAP_PLUS_ID),
-        CLOTHESLINE_ID => Some(CLOTHESLINE_PLUS_ID),
-        WILD_STRIKE_ID => Some(WILD_STRIKE_PLUS_ID),
-        DRAMATIC_ENTRANCE_ID => Some(DRAMATIC_ENTRANCE_PLUS_ID),
-        HEAVY_BLADE_ID => Some(HEAVY_BLADE_PLUS_ID),
-        PERFECTED_STRIKE_ID => Some(PERFECTED_STRIKE_PLUS_ID),
-        POWER_THROUGH_ID => Some(POWER_THROUGH_PLUS_ID),
-        RECKLESS_CHARGE_ID => Some(RECKLESS_CHARGE_PLUS_ID),
-        HEMOKINESIS_ID => Some(HEMOKINESIS_PLUS_ID),
-        INTIMIDATE_ID => Some(INTIMIDATE_PLUS_ID),
-        PUMMEL_ID => Some(PUMMEL_PLUS_ID),
-        DISARM_ID => Some(DISARM_PLUS_ID),
-        RAGE_ID => Some(RAGE_PLUS_ID),
-        ENTRENCH_ID => Some(ENTRENCH_PLUS_ID),
-        SENTINEL_ID => Some(SENTINEL_PLUS_ID),
-        BLOODLETTING_ID => Some(BLOODLETTING_PLUS_ID),
-        CARNAGE_ID => Some(CARNAGE_PLUS_ID),
-        DROPKICK_ID => Some(DROPKICK_PLUS_ID),
-        FIRE_BREATHING_ID => Some(FIRE_BREATHING_PLUS_ID),
-        GHOSTLY_ARMOR_ID => Some(GHOSTLY_ARMOR_PLUS_ID),
-        SEVER_SOUL_ID => Some(SEVER_SOUL_PLUS_ID),
-        FEEL_NO_PAIN_ID => Some(FEEL_NO_PAIN_PLUS_ID),
-        DARK_EMBRACE_ID => Some(DARK_EMBRACE_PLUS_ID),
-        IMPERVIOUS_ID => Some(IMPERVIOUS_PLUS_ID),
-        SHOCKWAVE_ID => Some(SHOCKWAVE_PLUS_ID),
-        RAMPAGE_ID => Some(RAMPAGE_PLUS_ID),
-        LIMIT_BREAK_ID => Some(LIMIT_BREAK_PLUS_ID),
-        BLUDGEON_ID => Some(BLUDGEON_PLUS_ID),
-        FEED_ID => Some(FEED_PLUS_ID),
-        EXHUME_ID => Some(EXHUME_PLUS_ID),
-        OFFERING_ID => Some(OFFERING_PLUS_ID),
-        REAPER_ID => Some(REAPER_PLUS_ID),
-        FIEND_FIRE_ID => Some(FIEND_FIRE_PLUS_ID),
-        DEFEND_R_ID => Some(DEFEND_R_PLUS_ID),
-        BASH_ID => Some(BASH_PLUS_ID),
-        IMMOLATE_ID => Some(IMMOLATE_PLUS_ID),
-        STRIKE_R_ID => Some(STRIKE_R_PLUS_ID),
-        ANGER_ID => Some(ANGER_PLUS_ID),
-        CLEAVE_ID => Some(CLEAVE_PLUS_ID),
-        TWIN_STRIKE_ID => Some(TWIN_STRIKE_PLUS_ID),
-        SHRUG_IT_OFF_ID => Some(SHRUG_IT_OFF_PLUS_ID),
-        TRUE_GRIT_ID => Some(TRUE_GRIT_PLUS_ID),
-        POMMEL_STRIKE_ID => Some(POMMEL_STRIKE_PLUS_ID),
-        SWORD_BOOMERANG_ID => Some(SWORD_BOOMERANG_PLUS_ID),
-        UPPERCUT_ID => Some(UPPERCUT_PLUS_ID),
-        BATTLE_TRANCE_ID => Some(BATTLE_TRANCE_PLUS_ID),
-        SEEING_RED_ID => Some(SEEING_RED_PLUS_ID),
-        BURNING_PACT_ID => Some(BURNING_PACT_PLUS_ID),
-        INFLAME_ID => Some(INFLAME_PLUS_ID),
-        FLEX_ID => Some(FLEX_PLUS_ID),
-        SPOT_WEAKNESS_ID => Some(SPOT_WEAKNESS_PLUS_ID),
-        WHIRLWIND_ID => Some(WHIRLWIND_PLUS_ID),
-        HAVOC_ID => Some(HAVOC_PLUS_ID),
-        WARCRY_ID => Some(WARCRY_PLUS_ID),
-        DUAL_WIELD_ID => Some(DUAL_WIELD_PLUS_ID),
-        SEARING_BLOW_ID => Some(SEARING_BLOW_PLUS_ID),
-        SEARING_BLOW_PLUS_ID => Some(SEARING_BLOW_PLUS_ID),
-        COMBUST_ID => Some(COMBUST_PLUS_ID),
-        RUPTURE_ID => Some(RUPTURE_PLUS_ID),
-        EVOLVE_ID => Some(EVOLVE_PLUS_ID),
-        DOUBLE_TAP_ID => Some(DOUBLE_TAP_PLUS_ID),
-        DEMON_FORM_ID => Some(DEMON_FORM_PLUS_ID),
-        CORRUPTION_ID => Some(CORRUPTION_PLUS_ID),
-        BARRICADE_ID => Some(BARRICADE_PLUS_ID),
-        BERSERK_ID => Some(BERSERK_PLUS_ID),
-        JUGGERNAUT_ID => Some(JUGGERNAUT_PLUS_ID),
-        BRUTALITY_ID => Some(BRUTALITY_PLUS_ID),
-        MAYHEM_ID => Some(MAYHEM_PLUS_ID),
-        SWIFT_STRIKE_ID => Some(SWIFT_STRIKE_PLUS_ID),
-        BITE_ID => Some(BITE_PLUS_ID),
-        BANDAGE_UP_ID => Some(BANDAGE_UP_PLUS_ID),
-        BLIND_ID => Some(BLIND_PLUS_ID),
-        DARK_SHACKLES_ID => Some(DARK_SHACKLES_PLUS_ID),
-        DEEP_BREATH_ID => Some(DEEP_BREATH_PLUS_ID),
-        FINESSE_ID => Some(FINESSE_PLUS_ID),
-        FLASH_OF_STEEL_ID => Some(FLASH_OF_STEEL_PLUS_ID),
-        GOOD_INSTINCTS_ID => Some(GOOD_INSTINCTS_PLUS_ID),
-        MIND_BLAST_ID => Some(MIND_BLAST_PLUS_ID),
-        PANACEA_ID => Some(PANACEA_PLUS_ID),
-        APOTHEOSIS_ID => Some(APOTHEOSIS_PLUS_ID),
-        JAX_ID => Some(JAX_PLUS_ID),
-        DISCOVERY_ID => Some(DISCOVERY_PLUS_ID),
-        ENLIGHTENMENT_ID => Some(ENLIGHTENMENT_PLUS_ID),
-        FORETHOUGHT_ID => Some(FORETHOUGHT_PLUS_ID),
-        HAND_OF_GREED_ID => Some(HAND_OF_GREED_PLUS_ID),
-        CHRYSALIS_ID => Some(CHRYSALIS_PLUS_ID),
-        MAGNETISM_ID => Some(MAGNETISM_PLUS_ID),
-        PANACHE_ID => Some(PANACHE_PLUS_ID),
-        PANIC_BUTTON_ID => Some(PANIC_BUTTON_PLUS_ID),
-        PURITY_ID => Some(PURITY_PLUS_ID),
-        SADISTIC_NATURE_ID => Some(SADISTIC_NATURE_PLUS_ID),
-        TRIP_ID => Some(TRIP_PLUS_ID),
-        IMPATIENCE_ID => Some(IMPATIENCE_PLUS_ID),
-        JACK_OF_ALL_TRADES_ID => Some(JACK_OF_ALL_TRADES_PLUS_ID),
-        MADNESS_ID => Some(MADNESS_PLUS_ID),
-        MASTER_OF_STRATEGY_ID => Some(MASTER_OF_STRATEGY_PLUS_ID),
-        SECRET_TECHNIQUE_ID => Some(SECRET_TECHNIQUE_PLUS_ID),
-        SECRET_WEAPON_ID => Some(SECRET_WEAPON_PLUS_ID),
-        VIOLENCE_ID => Some(VIOLENCE_PLUS_ID),
-        THE_BOMB_ID => Some(THE_BOMB_PLUS_ID),
-        THINKING_AHEAD_ID => Some(THINKING_AHEAD_PLUS_ID),
-        TRANSMUTATION_ID => Some(TRANSMUTATION_PLUS_ID),
-        METAMORPHOSIS_ID => Some(METAMORPHOSIS_PLUS_ID),
-        METALLICIZE_ID => Some(METALLICIZE_PLUS_ID),
-        _ => None,
-    }
+    get_card_definition(id)?.upgrade
 }
 
 #[must_use]
@@ -5053,6 +5142,66 @@ mod tests {
             BASH_PLUS_ID,
         ] {
             assert!(is_basic_starter_card(id), "{id:?} should remain basic");
+        }
+    }
+
+    #[test]
+    fn canonical_card_metadata_is_complete_and_self_consistent() {
+        let mut common = 0;
+        let mut uncommon = 0;
+        let mut rare = 0;
+        let mut unrated = 0;
+        let mut upgrades = 0;
+
+        for definition in &ALL_CARDS {
+            match definition.rarity {
+                Some(CardRarity::Common) => common += 1,
+                Some(CardRarity::Uncommon) => uncommon += 1,
+                Some(CardRarity::Rare) => rare += 1,
+                None => unrated += 1,
+            }
+            assert_eq!(
+                card_type_and_rarity(definition.id),
+                definition
+                    .rarity
+                    .map(|rarity| (definition.card_type, rarity))
+            );
+
+            let Some(upgraded_id) = definition.upgrade else {
+                continue;
+            };
+            upgrades += 1;
+            let upgraded = get_card_definition(upgraded_id)
+                .expect("every canonical upgrade must have a definition");
+            assert_eq!(upgraded.rarity, definition.rarity);
+            assert_eq!(upgraded.card_type, definition.card_type);
+            assert!(
+                upgraded.upgrade.is_none()
+                    || (upgraded.id == SEARING_BLOW_PLUS_ID
+                        && upgraded.upgrade == Some(SEARING_BLOW_PLUS_ID))
+            );
+            assert_eq!(upgrade_content_id(definition.id), Some(upgraded_id));
+        }
+
+        assert_eq!((common, uncommon, rare, unrated), (46, 114, 67, 18));
+        assert_eq!(upgrades, 114);
+    }
+
+    #[test]
+    fn upgraded_cards_inherit_rarity_from_their_base_definition() {
+        for (base, upgraded) in [
+            (STRIKE_R_ID, STRIKE_R_PLUS_ID),
+            (ANGER_ID, ANGER_PLUS_ID),
+            (CLEAVE_ID, CLEAVE_PLUS_ID),
+            (TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID),
+        ] {
+            let base = get_card_definition(base).expect("base definition");
+            let upgraded = get_card_definition(upgraded).expect("upgraded definition");
+            assert_eq!(upgraded.rarity, base.rarity);
+            assert_eq!(
+                card_type_and_rarity(upgraded.id).map(|(_, rarity)| rarity),
+                base.rarity
+            );
         }
     }
 }

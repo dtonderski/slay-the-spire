@@ -32,6 +32,10 @@ pub struct CardDefinition {
     pub name: &'static str,
     pub cost: i8,
     pub card_type: CardType,
+    /// Reward rarity for collectible cards. Statuses, curses, and mechanic-only fixtures have none.
+    pub rarity: Option<CardRarity>,
+    /// Upgraded content identity for base cards that have a modeled upgraded definition.
+    pub upgrade: Option<ContentId>,
     pub target: TargetRequirement,
     pub values: CardValues,
     pub keywords: CardKeywords,
