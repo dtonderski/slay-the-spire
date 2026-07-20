@@ -285,7 +285,7 @@ fn validate_game_state_schema(step: u32, message: &Value) -> Result<(), serde_js
             )));
         }
     }
-    for field in ["deck", "relics"] {
+    for field in ["deck", "relics", "potions"] {
         let entries = game.get(field).and_then(Value::as_array).ok_or_else(|| {
             serde_json::Error::custom(format!(
                 "trace state at step {step} game_state.{field} must be an array"
@@ -472,6 +472,16 @@ mod tests {
     }
 
     #[test]
+    fn parse_trace_rejects_missing_potion_authority() {
+        let content = r#"{"type":"state","step":9,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[]}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing potions are invalid input");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 9 game_state.potions must be an array"));
+    }
+
+    #[test]
     fn parse_trace_allows_partial_menu_game_state() {
         let lines = parse_trace_jsonl(
             r#"{"type":"state","step":0,"message":{"game_state":{"screen_type":"MENU"}}}"#,
@@ -493,7 +503,7 @@ mod tests {
 
     #[test]
     fn parse_trace_accepts_live_trace_session_records() {
-        let content = r#"{"type":"state","sequence":7,"state":{"raw":{"current_state":{"step":6,"received_at":"now","message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[]}}}}}}
+        let content = r#"{"type":"state","sequence":7,"state":{"raw":{"current_state":{"step":6,"received_at":"now","message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[]}}}}}}
 {"type":"action","sequence":7,"action":{"command":{"command":"CHOOSE 0","source_state_seq":6},"playtime_seconds":812}}"#;
 
         let lines = parse_trace_jsonl(content).expect("parses");

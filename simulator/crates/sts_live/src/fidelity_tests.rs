@@ -659,6 +659,7 @@ fn neow_bootstrap_message() -> serde_json::Value {
                 {"id": "Bash"}
             ],
             "relics": [{"name": "Burning Blood"}],
+            "potions": [],
             "choice_list": ["talk"]
         }
     })

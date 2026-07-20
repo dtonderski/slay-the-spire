@@ -8127,11 +8127,18 @@ fn potion_keys_from_value(value: Option<&Value>) -> Vec<String> {
             potions
                 .iter()
                 .filter_map(|potion| {
-                    let name = potion.get("name").and_then(Value::as_str)?;
+                    let name = potion
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .or_else(|| potion.get("id").and_then(Value::as_str))?;
                     if name.eq_ignore_ascii_case("Potion Slot") {
                         return None;
                     }
-                    potion_from_trace_name(name).map(|potion| potion_trace_name(potion).to_owned())
+                    Some(
+                        potion_from_trace_name(name)
+                            .map(|potion| potion_trace_name(potion).to_owned())
+                            .unwrap_or_else(|| name.to_owned()),
+                    )
                 })
                 .collect()
         })
@@ -12066,6 +12073,24 @@ mod tests {
     use sts_core::content::monsters::{monster_state, SLAVER_BLUE_A0};
     use sts_core::relic::IRONCLAD_BOSS_RELIC_POOL;
 
+    fn serialize_trace_test_lines(mut lines: Vec<Value>) -> String {
+        for line in &mut lines {
+            let Some(game) = line
+                .get_mut("message")
+                .and_then(|message| message.get_mut("game_state"))
+                .and_then(Value::as_object_mut)
+            else {
+                continue;
+            };
+            game.entry("potions").or_insert_with(|| json!([]));
+        }
+        lines
+            .into_iter()
+            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     #[test]
     fn smoke_bomb_transient_projection_preserves_the_core_destination() {
         let mut source = RunState::map_fixture();
@@ -12885,6 +12910,20 @@ mod tests {
     }
 
     #[test]
+    fn observed_potion_projection_preserves_unknown_identity() {
+        let potions = json!([
+            { "id": "Potion Slot", "name": "Potion Slot" },
+            { "id": "FuturePotion", "name": "Future Potion" },
+            { "id": "Dexterity Potion", "name": "Dexterity Potion" }
+        ]);
+
+        assert_eq!(
+            potion_keys_from_value(Some(&potions)),
+            vec!["Future Potion", "Dexterity Potion"]
+        );
+    }
+
+    #[test]
     fn full_belt_potion_reward_command_fails_without_consuming_another_reward() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Reward;
@@ -13276,9 +13315,9 @@ mod tests {
         let content = r#"{"type":"metadata","schema":1,"source":"communication_mod"}
 {"type":"state","step":0,"message":{}}
 {"type":"action","step":1,"command":"START IRONCLAD 0 VERIFY01"}
-{"type":"state","step":1,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"choice_list":["talk"]}}}
+{"type":"state","step":1,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"potions":[],"choice_list":["talk"]}}}
 {"type":"action","step":2,"command":"CHOOSE nope"}
-{"type":"state","step":2,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"choice_list":["talk"]}}}"#;
+{"type":"state","step":2,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"potions":[],"choice_list":["talk"]}}}"#;
 
         let error = verify_communication_mod_trace(content).expect_err("malformed trace rejected");
         assert!(matches!(
@@ -16052,11 +16091,7 @@ mod tests {
                 "choice_list": seed_start_first_map_choices("TEST")
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -16147,11 +16182,7 @@ mod tests {
                 "choice_list": ["leave"]
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -16641,11 +16672,7 @@ mod tests {
                     "choice_list": seed_start_first_map_choices(&seed_string)
                 }}}),
             ];
-            let content = lines
-                .into_iter()
-                .map(|line| line.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
+            let content = serialize_trace_test_lines(lines);
             let report =
                 verify_seed_start_communication_mod_trace(&content).expect("seed-start verifies");
 
@@ -16857,11 +16884,7 @@ mod tests {
                 "choice_list": seed_start_first_map_choices(&seed_string)
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -16995,11 +17018,7 @@ mod tests {
                 "choice_list": ["leave"]
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -17105,11 +17124,7 @@ mod tests {
                 "choice_list": ["leave"]
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -17290,11 +17305,7 @@ mod tests {
                 "choice_list": ["leave"]
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -17522,11 +17533,7 @@ mod tests {
                 "choice_list": ["leave"]
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -17767,11 +17774,7 @@ mod tests {
                 "choice_list": seed_start_first_map_choices(&seed_string)
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -17901,11 +17904,7 @@ mod tests {
                 "choice_list": seed_start_first_map_choices(&seed_string)
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -18052,11 +18051,7 @@ mod tests {
                 "choice_list": seed_start_first_map_choices(&seed_string)
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -18236,11 +18231,7 @@ mod tests {
                 "choice_list": seed_start_first_map_choices(&external_seed)
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -18371,11 +18362,7 @@ mod tests {
                 "choice_list": seed_start_first_map_choices(external_seed)
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -18464,11 +18451,7 @@ mod tests {
                 "choice_list": seed_start_first_map_choices(&external_seed)
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -18737,11 +18720,7 @@ mod tests {
                 "choice_list": ["leave"]
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -18885,11 +18864,7 @@ mod tests {
                 }
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -19042,11 +19017,7 @@ mod tests {
             }}}),
         ];
 
-        let truncated_content = lines
-            .iter()
-            .map(|line| serde_json::to_string(line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let truncated_content = serialize_trace_test_lines(lines.clone());
         let truncated_report = verify_seed_start_communication_mod_trace(&truncated_content)
             .expect("truncated seed-start");
         assert!(truncated_report.unexpected_diffs.is_empty());
@@ -19081,11 +19052,7 @@ mod tests {
                 }
             }}}),
         ]);
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -19176,11 +19143,7 @@ mod tests {
                 "choice_list": ["leave"]
             }}}),
         ];
-        let content = lines
-            .into_iter()
-            .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 

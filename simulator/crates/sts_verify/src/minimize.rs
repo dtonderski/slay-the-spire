@@ -254,6 +254,7 @@ mod tests {
                         "max_hp": 80,
                         "deck": deck,
                         "relics": [{ "name": "Burning Blood" }],
+                        "potions": [],
                         "choice_list": ["talk"]
                     }
                 }
