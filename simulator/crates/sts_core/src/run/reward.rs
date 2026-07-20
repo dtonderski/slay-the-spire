@@ -23,6 +23,7 @@ use crate::{
         SINGING_BOWL_MAX_HP,
     },
     rng::{RngStream, SimulatorRng, StsRng},
+    run::event::enter_spire_heart_event,
     run::potion::{
         apply_combat_card_reward_choice, apply_combat_card_reward_skip,
         apply_discard_select_choice, apply_discard_select_confirm, apply_draw_select_choice,
@@ -2213,6 +2214,10 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             next.reward = None;
         }
         RunAction::Proceed => {
+            if next.current_act == 3 && next.current_room_kind() == Some(RoomKind::Boss) {
+                enter_spire_heart_event(&mut next);
+                return Ok(next);
+            }
             let neow_leave = next
                 .event
                 .as_ref()
@@ -2437,6 +2442,51 @@ mod tests {
 
         assert_eq!(run.phase, RunPhase::Treasure);
         assert!(run.reward.is_none());
+    }
+
+    #[test]
+    fn final_boss_inaccessible_reward_proceeds_to_spire_heart() {
+        let mut run = RunState::placeholder_seeded_ironclad(7, 0);
+        run.phase = RunPhase::Reward;
+        run.current_act = 3;
+        run.current_floor = 50;
+        run.current_room_override = Some(RoomKind::Boss);
+        run.reward = Some(RewardScreen {
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 100,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            relic_key_offer: None,
+            pending_relic_offer: None,
+            pending_relic_key_offer: None,
+            queued_relic_key_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_active: false,
+            card_reward_pending: false,
+            pending_card_reward_count: 0,
+        });
+
+        let next = apply_run_action(&run, RunAction::Proceed)
+            .expect("final boss victory can enter the Spire Heart event");
+
+        assert_eq!(next.phase, RunPhase::Event);
+        assert_eq!(next.current_floor, 51);
+        assert_eq!(next.current_room_kind(), Some(RoomKind::Victory));
+        assert_eq!(next.gold, run.gold);
+        assert!(next.reward.is_none());
+        let event = next.event.as_ref().expect("Spire Heart event screen");
+        assert_eq!(event.event, Event::SpireHeart);
+        assert_eq!(event.stage, 0);
+        assert_eq!(event.choices.len(), 1);
+        assert_eq!(event.choices[0].label, "Continue");
+
+        let json = serde_json::to_string(&next).expect("serialize Spire Heart run state");
+        let restored: RunState =
+            serde_json::from_str(&json).expect("restore Spire Heart run state");
+        assert_eq!(restored, next);
     }
 
     #[test]

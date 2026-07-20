@@ -1729,7 +1729,11 @@ impl RunState {
                 }
             }
             RunAction::Proceed => {
-                if self.event.is_some() && super::reward::reward_is_empty(reward) {
+                let final_boss_victory =
+                    self.current_act == 3 && self.current_room_kind() == Some(RoomKind::Boss);
+                if final_boss_victory
+                    || (self.event.is_some() && super::reward::reward_is_empty(reward))
+                {
                     Ok(())
                 } else {
                     Err(SimError::IllegalAction("cannot proceed from reward"))

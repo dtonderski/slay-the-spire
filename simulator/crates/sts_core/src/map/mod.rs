@@ -17,6 +17,7 @@ pub enum RoomKind {
     Shop,
     Treasure,
     Boss,
+    Victory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

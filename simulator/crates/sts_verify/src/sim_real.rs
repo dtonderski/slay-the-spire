@@ -4018,22 +4018,43 @@ fn verify_seed_start_transitions(
                     continue;
                 }
                 if action.command.eq_ignore_ascii_case("PROCEED") {
-                    if post
-                        .message
-                        .get("game_state")
-                        .and_then(|game| game.get("room_type"))
-                        .and_then(Value::as_str)
-                        == Some("VictoryRoom")
+                    if seed_sim
+                        .as_ref()
+                        .is_some_and(seed_start_is_final_boss_victory)
                     {
-                        report.verified.push(VerifiedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "final boss proceed to Spire Heart".to_owned(),
-                        });
+                        let sim = seed_sim
+                            .as_mut()
+                            .expect("final boss simulation checked above");
+                        let next = seed_start_apply_final_boss_proceed(sim);
+                        let Ok(next) = next else {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "unsupported_reward_path".to_owned(),
+                                reason: next.err().unwrap_or_default(),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        };
+                        compare_subset(
+                            report,
+                            action,
+                            "final boss proceed to Spire Heart",
+                            seed_start_spire_heart_observed_subset(&post.message),
+                            seed_start_spire_heart_simulated_subset(&next),
+                        );
+                        seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                        *sim = next;
                         phase = SeedStartPhase::Event;
                         continue;
                     }
-                    if screen_type(&post.message) == Some("CHEST") {
+                    if seed_sim
+                        .as_ref()
+                        .is_some_and(seed_start_is_boss_chest_proceed)
+                    {
                         let Some(sim) = seed_sim.as_mut() else {
                             return finish_boundary!(SeedStartBoundary {
                                 path: format!("$.actions[step={}].command", action.step),
@@ -4057,6 +4078,22 @@ fn verify_seed_start_transitions(
                             });
                             return finish_boundary!(boundary);
                         };
+                        if next.phase != RunPhase::Treasure {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "unsupported_reward_path".to_owned(),
+                                reason: format!(
+                                    "boss combat proceed ended in simulator phase {:?}",
+                                    next.phase
+                                ),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
                         seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                         compare_subset(
                             report,
@@ -4698,22 +4735,43 @@ fn verify_seed_start_transitions(
             }
             SeedStartPhase::Proceed => {
                 if action.command.eq_ignore_ascii_case("PROCEED") {
-                    if post
-                        .message
-                        .get("game_state")
-                        .and_then(|game| game.get("room_type"))
-                        .and_then(Value::as_str)
-                        == Some("VictoryRoom")
+                    if seed_sim
+                        .as_ref()
+                        .is_some_and(seed_start_is_final_boss_victory)
                     {
-                        report.verified.push(VerifiedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "final boss proceed to Spire Heart".to_owned(),
-                        });
+                        let sim = seed_sim
+                            .as_mut()
+                            .expect("final boss simulation checked above");
+                        let next = seed_start_apply_final_boss_proceed(sim);
+                        let Ok(next) = next else {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "unsupported_post_reward_map".to_owned(),
+                                reason: next.err().unwrap_or_default(),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        };
+                        compare_subset(
+                            report,
+                            action,
+                            "final boss proceed to Spire Heart",
+                            seed_start_spire_heart_observed_subset(&post.message),
+                            seed_start_spire_heart_simulated_subset(&next),
+                        );
+                        seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                        *sim = next;
                         phase = SeedStartPhase::Event;
                         continue;
                     }
-                    if screen_type(&post.message) == Some("CHEST") {
+                    if seed_sim
+                        .as_ref()
+                        .is_some_and(seed_start_is_boss_chest_proceed)
+                    {
                         let Some(sim) = seed_sim.as_mut() else {
                             return finish_boundary!(SeedStartBoundary {
                                 path: format!("$.actions[step={}].command", action.step),
@@ -4737,6 +4795,22 @@ fn verify_seed_start_transitions(
                             });
                             return finish_boundary!(boundary);
                         };
+                        if next.phase != RunPhase::Treasure {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "unsupported_post_reward_map".to_owned(),
+                                reason: format!(
+                                    "boss combat proceed ended in simulator phase {:?}",
+                                    next.phase
+                                ),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
                         seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                         compare_subset(
                             report,
@@ -6519,6 +6593,7 @@ fn room_kind_symbol(kind: RoomKind) -> &'static str {
         RoomKind::Elite => "E",
         RoomKind::Treasure => "T",
         RoomKind::Boss => "B",
+        RoomKind::Victory => "V",
     }
 }
 
@@ -8431,6 +8506,66 @@ fn seed_start_victory_observed_subset(message: &Value) -> Value {
 
 fn seed_start_is_final_boss_victory(run: &RunState) -> bool {
     run.current_act == 3 && run.current_room_kind() == Some(RoomKind::Boss)
+}
+
+fn seed_start_is_boss_chest_proceed(run: &RunState) -> bool {
+    run.phase == RunPhase::Reward
+        && run.current_room_kind() == Some(RoomKind::Boss)
+        && !seed_start_is_final_boss_victory(run)
+}
+
+fn seed_start_apply_final_boss_proceed(run: &RunState) -> Result<RunState, String> {
+    let previous_floor = run.current_floor;
+    let next = apply_run_action(run, RunAction::Proceed).map_err(|err| err.to_string())?;
+    if next.phase != RunPhase::Event
+        || next.current_room_kind() != Some(RoomKind::Victory)
+        || !next
+            .event
+            .as_ref()
+            .is_some_and(|event| event.event == Event::SpireHeart && event.stage == 0)
+        || next.current_floor != previous_floor + 1
+    {
+        return Err(format!(
+            "final boss proceed produced phase {:?}, room {:?}, event {:?}, floor {} from {}",
+            next.phase,
+            next.current_room_kind(),
+            next.event.as_ref().map(|event| (event.event, event.stage)),
+            next.current_floor,
+            previous_floor
+        ));
+    }
+    Ok(next)
+}
+
+fn seed_start_spire_heart_observed_subset(message: &Value) -> Value {
+    let Some(game) = message.get("game_state") else {
+        return json!({});
+    };
+    json!({
+        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
+        "event_id": game.pointer("/screen_state/event_id").and_then(Value::as_str).unwrap_or(""),
+        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
+        "gold": int(game, "gold"),
+        "current_hp": int(game, "current_hp"),
+        "max_hp": int(game, "max_hp"),
+    })
+}
+
+fn seed_start_spire_heart_simulated_subset(run: &RunState) -> Value {
+    let event_id = run
+        .event
+        .as_ref()
+        .filter(|event| event.event == Event::SpireHeart)
+        .map(|_| "Spire Heart")
+        .unwrap_or("");
+    json!({
+        "screen_type": "EVENT",
+        "event_id": event_id,
+        "floor": run.current_floor,
+        "gold": run.gold,
+        "current_hp": run.player_hp,
+        "max_hp": run.player_max_hp,
+    })
 }
 
 fn seed_start_victory_simulated_subset(run: &RunState) -> Value {

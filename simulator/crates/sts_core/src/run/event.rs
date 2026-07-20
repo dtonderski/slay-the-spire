@@ -804,6 +804,7 @@ const SPECIAL_ONE_TIME_EVENTS_SUFFIX: [Event; 4] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Event {
     Neow,
+    SpireHeart,
     AccursedBlacksmith,
     BonfireElementals,
     Designer,
@@ -855,6 +856,15 @@ pub enum Event {
     SensoryStone,
     TombOfLordRedMask,
     WindingHalls,
+}
+
+fn spire_heart_choices(stage: u32) -> Vec<EventChoice> {
+    let label = match stage {
+        0 | 2 => "Continue",
+        1 => "Attack",
+        _ => "Sleep",
+    };
+    labeled_choices(&[label])
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2121,6 +2131,7 @@ pub fn enter_event_screen(run: &mut RunState) {
 pub fn event_screen(event: Event) -> EventScreen {
     match event {
         Event::Neow => make_event_screen(event, neow_talk_choices(), 0),
+        Event::SpireHeart => make_event_screen(event, spire_heart_choices(0), 0),
         Event::AccursedBlacksmith => {
             make_event_screen(event, labeled_choices(&["Forge", "Rummage", "Leave"]), 0)
         }
@@ -2300,6 +2311,15 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
         Event::MindBloom => make_event_screen(event, mind_bloom_choices(run), 0),
         _ => event_screen(event),
     }
+}
+
+pub(crate) fn enter_spire_heart_event(run: &mut RunState) {
+    run.current_floor += 1;
+    run.current_room_override = Some(crate::map::RoomKind::Victory);
+    run.phase = RunPhase::Event;
+    run.combat = None;
+    run.reward = None;
+    run.event = Some(event_screen(Event::SpireHeart));
 }
 
 fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> EventScreen {
@@ -2545,6 +2565,25 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             _ => {
                 return Err(SimError::IllegalAction(
                     "event choice is not implemented for Neow",
+                ));
+            }
+        },
+        Event::SpireHeart => match screen.stage {
+            0..=2 if choice_index == 0 => {
+                let stage = screen.stage + 1;
+                next.event = Some(make_event_screen(
+                    Event::SpireHeart,
+                    spire_heart_choices(stage),
+                    stage,
+                ));
+            }
+            3 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
+            }
+            _ => {
+                return Err(SimError::IllegalAction(
+                    "event choice is not implemented for Spire Heart",
                 ));
             }
         },

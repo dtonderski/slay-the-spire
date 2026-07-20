@@ -1816,6 +1816,7 @@ fn room_symbol(room_kind: RoomKind) -> &'static str {
         RoomKind::Shop => "$",
         RoomKind::Treasure => "T",
         RoomKind::Boss => "B",
+        RoomKind::Victory => "V",
     }
 }
 
