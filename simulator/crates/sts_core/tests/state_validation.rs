@@ -1,11 +1,9 @@
 use sts_core::{
-    apply_combat_action,
     card::CardInstance,
     combat::{DrawSelectPurpose, DrawSelectState, HandSelectState},
     content::cards,
     content::shop_pool::shop_card_content_id,
-    enter_reward_screen, CardId, CombatAction, CombatState, ContentId, RunPhase, RunState,
-    SimError,
+    enter_reward_screen, CardId, CombatState, ContentId, RunPhase, RunState, SimError,
 };
 
 #[test]
@@ -22,14 +20,31 @@ fn explicit_combat_and_run_fixtures_are_valid() {
 }
 
 #[test]
-fn missing_combat_rng_fails_before_action_execution() {
-    let mut state = CombatState::initial_fixture();
-    state.card_random_rng = None;
+fn combat_rng_keeps_flattened_snapshot_fields() {
+    let json = serde_json::to_value(CombatState::initial_fixture()).expect("combat serializes");
+    let object = json.as_object().expect("combat object");
 
-    assert_eq!(
-        apply_combat_action(&state, CombatAction::EndTurn),
-        Err(SimError::InvalidState("combat RNG state is incomplete"))
-    );
+    assert!(object.contains_key("shuffle_rng"));
+    assert!(object.contains_key("monster_rng"));
+    assert!(object.contains_key("monster_hp_rng"));
+    assert!(object.contains_key("card_random_rng"));
+    assert!(!object.contains_key("rng"));
+}
+
+#[test]
+fn missing_or_null_combat_rng_fails_deserialization() {
+    let state = CombatState::initial_fixture();
+    let mut json = serde_json::to_value(&state).expect("combat serializes");
+    json.as_object_mut()
+        .expect("combat object")
+        .remove("card_random_rng");
+
+    assert!(serde_json::from_value::<CombatState>(json).is_err());
+
+    let mut json = serde_json::to_value(&state).expect("combat serializes");
+    json["card_random_rng"] = serde_json::Value::Null;
+
+    assert!(serde_json::from_value::<CombatState>(json).is_err());
 }
 
 #[test]

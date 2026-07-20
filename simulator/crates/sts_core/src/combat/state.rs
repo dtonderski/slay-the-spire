@@ -19,6 +19,32 @@ use std::collections::{BTreeSet, VecDeque};
 
 pub const BASE_PLAYER_ENERGY: i32 = 3;
 
+/// Complete RNG state required by every authoritative combat.
+///
+/// This is flattened into `CombatState` so snapshot field names remain stable
+/// while missing streams become a deserialization error instead of a runtime
+/// fallback mode.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CombatRngState {
+    pub shuffle_rng: StsRng,
+    pub monster_rng: StsRng,
+    pub monster_hp_rng: StsRng,
+    pub card_random_rng: StsRng,
+}
+
+impl CombatRngState {
+    /// Explicit deterministic streams for fixtures and tests.
+    #[must_use]
+    pub fn deterministic_fixture(seed: i64) -> Self {
+        Self {
+            shuffle_rng: StsRng::new(seed),
+            monster_rng: StsRng::new(seed),
+            monster_hp_rng: StsRng::new(seed),
+            card_random_rng: StsRng::new(seed),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CombatState {
     pub player: PlayerState,
@@ -34,14 +60,8 @@ pub struct CombatState {
     pub relic_counters: RelicCounters,
     #[serde(default)]
     pub ascension: u8,
-    #[serde(default)]
-    pub shuffle_rng: Option<StsRng>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub monster_rng: Option<StsRng>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub monster_hp_rng: Option<StsRng>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub card_random_rng: Option<StsRng>,
+    #[serde(flatten)]
+    pub rng: CombatRngState,
     /// In-combat zero-cost card reward from potions such as Power Potion.
     #[serde(default)]
     pub potion_card_reward: Option<Vec<CardInstance>>,
@@ -484,10 +504,7 @@ impl CombatState {
             mark_of_bloom: false,
             relic_counters: RelicCounters::default(),
             ascension: 0,
-            shuffle_rng: Some(StsRng::new(0)),
-            monster_rng: Some(StsRng::new(0)),
-            monster_hp_rng: Some(StsRng::new(0)),
-            card_random_rng: Some(StsRng::new(0)),
+            rng: CombatRngState::deterministic_fixture(0),
             potion_card_reward: None,
             potion_card_reward_kind: None,
             toolbox_card_reward: None,
@@ -640,14 +657,6 @@ impl CombatState {
                 "combat player block or energy is negative",
             ));
         }
-        if self.shuffle_rng.is_none()
-            || self.monster_rng.is_none()
-            || self.monster_hp_rng.is_none()
-            || self.card_random_rng.is_none()
-        {
-            return Err(SimError::InvalidState("combat RNG state is incomplete"));
-        }
-
         self.validate_unique_card_piles()?;
         let mut card_ids = BTreeSet::new();
         for card in self.authoritative_cards() {

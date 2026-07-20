@@ -186,7 +186,7 @@ fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
     run.reset_card_random_rng_for_combat();
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
-    let mut card_random_rng = Some(run.card_random_rng());
+    let mut card_random_rng = run.card_random_rng();
     // This local field is the target game's combat aiRng. Target monsterRng is the
     // run-level encounter-list stream.
     let mut monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
@@ -197,15 +197,15 @@ fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
         &run.relics,
     );
     advance_monster_hp_rng_for_combat_entry(base, &mut monster_hp_rng, run.ascension);
-    base.shuffle_rng = Some(shuffle_rng);
-    base.monster_hp_rng = Some(monster_hp_rng);
+    base.rng.shuffle_rng = shuffle_rng;
+    base.rng.monster_hp_rng = monster_hp_rng;
     apply_initial_monster_ai_rolls(base, &mut monster_rng);
     record_initial_monster_moves(base);
-    base.monster_rng = Some(monster_rng.clone());
-    base.card_random_rng = card_random_rng;
+    base.rng.monster_rng = monster_rng.clone();
+    base.rng.card_random_rng = card_random_rng;
     run.phase = RunPhase::Combat;
     let mut combat = run.init_combat_consuming_relics(base.clone());
-    combat.monster_rng = Some(monster_rng);
+    combat.rng.monster_rng = monster_rng;
     add_mark_of_pain_wounds_to_draw_pile(run, &mut combat);
     run.combat = Some(combat);
 }
@@ -255,7 +255,7 @@ fn add_mark_of_pain_wounds_to_draw_pile(run: &mut RunState, combat: &mut CombatS
             combat.piles.draw_pile.insert(index, wound);
         }
     }
-    combat.card_random_rng = Some(rng.clone());
+    combat.rng.card_random_rng = rng.clone();
     run.store_rng_counter(RunRngStream::CardRandom, &rng);
 }
 

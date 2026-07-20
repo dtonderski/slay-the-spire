@@ -434,20 +434,15 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
         combat.piles.hand.push(card);
         crate::relic::apply_potion_use_relics_to_combat(combat);
         next.player_hp = combat.player.hp;
-        next.card_random_rng_counter = combat
-            .card_random_rng
-            .as_ref()
-            .map_or(next.card_random_rng_counter, StsRng::counter);
+        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
     } else if let Some(choices) = combat.discovery_card_reward.take() {
-        if let Some(rng) = combat.card_random_rng.as_mut() {
-            // After a card-played Discovery is selected, DiscoveryAction keeps
-            // regenerating its three choices for four hidden fast-action updates.
-            burn_all_discovery_card_choice_generations(
-                rng,
-                3,
-                PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
-            );
-        }
+        // After a card-played Discovery is selected, DiscoveryAction keeps
+        // regenerating its three choices for four hidden fast-action updates.
+        burn_all_discovery_card_choice_generations(
+            &mut combat.rng.card_random_rng,
+            3,
+            PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
+        );
         let choice = choices[index];
         let card_id = CardId::new(combat.next_card_instance_id());
         let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
@@ -455,10 +450,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
         // DiscoveryAction adds the generated card after the cards already in hand.
         combat.piles.hand.push(card);
         close_discovery_card_reward_source(combat)?;
-        next.card_random_rng_counter = combat
-            .card_random_rng
-            .as_ref()
-            .map_or(next.card_random_rng_counter, StsRng::counter);
+        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
     } else {
         let choices = combat.toolbox_card_reward.take().expect("validated reward");
         let choice = choices[index];
@@ -470,9 +462,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                 ..CardInstance::new(card_id, choice.content_id)
             },
         );
-        if let Some(rng) = combat.card_random_rng.as_ref() {
-            next.card_random_rng_counter = rng.counter();
-        }
+        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
         crate::relic::settle_pending_start_of_turn_relic_actions(combat);
     }
     Ok(next)
@@ -489,10 +479,7 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
         combat.potion_card_reward = None;
         crate::relic::apply_potion_use_relics_to_combat(combat);
         next.player_hp = combat.player.hp;
-        next.card_random_rng_counter = combat
-            .card_random_rng
-            .as_ref()
-            .map_or(next.card_random_rng_counter, StsRng::counter);
+        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
     }
     Ok(next)
 }
@@ -504,9 +491,7 @@ fn settle_potion_card_reward_rng(combat: &mut CombatState, picked: bool) -> SimR
         .ok_or(SimError::InvalidState(
             "potion card reward is missing its discovery pool",
         ))?;
-    let mut rng = combat.card_random_rng.take().ok_or(SimError::InvalidState(
-        "potion card reward is missing cardRandomRng",
-    ))?;
+    let rng = &mut combat.rng.card_random_rng;
     let (mut hidden_generations, settle_draws) = if picked {
         (
             DISCOVERY_ACTION_PICKED_HIDDEN_GENERATIONS,
@@ -523,38 +508,22 @@ fn settle_potion_card_reward_rng(combat: &mut CombatState, picked: bool) -> SimR
     }
     match kind {
         PotionCardRewardKind::Attack => {
-            burn_discovery_card_choice_generations(
-                &mut rng,
-                CardType::Attack,
-                3,
-                hidden_generations,
-            );
-            burn_discovery_card_choice_draws(&mut rng, CardType::Attack, settle_draws);
+            burn_discovery_card_choice_generations(rng, CardType::Attack, 3, hidden_generations);
+            burn_discovery_card_choice_draws(rng, CardType::Attack, settle_draws);
         }
         PotionCardRewardKind::Skill => {
-            burn_discovery_card_choice_generations(
-                &mut rng,
-                CardType::Skill,
-                3,
-                hidden_generations,
-            );
-            burn_discovery_card_choice_draws(&mut rng, CardType::Skill, settle_draws);
+            burn_discovery_card_choice_generations(rng, CardType::Skill, 3, hidden_generations);
+            burn_discovery_card_choice_draws(rng, CardType::Skill, settle_draws);
         }
         PotionCardRewardKind::Power => {
-            burn_discovery_card_choice_generations(
-                &mut rng,
-                CardType::Power,
-                3,
-                hidden_generations,
-            );
-            burn_discovery_card_choice_draws(&mut rng, CardType::Power, settle_draws);
+            burn_discovery_card_choice_generations(rng, CardType::Power, 3, hidden_generations);
+            burn_discovery_card_choice_draws(rng, CardType::Power, settle_draws);
         }
         PotionCardRewardKind::Colorless => {
-            burn_colorless_discovery_card_choice_generations(&mut rng, 3, hidden_generations);
-            burn_colorless_discovery_card_choice_draws(&mut rng, settle_draws);
+            burn_colorless_discovery_card_choice_generations(rng, 3, hidden_generations);
+            burn_colorless_discovery_card_choice_draws(rng, settle_draws);
         }
     }
-    combat.card_random_rng = Some(rng);
     Ok(())
 }
 
@@ -577,10 +546,9 @@ fn distilled_chaos_target(
     }
 
     let index = combat
+        .rng
         .card_random_rng
-        .as_mut()
-        .map(|rng| rng.random_int((living.len() - 1) as i32) as usize)
-        .unwrap_or(0);
+        .random_int((living.len() - 1) as i32) as usize;
     Ok(Some(living[index]))
 }
 
@@ -779,9 +747,6 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::DistilledChaos => {
                     let mut combat = next.combat.take().expect("validated combat state");
-                    if combat.card_random_rng.is_none() {
-                        combat.card_random_rng = Some(next.card_random_rng());
-                    }
                     // DistilledChaosPotion constructs every PlayTopCardAction
                     // up front and chooses a random living monster for each
                     // action, even when the eventual top card has no target.
@@ -821,9 +786,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         };
                         combat = apply_play_top_draw_card_action(&combat, target)?;
                     }
-                    if let Some(rng) = combat.card_random_rng.as_ref() {
-                        next.card_random_rng_counter = rng.counter();
-                    }
+                    next.card_random_rng_counter = combat.rng.card_random_rng.counter();
                     next.combat = Some(combat);
                 }
                 Potion::LiquidMemories => {
@@ -878,26 +841,23 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Attack | Potion::Skill | Potion::Colorless | Potion::Power => {
                     defer_potion_use_relics = true;
                     let mut combat = next.combat.take().expect("validated combat state");
-                    let mut rng = combat
-                        .card_random_rng
-                        .take()
-                        .ok_or(SimError::InvalidState("combat card-random RNG is missing"))?;
+                    let rng = &mut combat.rng.card_random_rng;
                     let (kind, content_ids) = match potion {
                         Potion::Attack => (
                             PotionCardRewardKind::Attack,
-                            discovery_card_choices(&mut rng, CardType::Attack, 3),
+                            discovery_card_choices(rng, CardType::Attack, 3),
                         ),
                         Potion::Skill => (
                             PotionCardRewardKind::Skill,
-                            discovery_card_choices(&mut rng, CardType::Skill, 3),
+                            discovery_card_choices(rng, CardType::Skill, 3),
                         ),
                         Potion::Colorless => (
                             PotionCardRewardKind::Colorless,
-                            colorless_discovery_card_choices(&mut rng, 3),
+                            colorless_discovery_card_choices(rng, 3),
                         ),
                         Potion::Power => (
                             PotionCardRewardKind::Power,
-                            discovery_card_choices(&mut rng, CardType::Power, 3),
+                            discovery_card_choices(rng, CardType::Power, 3),
                         ),
                         _ => unreachable!("matched discovery potion"),
                     };
@@ -910,7 +870,6 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                             CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
                         })
                         .collect();
-                    combat.card_random_rng = Some(rng);
                     combat.potion_card_reward = Some(reward_cards);
                     combat.potion_card_reward_kind = Some(kind);
                     next.combat = Some(combat);
@@ -1134,12 +1093,8 @@ mod tests {
             choice_content,
         )]);
         combat.potion_card_reward_kind = Some(PotionCardRewardKind::Colorless);
-        combat.card_random_rng = Some(StsRng::new(123));
-        let rng_counter_before = combat
-            .card_random_rng
-            .as_ref()
-            .expect("combat cardRandomRng")
-            .counter();
+        combat.rng.card_random_rng = StsRng::new(123);
+        let rng_counter_before = combat.rng.card_random_rng.counter();
 
         let next = apply_combat_card_reward_choice(&run, 0).expect("potion card choice");
         let combat = next.combat.expect("combat remains open");
@@ -1154,11 +1109,7 @@ mod tests {
         );
         assert_eq!(hand.last().map(|card| card.id), Some(chosen_id));
         assert_eq!(
-            combat
-                .card_random_rng
-                .as_ref()
-                .expect("combat cardRandomRng")
-                .counter(),
+            combat.rng.card_random_rng.counter(),
             rng_counter_before + 35,
             "captured colorless Discovery settlement must advance cardRandomRng"
         );
@@ -1171,8 +1122,11 @@ mod tests {
         let mut run = RunState::combat_fixture();
         run.potions = vec![Potion::Colorless];
         run.empty_potion_slots = vec![1, 2];
-        run.combat.as_mut().expect("combat fixture").card_random_rng =
-            Some(StsRng::with_counter(-571_295_464_674_976_220, 4));
+        run.combat
+            .as_mut()
+            .expect("combat fixture")
+            .rng
+            .card_random_rng = StsRng::with_counter(-571_295_464_674_976_220, 4);
 
         let reward = apply_potion_action(
             &run,
@@ -1200,7 +1154,7 @@ mod tests {
             combat.piles.hand.last().map(|card| card.content_id),
             Some(SADISTIC_NATURE_ID)
         );
-        let mut card_random_rng = combat.card_random_rng.expect("cardRandomRng");
+        let mut card_random_rng = combat.rng.card_random_rng;
         assert_eq!(card_random_rng.counter(), 41);
         assert_eq!(
             card_random_rng.random_int(1),
@@ -1213,7 +1167,7 @@ mod tests {
     fn discovery_card_choice_is_appended_to_hand() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
-        combat.card_random_rng = Some(StsRng::with_counter(-571_295_464_674_976_203, 16));
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
         let original_ids = combat
             .piles
             .hand
@@ -1240,8 +1194,8 @@ mod tests {
         );
         assert_eq!(hand.last().map(|card| card.id), Some(chosen_id));
         assert_eq!(
-            combat.card_random_rng.as_ref().map(StsRng::counter),
-            Some(28),
+            combat.rng.card_random_rng.counter(),
+            28,
             "four hidden DiscoveryAction generations consume twelve draws"
         );
     }

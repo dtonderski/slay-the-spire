@@ -1508,13 +1508,16 @@ mod tests {
         let env = PyOmniCombatEnv::initial_fixture();
         let mut snapshot: serde_json::Value =
             serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
-        snapshot["state"]["card_random_rng"] = serde_json::Value::Null;
+        snapshot["state"]
+            .as_object_mut()
+            .expect("combat state object")
+            .remove("card_random_rng");
 
         let error = PyOmniCombatEnv::from_snapshot_json(&snapshot.to_string())
             .err()
             .expect("missing authoritative RNG must fail");
 
-        assert!(error.to_string().contains("combat RNG state is incomplete"));
+        assert!(error.to_string().contains("invalid combat snapshot JSON"));
     }
 
     #[test]

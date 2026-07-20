@@ -96,11 +96,7 @@ fn add_enchiridion_power_to_hand(combat: &mut CombatState) {
         return;
     }
 
-    let mut rng = combat
-        .card_random_rng
-        .take()
-        .expect("combat initialization installs card-random RNG");
-    let content_id = discovery_card_choices(&mut rng, CardType::Power, 1)[0];
+    let content_id = discovery_card_choices(&mut combat.rng.card_random_rng, CardType::Power, 1)[0];
     let next_id = CardId::new(combat.next_card_instance_id());
     let mut card = CardInstance {
         combat_only: true,
@@ -109,7 +105,6 @@ fn add_enchiridion_power_to_hand(combat: &mut CombatState) {
     card.temp_cost = Some(0);
     card.temp_cost_turn_only = true;
     combat.piles.hand.push(card);
-    combat.card_random_rng = Some(rng);
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunState {
@@ -774,9 +769,6 @@ impl RunState {
         combat.relic_counters.lizard_tail_available =
             self.relics.contains(&Relic::LizardTail) && !self.lizard_tail_used;
         combat.ascension = self.ascension;
-        if combat.card_random_rng.is_none() {
-            combat.card_random_rng = Some(self.card_random_rng());
-        }
         if matches!(
             self.current_room_kind(),
             Some(RoomKind::Elite | RoomKind::Boss)
@@ -850,19 +842,14 @@ impl RunState {
                 .expect("Gambling Chip selection opens without validation side effects");
         }
         if self.relics.contains(&Relic::Toolbox) {
-            let mut rng = combat
-                .card_random_rng
-                .take()
-                .expect("combat initialization installs card-random RNG");
             let next_card_id = combat.next_card_instance_id();
-            let choices = colorless_discovery_card_choices(&mut rng, 3)
+            let choices = colorless_discovery_card_choices(&mut combat.rng.card_random_rng, 3)
                 .into_iter()
                 .enumerate()
                 .map(|(index, content_id)| {
                     CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
                 })
                 .collect();
-            combat.card_random_rng = Some(rng);
             combat.toolbox_card_reward = Some(choices);
         }
         crate::relic::apply_start_of_player_turn_post_draw_relics(&mut combat);
@@ -898,9 +885,7 @@ impl RunState {
             self.nunchaku_attacks_played = combat.relic_counters.nunchaku_attacks_played;
         }
         if self.relics.contains(&Relic::Toolbox) || self.relics.contains(&Relic::Enchiridion) {
-            if let Some(rng) = combat.card_random_rng.as_ref() {
-                self.card_random_rng_counter = rng.counter();
-            }
+            self.card_random_rng_counter = combat.rng.card_random_rng.counter();
         }
         combat
     }

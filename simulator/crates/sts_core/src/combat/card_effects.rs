@@ -492,9 +492,7 @@ fn apply_strange_spoon_to_played_card_move(
         return;
     };
 
-    let Some(rng) = state.card_random_rng.as_mut() else {
-        return;
-    };
+    let rng = &mut state.rng.card_random_rng;
     if !rng.random_bool() {
         return;
     }
@@ -1496,9 +1494,7 @@ fn infernal_blade_queue(
 
 pub(crate) fn infernal_blade_generated_attack(state: &mut CombatState) -> ContentId {
     let pool = infernal_blade_modeled_attack_pool();
-    let Some(rng) = state.card_random_rng.as_mut() else {
-        return pool[0];
-    };
+    let rng = &mut state.rng.card_random_rng;
     let index = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[index]
 }
@@ -1542,9 +1538,7 @@ fn metamorphosis_queue(
 fn metamorphosis_generated_attacks(state: &mut CombatState, count: usize) -> Vec<ContentId> {
     let pool = infernal_blade_modeled_attack_pool();
     let mut generated = vec![pool[0]; count];
-    let Some(rng) = state.card_random_rng.as_mut() else {
-        return generated;
-    };
+    let rng = &mut state.rng.card_random_rng;
 
     for content_id in &mut generated {
         let index = rng.random_int((pool.len() - 1) as i32) as usize;
@@ -1573,25 +1567,20 @@ fn discovery_queue(
 #[allow(clippy::reversed_empty_ranges)]
 fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) {
     let pool = discovery_modeled_card_pool();
-    let mut content_choices = Vec::with_capacity(3);
-    match state.card_random_rng.as_mut() {
-        Some(rng) => {
-            content_choices = discovery_choices_from_pool(rng, &pool);
-            // Target DiscoveryAction.generate*Choices runs at the top of every update(),
-            // before checking whether the reward screen is already open. Fast-mode actions
-            // therefore burn extra invisible choice generations after the visible choices.
-            for _ in 0..DISCOVERY_ACTION_HIDDEN_GENERATIONS {
-                let _ = discovery_choices_from_pool(rng, &pool);
-            }
-            // The live CommunicationMod/SuperFastMode verifier environment consistently advances
-            // one more card-random draw while the card reward screen settles before control
-            // returns to the next combat action. Keep this as a named generic DiscoveryAction
-            // timing draw rather than folding it into the full hidden-generation count.
-            for _ in 0..DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS {
-                let _ = rng.random_int((pool.len() - 1) as i32);
-            }
-        }
-        None => content_choices.extend(pool.into_iter().take(3)),
+    let rng = &mut state.rng.card_random_rng;
+    let content_choices = discovery_choices_from_pool(rng, &pool);
+    // Target DiscoveryAction.generate*Choices runs at the top of every update(),
+    // before checking whether the reward screen is already open. Fast-mode actions
+    // therefore burn extra invisible choice generations after the visible choices.
+    for _ in 0..DISCOVERY_ACTION_HIDDEN_GENERATIONS {
+        let _ = discovery_choices_from_pool(rng, &pool);
+    }
+    // The live CommunicationMod/SuperFastMode verifier environment consistently advances
+    // one more card-random draw while the card reward screen settles before control
+    // returns to the next combat action. Keep this as a named generic DiscoveryAction
+    // timing draw rather than folding it into the full hidden-generation count.
+    for _ in 0..DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS {
+        let _ = rng.random_int((pool.len() - 1) as i32);
     }
 
     let next_card_id = state.next_card_instance_id();
@@ -1669,9 +1658,7 @@ fn chrysalis_queue(
 
 pub(crate) fn chrysalis_generated_skills(state: &mut CombatState, count: usize) -> Vec<ContentId> {
     let pool = chrysalis_modeled_skill_pool();
-    let Some(rng) = state.card_random_rng.as_mut() else {
-        return pool.into_iter().take(count).collect();
-    };
+    let rng = &mut state.rng.card_random_rng;
 
     (0..count)
         .map(|_| {
@@ -1730,9 +1717,7 @@ fn jack_of_all_trades_queue(
 
 fn jack_of_all_trades_generated_colorless(state: &mut CombatState) -> ContentId {
     let pool = colorless_discovery_pool();
-    let Some(rng) = state.card_random_rng.as_mut() else {
-        return pool[0];
-    };
+    let rng = &mut state.rng.card_random_rng;
     let index = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[index]
 }
@@ -2435,9 +2420,7 @@ fn magnetism_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
 
 pub(crate) fn magnetism_generated_colorless_card(state: &mut CombatState) -> ContentId {
     let pool = magnetism_modeled_colorless_pool();
-    let Some(rng) = state.card_random_rng.as_mut() else {
-        return pool[0];
-    };
+    let rng = &mut state.rng.card_random_rng;
     let index = rng.random_int((pool.len() - 1) as i32) as usize;
     pool[index]
 }

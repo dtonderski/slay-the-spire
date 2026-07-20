@@ -56,7 +56,7 @@ use crate::{
         reduce_monster_strength,
     },
     relic::Relic,
-    rng::{JavaRng, SimulatorRng},
+    rng::JavaRng,
     CardInstance, CombatState, MonsterState, SimError, SimResult,
 };
 use std::collections::VecDeque;
@@ -1388,10 +1388,9 @@ fn apply_mummified_hand_on_power_play(
     }
 
     let pick = state
+        .rng
         .card_random_rng
-        .as_mut()
-        .map(|rng| rng.random_int_range(0, (candidates.len() - 1) as i32) as usize)
-        .unwrap_or(0);
+        .random_int_range(0, (candidates.len() - 1) as i32) as usize;
     let card = &mut state.piles.hand[candidates[pick]];
     card.temp_cost = Some(0);
     card.temp_cost_turn_only = true;
@@ -1723,10 +1722,10 @@ fn random_living_monster_id(state: &mut CombatState) -> Option<MonsterId> {
     if living.is_empty() {
         return None;
     }
-    let Some(rng) = state.card_random_rng.as_mut() else {
-        return living.first().copied();
-    };
-    let index = rng.random_int((living.len() - 1) as i32) as usize;
+    let index = state
+        .rng
+        .card_random_rng
+        .random_int((living.len() - 1) as i32) as usize;
     living.get(index).copied()
 }
 
@@ -1741,11 +1740,10 @@ fn random_hand_card_id_except(state: &mut CombatState, excluded_card_id: CardId)
     if candidates.is_empty() {
         return None;
     }
-    let index = if let Some(rng) = state.card_random_rng.as_mut() {
-        rng.random_int((candidates.len() - 1) as i32) as usize
-    } else {
-        0
-    };
+    let index = state
+        .rng
+        .card_random_rng
+        .random_int((candidates.len() - 1) as i32) as usize;
     candidates.get(index).copied()
 }
 
@@ -1758,10 +1756,9 @@ fn dead_branch_follow_up(state: &mut CombatState) -> Option<InternalAction> {
 
     let pool = dead_branch_card_pool();
     let index = state
+        .rng
         .card_random_rng
-        .as_mut()
-        .map(|rng| rng.random_int((pool.len() - 1) as i32) as usize)
-        .unwrap_or(0);
+        .random_int((pool.len() - 1) as i32) as usize;
     Some(InternalAction::AddGeneratedCardToPile {
         content_id: pool[index],
         to: CardPile::Hand,
@@ -1841,33 +1838,15 @@ pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) {
     if state.player.cannot_draw {
         return;
     }
-    if let Some(mut rng) = state.shuffle_rng.take() {
-        crate::combat::draw::draw_cards_with_sts_rng(state, count, &mut rng);
-        state.shuffle_rng = Some(rng);
-    } else {
-        let mut rng = SimulatorRng::new(0);
-        crate::combat::draw::draw_cards(state, count, &mut rng);
-    }
+    crate::combat::draw::draw_cards_with_combat_rng(state, count);
 }
 
 pub(crate) fn player_shuffle_discard_into_draw(state: &mut CombatState) {
-    if let Some(mut rng) = state.shuffle_rng.take() {
-        crate::combat::draw::shuffle_discard_into_draw_sts(state, &mut rng);
-        state.shuffle_rng = Some(rng);
-    } else {
-        let mut rng = SimulatorRng::new(0);
-        crate::combat::draw::shuffle_discard_into_draw(state, &mut rng);
-    }
+    crate::combat::draw::shuffle_discard_into_draw_with_combat_rng(state);
 }
 
 pub(crate) fn player_deep_breath_shuffle_discard_into_draw(state: &mut CombatState) {
-    if let Some(mut rng) = state.shuffle_rng.take() {
-        crate::combat::draw::deep_breath_shuffle_discard_into_draw_sts(state, &mut rng);
-        state.shuffle_rng = Some(rng);
-    } else {
-        let mut rng = SimulatorRng::new(0);
-        crate::combat::draw::deep_breath_shuffle_discard_into_draw(state, &mut rng);
-    }
+    crate::combat::draw::deep_breath_shuffle_discard_into_draw_with_combat_rng(state);
 }
 
 fn hand_contains_attack(state: &CombatState) -> bool {
@@ -1889,15 +1868,13 @@ fn draw_random_attacks_from_draw_pile(state: &mut CombatState, count: usize) {
         if attack_ids.is_empty() {
             attack_ids.push(card.id);
         } else {
+            // CardGroup::addToRandomSpot asks cardRandomRng for an inclusive
+            // index in 0..=(size - 1). It never appends to the end once the
+            // temporary group is non-empty.
             let index = state
+                .rng
                 .card_random_rng
-                .as_mut()
-                .map_or(attack_ids.len(), |rng| {
-                    // CardGroup::addToRandomSpot asks cardRandomRng for an
-                    // inclusive index in 0..=(size - 1). It never appends to
-                    // the end once the temporary group is non-empty.
-                    rng.random_int((attack_ids.len() - 1) as i32) as usize
-                });
+                .random_int((attack_ids.len() - 1) as i32) as usize;
             attack_ids.insert(index, card.id);
         }
     }
@@ -1907,10 +1884,8 @@ fn draw_random_attacks_from_draw_pile(state: &mut CombatState, count: usize) {
             return;
         }
 
-        if let Some(rng) = state.shuffle_rng.as_mut() {
-            let shuffle_seed = rng.random_long();
-            JavaRng::new(shuffle_seed).collections_shuffle(&mut attack_ids);
-        }
+        let shuffle_seed = state.rng.shuffle_rng.random_long();
+        JavaRng::new(shuffle_seed).collections_shuffle(&mut attack_ids);
 
         let selected_id = attack_ids.remove(0);
         let Some(draw_index) = state
@@ -1998,11 +1973,8 @@ fn add_generated_card_to_draw_pile_random_spot(
         state.piles.draw_pile.push(card);
         return;
     }
-    let index = state
-        .card_random_rng
-        .as_mut()
-        .map(|rng| rng.random_int((state.piles.draw_pile.len() - 1) as i32) as usize)
-        .unwrap_or(0);
+    let bound = (state.piles.draw_pile.len() - 1) as i32;
+    let index = state.rng.card_random_rng.random_int(bound) as usize;
     state.piles.draw_pile.insert(index, card);
 }
 
@@ -2012,11 +1984,11 @@ fn generated_card_zero_cost_if_positive(content_id: ContentId) -> Option<u8> {
 
 fn random_colorless_card(state: &mut CombatState) -> ContentId {
     let pool = colorless_discovery_pool();
-    if let Some(rng) = state.card_random_rng.as_mut() {
-        let idx = rng.random_int((pool.len() - 1) as i32) as usize;
-        return pool[idx];
-    }
-    pool[0]
+    let idx = state
+        .rng
+        .card_random_rng
+        .random_int((pool.len() - 1) as i32) as usize;
+    pool[idx]
 }
 
 fn push_card_to_pile(state: &mut CombatState, card: CardInstance, to: CardPile) {
@@ -2099,20 +2071,9 @@ fn set_random_hand_card_cost_for_combat(state: &mut CombatState, amount: u8) {
 }
 
 fn random_madness_candidate_index(state: &mut CombatState, better_possible: bool) -> Option<usize> {
-    if state.card_random_rng.is_none() {
-        return state
-            .piles
-            .hand
-            .iter()
-            .position(|card| madness_card_matches(card, better_possible));
-    }
-
     loop {
-        let index = if let Some(rng) = state.card_random_rng.as_mut() {
-            rng.random_int((state.piles.hand.len() - 1) as i32) as usize
-        } else {
-            unreachable!("handled missing Madness card_random_rng");
-        };
+        let bound = (state.piles.hand.len() - 1) as i32;
+        let index = state.rng.card_random_rng.random_int(bound) as usize;
         if madness_card_matches(&state.piles.hand[index], better_possible) {
             return Some(index);
         }
@@ -3192,10 +3153,7 @@ fn delayed_source_exhaust_destination(state: &mut CombatState) -> CardPile {
     if !state.relics.contains(&Relic::StrangeSpoon) {
         return CardPile::ExhaustPile;
     }
-    let Some(rng) = state.card_random_rng.as_mut() else {
-        return CardPile::ExhaustPile;
-    };
-    if rng.random_bool() {
+    if state.rng.card_random_rng.random_bool() {
         CardPile::DiscardPile
     } else {
         CardPile::ExhaustPile
@@ -3885,10 +3843,7 @@ fn purity_source_destination(state: &mut CombatState) -> CardPile {
     if !state.relics.contains(&Relic::StrangeSpoon) {
         return CardPile::ExhaustPile;
     }
-    let Some(rng) = state.card_random_rng.as_mut() else {
-        return CardPile::ExhaustPile;
-    };
-    if rng.random_bool() {
+    if state.rng.card_random_rng.random_bool() {
         CardPile::DiscardPile
     } else {
         CardPile::ExhaustPile
@@ -4167,7 +4122,7 @@ mod tests {
     fn hex_dazed_waits_for_armaments_hand_select_to_close() {
         let mut state = CombatState::initial_fixture();
         state.player.powers.hex = 1;
-        state.card_random_rng = Some(StsRng::new(7_141_693_325_691_831_207));
+        state.rng.card_random_rng = StsRng::new(7_141_693_325_691_831_207);
         state.piles.hand = vec![
             CardInstance::new(CardId::new(1), ARMAMENTS_ID),
             CardInstance::new(CardId::new(2), STRIKE_R_ID),
@@ -4225,8 +4180,8 @@ mod tests {
             CardInstance::new(CardId::new(5), RAMPAGE_ID),
             CardInstance::new(CardId::new(6), ANGER_ID),
         ];
-        state.card_random_rng = Some(StsRng::new(1_234));
-        state.shuffle_rng = Some(StsRng::new(5_678));
+        state.rng.card_random_rng = StsRng::new(1_234);
+        state.rng.shuffle_rng = StsRng::new(5_678);
 
         draw_random_attacks_from_draw_pile(&mut state, 3);
 
@@ -4840,7 +4795,7 @@ mod tests {
         state.player.energy = 4;
         state.player.powers.weak = 2;
         state.relics = vec![Relic::DeadBranch];
-        state.card_random_rng = Some(StsRng::with_counter(22_079_335_132, 1));
+        state.rng.card_random_rng = StsRng::with_counter(22_079_335_132, 1);
         state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), WHIRLWIND_ID)];
         state.piles.discard_pile.clear();

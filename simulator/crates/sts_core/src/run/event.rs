@@ -4836,7 +4836,7 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
-    let mut card_random_rng = Some(run.card_random_rng());
+    let mut card_random_rng = run.card_random_rng();
     let mut combat = CombatState::initial_fixture();
     combat.ascension = run.ascension;
     combat.monsters = definitions
@@ -4868,10 +4868,10 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
         &mut card_random_rng,
         &run.relics,
     );
-    combat.shuffle_rng = Some(shuffle_rng);
-    combat.monster_hp_rng = Some(monster_hp_rng);
-    combat.monster_rng = Some(monster_rng);
-    combat.card_random_rng = card_random_rng;
+    combat.rng.shuffle_rng = shuffle_rng;
+    combat.rng.monster_hp_rng = monster_hp_rng;
+    combat.rng.monster_rng = monster_rng;
+    combat.rng.card_random_rng = card_random_rng;
     run.phase = RunPhase::Combat;
     run.event = None;
     run.combat = Some(run.init_combat_consuming_relics(combat));
@@ -6378,8 +6378,7 @@ mod tests {
             after_stomp
                 .combat
                 .as_ref()
-                .and_then(|combat| combat.monster_rng.as_ref())
-                .map(StsRng::counter),
+                .map(|combat| combat.rng.monster_rng.counter()),
             Some(3)
         );
     }

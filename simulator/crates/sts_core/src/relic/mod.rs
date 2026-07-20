@@ -2035,10 +2035,8 @@ fn upgrade_random_non_status_hand_card(state: &mut CombatState) {
         return;
     }
 
-    if let Some(rng) = state.shuffle_rng.as_mut() {
-        let shuffle_seed = rng.random_long();
-        JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
-    }
+    let shuffle_seed = state.rng.shuffle_rng.random_long();
+    JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
 
     let index = upgradeable[0];
     if let Some(upgraded) = upgrade_card_instance(state.piles.hand[index]) {

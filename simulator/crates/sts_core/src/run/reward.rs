@@ -1766,9 +1766,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat);
     apply_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &mut next_combat);
     sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
-    if let Some(rng) = next_combat.card_random_rng.as_ref() {
-        next.store_rng_counter(RunRngStream::CardRandom, rng);
-    }
+    next.store_rng_counter(RunRngStream::CardRandom, &next_combat.rng.card_random_rng);
     let dead_branch_placement = if matches!(action, CombatAction::EndTurn) {
         DeadBranchPlacement::FrontOfHand
     } else {
@@ -1782,9 +1780,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
             dead_branch_placement,
         );
     }
-    if next_combat.card_random_rng.is_some() {
-        next_combat.card_random_rng = Some(next.card_random_rng());
-    }
+    next_combat.rng.card_random_rng = next.card_random_rng();
     let revived = apply_fairy_if_lethal(&mut next, &mut next_combat);
     if revived
         && matches!(action, CombatAction::EndTurn)
@@ -1977,9 +1973,7 @@ fn apply_dead_branch_for_exhaust_count_with_placement(
         }
     }
     run.store_rng_counter(RunRngStream::CardRandom, &rng);
-    if combat.card_random_rng.is_some() {
-        combat.card_random_rng = Some(rng);
-    }
+    combat.rng.card_random_rng = rng;
 }
 
 fn dead_branch_card_pool() -> Vec<ContentId> {

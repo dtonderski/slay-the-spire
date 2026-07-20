@@ -248,7 +248,7 @@ fn juggernaut_plus_deals_unmodified_damage_when_block_is_gained() {
         monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1)),
         monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(2)),
     ];
-    state.card_random_rng = Some(StsRng::new(4242));
+    state.rng.card_random_rng = StsRng::new(4242);
     let starting_hp = state
         .monsters
         .iter()
@@ -281,13 +281,7 @@ fn juggernaut_plus_deals_unmodified_damage_when_block_is_gained() {
         let expected_damage = if index == expected_target_index { 7 } else { 0 };
         assert_eq!(monster.hp, starting_hp[index] - expected_damage);
     }
-    assert_eq!(
-        next.card_random_rng
-            .as_ref()
-            .expect("test installs card rng")
-            .counter(),
-        expected_rng.counter()
-    );
+    assert_eq!(next.rng.card_random_rng.counter(), expected_rng.counter());
 }
 
 #[test]
@@ -3333,7 +3327,7 @@ fn metamorphosis_keeps_generated_x_cost_attacks_x_cost() {
     let mut matching_state = None;
     for seed in 0..10_000 {
         let mut state = CombatState::initial_fixture();
-        state.card_random_rng = Some(StsRng::new(seed));
+        state.rng.card_random_rng = StsRng::new(seed);
         state.player.energy = 2;
         state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::METAMORPHOSIS_ID)];
         state.piles.draw_pile.clear();
@@ -4219,7 +4213,7 @@ fn deep_breath_shuffles_discard_before_drawing() {
 fn deep_breath_uses_separate_discard_and_draw_shuffle_rng_calls() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
-    state.shuffle_rng = Some(StsRng::new(123));
+    state.rng.shuffle_rng = StsRng::new(123);
     state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::DEEP_BREATH_ID)];
     state.piles.draw_pile = vec![
         CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
@@ -4240,7 +4234,7 @@ fn deep_breath_uses_separate_discard_and_draw_shuffle_rng_calls() {
     )
     .expect("Deep Breath plays with a non-empty discard pile");
 
-    assert_eq!(next.shuffle_rng.as_ref().unwrap().counter(), 2);
+    assert_eq!(next.rng.shuffle_rng.counter(), 2);
     assert_eq!(next.piles.hand.len(), 1);
     assert_eq!(next.piles.draw_pile.len(), 3);
     assert_eq!(next.piles.discard_pile.len(), 1);

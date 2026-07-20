@@ -27,16 +27,10 @@ pub fn order_deck_for_combat_shuffle(deck: &[CardInstance]) -> Vec<CardInstance>
 }
 
 #[must_use]
-pub fn initialize_combat_piles(deck: &[CardInstance], shuffle_rng: &mut StsRng) -> CardPiles {
-    let mut card_random_rng = None;
-    initialize_combat_piles_with_relics(deck, shuffle_rng, &mut card_random_rng, &[])
-}
-
-#[must_use]
 pub fn initialize_combat_piles_with_relics(
     deck: &[CardInstance],
     shuffle_rng: &mut StsRng,
-    card_random_rng: &mut Option<StsRng>,
+    card_random_rng: &mut StsRng,
     relics: &[Relic],
 ) -> CardPiles {
     let mut shuffled = order_deck_for_combat_shuffle(deck);
@@ -61,9 +55,7 @@ pub fn initialize_combat_piles_with_relics(
             && get_card_definition(card.content_id)
                 .is_some_and(|definition| !definition.keywords.unplayable)
         {
-            if let Some(rng) = card_random_rng.as_mut() {
-                card.temp_cost = Some(rng.random_int(3) as u8);
-            }
+            card.temp_cost = Some(card_random_rng.random_int(3) as u8);
         }
         hand.push(card);
     }

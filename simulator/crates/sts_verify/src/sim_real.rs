@@ -19829,7 +19829,7 @@ mod tests {
         let floor = game.get("floor").and_then(Value::as_u64).unwrap_or(1) as i64;
         let deck = card_instances_from_array(game.get("deck"), 1);
         let mut shuffle_rng = StsRng::new(start.numeric_seed + floor);
-        let mut card_random_rng = None;
+        let mut card_random_rng = StsRng::new(0);
         let simulated =
             initialize_combat_piles_with_relics(&deck, &mut shuffle_rng, &mut card_random_rng, &[]);
 

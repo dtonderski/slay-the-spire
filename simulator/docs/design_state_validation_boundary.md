@@ -4,9 +4,10 @@
 
 `CombatState` and `RunState` are public, deserializable structs. Callers can
 therefore construct states that normal simulator transitions would never
-produce. Today several transition paths interpret absent RNG or malformed state
-as a plausible deterministic result. A snapshot that parses is consequently
-not necessarily safe to execute.
+produce. Several transition paths previously interpreted absent RNG or
+malformed state as a plausible deterministic result. A snapshot that parses is
+consequently not necessarily safe to execute unless both its structure and its
+cross-field invariants are enforced.
 
 ## Decision
 
@@ -16,7 +17,6 @@ state before use. Validation is observationally pure and consumes no RNG.
 The first implementation establishes `CombatState::validate()` and integrates
 the existing unique-card-pile check. It rejects:
 
-- missing shuffle, monster, monster-HP, or card-random RNG streams;
 - unknown card or monster content;
 - duplicate card or monster instance IDs;
 - invalid HP, block, energy, ascension, timer, or pending-counter bounds;
@@ -27,6 +27,14 @@ the existing unique-card-pile check. It rejects:
 Explicit fixtures remain supported, but they must provide deterministic RNG
 streams instead of representing RNG as absent. Production execution must never
 interpret `None` as seed zero, first-item selection, no shuffle, or no roll.
+
+The four authoritative combat streams are structurally mandatory through a
+single `CombatRngState`. It is flattened into `CombatState` so the existing
+`shuffle_rng`, `monster_rng`, `monster_hp_rng`, and `card_random_rng` snapshot
+field names remain stable. Missing or null streams fail deserialization before
+validation or execution. Tests and explicit fixture builders may construct all
+four streams from a deterministic seed; production transitions cannot enter a
+no-RNG mode.
 
 `RunState::validate()` applies the same fail-closed boundary to run-level state.
 It rejects impossible player, act, floor, potion-slot, reward, grid, shop, and
@@ -62,5 +70,6 @@ rename or remove them after external Python consumers are audited.
 ## Verification
 
 Regression tests must prove that valid fixtures and snapshot round trips still
-work, and that missing RNG, duplicate identities, unknown content, impossible
-bounds, and conflicting decisions fail before any transition executes.
+work, that the flattened RNG wire shape remains stable, and that missing or null
+RNG, duplicate identities, unknown content, impossible bounds, and conflicting
+decisions fail before any transition executes.
