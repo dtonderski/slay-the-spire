@@ -267,6 +267,9 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
             continue;
         }
         if monster.initial_intent_locked {
+            if monster.content_id == JAW_WORM_ID {
+                let _ = rng.random_int(99);
+            }
             continue;
         }
         let roll = rng.random_int(99);
@@ -1067,6 +1070,24 @@ mod tests {
             combat.monsters[0].intent,
             MonsterIntent::Attack { damage: 6 }
         );
+    }
+
+    #[test]
+    fn locked_jaw_worm_horde_intents_advance_ai_rng() {
+        let mut combat = CombatState::initial_fixture();
+        let opening = MonsterIntent::AttackAndBlock {
+            damage: 7,
+            block: 5,
+        };
+        combat.monsters[0].content_id = JAW_WORM_ID;
+        combat.monsters[0].intent = opening;
+        combat.monsters[0].initial_intent_locked = true;
+
+        let mut rng = StsRng::new(123);
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+
+        assert_eq!(rng.counter(), 1);
+        assert_eq!(combat.monsters[0].intent, opening);
     }
 
     #[test]

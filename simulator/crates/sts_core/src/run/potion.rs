@@ -16,6 +16,7 @@ use crate::{
         HandSelectPurpose, PotionCardRewardKind,
     },
     content::cards::{get_card_definition, upgrade_card_instance},
+    content::monsters::wake_lagavulin_on_damage,
     content::shop_pool::{
         burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
@@ -618,7 +619,11 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                             .iter_mut()
                             .find(|monster| monster.id == target)
                             .expect("validated potion target");
-                        deal_unmodified_damage_to_monster(monster, FIRE_POTION_DAMAGE * multiplier);
+                        let hp_damage = deal_unmodified_damage_to_monster(
+                            monster,
+                            FIRE_POTION_DAMAGE * multiplier,
+                        );
+                        wake_lagavulin_on_damage(monster, hp_damage);
                         !monster.alive
                     };
                     if killed {
@@ -695,10 +700,11 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                                 .iter_mut()
                                 .find(|monster| monster.id == target)
                                 .expect("target was collected from combat");
-                            deal_unmodified_damage_to_monster(
+                            let hp_damage = deal_unmodified_damage_to_monster(
                                 monster,
                                 EXPLOSIVE_POTION_DAMAGE * multiplier,
                             );
+                            wake_lagavulin_on_damage(monster, hp_damage);
                             !monster.alive
                         };
                         if killed {
@@ -1080,6 +1086,31 @@ mod tests {
         assert_eq!(combat.player.powers.vulnerable, 2);
         assert_eq!(combat.monsters[0].hp, 10);
         assert!(!combat.monsters[1].alive);
+    }
+
+    #[test]
+    fn explosive_potion_wakes_sleeping_lagavulin() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::Explosive];
+        run.empty_potion_slots = vec![1, 2];
+        run.combat = Some(CombatState::lagavulin_fixture());
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Explosive Potion damages Lagavulin");
+        let monster = &next.combat.expect("combat remains open").monsters[0];
+
+        assert_eq!(monster.sleep_turns_remaining, 0);
+        assert_eq!(monster.intent, crate::MonsterIntent::Stun);
+        assert_eq!(
+            crate::content::monsters::target_move_byte_for_monster(monster),
+            Some(4)
+        );
     }
 
     #[test]

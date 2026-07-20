@@ -12,7 +12,7 @@ use crate::{
         hand::{discard_end_of_turn_hand, resolve_end_of_turn_hand},
         piles::{add_cards_to_discard, add_cards_to_draw_random_spot},
     },
-    combat::{CombatPhase, CombatState},
+    combat::{CombatPhase, CombatState, SlimeSize},
     content::cards::{BURN_ID, DAZED_ID, SLIMED_ID, WOUND_ID},
     content::monsters::{
         apply_bronze_automaton_orb_spawn, apply_collector_spawn_torch_heads,
@@ -1712,6 +1712,11 @@ fn is_half_dead_darkling(monster: &crate::MonsterState) -> bool {
 }
 
 fn acid_slime_uses_medium_move_table(monster: &crate::MonsterState) -> bool {
+    match monster.slime_size {
+        Some(SlimeSize::Small) => return false,
+        Some(SlimeSize::Medium | SlimeSize::Large) => return true,
+        None => {}
+    }
     acid_slime_uses_large_move_table(monster)
         || monster.max_hp > ACID_SLIME_S_A7_HP_RANGE.max
         || monster.move_history.contains(&2)
@@ -1727,6 +1732,11 @@ fn acid_slime_uses_medium_move_table(monster: &crate::MonsterState) -> bool {
 }
 
 fn acid_slime_uses_large_move_table(monster: &crate::MonsterState) -> bool {
+    match monster.slime_size {
+        Some(SlimeSize::Small | SlimeSize::Medium) => return false,
+        Some(SlimeSize::Large) => return true,
+        None => {}
+    }
     monster.max_hp > ACID_SLIME_M_A7_HP_RANGE.max
         || matches!(
             monster.rolled_attack_damage,
@@ -1735,6 +1745,11 @@ fn acid_slime_uses_large_move_table(monster: &crate::MonsterState) -> bool {
 }
 
 fn spike_slime_uses_medium_or_large_move_table(monster: &crate::MonsterState) -> bool {
+    match monster.slime_size {
+        Some(SlimeSize::Small) => return false,
+        Some(SlimeSize::Medium | SlimeSize::Large) => return true,
+        None => {}
+    }
     monster.hp > SPIKE_SLIME_S_A7_HP_RANGE.max
         || matches!(
             monster.intent,
@@ -2494,6 +2509,14 @@ mod tests {
             crate::MonsterIntent::Block { block: 0 }
         );
         assert_eq!(
+            target_gremlin_wizard_direct_next_intent_after_turn(5, 0),
+            crate::MonsterIntent::Block { block: 0 }
+        );
+        assert_eq!(
+            target_gremlin_wizard_direct_next_intent_after_turn(6, 0),
+            crate::MonsterIntent::Attack { damage: 25 }
+        );
+        assert_eq!(
             target_gremlin_wizard_direct_next_intent_after_turn(3, 17),
             crate::MonsterIntent::Attack { damage: 30 }
         );
@@ -2520,6 +2543,21 @@ mod tests {
             0
         );
         assert_eq!(state.monsters[0].move_history, vec![2, 2, 1]);
+    }
+
+    #[test]
+    fn explicit_slime_size_wins_over_ambiguous_hp_and_move_history() {
+        let mut monster = CombatState::initial_fixture().monsters.remove(0);
+        monster.content_id = ACID_SLIME_ID;
+        monster.max_hp = 10;
+        monster.intent = crate::MonsterIntent::ApplyPlayerWeak { amount: 1 };
+        monster.move_history = vec![2];
+
+        monster.slime_size = Some(SlimeSize::Small);
+        assert!(!acid_slime_uses_medium_move_table(&monster));
+
+        monster.slime_size = Some(SlimeSize::Medium);
+        assert!(acid_slime_uses_medium_move_table(&monster));
     }
 
     #[test]

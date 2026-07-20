@@ -15,6 +15,7 @@ use sts_core::content::encounters::{
     target_beyond_act_three_boss_with_unlocks, target_exordium_act_one_boss_with_unlocks,
     BossUnlockState,
 };
+use sts_core::content::monsters::target_move_byte_for_monster;
 use sts_core::potion::Potion;
 use sts_core::run::event::{neow_screen_for_stage, VAMPIRES_BITE_COUNT};
 use sts_core::run::neow::{
@@ -4992,6 +4993,7 @@ fn seed_start_encounter_observed_subset(message: &Value) -> Value {
         .get("screen_type")
         .and_then(Value::as_str)
         .unwrap_or("");
+    let monster_intents_visible = observed_monster_intents_visible(game);
     let mut subset = json!({
         "screen_type": screen_type,
         "ascension": game.get("ascension_level").and_then(Value::as_u64).unwrap_or(0),
@@ -5005,7 +5007,11 @@ fn seed_start_encounter_observed_subset(message: &Value) -> Value {
         "combat_player_hp": player.map(|p| int(p, "current_hp")).unwrap_or(0),
         "combat_player_block": player.map(|p| int(p, "block")).unwrap_or(0),
         "combat_player_energy": player.map(|p| int(p, "energy")).unwrap_or(0),
-        "monsters": seed_start_monsters_from_value(combat.and_then(|combat| combat.get("monsters"))),
+        "monster_intents_visible": monster_intents_visible,
+        "monsters": seed_start_monsters_from_value(
+            combat.and_then(|combat| combat.get("monsters")),
+            monster_intents_visible,
+        ),
     });
     if screen_type == "CARD_REWARD" {
         if let Value::Object(map) = &mut subset {
@@ -5063,6 +5069,7 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
             .map(|p| int(p, "current_hp"))
             .unwrap_or_else(|| int(game, "current_hp"))
     };
+    let monster_intents_visible = observed_monster_intents_visible(game);
     let mut subset = json!({
         "screen_type": screen_type,
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
@@ -5076,7 +5083,11 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
         "hand_ids": combat_card_ids(combat.and_then(|combat| combat.get("hand"))),
         "draw_ids": combat_card_ids(combat.and_then(|combat| combat.get("draw_pile"))),
         "discard_ids": combat_card_ids(combat.and_then(|combat| combat.get("discard_pile"))),
-        "monsters": seed_start_monsters_from_value(combat.and_then(|combat| combat.get("monsters"))),
+        "monster_intents_visible": monster_intents_visible,
+        "monsters": seed_start_monsters_from_value(
+            combat.and_then(|combat| combat.get("monsters")),
+            monster_intents_visible,
+        ),
         "unobservable": {
             "shuffle_rng_draws": combat.and_then(|combat| combat.get("draw_pile")).and_then(Value::as_array).is_some_and(|draw| draw.len() == 5)
                 && combat.and_then(|combat| combat.get("discard_pile")).and_then(Value::as_array).is_some_and(Vec::is_empty),
@@ -5208,7 +5219,13 @@ fn seed_start_map_return_observed_subset(message: &Value) -> Value {
     })
 }
 
-fn seed_start_monsters_from_value(value: Option<&Value>) -> Vec<Value> {
+fn observed_monster_intents_visible(game: &Value) -> bool {
+    !relic_keys_from_value(game.get("relics"))
+        .iter()
+        .any(|relic| relic.eq_ignore_ascii_case("Runic Dome"))
+}
+
+fn seed_start_monsters_from_value(value: Option<&Value>, intents_visible: bool) -> Vec<Value> {
     let Some(monsters) = value.and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -5216,16 +5233,31 @@ fn seed_start_monsters_from_value(value: Option<&Value>) -> Vec<Value> {
     monsters
         .iter()
         .map(|monster| {
-            json!({
+            let mut projected = json!({
                 "name": monster.get("name").and_then(Value::as_str).unwrap_or(""),
                 "current_hp": int(monster, "current_hp"),
                 "max_hp": int(monster, "max_hp"),
                 "block": int(monster, "block"),
                 "intent": monster.get("intent").and_then(Value::as_str).unwrap_or(""),
+                "move_id": int(monster, "move_id"),
                 "strength": power_amount(monster.get("powers"), "Strength"),
                 "ritual": power_amount(monster.get("powers"), "Ritual"),
                 "vulnerable": power_amount(monster.get("powers"), "Vulnerable"),
-            })
+            });
+            if monster.get("move_id").and_then(Value::as_i64).is_none() {
+                projected
+                    .as_object_mut()
+                    .expect("projected monster is an object")
+                    .remove("move_id");
+            }
+            if !intents_visible {
+                let fields = projected
+                    .as_object_mut()
+                    .expect("projected monster is an object");
+                fields.remove("intent");
+                fields.remove("move_id");
+            }
+            projected
         })
         .collect()
 }
@@ -6915,34 +6947,14 @@ fn seed_start_trace_monster_name(monster: &MonsterState) -> String {
 }
 
 fn seed_start_trace_intent(monster: &MonsterState) -> String {
-    use sts_core::content::monsters::{
-        ACID_SLIME_ID, GREEN_LOUSE_ID, RED_LOUSE_ID, SPIKE_SLIME_ID,
-    };
+    use sts_core::content::monsters::{GREEN_LOUSE_ID, RED_LOUSE_ID};
 
     match monster.intent {
-        MonsterIntent::ApplyPlayerWeak { .. } if monster.content_id == ACID_SLIME_ID => {
-            "DEBUFF".to_owned()
-        }
-        MonsterIntent::Attack { .. }
-        | MonsterIntent::AttackAddSlimedToDiscard { .. }
-        | MonsterIntent::AttackApplyPlayerFrail { .. }
-        | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
-        | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
-        | MonsterIntent::AttackHealSelf { .. }
-        | MonsterIntent::AttackStealGold { .. }
-            if monster.content_id == ACID_SLIME_ID =>
-        {
-            "ATTACK_DEBUFF".to_owned()
-        }
         MonsterIntent::Block { .. }
             if matches!(monster.content_id, RED_LOUSE_ID | GREEN_LOUSE_ID) =>
         {
             "ATTACK".to_owned()
         }
-        MonsterIntent::AttackAddSlimedToDiscard { .. } if monster.content_id == SPIKE_SLIME_ID => {
-            "ATTACK_DEBUFF".to_owned()
-        }
-        MonsterIntent::Attack { .. } if monster.content_id == SPIKE_SLIME_ID => "ATTACK".to_owned(),
         _ => intent_key(monster),
     }
 }
@@ -8272,6 +8284,7 @@ fn seed_start_simulated_combat_subset_with_options(
         });
     };
     let screen_type = seed_start_simulated_combat_screen_type(combat);
+    let monster_intents_visible = !run_has_relic_key(run, RelicKey::RunicDome);
     let mut subset = json!({
         "screen_type": screen_type,
         "ascension": run.ascension,
@@ -8312,7 +8325,12 @@ fn seed_start_simulated_combat_subset_with_options(
         ),
         "draw_ids": draw_pile_to_comm_mod_visible_order(&combat.piles.draw_pile),
         "discard_ids": discard_pile_to_comm_mod_visible_order(&combat.piles.discard_pile),
-        "monsters": seed_start_monsters_from_sim(combat, end_turn_snapshot),
+        "monster_intents_visible": monster_intents_visible,
+        "monsters": seed_start_monsters_from_sim(
+            combat,
+            end_turn_snapshot,
+            monster_intents_visible,
+        ),
     });
     if let Some(choices) = combat
         .potion_card_reward
@@ -8812,7 +8830,11 @@ fn seed_start_shop_purchase_has_stale_observed_deck(
     deck_keys_from_value(game.get("deck")) == before_deck
 }
 
-fn seed_start_monsters_from_sim(combat: &CombatState, end_turn_snapshot: bool) -> Vec<Value> {
+fn seed_start_monsters_from_sim(
+    combat: &CombatState,
+    end_turn_snapshot: bool,
+    intents_visible: bool,
+) -> Vec<Value> {
     combat
         .monsters
         .iter()
@@ -8823,16 +8845,27 @@ fn seed_start_monsters_from_sim(combat: &CombatState, end_turn_snapshot: bool) -
             if end_turn_snapshot {
                 let _ = vulnerable;
             }
-            json!({
+            let mut projected = json!({
                 "name": name,
                 "current_hp": monster.hp.max(0),
                 "max_hp": monster.max_hp,
                 "block": monster.block,
                 "intent": seed_start_trace_intent(monster),
+                "move_id": target_move_byte_for_monster(monster)
+                    .map(i32::from)
+                    .unwrap_or(-1),
                 "strength": strength,
                 "ritual": monster.powers.ritual,
                 "vulnerable": vulnerable,
-            })
+            });
+            if !intents_visible {
+                let fields = projected
+                    .as_object_mut()
+                    .expect("projected monster is an object");
+                fields.remove("intent");
+                fields.remove("move_id");
+            }
+            projected
         })
         .collect()
 }
@@ -8845,8 +8878,9 @@ fn seed_start_compare_combat_subset(
     actual: Value,
     strip_piles: bool,
 ) {
-    let expected = seed_start_normalize_combat_compare(expected, strip_piles);
+    let mut expected = seed_start_normalize_combat_compare(expected, strip_piles);
     let mut actual = seed_start_normalize_combat_compare(actual, strip_piles);
+    apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
     if let (Some(expected_obj), Some(actual_obj)) = (expected.as_object(), actual.as_object_mut()) {
         for key in ["ascension", "deck_ids", "relic_ids"] {
             if !expected_obj.contains_key(key) {
@@ -8855,6 +8889,34 @@ fn seed_start_compare_combat_subset(
         }
     }
     compare_subset(report, action, label, expected, actual);
+}
+
+fn apply_observed_debug_intent_visibility_contract(expected: &mut Value, actual: &mut Value) {
+    if let (Some(expected_monsters), Some(actual_monsters)) = (
+        expected.get_mut("monsters").and_then(Value::as_array_mut),
+        actual.get_mut("monsters").and_then(Value::as_array_mut),
+    ) {
+        for (expected_monster, actual_monster) in expected_monsters.iter_mut().zip(actual_monsters)
+        {
+            if expected_monster.get("move_id").is_none() {
+                if let Some(fields) = actual_monster.as_object_mut() {
+                    fields.remove("move_id");
+                }
+            }
+            let observed_is_unsettled = expected_monster
+                .get("intent")
+                .and_then(Value::as_str)
+                .is_some_and(|intent| intent == "DEBUG");
+            if observed_is_unsettled {
+                if let Some(fields) = expected_monster.as_object_mut() {
+                    fields.remove("intent");
+                }
+                if let Some(fields) = actual_monster.as_object_mut() {
+                    fields.remove("intent");
+                }
+            }
+        }
+    }
 }
 
 fn seed_start_is_transient_combat_post_state(message: &Value) -> bool {
@@ -8895,6 +8957,10 @@ fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> V
     let Some(obj) = value.as_object_mut() else {
         return value;
     };
+    let player_is_dead = obj
+        .get("combat_player_hp")
+        .and_then(Value::as_i64)
+        .is_some_and(|hp| hp <= 0);
     obj.remove("unobservable");
     if strip_piles {
         obj.remove("hand_ids");
@@ -8904,19 +8970,25 @@ fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> V
     if let Some(monsters) = obj.get_mut("monsters").and_then(Value::as_array_mut) {
         for monster in monsters {
             if let Some(fields) = monster.as_object_mut() {
+                let monster_is_dead = fields
+                    .get("current_hp")
+                    .and_then(Value::as_i64)
+                    .is_some_and(|hp| hp <= 0);
                 // CommunicationMod exposes dead-monster powers inconsistently across
                 // lethal and settling frames. They no longer affect simulation, so
                 // compare powers only while the monster is alive.
-                if fields
-                    .get("current_hp")
-                    .and_then(Value::as_i64)
-                    .is_some_and(|hp| hp <= 0)
-                {
+                if monster_is_dead {
                     fields.remove("strength");
                     fields.remove("ritual");
                     fields.remove("vulnerable");
                 }
-                fields.remove("intent");
+                // A lethal player-damage frame can retain an in-flight or already
+                // prepared monster intent, but no future player decision can observe
+                // or act on it. Keep terminal HP and every other stable field strict.
+                if player_is_dead || monster_is_dead {
+                    fields.remove("intent");
+                    fields.remove("move_id");
+                }
             }
         }
     }
@@ -11295,45 +11367,45 @@ fn unsupported_reason(pre: &TraceState, action: &TraceAction) -> String {
 
 fn intent_key(monster: &MonsterState) -> String {
     use sts_core::content::monsters::{
-        ACID_SLIME_ID, DECA_ID, SLAVER_BLUE_ID, SLIME_BOSS_ID, SPIKE_SLIME_ID,
+        ACID_SLIME_ID, BANDIT_BEAR_ID, BANDIT_LEADER_ID, BRONZE_ORB_ID, BYRD_ID, CHOSEN_ID,
+        GREMLIN_WIZARD_ID, GUARDIAN_ID, HEXAGHOST_ID, LAGAVULIN_ID, RED_LOUSE_ID, SLIME_BOSS_ID,
+        SNECKO_ID, SPIKER_ID, SPIKE_SLIME_ID,
     };
 
     match monster.intent {
         MonsterIntent::Attack { .. }
         | MonsterIntent::AttackAddSlimedToDiscard { .. }
+        | MonsterIntent::AttackAddWoundsToDiscard { .. }
+        | MonsterIntent::AddBurnToDiscardAndDraw { .. }
         | MonsterIntent::AttackApplyPlayerFrail { .. }
         | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
         | MonsterIntent::AttackApplyPlayerWeak { .. }
+        | MonsterIntent::AttackApplyPlayerVulnerable { .. }
         | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
         | MonsterIntent::AttackMultiple { .. }
         | MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
         | MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
         | MonsterIntent::AttackMultipleUpgradeBurns { .. }
         | MonsterIntent::AttackStealGold { .. } => {
-            if matches!(monster.content_id, ACID_SLIME_ID | SPIKE_SLIME_ID)
-                || matches!(
+            if monster.content_id == GUARDIAN_ID
+                && matches!(
                     monster.intent,
-                    MonsterIntent::AttackMultipleUpgradeBurns { .. }
-                )
-                || matches!(
-                    (monster.content_id, monster.intent),
-                    (
-                        DECA_ID,
-                        MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
-                    )
+                    MonsterIntent::AttackMultiple { hits: 2, .. }
                 )
             {
-                "ATTACK_DEBUFF".to_owned()
-            } else if monster.content_id == SLAVER_BLUE_ID
-                && matches!(monster.intent, MonsterIntent::AttackApplyPlayerWeak { .. })
-            {
-                "ATTACK".to_owned()
+                "ATTACK_BUFF".to_owned()
             } else if matches!(
                 monster.intent,
                 MonsterIntent::AttackApplyPlayerWeak { .. }
+                    | MonsterIntent::AttackApplyPlayerVulnerable { .. }
+                    | MonsterIntent::AttackApplyPlayerFrail { .. }
                     | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+                    | MonsterIntent::AttackAddSlimedToDiscard { .. }
+                    | MonsterIntent::AttackAddWoundsToDiscard { .. }
+                    | MonsterIntent::AddBurnToDiscardAndDraw { .. }
                     | MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
                     | MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
+                    | MonsterIntent::AttackMultipleUpgradeBurns { .. }
                     | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
             ) {
                 "ATTACK_DEBUFF".to_owned()
@@ -11341,37 +11413,76 @@ fn intent_key(monster: &MonsterState) -> String {
                 "ATTACK".to_owned()
             }
         }
+        MonsterIntent::Block { .. } if monster.content_id == GREMLIN_WIZARD_ID => {
+            "UNKNOWN".to_owned()
+        }
+        MonsterIntent::Block { .. } => "DEFEND".to_owned(),
+        MonsterIntent::StrengthAndBlock { .. } if monster.content_id == RED_LOUSE_ID => {
+            "BUFF".to_owned()
+        }
+        MonsterIntent::StrengthAndBlock { .. } if monster.content_id == SPIKER_ID => {
+            "BUFF".to_owned()
+        }
+        MonsterIntent::StrengthAndBlock { .. } => "DEFEND_BUFF".to_owned(),
+        MonsterIntent::StrengthSelf { .. } if monster.content_id == GREMLIN_WIZARD_ID => {
+            "UNKNOWN".to_owned()
+        }
+        MonsterIntent::StrengthSelf { amount: 0 } if monster.content_id == BYRD_ID => {
+            "UNKNOWN".to_owned()
+        }
         MonsterIntent::Ritual { .. }
-        | MonsterIntent::Block { .. }
-        | MonsterIntent::StrengthAndBlock { .. }
         | MonsterIntent::HealAllMonsters { .. }
         | MonsterIntent::StrengthSelf { .. }
         | MonsterIntent::StrengthAllMonsters { .. }
         | MonsterIntent::GuardianCloseUp { .. } => "BUFF".to_owned(),
         MonsterIntent::EncourageGremlins { .. } => "DEFEND_BUFF".to_owned(),
-        MonsterIntent::AttackAndBlock { .. } | MonsterIntent::AttackHealSelf { .. } => {
-            "ATTACK_BUFF".to_owned()
+        MonsterIntent::AttackAndBlock { .. } => "ATTACK_DEFEND".to_owned(),
+        MonsterIntent::AttackHealSelf { .. } => "ATTACK_BUFF".to_owned(),
+        MonsterIntent::AddBurnToDiscard { damage, .. } if damage > 0 => "ATTACK_DEBUFF".to_owned(),
+        MonsterIntent::ApplyPlayerFrailAndWeak { .. }
+            if matches!(monster.content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) =>
+        {
+            "DEBUFF".to_owned()
+        }
+        MonsterIntent::SiphonPlayer { .. }
+            if matches!(
+                monster.content_id,
+                LAGAVULIN_ID | BRONZE_ORB_ID | BANDIT_BEAR_ID
+            ) =>
+        {
+            "STRONG_DEBUFF".to_owned()
+        }
+        MonsterIntent::ApplyPlayerHex { .. } if monster.content_id == CHOSEN_ID => {
+            "STRONG_DEBUFF".to_owned()
+        }
+        MonsterIntent::ApplyPlayerConfusion if monster.content_id == SNECKO_ID => {
+            "STRONG_DEBUFF".to_owned()
         }
         MonsterIntent::ApplyPlayerWeak { .. }
-        | MonsterIntent::AttackApplyPlayerVulnerable { .. }
-        | MonsterIntent::AttackAddWoundsToDiscard { .. }
         | MonsterIntent::ApplyPlayerHex { .. }
         | MonsterIntent::ApplyPlayerWeakStrengthSelf { .. }
         | MonsterIntent::ApplyPlayerConfusion
-        | MonsterIntent::ApplyPlayerConstricted { .. }
         | MonsterIntent::AddDazedToDiscard { .. }
         | MonsterIntent::AddDazedToDraw { .. }
         | MonsterIntent::AddBurnToDiscard { .. }
-        | MonsterIntent::AddBurnToDiscardAndDraw { .. }
         | MonsterIntent::SiphonPlayer { .. } => "DEBUFF".to_owned(),
         MonsterIntent::ApplyPlayerFrailAndWeak { .. }
         | MonsterIntent::ApplyPlayerFrailWeakVulnerable { .. }
+        | MonsterIntent::ApplyPlayerConstricted { .. }
         | MonsterIntent::ApplyPlayerEntangled { .. } => "STRONG_DEBUFF".to_owned(),
         MonsterIntent::AddSlimedToDiscard { .. } if monster.content_id == SLIME_BOSS_ID => {
             "STRONG_DEBUFF".to_owned()
         }
         MonsterIntent::AddSlimedToDiscard { .. } => "DEBUFF".to_owned(),
         MonsterIntent::Sleep => "SLEEP".to_owned(),
+        MonsterIntent::Stun
+            if matches!(
+                monster.content_id,
+                SLIME_BOSS_ID | HEXAGHOST_ID | BANDIT_LEADER_ID
+            ) =>
+        {
+            "UNKNOWN".to_owned()
+        }
         MonsterIntent::Stun => "STUN".to_owned(),
         MonsterIntent::Escape => "ESCAPE".to_owned(),
         MonsterIntent::DefensiveCharge { .. }
@@ -11469,6 +11580,7 @@ mod tests {
                     "ritual": 5,
                     "vulnerable": 2,
                     "intent": "ATTACK_BUFF",
+                    "move_id": 2,
                 },
                 {
                     "current_hp": 0,
@@ -11476,6 +11588,7 @@ mod tests {
                     "ritual": 4,
                     "vulnerable": 1,
                     "intent": "DEAD",
+                    "move_id": 3,
                 },
             ]
         });
@@ -11484,11 +11597,168 @@ mod tests {
         assert_eq!(normalized["monsters"][0]["strength"], json!(3));
         assert_eq!(normalized["monsters"][0]["ritual"], json!(5));
         assert_eq!(normalized["monsters"][0]["vulnerable"], json!(2));
-        assert!(normalized["monsters"][0].get("intent").is_none());
+        assert_eq!(normalized["monsters"][0]["intent"], json!("ATTACK_BUFF"));
+        assert_eq!(normalized["monsters"][0]["move_id"], json!(2));
         assert!(normalized["monsters"][1].get("strength").is_none());
         assert!(normalized["monsters"][1].get("ritual").is_none());
         assert!(normalized["monsters"][1].get("vulnerable").is_none());
         assert!(normalized["monsters"][1].get("intent").is_none());
+        assert!(normalized["monsters"][1].get("move_id").is_none());
+    }
+
+    #[test]
+    fn terminal_player_death_hides_only_monster_intent_fields() {
+        let normalized = seed_start_normalize_combat_compare(
+            json!({
+                "combat_player_hp": 0,
+                "monsters": [{
+                    "current_hp": 47,
+                    "strength": 3,
+                    "ritual": 2,
+                    "vulnerable": 1,
+                    "intent": "ATTACK",
+                    "move_id": 6,
+                }]
+            }),
+            false,
+        );
+
+        assert_eq!(normalized["monsters"][0]["strength"], json!(3));
+        assert_eq!(normalized["monsters"][0]["ritual"], json!(2));
+        assert_eq!(normalized["monsters"][0]["vulnerable"], json!(1));
+        assert!(normalized["monsters"][0].get("intent").is_none());
+        assert!(normalized["monsters"][0].get("move_id").is_none());
+    }
+
+    #[test]
+    fn debug_intent_visibility_contract_still_compares_move_id() {
+        let mut expected = json!({
+            "monsters": [{"current_hp": 20, "intent": "DEBUG", "move_id": 2}]
+        });
+        let mut actual = json!({
+            "monsters": [{"current_hp": 20, "intent": "ATTACK", "move_id": 3}]
+        });
+
+        apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
+
+        assert!(expected["monsters"][0].get("intent").is_none());
+        assert!(actual["monsters"][0].get("intent").is_none());
+        assert_eq!(expected["monsters"][0]["move_id"], json!(2));
+        assert_eq!(actual["monsters"][0]["move_id"], json!(3));
+        assert_eq!(
+            subset_diffs(expected, actual),
+            vec!["monsters[0].move_id: 2 != 3"]
+        );
+    }
+
+    #[test]
+    fn observed_monster_projection_does_not_invent_missing_move_id() {
+        let monsters = seed_start_monsters_from_value(
+            Some(&json!([{
+                "name": "Acid Slime (S)",
+                "current_hp": 12,
+                "max_hp": 12,
+                "block": 0,
+                "intent": "ATTACK",
+                "powers": [],
+            }])),
+            true,
+        );
+
+        assert!(monsters[0].get("move_id").is_none());
+
+        let mut expected = json!({"monsters": monsters});
+        let mut actual = json!({
+            "monsters": [{
+                "name": "Acid Slime (S)",
+                "current_hp": 12,
+                "max_hp": 12,
+                "block": 0,
+                "intent": "ATTACK",
+                "move_id": 1,
+                "strength": 0,
+                "ritual": 0,
+                "vulnerable": 0,
+            }]
+        });
+        apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
+        assert!(subset_diffs(expected, actual).is_empty());
+    }
+
+    #[test]
+    fn runic_dome_hides_intent_in_both_monster_projections() {
+        let observed = seed_start_monsters_from_value(
+            Some(&json!([{
+                "name": "Cultist",
+                "current_hp": 50,
+                "max_hp": 50,
+                "block": 0,
+                "intent": "BUFF",
+                "move_id": 3,
+                "powers": [],
+            }])),
+            false,
+        );
+        let simulated = seed_start_monsters_from_sim(&CombatState::initial_fixture(), false, false);
+
+        for monster in [&observed[0], &simulated[0]] {
+            assert!(monster.get("intent").is_none());
+            assert!(monster.get("move_id").is_none());
+        }
+    }
+
+    #[test]
+    fn intent_projection_preserves_distinct_communication_mod_categories() {
+        use sts_core::content::monsters::{BYRD_ID, GREMLIN_WIZARD_ID, GUARDIAN_ID, SPIKER_ID};
+
+        let mut monster = CombatState::initial_fixture().monsters.remove(0);
+        let cases = [
+            (MonsterIntent::Block { block: 8 }, "DEFEND"),
+            (
+                MonsterIntent::StrengthAndBlock {
+                    strength: 2,
+                    block: 8,
+                },
+                "DEFEND_BUFF",
+            ),
+            (
+                MonsterIntent::AttackAndBlock {
+                    damage: 7,
+                    block: 5,
+                },
+                "ATTACK_DEFEND",
+            ),
+            (
+                MonsterIntent::ApplyPlayerConstricted { amount: 10 },
+                "STRONG_DEBUFF",
+            ),
+        ];
+        for (intent, expected) in cases {
+            monster.intent = intent;
+            assert_eq!(intent_key(&monster), expected);
+        }
+
+        monster.content_id = GUARDIAN_ID;
+        monster.intent = MonsterIntent::AttackMultiple {
+            damage: 10,
+            hits: 2,
+        };
+        assert_eq!(intent_key(&monster), "ATTACK_BUFF");
+
+        monster.content_id = GREMLIN_WIZARD_ID;
+        monster.intent = MonsterIntent::Block { block: 0 };
+        assert_eq!(intent_key(&monster), "UNKNOWN");
+
+        monster.content_id = BYRD_ID;
+        monster.intent = MonsterIntent::StrengthSelf { amount: 0 };
+        assert_eq!(intent_key(&monster), "UNKNOWN");
+
+        monster.content_id = SPIKER_ID;
+        monster.intent = MonsterIntent::StrengthAndBlock {
+            strength: 2,
+            block: 0,
+        };
+        assert_eq!(intent_key(&monster), "BUFF");
     }
 
     #[test]
@@ -11497,7 +11767,7 @@ mod tests {
         combat.monsters[0].powers.strength = 3;
         combat.monsters[0].powers.ritual = 3;
 
-        let projected = seed_start_monsters_from_sim(&combat, false);
+        let projected = seed_start_monsters_from_sim(&combat, false, true);
 
         assert_eq!(projected[0]["strength"], json!(3));
         assert_eq!(projected[0]["ritual"], json!(3));
@@ -11927,11 +12197,11 @@ mod tests {
     }
 
     #[test]
-    fn slaver_blue_weak_attack_projects_to_observed_attack_intent() {
+    fn slaver_blue_weak_attack_projects_to_observed_attack_debuff_intent() {
         let mut monster = monster_state(&SLAVER_BLUE_A0, MonsterId::new(1));
         monster.intent = MonsterIntent::AttackApplyPlayerWeak { damage: 7, weak: 1 };
 
-        assert_eq!(seed_start_trace_intent(&monster), "ATTACK");
+        assert_eq!(seed_start_trace_intent(&monster), "ATTACK_DEBUFF");
     }
 
     #[test]

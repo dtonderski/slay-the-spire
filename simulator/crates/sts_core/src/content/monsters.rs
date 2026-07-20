@@ -5902,6 +5902,46 @@ fn writhing_mass_attack_debuff_intent(ascension: u8) -> MonsterIntent {
 
 #[must_use]
 pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<u8> {
+    if content_id == CULTIST_ID {
+        return match intent {
+            MonsterIntent::Attack { .. } => Some(1),
+            MonsterIntent::Ritual { .. } => Some(3),
+            _ => None,
+        };
+    }
+    if content_id == HEXAGHOST_ID {
+        return match intent {
+            MonsterIntent::Stun => Some(5),
+            MonsterIntent::AttackMultiple { hits: 6, .. } => Some(1),
+            MonsterIntent::AttackMultiple { .. } => Some(2),
+            MonsterIntent::StrengthAndBlock { .. } => Some(3),
+            MonsterIntent::AddBurnToDiscard { .. } => Some(4),
+            MonsterIntent::AttackMultipleUpgradeBurns { .. } => Some(6),
+            _ => None,
+        };
+    }
+    if content_id == BANDIT_POINTY_ID {
+        return match intent {
+            MonsterIntent::AttackMultiple { .. } => Some(1),
+            _ => None,
+        };
+    }
+    if content_id == BANDIT_LEADER_ID {
+        return match intent {
+            MonsterIntent::Attack { .. } => Some(1),
+            MonsterIntent::Stun => Some(2),
+            MonsterIntent::AttackApplyPlayerWeak { .. } => Some(3),
+            _ => None,
+        };
+    }
+    if content_id == BANDIT_BEAR_ID {
+        return match intent {
+            MonsterIntent::Attack { .. } => Some(1),
+            MonsterIntent::SiphonPlayer { .. } => Some(2),
+            MonsterIntent::AttackAndBlock { .. } => Some(3),
+            _ => None,
+        };
+    }
     if content_id == WRITHING_MASS_ID {
         return match intent {
             MonsterIntent::Attack { .. } => Some(0),
@@ -5925,7 +5965,8 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
             } => Some(4),
             MonsterIntent::AttackMultiple { .. } => Some(5),
             MonsterIntent::Block { .. } => Some(6),
-            MonsterIntent::ApplyPlayerWeak { .. } => Some(7),
+            MonsterIntent::ApplyPlayerWeak { .. }
+            | MonsterIntent::ApplyPlayerFrailWeakVulnerable { .. } => Some(7),
             _ => None,
         };
     }
@@ -6096,7 +6137,7 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
     }
     if content_id == REPTOMANCER_ID {
         return match intent {
-            MonsterIntent::AttackMultiple { .. } => Some(1),
+            MonsterIntent::AttackMultipleApplyPlayerWeak { .. } => Some(1),
             MonsterIntent::SummonGremlins { .. } => Some(2),
             MonsterIntent::Attack { .. } => Some(3),
             _ => None,
@@ -6308,6 +6349,7 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
                 Some(2)
             }
             MonsterIntent::ApplyPlayerWeak { .. } => Some(4),
+            MonsterIntent::SummonGremlins { .. } => Some(3),
             MonsterIntent::Attack { .. } => Some(1),
             _ => None,
         };
@@ -6341,8 +6383,20 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
     None
 }
 
+#[must_use]
+pub fn target_move_byte_for_monster(monster: &MonsterState) -> Option<u8> {
+    if monster.content_id == ACID_SLIME_ID
+        && (monster.slime_size == Some(SlimeSize::Small)
+            || (monster.slime_size.is_none() && monster.max_hp <= ACID_SLIME_S_A7_HP_RANGE.max))
+        && matches!(monster.intent, MonsterIntent::ApplyPlayerWeak { .. })
+    {
+        return Some(2);
+    }
+    target_move_byte(monster.content_id, monster.intent)
+}
+
 pub fn record_target_move(monster: &mut MonsterState) {
-    if let Some(move_byte) = target_move_byte(monster.content_id, monster.intent) {
+    if let Some(move_byte) = target_move_byte_for_monster(monster) {
         monster.move_history.push(move_byte);
     }
 }
@@ -6808,7 +6862,7 @@ pub fn target_gremlin_wizard_direct_next_intent_after_turn(
     moves_executed: u32,
     ascension: u8,
 ) -> MonsterIntent {
-    if moves_executed >= 2 && (ascension >= 17 || moves_executed % 3 == 2) {
+    if moves_executed >= 2 && (ascension >= 17 || moves_executed % 4 == 2) {
         MonsterIntent::Attack {
             damage: gremlin_wizard_damage(ascension),
         }
@@ -10145,6 +10199,97 @@ mod tests {
         );
         assert_eq!(high_branch_actual, high_branch_expected);
         assert_eq!(high_branch_rng.counter(), 1);
+    }
+
+    #[test]
+    fn reptomancer_snake_strike_records_move_one() {
+        assert_eq!(
+            target_move_byte(
+                REPTOMANCER_ID,
+                MonsterIntent::AttackMultipleApplyPlayerWeak {
+                    damage: REPTOMANCER_A3_SNAKE_STRIKE_DAMAGE,
+                    hits: REPTOMANCER_SNAKE_STRIKE_HITS,
+                    weak: 1,
+                },
+            ),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn source_move_bytes_cover_cultist_and_small_acid_slime() {
+        assert_eq!(
+            target_move_byte(CULTIST_ID, MonsterIntent::Ritual { amount: 3 }),
+            Some(3)
+        );
+        assert_eq!(
+            target_move_byte(CULTIST_ID, MonsterIntent::Attack { damage: 6 }),
+            Some(1)
+        );
+
+        let mut slime = monster_state(&ACID_SLIME_A0, MonsterId::new(1));
+        slime.max_hp = ACID_SLIME_S_A7_HP_RANGE.max;
+        slime.intent = MonsterIntent::ApplyPlayerWeak { amount: 1 };
+        assert_eq!(target_move_byte_for_monster(&slime), Some(2));
+
+        assert_eq!(
+            target_move_byte(
+                GUARDIAN_ID,
+                MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+                    frail: 0,
+                    weak: 2,
+                    vulnerable: 2,
+                },
+            ),
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn hexaghost_cycle_move_bytes_match_target() {
+        assert_eq!(target_move_byte(HEXAGHOST_ID, MonsterIntent::Stun), Some(5));
+        assert_eq!(
+            target_move_byte(
+                HEXAGHOST_ID,
+                MonsterIntent::AttackMultiple { damage: 5, hits: 6 }
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            target_move_byte(
+                HEXAGHOST_ID,
+                MonsterIntent::AddBurnToDiscard {
+                    count: 1,
+                    damage: 6,
+                }
+            ),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn masked_bandit_move_bytes_match_scripted_sequence() {
+        assert_eq!(
+            target_move_byte(
+                BANDIT_POINTY_ID,
+                MonsterIntent::AttackMultiple { damage: 5, hits: 2 }
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            target_move_byte(BANDIT_LEADER_ID, MonsterIntent::Stun),
+            Some(2)
+        );
+        assert_eq!(
+            target_move_byte(
+                BANDIT_BEAR_ID,
+                MonsterIntent::SiphonPlayer {
+                    strength: 0,
+                    dexterity: 2,
+                }
+            ),
+            Some(2)
+        );
     }
 
     #[test]
