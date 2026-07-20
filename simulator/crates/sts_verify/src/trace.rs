@@ -494,7 +494,8 @@ fn validate_visible_screen_schema(
     game: &serde_json::Map<String, Value>,
 ) -> Result<(), serde_json::Error> {
     let required_collection = match screen_type {
-        "CARD_REWARD" => Some("cards"),
+        "CARD_REWARD" => return validate_card_reward_screen_schema(step, game),
+        "BOSS_REWARD" => return validate_boss_reward_screen_schema(step, game),
         "COMBAT_REWARD" => Some("rewards"),
         "EVENT" => return validate_event_screen_schema(step, game),
         "MAP" => return validate_map_screen_schema(step, game),
@@ -517,6 +518,74 @@ fn validate_visible_screen_schema(
         }
     }
     validate_screen_state_collections(step, screen)
+}
+
+fn validate_card_reward_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "CARD_REWARD", game)?;
+    let cards = screen.get("cards").and_then(Value::as_array).ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} CARD_REWARD screen requires an array game_state.screen_state.cards"
+        ))
+    })?;
+    for card in cards {
+        let card = card.as_object().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} CARD_REWARD cards must be objects"
+            ))
+        })?;
+        if card
+            .get("id")
+            .and_then(Value::as_str)
+            .is_none_or(|id| id.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} CARD_REWARD cards require a string id"
+            )));
+        }
+        if card
+            .get("upgrades")
+            .and_then(Value::as_u64)
+            .and_then(|upgrades| u8::try_from(upgrades).ok())
+            .is_none()
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} CARD_REWARD card upgrades must be a non-negative u8"
+            )));
+        }
+    }
+    validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_boss_reward_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "BOSS_REWARD", game)?;
+    validate_identity_array(
+        step,
+        "game_state.screen_state.relics",
+        screen.get("relics").unwrap_or(&Value::Null),
+    )?;
+    validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    validate_screen_state_collections(step, screen)
+}
+
+fn required_screen_state<'a>(
+    step: u32,
+    screen_type: &str,
+    game: &'a serde_json::Map<String, Value>,
+) -> Result<&'a serde_json::Map<String, Value>, serde_json::Error> {
+    game.get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {screen_type} screen requires an object game_state.screen_state"
+            ))
+        })
 }
 
 fn validate_grid_screen_schema(
@@ -1169,6 +1238,26 @@ mod tests {
         assert!(error
             .to_string()
             .contains("trace state at step 23 relic reward payload requires an id or name"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_card_reward_without_upgrade_authority() {
+        let content = r#"{"type":"state","step":24,"message":{"game_state":{"screen_type":"CARD_REWARD","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["Strike"],"screen_state":{"cards":[{"id":"Strike_R"}]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing card upgrades are invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 24 CARD_REWARD card upgrades must be a non-negative u8"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_boss_reward_without_relic_authority() {
+        let content = r#"{"type":"state","step":25,"message":{"game_state":{"screen_type":"BOSS_REWARD","ascension_level":0,"floor":17,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["Black Blood"],"screen_state":{}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing boss relic choices are invalid");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 25 game_state.screen_state.relics must be an array"));
     }
 
     #[test]

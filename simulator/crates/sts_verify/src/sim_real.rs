@@ -6644,10 +6644,7 @@ fn seed_start_boss_reward_observed_subset(message: &Value) -> Value {
     let Some(game) = message.get("game_state") else {
         return json!({});
     };
-    let boss_relic_ids = observed_boss_relic_key_choices(game)
-        .into_iter()
-        .map(|key| relic_key_trace_name(key).to_owned())
-        .collect::<Vec<_>>();
+    let boss_relic_ids = observed_boss_relic_choice_ids(game);
     json!({
         "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
@@ -6659,6 +6656,34 @@ fn seed_start_boss_reward_observed_subset(message: &Value) -> Value {
         "choices": boss_relic_ids.iter().map(|key| key.to_ascii_lowercase()).collect::<Vec<_>>(),
         "boss_relic_ids": boss_relic_ids,
     })
+}
+
+fn observed_boss_relic_choice_ids(game: &Value) -> Vec<String> {
+    if game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .is_none_or(|screen| screen != "BOSS_REWARD")
+    {
+        return Vec::new();
+    }
+    game.get("screen_state")
+        .and_then(|screen| screen.get("relics"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|relic| {
+            relic
+                .get("name")
+                .or_else(|| relic.get("id"))
+                .and_then(Value::as_str)
+        })
+        .map(|identity| {
+            relic_key_from_trace_name(identity)
+                .map(relic_key_trace_name)
+                .unwrap_or(identity)
+                .to_owned()
+        })
+        .collect()
 }
 
 fn seed_start_rest_observed_subset(message: &Value) -> Value {
@@ -10036,6 +10061,7 @@ fn observed_reward_relic_key_offer(game: &Value) -> Option<RelicKey> {
         .and_then(relic_key_from_trace_name)
 }
 
+#[cfg(test)]
 fn observed_boss_relic_key_choices(game: &Value) -> Vec<RelicKey> {
     if game
         .get("screen_type")
@@ -12100,12 +12126,15 @@ mod tests {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            if matches!(screen_type.as_str(), "GRID" | "MAP") {
+            if matches!(
+                screen_type.as_str(),
+                "BOSS_REWARD" | "CARD_REWARD" | "GRID" | "MAP"
+            ) {
                 game.entry("choice_list").or_insert_with(|| json!([]));
             }
             if matches!(
                 screen_type.as_str(),
-                "CARD_REWARD" | "COMBAT_REWARD" | "EVENT" | "GRID" | "MAP"
+                "BOSS_REWARD" | "CARD_REWARD" | "COMBAT_REWARD" | "EVENT" | "GRID" | "MAP"
             ) {
                 let screen = game
                     .entry("screen_state")
@@ -12114,7 +12143,20 @@ mod tests {
                     .expect("test screen state is an object");
                 match screen_type.as_str() {
                     "CARD_REWARD" => {
-                        screen.entry("cards").or_insert_with(|| json!([]));
+                        let cards = screen
+                            .entry("cards")
+                            .or_insert_with(|| json!([]))
+                            .as_array_mut()
+                            .expect("test card choices are an array");
+                        for card in cards {
+                            card.as_object_mut()
+                                .expect("test card choice is an object")
+                                .entry("upgrades")
+                                .or_insert_with(|| json!(0));
+                        }
+                    }
+                    "BOSS_REWARD" => {
+                        screen.entry("relics").or_insert_with(|| json!([]));
                     }
                     "COMBAT_REWARD" => {
                         let rewards = screen
@@ -12203,6 +12245,34 @@ mod tests {
                 "any_number": false,
                 "num_cards": 1,
             }),
+        );
+    }
+
+    fn forge_boss_reward_observation(message: &mut Value) {
+        let game = message
+            .get_mut("game_state")
+            .and_then(Value::as_object_mut)
+            .expect("forged observation has game state");
+        game.insert("screen_type".to_owned(), json!("BOSS_REWARD"));
+        game.insert("choice_list".to_owned(), json!(["Black Blood"]));
+        game.insert(
+            "screen_state".to_owned(),
+            json!({ "relics": [{ "name": "Black Blood" }] }),
+        );
+    }
+
+    #[test]
+    fn unknown_boss_relic_identity_remains_visible() {
+        let game = json!({
+            "screen_type": "BOSS_REWARD",
+            "screen_state": {
+                "relics": [{ "name": "Future Relic" }],
+            },
+        });
+
+        assert_eq!(
+            observed_boss_relic_choice_ids(&game),
+            vec!["Future Relic".to_owned()]
         );
     }
 
@@ -13617,10 +13687,7 @@ mod tests {
                 _ => None,
             })
             .expect("treasure reward post-state remains in imported trace");
-        *mutated_state
-            .message
-            .pointer_mut("/game_state/screen_type")
-            .expect("treasure reward screen type") = json!("BOSS_REWARD");
+        forge_boss_reward_observation(&mut mutated_state.message);
 
         let metadata = imported.metadata.expect("trace metadata");
         let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
