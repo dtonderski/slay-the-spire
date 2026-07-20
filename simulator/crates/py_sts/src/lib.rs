@@ -364,7 +364,7 @@ impl PyOmniRunEnv {
             ));
         }
         let ascension = ascension.unwrap_or(0);
-        let state = RunState::placeholder_seeded_ironclad(stable_seed(seed), ascension);
+        let state = RunState::seeded_ironclad(stable_seed(seed), ascension);
         state
             .validate()
             .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;
@@ -1836,7 +1836,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_constructor_uses_placeholder_generated_map() {
+    fn seed_start_constructor_is_deterministic() {
         let first = PyOmniRunEnv::new_ironclad("TEST", Some(0)).expect("seed starts");
         let second = PyOmniRunEnv::new_ironclad("TEST", Some(0)).expect("seed starts");
         let other = PyOmniRunEnv::new_ironclad("OTHER", Some(0)).expect("seed starts");

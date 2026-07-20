@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn dream_catcher_reward_returns_to_completed_rest_room() {
-        let mut run = RunState::placeholder_seeded_ironclad(7, 0);
+        let mut run = RunState::seeded_ironclad(7, 0);
         run.phase = RunPhase::Rest;
         run.current_room_override = Some(RoomKind::Rest);
         run.event = None;

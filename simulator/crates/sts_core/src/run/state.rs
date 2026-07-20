@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn tiny_house_upgrades_the_target_starter_instance_on_session32_seed() {
-        let mut run = RunState::placeholder_seeded_ironclad(5_556_398_760_754_084_786_u64, 0);
+        let mut run = RunState::seeded_ironclad(5_556_398_760_754_084_786_u64, 0);
         // Neow consumes one hidden miscRng draw before equipping its relic.
         run.misc_rng_counter = 1;
         run.relics = vec![Relic::BurningBlood];
@@ -79,6 +79,22 @@ mod tests {
             run.reward.as_ref().and_then(|reward| reward.potion_offer),
             Some(Potion::Colorless)
         );
+    }
+
+    #[test]
+    fn seeded_ironclad_uses_canonical_state_without_the_map_fixture() {
+        let run = RunState::seeded_ironclad(22_079_335_079, 10);
+        let fixture = RunState::map_fixture();
+
+        run.validate().expect("seeded production run is valid");
+        assert_eq!(run.phase, RunPhase::Event);
+        assert_eq!(run.ascension, 10);
+        assert_eq!(
+            run.deck,
+            crate::content::deck::ironclad_starter_deck_for_ascension(10)
+        );
+        assert_eq!(run.relics, vec![Relic::BurningBlood]);
+        assert_ne!(run.map, fixture.map);
     }
 
     #[test]
@@ -1058,16 +1074,15 @@ impl RunState {
         run
     }
 
-    #[must_use]
-    pub fn map_fixture() -> Self {
+    fn ironclad_run_base(ascension: u8) -> Self {
         Self {
             phase: RunPhase::Idle,
-            deck: crate::content::deck::ironclad_starter_deck(),
+            deck: crate::content::deck::ironclad_starter_deck_for_ascension(ascension),
             player_hp: IRONCLAD_A0_BASE_HP,
             player_max_hp: IRONCLAD_A0_BASE_HP,
             gold: STARTING_GOLD,
             energy_per_turn: BASE_PLAYER_ENERGY,
-            map: Some(milestone8_fixture()),
+            map: None,
             current_room_override: None,
             combat: None,
             reward: None,
@@ -1143,7 +1158,7 @@ impl RunState {
             act3_shrine_list: Vec::new(),
             special_one_time_event_list: Vec::new(),
             special_one_time_events_initialized: false,
-            ascension: 0,
+            ascension,
             treasure_room: None,
             boss_chest_opened: false,
             pending_boss_relic_choices: Vec::new(),
@@ -1151,31 +1166,31 @@ impl RunState {
         }
     }
 
-    /// Start a simulator-only seeded Ironclad run.
-    ///
-    /// Fidelity: placeholder. This uses the deterministic placeholder map
-    /// generator, not target-game seed-start parity.
     #[must_use]
-    pub fn placeholder_seeded_ironclad(seed: u64, ascension: u8) -> Self {
-        Self::placeholder_seeded_ironclad_with_boss_unlocks(
+    pub fn map_fixture() -> Self {
+        let mut run = Self::ironclad_run_base(0);
+        run.map = Some(milestone8_fixture());
+        run
+    }
+
+    /// Start a deterministic seeded Ironclad run from production state.
+    #[must_use]
+    pub fn seeded_ironclad(seed: u64, ascension: u8) -> Self {
+        Self::seeded_ironclad_with_boss_unlocks(
             seed,
             ascension,
             crate::content::encounters::BossUnlockState::default(),
         )
     }
 
-    /// Start a simulator-only seeded Ironclad run with explicit profile boss history.
-    ///
-    /// Fidelity: placeholder. This uses the deterministic placeholder map
-    /// generator, not target-game seed-start parity.
+    /// Start a deterministic seeded Ironclad run with explicit profile boss history.
     #[must_use]
-    pub fn placeholder_seeded_ironclad_with_boss_unlocks(
+    pub fn seeded_ironclad_with_boss_unlocks(
         seed: u64,
         ascension: u8,
         boss_unlocks: crate::content::encounters::BossUnlockState,
     ) -> Self {
-        let mut run = Self::map_fixture();
-        run.deck = crate::content::deck::ironclad_starter_deck_for_ascension(ascension);
+        let mut run = Self::ironclad_run_base(ascension);
         run.map = Some(generate_target_fixed_map(
             seed as i64,
             TargetMapAct::Exordium,

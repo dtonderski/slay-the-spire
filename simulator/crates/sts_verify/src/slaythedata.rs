@@ -796,10 +796,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
             return None;
         }
         let seed = seed_result.as_ref()?.as_ref().ok()?;
-        Some(RunState::placeholder_seeded_ironclad(
-            *seed as u64,
-            ascension,
-        ))
+        Some(RunState::seeded_ironclad(*seed as u64, ascension))
     });
     let numeric_seed = seed_result
         .as_ref()
@@ -2713,7 +2710,7 @@ mod tests {
 
     #[test]
     fn map_candidate_evidence_uses_recorded_event_identity() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(sts_core::EventScreen {
             event: sts_core::Event::WheelOfChange,
@@ -2777,7 +2774,7 @@ mod tests {
 
     #[test]
     fn map_candidate_evidence_rejects_wrong_event_identity() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(sts_core::EventScreen {
             event: sts_core::Event::GoldenShrine,

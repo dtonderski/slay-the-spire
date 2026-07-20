@@ -1403,7 +1403,7 @@ mod tests {
 
     #[test]
     fn hjtgfct_map_path_third_pick_enters_event_room() {
-        let mut run = RunState::placeholder_seeded_ironclad(32_291_153_573, 0);
+        let mut run = RunState::seeded_ironclad(32_291_153_573, 0);
         run.phase = RunPhase::Idle;
         run.event = None;
 

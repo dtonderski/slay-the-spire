@@ -4867,7 +4867,7 @@ mod tests {
     };
 
     fn bonfire_run(card: ContentId, player_hp: i32, player_max_hp: i32) -> RunState {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.deck = vec![CardInstance::new(CardId::new(1), card)];
         run.player_hp = player_hp;
         run.player_max_hp = player_max_hp;
@@ -4878,7 +4878,7 @@ mod tests {
 
     #[test]
     fn event_screen_selection_does_not_advance_persistent_event_rng() {
-        let mut run = RunState::placeholder_seeded_ironclad(7_141_693_325_691_831_207, 0);
+        let mut run = RunState::seeded_ironclad(7_141_693_325_691_831_207, 0);
         run.current_act = 2;
         run.current_floor = 25;
         run.event_rng_counter = 9;
@@ -4890,7 +4890,7 @@ mod tests {
 
     #[test]
     fn colosseum_requires_a_map_row_past_the_act_midpoint() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         run.current_floor = 25;
 
@@ -4902,7 +4902,7 @@ mod tests {
 
     #[test]
     fn wheel_of_change_preserves_real_spin_and_prize_reveal_stages() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.player_hp = 70;
         run.player_max_hp = 80;
@@ -4934,7 +4934,7 @@ mod tests {
 
     #[test]
     fn wheel_of_change_applies_gold_before_prize_reveal() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.gold = 115;
         run.event = Some(EventScreen {
@@ -4984,7 +4984,7 @@ mod tests {
 
     #[test]
     fn cursed_tome_book_reward_proceeds_back_to_leave() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(EventScreen {
             event: Event::CursedTome,
@@ -5017,7 +5017,7 @@ mod tests {
 
     #[test]
     fn drug_dealer_transform_returns_to_leave_after_two_cards() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(EventScreen {
             event: Event::DrugDealer,
@@ -5065,7 +5065,7 @@ mod tests {
 
     #[test]
     fn dead_adventurer_legacy_continue_returns_to_next_search_after_a_safe_attempt() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         let event_data = dead_adventurer_event_data([0, 1, 2], 0, 1);
         run.event = Some(dead_adventurer_screen(&run, 2, event_data));
@@ -5083,7 +5083,7 @@ mod tests {
 
     #[test]
     fn dead_adventurer_continue_reveals_fight_before_entering_combat() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         let event_data =
             dead_adventurer_event_data([0, 1, 2], 1, 2) | DEAD_ADVENTURER_PENDING_ENCOUNTER;
@@ -5117,7 +5117,7 @@ mod tests {
 
     #[test]
     fn dead_adventurer_triple_sentries_open_beam_attack_beam() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
 
         enter_event_combat(&mut run, &[&SENTRY_A0, &SENTRY_A0, &SENTRY_A0])
             .expect("supported monster intent");
@@ -5188,7 +5188,7 @@ mod tests {
 
     #[test]
     fn designer_adjustments_can_upgrade_one_selected_card() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         run.gold = 100;
         run.deck = vec![CardInstance::new(CardId::new(1), BASH_ID)];
@@ -5229,7 +5229,7 @@ mod tests {
 
     #[test]
     fn duplicator_adds_an_unbottled_copy_and_returns_to_leave() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::Duplicator));
@@ -5269,7 +5269,7 @@ mod tests {
 
     #[test]
     fn match_and_keep_continue_opens_play_choice() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::MatchAndKeep));
 
@@ -5290,7 +5290,7 @@ mod tests {
 
     #[test]
     fn match_and_keep_play_opens_twelve_card_choices() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
@@ -5321,7 +5321,7 @@ mod tests {
 
     #[test]
     fn match_and_keep_uses_ironclad_event_starter_card() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         let state = initialize_match_and_keep_state(&mut run);
         let bash_count = state
             .cards
@@ -5351,7 +5351,7 @@ mod tests {
     fn match_and_keep_matched_cards_keep_stable_labels_but_leave_live_choices() {
         use crate::content::cards::LIMIT_BREAK_ID;
 
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
@@ -5430,7 +5430,7 @@ mod tests {
 
     #[test]
     fn match_and_keep_second_visible_index_preserves_both_pending_labels() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
@@ -5474,7 +5474,7 @@ mod tests {
 
     #[test]
     fn match_and_keep_third_click_maps_after_resolving_prior_pair() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
@@ -5511,7 +5511,7 @@ mod tests {
 
     #[test]
     fn match_and_keep_matching_pair_obtains_card() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
@@ -5607,7 +5607,7 @@ mod tests {
 
     #[test]
     fn match_and_keep_non_matching_pair_spends_attempt_without_obtain() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
@@ -5671,7 +5671,7 @@ mod tests {
 
     #[test]
     fn upgrade_shrine_pray_returns_to_leave_after_upgrade() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::UpgradeShrine));
 
@@ -5727,7 +5727,7 @@ mod tests {
     fn purifier_pray_removes_selected_card_and_returns_to_leave() {
         use crate::content::cards::BASH_ID;
 
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::Purifier));
 
@@ -5774,7 +5774,7 @@ mod tests {
 
     #[test]
     fn the_cleric_leave_requires_second_leave_click() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::TheCleric));
 
@@ -5802,7 +5802,7 @@ mod tests {
 
     #[test]
     fn the_cleric_uses_a15_purify_cost_and_does_not_charge_empty_deck() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 15);
+        let mut run = RunState::seeded_ironclad(1, 15);
         run.phase = RunPhase::Event;
         run.gold = 75;
         run.event = Some(event_screen(Event::TheCleric));
@@ -5812,7 +5812,7 @@ mod tests {
         assert_eq!(after_purify.gold, 0);
         assert!(after_purify.card_grid.is_some());
 
-        let mut empty = RunState::placeholder_seeded_ironclad(1, 15);
+        let mut empty = RunState::seeded_ironclad(1, 15);
         empty.phase = RunPhase::Event;
         empty.gold = 75;
         empty.deck.clear();
@@ -5825,7 +5825,7 @@ mod tests {
 
     #[test]
     fn secret_portal_requires_beyond_and_eight_hundred_seconds() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 3;
         run.playtime_seconds = 799;
         assert!(!special_one_time_event_is_available(
@@ -5845,7 +5845,7 @@ mod tests {
 
     #[test]
     fn secret_portal_fails_closed_at_unmodeled_act_three_boss_combat() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 3;
         run.playtime_seconds = 800;
         run.phase = RunPhase::Event;
@@ -5864,7 +5864,7 @@ mod tests {
     }
     #[test]
     fn transmogrifier_pray_returns_to_leave_after_transform() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::Transmorgrifier));
 
@@ -5911,7 +5911,7 @@ mod tests {
 
     #[test]
     fn we_meet_again_omits_locked_card_option_for_basic_only_deck() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.gold = 132;
         run.gain_potion(Potion::Swift).expect("potion slot is open");
         run.gain_potion(Potion::Elixir)
@@ -5948,7 +5948,7 @@ mod tests {
 
     #[test]
     fn note_for_yourself_ignore_shows_final_leave_screen() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::NoteForYourself));
 
@@ -5991,7 +5991,7 @@ mod tests {
 
     #[test]
     fn note_for_yourself_take_and_give_adds_note_then_removes_a_card() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::NoteForYourself));
         let original_len = run.deck.len();
@@ -6018,7 +6018,7 @@ mod tests {
 
     #[test]
     fn note_for_yourself_uses_profile_card_and_upgrade() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.note_card_content_id = BASH_ID;
         run.note_card_upgrades = 1;
         run.phase = RunPhase::Event;
@@ -6044,7 +6044,7 @@ mod tests {
 
     #[test]
     fn shining_light_leave_shows_final_leave_screen_before_map() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::ShiningLight));
 
@@ -6071,7 +6071,7 @@ mod tests {
 
     #[test]
     fn wing_statue_pray_shows_continue_before_remove_grid() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(EventScreen {
             event: Event::WingStatue,
@@ -6103,7 +6103,7 @@ mod tests {
 
     #[test]
     fn scrap_ooze_leave_after_failed_reach_shows_final_leave_screen() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.player_hp = 77;
         run.event = Some(EventScreen {
@@ -6130,7 +6130,7 @@ mod tests {
 
     #[test]
     fn big_fish_box_queues_regret_until_obtain_effect_resolves() {
-        let mut run = RunState::placeholder_seeded_ironclad(1_260_350_191_924, 0);
+        let mut run = RunState::seeded_ironclad(1_260_350_191_924, 0);
         run.phase = RunPhase::Event;
         run.current_act = 1;
         run.current_floor = 5;
@@ -6165,7 +6165,7 @@ mod tests {
 
     #[test]
     fn accursed_blacksmith_rummage_queues_pain_until_leave_screen() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.current_act = 1;
         run.event = Some(EventScreen {
@@ -6201,7 +6201,7 @@ mod tests {
 
     #[test]
     fn golden_shrine_desecrate_queues_regret_until_leave_screen() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen_for_run(&run, Event::GoldenShrine));
 
@@ -6234,7 +6234,7 @@ mod tests {
 
     #[test]
     fn golden_shrine_constructors_share_canonical_opening_choices() {
-        let run = RunState::placeholder_seeded_ironclad(1, 0);
+        let run = RunState::seeded_ironclad(1, 0);
         let generic = event_screen(Event::GoldenShrine);
         let run_aware = event_screen_for_run(&run, Event::GoldenShrine);
 
@@ -6251,7 +6251,7 @@ mod tests {
 
     #[test]
     fn golden_shrine_pray_uses_a15_gold_amount() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 15);
+        let mut run = RunState::seeded_ironclad(1, 15);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen_for_run(&run, Event::GoldenShrine));
 
@@ -6262,7 +6262,7 @@ mod tests {
 
     #[test]
     fn golden_shrine_leave_does_not_change_event_identity() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen_for_run(&run, Event::GoldenShrine));
 
@@ -6277,7 +6277,7 @@ mod tests {
 
     #[test]
     fn dead_adventurer_search_awards_progress_and_keeps_search_state() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_floor = 7;
         run.phase = RunPhase::Event;
         let gold_before = run.gold;
@@ -6309,7 +6309,7 @@ mod tests {
 
     #[test]
     fn hypnotizing_mushrooms_heal_path_adds_parasite_on_leave() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_floor = 7;
         run.player_hp = 40;
         run.player_max_hp = 80;
@@ -6342,7 +6342,7 @@ mod tests {
 
     #[test]
     fn hypnotizing_mushrooms_fight_spawns_three_fungi_beasts() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_floor = 8;
         run.monster_rng_seed = 10_634_058_411_488_052_108;
         run.phase = RunPhase::Event;
@@ -6379,7 +6379,7 @@ mod tests {
 
     #[test]
     fn the_library_read_uses_twenty_unique_cards_without_changing_rarity_factor() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         run.current_floor = 29;
         run.card_rarity_factor = -7;
@@ -6402,7 +6402,7 @@ mod tests {
 
     #[test]
     fn vampires_accept_stages_leave_before_returning_to_map() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         run.current_floor = 31;
         run.phase = RunPhase::Event;
@@ -6446,7 +6446,7 @@ mod tests {
 
     #[test]
     fn nloth_trades_one_owned_relic_for_nloths_gift() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         run.gain_relic(Relic::Vajra);
         run.gain_relic(Relic::Strawberry);
@@ -6468,7 +6468,7 @@ mod tests {
 
     #[test]
     fn lab_search_offers_source_backed_potion_choices() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen_for_run(&run, Event::Lab));
 
@@ -6494,7 +6494,7 @@ mod tests {
             vec![offers[0], offers[2]]
         );
 
-        let mut ascension_fifteen = RunState::placeholder_seeded_ironclad(1, 15);
+        let mut ascension_fifteen = RunState::seeded_ironclad(1, 15);
         ascension_fifteen.phase = RunPhase::Event;
         ascension_fifteen.event = Some(event_screen_for_run(&ascension_fifteen, Event::Lab));
         let after_search_a15 =
@@ -6514,7 +6514,7 @@ mod tests {
 
     #[test]
     fn golden_idol_queues_injury_until_obtain_effect_resolves() {
-        let mut run = RunState::placeholder_seeded_ironclad(1_435_099_163_226, 0);
+        let mut run = RunState::seeded_ironclad(1_435_099_163_226, 0);
         run.phase = RunPhase::Event;
         run.current_act = 1;
         run.event = Some(EventScreen {
@@ -6552,7 +6552,7 @@ mod tests {
 
     #[test]
     fn fountain_of_cleansing_drink_removes_curses_then_shows_leave() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.current_act = 1;
         run.gain_deck_card(INJURY_ID);
@@ -6605,7 +6605,7 @@ mod tests {
 
     #[test]
     fn ghosts_accept_queues_apparitions_until_leave_screen() {
-        let mut run = RunState::placeholder_seeded_ironclad(772_776_727_775, 0);
+        let mut run = RunState::seeded_ironclad(772_776_727_775, 0);
         run.phase = RunPhase::Event;
         run.current_act = 2;
         run.event = Some(EventScreen {
@@ -6659,7 +6659,7 @@ mod tests {
 
     #[test]
     fn the_joust_resolves_bet_against_when_owner_loses() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.current_act = 2;
         run.gold = 50;
@@ -6688,7 +6688,7 @@ mod tests {
 
     #[test]
     fn the_woman_in_blue_offers_potions_and_a15_punch() {
-        let mut buyer = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut buyer = RunState::seeded_ironclad(1, 0);
         buyer.phase = RunPhase::Event;
         buyer.gold = 40;
         buyer.event = Some(event_screen_for_run(&buyer, Event::TheWomanInBlue));
@@ -6707,7 +6707,7 @@ mod tests {
             3
         );
 
-        let mut punched = RunState::placeholder_seeded_ironclad(1, 15);
+        let mut punched = RunState::seeded_ironclad(1, 15);
         punched.phase = RunPhase::Event;
         punched.event = Some(event_screen_for_run(&punched, Event::TheWomanInBlue));
         let initial_hp = punched.player_hp;
@@ -6722,7 +6722,7 @@ mod tests {
 
     #[test]
     fn falling_removes_a_random_card_of_the_selected_type() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen_for_run(&run, Event::Falling));
         let after_intro = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
@@ -6759,7 +6759,7 @@ mod tests {
 
     #[test]
     fn moai_head_accept_heals_after_max_hp_loss() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.player_hp = 10;
         run.player_max_hp = 80;
@@ -6773,7 +6773,7 @@ mod tests {
 
     #[test]
     fn mysterious_sphere_fight_enters_two_orb_walker_combat() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.current_act = 3;
         run.event = Some(event_screen(Event::MysteriousSphere));
@@ -6796,7 +6796,7 @@ mod tests {
 
     #[test]
     fn winding_halls_card_obtains_wait_for_the_leave_stage() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.player_hp = 20;
         run.relics.push(Relic::CeramicFish);
@@ -6851,7 +6851,7 @@ mod tests {
 
     #[test]
     fn mind_bloom_third_choice_changes_after_floor_forty() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_floor = 39;
         assert_eq!(mind_bloom_choices(&run)[2].label, "I am Rich");
 
@@ -6861,7 +6861,7 @@ mod tests {
 
     #[test]
     fn mind_bloom_boss_fight_activates_slavers_collar_without_becoming_a_boss_room() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.current_floor = 39;
         run.current_room_override = Some(RoomKind::Event);
@@ -6879,7 +6879,7 @@ mod tests {
 
     #[test]
     fn mind_bloom_gold_path_awards_gold_and_normality() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.current_floor = 10;
         run.event = Some(event_screen_for_run(&run, Event::MindBloom));
@@ -6899,7 +6899,7 @@ mod tests {
 
     #[test]
     fn mark_of_bloom_blocks_run_and_combat_healing() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.gain_relic_key(RelicKey::MarkOfBloom);
         run.player_hp = 20;
         run.heal_player(30);
@@ -6914,7 +6914,7 @@ mod tests {
 
     #[test]
     fn sensory_stone_opens_colorless_reward_with_hp_cost() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.player_hp = 50;
         run.event = Some(event_screen_for_run(&run, Event::SensoryStone));

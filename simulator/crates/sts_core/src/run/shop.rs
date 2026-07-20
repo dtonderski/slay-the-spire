@@ -795,7 +795,7 @@ mod tests {
 
     #[test]
     fn non_shop_card_offer_is_rejected_before_courier_restock() {
-        let mut run = RunState::placeholder_seeded_ironclad(7, 10);
+        let mut run = RunState::seeded_ironclad(7, 10);
         run.phase = RunPhase::Shop;
         run.gold = 999;
         run.relics.push(Relic::TheCourier);
@@ -872,7 +872,7 @@ mod tests {
     }
     #[test]
     fn entering_shop_room_generates_inventory_before_merchant_is_opened() {
-        let mut run = RunState::placeholder_seeded_ironclad(3_840_209_149_409_335_969, 0);
+        let mut run = RunState::seeded_ironclad(3_840_209_149_409_335_969, 0);
         let card_rng_before = run.card_rng_counter;
 
         enter_shop_room(&mut run);
@@ -903,7 +903,7 @@ mod tests {
 
     #[test]
     fn buying_orrery_opens_five_card_rewards_then_returns_to_shop() {
-        let mut run = RunState::placeholder_seeded_ironclad(3_840_209_149_409_335_969, 0);
+        let mut run = RunState::seeded_ironclad(3_840_209_149_409_335_969, 0);
         run.phase = RunPhase::Shop;
         run.gold = 999;
         let shop = generate_shop_screen(&mut run);

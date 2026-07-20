@@ -33,10 +33,8 @@ fn generated_neow_card_reward_first_pick(
     seed: &str,
     reward: sts_core::NeowRewardType,
 ) -> Option<(&'static str, &'static str)> {
-    let run = sts_core::RunState::placeholder_seeded_ironclad(
-        sts_verify::sts_seed_string_to_long(seed) as u64,
-        0,
-    );
+    let run =
+        sts_core::RunState::seeded_ironclad(sts_verify::sts_seed_string_to_long(seed) as u64, 0);
     let run = sts_core::apply_event_action(&run, sts_core::EventAction::Choose { choice_index: 0 })
         .expect("Neow talk applies");
     let option = sts_core::generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)

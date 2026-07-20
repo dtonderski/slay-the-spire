@@ -2336,7 +2336,7 @@ mod tests {
     #[test]
     fn cursed_key_uses_persistent_card_rng_on_session31_seed() {
         let seed = (-7_812_685_662_221_499_508_i64) as u64;
-        let mut run = RunState::placeholder_seeded_ironclad(seed, 0);
+        let mut run = RunState::seeded_ironclad(seed, 0);
         run.reward_rng_seed = seed;
         run.card_rng_counter = 272;
         run.card_random_rng_counter = 19;
@@ -2367,7 +2367,7 @@ mod tests {
 
     #[test]
     fn boss_calling_bell_relics_return_to_treasure_proceed() {
-        let mut run = RunState::placeholder_seeded_ironclad(7, 0);
+        let mut run = RunState::seeded_ironclad(7, 0);
         run.current_room_override = Some(RoomKind::Boss);
         run.boss_chest_opened = true;
         enter_calling_bell_reward_screen(&mut run);
@@ -2383,7 +2383,7 @@ mod tests {
 
     #[test]
     fn final_boss_inaccessible_reward_proceeds_to_spire_heart() {
-        let mut run = RunState::placeholder_seeded_ironclad(7, 0);
+        let mut run = RunState::seeded_ironclad(7, 0);
         run.phase = RunPhase::Reward;
         run.current_act = 3;
         run.current_floor = 50;
@@ -2454,8 +2454,7 @@ mod tests {
 
     #[test]
     fn neow_three_potions_hidden_reward_consumption_is_seed_dependent() {
-        let mut duplicate_reroll_run =
-            RunState::placeholder_seeded_ironclad(2_080_939_458_480_311_800_u64, 0);
+        let mut duplicate_reroll_run = RunState::seeded_ironclad(2_080_939_458_480_311_800_u64, 0);
         consume_neow_three_potions_hidden_card_reward(&mut duplicate_reroll_run);
         assert_eq!(duplicate_reroll_run.card_rng_counter, 10);
         assert_eq!(duplicate_reroll_run.card_rarity_factor, 5);
@@ -2466,7 +2465,7 @@ mod tests {
             vec![POWER_THROUGH_ID, POMMEL_STRIKE_ID, WARCRY_ID]
         );
 
-        let mut no_reroll_run = RunState::placeholder_seeded_ironclad(22_079_335_079, 0);
+        let mut no_reroll_run = RunState::seeded_ironclad(22_079_335_079, 0);
         consume_neow_three_potions_hidden_card_reward(&mut no_reroll_run);
         assert_eq!(no_reroll_run.card_rng_counter, 9);
         assert_eq!(no_reroll_run.card_rarity_factor, 2);
@@ -2484,7 +2483,7 @@ mod tests {
         let neow_reward =
             generate_neow_colorless_reward(numeric_seed, NeowRewardType::RandomColorless);
 
-        let mut run = RunState::placeholder_seeded_ironclad(numeric_seed as u64, 0);
+        let mut run = RunState::seeded_ironclad(numeric_seed as u64, 0);
         run.card_rng_counter = neow_reward.card_rng_counter;
         run.gain_deck_card(SWIFT_STRIKE_ID);
         run.current_act = 1;
@@ -2507,8 +2506,7 @@ mod tests {
 
     #[test]
     fn prayer_wheel_eagerly_consumes_both_hidden_reward_rolls_from_session_1224() {
-        let mut run =
-            RunState::placeholder_seeded_ironclad((-4_906_255_751_777_637_416_i64) as u64, 0);
+        let mut run = RunState::seeded_ironclad((-4_906_255_751_777_637_416_i64) as u64, 0);
         run.current_room_override = Some(RoomKind::Combat);
         run.card_rng_counter = 90;
         run.card_rarity_factor = -1;
@@ -2535,7 +2533,7 @@ mod tests {
 
     #[test]
     fn close_card_reward_preserves_choices_for_reopen() {
-        let mut run = RunState::placeholder_seeded_ironclad(1_260_350_191_924, 0);
+        let mut run = RunState::seeded_ironclad(1_260_350_191_924, 0);
         run.current_room_override = Some(RoomKind::Combat);
         enter_normal_combat_reward_screen(&mut run);
 

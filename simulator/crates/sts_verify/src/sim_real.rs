@@ -6220,7 +6220,7 @@ fn seed_start_neow_option_is_supported_boss_swap(option: GeneratedNeowOption) ->
 }
 
 fn seed_start_seeded_idle_run(numeric_seed: i64, ascension: u8, deck_ids: &[String]) -> RunState {
-    let mut run = RunState::placeholder_seeded_ironclad(numeric_seed as u64, ascension);
+    let mut run = RunState::seeded_ironclad(numeric_seed as u64, ascension);
     run.phase = RunPhase::Idle;
     run.event = None;
     run.reward = None;
@@ -12841,7 +12841,7 @@ mod tests {
 
     #[test]
     fn victory_projection_uses_only_simulator_state() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_floor = 16;
         run.current_act = 1;
         run.current_room_override = Some(RoomKind::Boss);
@@ -12870,7 +12870,7 @@ mod tests {
 
     #[test]
     fn dual_wield_hand_select_projects_only_attack_and_power_candidates() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         let mut combat = CombatState::initial_fixture();
         combat.piles.hand = vec![
             CardInstance::new(CardId::new(1), POMMEL_STRIKE_PLUS_ID),
@@ -13196,7 +13196,7 @@ mod tests {
 
     #[test]
     fn fusion_hammer_removes_smith_from_seed_start_rest_projection() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Rest;
         run.relics.push(Relic::FusionHammer);
 
@@ -13209,7 +13209,7 @@ mod tests {
 
     #[test]
     fn seed_start_rest_projection_uses_dynamic_relic_action_order() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Rest;
         run.relics.extend([
             Relic::CoffeeDripper,
@@ -13235,7 +13235,7 @@ mod tests {
 
     #[test]
     fn seed_start_potion_command_drops_stray_target_for_targetless_potion() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.potions = vec![Potion::Dexterity];
 
         let command = ParsedPotionUse {
@@ -13248,7 +13248,7 @@ mod tests {
 
     #[test]
     fn seed_start_potion_command_keeps_target_for_targeted_potion() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.potions = vec![Potion::Fire];
 
         let target = MonsterId::new(1);
@@ -13763,8 +13763,7 @@ mod tests {
             })
             .expect("trace start command");
         let expected_boss =
-            RunState::placeholder_seeded_ironclad(start.numeric_seed as u64, start.ascension)
-                .act1_boss;
+            RunState::seeded_ironclad(start.numeric_seed as u64, start.ascension).act1_boss;
         let forged_boss = match expected_boss {
             sts_core::Act1Boss::Guardian => "Hexaghost",
             sts_core::Act1Boss::Hexaghost | sts_core::Act1Boss::SlimeBoss => "The Guardian",
@@ -15134,7 +15133,7 @@ mod tests {
 
     #[test]
     fn seed_start_event_grid_requires_explicit_confirm_after_final_selection() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(EventScreen {
             event: Event::DrugDealer,
@@ -15192,7 +15191,7 @@ mod tests {
 
     #[test]
     fn seed_start_completed_event_reward_waits_for_proceed() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Reward;
         run.event = Some(EventScreen {
             event: Event::CursedTome,
@@ -15318,7 +15317,7 @@ mod tests {
 
     #[test]
     fn seed_start_mushrooms_event_uses_communication_mod_identity_and_labels() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_floor = 8;
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::HypnotizingColoredMushrooms));
@@ -15370,7 +15369,7 @@ mod tests {
 
     #[test]
     fn seed_start_event_choice_index_matches_observed_shining_light_leave_label() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::ShiningLight));
         let pre_message = json!({
@@ -16225,7 +16224,7 @@ mod tests {
 
     #[test]
     fn shop_choose_binding_uses_core_merchant_state_and_rejects_room_index_drift() {
-        let mut run = RunState::placeholder_seeded_ironclad(1_218_623, 0);
+        let mut run = RunState::seeded_ironclad(1_218_623, 0);
         run.gold = 999;
         sts_core::enter_shop_room(&mut run);
         assert_eq!(
@@ -16873,7 +16872,7 @@ mod tests {
 
     #[test]
     fn event_projection_defers_simulator_owned_pending_obtain_cards() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::TheSsssserpent));
         let deck_before = deck_content_keys(&run.deck);
@@ -16887,7 +16886,7 @@ mod tests {
         expected_deck.push("Regret".to_owned());
         assert_eq!(settled_projection, expected_deck);
 
-        let mut protected = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut protected = RunState::seeded_ironclad(1, 0);
         let protected_deck = deck_content_keys(&protected.deck);
         protected.gain_relic_key(RelicKey::Omamori);
         protected.queue_pending_obtain_card(sts_core::content::cards::PAIN_ID);
@@ -16926,7 +16925,7 @@ mod tests {
 
     #[test]
     fn seed_start_vampires_projection_delays_bites_until_leave() {
-        let mut run = RunState::placeholder_seeded_ironclad(1, 0);
+        let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         run.current_floor = 31;
         run.phase = RunPhase::Event;
