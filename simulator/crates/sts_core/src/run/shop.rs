@@ -1,6 +1,5 @@
 use crate::{
     card::{CardInstance, CardRarity, CardType},
-    content::cards::ANGER_ID,
     content::shop_pool::{
         assign_random_class_card_excluding, random_class_card_of_type_and_rarity,
         random_class_card_of_type_and_rarity_with_fallback, random_colorless_from_pool,
@@ -17,9 +16,6 @@ use crate::{
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
-pub const SHOP_ANGER_PRICE: i32 = 50;
-pub const SHOP_VAJRA_PRICE: i32 = 150;
-pub const SHOP_FIRE_POTION_PRICE: i32 = 50;
 pub const SHOP_BASE_REMOVE_PRICE: i32 = 75;
 pub const SHOP_REMOVE_PRICE_INCREASE: i32 = 25;
 
@@ -491,47 +487,9 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
     shop
 }
 
-#[must_use]
-pub fn legacy_fixed_shop_screen(next_card_id: u64) -> ShopScreen {
-    ShopScreen {
-        cards: vec![ShopCardSlot {
-            card: CardInstance::new(CardId::new(next_card_id), ANGER_ID),
-            price: SHOP_ANGER_PRICE,
-            sold: false,
-        }],
-        relics: vec![ShopRelicSlot {
-            relic_key: RelicKey::Vajra,
-            price: SHOP_VAJRA_PRICE,
-            sold: false,
-        }],
-        potions: vec![ShopPotionSlot {
-            potion: Potion::Fire,
-            price: SHOP_FIRE_POTION_PRICE,
-            sold: false,
-        }],
-        remove_cost: SHOP_BASE_REMOVE_PRICE,
-        remove_available: true,
-        sale_slot: None,
-    }
-}
-
-/// Compatibility wrapper for [`legacy_fixed_shop_screen`].
-///
-/// Fidelity: [`crate::FidelityCategory::LegacyFixed`]. This is the early
-/// milestone Anger/Vajra/Fire Potion shop fixture used when no merchant RNG seed
-/// is available.
-#[must_use]
-pub fn fixed_shop_screen(next_card_id: u64) -> ShopScreen {
-    legacy_fixed_shop_screen(next_card_id)
-}
-
 pub fn enter_shop_room(run: &mut RunState) {
     run.phase = RunPhase::Shop;
-    run.shop = Some(if run.merchant_rng_seed == 0 {
-        legacy_fixed_shop_screen(run.next_card_instance_id())
-    } else {
-        generate_shop_screen(run)
-    });
+    run.shop = Some(generate_shop_screen(run));
     run.shop_merchant_open = false;
     run.card_grid = None;
     if run.relics.contains(&Relic::MealTicket) {
@@ -542,11 +500,7 @@ pub fn enter_shop_room(run: &mut RunState) {
 pub fn open_shop_merchant(run: &mut RunState) {
     run.phase = RunPhase::Shop;
     if run.shop.is_none() {
-        run.shop = Some(if run.merchant_rng_seed == 0 {
-            legacy_fixed_shop_screen(run.next_card_instance_id())
-        } else {
-            generate_shop_screen(run)
-        });
+        run.shop = Some(generate_shop_screen(run));
     }
     run.shop_merchant_open = true;
 }
@@ -832,7 +786,6 @@ pub fn shop_action_for_choice_index(run: &RunState, choice_index: usize) -> SimR
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::ANGER_ID;
 
     #[test]
     fn missing_shop_inventory_does_not_expose_room_proceed() {
@@ -853,35 +806,41 @@ mod tests {
 
         let opened = apply_shop_action(&run, RunAction::EnterShop).expect("shop opens");
         assert!(opened.shop_merchant_open);
-        assert_eq!(
-            opened.shop.as_ref().unwrap().cards[0].card.content_id,
-            ANGER_ID
-        );
+        let inventory = opened.shop.clone().expect("generated inventory");
+        assert_eq!(inventory.cards.len(), 7);
 
         let closed = apply_shop_action(&opened, RunAction::LeaveShop).expect("merchant closes");
         assert!(!closed.shop_merchant_open);
-        assert_eq!(
-            closed.shop.as_ref().unwrap().cards[0].card.content_id,
-            ANGER_ID
-        );
+        assert_eq!(closed.shop.as_ref(), Some(&inventory));
         assert_eq!(
             legal_shop_actions(&closed),
             vec![RunAction::EnterShop, RunAction::Proceed]
         );
 
+        let reopened = apply_shop_action(&closed, RunAction::EnterShop).expect("merchant reopens");
+        assert!(reopened.shop_merchant_open);
+        assert_eq!(reopened.shop.as_ref(), Some(&inventory));
+
         let left_room = apply_shop_action(&closed, RunAction::Proceed).expect("shop room closes");
         assert_eq!(left_room.phase, RunPhase::Idle);
         assert!(left_room.shop.is_none());
         assert!(!left_room.shop_merchant_open);
-
-        let reopened = apply_shop_action(&closed, RunAction::EnterShop).expect("merchant reopens");
-        assert!(reopened.shop_merchant_open);
-        assert_eq!(
-            reopened.shop.as_ref().unwrap().cards[0].card.content_id,
-            opened.shop.as_ref().unwrap().cards[0].card.content_id
-        );
     }
+    #[test]
+    fn zero_seed_shop_uses_generated_inventory_and_rng_streams() {
+        let mut run = RunState::map_fixture();
+        assert_eq!(run.merchant_rng_seed, 0);
+        enter_shop_room(&mut run);
 
+        let shop = run.shop.as_ref().expect("zero-seed shop is generated");
+        assert_eq!(shop.cards.len(), 7);
+        assert_eq!(shop.relics.len(), 3);
+        assert_eq!(shop.potions.len(), 3);
+        assert!(shop.sale_slot.is_some());
+        assert!(run.card_rng_counter > 0);
+        assert!(run.merchant_rng_counter > 0);
+        assert!(run.potion_rng_counter > 0);
+    }
     #[test]
     fn entering_shop_room_generates_inventory_before_merchant_is_opened() {
         let mut run = RunState::placeholder_seeded_ironclad(3_840_209_149_409_335_969, 0);
@@ -918,7 +877,8 @@ mod tests {
         let mut run = RunState::placeholder_seeded_ironclad(3_840_209_149_409_335_969, 0);
         run.phase = RunPhase::Shop;
         run.gold = 999;
-        run.shop = Some(legacy_fixed_shop_screen(run.next_card_instance_id()));
+        let shop = generate_shop_screen(&mut run);
+        run.shop = Some(shop);
         run.shop_merchant_open = true;
         run.shop.as_mut().unwrap().relics[0].relic_key = RelicKey::Orrery;
 

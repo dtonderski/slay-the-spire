@@ -54,11 +54,10 @@ pub use reward::{
 };
 pub use shop::{
     affordable_shop_picks, apply_shop_action, enter_shop_room, enter_shop_screen,
-    fixed_shop_screen, generate_shop_screen, leave_shop_merchant, leave_shop_room,
-    legacy_fixed_shop_screen, legal_shop_actions, open_shop_merchant, shop_action_for_choice_index,
-    shop_card_rarity_roll, shop_relic_tier_roll, shop_remove_cost_for_run, validate_shop_action,
-    ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen, SHOP_ANGER_PRICE,
-    SHOP_BASE_REMOVE_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE,
+    generate_shop_screen, leave_shop_merchant, leave_shop_room, legal_shop_actions,
+    open_shop_merchant, shop_action_for_choice_index, shop_card_rarity_roll, shop_relic_tier_roll,
+    shop_remove_cost_for_run, validate_shop_action, ShopCardSlot, ShopPick, ShopPotionSlot,
+    ShopRelicSlot, ShopScreen, SHOP_BASE_REMOVE_PRICE,
 };
 pub use state::{
     Act1Boss, Act3Boss, RewardContinuation, RewardScreen, RunAction, RunPhase, RunState,

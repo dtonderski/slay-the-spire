@@ -7,10 +7,36 @@ use sts_core::{
     enter_event_screen, enter_fixed_event_screen, leave_shop_room, legal_event_actions,
     legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, CardId,
     CardInstance, Event, EventAction, MapAction, MapNodeId, Potion, Relic, RelicKey, RestAction,
-    RoomKind, RunAction, RunPhase, RunState, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD,
-    SHOP_ANGER_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE, VAJRA_STRENGTH,
+    RoomKind, RunAction, RunPhase, RunState, ShopCardSlot, ShopPotionSlot, ShopRelicSlot,
+    ShopScreen, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, VAJRA_STRENGTH,
 };
 
+const SHOP_ANGER_PRICE: i32 = 50;
+const SHOP_VAJRA_PRICE: i32 = 150;
+const SHOP_FIRE_POTION_PRICE: i32 = 50;
+
+fn legacy_fixed_shop_screen(next_card_id: u64) -> ShopScreen {
+    ShopScreen {
+        cards: vec![ShopCardSlot {
+            card: CardInstance::new(CardId::new(next_card_id), ANGER_ID),
+            price: SHOP_ANGER_PRICE,
+            sold: false,
+        }],
+        relics: vec![ShopRelicSlot {
+            relic_key: RelicKey::Vajra,
+            price: SHOP_VAJRA_PRICE,
+            sold: false,
+        }],
+        potions: vec![ShopPotionSlot {
+            potion: Potion::Fire,
+            price: SHOP_FIRE_POTION_PRICE,
+            sold: false,
+        }],
+        remove_cost: 75,
+        remove_available: true,
+        sale_slot: None,
+    }
+}
 fn reach_shop_via_left_branch() -> RunState {
     let mut run = RunState::map_fixture();
     for node_id in [MapNodeId::new(1), MapNodeId::new(3), MapNodeId::new(4)] {
@@ -26,7 +52,9 @@ fn reach_shop_via_left_branch() -> RunState {
             run.treasure_room = None;
         }
     }
-    apply_run_action(&run, RunAction::EnterShop).expect("open merchant")
+    let mut run = apply_run_action(&run, RunAction::EnterShop).expect("open merchant");
+    run.shop = Some(legacy_fixed_shop_screen(run.next_card_instance_id()));
+    run
 }
 
 fn proceed_rest(run: &RunState) -> RunState {
@@ -202,7 +230,7 @@ fn smith_is_illegal_outside_rest_phase() {
 }
 
 #[test]
-fn entering_shop_room_exposes_anger_and_blocks_map_actions() {
+fn explicit_legacy_shop_fixture_exposes_anger_and_blocks_map_actions() {
     let run = reach_shop_via_left_branch();
 
     assert_eq!(run.phase, RunPhase::Shop);
