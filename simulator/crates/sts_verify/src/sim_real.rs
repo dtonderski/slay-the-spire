@@ -12100,7 +12100,7 @@ mod tests {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            if screen_type == "MAP" {
+            if matches!(screen_type.as_str(), "GRID" | "MAP") {
                 game.entry("choice_list").or_insert_with(|| json!([]));
             }
             if matches!(
@@ -12136,7 +12136,20 @@ mod tests {
                             .entry("current_node")
                             .or_insert_with(|| json!({ "x": 0, "y": -1 }));
                     }
-                    "GRID" => {}
+                    "GRID" => {
+                        screen.entry("cards").or_insert_with(|| json!([]));
+                        screen.entry("selected_cards").or_insert_with(|| json!([]));
+                        for field in [
+                            "confirm_up",
+                            "for_purge",
+                            "for_transform",
+                            "for_upgrade",
+                            "any_number",
+                        ] {
+                            screen.entry(field).or_insert_with(|| json!(false));
+                        }
+                        screen.entry("num_cards").or_insert_with(|| json!(1));
+                    }
                     _ => unreachable!(),
                 }
             }
@@ -12146,6 +12159,28 @@ mod tests {
             .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    fn forge_grid_observation(message: &mut Value) {
+        let game = message
+            .get_mut("game_state")
+            .and_then(Value::as_object_mut)
+            .expect("forged observation has game state");
+        game.insert("screen_type".to_owned(), json!("GRID"));
+        game.insert("choice_list".to_owned(), json!(["Strike"]));
+        game.insert(
+            "screen_state".to_owned(),
+            json!({
+                "cards": [{ "id": "Strike_R" }],
+                "selected_cards": [],
+                "confirm_up": false,
+                "for_purge": false,
+                "for_transform": false,
+                "for_upgrade": false,
+                "any_number": false,
+                "num_cards": 1,
+            }),
+        );
     }
 
     #[test]
@@ -13801,10 +13836,7 @@ mod tests {
                 _ => None,
             })
             .expect("shop purchase post-state remains in imported trace");
-        *mutated_state
-            .message
-            .pointer_mut("/game_state/screen_type")
-            .expect("shop screen type") = json!("GRID");
+        forge_grid_observation(&mut mutated_state.message);
 
         let metadata = imported.metadata.expect("trace metadata");
         let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
@@ -14107,10 +14139,7 @@ mod tests {
                 _ => None,
             })
             .expect("Armaments executing hand-select frame");
-        *transient
-            .message
-            .pointer_mut("/game_state/screen_type")
-            .expect("transient screen type") = json!("GRID");
+        forge_grid_observation(&mut transient.message);
 
         let forged_trace = crate::serialize_communication_mod_trace(&metadata, &lines);
         let forged = verify_communication_mod_trace(&forged_trace).expect("forged trace parses");

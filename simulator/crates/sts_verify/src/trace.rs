@@ -498,7 +498,7 @@ fn validate_visible_screen_schema(
         "COMBAT_REWARD" => Some("rewards"),
         "EVENT" => return validate_event_screen_schema(step, game),
         "MAP" => return validate_map_screen_schema(step, game),
-        "GRID" => None,
+        "GRID" => return validate_grid_screen_schema(step, game),
         _ => return validate_optional_screen_state(step, game),
     };
     let screen = game
@@ -515,6 +515,68 @@ fn validate_visible_screen_schema(
                 "trace state at step {step} {screen_type} screen requires an array game_state.screen_state.{field}"
             )));
         }
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_grid_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = game
+        .get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} GRID screen requires an object game_state.screen_state"
+            ))
+        })?;
+    validate_identity_array(
+        step,
+        "game_state.screen_state.cards",
+        screen.get("cards").unwrap_or(&Value::Null),
+    )?;
+    validate_identity_array(
+        step,
+        "game_state.screen_state.selected_cards",
+        screen.get("selected_cards").unwrap_or(&Value::Null),
+    )?;
+    for field in [
+        "confirm_up",
+        "for_purge",
+        "for_transform",
+        "for_upgrade",
+        "any_number",
+    ] {
+        if screen.get(field).and_then(Value::as_bool).is_none() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.{field} must be a boolean"
+            )));
+        }
+    }
+    let purpose_count = ["for_purge", "for_transform", "for_upgrade"]
+        .iter()
+        .filter(|field| screen.get(**field).and_then(Value::as_bool) == Some(true))
+        .count();
+    if purpose_count > 1 {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} GRID screen declares multiple selection purposes"
+        )));
+    }
+    if screen
+        .get("num_cards")
+        .and_then(Value::as_u64)
+        .filter(|count| *count > 0 && u32::try_from(*count).is_ok())
+        .is_none()
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.num_cards must be a positive u32"
+        )));
+    }
+    if screen.get("confirm_up").and_then(Value::as_bool) == Some(false)
+        || game.get("choice_list").is_some()
+    {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
     }
     validate_screen_state_collections(step, screen)
 }
@@ -1018,6 +1080,24 @@ mod tests {
         let content = r#"{"type":"state","step":19,"message":{"game_state":{"screen_type":"MAP","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["x=0"],"screen_state":{"first_node_chosen":false,"current_node":{"x":0,"y":-1},"next_nodes":[{"symbol":"M","x":0,"y":0}]}}}}"#;
 
         parse_trace_jsonl(content).expect("pre-first-node sentinel is authoritative");
+    }
+
+    #[test]
+    fn parse_trace_rejects_grid_without_selection_mode() {
+        let content = r#"{"type":"state","step":20,"message":{"game_state":{"screen_type":"GRID","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["Strike"],"screen_state":{"cards":[{"id":"Strike_R"}],"selected_cards":[],"for_purge":true,"for_transform":false,"for_upgrade":false,"any_number":false,"num_cards":1}}}}"#;
+
+        let error =
+            parse_trace_jsonl(content).expect_err("missing grid confirmation mode is invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 20 game_state.screen_state.confirm_up must be a boolean"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_accepts_grid_confirmation_without_choice_list() {
+        let content = r#"{"type":"state","step":21,"message":{"game_state":{"screen_type":"GRID","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"cards":[{"id":"Strike_R"}],"selected_cards":[],"confirm_up":true,"for_purge":true,"for_transform":false,"for_upgrade":false,"any_number":false,"num_cards":1}}}}"#;
+
+        parse_trace_jsonl(content).expect("confirmation overlay omits ordinary choices");
     }
 
     #[test]
