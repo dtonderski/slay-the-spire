@@ -1,7 +1,7 @@
 use crate::{
     action::CombatAction,
     card::{CardDefinition, CardType, TargetRequirement},
-    combat::{transition::top_draw_card_definition, CombatState},
+    combat::{transition::top_draw_card_definition, CombatPhase, CombatState},
     content::cards::{
         get_card_definition, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
         DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, NORMALITY_ID,
@@ -15,6 +15,10 @@ use crate::{
 
 #[must_use]
 pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
+    if state.phase != CombatPhase::WaitingForPlayer {
+        return Vec::new();
+    }
+
     if state.hand_select.is_some()
         || state.draw_select.is_some()
         || state.discard_select.is_some()
@@ -121,6 +125,12 @@ pub fn legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
 }
 
 pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimResult<()> {
+    if state.phase != CombatPhase::WaitingForPlayer {
+        return Err(SimError::IllegalAction(
+            "combat is not waiting for player input",
+        ));
+    }
+
     if state.hand_select.is_some() {
         return Err(SimError::IllegalAction("hand select is open"));
     }
@@ -434,6 +444,32 @@ fn validate_havoc_play(
                     "Havoc top card cannot have a target",
                 ))
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_player_combat_phases_expose_and_accept_no_player_actions() {
+        for phase in [
+            CombatPhase::MonsterTurn,
+            CombatPhase::Won,
+            CombatPhase::Lost,
+        ] {
+            let mut state = CombatState::initial_fixture();
+            state.phase = phase;
+
+            assert!(legal_combat_actions(&state).is_empty(), "{phase:?}");
+            assert_eq!(
+                validate_combat_action(&state, CombatAction::EndTurn),
+                Err(SimError::IllegalAction(
+                    "combat is not waiting for player input"
+                )),
+                "{phase:?}"
+            );
         }
     }
 }
