@@ -7021,7 +7021,8 @@ fn grid_card_choices_from_value(game: &Value) -> Vec<String> {
                 .filter_map(|card| {
                     card.get("name")
                         .and_then(Value::as_str)
-                        .map(|name| name.to_ascii_lowercase())
+                        .or_else(|| card.get("id").and_then(Value::as_str))
+                        .map(str::to_ascii_lowercase)
                 })
                 .collect()
         })
@@ -7889,9 +7890,9 @@ fn map_nodes_from_value(value: Option<&Value>) -> Vec<Value> {
         .iter()
         .map(|node| {
             json!({
-                "symbol": node.get("symbol").and_then(Value::as_str).unwrap_or(""),
-                "x": node.get("x").and_then(Value::as_i64).unwrap_or(0),
-                "y": node.get("y").and_then(Value::as_i64).unwrap_or(0),
+                "symbol": node.get("symbol").and_then(Value::as_str),
+                "x": node.get("x").and_then(Value::as_i64),
+                "y": node.get("y").and_then(Value::as_i64),
             })
         })
         .collect()
@@ -12083,6 +12084,34 @@ mod tests {
                 continue;
             };
             game.entry("potions").or_insert_with(|| json!([]));
+            let screen_type = game
+                .get("screen_type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            if matches!(
+                screen_type.as_str(),
+                "CARD_REWARD" | "COMBAT_REWARD" | "GRID" | "MAP"
+            ) {
+                let screen = game
+                    .entry("screen_state")
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+                    .expect("test screen state is an object");
+                match screen_type.as_str() {
+                    "CARD_REWARD" => {
+                        screen.entry("cards").or_insert_with(|| json!([]));
+                    }
+                    "COMBAT_REWARD" => {
+                        screen.entry("rewards").or_insert_with(|| json!([]));
+                    }
+                    "MAP" => {
+                        screen.entry("next_nodes").or_insert_with(|| json!([]));
+                    }
+                    "GRID" => {}
+                    _ => unreachable!(),
+                }
+            }
         }
         lines
             .into_iter()

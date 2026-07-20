@@ -314,6 +314,145 @@ fn validate_game_state_schema(step: u32, message: &Value) -> Result<(), serde_js
             "trace state at step {step} game_state.choice_list must be an array of strings"
         )));
     }
+    validate_visible_screen_schema(step, screen_type, game)?;
+    Ok(())
+}
+
+fn validate_visible_screen_schema(
+    step: u32,
+    screen_type: &str,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let required_collection = match screen_type {
+        "CARD_REWARD" => Some("cards"),
+        "COMBAT_REWARD" => Some("rewards"),
+        "MAP" => Some("next_nodes"),
+        "GRID" => None,
+        _ => return validate_optional_screen_state(step, game),
+    };
+    let screen = game
+        .get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {screen_type} screen requires an object game_state.screen_state"
+            ))
+        })?;
+    if let Some(field) = required_collection {
+        if screen.get(field).and_then(Value::as_array).is_none() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {screen_type} screen requires an array game_state.screen_state.{field}"
+            )));
+        }
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_optional_screen_state(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let Some(value) = game.get("screen_state") else {
+        return Ok(());
+    };
+    let screen = value.as_object().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state must be a JSON object"
+        ))
+    })?;
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_screen_state_collections(
+    step: u32,
+    screen: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    if let Some(cards) = screen.get("cards") {
+        validate_identity_array(step, "game_state.screen_state.cards", cards)?;
+    }
+    if let Some(rewards) = screen.get("rewards") {
+        validate_object_array_field(
+            step,
+            "game_state.screen_state.rewards",
+            rewards,
+            "reward_type",
+        )?;
+    }
+    if let Some(options) = screen.get("options") {
+        validate_object_array_field(step, "game_state.screen_state.options", options, "text")?;
+    }
+    if let Some(nodes) = screen.get("next_nodes") {
+        let nodes = nodes.as_array().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.next_nodes must be an array"
+            ))
+        })?;
+        for node in nodes {
+            let node = node.as_object().ok_or_else(|| {
+                serde_json::Error::custom(format!(
+                    "trace state at step {step} game_state.screen_state.next_nodes entries must be objects"
+                ))
+            })?;
+            if node
+                .get("symbol")
+                .and_then(Value::as_str)
+                .filter(|symbol| !symbol.trim().is_empty())
+                .is_none()
+                || node.get("x").and_then(Value::as_i64).is_none()
+                || node.get("y").and_then(Value::as_i64).is_none()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} game_state.screen_state.next_nodes entries require symbol, x, and y"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_identity_array(step: u32, path: &str, value: &Value) -> Result<(), serde_json::Error> {
+    let entries = value.as_array().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path} must be an array"
+        ))
+    })?;
+    if entries.iter().any(|entry| {
+        !entry.as_object().is_some_and(|entry| {
+            entry
+                .get("id")
+                .and_then(Value::as_str)
+                .or_else(|| entry.get("name").and_then(Value::as_str))
+                .is_some_and(|identity| !identity.trim().is_empty())
+        })
+    }) {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {path} entries must name an id or name"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_object_array_field(
+    step: u32,
+    path: &str,
+    value: &Value,
+    required_field: &str,
+) -> Result<(), serde_json::Error> {
+    let entries = value.as_array().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path} must be an array"
+        ))
+    })?;
+    if entries.iter().any(|entry| {
+        entry
+            .get(required_field)
+            .and_then(Value::as_str)
+            .is_none_or(|field| field.trim().is_empty())
+    }) {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {path} entries require string field {required_field}"
+        )));
+    }
     Ok(())
 }
 
@@ -479,6 +618,26 @@ mod tests {
         assert!(error
             .to_string()
             .contains("trace state at step 9 game_state.potions must be an array"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_missing_card_reward_choices() {
+        let content = r#"{"type":"state","step":10,"message":{"game_state":{"screen_type":"CARD_REWARD","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing visible cards are invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 10 CARD_REWARD screen requires an array game_state.screen_state.cards"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_malformed_visible_map_nodes() {
+        let content = r#"{"type":"state","step":11,"message":{"game_state":{"screen_type":"MAP","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"next_nodes":[{"symbol":"M","x":0}]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("incomplete visible node is invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 11 game_state.screen_state.next_nodes entries require symbol, x, and y"
+        ));
     }
 
     #[test]
