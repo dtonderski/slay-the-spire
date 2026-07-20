@@ -496,6 +496,7 @@ fn validate_visible_screen_schema(
     let required_collection = match screen_type {
         "CARD_REWARD" => return validate_card_reward_screen_schema(step, game),
         "BOSS_REWARD" => return validate_boss_reward_screen_schema(step, game),
+        "CHEST" => return validate_chest_screen_schema(step, game),
         "COMBAT_REWARD" => Some("rewards"),
         "EVENT" => return validate_event_screen_schema(step, game),
         "MAP" => return validate_map_screen_schema(step, game),
@@ -571,6 +572,34 @@ fn validate_boss_reward_screen_schema(
         screen.get("relics").unwrap_or(&Value::Null),
     )?;
     validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_chest_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "CHEST", game)?;
+    let chest_open = screen
+        .get("chest_open")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.chest_open must be a boolean"
+            ))
+        })?;
+    if screen
+        .get("chest_type")
+        .and_then(Value::as_str)
+        .is_none_or(|chest_type| chest_type.trim().is_empty())
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.chest_type must be a nonblank string"
+        )));
+    }
+    if !chest_open || game.get("choice_list").is_some() {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    }
     validate_screen_state_collections(step, screen)
 }
 
@@ -1258,6 +1287,23 @@ mod tests {
         assert!(error
             .to_string()
             .contains("trace state at step 25 game_state.screen_state.relics must be an array"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_closed_chest_without_choice_authority() {
+        let content = r#"{"type":"state","step":26,"message":{"game_state":{"screen_type":"CHEST","ascension_level":0,"floor":8,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"chest_open":false,"chest_type":"SmallChest"}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("closed chest choices are authoritative");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 26 game_state.choice_list must be an array"));
+    }
+
+    #[test]
+    fn parse_trace_allows_open_chest_without_choice_list() {
+        let content = r#"{"type":"state","step":27,"message":{"game_state":{"screen_type":"CHEST","ascension_level":0,"floor":16,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"chest_open":true,"chest_type":"BossChest"}}}}"#;
+
+        parse_trace_jsonl(content).expect("open chest transition may omit choice authority");
     }
 
     #[test]
