@@ -1,5 +1,5 @@
 use crate::combat::{CombatState, MonsterState, PlayerState};
-use crate::content::cards::{COMBUST_DAMAGE, COMBUST_HP_LOSS};
+use crate::content::cards::COMBUST_HP_LOSS;
 use crate::content::monsters::{
     check_slime_boss_split, guardian_on_hp_damage, wake_lagavulin_on_damage,
 };
@@ -117,9 +117,7 @@ fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
 }
 
 fn deal_combust_damage_to_living_monsters(state: &mut CombatState) {
-    let legacy_base_damage = state.player.powers.combust * COMBUST_DAMAGE;
-    let damage = state.player.powers.combust_damage.max(legacy_base_damage);
-    deal_unmodified_damage_to_living_monsters(state, damage);
+    deal_unmodified_damage_to_living_monsters(state, state.player.powers.combust_damage);
 }
 
 fn apply_end_of_turn_bomb_timers(state: &mut CombatState) {

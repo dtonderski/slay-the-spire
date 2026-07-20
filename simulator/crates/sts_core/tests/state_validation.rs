@@ -158,6 +158,33 @@ fn invalid_player_bounds_fail_validation() {
 }
 
 #[test]
+fn inconsistent_combust_authorities_fail_validation() {
+    for (stacks, damage) in [(1, 0), (1, 6), (1, 9), (0, 5), (-1, 0)] {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.combust = stacks;
+        state.player.powers.combust_damage = damage;
+
+        assert_eq!(
+            state.validate(),
+            Err(SimError::InvalidState(
+                "Combust power state is inconsistent"
+            )),
+            "stacks={stacks} damage={damage}"
+        );
+    }
+
+    for (stacks, damage) in [(0, 0), (1, 5), (1, 7), (2, 10), (2, 12), (2, 14)] {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.combust = stacks;
+        state.player.powers.combust_damage = damage;
+
+        state
+            .validate()
+            .unwrap_or_else(|error| panic!("stacks={stacks} damage={damage}: {error}"));
+    }
+}
+
+#[test]
 fn nonpositive_monster_max_hp_fails_before_action_execution() {
     let mut state = CombatState::initial_fixture();
     state.monsters[0].hp = 0;

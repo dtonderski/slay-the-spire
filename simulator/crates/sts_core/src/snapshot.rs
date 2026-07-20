@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{error::Error, fmt};
 
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 4;
-pub const PREVIOUS_SNAPSHOT_SCHEMA_VERSION: u32 = 3;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 5;
+pub const PREVIOUS_SNAPSHOT_SCHEMA_VERSION: u32 = 4;
+pub const LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION: u32 = 3;
 pub const LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 pub const LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 
@@ -111,6 +112,7 @@ fn validate_supported_schema(version: u32) -> Result<(), SnapshotRestoreError> {
         version,
         SNAPSHOT_SCHEMA_VERSION
             | PREVIOUS_SNAPSHOT_SCHEMA_VERSION
+            | LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION
     ) {
@@ -118,6 +120,36 @@ fn validate_supported_schema(version: u32) -> Result<(), SnapshotRestoreError> {
     } else {
         Err(SnapshotRestoreError::UnsupportedSchemaVersion(version))
     }
+}
+
+fn migrate_legacy_combust_damage(combat: &mut Value) -> Result<(), SnapshotRestoreError> {
+    let Some(powers) = combat
+        .pointer_mut("/player/powers")
+        .and_then(Value::as_object_mut)
+    else {
+        return Ok(());
+    };
+    let Some(stacks) = powers.get("combust").and_then(Value::as_i64) else {
+        return Ok(());
+    };
+    if stacks <= 0 {
+        return Ok(());
+    }
+    let missing_or_zero = match powers.get("combust_damage") {
+        None => true,
+        Some(value) => value.as_i64() == Some(0),
+    };
+    if !missing_or_zero {
+        return Ok(());
+    }
+
+    let damage = stacks
+        .checked_mul(i64::from(crate::content::cards::COMBUST_DAMAGE))
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "legacy Combust damage overflows i64",
+        ))?;
+    powers.insert("combust_damage".to_owned(), Value::from(damage));
+    Ok(())
 }
 
 fn legacy_reward_count(
@@ -296,8 +328,14 @@ fn migrate_legacy_relic_storage(value: &mut Value) -> Result<(), SnapshotRestore
 pub fn restore_combat_snapshot_json(
     json: &str,
 ) -> Result<Snapshot<CombatState>, SnapshotRestoreError> {
-    let value: Value = serde_json::from_str(json)?;
-    validate_supported_schema(schema_version(&value)?)?;
+    let mut value: Value = serde_json::from_str(json)?;
+    let version = schema_version(&value)?;
+    validate_supported_schema(version)?;
+    if version <= PREVIOUS_SNAPSHOT_SCHEMA_VERSION {
+        if let Some(state) = value.get_mut("state") {
+            migrate_legacy_combust_damage(state)?;
+        }
+    }
     let mut snapshot: Snapshot<CombatState> = serde_json::from_value(value)?;
     snapshot
         .state
@@ -311,9 +349,14 @@ pub fn restore_run_snapshot_json(json: &str) -> Result<Snapshot<RunState>, Snaps
     let mut value: Value = serde_json::from_str(json)?;
     let version = schema_version(&value)?;
     validate_supported_schema(version)?;
-    if version != SNAPSHOT_SCHEMA_VERSION {
+    if version <= LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION {
         migrate_legacy_reward_flow(&mut value)?;
         migrate_legacy_relic_storage(&mut value)?;
+    }
+    if version <= PREVIOUS_SNAPSHOT_SCHEMA_VERSION {
+        if let Some(combat) = value.pointer_mut("/state/combat") {
+            migrate_legacy_combust_damage(combat)?;
+        }
     }
     let mut snapshot: Snapshot<RunState> = serde_json::from_value(value)?;
     snapshot
@@ -339,7 +382,7 @@ fn stable_hash64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CardRewardFlow, Relic, RewardContinuation, RewardScreen, RunPhase};
+    use crate::{CardRewardFlow, Relic, RewardContinuation, RewardScreen, RoomKind, RunPhase};
     use serde_json::json;
 
     fn legacy_run_snapshot_json(version: u32, active: bool, pending: bool, count: u8) -> String {
@@ -383,7 +426,7 @@ mod tests {
 
         assert_eq!(
             snapshot.canonical_json().expect("snapshot serializes"),
-            r#"{"schema_version":4,"state":{}}"#
+            r#"{"schema_version":5,"state":{}}"#
         );
     }
 
@@ -399,11 +442,89 @@ mod tests {
     }
 
     #[test]
+    fn schema_four_combat_snapshot_migrates_missing_combust_damage() {
+        let mut combat = CombatState::initial_fixture();
+        combat.player.powers.combust = 2;
+        combat.player.powers.combust_damage = 10;
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            state: combat,
+        })
+        .expect("combat snapshot serializes");
+        value["state"]["player"]["powers"]
+            .as_object_mut()
+            .expect("powers object")
+            .remove("combust_damage");
+
+        let restored = restore_combat_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect("schema-four Combust state migrates");
+
+        assert_eq!(restored.schema_version, SNAPSHOT_SCHEMA_VERSION);
+        assert_eq!(restored.state.player.powers.combust, 2);
+        assert_eq!(restored.state.player.powers.combust_damage, 10);
+    }
+
+    #[test]
+    fn schema_four_run_snapshot_migrates_nested_combust_damage() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        let mut combat = run.init_combat(CombatState::initial_fixture());
+        combat.player.powers.combust = 1;
+        combat.player.powers.combust_damage = 5;
+        run.combat = Some(combat);
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("run snapshot serializes");
+        value["state"]["combat"]["player"]["powers"]
+            .as_object_mut()
+            .expect("nested powers object")
+            .remove("combust_damage");
+
+        let restored = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect("schema-four nested Combust state migrates");
+
+        assert_eq!(restored.schema_version, SNAPSHOT_SCHEMA_VERSION);
+        let combat = restored.state.combat.expect("combat restored");
+        assert_eq!(combat.player.powers.combust, 1);
+        assert_eq!(combat.player.powers.combust_damage, 5);
+    }
+
+    #[test]
+    fn current_combat_snapshot_rejects_missing_combust_damage() {
+        let mut combat = CombatState::initial_fixture();
+        combat.player.powers.combust = 1;
+        combat.player.powers.combust_damage = 5;
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: combat,
+        })
+        .expect("combat snapshot serializes");
+        value["state"]["player"]["powers"]
+            .as_object_mut()
+            .expect("powers object")
+            .remove("combust_damage");
+
+        let error = restore_combat_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("current Combust state must be canonical");
+
+        assert!(matches!(error, SnapshotRestoreError::InvalidState(_)));
+    }
+
+    #[test]
     fn historical_run_snapshots_migrate_pending_card_reward_counts() {
         for version in [
             LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,
             LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION,
-            PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION,
         ] {
             let restored =
                 restore_run_snapshot_json(&legacy_run_snapshot_json(version, false, true, 2))
@@ -421,7 +542,7 @@ mod tests {
     #[test]
     fn historical_active_flag_migrates_to_one_active_reward() {
         let restored = restore_run_snapshot_json(&legacy_run_snapshot_json(
-            PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION,
             true,
             false,
             0,
@@ -437,7 +558,7 @@ mod tests {
     #[test]
     fn historical_nonzero_count_remains_authoritative() {
         let restored = restore_run_snapshot_json(&legacy_run_snapshot_json(
-            PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION,
             false,
             false,
             3,
@@ -484,7 +605,7 @@ mod tests {
             card_reward_flow: CardRewardFlow::None,
         });
         let mut value = serde_json::to_value(Snapshot {
-            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            schema_version: LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION,
             state: run,
         })
         .expect("snapshot serializes");
@@ -547,7 +668,7 @@ mod tests {
             card_reward_flow: CardRewardFlow::None,
         });
         let mut value = serde_json::to_value(Snapshot {
-            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            schema_version: LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION,
             state: run,
         })
         .expect("snapshot serializes");
@@ -565,7 +686,7 @@ mod tests {
     fn schema_three_rejects_duplicate_relic_ownership_across_stores() {
         let run = RunState::seeded_ironclad(7, 0);
         let mut value = serde_json::to_value(Snapshot {
-            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            schema_version: LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION,
             state: run,
         })
         .expect("snapshot serializes");

@@ -1,7 +1,9 @@
 use crate::{
     action::InternalAction,
     card::CardInstance,
-    content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
+    content::cards::{
+        get_card_definition, BASH_ID, COMBUST_DAMAGE, COMBUST_PLUS_DAMAGE, DEFEND_R_ID, STRIKE_R_ID,
+    },
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
         get_monster_definition, is_unsupported_approximate_monster_intent, monster_state,
@@ -727,6 +729,30 @@ impl CombatState {
         if self.player.block < 0 || self.player.energy < 0 || self.player.max_energy < 0 {
             return Err(SimError::InvalidState(
                 "combat player block or energy is negative",
+            ));
+        }
+        let combust_stacks = self.player.powers.combust;
+        let combust_damage = self.player.powers.combust_damage;
+        let Some(base_combust_damage) = combust_stacks.checked_mul(COMBUST_DAMAGE) else {
+            return Err(SimError::InvalidState("Combust damage overflows i32"));
+        };
+        let Some(upgrade_bonus) = combust_damage.checked_sub(base_combust_damage) else {
+            return Err(SimError::InvalidState(
+                "Combust power state is inconsistent",
+            ));
+        };
+        let damage_per_upgrade = COMBUST_PLUS_DAMAGE - COMBUST_DAMAGE;
+        let Some(max_upgrade_bonus) = combust_stacks.checked_mul(damage_per_upgrade) else {
+            return Err(SimError::InvalidState("Combust damage overflows i32"));
+        };
+        if combust_stacks < 0
+            || combust_damage < 0
+            || upgrade_bonus < 0
+            || upgrade_bonus > max_upgrade_bonus
+            || upgrade_bonus % damage_per_upgrade != 0
+        {
+            return Err(SimError::InvalidState(
+                "Combust power state is inconsistent",
             ));
         }
         self.validate_unique_card_piles()?;
