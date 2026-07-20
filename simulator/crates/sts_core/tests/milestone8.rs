@@ -1,14 +1,14 @@
 mod support;
 
 use sts_core::{
-    apply_map_action, legal_map_actions, milestone8_fixture, milestone8_map, reachable_nodes,
-    MapAction, MapNodeId, MapRunState, RoomKind,
+    apply_map_action, legal_map_actions, reachable_nodes, MapAction, MapNodeId, MapRunState,
+    RoomKind, RunState,
 };
 use support::generate_placeholder_map;
 
 #[test]
 fn milestone8_fixture_has_seven_nodes_with_expected_kinds() {
-    let map = milestone8_map();
+    let map = RunState::map_fixture().map.expect("fixture map").map;
 
     assert_eq!(map.nodes.len(), 7);
     assert_eq!(
@@ -27,7 +27,7 @@ fn milestone8_fixture_has_seven_nodes_with_expected_kinds() {
 
 #[test]
 fn full_map_traversal_via_rest_branch_reaches_boss_at_floor_six() {
-    let mut state = milestone8_fixture();
+    let mut state = RunState::map_fixture().map.expect("fixture map state");
     let trace = [
         MapNodeId::new(2),
         MapNodeId::new(3),

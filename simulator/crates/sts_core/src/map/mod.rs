@@ -148,7 +148,7 @@ pub fn apply_map_action(state: &MapRunState, action: MapAction) -> SimResult<Map
 
 /// Seven-node act-1 fixture: combat start, branch, merge, rest, combat, boss.
 #[must_use]
-pub fn milestone8_map() -> FixedMap {
+fn milestone8_map() -> FixedMap {
     FixedMap {
         nodes: vec![
             MapNode {
@@ -198,21 +198,13 @@ pub fn milestone8_map() -> FixedMap {
 }
 
 #[must_use]
-pub fn legacy_milestone8_fixture() -> MapRunState {
+pub(crate) fn milestone8_fixture() -> MapRunState {
     MapRunState {
         act: 1,
         floor: 0,
         current_node: MapNodeId::new(0),
         map: milestone8_map(),
     }
-}
-
-/// Compatibility wrapper for [`legacy_milestone8_fixture`].
-///
-/// Fidelity: [`crate::FidelityCategory::LegacyFixed`].
-#[must_use]
-pub fn milestone8_fixture() -> MapRunState {
-    legacy_milestone8_fixture()
 }
 
 pub use target::{

@@ -1418,6 +1418,8 @@ impl RunState {
         }
     }
 
+    /// Explicit deterministic map fixture for tests and examples.
+    /// Production runs must use [`Self::seeded_ironclad`].
     #[must_use]
     pub fn map_fixture() -> Self {
         let mut run = Self::ironclad_run_base(0);
