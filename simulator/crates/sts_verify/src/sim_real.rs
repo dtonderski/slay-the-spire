@@ -901,14 +901,14 @@ struct SeedStartVerification {
     unresolved_transient_assertions: usize,
 }
 
-struct PendingEventDeckAssertion {
+struct PendingDeckAssertion {
     action: TraceAction,
     label: String,
     expected_deck: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum PendingEventDeckObservation {
+enum PendingDeckObservation {
     Settled,
     Deferred,
     Diverged(Vec<String>),
@@ -969,7 +969,7 @@ fn verify_seed_start_transitions(
     let mut pending_smoke_bomb_reward: Option<RunState> = None;
     let mut smoke_bomb_reward_active = false;
     let mut smoke_bomb_proceed_pending = false;
-    let mut pending_event_deck_assertion: Option<PendingEventDeckAssertion> = None;
+    let mut pending_deck_assertion: Option<PendingDeckAssertion> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
 
     macro_rules! finish_boundary {
@@ -980,15 +980,15 @@ fn verify_seed_start_transitions(
                 start.numeric_seed,
                 boss_unlocks,
                 reconciled_deferred_action_steps,
-                usize::from(pending_event_deck_assertion.is_some()),
+                usize::from(pending_deck_assertion.is_some()),
             )
         };
     }
 
     for (pre, action, post) in transitions {
-        if let Some(pending) = pending_event_deck_assertion.take() {
+        if let Some(pending) = pending_deck_assertion.take() {
             if is_trace_observation_poll(action) {
-                pending_event_deck_assertion = Some(pending);
+                pending_deck_assertion = Some(pending);
             } else {
                 let observed_deck = seed_start_observed_deck(&post.message);
                 if observed_deck.starts_with(&pending.expected_deck) {
@@ -3351,26 +3351,26 @@ fn verify_seed_start_transitions(
                     } else {
                         let expected_deck =
                             deck_content_keys_after_pending_obtain_cards_settle(&next);
-                        match classify_pending_event_deck_observation(
+                        match classify_deferred_deck_observation(
                             &observed_deck,
                             &simulated_deck,
                             &expected_deck,
                         ) {
-                            PendingEventDeckObservation::Settled => {
+                            PendingDeckObservation::Settled => {
                                 report.verified.push(VerifiedTransition {
                                     action_step: action.step,
                                     command: action.command.clone(),
                                     label: "event choice".to_owned(),
                                 });
                             }
-                            PendingEventDeckObservation::Deferred => {
-                                pending_event_deck_assertion = Some(PendingEventDeckAssertion {
+                            PendingDeckObservation::Deferred => {
+                                pending_deck_assertion = Some(PendingDeckAssertion {
                                     action: action.clone(),
                                     label: "event choice".to_owned(),
                                     expected_deck,
                                 });
                             }
-                            PendingEventDeckObservation::Diverged(diffs) => {
+                            PendingDeckObservation::Diverged(diffs) => {
                                 report.unexpected_diffs.push(UnexpectedDiff {
                                     action_step: action.step,
                                     command: action.command.clone(),
@@ -4321,6 +4321,7 @@ fn verify_seed_start_transitions(
                     continue;
                 }
 
+                let deck_before_reward_choice = deck_content_keys(&sim.deck);
                 match seed_start_apply_reward_choose(sim, &action.command, &pre.message) {
                     Ok(label) => {
                         seed_start_update_carry_from_run(sim, &mut relics, &mut deck_ids);
@@ -4384,18 +4385,60 @@ fn verify_seed_start_transitions(
                                 }
                             }
                         };
-                        if label.starts_with("card reward pick ")
-                            && sim.phase == RunPhase::Reward
-                            && screen_type(&post.message) == Some("COMBAT_REWARD")
-                        {
-                            if let Some(object) = observed.as_object_mut() {
-                                object.remove("deck_ids");
+                        if label.starts_with("card reward pick ") && sim.phase == RunPhase::Reward {
+                            let observed_deck = observed
+                                .as_object_mut()
+                                .and_then(|object| object.remove("deck_ids"))
+                                .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                                .unwrap_or_default();
+                            let simulated_deck = simulated
+                                .as_object_mut()
+                                .and_then(|object| object.remove("deck_ids"))
+                                .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                                .unwrap_or_default();
+                            let mut diffs = subset_diffs(observed, simulated);
+                            let deck_observation = classify_deferred_deck_observation(
+                                &observed_deck,
+                                &deck_before_reward_choice,
+                                &simulated_deck,
+                            );
+                            match deck_observation {
+                                PendingDeckObservation::Settled if diffs.is_empty() => {
+                                    report.verified.push(VerifiedTransition {
+                                        action_step: action.step,
+                                        command: action.command.clone(),
+                                        label: label.clone(),
+                                    });
+                                }
+                                PendingDeckObservation::Deferred if diffs.is_empty() => {
+                                    pending_deck_assertion = Some(PendingDeckAssertion {
+                                        action: action.clone(),
+                                        label: label.clone(),
+                                        expected_deck: simulated_deck,
+                                    });
+                                }
+                                PendingDeckObservation::Diverged(deck_diffs) => {
+                                    diffs.extend(deck_diffs);
+                                    report.unexpected_diffs.push(UnexpectedDiff {
+                                        action_step: action.step,
+                                        command: action.command.clone(),
+                                        label: label.clone(),
+                                        diffs,
+                                    });
+                                }
+                                PendingDeckObservation::Settled
+                                | PendingDeckObservation::Deferred => {
+                                    report.unexpected_diffs.push(UnexpectedDiff {
+                                        action_step: action.step,
+                                        command: action.command.clone(),
+                                        label: label.clone(),
+                                        diffs,
+                                    });
+                                }
                             }
-                            if let Some(object) = simulated.as_object_mut() {
-                                object.remove("deck_ids");
-                            }
+                        } else {
+                            compare_subset(report, action, &label, observed, simulated);
                         }
-                        compare_subset(report, action, &label, observed, simulated);
                         deck_ids = deck_content_keys(&sim.deck);
                         _reward_step += 1;
                         if sim.card_grid.is_some() {
@@ -11547,17 +11590,17 @@ fn deck_content_keys_after_pending_obtain_cards_settle(run: &RunState) -> Vec<St
     deck_content_keys(&settled.deck)
 }
 
-fn classify_pending_event_deck_observation(
+fn classify_deferred_deck_observation(
     observed: &[String],
     transient: &[String],
     settled: &[String],
-) -> PendingEventDeckObservation {
+) -> PendingDeckObservation {
     if observed == settled {
-        PendingEventDeckObservation::Settled
+        PendingDeckObservation::Settled
     } else if observed == transient {
-        PendingEventDeckObservation::Deferred
+        PendingDeckObservation::Deferred
     } else {
-        PendingEventDeckObservation::Diverged(subset_diffs(json!(observed), json!(settled)))
+        PendingDeckObservation::Diverged(subset_diffs(json!(observed), json!(settled)))
     }
 }
 
@@ -15449,28 +15492,28 @@ mod tests {
         assert_eq!(protected.omamori_charges_used, 0, "projection is read-only");
 
         assert_eq!(
-            classify_pending_event_deck_observation(
+            classify_deferred_deck_observation(
                 &["Strike".to_owned()],
                 &["Strike".to_owned()],
                 &["Strike".to_owned(), "Regret".to_owned()],
             ),
-            PendingEventDeckObservation::Deferred
+            PendingDeckObservation::Deferred
         );
         assert_eq!(
-            classify_pending_event_deck_observation(
+            classify_deferred_deck_observation(
                 &["Strike".to_owned(), "Regret".to_owned()],
                 &["Strike".to_owned()],
                 &["Strike".to_owned(), "Regret".to_owned()],
             ),
-            PendingEventDeckObservation::Settled
+            PendingDeckObservation::Settled
         );
         assert!(matches!(
-            classify_pending_event_deck_observation(
+            classify_deferred_deck_observation(
                 &["Strike".to_owned(), "Pain".to_owned()],
                 &["Strike".to_owned()],
                 &["Strike".to_owned(), "Regret".to_owned()],
             ),
-            PendingEventDeckObservation::Diverged(diffs) if !diffs.is_empty()
+            PendingDeckObservation::Diverged(diffs) if !diffs.is_empty()
         ));
     }
 
@@ -17944,7 +17987,11 @@ mod tests {
                 reward_card_display_key(&card_reward_run, card.content_id).to_ascii_lowercase()
             })
             .collect();
-        let lines = vec![
+        let selected_card_key =
+            reward_card_display_key(&card_reward_run, reward.choices[1].content_id);
+        let mut settled_deck = tiny_house_deck.clone();
+        settled_deck.push(json!({ "id": selected_card_key }));
+        let mut lines = vec![
             json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
             json!({"type": "state", "step": 0, "message": {}}),
             json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {external_seed}")}),
@@ -18024,6 +18071,46 @@ mod tests {
                 }
             }}}),
         ];
+
+        let truncated_content = lines
+            .iter()
+            .map(|line| serde_json::to_string(line).expect("trace line serializes"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let truncated_report = verify_seed_start_communication_mod_trace(&truncated_content)
+            .expect("truncated seed-start");
+        assert!(truncated_report.unexpected_diffs.is_empty());
+        assert!(!truncated_report.verified.iter().any(|transition| {
+            transition.action_step == 5 && transition.label == "card reward pick 1"
+        }));
+        assert_eq!(
+            truncated_report
+                .action_integrity
+                .as_ref()
+                .expect("truncated action integrity")
+                .unresolved_transient_assertions,
+            1
+        );
+
+        lines.extend([
+            json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 6, "message": {"game_state": {
+                "screen_type": "COMBAT_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": tiny_house_run.gold + 50,
+                "current_hp": tiny_house_run.player_hp,
+                "max_hp": tiny_house_run.player_max_hp,
+                "deck": settled_deck,
+                "relics": tiny_house_relics,
+                "choice_list": ["potion"],
+                "screen_state": {
+                    "rewards": [
+                        {"reward_type": "POTION"}
+                    ]
+                }
+            }}}),
+        ]);
         let content = lines
             .into_iter()
             .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
@@ -18042,6 +18129,20 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 5 && transition.label == "card reward pick 1"
         }));
+        let card_pick_disposition = report
+            .action_dispositions
+            .iter()
+            .find(|disposition| disposition.action_step == 5)
+            .expect("card pick disposition");
+        assert!(card_pick_disposition.deferred_assertion_reconciled);
+        assert_eq!(
+            report
+                .action_integrity
+                .as_ref()
+                .expect("action integrity")
+                .unresolved_transient_assertions,
+            0
+        );
         assert_eq!(
             report
                 .seed_start
