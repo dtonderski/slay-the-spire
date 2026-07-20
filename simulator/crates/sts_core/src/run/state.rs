@@ -413,6 +413,8 @@ fn apply_neow_lament_to_combat(combat: &mut CombatState) {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RewardScreen {
+    #[serde(default)]
+    pub continuation: RewardContinuation,
     pub choices: Vec<CardInstance>,
     /// Card reward choices generated eagerly by effects such as Orrery.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -442,6 +444,13 @@ pub struct RewardScreen {
     /// Number of unopened card reward screens remaining.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub pending_card_reward_count: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum RewardContinuation {
+    #[default]
+    None,
+    Rest,
 }
 
 impl RewardScreen {

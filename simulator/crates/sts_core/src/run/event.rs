@@ -659,6 +659,7 @@ fn open_cursed_tome_book_reward(run: &mut RunState, key: RelicKey) {
         event_data: 0,
     });
     run.reward = Some(RewardScreen {
+        continuation: crate::RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -2469,6 +2470,7 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) {
     run.phase = RunPhase::Reward;
     run.event = Some(make_event_screen(Event::Neow, neow_leave_choices(), 2));
     run.reward = Some(RewardScreen {
+        continuation: crate::RewardContinuation::None,
         choices,
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -3266,6 +3268,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             next.phase = RunPhase::Reward;
             next.event = None;
             next.reward = Some(RewardScreen {
+                continuation: crate::RewardContinuation::None,
                 choices: Vec::new(),
                 queued_card_rewards: Vec::new(),
                 gold_offer: 0,
@@ -3710,6 +3713,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 2,
             ));
             next.reward = Some(RewardScreen {
+                continuation: crate::RewardContinuation::None,
                 choices: Vec::new(),
                 queued_card_rewards,
                 gold_offer: 0,
@@ -4481,6 +4485,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     next.phase = RunPhase::Reward;
                     next.event = None;
                     next.reward = Some(RewardScreen {
+                        continuation: crate::RewardContinuation::None,
                         choices: Vec::new(),
                         queued_card_rewards: Vec::new(),
                         gold_offer: 0,
@@ -4554,6 +4559,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             next.phase = RunPhase::Reward;
             next.event = None;
             next.reward = Some(RewardScreen {
+                continuation: crate::RewardContinuation::None,
                 choices: Vec::new(),
                 queued_card_rewards: Vec::new(),
                 gold_offer: 0,

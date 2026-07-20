@@ -35,8 +35,8 @@ use crate::{
         RunRngStream, DEFAULT_EVENT_ROOM_MONSTER_CHANCE, DEFAULT_EVENT_ROOM_SHOP_CHANCE,
         DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
     },
-    CombatAction, Event, MonsterState, RewardScreen, RunAction, RunPhase, RunState, SimError,
-    SimResult,
+    CombatAction, Event, MonsterState, RewardContinuation, RewardScreen, RunAction, RunPhase,
+    RunState, SimError, SimResult,
 };
 
 /// Source-backed combat reward categories from target `createCombatReward` variants.
@@ -138,6 +138,7 @@ pub fn setup_treasure_room(run: &mut RunState) {
 pub(crate) fn enter_orrery_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.reward = Some(RewardScreen {
+        continuation: RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -1046,6 +1047,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
+        continuation: RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -1079,6 +1081,7 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
     run.combat = None;
     run.boss_chest_opened = true;
     run.reward = Some(RewardScreen {
+        continuation: RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -1106,6 +1109,7 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
+        continuation: RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -1352,6 +1356,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
+        continuation: RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer,
@@ -1443,6 +1448,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
+        continuation: RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer,
@@ -1487,6 +1493,7 @@ pub fn enter_boss_combat_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
+        continuation: RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer,
@@ -1651,6 +1658,7 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
     run.combat = None;
     run.reward = Some(RewardScreen {
+        continuation: RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer,
@@ -2124,10 +2132,17 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             }
         }
         RunAction::CloseCardReward => {
-            next.reward
-                .as_mut()
-                .expect("validated reward screen")
-                .card_reward_active = false;
+            let return_to_rest = next
+                .reward
+                .as_ref()
+                .is_some_and(|reward| reward.continuation == RewardContinuation::Rest);
+            let reward = next.reward.as_mut().expect("validated reward screen");
+            reward.card_reward_active = false;
+            if return_to_rest {
+                reward.choices.clear();
+                reward.consume_pending_card_reward();
+                return_to_event_if_reward_empty(&mut next);
+            }
         }
         RunAction::TakeCardReward { card_id } => {
             let reward = next.reward.as_mut().expect("validated reward screen");
@@ -2311,7 +2326,11 @@ fn return_to_event_if_reward_empty(run: &mut RunState) {
     {
         return;
     }
-    if run.shop.is_some() && run.shop_merchant_open {
+    let continuation = reward.continuation;
+    if continuation == RewardContinuation::Rest {
+        run.phase = RunPhase::Rest;
+        run.reward = None;
+    } else if run.shop.is_some() && run.shop_merchant_open {
         run.phase = RunPhase::Shop;
         run.reward = None;
     } else if run.event.is_some() {
@@ -2452,6 +2471,7 @@ mod tests {
         run.current_floor = 50;
         run.current_room_override = Some(RoomKind::Boss);
         run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 100,

@@ -1,7 +1,7 @@
 use crate::{
     content::cards::{card_instance_is_upgradeable, upgrade_card_instance},
     relic::{GIRYA_MAX_LIFTS, REGAL_PILLOW_HEAL},
-    Relic, RestAction, RunPhase, RunState, SimError, SimResult,
+    Relic, RestAction, RewardContinuation, RunPhase, RunState, SimError, SimResult,
 };
 
 use super::grid::{open_rest_remove_grid, open_rest_smith_grid};
@@ -144,9 +144,11 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                 heal += REGAL_PILLOW_HEAL;
             }
             next.heal_player(heal);
+            next.rest_room_complete = true;
             if next.relics.contains(&Relic::DreamCatcher) {
                 next.phase = RunPhase::Reward;
                 next.reward = Some(RewardScreen {
+                    continuation: RewardContinuation::Rest,
                     choices: Vec::new(),
                     queued_card_rewards: Vec::new(),
                     gold_offer: 0,
@@ -168,8 +170,6 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     .as_mut()
                     .expect("rest card reward")
                     .card_reward_active = true;
-            } else {
-                next.rest_room_complete = true;
             }
         }
         RestAction::OpenSmith => {
@@ -188,6 +188,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             let relic_offer = Relic::from_key(key);
             next.phase = RunPhase::Reward;
             next.reward = Some(RewardScreen {
+                continuation: RewardContinuation::None,
                 choices: Vec::new(),
                 queued_card_rewards: Vec::new(),
                 gold_offer: 0,
@@ -236,4 +237,70 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
     }
 
     Ok(next)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        run::reward::apply_run_action, RoomKind, RunAction, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    };
+
+    #[test]
+    fn dream_catcher_reward_returns_to_completed_rest_room() {
+        let mut run = RunState::placeholder_seeded_ironclad(7, 0);
+        run.phase = RunPhase::Rest;
+        run.current_room_override = Some(RoomKind::Rest);
+        run.event = None;
+        run.reward = None;
+        run.player_hp = 40;
+        run.relics.push(Relic::DreamCatcher);
+
+        let reward = apply_rest_action(&run, RestAction::Heal)
+            .expect("Dream Catcher heal opens a card reward");
+        assert_eq!(reward.phase, RunPhase::Reward);
+        assert!(reward.rest_room_complete);
+        assert!(reward
+            .reward
+            .as_ref()
+            .is_some_and(|reward| reward.card_reward_active));
+
+        let snapshot = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: reward.clone(),
+        };
+        let json = snapshot.canonical_json().expect("snapshot serializes");
+        let restored: Snapshot<RunState> =
+            serde_json::from_str(&json).expect("snapshot deserializes");
+        assert_eq!(restored, snapshot);
+        assert_eq!(
+            restored
+                .state
+                .reward
+                .as_ref()
+                .expect("restored Dream Catcher reward")
+                .continuation,
+            RewardContinuation::Rest
+        );
+
+        let card_id = reward
+            .reward
+            .as_ref()
+            .and_then(|reward| reward.choices.first())
+            .expect("Dream Catcher offers a card")
+            .id;
+        let deck_size = reward.deck.len();
+        let taken = apply_run_action(&reward, RunAction::TakeCardReward { card_id })
+            .expect("Dream Catcher reward can be taken");
+        assert_eq!(taken.phase, RunPhase::Rest);
+        assert!(taken.rest_room_complete);
+        assert!(taken.reward.is_none());
+        assert_eq!(taken.deck.len(), deck_size + 1);
+
+        let settled = apply_run_action(&reward, RunAction::CloseCardReward)
+            .expect("Dream Catcher reward can be skipped");
+        assert_eq!(settled.phase, RunPhase::Rest);
+        assert!(settled.rest_room_complete);
+        assert!(settled.reward.is_none());
+    }
 }

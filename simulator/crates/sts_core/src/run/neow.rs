@@ -223,6 +223,7 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
     if relic == RelicKey::TinyHouse && run.reward.is_none() {
         run.phase = RunPhase::Reward;
         run.reward = Some(RewardScreen {
+            continuation: crate::RewardContinuation::None,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 0,

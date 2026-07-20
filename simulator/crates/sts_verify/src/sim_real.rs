@@ -916,6 +916,7 @@ enum PendingEventDeckObservation {
 
 fn seed_start_empty_combat_reward() -> RewardScreen {
     RewardScreen {
+        continuation: sts_core::RewardContinuation::None,
         choices: Vec::new(),
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
@@ -2979,26 +2980,47 @@ fn verify_seed_start_transitions(
                             .to_owned(),
                     });
                 };
-                if let Some(reward) = sim.reward.as_mut() {
-                    reward.card_reward_active = false;
-                    reward.choices.clear();
-                    reward.card_reward_pending = false;
-                    if screen_type(&post.message) != Some("CARD_REWARD") {
-                        sim.reward = None;
-                        sim.phase = RunPhase::Rest;
-                    }
+                let next = apply_run_action(sim, RunAction::CloseCardReward)
+                    .map_err(|error| error.to_string());
+                let Ok(next) = next else {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_rest_path".to_owned(),
+                        reason: next.err().unwrap_or_default(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
+                };
+                if next.phase != RunPhase::Rest || next.reward.is_some() {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_rest_reward_continuation".to_owned(),
+                        reason: format!(
+                            "rest reward skip produced phase {:?} with reward_present={}",
+                            next.phase,
+                            next.reward.is_some()
+                        ),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
                 }
-                seed_start_update_carry_from_run(sim, &mut relics, &mut deck_ids);
+                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                 compare_subset(
                     report,
                     action,
                     "rest skip card reward",
                     seed_start_rest_observed_subset(&post.message),
-                    seed_start_rest_simulated_subset(sim, &relics),
+                    seed_start_rest_simulated_subset(&next, &relics),
                 );
-                if sim.phase == RunPhase::Idle {
-                    phase = SeedStartPhase::Proceed;
-                }
+                *sim = next;
             }
             SeedStartPhase::Rest if action.command.trim().eq_ignore_ascii_case("PROCEED") => {
                 let Some(sim) = seed_sim.as_mut() else {
@@ -4020,58 +4042,52 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     };
-                    match screen_type(&post.message) {
-                        Some("COMBAT_REWARD") => compare_subset(
-                            report,
-                            action,
-                            "skip combat card reward",
-                            seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next, &relics),
-                        ),
-                        Some("REST") => compare_subset(
-                            report,
-                            action,
-                            "skip rest card reward",
-                            seed_start_rest_observed_subset(&post.message),
-                            seed_start_rest_simulated_subset(&next, &relics),
-                        ),
-                        Some("EVENT") => compare_subset(
-                            report,
-                            action,
-                            "skip event card reward",
-                            seed_start_event_observed_subset(&post.message),
-                            seed_start_event_simulated_subset(&next, &relics),
-                        ),
-                        Some("SHOP_SCREEN") => compare_subset(
-                            report,
-                            action,
-                            "skip shop card reward",
-                            seed_start_shop_observed_subset(&post.message),
-                            seed_start_shop_screen_simulated_subset(&next, &relics),
-                        ),
-                        Some("GRID") => compare_subset(
-                            report,
-                            action,
+                    let (label, observed, simulated) = if next.card_grid.is_some() {
+                        (
                             "skip card reward to grid",
                             seed_start_grid_observed_subset(&post.message),
                             seed_start_grid_simulated_subset(&next, &relics),
-                        ),
-                        screen => {
-                            let boundary = SeedStartBoundary {
+                        )
+                    } else {
+                        match next.phase {
+                            RunPhase::Reward if next.reward.is_some() => (
+                                "skip combat card reward",
+                                seed_start_reward_observed_subset(&post.message),
+                                seed_start_reward_simulated_subset(&next, &relics),
+                            ),
+                            RunPhase::Rest if next.reward.is_none() => (
+                                "skip rest card reward",
+                                seed_start_rest_observed_subset(&post.message),
+                                seed_start_rest_simulated_subset(&next, &relics),
+                            ),
+                            RunPhase::Event if next.event.is_some() => (
+                                "skip event card reward",
+                                seed_start_event_observed_subset(&post.message),
+                                seed_start_event_simulated_subset(&next, &relics),
+                            ),
+                            RunPhase::Shop if next.shop.is_some() => (
+                                "skip shop card reward",
+                                seed_start_shop_observed_subset(&post.message),
+                                seed_start_shop_screen_simulated_subset(&next, &relics),
+                            ),
+                            phase => {
+                                let boundary = SeedStartBoundary {
                                 path: format!("$.actions[step={}].command", action.step),
-                                category: "unsupported_reward_path".to_owned(),
+                                category: "invalid_reward_destination".to_owned(),
                                 reason: format!(
-                                    "card reward skip returned to unsupported screen {screen:?}"
+                                    "card reward skip produced unsupported simulator phase {phase:?}"
                                 ),
                             };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
+                                report.unsupported.push(UnsupportedTransition {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    reason: boundary.reason.clone(),
+                                });
+                                return finish_boundary!(boundary);
+                            }
                         }
-                    }
+                    };
+                    compare_subset(report, action, label, observed, simulated);
                     seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                     *sim = next;
                     if seed_start_reward_sequence_complete(sim) {
@@ -4308,60 +4324,79 @@ fn verify_seed_start_transitions(
                 match seed_start_apply_reward_choose(sim, &action.command, &pre.message) {
                     Ok(label) => {
                         seed_start_update_carry_from_run(sim, &mut relics, &mut deck_ids);
-                        if seed_start_reward_sequence_complete(sim)
-                            && screen_type(&post.message) == Some("EVENT")
-                        {
-                            compare_subset(
-                                report,
-                                action,
-                                &label,
-                                seed_start_observed_subset(&post.message),
-                                json!({
-                                    "screen_type": "EVENT",
-                                    "ascension": start.ascension,
-                                    "floor": 0,
-                                    "gold": sim.gold,
-                                    "current_hp": sim.player_hp,
-                                    "max_hp": sim.player_max_hp,
-                                    "deck_ids": deck_content_keys(&sim.deck),
-                                    "relic_ids": relics,
-                                    "choices": ["leave"],
-                                }),
-                            );
+                        let (mut observed, mut simulated) = if sim.card_grid.is_some() {
+                            (
+                                seed_start_grid_observed_subset(&post.message),
+                                seed_start_grid_simulated_subset(sim, &relics),
+                            )
                         } else {
-                            let (mut observed, mut simulated) =
-                                if screen_type(&post.message) == Some("REST") {
-                                    (
-                                        seed_start_rest_observed_subset(&post.message),
-                                        seed_start_rest_simulated_subset(sim, &relics),
-                                    )
-                                } else {
+                            match sim.phase {
+                                RunPhase::Reward if sim.reward.is_some() => (
+                                    seed_start_reward_observed_subset(&post.message),
+                                    seed_start_reward_simulated_subset(sim, &relics),
+                                ),
+                                RunPhase::Rest if sim.reward.is_none() => (
+                                    seed_start_rest_observed_subset(&post.message),
+                                    seed_start_rest_simulated_subset(sim, &relics),
+                                ),
+                                RunPhase::Event
+                                    if sim.event.as_ref().is_some_and(|event| {
+                                        event.event == Event::Neow && event.stage == 2
+                                    }) =>
+                                {
+                                    // Neow's completed continuation is authoritative core
+                                    // state, but the command-facing frame remains the empty
+                                    // reward screen until PROCEED leaves the room.
                                     (
                                         seed_start_reward_observed_subset(&post.message),
                                         seed_start_reward_simulated_subset(sim, &relics),
                                     )
-                                };
-                            if label.starts_with("card reward pick ")
-                                && screen_type(&post.message) == Some("COMBAT_REWARD")
-                            {
-                                if let Some(object) = observed.as_object_mut() {
-                                    object.remove("deck_ids");
                                 }
-                                if let Some(object) = simulated.as_object_mut() {
-                                    object.remove("deck_ids");
+                                RunPhase::Event if sim.event.is_some() => (
+                                    seed_start_event_observed_subset(&post.message),
+                                    seed_start_event_simulated_subset(sim, &relics),
+                                ),
+                                RunPhase::Shop if sim.shop.is_some() => (
+                                    seed_start_shop_observed_subset(&post.message),
+                                    seed_start_shop_screen_simulated_subset(sim, &relics),
+                                ),
+                                RunPhase::Treasure if sim.reward.is_none() => (
+                                    seed_start_reward_observed_subset(&post.message),
+                                    seed_start_reward_simulated_subset(sim, &relics),
+                                ),
+                                phase => {
+                                    let boundary = SeedStartBoundary {
+                                        path: format!(
+                                            "$.actions[step={}].command",
+                                            action.step
+                                        ),
+                                        category: "invalid_reward_destination".to_owned(),
+                                        reason: format!(
+                                            "reward choice produced unsupported simulator phase {phase:?}"
+                                        ),
+                                    };
+                                    report.unsupported.push(UnsupportedTransition {
+                                        action_step: action.step,
+                                        command: action.command.clone(),
+                                        reason: boundary.reason.clone(),
+                                    });
+                                    return finish_boundary!(boundary);
                                 }
                             }
-                            compare_subset(report, action, &label, observed, simulated);
-                        }
-                        deck_ids = if label.starts_with("card reward pick ") {
-                            deck_content_keys(&sim.deck)
-                        } else {
-                            deck_keys_from_value(
-                                post.message
-                                    .get("game_state")
-                                    .and_then(|game| game.get("deck")),
-                            )
                         };
+                        if label.starts_with("card reward pick ")
+                            && sim.phase == RunPhase::Reward
+                            && screen_type(&post.message) == Some("COMBAT_REWARD")
+                        {
+                            if let Some(object) = observed.as_object_mut() {
+                                object.remove("deck_ids");
+                            }
+                            if let Some(object) = simulated.as_object_mut() {
+                                object.remove("deck_ids");
+                            }
+                        }
+                        compare_subset(report, action, &label, observed, simulated);
+                        deck_ids = deck_content_keys(&sim.deck);
                         _reward_step += 1;
                         if sim.card_grid.is_some() {
                             phase = SeedStartPhase::Grid;
@@ -8752,6 +8787,8 @@ fn seed_start_reward_sequence_complete(run: &RunState) -> bool {
 fn seed_start_phase_after_reward_completion(run: &RunState) -> SeedStartPhase {
     if run.phase == RunPhase::Shop {
         SeedStartPhase::Shop
+    } else if run.phase == RunPhase::Rest {
+        SeedStartPhase::Rest
     } else if run.current_room_kind() == Some(RoomKind::Boss) && run.boss_chest_opened {
         SeedStartPhase::Treasure
     } else if run.phase == RunPhase::Reward && run.event.is_some() {
@@ -12337,6 +12374,7 @@ mod tests {
     #[test]
     fn reward_projection_lists_every_pending_orrery_card_reward() {
         let reward = RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 0,
@@ -12505,6 +12543,7 @@ mod tests {
         run.gold = 99;
         run.potions = vec![Potion::BlessingOfTheForge, Potion::Dexterity, Potion::Power];
         run.reward = Some(RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 120,
@@ -12547,6 +12586,7 @@ mod tests {
         run.phase = RunPhase::Reward;
         run.potions.clear();
         run.reward = Some(RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 0,
@@ -12593,6 +12633,7 @@ mod tests {
         run.relics.push(Relic::SingingBowl);
         let card = run.deck[0];
         run.reward = Some(RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
             choices: vec![card],
             queued_card_rewards: Vec::new(),
             gold_offer: 0,
@@ -12630,6 +12671,7 @@ mod tests {
         run.current_floor = 8;
         run.phase = RunPhase::Reward;
         run.reward = Some(RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 17,
@@ -12682,6 +12724,7 @@ mod tests {
         assert!(pools.uncommon.contains(&RelicKey::Pantograph));
         run.phase = RunPhase::Reward;
         run.reward = Some(RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 0,
@@ -13785,6 +13828,7 @@ mod tests {
             event_data: 0,
         });
         run.reward = Some(RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 0,

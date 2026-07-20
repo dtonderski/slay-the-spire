@@ -1604,6 +1604,7 @@ mod tests {
         env.state.phase = RunPhase::Reward;
         env.state.combat = None;
         env.state.reward = Some(sts_core::RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
             choices: Vec::new(),
             queued_card_rewards: Vec::new(),
             gold_offer: 0,

@@ -61,6 +61,6 @@ pub use shop::{
     SHOP_BASE_REMOVE_PRICE, SHOP_FIRE_POTION_PRICE, SHOP_VAJRA_PRICE,
 };
 pub use state::{
-    Act1Boss, Act3Boss, RewardScreen, RunAction, RunPhase, RunState, REWARD_GOLD_AMOUNT,
-    STARTING_GOLD,
+    Act1Boss, Act3Boss, RewardContinuation, RewardScreen, RunAction, RunPhase, RunState,
+    REWARD_GOLD_AMOUNT, STARTING_GOLD,
 };
