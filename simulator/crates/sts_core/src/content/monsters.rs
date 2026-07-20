@@ -1766,13 +1766,7 @@ pub fn target_normal_encounter_spawn_at_combat_index(
     use crate::content::encounters::normal_encounter_key_at_combat_index;
 
     let encounter_key = normal_encounter_key_at_combat_index(seed, combat_index)?;
-    Some(target_encounter_spawn_for_key(
-        seed,
-        floor_num,
-        &encounter_key,
-        ascension,
-        neow_lament,
-    ))
+    target_encounter_spawn_for_key(seed, floor_num, &encounter_key, ascension, neow_lament)
 }
 
 #[must_use]
@@ -1987,13 +1981,9 @@ pub fn target_elite_encounter_spawn_at_combat_index(
         }
     };
     match act {
-        crate::map::TargetMapAct::Exordium => Some(target_encounter_spawn_for_key(
-            seed,
-            floor_num,
-            &encounter_key,
-            ascension,
-            neow_lament,
-        )),
+        crate::map::TargetMapAct::Exordium => {
+            target_encounter_spawn_for_key(seed, floor_num, &encounter_key, ascension, neow_lament)
+        }
         crate::map::TargetMapAct::City => target_city_encounter_spawn_for_key(
             seed,
             floor_num,
@@ -3140,8 +3130,8 @@ pub fn target_encounter_spawn_for_key(
     encounter_key: &str,
     ascension: u8,
     neow_lament: bool,
-) -> Vec<TargetEncounterSpawn> {
-    match encounter_key {
+) -> Option<Vec<TargetEncounterSpawn>> {
+    Some(match encounter_key {
         "Cultist" => {
             let max_hp = target_cultist_hp_roll(seed, floor_num, ascension);
             vec![target_combat_entry_spawn(
@@ -3160,8 +3150,9 @@ pub fn target_encounter_spawn_for_key(
                 Vec::new(),
             )]
         }
-        "Small Slimes" => target_small_slimes_spawn_states(seed, floor_num, ascension, neow_lament)
-            .unwrap_or_default(),
+        "Small Slimes" => {
+            target_small_slimes_spawn_states(seed, floor_num, ascension, neow_lament)?
+        }
         "Large Slime" => {
             let roll = target_large_slime_hp_roll(seed, floor_num, ascension);
             let mut spawn = target_combat_entry_spawn(roll.name, roll.hp, neow_lament, Vec::new());
@@ -3241,8 +3232,8 @@ pub fn target_encounter_spawn_for_key(
             vec![spawn]
         }
         "3 Sentries" => target_three_sentries_spawn_states(seed, floor_num, ascension, neow_lament),
-        _ => Vec::new(),
-    }
+        _ => return None,
+    })
 }
 
 fn target_two_fungi_beasts_spawn_states(
@@ -3596,8 +3587,8 @@ fn target_louse_kind(rng: &mut StsRng) -> LouseKind {
 }
 
 #[must_use]
-pub fn content_id_from_game_monster_id(game_id: &str) -> ContentId {
-    match game_id {
+pub fn content_id_from_game_monster_id(game_id: &str) -> Option<ContentId> {
+    Some(match game_id {
         "Cultist" => CULTIST_ID,
         "JawWorm" | "Jaw Worm" => JAW_WORM_ID,
         "GremlinNob" => GREMLIN_NOB_ID,
@@ -3661,8 +3652,8 @@ pub fn content_id_from_game_monster_id(game_id: &str) -> ContentId {
         | "Acid Slime (L)" => ACID_SLIME_ID,
         "FuzzyLouseDefensive" | "LouseDefensive" => GREEN_LOUSE_ID,
         "FuzzyLouseNormal" | "LouseNormal" => RED_LOUSE_ID,
-        _ => CULTIST_ID,
-    }
+        _ => return None,
+    })
 }
 
 #[must_use]
@@ -7778,14 +7769,14 @@ pub fn apply_gremlin_leader_rally_target(
 
     let mut planned = Vec::new();
     let mut reserved_slots = Vec::new();
-    let mut next_id = monsters
+    let first_id = monsters
         .iter()
         .map(|monster| monster.id.get())
         .max()
         .unwrap_or(0)
         + 1;
 
-    for _ in 0..count {
+    for next_id in (first_id..).take(count as usize) {
         if gremlin_leader_live_minion_count(monsters) + planned.len() as i32 >= 3 {
             break;
         }
@@ -7795,9 +7786,10 @@ pub fn apply_gremlin_leader_rally_target(
         };
         reserved_slots.push(slot);
         let name = target_random_gremlin_name(ai_rng);
-        let Some(definition) = get_monster_definition(content_id_from_game_monster_id(name)) else {
-            continue;
-        };
+        let content_id = content_id_from_game_monster_id(name)
+            .expect("target random gremlin name is registered");
+        let definition = get_monster_definition(content_id)
+            .expect("target random gremlin definition is registered");
         let max_hp = target_city_monster_hp_range(name, ascension)
             .map(|range| range.roll(hp_rng))
             .unwrap_or_else(|| {
@@ -7805,7 +7797,6 @@ pub fn apply_gremlin_leader_rally_target(
             });
         let mut monster =
             monster_state_for_ascension(definition, MonsterId::new(next_id), ascension);
-        next_id += 1;
         monster.hp = max_hp;
         monster.max_hp = max_hp;
         monster.powers.minion = 1;
@@ -11314,7 +11305,8 @@ mod tests {
         let expected = (0..2)
             .map(|slot| {
                 let name = target_random_gremlin_name(&mut expected_ai_rng);
-                let content_id = content_id_from_game_monster_id(name);
+                let content_id = content_id_from_game_monster_id(name)
+                    .expect("target random gremlin name is registered");
                 let max_hp = target_city_monster_hp_range(name, 0)
                     .expect("rally gremlin has a target HP range")
                     .roll(&mut expected_hp_rng);

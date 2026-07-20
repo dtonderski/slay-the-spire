@@ -10744,7 +10744,8 @@ fn monsters_from_observed(
                 .get("id")
                 .and_then(Value::as_str)
                 .unwrap_or("Cultist");
-            let content_id = sts_core::content::monsters::content_id_from_game_monster_id(game_id);
+            let content_id = sts_core::content::monsters::content_id_from_game_monster_id(game_id)
+                .expect("test observation monster id is modeled");
             let rolled_attack_damage = louse_bite_damage_from_observed(monster, content_id);
             let powers = monster_powers(monster.get("powers"));
             let replay = elite_boss_replay_fields(monster, content_id, &powers, ascension);
@@ -15638,10 +15639,17 @@ mod tests {
 
         assert_eq!(
             content_id_from_game_monster_id("BronzeAutomaton"),
-            BRONZE_AUTOMATON_ID
+            Some(BRONZE_AUTOMATON_ID)
         );
-        assert_eq!(content_id_from_game_monster_id("BronzeOrb"), BRONZE_ORB_ID);
-        assert_eq!(content_id_from_game_monster_id("Orb Walker"), ORB_WALKER_ID);
+        assert_eq!(
+            content_id_from_game_monster_id("BronzeOrb"),
+            Some(BRONZE_ORB_ID)
+        );
+        assert_eq!(
+            content_id_from_game_monster_id("Orb Walker"),
+            Some(ORB_WALKER_ID)
+        );
+        assert_eq!(content_id_from_game_monster_id("not-a-monster"), None);
     }
 
     #[test]

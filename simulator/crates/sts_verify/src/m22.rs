@@ -424,6 +424,7 @@ mod tests {
         );
         assert_eq!(
             target_encounter_spawn_for_key(22_079_335_079, 2, "Small Slimes", 0, false)
+                .expect("Small Slimes encounter is modeled")
                 .iter()
                 .map(|spawn| spawn.name)
                 .collect::<Vec<_>>(),

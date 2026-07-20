@@ -3548,7 +3548,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             1 if choice_index == 0 => {
                 next.current_room_override = Some(crate::map::RoomKind::Boss);
-                enter_secret_portal_boss_combat(&mut next);
+                enter_secret_portal_boss_combat(&mut next)?;
             }
             2 if choice_index == 0 => {
                 next.phase = RunPhase::Idle;
