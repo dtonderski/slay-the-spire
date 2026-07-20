@@ -160,21 +160,21 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
 
 fn enter_normal_combat(run: &mut RunState) -> SimResult<()> {
     let mut base = normal_combat_state_for_run(run)?;
-    enter_combat_with_base(run, &mut base);
+    enter_combat_with_base(run, &mut base)?;
     run.normal_combat_count = run.normal_combat_count.saturating_add(1);
     Ok(())
 }
 
 fn enter_elite_combat(run: &mut RunState) -> SimResult<()> {
     let mut base = elite_combat_state_for_run(run)?;
-    enter_combat_with_base(run, &mut base);
+    enter_combat_with_base(run, &mut base)?;
     run.elite_combat_count = run.elite_combat_count.saturating_add(1);
     Ok(())
 }
 
 fn enter_boss_combat(run: &mut RunState) -> SimResult<()> {
     let mut base = boss_combat_state_for_run(run)?;
-    enter_combat_with_base(run, &mut base);
+    enter_combat_with_base(run, &mut base)?;
     Ok(())
 }
 
@@ -182,7 +182,7 @@ pub(crate) fn enter_secret_portal_boss_combat(run: &mut RunState) -> SimResult<(
     enter_boss_combat(run)
 }
 
-fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
+fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) -> SimResult<()> {
     run.reset_card_random_rng_for_combat();
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
@@ -199,7 +199,7 @@ fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
     advance_monster_hp_rng_for_combat_entry(base, &mut monster_hp_rng, run.ascension);
     base.rng.shuffle_rng = shuffle_rng;
     base.rng.monster_hp_rng = monster_hp_rng;
-    apply_initial_monster_ai_rolls(base, &mut monster_rng);
+    apply_initial_monster_ai_rolls(base, &mut monster_rng)?;
     record_initial_monster_moves(base);
     base.rng.monster_rng = monster_rng.clone();
     base.rng.card_random_rng = card_random_rng;
@@ -208,6 +208,7 @@ fn enter_combat_with_base(run: &mut RunState, base: &mut CombatState) {
     combat.rng.monster_rng = monster_rng;
     add_mark_of_pain_wounds_to_draw_pile(run, &mut combat);
     run.combat = Some(combat);
+    Ok(())
 }
 
 fn advance_monster_hp_rng_for_combat_entry(
@@ -259,7 +260,7 @@ fn add_mark_of_pain_wounds_to_draw_pile(run: &mut RunState, combat: &mut CombatS
     run.store_rng_counter(RunRngStream::CardRandom, &rng);
 }
 
-pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) {
+pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) -> SimResult<()> {
     let living_monster_count = combat
         .monsters
         .iter()
@@ -489,9 +490,10 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
                 combat.ascension,
             );
         } else {
-            monster.intent = prepare_monster_intent_for_ascension(monster, combat.ascension);
+            monster.intent = prepare_monster_intent_for_ascension(monster, combat.ascension)?;
         }
     }
+    Ok(())
 }
 
 fn gremlin_leader_alive_minion_count(monsters: &[MonsterState]) -> usize {
@@ -1129,7 +1131,7 @@ mod tests {
         combat.monsters[0].initial_intent_locked = true;
 
         let mut rng = StsRng::new(123);
-        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng).expect("supported monster intent");
 
         assert_eq!(rng.counter(), 0);
         assert_eq!(
@@ -1150,7 +1152,7 @@ mod tests {
         combat.monsters[0].initial_intent_locked = true;
 
         let mut rng = StsRng::new(123);
-        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng).expect("supported monster intent");
 
         assert_eq!(rng.counter(), 1);
         assert_eq!(combat.monsters[0].intent, opening);
@@ -1162,7 +1164,7 @@ mod tests {
         combat.monsters[0].content_id = CULTIST_ID;
 
         let mut rng = StsRng::new(123);
-        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng).expect("supported monster intent");
 
         assert_eq!(rng.counter(), 1);
         assert_eq!(
@@ -1260,7 +1262,7 @@ mod tests {
         ];
         let mut rng = StsRng::new(123);
 
-        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng).expect("supported monster intent");
 
         assert_eq!(rng.counter(), 2);
         assert_eq!(
@@ -1288,7 +1290,7 @@ mod tests {
         combat.monsters[0].content_id = SLAVER_RED_ID;
         let mut rng = StsRng::new(0);
 
-        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng).expect("supported monster intent");
 
         assert_eq!(rng.counter(), 1);
         assert_eq!(
@@ -1305,7 +1307,7 @@ mod tests {
         combat.monsters[0].max_hp = 10;
         let mut rng = StsRng::new(123);
 
-        apply_initial_monster_ai_rolls(&mut combat, &mut rng);
+        apply_initial_monster_ai_rolls(&mut combat, &mut rng).expect("supported monster intent");
 
         assert_eq!(rng.counter(), 1);
         assert_eq!(
@@ -1323,7 +1325,8 @@ mod tests {
         a16_combat.monsters[0].max_hp = 12;
         let mut a16_rng = StsRng::new(123);
 
-        apply_initial_monster_ai_rolls(&mut a16_combat, &mut a16_rng);
+        apply_initial_monster_ai_rolls(&mut a16_combat, &mut a16_rng)
+            .expect("supported monster intent");
 
         assert_eq!(a16_rng.counter(), 2);
 
@@ -1333,7 +1336,8 @@ mod tests {
         a17_combat.monsters[0].moves_executed = 0;
         let mut a17_rng = StsRng::new(123);
 
-        apply_initial_monster_ai_rolls(&mut a17_combat, &mut a17_rng);
+        apply_initial_monster_ai_rolls(&mut a17_combat, &mut a17_rng)
+            .expect("supported monster intent");
 
         assert_eq!(a17_rng.counter(), 1);
         assert_eq!(
@@ -1355,7 +1359,8 @@ mod tests {
         let roll = expected_rng.random_int(99);
         let mut actual_rng = rng;
 
-        apply_initial_monster_ai_rolls(&mut combat, &mut actual_rng);
+        apply_initial_monster_ai_rolls(&mut combat, &mut actual_rng)
+            .expect("supported monster intent");
 
         assert_eq!(actual_rng.counter(), 1);
         assert_eq!(

@@ -3111,9 +3111,9 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.pending_event_combat_relic_key_offer =
                     Some(roll_relic_reward(&mut next, relic_tier));
                 match dead_adventurer_enemy(screen.event_data) {
-                    0 => enter_event_combat(&mut next, &[&SENTRY_A0, &SENTRY_A0, &SENTRY_A0]),
-                    1 => enter_event_combat(&mut next, &[&GREMLIN_NOB_A0]),
-                    _ => enter_event_combat(&mut next, &[&LAGAVULIN_A0]),
+                    0 => enter_event_combat(&mut next, &[&SENTRY_A0, &SENTRY_A0, &SENTRY_A0])?,
+                    1 => enter_event_combat(&mut next, &[&GREMLIN_NOB_A0])?,
+                    _ => enter_event_combat(&mut next, &[&LAGAVULIN_A0])?,
                 }
             }
             _ => {
@@ -3138,7 +3138,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 enter_event_combat(
                     &mut next,
                     &[&FUNGI_BEAST_A0, &FUNGI_BEAST_A0, &FUNGI_BEAST_A0],
-                );
+                )?;
             }
             0 if choice_index == 1 => {
                 let heal = next.player_max_hp * 25 / 100;
@@ -3663,7 +3663,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
                 next.pending_event_combat_relic_key_offer =
                     Some(super::reward::roll_relic_reward(&mut next, RelicTier::Rare));
-                enter_event_combat(&mut next, &[&ORB_WALKER_A0, &ORB_WALKER_A0]);
+                enter_event_combat(&mut next, &[&ORB_WALKER_A0, &ORB_WALKER_A0])?;
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -4352,7 +4352,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 enter_event_combat(
                     &mut next,
                     &[&BANDIT_POINTY_A0, &BANDIT_LEADER_A0, &BANDIT_BEAR_A0],
-                );
+                )?;
             }
             1 | 2 if choice_index == 0 => {
                 let stage = screen.stage + 1;
@@ -4386,14 +4386,14 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 enter_event_combat(
                     &mut next,
                     &[&SLAVER_BLUE_A0, &TASKMASTER_A0, &SLAVER_RED_A0],
-                );
+                )?;
             }
             2 if choice_index == 0 => {
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
             2 if choice_index == 1 => {
-                enter_event_combat(&mut next, &[&GREMLIN_NOB_A0]);
+                enter_event_combat(&mut next, &[&GREMLIN_NOB_A0])?;
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -4607,9 +4607,9 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             let event_room_override = next.current_room_override;
             next.current_room_override = Some(crate::map::RoomKind::Boss);
             match boss {
-                0 => enter_event_combat(&mut next, &[&GUARDIAN_A0]),
-                1 => enter_event_combat(&mut next, &[&HEXAGHOST_A0]),
-                _ => enter_event_combat(&mut next, &[&SLIME_BOSS_A0]),
+                0 => enter_event_combat(&mut next, &[&GUARDIAN_A0])?,
+                1 => enter_event_combat(&mut next, &[&HEXAGHOST_A0])?,
+                _ => enter_event_combat(&mut next, &[&SLIME_BOSS_A0])?,
             }
             next.current_room_override = event_room_override;
         }
@@ -4832,7 +4832,7 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
     Ok(true)
 }
 
-fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
+fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) -> SimResult<()> {
     let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
     let mut monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
@@ -4858,7 +4858,7 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
             monster
         })
         .collect();
-    apply_initial_monster_ai_rolls(&mut combat, &mut monster_rng);
+    apply_initial_monster_ai_rolls(&mut combat, &mut monster_rng)?;
     for monster in &mut combat.monsters {
         record_target_move(monster);
     }
@@ -4875,6 +4875,7 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) {
     run.phase = RunPhase::Combat;
     run.event = None;
     run.combat = Some(run.init_combat_consuming_relics(combat));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -5141,7 +5142,8 @@ mod tests {
     fn dead_adventurer_triple_sentries_open_beam_attack_beam() {
         let mut run = RunState::placeholder_seeded_ironclad(1, 0);
 
-        enter_event_combat(&mut run, &[&SENTRY_A0, &SENTRY_A0, &SENTRY_A0]);
+        enter_event_combat(&mut run, &[&SENTRY_A0, &SENTRY_A0, &SENTRY_A0])
+            .expect("supported monster intent");
 
         let monsters = &run.combat.as_ref().unwrap().monsters;
         assert!(matches!(
@@ -5865,7 +5867,7 @@ mod tests {
     }
 
     #[test]
-    fn secret_portal_enters_act_three_boss_combat_after_acceptance() {
+    fn secret_portal_fails_closed_at_unmodeled_act_three_boss_combat() {
         let mut run = RunState::placeholder_seeded_ironclad(1, 0);
         run.current_act = 3;
         run.playtime_seconds = 800;
@@ -5874,17 +5876,15 @@ mod tests {
 
         let after_accept = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("Secret Portal accept applies");
-        let after_continue =
-            apply_event_action(&after_accept, EventAction::Choose { choice_index: 0 })
-                .expect("Secret Portal transition applies");
-        assert_eq!(after_continue.phase, RunPhase::Combat);
+        let before_transition = after_accept.clone();
         assert_eq!(
-            after_continue.current_room_kind(),
-            Some(crate::map::RoomKind::Boss)
+            apply_event_action(&after_accept, EventAction::Choose { choice_index: 0 }),
+            Err(SimError::UnsupportedMechanic(
+                crate::content::monsters::AWAKENED_ONE_ID
+            ))
         );
-        assert!(after_continue.combat.is_some());
+        assert_eq!(after_accept, before_transition);
     }
-
     #[test]
     fn transmogrifier_pray_returns_to_leave_after_transform() {
         let mut run = RunState::placeholder_seeded_ironclad(1, 0);

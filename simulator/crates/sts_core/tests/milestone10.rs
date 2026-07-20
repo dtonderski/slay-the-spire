@@ -241,7 +241,7 @@ fn ornamental_fan_attack_counter_resets_on_new_turn() {
     combat.relic_counters.ornamental_fan_attacks_this_turn = 2;
     combat.piles.draw_pile.clear();
 
-    let next = end_player_turn(&combat);
+    let next = end_player_turn(&combat).expect("supported monster intent");
 
     assert_eq!(next.relic_counters.ornamental_fan_attacks_this_turn, 0);
 }
@@ -253,7 +253,7 @@ fn ice_cream_preserves_leftover_energy_across_turns() {
     combat.player.energy = 1;
     combat.piles.draw_pile.clear();
 
-    let next = end_player_turn(&combat);
+    let next = end_player_turn(&combat).expect("supported monster intent");
 
     assert_eq!(next.player.energy, BASE_PLAYER_ENERGY + 1);
 }
@@ -265,7 +265,7 @@ fn combat_without_ice_cream_refills_energy_on_new_turn() {
     combat.player.energy = 1;
     combat.piles.draw_pile.clear();
 
-    let next = end_player_turn(&combat);
+    let next = end_player_turn(&combat).expect("supported monster intent");
 
     assert_eq!(next.player.energy, BASE_PLAYER_ENERGY);
 }
@@ -354,7 +354,7 @@ fn coffee_dripper_energy_applies_to_combat_and_next_turn_refill() {
     assert_eq!(combat.player.energy, 4);
 
     combat.player.energy = 0;
-    let combat = end_player_turn(&combat);
+    let combat = end_player_turn(&combat).expect("supported monster intent");
 
     assert_eq!(combat.player.energy, 4);
 }

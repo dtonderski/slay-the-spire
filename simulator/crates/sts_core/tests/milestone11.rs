@@ -18,7 +18,7 @@ fn a2_increases_cultist_attack_damage() {
     combat.player.hp = 80;
     combat.piles.draw_pile.clear();
 
-    let next = end_player_turn(&combat);
+    let next = end_player_turn(&combat).expect("supported monster intent");
 
     assert_eq!(next.player.hp, 80 - 8);
 }
@@ -52,7 +52,7 @@ fn a17_adds_deadly_damage_on_top_of_a2() {
     combat.player.hp = 80;
     combat.piles.draw_pile.clear();
 
-    let next = end_player_turn(&combat);
+    let next = end_player_turn(&combat).expect("supported monster intent");
 
     assert_eq!(next.player.hp, 80 - 9);
 }

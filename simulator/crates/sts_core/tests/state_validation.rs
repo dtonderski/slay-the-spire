@@ -1,9 +1,12 @@
 use sts_core::{
+    apply_combat_action,
     card::CardInstance,
     combat::{DrawSelectPurpose, DrawSelectState, HandSelectState},
     content::cards,
+    content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
-    enter_reward_screen, CardId, CombatState, ContentId, RunPhase, RunState, SimError,
+    enter_reward_screen, CardId, CombatAction, CombatState, ContentId, MonsterId, RunPhase,
+    RunState, SimError,
 };
 
 #[test]
@@ -69,6 +72,23 @@ fn unknown_content_fails_validation() {
         state.validate(),
         Err(SimError::UnknownContent(ContentId::new(u64::MAX)))
     );
+}
+
+#[test]
+fn known_approximate_monster_fails_before_action_execution() {
+    let mut state = CombatState::initial_fixture();
+    state.monsters = vec![monster_state(&AWAKENED_ONE_A0, MonsterId::new(1))];
+    let original = state.clone();
+
+    assert_eq!(
+        state.validate(),
+        Err(SimError::UnsupportedMechanic(AWAKENED_ONE_A0.content_id))
+    );
+    assert_eq!(
+        apply_combat_action(&state, CombatAction::EndTurn),
+        Err(SimError::UnsupportedMechanic(AWAKENED_ONE_A0.content_id))
+    );
+    assert_eq!(state, original);
 }
 
 #[test]

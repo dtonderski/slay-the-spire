@@ -85,15 +85,15 @@ fn the_bomb_explodes_after_three_end_turn_ticks() {
     )
     .expect("The Bomb plays");
 
-    state = sts_core::end_player_turn(&state);
+    state = sts_core::end_player_turn(&state).expect("supported monster intent");
     assert_eq!(state.bomb_timers[0].turns_remaining, 2);
     assert!(state.monsters.iter().all(|monster| monster.hp == 50));
 
-    state = sts_core::end_player_turn(&state);
+    state = sts_core::end_player_turn(&state).expect("supported monster intent");
     assert_eq!(state.bomb_timers[0].turns_remaining, 1);
     assert!(state.monsters.iter().all(|monster| monster.hp == 50));
 
-    state = sts_core::end_player_turn(&state);
+    state = sts_core::end_player_turn(&state).expect("supported monster intent");
     assert!(state.bomb_timers.is_empty());
     assert!(state.monsters.iter().all(|monster| monster.hp == 10));
 }

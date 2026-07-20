@@ -120,7 +120,7 @@ fn doubt_and_shame_apply_one_end_turn_debuff_each_and_discard() {
     state.monsters.clear();
     state.relics.clear();
 
-    let state = end_player_turn(&state);
+    let state = end_player_turn(&state).expect("supported monster intent");
 
     assert_eq!(state.player.powers.weak, 1);
     assert_eq!(state.player.powers.frail, 1);

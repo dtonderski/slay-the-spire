@@ -83,15 +83,15 @@ pub fn apply_combat_action_with_events(
 
     let transition = match action {
         CombatAction::PlayCard { card_id, target } => apply_play_card(state, card_id, target),
-        CombatAction::EndTurn => Ok(apply_end_turn(state)),
+        CombatAction::EndTurn => apply_end_turn(state),
     }?;
     transition.state.validate()?;
     Ok(transition)
 }
 
-fn apply_end_turn(state: &CombatState) -> CombatTransition {
+fn apply_end_turn(state: &CombatState) -> SimResult<CombatTransition> {
     let ethereal_ids = end_turn_ethereal_hand_card_ids(state);
-    let next = crate::combat::end_player_turn(state);
+    let next = crate::combat::end_player_turn(state)?;
     let event_log = ethereal_ids
         .into_iter()
         .filter(|card_id| {
@@ -103,10 +103,10 @@ fn apply_end_turn(state: &CombatState) -> CombatTransition {
         .map(|card_id| InternalAction::CardExhausted { card_id })
         .collect();
 
-    CombatTransition {
+    Ok(CombatTransition {
         state: next,
         event_log,
-    }
+    })
 }
 
 fn end_turn_ethereal_hand_card_ids(state: &CombatState) -> Vec<CardId> {

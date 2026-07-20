@@ -8,6 +8,7 @@ use crate::{
     ids::{CardId, ContentId, MonsterId},
     power::MonsterPowers,
     rng::StsRng,
+    SimError, SimResult,
 };
 
 pub const FIXED_SIMPLE_MONSTER_ID: ContentId = ContentId::new(100);
@@ -3924,17 +3925,15 @@ pub fn donu_deca_boss_monsters_for_ascension(ascension: u8) -> Vec<MonsterState>
     vec![deca, donu]
 }
 
-#[must_use]
-pub fn prepare_monster_intent(monster: &MonsterState) -> MonsterIntent {
-    prepare_monster_intent_for_ascension(monster, 0)
-}
-
-#[must_use]
 pub fn prepare_monster_intent_for_ascension(
     monster: &MonsterState,
     ascension: u8,
-) -> MonsterIntent {
-    let definition = get_monster_definition(monster.content_id).unwrap_or(&FIXED_SIMPLE_MONSTER);
+) -> SimResult<MonsterIntent> {
+    let definition = get_monster_definition(monster.content_id)
+        .ok_or(SimError::UnknownContent(monster.content_id))?;
+    if is_unsupported_approximate_monster_intent(monster.content_id) {
+        return Err(SimError::UnsupportedMechanic(monster.content_id));
+    }
     let mut intent = prepare_monster_intent_for_monster(
         definition,
         monster.moves_executed,
@@ -3998,7 +3997,7 @@ pub fn prepare_monster_intent_for_ascension(
             weak: 0,
         };
     }
-    intent
+    Ok(intent)
 }
 
 #[must_use]
@@ -4117,7 +4116,7 @@ fn prepare_monster_intent_for_monster(
 }
 
 #[must_use]
-pub fn prepare_monster_intent_for(
+fn prepare_monster_intent_for(
     definition: &MonsterDefinition,
     moves_executed: u32,
     rolled_attack_damage: Option<i32>,
@@ -6890,6 +6889,13 @@ fn is_public_backlog_monster_content_id(content_id: ContentId) -> bool {
             | CORRUPT_HEART_ID
             | SPIRE_SHIELD_ID
             | SPIRE_SPEAR_ID
+    )
+}
+
+pub(crate) fn is_unsupported_approximate_monster_intent(content_id: ContentId) -> bool {
+    matches!(
+        content_id,
+        AWAKENED_ONE_ID | TIME_EATER_ID | CORRUPT_HEART_ID | SPIRE_SHIELD_ID | SPIRE_SPEAR_ID
     )
 }
 
@@ -11506,6 +11512,22 @@ mod tests {
     }
 
     #[test]
+    fn generic_intent_preparation_rejects_unknown_and_approximate_content() {
+        let mut unknown = monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1));
+        unknown.content_id = ContentId::new(u64::MAX);
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&unknown, 0),
+            Err(SimError::UnknownContent(ContentId::new(u64::MAX)))
+        );
+
+        let awakened = monster_state(&AWAKENED_ONE_A0, MonsterId::new(1));
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&awakened, 0),
+            Err(SimError::UnsupportedMechanic(AWAKENED_ONE_ID))
+        );
+    }
+
+    #[test]
     fn donu_deca_pair_uses_source_opening_state_and_move_bytes() {
         let baseline = donu_deca_boss_monsters_for_ascension(0);
         assert_eq!(baseline[0].powers.artifact, 2);
@@ -11521,8 +11543,10 @@ mod tests {
         assert_eq!(monsters[0].powers.artifact, 3);
         assert_eq!(monsters[1].powers.artifact, 3);
 
-        let deca_opening = prepare_monster_intent_for_ascension(&monsters[0], 19);
-        let donu_opening = prepare_monster_intent_for_ascension(&monsters[1], 19);
+        let deca_opening = prepare_monster_intent_for_ascension(&monsters[0], 19)
+            .expect("Donu and Deca have source-backed intent cycles");
+        let donu_opening = prepare_monster_intent_for_ascension(&monsters[1], 19)
+            .expect("Donu and Deca have source-backed intent cycles");
         assert_eq!(
             deca_opening,
             MonsterIntent::AttackMultipleAddDazedToDiscard {
@@ -11541,7 +11565,8 @@ mod tests {
         let mut donu_after_circle = monsters[1].clone();
         donu_after_circle.moves_executed = 1;
         assert_eq!(
-            prepare_monster_intent_for_ascension(&donu_after_circle, 19),
+            prepare_monster_intent_for_ascension(&donu_after_circle, 19)
+                .expect("Donu has a source-backed intent cycle"),
             MonsterIntent::AttackMultiple {
                 damage: DONU_A4_BEAM_DAMAGE,
                 hits: DONU_BEAM_HITS,

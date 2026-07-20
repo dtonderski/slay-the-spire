@@ -4,9 +4,10 @@ use crate::{
     content::cards::{get_card_definition, BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
-        get_monster_definition, monster_state, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER,
-        GREEN_LOUSE_A0, GREMLIN_NOB_A0, GUARDIAN_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0,
-        LOOTER_A0, RED_LOUSE_A0, SENTRY_A0, SLIME_BOSS_A0, SPIKE_SLIME_A0,
+        get_monster_definition, is_unsupported_approximate_monster_intent, monster_state,
+        ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER, GREEN_LOUSE_A0, GREMLIN_NOB_A0,
+        GUARDIAN_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0, RED_LOUSE_A0, SENTRY_A0,
+        SLIME_BOSS_A0, SPIKE_SLIME_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -677,6 +678,9 @@ impl CombatState {
             }
             if get_monster_definition(monster.content_id).is_none() {
                 return Err(SimError::UnknownContent(monster.content_id));
+            }
+            if is_unsupported_approximate_monster_intent(monster.content_id) {
+                return Err(SimError::UnsupportedMechanic(monster.content_id));
             }
             if monster.max_hp <= 0
                 || monster.hp < 0

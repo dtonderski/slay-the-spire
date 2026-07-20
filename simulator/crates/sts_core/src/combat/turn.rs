@@ -59,7 +59,7 @@ use crate::{
     },
     ids::MonsterId,
     rng::StsRng,
-    TargetRequirement,
+    SimResult, TargetRequirement,
 };
 
 const HAND_SIZE: usize = 5;
@@ -71,7 +71,7 @@ const HAND_SIZE: usize = 5;
 /// 3. Player block clears after the monster turn, before the next hand is drawn.
 /// 4. Monster vulnerable decrements by 1 during monster-turn cleanup.
 /// 5. The next player turn refills energy and draws from the draw pile without shuffle.
-pub fn end_player_turn(state: &CombatState) -> CombatState {
+pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     let mut next = state.clone();
     let started_with_living_monster = state.monsters.iter().any(|monster| monster.alive);
     let stasis_cards_before_end_powers = next
@@ -94,11 +94,11 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
     };
     resolve_end_of_turn_hand(&mut next);
     if finish_combat_if_over(&mut next, started_with_living_monster) {
-        return next;
+        return Ok(next);
     }
     crate::relic::apply_end_of_player_turn_relics(&mut next);
     if finish_combat_if_over(&mut next, started_with_living_monster) {
-        return next;
+        return Ok(next);
     }
     discard_end_of_turn_hand(&mut next);
     next.piles.hand.extend(deferred_stasis_cards);
@@ -107,24 +107,24 @@ pub fn end_player_turn(state: &CombatState) -> CombatState {
         next.player.hp = 0;
         next.player.block = 0;
         next.phase = CombatPhase::Lost;
-        return next;
+        return Ok(next);
     }
     clear_living_monster_block(&mut next);
     next.phase = CombatPhase::MonsterTurn;
-    run_monster_turn(&mut next);
+    run_monster_turn(&mut next)?;
 
     if next.player.hp <= 0 {
         next.player.hp = 0;
         next.player.block = 0;
         next.phase = CombatPhase::Lost;
-        return next;
+        return Ok(next);
     }
     if finish_combat_if_over(&mut next, started_with_living_monster) {
-        return next;
+        return Ok(next);
     }
 
     start_player_turn(&mut next);
-    next
+    Ok(next)
 }
 
 fn take_released_stasis_cards_from_piles(
@@ -392,7 +392,7 @@ fn reset_turn_only_temp_costs(state: &mut CombatState) {
     }
 }
 
-fn run_monster_turn(state: &mut CombatState) {
+fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
     let ascension = state.ascension;
     let relics = state.relics.clone();
     let mut skip_ritual_tick = Vec::new();
@@ -418,7 +418,7 @@ fn run_monster_turn(state: &mut CombatState) {
                 if is_half_dead_darkling(&state.monsters[index]) && damage == 0 =>
             {
                 state.monsters[index].moves_executed += 1;
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::Stun if is_half_dead_darkling(&state.monsters[index]) => {
@@ -430,19 +430,19 @@ fn run_monster_turn(state: &mut CombatState) {
                         crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH;
                 }
                 state.monsters[index].moves_executed += 1;
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::HealAllMonsters { amount } => {
                 apply_heal_all_monsters(&mut state.monsters, amount);
                 state.monsters[index].moves_executed += 1;
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::StrengthAllMonsters { amount } => {
                 apply_strength_all_monsters(&mut state.monsters, amount);
                 state.monsters[index].moves_executed += 1;
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::StrengthSelf { amount }
@@ -454,7 +454,7 @@ fn run_monster_turn(state: &mut CombatState) {
                 state.monsters[index].temp_strength_down = 0;
                 state.monsters[index].powers.strength += amount;
                 state.monsters[index].moves_executed += 1;
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::StrengthAndBlock { strength, block }
@@ -469,7 +469,7 @@ fn run_monster_turn(state: &mut CombatState) {
                     monster.block += block;
                     monster.moves_executed += 1;
                 }
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::StrengthAndBlock { strength, block }
@@ -478,7 +478,7 @@ fn run_monster_turn(state: &mut CombatState) {
                 state.monsters[index].block += block;
                 state.monsters[index].powers.metallicize += strength;
                 state.monsters[index].moves_executed += 1;
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::EncourageGremlins { strength, block } => {
@@ -488,7 +488,7 @@ fn run_monster_turn(state: &mut CombatState) {
                 }
                 apply_gremlin_leader_encourage(&mut state.monsters, leader_id, strength, block);
                 state.monsters[index].moves_executed += 1;
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::Attack { damage }
@@ -577,7 +577,7 @@ fn run_monster_turn(state: &mut CombatState) {
                     summoner_alive = monster.alive;
                 }
                 if summoner_alive {
-                    prepare_next_intent_for_actor(state, actor_id);
+                    prepare_next_intent_for_actor(state, actor_id)?;
                 }
                 continue;
             }
@@ -597,7 +597,7 @@ fn run_monster_turn(state: &mut CombatState) {
                 {
                     monster.moves_executed += 1;
                 }
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::Block { block }
@@ -617,7 +617,7 @@ fn run_monster_turn(state: &mut CombatState) {
                 {
                     monster.moves_executed += 1;
                 }
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::Block { block }
@@ -631,7 +631,7 @@ fn run_monster_turn(state: &mut CombatState) {
                 {
                     monster.moves_executed += 1;
                 }
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::Block { block }
@@ -653,7 +653,7 @@ fn run_monster_turn(state: &mut CombatState) {
                 {
                     monster.moves_executed += 1;
                 }
-                prepare_next_intent_for_actor(state, actor_id);
+                prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             _ => {}
@@ -769,12 +769,12 @@ fn run_monster_turn(state: &mut CombatState) {
                 record_target_move(&mut state.monsters[index]);
                 continue;
             }
-            prepare_next_intent_for_actor(state, actor_id);
+            prepare_next_intent_for_actor(state, actor_id)?;
             apply_transient_fading_after_turn(&mut state.monsters, actor_id);
         }
         revive_with_lizard_tail_if_available(state);
         if state.player.hp <= 0 {
-            return;
+            return Ok(());
         }
     }
 
@@ -816,6 +816,7 @@ fn run_monster_turn(state: &mut CombatState) {
     }
 
     apply_turn_transition_block_loss(state);
+    Ok(())
 }
 
 fn revive_with_lizard_tail_if_available(state: &mut CombatState) {
@@ -1085,11 +1086,14 @@ fn next_hand_draw_count(state: &CombatState) -> usize {
     target_hand_size(state).min(MAX_HAND_SIZE.saturating_sub(state.piles.hand.len()))
 }
 
-fn prepare_next_intent_for_actor(state: &mut CombatState, actor_id: MonsterId) {
-    prepare_next_intents_for_ids(state, Some(&[actor_id]));
+fn prepare_next_intent_for_actor(state: &mut CombatState, actor_id: MonsterId) -> SimResult<()> {
+    prepare_next_intents_for_ids(state, Some(&[actor_id]))
 }
 
-fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[MonsterId]>) {
+fn prepare_next_intents_for_ids(
+    state: &mut CombatState,
+    only_ids: Option<&[MonsterId]>,
+) -> SimResult<()> {
     let living_monster_count = state
         .monsters
         .iter()
@@ -1185,7 +1189,7 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 continue;
             }
             if matches!(monster.content_id, GREMLIN_WARRIOR_ID | GREMLIN_THIEF_ID) {
-                monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension);
+                monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension)?;
                 record_target_move(monster);
                 continue;
             }
@@ -1193,7 +1197,7 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 let mut source_branch = monster.clone();
                 source_branch.moves_executed = if living_monster_count > 1 { 0 } else { 1 };
                 monster.intent =
-                    prepare_monster_intent_for_ascension(&source_branch, state.ascension);
+                    prepare_monster_intent_for_ascension(&source_branch, state.ascension)?;
                 record_target_move(monster);
                 continue;
             }
@@ -1206,7 +1210,7 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                 continue;
             }
             if monster.content_id == SLIME_BOSS_ID {
-                monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension);
+                monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension)?;
                 record_target_move(monster);
                 continue;
             }
@@ -1458,11 +1462,12 @@ fn prepare_next_intents_for_ids(state: &mut CombatState, only_ids: Option<&[Mons
                     state.ascension,
                 )
             } else {
-                prepare_monster_intent_for_ascension(monster, state.ascension)
+                prepare_monster_intent_for_ascension(monster, state.ascension)?
             };
             record_target_move(monster);
         }
     }
+    Ok(())
 }
 
 pub(super) fn reroll_writhing_mass_after_attack(state: &mut CombatState, actor_id: MonsterId) {
@@ -1627,7 +1632,7 @@ mod tests {
         )];
         state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 36 };
 
-        let next = end_player_turn(&state);
+        let next = end_player_turn(&state).expect("supported monster intent");
 
         // Orichalcum (6) and Metallicize (3) both block the 36-damage hit.
         assert_eq!(next.player.hp, 53);
@@ -1654,7 +1659,7 @@ mod tests {
         monster.powers.strength = 1;
         monster.powers.weak = 0;
 
-        let next = end_player_turn(&state);
+        let next = end_player_turn(&state).expect("supported monster intent");
 
         assert_eq!(next.player.hp, 87);
         assert_eq!(next.player.block, 3);
@@ -1680,7 +1685,7 @@ mod tests {
             count: 3,
         };
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.player.hp, 0);
         assert_eq!(state.piles.discard_pile.len(), 1);
@@ -1708,7 +1713,7 @@ mod tests {
             count: 3,
         };
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.player.hp, 68);
         assert_eq!(state.piles.discard_pile.len(), 4);
@@ -1745,7 +1750,7 @@ mod tests {
             .collect();
         state.rng.shuffle_rng = StsRng::new(123);
 
-        let next = end_player_turn(&state);
+        let next = end_player_turn(&state).expect("supported monster intent");
 
         assert!(!next.monsters[1].alive);
         assert_eq!(next.piles.hand.len(), 6);
@@ -1772,7 +1777,7 @@ mod tests {
         state.relics.push(Relic::MagicFlower);
         state.relic_counters.fairy_heal_percent = 30;
 
-        let next = end_player_turn(&state);
+        let next = end_player_turn(&state).expect("supported monster intent");
 
         assert_eq!(next.player.hp, 53);
         assert_eq!(next.monsters[0].block, 12);
@@ -1798,7 +1803,7 @@ mod tests {
             .collect();
         state.piles.discard_pile.clear();
 
-        let next = end_player_turn(&state);
+        let next = end_player_turn(&state).expect("supported monster intent");
 
         assert_eq!(next.player.hp, 34);
         assert_eq!(next.monsters[0].hp, monster_hp - 5);
@@ -1832,7 +1837,7 @@ mod tests {
         state.monsters[0].hp = 3;
         state.monsters[0].intent = crate::MonsterIntent::AttackMultiple { damage: 4, hits: 6 };
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.player.hp, 1);
         assert!(!state.monsters[0].alive);
@@ -1898,7 +1903,7 @@ mod tests {
             count: 1,
         };
 
-        let next = end_player_turn(&state);
+        let next = end_player_turn(&state).expect("supported monster intent");
 
         assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
         assert_eq!(next.piles.hand.len(), 1);
@@ -1953,7 +1958,7 @@ mod tests {
             count: 1,
         };
 
-        let next = end_player_turn(&state);
+        let next = end_player_turn(&state).expect("supported monster intent");
 
         assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
         assert_eq!(next.relic_counters.centennial_puzzle_triggers, 1);
@@ -1992,7 +1997,7 @@ mod tests {
         };
         state.monsters = vec![queued_slime];
 
-        let next = end_player_turn(&state);
+        let next = end_player_turn(&state).expect("supported monster intent");
 
         assert_eq!(next.phase, CombatPhase::Lost);
         assert_eq!(next.player.hp, 0);
@@ -2013,7 +2018,7 @@ mod tests {
         state.monsters[0].move_history = vec![1, 1];
         state.rng.monster_rng = StsRng::new(123);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2057,7 +2062,7 @@ mod tests {
         state.monsters[0].intent = crate::MonsterIntent::Block { block: 16 };
         state.rng.monster_rng = StsRng::new(123);
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         let deca = state
             .monsters
@@ -2098,7 +2103,7 @@ mod tests {
         state.monsters[0].move_history = vec![4, 1, 5, 1, 5, 2];
         state.rng.monster_rng = StsRng::new(4444);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2125,7 +2130,7 @@ mod tests {
         state.monsters[0].powers.book_stab_count = 4;
         state.rng.monster_rng = StsRng::new(9);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2144,7 +2149,7 @@ mod tests {
         state.monsters[0].move_history = vec![1];
         state.rng.monster_rng = StsRng::new(123);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2170,7 +2175,7 @@ mod tests {
         state.monsters[0].move_history = vec![1, 1];
         state.rng.monster_rng = StsRng::new(456);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(state.monsters[0].intent, expected);
         assert_eq!(state.rng.monster_rng.counter(), expected_rng.counter());
@@ -2189,7 +2194,7 @@ mod tests {
         state.monsters[0].move_history = vec![1];
         state.rng.monster_rng = StsRng::new(789);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2223,7 +2228,7 @@ mod tests {
         state.monsters[0].move_history = vec![1, 1];
         state.rng.monster_rng = StsRng::new(987);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(state.monsters[0].intent, expected);
         assert_eq!(state.rng.monster_rng.counter(), expected_rng.counter());
@@ -2267,7 +2272,7 @@ mod tests {
         state.monsters[0].move_history = vec![2, 2];
         state.rng.monster_rng = StsRng::new(246);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2301,7 +2306,7 @@ mod tests {
             state.monsters[0].move_history = vec![1];
             state.rng.monster_rng = StsRng::new(123);
 
-            prepare_next_intent_for_actor(&mut state, actor_id);
+            prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
             assert_eq!(
                 state.rng.monster_rng.counter(),
@@ -2330,7 +2335,7 @@ mod tests {
         state.monsters[0].move_history = vec![1];
         state.rng.monster_rng = StsRng::new(246);
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.monsters[1].block, 7);
         assert_eq!(state.monsters[0].moves_executed, 1);
@@ -2356,7 +2361,7 @@ mod tests {
         state.monsters[0].move_history = vec![1, 1];
         state.rng.monster_rng = StsRng::new(2468);
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.monsters[0].block, 0);
         assert_eq!(state.monsters[1].block, 20);
@@ -2379,7 +2384,7 @@ mod tests {
         state.monsters[0].move_history = vec![4];
         state.rng.monster_rng = StsRng::new(123);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2403,7 +2408,7 @@ mod tests {
         state.monsters[0].move_history = vec![4];
         state.rng.monster_rng = StsRng::new(123);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(state.monsters[0].intent, target_grounded_byrd_next_intent());
         assert_eq!(state.monsters[0].move_history, vec![4, 5]);
@@ -2426,7 +2431,7 @@ mod tests {
         state.rng.monster_rng = StsRng::new(456);
         let player_hp = state.player.hp;
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.player.hp, player_hp - 3);
         assert_eq!(state.monsters[0].intent, target_byrd_go_airborne_intent());
@@ -2456,7 +2461,7 @@ mod tests {
         state.monsters[0].move_history = vec![4];
         state.rng.monster_rng = StsRng::new(111);
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert!(!state.monsters[0].alive);
         assert!(state.monsters[0].escaped);
@@ -2499,7 +2504,7 @@ mod tests {
         let expected_move =
             crate::content::monsters::target_move_byte(DARKLING_ID, expected_intent);
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert!(state.monsters[0].alive);
         assert!(!state.monsters[0].escaped);
@@ -2529,7 +2534,7 @@ mod tests {
         state.monsters[0].move_history = vec![5, 5];
         state.rng.monster_rng = StsRng::new(123);
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.monsters[0].sleep_turns_remaining, 0);
         assert_eq!(
@@ -2555,7 +2560,7 @@ mod tests {
         state.monsters[0].move_history = vec![5, 4];
         state.rng.monster_rng = StsRng::new(456);
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2579,7 +2584,7 @@ mod tests {
         state.monsters[0].move_history = vec![3, 2];
         state.rng.monster_rng = StsRng::new(123);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2630,7 +2635,7 @@ mod tests {
         state.monsters[0].move_history = vec![2, 4];
         state.rng.monster_rng = StsRng::new(246);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2664,7 +2669,7 @@ mod tests {
         state.player.block = 12;
         state.player.temp_thorns = 4;
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.player.hp, 64);
         assert_eq!(state.monsters[0].hp, 20);
@@ -2730,7 +2735,7 @@ mod tests {
         state.monsters[0].move_history = vec![2, 5];
         state.rng.monster_rng = StsRng::new(135);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2796,7 +2801,7 @@ mod tests {
         state.player.powers.constricted = 0;
         state.rng.monster_rng = StsRng::new(2468);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2850,7 +2855,7 @@ mod tests {
         state.monsters[0].move_history = vec![1, 3, 1];
         state.rng.monster_rng = StsRng::new(97531);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(
             state.monsters[0].intent,
@@ -2904,7 +2909,7 @@ mod tests {
         state.monsters[0].move_history = vec![2, 3];
         state.rng.monster_rng = StsRng::new(4242);
 
-        prepare_next_intent_for_actor(&mut state, actor_id);
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("supported monster intent");
 
         assert_eq!(state.monsters[0].intent, expected);
         assert_eq!(state.rng.monster_rng.counter(), expected_rng.counter() + 1);
@@ -2919,7 +2924,7 @@ mod tests {
         };
         state.monsters[0].moves_executed = 0;
         state.monsters[0].move_history.clear();
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.monsters[0].powers.intangible, 1);
         assert_eq!(
@@ -2938,7 +2943,7 @@ mod tests {
         assert_eq!(state.monsters[0].hp, hp_before - 1);
 
         state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 0 };
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
         assert_eq!(state.monsters[0].powers.intangible, 0);
         let hp_before = state.monsters[0].hp;
         let hp_damage =
@@ -2956,7 +2961,7 @@ mod tests {
         state.player.powers.combust_damage = 10;
         let monster_hp = state.monsters[0].hp;
 
-        let next = end_player_turn(&state);
+        let next = end_player_turn(&state).expect("supported monster intent");
 
         assert_eq!(next.phase, CombatPhase::Lost);
         assert_eq!(next.player.hp, 0);
@@ -2977,7 +2982,7 @@ mod tests {
         state.rng.monster_rng = StsRng::new(11);
         let player_hp = state.player.hp;
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.player.hp, player_hp - 25);
         assert_eq!(state.monsters[0].hp, 0);
@@ -2998,7 +3003,7 @@ mod tests {
         state.rng.monster_rng = StsRng::new(12);
         let player_hp = state.player.hp;
 
-        run_monster_turn(&mut state);
+        run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.player.hp, player_hp - 3);
         assert_eq!(state.monsters[0].hp, 0);
