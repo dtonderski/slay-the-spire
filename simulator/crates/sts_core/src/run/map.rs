@@ -491,6 +491,14 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
                 rng,
                 combat.ascension,
             );
+        } else if monster.content_id == crate::content::monsters::NEMESIS_ID {
+            monster.intent = crate::content::monsters::target_nemesis_next_intent_from_roll(
+                monster.moves_executed,
+                &monster.move_history,
+                roll,
+                rng,
+                combat.ascension,
+            );
         } else if monster.content_id == DARKLING_ID {
             let attack_damage = monster.rolled_attack_damage.ok_or(SimError::InvalidState(
                 "monster requires rolled attack damage",
@@ -1311,6 +1319,33 @@ mod tests {
         assert_initial_intent_from_roll(DONU_ID, |_history, _roll, _ascension| {
             MonsterIntent::StrengthAllMonsters { amount: 3 }
         });
+    }
+
+    #[test]
+    fn nemesis_entry_uses_consumed_ai_roll_instead_of_representative_intent() {
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters[0].content_id = crate::content::monsters::NEMESIS_ID;
+        combat.ascension = 3;
+
+        let rng = StsRng::with_counter(22_079_335_079, 1);
+        let mut expected_rng = rng.clone();
+        let roll = expected_rng.random_int(99);
+        assert_eq!(roll, 25);
+        let expected = crate::content::monsters::target_nemesis_next_intent_from_roll(
+            0,
+            &[],
+            roll,
+            &mut expected_rng,
+            combat.ascension,
+        );
+        let mut actual_rng = rng;
+
+        apply_initial_monster_ai_rolls(&mut combat, &mut actual_rng)
+            .expect("Nemesis opening intent is source-backed");
+
+        assert_eq!(actual_rng.counter(), expected_rng.counter());
+        assert_eq!(combat.monsters[0].intent, expected);
+        assert!(matches!(expected, MonsterIntent::AttackMultiple { .. }));
     }
 
     #[test]
