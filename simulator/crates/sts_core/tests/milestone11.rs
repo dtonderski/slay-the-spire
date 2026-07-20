@@ -1,3 +1,5 @@
+mod support;
+
 use sts_core::{
     apply_combat_action,
     content::cards::{ASCENDERS_BANE_ID, STRIKE_R_ID},
@@ -5,9 +7,9 @@ use sts_core::{
     content::monsters::{
         boss_monsters_for_ascension, monster_state_for_ascension, CULTIST_A0, SLIME_BOSS_A0,
     },
-    end_player_turn, generate_map_placeholder, CombatAction, CombatState, MonsterId, RoomKind,
-    RunState,
+    end_player_turn, CombatAction, CombatState, MonsterId, RoomKind, RunState,
 };
+use support::generate_placeholder_map;
 
 #[test]
 fn a2_increases_cultist_attack_damage() {
@@ -67,7 +69,7 @@ fn a20_boss_encounter_spawns_two_monsters() {
 #[test]
 fn a1_generated_maps_can_contain_elite_nodes() {
     let has_elite = (0..32).any(|seed| {
-        generate_map_placeholder(seed, 1)
+        generate_placeholder_map(seed, 1)
             .0
             .nodes
             .iter()

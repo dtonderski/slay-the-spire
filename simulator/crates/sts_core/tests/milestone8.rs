@@ -1,7 +1,10 @@
+mod support;
+
 use sts_core::{
-    apply_map_action, generate_map_placeholder, generated_map_fixture, legal_map_actions,
-    milestone8_fixture, milestone8_map, reachable_nodes, MapAction, MapNodeId, RoomKind,
+    apply_map_action, legal_map_actions, milestone8_fixture, milestone8_map, reachable_nodes,
+    MapAction, MapNodeId, MapRunState, RoomKind,
 };
+use support::generate_placeholder_map;
 
 #[test]
 fn milestone8_fixture_has_seven_nodes_with_expected_kinds() {
@@ -47,13 +50,18 @@ fn full_map_traversal_via_rest_branch_reaches_boss_at_floor_six() {
 
 #[test]
 fn generated_map_placeholder_is_deterministic_and_traversable() {
-    let (map_a, _) = generate_map_placeholder(17, 0);
-    let (map_b, _) = generate_map_placeholder(17, 0);
+    let (map_a, _) = generate_placeholder_map(17, 0);
+    let (map_b, _) = generate_placeholder_map(17, 0);
 
     assert_eq!(map_a, map_b);
     assert_eq!(map_a.nodes.len(), 7);
 
-    let mut state = generated_map_fixture(17);
+    let mut state = MapRunState {
+        act: 1,
+        floor: 0,
+        current_node: MapNodeId::new(0),
+        map: map_a,
+    };
     let path = [
         MapNodeId::new(2),
         MapNodeId::new(3),

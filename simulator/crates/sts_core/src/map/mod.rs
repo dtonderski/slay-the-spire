@@ -1,4 +1,3 @@
-pub mod generation;
 pub mod target;
 
 use crate::{
@@ -212,10 +211,6 @@ pub fn milestone8_fixture() -> MapRunState {
     legacy_milestone8_fixture()
 }
 
-pub use generation::{
-    generate_map_placeholder, generated_map_fixture, generated_map_fixture_for_ascension,
-    placeholder_generated_map_fixture,
-};
 pub use target::{
     city_room_kinds_on_path, exordium_room_kinds_on_path, generate_city_fixed_map,
     generate_city_map_choices_after_path, generate_city_map_topology, generate_exordium_fixed_map,
