@@ -122,7 +122,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         return Ok(next);
     }
 
-    start_player_turn(&mut next);
+    start_player_turn(&mut next)?;
     Ok(next)
 }
 
@@ -164,7 +164,14 @@ fn clear_living_monster_block(state: &mut CombatState) {
     }
 }
 
-pub fn start_player_turn(state: &mut CombatState) {
+pub fn start_player_turn(state: &mut CombatState) -> SimResult<()> {
+    let mut next = state.clone();
+    start_player_turn_in_place(&mut next)?;
+    *state = next;
+    Ok(())
+}
+
+fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
     crate::relic::reset_turn_relic_counters(state);
     reset_turn_only_temp_costs(state);
     if crate::relic::preserves_energy_between_turns(&state.relics) {
@@ -199,17 +206,17 @@ pub fn start_player_turn(state: &mut CombatState) {
         state.player.hp = 0;
         state.player.block = 0;
         state.phase = CombatPhase::Lost;
-        return;
+        return Ok(());
     }
     apply_start_of_turn_magnetism(state);
     draw_next_hand_without_shuffle(state);
     crate::relic::apply_start_of_player_turn_post_draw_relics(state);
-    apply_start_of_turn_mayhem(state);
+    apply_start_of_turn_mayhem(state)?;
     if state.player.hp <= 0 {
         state.player.hp = 0;
         state.player.block = 0;
         state.phase = CombatPhase::Lost;
-        return;
+        return Ok(());
     }
     if state.monsters.iter().all(|monster| !monster.alive) {
         let was_already_won = state.phase == CombatPhase::Won;
@@ -217,9 +224,10 @@ pub fn start_player_turn(state: &mut CombatState) {
         if !was_already_won {
             crate::combat::apply_burning_blood(state);
         }
-        return;
+        return Ok(());
     }
     state.phase = CombatPhase::WaitingForPlayer;
+    Ok(())
 }
 
 fn resolve_player_temp_strength(state: &mut CombatState) {
@@ -306,17 +314,14 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) {
     }
 }
 
-fn apply_start_of_turn_mayhem(state: &mut CombatState) {
+fn apply_start_of_turn_mayhem(state: &mut CombatState) -> SimResult<()> {
     for _ in 0..state.player.powers.mayhem.max(0) {
         let random_target = mayhem_random_living_target(state);
-        let Some(definition) = state
-            .piles
-            .draw_pile
-            .last()
-            .and_then(|card| crate::content::cards::get_card_definition(card.content_id))
-        else {
-            return;
+        let Some(top_card) = state.piles.draw_pile.last() else {
+            return Ok(());
         };
+        let definition = crate::content::cards::get_card_definition(top_card.content_id)
+            .ok_or(crate::SimError::UnknownContent(top_card.content_id))?;
         if definition.keywords.unplayable {
             // Target PlayTopCardAction removes the top card into limbo before
             // autoplay checks whether it can be used. If autoplay cannot play
@@ -332,13 +337,12 @@ fn apply_start_of_turn_mayhem(state: &mut CombatState) {
         } else {
             None
         };
-        if crate::combat::transition::apply_play_top_draw_card_to_state(state, target).is_err() {
-            return;
-        }
+        crate::combat::transition::apply_play_top_draw_card_to_state(state, target)?;
         if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
-            return;
+            return Ok(());
         }
     }
+    Ok(())
 }
 
 fn mayhem_random_living_target(state: &mut CombatState) -> Option<MonsterId> {
@@ -1617,7 +1621,9 @@ fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::{BURN_ID, DOUBT_ID, POMMEL_STRIKE_ID, SLIMED_ID, STRIKE_R_ID};
+    use crate::content::cards::{
+        BURN_ID, DEMON_FORM_ID, DOUBT_ID, POMMEL_STRIKE_ID, SLIMED_ID, STRIKE_R_ID,
+    };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
         target_giant_head_next_intent_from_roll,
@@ -1944,7 +1950,7 @@ mod tests {
             state.ascension,
         )];
 
-        start_player_turn(&mut state);
+        start_player_turn(&mut state).expect("player turn starts");
 
         assert_eq!(state.piles.hand.len(), 10);
         assert_eq!(state.piles.hand[9].content_id, SLIMED_ID);
@@ -2050,7 +2056,7 @@ mod tests {
         let mut state = CombatState::initial_fixture();
         state.double_tap_pending = 1;
 
-        start_player_turn(&mut state);
+        start_player_turn(&mut state).expect("player turn starts");
 
         assert_eq!(state.double_tap_pending, 0);
     }
@@ -2062,7 +2068,7 @@ mod tests {
         state.player.energy = 3;
         state.player.max_energy = 3;
 
-        start_player_turn(&mut state);
+        start_player_turn(&mut state).expect("player turn starts");
 
         assert_eq!(state.player.energy, 6);
     }
@@ -2707,12 +2713,47 @@ mod tests {
             0,
         )];
 
-        start_player_turn(&mut state);
+        start_player_turn(&mut state).expect("player turn starts");
 
         assert_eq!(state.piles.hand.len(), 5);
         assert!(state.piles.draw_pile.is_empty());
         assert_eq!(state.piles.discard_pile.len(), 1);
         assert_eq!(state.piles.discard_pile[0].content_id, DOUBT_ID);
+    }
+
+    #[test]
+    fn mayhem_unknown_top_card_fails_without_partial_turn_mutation() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.piles.hand = (1..=10)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let unknown = crate::ContentId::new(u64::MAX);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(11), unknown)];
+        let before = state.clone();
+
+        assert_eq!(
+            start_player_turn(&mut state),
+            Err(crate::SimError::UnknownContent(unknown))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn mayhem_unimplemented_top_card_fails_without_no_effect_play() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.piles.hand = (1..=10)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(11), DEMON_FORM_ID)];
+        let before = state.clone();
+
+        assert_eq!(
+            start_player_turn(&mut state),
+            Err(crate::SimError::UnsupportedMechanic(DEMON_FORM_ID))
+        );
+        assert_eq!(state, before);
     }
 
     #[test]

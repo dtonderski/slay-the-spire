@@ -31,11 +31,11 @@
       "path": "permanent_traces/trace-2026-07-07-session-16-codex10-complete.jsonl",
       "external_seed": "CODEX10",
       "numeric_seed": 22079335110,
-      "endpoint": "act3_victory_room_game_over",
-      "failed": false,
-      "first_boundary_category": "none",
+      "endpoint": "act2_floor25_havoc_double_tap_prefix",
+      "failed": true,
+      "first_boundary_category": "unreconciled_copied_attack_frame",
       "allow_observed_state_restoration": false,
-      "notes": "Recent complete live trace retained as strict seed-start coverage. Verifies 925 transitions with zero unsupported transitions and zero unexpected diffs, reaching VictoryRoom GAME_OVER."
+      "notes": "Retained strict prefix through action 479. Action 480 captures Uppercut+ after Double Tap decrements but before its queued copied attack becomes observable, then issues END without a stable reconciliation frame; this is an explicit expected boundary rather than complete parity."
     }
   ],
   "blocked_candidates": [

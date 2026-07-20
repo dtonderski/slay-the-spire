@@ -204,7 +204,19 @@ pub fn assess_verification(
                     count: integrity.duplicate_dispositions,
                 });
             }
-            if integrity.unresolved_transient_assertions != 0 {
+            let unresolved_is_expected_boundary_cause =
+                matches!(
+                    (expectation, actual_boundary.as_ref()),
+                    (
+                        VerificationExpectation::ExpectedBoundary { boundary: expected },
+                        Some(actual),
+                    ) if expected.category == "unreconciled_copied_attack_frame"
+                        && actual.path == expected.path
+                        && actual.category == expected.category
+                ) && integrity.unresolved_transient_assertions == 1;
+            if integrity.unresolved_transient_assertions != 0
+                && !unresolved_is_expected_boundary_cause
+            {
                 failures.push(VerificationFailure::UnresolvedTransientAssertions {
                     count: integrity.unresolved_transient_assertions,
                 });
@@ -403,6 +415,41 @@ mod tests {
                 Ok(&report),
                 &VerificationExpectation::ExpectedBoundary { boundary: expected },
                 Some(&complete_integrity()),
+            ),
+            VerificationOutcome::ExpectedBoundary { boundary: actual }
+        );
+    }
+
+    #[test]
+    fn copied_attack_boundary_preserves_its_unresolved_transient_evidence() {
+        let mut report = report();
+        let actual = SeedStartBoundary {
+            path: "$.actions[step=481].command".to_owned(),
+            category: "unreconciled_copied_attack_frame".to_owned(),
+            reason: "queued copied attack did not reach a captured stable frame".to_owned(),
+        };
+        let seed_start = report.seed_start.as_mut().expect("seed-start report");
+        seed_start.failed = true;
+        seed_start.first_boundary = actual.clone();
+        report.unsupported.push(UnsupportedTransition {
+            action_step: 481,
+            command: "END".to_owned(),
+            reason: actual.reason.clone(),
+        });
+        let expected = ExpectedBoundary {
+            path: actual.path.clone(),
+            category: actual.category.clone(),
+        };
+        let integrity = VerificationIntegrity {
+            unresolved_transient_assertions: 1,
+            ..complete_integrity()
+        };
+
+        assert_eq!(
+            assess_verification(
+                Ok(&report),
+                &VerificationExpectation::ExpectedBoundary { boundary: expected },
+                Some(&integrity),
             ),
             VerificationOutcome::ExpectedBoundary { boundary: actual }
         );

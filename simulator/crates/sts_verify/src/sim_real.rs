@@ -943,6 +943,7 @@ struct PendingCombatTransition {
 #[derive(Default)]
 struct PendingCombatAssertion {
     transitions: Vec<PendingCombatTransition>,
+    requires_stable_frame_before_next_command: bool,
 }
 
 enum SmokeBombUiState {
@@ -1075,6 +1076,44 @@ fn verify_seed_start_transitions(
             recorded_action_playtime_seconds(pre, action),
         ) {
             sim.playtime_seconds = playtime_seconds;
+        }
+        if pending_combat_assertion
+            .as_ref()
+            .is_some_and(|pending| pending.requires_stable_frame_before_next_command)
+            && !is_trace_observation_poll(action)
+        {
+            let sim = seed_sim
+                .as_ref()
+                .expect("pending combat assertion keeps authoritative simulator state");
+            let observed = seed_start_combat_observed_subset(&pre.message);
+            let simulated = seed_start_simulated_combat_subset(sim, false);
+            if seed_start_combat_subsets_match(observed, simulated) {
+                let pending = pending_combat_assertion
+                    .take()
+                    .expect("pending combat assertion checked above");
+                for transition in pending.transitions {
+                    if transition.transient_matches {
+                        report.verified.push(VerifiedTransition {
+                            action_step: transition.action.step,
+                            command: transition.action.command,
+                            label: transition.label,
+                        });
+                        reconciled_deferred_action_steps.push(transition.action.step);
+                    }
+                }
+            } else {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unreconciled_copied_attack_frame".to_owned(),
+                    reason: "a new command arrived before the queued copied attack reached the captured pre-state".to_owned(),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return finish_boundary!(boundary);
+            }
         }
         if pending_map_assertion.is_some() {
             if screen_type(&pre.message) == Some("MAP") {
@@ -4074,6 +4113,26 @@ fn verify_seed_start_transitions(
                 let label = combat_label(command, sim);
                 let observed = seed_start_combat_observed_subset(&post.message);
                 let simulated = seed_start_simulated_combat_subset(&next, false);
+                if seed_start_has_pending_double_tap_copy_frame(
+                    combat,
+                    combat_action,
+                    &post.message,
+                    &observed,
+                    &simulated,
+                ) {
+                    let transient_matches = seed_start_compare_transient_combat_subset(
+                        report, action, &label, observed, simulated,
+                    );
+                    let pending = pending_combat_assertion.get_or_insert_default();
+                    pending.requires_stable_frame_before_next_command = true;
+                    pending.transitions.push(PendingCombatTransition {
+                        action: action.clone(),
+                        label,
+                        transient_matches,
+                    });
+                    *sim = next;
+                    continue;
+                }
                 seed_start_compare_or_defer_combat_transition(
                     report,
                     action,
@@ -9681,6 +9740,20 @@ fn seed_start_compare_deferred_combat_subset(
     seed_start_compare_deferred_subset(report, action, label, expected, actual)
 }
 
+fn seed_start_combat_subsets_match(mut expected: Value, mut actual: Value) -> bool {
+    expected = seed_start_normalize_combat_compare(expected, false);
+    actual = seed_start_normalize_combat_compare(actual, false);
+    apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
+    if let (Some(expected_obj), Some(actual_obj)) = (expected.as_object(), actual.as_object_mut()) {
+        for key in ["ascension", "deck_ids", "relic_ids"] {
+            if !expected_obj.contains_key(key) {
+                actual_obj.remove(key);
+            }
+        }
+    }
+    subset_diffs(expected, actual).is_empty()
+}
+
 fn apply_observed_debug_intent_visibility_contract(expected: &mut Value, actual: &mut Value) {
     if let (Some(expected_monsters), Some(actual_monsters)) = (
         expected.get_mut("monsters").and_then(Value::as_array_mut),
@@ -9718,6 +9791,50 @@ fn seed_start_is_transient_combat_post_state(message: &Value) -> bool {
     matches!(screen_type, Some("GRID" | "HAND_SELECT"))
         && action_phase == Some("EXECUTING_ACTIONS")
         && game.get("current_action").is_some()
+}
+
+fn seed_start_has_pending_double_tap_copy_frame(
+    pre_combat: &CombatState,
+    action: CombatAction,
+    post_message: &Value,
+    observed: &Value,
+    simulated: &Value,
+) -> bool {
+    let CombatAction::PlayCard { card_id, .. } = action else {
+        return false;
+    };
+    if pre_combat.double_tap_pending <= 0 {
+        return false;
+    }
+    let Some(card) = pre_combat.piles.hand.iter().find(|card| card.id == card_id) else {
+        return false;
+    };
+    let Some(definition) = sts_core::content::cards::get_card_definition(card.content_id) else {
+        return false;
+    };
+    if definition.card_type != CardType::Attack {
+        return false;
+    }
+
+    let observed_double_tap = post_message
+        .pointer("/game_state/combat_state/player/powers")
+        .and_then(Value::as_array)
+        .and_then(|powers| {
+            powers
+                .iter()
+                .find(|power| power.get("id").and_then(Value::as_str) == Some("Double Tap"))
+        })
+        .and_then(|power| power.get("amount"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let expected_remaining = i64::from(pre_combat.double_tap_pending.saturating_sub(1));
+    if observed_double_tap != expected_remaining {
+        return false;
+    }
+
+    let observed_monsters = observed.get("monsters").cloned().unwrap_or(Value::Null);
+    let simulated_monsters = simulated.get("monsters").cloned().unwrap_or(Value::Null);
+    !subset_diffs(observed_monsters, simulated_monsters).is_empty()
 }
 
 fn seed_start_compare_transient_combat_subset(

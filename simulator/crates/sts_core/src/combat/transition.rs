@@ -20,24 +20,25 @@ use crate::{
         BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BURN_ID, CARNAGE_ID, CARNAGE_PLUS_ID, CHRYSALIS_ID,
         CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID,
         CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
-        DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DRAMATIC_ENTRANCE_ID,
-        DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_PLUS_ID,
-        ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, ENTRENCH_PLUS_ID, EXHUME_ID,
-        EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID, FINESSE_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID,
-        FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, HEADBUTT_ID,
-        HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID,
-        IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID, INFERNAL_BLADE_ID,
-        INFERNAL_BLADE_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
-        MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
-        OFFERING_ID, PAIN_ID, PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID,
-        PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
-        PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID,
-        RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID,
-        RITUAL_DAGGER_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID,
-        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID,
-        SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID,
-        SENTINEL_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
+        DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DISARM_ID, DISARM_PLUS_ID, DOUBLE_TAP_ID,
+        DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID, DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID,
+        DROPKICK_PLUS_ID, DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID,
+        ENTRENCH_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID, FINESSE_ID,
+        FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID,
+        FLEX_ID, FLEX_PLUS_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID,
+        HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID,
+        IMPATIENCE_PLUS_ID, INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INTIMIDATE_ID,
+        INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID, MASTER_OF_STRATEGY_ID,
+        MASTER_OF_STRATEGY_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID, PAIN_ID,
+        PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID,
+        PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID,
+        PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID, RUPTURE_ID,
+        RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID,
+        SEARING_BLOW_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
+        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
+        SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THUNDERCLAP_ID,
         THUNDERCLAP_PLUS_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID,
         TWIN_STRIKE_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID,
@@ -2708,6 +2709,16 @@ fn apply_play_top_draw_card(
         SEEING_RED_ID | SEEING_RED_PLUS_ID => {
             follow_ups.push(InternalAction::GainEnergy { amount: 2 });
         }
+        DOUBLE_TAP_ID | DOUBLE_TAP_PLUS_ID => {
+            follow_ups.push(InternalAction::GainDoubleTap {
+                amount: if definition.id == DOUBLE_TAP_PLUS_ID {
+                    2
+                } else {
+                    1
+                },
+            });
+        }
+        SLIMED_ID => {}
         RUPTURE_ID | RUPTURE_PLUS_ID => {
             follow_ups.push(InternalAction::GainRupture {
                 amount: if definition.id == RUPTURE_PLUS_ID {
@@ -2774,12 +2785,13 @@ fn apply_play_top_draw_card(
                 }
             }
         }
+        _ if definition.keywords.unplayable => {}
         _ if definition.values.block.is_some() => {
             follow_ups.push(InternalAction::GainBlock {
                 amount: definition.values.block.unwrap_or(0),
             });
         }
-        _ => {}
+        _ => return Err(SimError::UnsupportedMechanic(definition.id)),
     }
 
     if (exhaust_played_card || definition.keywords.exhaust)
@@ -4109,9 +4121,9 @@ fn upgrade_combat_cards(state: &mut CombatState) {
 mod tests {
     use super::*;
     use crate::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BASH_ID, BLUDGEON_ID, DUAL_WIELD_ID, FEED_ID, FIEND_FIRE_ID,
-        FIEND_FIRE_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, INFERNAL_BLADE_ID, RAMPAGE_ID,
-        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
+        ANGER_ID, ARMAMENTS_ID, BASH_ID, BLUDGEON_ID, DOUBT_ID, DUAL_WIELD_ID, FEED_ID,
+        FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, INFERNAL_BLADE_ID,
+        RAMPAGE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
     };
     use crate::content::monsters::{
         monster_state, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
@@ -4487,6 +4499,109 @@ mod tests {
         assert_eq!(next.monsters[0].hp, 70);
         assert_eq!(next.monsters[0].block, 12);
         assert_eq!(next.monsters[0].powers.malleable, 6);
+    }
+
+    #[test]
+    fn top_draw_double_tap_plus_grants_two_pending_attack_replays() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(1), DOUBLE_TAP_PLUS_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        apply_play_top_draw_card_to_state(&mut state, None).expect("top Double Tap+ plays");
+
+        assert_eq!(state.double_tap_pending, 2);
+        assert!(state.piles.draw_pile.is_empty());
+        assert_eq!(state.piles.discard_pile.len(), 1);
+        assert_eq!(state.piles.discard_pile[0].content_id, DOUBLE_TAP_PLUS_ID);
+        assert!(state.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn havoc_played_double_tap_plus_replays_the_following_attack() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 100;
+        state.monsters[0].max_hp = 100;
+        state.player.energy = 3;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(2), BASH_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), DOUBLE_TAP_PLUS_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let after_havoc = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ plays Double Tap+");
+        assert_eq!(after_havoc.double_tap_pending, 2);
+
+        let after_bash = apply_combat_action(
+            &after_havoc,
+            CombatAction::PlayCard {
+                card_id: CardId::new(2),
+                target: Some(target),
+            },
+        )
+        .expect("Double Tap+ replays Bash");
+
+        assert_eq!(after_bash.double_tap_pending, 1);
+        assert_eq!(after_bash.monsters[0].hp, 80);
+        assert_eq!(after_bash.monsters[0].powers.vulnerable, 4);
+    }
+
+    #[test]
+    fn havoc_exhausts_unplayable_top_card_without_fabricating_an_effect() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), DOUBT_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ resolves an unplayable top card");
+
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DOUBT_ID);
+        assert!(next.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn havoc_exhausts_slimed_after_its_explicit_no_effect_play() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), SLIMED_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ resolves Slimed's explicit no-effect play");
+
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, SLIMED_ID);
+        assert!(next.piles.draw_pile.is_empty());
     }
 
     #[test]

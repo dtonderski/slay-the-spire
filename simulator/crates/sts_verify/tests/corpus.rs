@@ -1472,10 +1472,22 @@ fn permanent_trace_entries_pass_seed_start() {
             integrity.duplicate_dispositions, 0,
             "{display_path} has duplicate or orphan verifier dispositions"
         );
-        assert_eq!(
-            integrity.unresolved_transient_assertions, 0,
-            "{display_path} has unresolved transient assertions"
+        let expected_unreconciled_boundary = matches!(
+            &entry.expectation,
+            sts_verify::VerificationExpectation::ExpectedBoundary { boundary }
+                if boundary.category == "unreconciled_copied_attack_frame"
         );
+        if expected_unreconciled_boundary {
+            assert_eq!(
+                integrity.unresolved_transient_assertions, 1,
+                "{display_path} expected boundary must retain exactly its one causal unresolved transient assertion"
+            );
+        } else {
+            assert_eq!(
+                integrity.unresolved_transient_assertions, 0,
+                "{display_path} has unresolved transient assertions"
+            );
+        }
         let outcome = assess_verification(Ok(&report), &entry.expectation, Some(integrity));
         assert!(
             outcome.is_success(),

@@ -1698,7 +1698,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
         && next_combat.monsters.iter().any(|monster| monster.alive)
     {
         finish_monster_turn_after_player_revival(&mut next_combat);
-        start_player_turn(&mut next_combat);
+        start_player_turn(&mut next_combat)?;
     }
     next.combat = Some(next_combat.clone());
     next.player_hp = next_combat.player.hp;

@@ -335,7 +335,7 @@ fn limit_break_counts_temporary_flex_strength() {
     assert_eq!(next.player.temp_strength, 2);
 
     let mut after_turn = next.clone();
-    start_player_turn(&mut after_turn);
+    start_player_turn(&mut after_turn).expect("player turn starts");
     assert_eq!(after_turn.player.powers.strength, 2);
     assert_eq!(after_turn.player.temp_strength, 0);
 }
@@ -1290,7 +1290,7 @@ fn brutality_loses_one_hp_then_draws_before_normal_turn_draw() {
     state.piles.discard_pile.clear();
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
 
-    start_player_turn(&mut state);
+    start_player_turn(&mut state).expect("player turn starts");
 
     assert_eq!(state.player.hp, 49);
     assert_eq!(state.piles.hand.len(), 6);
@@ -1829,7 +1829,7 @@ fn evolve_plus_draws_two_extra_cards_when_status_is_drawn() {
     ];
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
 
-    start_player_turn(&mut state);
+    start_player_turn(&mut state).expect("player turn starts");
 
     assert_eq!(state.piles.hand.len(), 7);
     assert!(state
@@ -1993,7 +1993,7 @@ fn fire_breathing_plus_damages_all_enemies_when_status_is_drawn() {
         .map(|monster| monster.hp)
         .collect::<Vec<_>>();
 
-    start_player_turn(&mut state);
+    start_player_turn(&mut state).expect("player turn starts");
 
     assert_eq!(state.monsters[0].hp, starting_hp[0] - 10);
     assert_eq!(state.monsters[1].hp, starting_hp[1] - 10);
@@ -3745,7 +3745,7 @@ fn panache_counter_resets_at_start_of_player_turn() {
         CardInstance::new(CardId::new(5), cards::STRIKE_R_ID),
     ];
 
-    start_player_turn(&mut state);
+    start_player_turn(&mut state).expect("player turn starts");
 
     assert_eq!(state.player.powers.panache_cards_played, 0);
     assert_eq!(state.piles.hand.len(), 5);
