@@ -131,11 +131,6 @@ pub fn assess_verification(
             count: report.unexpected_diffs.len(),
         });
     }
-    if !report.unsupported.is_empty() {
-        failures.push(VerificationFailure::UnsupportedTransitions {
-            count: report.unsupported.len(),
-        });
-    }
     if report.ignored_tail_actions != 0 {
         failures.push(VerificationFailure::IgnoredTailActions {
             count: report.ignored_tail_actions,
@@ -155,6 +150,27 @@ pub fn assess_verification(
         failures.push(VerificationFailure::MissingSeedStartReport);
         None
     };
+
+    let unsupported_is_exact_boundary_cause = matches!(
+        (
+            expectation,
+            actual_boundary.as_ref(),
+            report.unsupported.as_slice(),
+        ),
+        (
+            VerificationExpectation::ExpectedBoundary { boundary: expected },
+            Some(actual),
+            [unsupported],
+        ) if actual.path == expected.path
+            && actual.category == expected.category
+            && actual.path == format!("$.actions[step={}].command", unsupported.action_step)
+            && actual.reason == unsupported.reason
+    );
+    if !report.unsupported.is_empty() && !unsupported_is_exact_boundary_cause {
+        failures.push(VerificationFailure::UnsupportedTransitions {
+            count: report.unsupported.len(),
+        });
+    }
 
     match (expectation, actual_boundary.as_ref()) {
         (VerificationExpectation::ExpectedBoundary { boundary: expected }, Some(actual))
@@ -358,6 +374,78 @@ mod tests {
                 Some(&complete_integrity()),
             ),
             VerificationOutcome::ExpectedBoundary { boundary: actual }
+        );
+    }
+
+    #[test]
+    fn exact_expected_boundary_allows_its_single_causal_unsupported_transition() {
+        let mut report = report();
+        let actual = SeedStartBoundary {
+            path: "$.actions[step=12].command".to_owned(),
+            category: "unsupported_mechanic".to_owned(),
+            reason: "mechanic is outside retained coverage".to_owned(),
+        };
+        let seed_start = report.seed_start.as_mut().expect("seed-start report");
+        seed_start.failed = true;
+        seed_start.first_boundary = actual.clone();
+        report.unsupported.push(UnsupportedTransition {
+            action_step: 12,
+            command: "CHOOSE 1".to_owned(),
+            reason: actual.reason.clone(),
+        });
+        let expected = ExpectedBoundary {
+            path: actual.path.clone(),
+            category: actual.category.clone(),
+        };
+
+        assert_eq!(
+            assess_verification(
+                Ok(&report),
+                &VerificationExpectation::ExpectedBoundary { boundary: expected },
+                Some(&complete_integrity()),
+            ),
+            VerificationOutcome::ExpectedBoundary { boundary: actual }
+        );
+    }
+
+    #[test]
+    fn expected_boundary_rejects_additional_unsupported_transitions() {
+        let mut report = report();
+        let actual = SeedStartBoundary {
+            path: "$.actions[step=12].command".to_owned(),
+            category: "unsupported_mechanic".to_owned(),
+            reason: "mechanic is outside retained coverage".to_owned(),
+        };
+        let seed_start = report.seed_start.as_mut().expect("seed-start report");
+        seed_start.failed = true;
+        seed_start.first_boundary = actual.clone();
+        report.unsupported.extend([
+            UnsupportedTransition {
+                action_step: 11,
+                command: "CHOOSE 0".to_owned(),
+                reason: "earlier unsupported transition".to_owned(),
+            },
+            UnsupportedTransition {
+                action_step: 12,
+                command: "CHOOSE 1".to_owned(),
+                reason: actual.reason.clone(),
+            },
+        ]);
+        let expected = ExpectedBoundary {
+            path: actual.path.clone(),
+            category: actual.category.clone(),
+        };
+
+        let outcome = assess_verification(
+            Ok(&report),
+            &VerificationExpectation::ExpectedBoundary { boundary: expected },
+            Some(&complete_integrity()),
+        );
+        assert_eq!(
+            outcome,
+            VerificationOutcome::Failed {
+                failures: vec![VerificationFailure::UnsupportedTransitions { count: 2 }]
+            }
         );
     }
 

@@ -2210,7 +2210,6 @@ fn verify_seed_start_transitions(
                     sim,
                     &action.command,
                     &pre.message,
-                    &post.message,
                     &start.external_seed,
                 ) {
                     Ok(label) => label,
@@ -4216,7 +4215,6 @@ fn verify_seed_start_transitions(
                     sim,
                     &action.command,
                     &pre.message,
-                    &post.message,
                     &start.external_seed,
                 ) {
                     Ok(label) => {
@@ -8540,15 +8538,6 @@ fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
     choices
 }
 
-fn post_potion_count(message: &Value) -> usize {
-    message
-        .get("game_state")
-        .and_then(|game| game.get("potions"))
-        .and_then(Value::as_array)
-        .map(Vec::len)
-        .unwrap_or(0)
-}
-
 fn seed_start_apply_grid_command(sim: &RunState, command: &str) -> Result<RunState, String> {
     if command_head_eq(command, "CHOOSE") {
         let index = choose_index(command)
@@ -8579,7 +8568,6 @@ fn seed_start_apply_reward_choose(
     sim: &mut RunState,
     command: &str,
     pre: &Value,
-    post: &Value,
     external_seed: &str,
 ) -> Result<String, String> {
     let _ = external_seed;
@@ -8625,7 +8613,6 @@ fn seed_start_apply_reward_choose(
         .cloned()
         .ok_or_else(|| format!("reward choice index {choose_index} is not available"))?;
 
-    let potions_before = sim.potions.len();
     let potion_index = observed_types[..choose_index]
         .iter()
         .filter(|reward_type| reward_type.as_str() == "potion")
@@ -8634,22 +8621,12 @@ fn seed_start_apply_reward_choose(
         "stolen_gold" => apply_run_action(sim, RunAction::TakeStolenGoldReward),
         "gold" => apply_run_action(sim, RunAction::TakeGoldReward),
         "card" => apply_run_action(sim, RunAction::OpenCardReward),
-        "potion"
-            if sim.open_potion_slots() == 0
-                && sim
-                    .reward
-                    .as_ref()
-                    .is_some_and(|reward| reward.gold_offer > 0) =>
-        {
-            apply_run_action(sim, RunAction::TakeGoldReward)
-        }
-        "potion" if post_potion_count(post) > potions_before => apply_run_action(
+        "potion" => apply_run_action(
             sim,
             RunAction::TakePotionReward {
                 index: potion_index,
             },
         ),
-        "potion" => apply_run_action(sim, RunAction::SkipPotionReward),
         "relic" => {
             if let Some(observed) = pre
                 .get("game_state")
@@ -12253,7 +12230,7 @@ mod tests {
     }
 
     #[test]
-    fn full_belt_potion_reward_command_takes_pending_gold_before_potion() {
+    fn full_belt_potion_reward_command_fails_without_consuming_another_reward() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Reward;
         run.gold = 99;
@@ -12285,16 +12262,59 @@ mod tests {
                 }
             }
         });
-        let post = json!({"game_state": {"potions": [{}, {}, {}]}});
+        let error = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre, "MANUAL01")
+            .expect_err("full-belt potion reward must fail closed");
 
-        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre, &post, "MANUAL01")
-            .expect("full-belt potion reward command maps to pending gold");
+        assert_eq!(error, "illegal action: potion belt is full");
+        assert_eq!(run.gold, 99);
+        let reward = run.reward.as_ref().expect("reward screen remains");
+        assert_eq!(reward.gold_offer, 120);
+        assert_eq!(reward.potion_offer, Some(Potion::Dexterity));
+    }
+
+    #[test]
+    fn potion_reward_command_takes_simulated_offer() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Reward;
+        run.potions.clear();
+        run.reward = Some(RewardScreen {
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: Some(Potion::Dexterity),
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            relic_key_offer: None,
+            pending_relic_offer: None,
+            pending_relic_key_offer: None,
+            queued_relic_key_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_active: false,
+            card_reward_pending: false,
+            pending_card_reward_count: 0,
+        });
+        let pre = json!({
+            "game_state": {
+                "screen_state": {
+                    "rewards": [
+                        {"reward_type": "POTION", "potion": {"id": "Dexterity Potion", "name": "Dexterity Potion"}}
+                    ]
+                }
+            }
+        });
+
+        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 0", &pre, "MANUAL01")
+            .expect("available simulator potion reward is taken");
 
         assert_eq!(label, "potion reward");
-        assert_eq!(run.gold, 219);
-        let reward = run.reward.as_ref().expect("reward screen remains");
-        assert_eq!(reward.gold_offer, 0);
-        assert_eq!(reward.potion_offer, Some(Potion::Dexterity));
+        assert_eq!(run.potions, vec![Potion::Dexterity]);
+        assert!(run
+            .reward
+            .as_ref()
+            .expect("reward screen remains")
+            .potion_offer
+            .is_none());
     }
 
     #[test]
@@ -12329,7 +12349,7 @@ mod tests {
 
         let pre = json!({"game_state": {"choice_list": ["strike", "bowl"]}});
         let max_hp = run.player_max_hp;
-        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre, &json!({}), "")
+        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre, "")
             .expect("Singing Bowl choice applies");
         assert_eq!(label, "singing bowl card reward");
         assert!(run.player_max_hp > max_hp);
