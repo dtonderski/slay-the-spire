@@ -122,10 +122,8 @@ mod tests {
             potion_offer: None,
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: reward,
         };
@@ -173,6 +171,7 @@ fn add_enchiridion_power_to_hand(combat: &mut CombatState) {
     combat.piles.hand.push(card);
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunState {
     pub phase: RunPhase,
     pub deck: Vec<CardInstance>,
@@ -235,8 +234,6 @@ pub struct RunState {
     pub shuffle_rng_counter: u32,
     #[serde(default)]
     pub relic_pools: Option<RelicPoolState>,
-    #[serde(default)]
-    pub relic_keys: Vec<RelicKey>,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub omamori_charges_used: u32,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -290,7 +287,7 @@ pub struct RunState {
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_event_combat_gold_offer: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_event_combat_relic_key_offer: Option<RelicKey>,
+    pub pending_event_combat_relic_offer: Option<Relic>,
     #[serde(default)]
     pub monster_rng_seed: u64,
     #[serde(default)]
@@ -490,14 +487,10 @@ pub struct RewardScreen {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub potion_offers: Vec<Potion>,
     pub relic_offer: Option<Relic>,
-    #[serde(default)]
-    pub relic_key_offer: Option<RelicKey>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_relic_offer: Option<Relic>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_relic_key_offer: Option<RelicKey>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub queued_relic_key_offers: Vec<RelicKey>,
+    pub queued_relic_offers: Vec<Relic>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub boss_relic_choices: Vec<RelicKey>,
     /// State of the card-reward subflow. `remaining` includes an active screen.
@@ -757,6 +750,13 @@ impl RunState {
         }
         if get_card_definition(self.note_card_content_id).is_none() {
             return Err(SimError::UnknownContent(self.note_card_content_id));
+        }
+        let mut owned_relics = Vec::with_capacity(self.relics.len());
+        for relic in &self.relics {
+            if *relic != Relic::Circlet && owned_relics.contains(relic) {
+                return Err(SimError::InvalidState("duplicate owned relic"));
+            }
+            owned_relics.push(*relic);
         }
 
         match (&self.phase, &self.combat) {
@@ -1174,7 +1174,6 @@ impl RunState {
             shuffle_rng_seed: 0,
             shuffle_rng_counter: 0,
             relic_pools: None,
-            relic_keys: Vec::new(),
             omamori_charges_used: 0,
             maw_bank_broken: false,
             ancient_tea_set_armed: false,
@@ -1201,7 +1200,7 @@ impl RunState {
             misc_rng_seed: 0,
             misc_rng_counter: 0,
             pending_event_combat_gold_offer: 0,
-            pending_event_combat_relic_key_offer: None,
+            pending_event_combat_relic_offer: None,
             monster_rng_seed: 0,
             monster_rng_counter: 0,
             normal_encounter_list: Vec::new(),
@@ -1271,7 +1270,6 @@ impl RunState {
             shuffle_rng_seed: 0,
             shuffle_rng_counter: 0,
             relic_pools: None,
-            relic_keys: Vec::new(),
             omamori_charges_used: 0,
             maw_bank_broken: false,
             ancient_tea_set_armed: false,
@@ -1298,7 +1296,7 @@ impl RunState {
             misc_rng_seed: 0,
             misc_rng_counter: 0,
             pending_event_combat_gold_offer: 0,
-            pending_event_combat_relic_key_offer: None,
+            pending_event_combat_relic_offer: None,
             monster_rng_seed: 0,
             monster_rng_counter: 0,
             normal_encounter_list: Vec::new(),
@@ -1403,12 +1401,7 @@ impl RunState {
             let mut rng = StsRng::with_counter(self.relic_rng_seed as i64, self.relic_rng_counter);
             self.relic_pools = Some(initialize_ironclad_relic_pools(&mut rng));
             self.relic_rng_counter = rng.counter();
-            let owned_keys: Vec<_> = self
-                .relics
-                .iter()
-                .map(|relic| relic.key())
-                .chain(self.relic_keys.iter().copied())
-                .collect();
+            let owned_keys: Vec<_> = self.relics.iter().map(|relic| relic.key()).collect();
             if let Some(pools) = self.relic_pools.as_mut() {
                 for key in owned_keys {
                     pools.remove_relic(key);
@@ -1419,12 +1412,10 @@ impl RunState {
 
     #[must_use]
     pub fn relic_spawn_context(&self, floor_num: i32, shop_room: bool) -> RelicSpawnContext {
-        let mut owned_relics: Vec<_> = self.relics.iter().map(|relic| relic.key()).collect();
-        owned_relics.extend(self.relic_keys.iter().copied());
         RelicSpawnContext {
             floor_num,
             shop_room,
-            owned_relics,
+            owned_relics: self.relics.iter().map(|relic| relic.key()).collect(),
             has_non_basic_attack: self.deck.iter().any(|card| {
                 card_type_and_rarity(card.content_id).is_some_and(|(card_type, _)| {
                     card_type == CardType::Attack && !is_basic_starter_card(card.content_id)
@@ -1623,7 +1614,7 @@ impl RunState {
 
     #[must_use]
     pub fn has_mark_of_bloom(&self) -> bool {
-        self.relic_keys.contains(&RelicKey::MarkOfBloom)
+        self.relics.contains(&Relic::MarkOfBloom)
     }
 
     pub fn heal_player(&mut self, amount: i32) {
@@ -1673,16 +1664,7 @@ impl RunState {
         if let Some(pools) = self.relic_pools.as_mut() {
             pools.remove_relic(key);
         }
-        if matches!(
-            key,
-            Relic::MarkOfBloom | Relic::SpiritPoop | Relic::OddMushroom | Relic::NlothsGift
-        ) {
-            // Preserve the schema-3 storage shape until the next explicit
-            // snapshot migration merges relic_keys into relics.
-            self.relic_keys.push(key);
-        } else {
-            self.gain_relic(key);
-        }
+        self.gain_relic(key);
     }
 
     pub fn gain_relic(&mut self, relic: Relic) {
@@ -1933,13 +1915,13 @@ impl RunState {
 
     fn replace_starter_relic_slot(&mut self, relic: Relic) -> bool {
         let replaced = match relic {
-            Relic::BlackBlood => Some((Relic::BurningBlood, RelicKey::BurningBlood)),
-            Relic::FrozenCore => Some((Relic::CrackedCore, RelicKey::CrackedCore)),
-            Relic::HolyWater => Some((Relic::PureWater, RelicKey::PureWater)),
-            Relic::RingOfTheSerpent => Some((Relic::RingOfTheSnake, RelicKey::RingOfTheSnake)),
+            Relic::BlackBlood => Some(Relic::BurningBlood),
+            Relic::FrozenCore => Some(Relic::CrackedCore),
+            Relic::HolyWater => Some(Relic::PureWater),
+            Relic::RingOfTheSerpent => Some(Relic::RingOfTheSnake),
             _ => None,
         };
-        let Some((starter_relic, starter_key)) = replaced else {
+        let Some(starter_relic) = replaced else {
             return false;
         };
         let mut replaced_relic = false;
@@ -1949,7 +1931,6 @@ impl RunState {
                 replaced_relic = true;
             }
         }
-        self.relic_keys.retain(|owned| *owned != starter_key);
         replaced_relic
     }
 
@@ -2064,18 +2045,11 @@ impl RunState {
                 Ok(())
             }
             RunAction::TakeRelicReward => {
-                if reward.relic_offer.is_none() && reward.relic_key_offer.is_none() {
+                if reward.relic_offer.is_none() {
                     return Err(SimError::IllegalAction("no relic reward offered"));
                 }
                 if let Some(relic) = reward.relic_offer {
                     if self.relics.contains(&relic) {
-                        return Err(SimError::IllegalAction("relic already owned"));
-                    }
-                }
-                if let Some(key) = reward.relic_key_offer {
-                    if self.relics.iter().any(|relic| relic.key() == key)
-                        || self.relic_keys.contains(&key)
-                    {
                         return Err(SimError::IllegalAction("relic already owned"));
                     }
                 }

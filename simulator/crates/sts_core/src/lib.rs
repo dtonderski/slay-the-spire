@@ -93,6 +93,7 @@ pub use run::{
 };
 pub use snapshot::{
     restore_combat_snapshot_json, restore_run_snapshot_json, PlaceholderState, Snapshot,
-    SnapshotHash, SnapshotRestoreError, LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,
-    PREVIOUS_SNAPSHOT_SCHEMA_VERSION, SNAPSHOT_SCHEMA_VERSION,
+    SnapshotHash, SnapshotRestoreError, LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION,
+    LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION, PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+    SNAPSHOT_SCHEMA_VERSION,
 };

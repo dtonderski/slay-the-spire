@@ -823,10 +823,8 @@ fn reward_sequence_has_remaining_choices(run: &RunState) -> bool {
             || reward.stolen_gold_offer > 0
             || reward.potion_offer.is_some()
             || reward.relic_offer.is_some()
-            || reward.relic_key_offer.is_some()
             || reward.pending_relic_offer.is_some()
-            || reward.pending_relic_key_offer.is_some()
-            || !reward.queued_relic_key_offers.is_empty()
+            || !reward.queued_relic_offers.is_empty()
             || !reward.boss_relic_choices.is_empty()
             || reward.remaining_card_reward_count() > 0
             || !reward.choices.is_empty()

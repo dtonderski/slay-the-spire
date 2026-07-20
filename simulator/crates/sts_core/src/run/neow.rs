@@ -213,7 +213,6 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
     run.ensure_ironclad_relic_pools();
 
     run.relics.retain(|relic| *relic != Relic::BurningBlood);
-    run.relic_keys.retain(|key| *key != RelicKey::BurningBlood);
     let context = run.relic_spawn_context(run.current_floor, false);
     let relic = run
         .relic_pools
@@ -231,10 +230,8 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
             potion_offer: None,
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: crate::run::CardRewardFlow::None,
         });

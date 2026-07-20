@@ -6,7 +6,7 @@ use sts_core::{
     content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
     enter_reward_screen, CardGridScreen, CardId, CombatAction, CombatState, ContentId, GridPurpose,
-    MonsterId, MonsterIntent, RunPhase, RunState, SimError,
+    MonsterId, MonsterIntent, Relic, RunPhase, RunState, SimError,
 };
 
 #[test]
@@ -61,6 +61,19 @@ fn duplicate_card_ids_fail_validation() {
             "card instance appears in more than one pile"
         ))
     );
+}
+
+#[test]
+fn duplicate_owned_relics_fail_validation_except_stackable_circlets() {
+    let mut run = RunState::map_fixture();
+    run.relics = vec![Relic::BurningBlood, Relic::BurningBlood];
+    assert_eq!(
+        run.validate(),
+        Err(SimError::InvalidState("duplicate owned relic"))
+    );
+
+    run.relics = vec![Relic::Circlet, Relic::Circlet];
+    run.validate().expect("Circlet may be awarded repeatedly");
 }
 
 #[test]

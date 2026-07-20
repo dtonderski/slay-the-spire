@@ -3,8 +3,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{error::Error, fmt};
 
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 3;
-pub const PREVIOUS_SNAPSHOT_SCHEMA_VERSION: u32 = 2;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 4;
+pub const PREVIOUS_SNAPSHOT_SCHEMA_VERSION: u32 = 3;
+pub const LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 pub const LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +111,7 @@ fn validate_supported_schema(version: u32) -> Result<(), SnapshotRestoreError> {
         version,
         SNAPSHOT_SCHEMA_VERSION
             | PREVIOUS_SNAPSHOT_SCHEMA_VERSION
+            | LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION
     ) {
         Ok(())
@@ -145,7 +147,7 @@ fn legacy_reward_flag(
     ))
 }
 
-fn migrate_legacy_run_snapshot(value: &mut Value) -> Result<(), SnapshotRestoreError> {
+fn migrate_legacy_reward_flow(value: &mut Value) -> Result<(), SnapshotRestoreError> {
     let reward = value
         .get_mut("state")
         .and_then(|state| state.get_mut("reward"));
@@ -184,6 +186,113 @@ fn migrate_legacy_run_snapshot(value: &mut Value) -> Result<(), SnapshotRestoreE
     Ok(())
 }
 
+fn merge_optional_legacy_field(
+    object: &mut Map<String, Value>,
+    current: &'static str,
+    legacy: &'static str,
+    conflict: &'static str,
+) -> Result<(), SnapshotRestoreError> {
+    let Some(legacy_value) = object.remove(legacy) else {
+        return Ok(());
+    };
+    if legacy_value.is_null() {
+        return Ok(());
+    }
+    if object.get(current).is_some_and(|value| !value.is_null()) {
+        return Err(SnapshotRestoreError::InvalidDocument(conflict));
+    }
+    object.insert(current.to_owned(), legacy_value);
+    Ok(())
+}
+
+fn merge_legacy_relic_queue(reward: &mut Map<String, Value>) -> Result<(), SnapshotRestoreError> {
+    let Some(legacy_value) = reward.remove("queued_relic_key_offers") else {
+        return Ok(());
+    };
+    let Value::Array(legacy) = legacy_value else {
+        return Err(SnapshotRestoreError::InvalidDocument(
+            "legacy queued relic offers must be an array",
+        ));
+    };
+    if legacy.is_empty() {
+        return Ok(());
+    }
+    match reward.get("queued_relic_offers") {
+        None | Some(Value::Null) => {
+            reward.insert("queued_relic_offers".to_owned(), Value::Array(legacy));
+            Ok(())
+        }
+        Some(Value::Array(current)) if current.is_empty() => {
+            reward.insert("queued_relic_offers".to_owned(), Value::Array(legacy));
+            Ok(())
+        }
+        Some(Value::Array(_)) => Err(SnapshotRestoreError::InvalidDocument(
+            "snapshot contains both canonical and legacy queued relic offers",
+        )),
+        Some(_) => Err(SnapshotRestoreError::InvalidDocument(
+            "queued relic offers must be an array",
+        )),
+    }
+}
+
+fn migrate_legacy_relic_storage(value: &mut Value) -> Result<(), SnapshotRestoreError> {
+    let state = value
+        .get_mut("state")
+        .and_then(Value::as_object_mut)
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "state must be an object",
+        ))?;
+
+    let legacy_relics = match state.remove("relic_keys") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(relics)) => relics,
+        Some(_) => {
+            return Err(SnapshotRestoreError::InvalidDocument(
+                "legacy relic_keys must be an array",
+            ));
+        }
+    };
+    let relics = state
+        .entry("relics".to_owned())
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "relics must be an array",
+        ))?;
+    for relic in legacy_relics {
+        if relics.contains(&relic) {
+            return Err(SnapshotRestoreError::InvalidDocument(
+                "snapshot owns the same relic through both legacy stores",
+            ));
+        }
+        relics.push(relic);
+    }
+
+    merge_optional_legacy_field(
+        state,
+        "pending_event_combat_relic_offer",
+        "pending_event_combat_relic_key_offer",
+        "snapshot contains both canonical and legacy pending event relic offers",
+    )?;
+
+    if let Some(Value::Object(reward)) = state.get_mut("reward") {
+        merge_optional_legacy_field(
+            reward,
+            "relic_offer",
+            "relic_key_offer",
+            "snapshot contains both canonical and legacy relic offers",
+        )?;
+        merge_optional_legacy_field(
+            reward,
+            "pending_relic_offer",
+            "pending_relic_key_offer",
+            "snapshot contains both canonical and legacy pending relic offers",
+        )?;
+        merge_legacy_relic_queue(reward)?;
+    }
+    Ok(())
+}
+
 pub fn restore_combat_snapshot_json(
     json: &str,
 ) -> Result<Snapshot<CombatState>, SnapshotRestoreError> {
@@ -203,7 +312,8 @@ pub fn restore_run_snapshot_json(json: &str) -> Result<Snapshot<RunState>, Snaps
     let version = schema_version(&value)?;
     validate_supported_schema(version)?;
     if version != SNAPSHOT_SCHEMA_VERSION {
-        migrate_legacy_run_snapshot(&mut value)?;
+        migrate_legacy_reward_flow(&mut value)?;
+        migrate_legacy_relic_storage(&mut value)?;
     }
     let mut snapshot: Snapshot<RunState> = serde_json::from_value(value)?;
     snapshot
@@ -229,7 +339,7 @@ fn stable_hash64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CardRewardFlow, RunPhase};
+    use crate::{CardRewardFlow, Relic, RewardContinuation, RewardScreen, RunPhase};
     use serde_json::json;
 
     fn legacy_run_snapshot_json(version: u32, active: bool, pending: bool, count: u8) -> String {
@@ -273,7 +383,7 @@ mod tests {
 
         assert_eq!(
             snapshot.canonical_json().expect("snapshot serializes"),
-            r#"{"schema_version":3,"state":{}}"#
+            r#"{"schema_version":4,"state":{}}"#
         );
     }
 
@@ -292,6 +402,7 @@ mod tests {
     fn historical_run_snapshots_migrate_pending_card_reward_counts() {
         for version in [
             LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,
+            LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION,
             PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
         ] {
             let restored =
@@ -349,6 +460,138 @@ mod tests {
         ))
         .expect_err("current snapshots must use the current reward shape");
 
+        assert!(matches!(error, SnapshotRestoreError::Json(_)));
+    }
+
+    #[test]
+    fn schema_three_merges_relic_ownership_and_offer_fields() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.relics.push(Relic::SpiritPoop);
+        run.pending_event_combat_relic_offer = Some(Relic::OddMushroom);
+        run.phase = RunPhase::Reward;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: Some(Relic::MarkOfBloom),
+            pending_relic_offer: Some(Relic::NlothsGift),
+            queued_relic_offers: vec![Relic::TheBoot],
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: CardRewardFlow::None,
+        });
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("snapshot serializes");
+
+        let relics = value["state"]["relics"]
+            .as_array_mut()
+            .expect("relics are an array");
+        let spirit_poop = relics.pop().expect("event relic is present");
+        value["state"]["relic_keys"] = Value::Array(vec![spirit_poop]);
+        let pending_event = value["state"]
+            .as_object_mut()
+            .expect("state object")
+            .remove("pending_event_combat_relic_offer")
+            .expect("pending event offer");
+        value["state"]["pending_event_combat_relic_key_offer"] = pending_event;
+        let reward = value["state"]["reward"]
+            .as_object_mut()
+            .expect("reward object");
+        for (current, legacy) in [
+            ("relic_offer", "relic_key_offer"),
+            ("pending_relic_offer", "pending_relic_key_offer"),
+            ("queued_relic_offers", "queued_relic_key_offers"),
+        ] {
+            let field = reward.remove(current).expect("current reward field");
+            reward.insert(legacy.to_owned(), field);
+        }
+
+        let restored = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect("schema-three relic storage migrates");
+        assert_eq!(restored.schema_version, SNAPSHOT_SCHEMA_VERSION);
+        assert!(restored.state.relics.contains(&Relic::SpiritPoop));
+        assert_eq!(
+            restored.state.pending_event_combat_relic_offer,
+            Some(Relic::OddMushroom)
+        );
+        let reward = restored.state.reward.expect("reward restored");
+        assert_eq!(reward.relic_offer, Some(Relic::MarkOfBloom));
+        assert_eq!(reward.pending_relic_offer, Some(Relic::NlothsGift));
+        assert_eq!(reward.queued_relic_offers, vec![Relic::TheBoot]);
+    }
+
+    #[test]
+    fn schema_three_rejects_paired_relic_offer_authorities() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Reward;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: Some(Relic::TheBoot),
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: CardRewardFlow::None,
+        });
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("snapshot serializes");
+        value["state"]["reward"]["relic_key_offer"] =
+            serde_json::to_value(Relic::Pantograph).expect("relic serializes");
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("paired relic authorities must fail closed");
+        assert!(matches!(error, SnapshotRestoreError::InvalidDocument(_)));
+    }
+
+    #[test]
+    fn schema_three_rejects_duplicate_relic_ownership_across_stores() {
+        let run = RunState::seeded_ironclad(7, 0);
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("snapshot serializes");
+        value["state"]["relic_keys"] = json!(["BurningBlood"]);
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("duplicate legacy ownership must fail closed");
+        assert!(matches!(error, SnapshotRestoreError::InvalidDocument(_)));
+    }
+
+    #[test]
+    fn current_schema_rejects_retired_relic_storage_fields() {
+        let run = RunState::seeded_ironclad(7, 0);
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("snapshot serializes");
+        value["state"]["relic_keys"] = json!(["SpiritPoop"]);
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("current schema must reject retired relic fields");
         assert!(matches!(error, SnapshotRestoreError::Json(_)));
     }
 

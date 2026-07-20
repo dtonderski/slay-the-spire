@@ -158,10 +158,8 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     potion_offer: None,
                     potion_offers: Vec::new(),
                     relic_offer: None,
-                    relic_key_offer: None,
                     pending_relic_offer: None,
-                    pending_relic_key_offer: None,
-                    queued_relic_key_offers: Vec::new(),
+                    queued_relic_offers: Vec::new(),
                     boss_relic_choices: Vec::new(),
                     card_reward_flow: crate::run::CardRewardFlow::pending(1),
                 });
@@ -185,7 +183,6 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
         RestAction::Dig => {
             let act = next.current_act;
             let key = roll_event_relic_reward(&mut next, act);
-            let relic_offer = Relic::from_key(key);
             next.phase = RunPhase::Reward;
             next.reward = Some(RewardScreen {
                 continuation: RewardContinuation::None,
@@ -195,15 +192,9 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                 stolen_gold_offer: 0,
                 potion_offer: None,
                 potion_offers: Vec::new(),
-                relic_offer,
-                relic_key_offer: if relic_offer.is_some() {
-                    None
-                } else {
-                    Some(key)
-                },
+                relic_offer: Some(key),
                 pending_relic_offer: None,
-                pending_relic_key_offer: None,
-                queued_relic_key_offers: Vec::new(),
+                queued_relic_offers: Vec::new(),
                 boss_relic_choices: Vec::new(),
                 card_reward_flow: crate::run::CardRewardFlow::None,
             });

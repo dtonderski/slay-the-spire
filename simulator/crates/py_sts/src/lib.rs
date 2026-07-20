@@ -1457,10 +1457,8 @@ mod tests {
             potion_offer: Some(Potion::Ancient),
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::None,
         });

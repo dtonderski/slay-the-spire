@@ -3022,7 +3022,6 @@ fn offered_relic_changes_card_reward_schedule(state: &LiveState) -> bool {
     let expected = state
         .raw
         .pointer("/sim_run_state/reward/relic_offer")
-        .or_else(|| state.raw.pointer("/sim_run_state/reward/relic_key_offer"))
         .and_then(Value::as_str)
         .unwrap_or_default()
         .chars()

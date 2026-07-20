@@ -225,7 +225,7 @@ fn set_restocked_card_price(offer: &mut ShopCardSlot, run: &RunState, merchant_r
 }
 
 fn owns_relic_key(run: &RunState, key: RelicKey) -> bool {
-    run.relic_keys.contains(&key) || run.relics.iter().any(|relic| relic.key() == key)
+    run.relics.iter().any(|relic| relic.key() == key)
 }
 
 fn can_open_shop_remove(run: &RunState, shop: &ShopScreen) -> bool {

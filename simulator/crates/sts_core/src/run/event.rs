@@ -473,11 +473,7 @@ fn hypnotizing_colored_mushrooms_choices(stage: u32) -> Vec<EventChoice> {
 }
 
 fn nloth_owned_relic_keys(run: &RunState) -> Vec<RelicKey> {
-    run.relics
-        .iter()
-        .map(|relic| relic.key())
-        .chain(run.relic_keys.iter().copied())
-        .collect()
+    run.relics.iter().map(|relic| relic.key()).collect()
 }
 
 fn nloth_event_data(choice_one: usize, choice_two: usize) -> u32 {
@@ -594,20 +590,12 @@ fn cleric_purify_cost(run: &RunState) -> i32 {
 }
 
 fn has_relic_key(run: &RunState, key: RelicKey) -> bool {
-    run.relics.iter().any(|relic| relic.key() == key) || run.relic_keys.contains(&key)
+    run.relics.iter().any(|relic| relic.key() == key)
 }
 
 fn remove_relic_key(run: &mut RunState, key: RelicKey) -> bool {
     if let Some(index) = run.relics.iter().position(|relic| relic.key() == key) {
         run.relics.remove(index);
-        return true;
-    }
-    if let Some(index) = run
-        .relic_keys
-        .iter()
-        .position(|candidate| *candidate == key)
-    {
-        run.relic_keys.remove(index);
         return true;
     }
     false
@@ -648,7 +636,6 @@ fn choose_cursed_tome_book(run: &mut RunState) -> RelicKey {
 }
 
 fn open_cursed_tome_book_reward(run: &mut RunState, key: RelicKey) {
-    let relic_offer = Relic::from_key(key);
     run.phase = RunPhase::Reward;
     // The target returns from the book relic screen to Cursed Tome's final
     // Leave button. Keep that event continuation while the reward is open.
@@ -666,15 +653,9 @@ fn open_cursed_tome_book_reward(run: &mut RunState, key: RelicKey) {
         stolen_gold_offer: 0,
         potion_offer: None,
         potion_offers: Vec::new(),
-        relic_offer,
-        relic_key_offer: if relic_offer.is_some() {
-            None
-        } else {
-            Some(key)
-        },
+        relic_offer: Some(key),
         pending_relic_offer: None,
-        pending_relic_key_offer: None,
-        queued_relic_key_offers: Vec::new(),
+        queued_relic_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
@@ -1575,7 +1556,7 @@ pub(crate) fn complete_bonfire_elementals_card(
 
     match class {
         BonfireCardClass::Curse => {
-            if run.relic_keys.contains(&RelicKey::SpiritPoop) {
+            if run.relics.contains(&Relic::SpiritPoop) {
                 run.gain_relic_key(RelicKey::Circlet);
             } else {
                 run.gain_relic_key(RelicKey::SpiritPoop);
@@ -1785,7 +1766,7 @@ fn special_one_time_event_is_available(run: &RunState, event: Event) -> bool {
         Event::FaceTrader => run.current_act == 1 || run.current_act == 2,
         Event::FountainOfCleansing => deck_has_curse(&run.deck),
         Event::KnowingSkull => run.current_act == 2 && run.player_hp > 12,
-        Event::Nloth => run.current_act == 2 && run.relics.len() + run.relic_keys.len() >= 2,
+        Event::Nloth => run.current_act == 2 && run.relics.len() >= 2,
         Event::SecretPortal => run.current_act == 3 && run.playtime_seconds >= 800,
         Event::TheJoust => run.current_act == 2 && run.gold >= 50,
         Event::TheWomanInBlue => run.gold >= 50,
@@ -2447,10 +2428,8 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) {
         potion_offer: None,
         potion_offers: Vec::new(),
         relic_offer: None,
-        relic_key_offer: None,
         pending_relic_offer: None,
-        pending_relic_key_offer: None,
-        queued_relic_key_offers: Vec::new(),
+        queued_relic_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::active(1),
     });
@@ -3075,7 +3054,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let mut relic_rng = next.rng_for_stream(RunRngStream::Relic);
                 let relic_tier = target_elite_relic_tier(&mut relic_rng);
                 next.store_rng_counter(RunRngStream::Relic, &relic_rng);
-                next.pending_event_combat_relic_key_offer =
+                next.pending_event_combat_relic_offer =
                     Some(roll_relic_reward(&mut next, relic_tier));
                 match dead_adventurer_enemy(screen.event_data) {
                     0 => enter_event_combat(&mut next, &[&SENTRY_A0, &SENTRY_A0, &SENTRY_A0])?,
@@ -3094,7 +3073,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
                 next.pending_event_combat_gold_offer = misc_rng.random_int_range(20, 30);
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
-                next.pending_event_combat_relic_key_offer =
+                next.pending_event_combat_relic_offer =
                     Some(if has_relic_key(&next, RelicKey::OddMushroom) {
                         RelicKey::Circlet
                     } else {
@@ -3245,10 +3224,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 potion_offer: None,
                 potion_offers,
                 relic_offer: None,
-                relic_key_offer: None,
                 pending_relic_offer: None,
-                pending_relic_key_offer: None,
-                queued_relic_key_offers: Vec::new(),
+                queued_relic_offers: Vec::new(),
                 boss_relic_choices: Vec::new(),
                 card_reward_flow: crate::run::CardRewardFlow::None,
             });
@@ -3626,7 +3603,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
                 next.pending_event_combat_gold_offer = misc_rng.random_int_range(45, 55);
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
-                next.pending_event_combat_relic_key_offer =
+                next.pending_event_combat_relic_offer =
                     Some(super::reward::roll_relic_reward(&mut next, RelicTier::Rare));
                 enter_event_combat(&mut next, &[&ORB_WALKER_A0, &ORB_WALKER_A0])?;
             }
@@ -3688,10 +3665,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 potion_offer: None,
                 potion_offers: Vec::new(),
                 relic_offer: None,
-                relic_key_offer: None,
                 pending_relic_offer: None,
-                pending_relic_key_offer: None,
-                queued_relic_key_offers: Vec::new(),
+                queued_relic_offers: Vec::new(),
                 boss_relic_choices: Vec::new(),
                 card_reward_flow: crate::run::CardRewardFlow::pending(reward_count),
             });
@@ -4306,7 +4281,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
                 next.pending_event_combat_gold_offer = misc_rng.random_int_range(25, 35);
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
-                next.pending_event_combat_relic_key_offer =
+                next.pending_event_combat_relic_offer =
                     Some(if has_relic_key(&next, RelicKey::RedMask) {
                         RelicKey::Circlet
                     } else {
@@ -4446,7 +4421,6 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 1 => {
                     let act = next.current_act;
                     let key = roll_event_relic_reward(&mut next, act);
-                    let relic_offer = Relic::from_key(key);
                     next.phase = RunPhase::Reward;
                     next.event = None;
                     next.reward = Some(RewardScreen {
@@ -4457,15 +4431,9 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                         stolen_gold_offer: 0,
                         potion_offer: None,
                         potion_offers: Vec::new(),
-                        relic_offer,
-                        relic_key_offer: if relic_offer.is_some() {
-                            None
-                        } else {
-                            Some(key)
-                        },
+                        relic_offer: Some(key),
                         pending_relic_offer: None,
-                        pending_relic_key_offer: None,
-                        queued_relic_key_offers: Vec::new(),
+                        queued_relic_offers: Vec::new(),
                         boss_relic_choices: Vec::new(),
                         card_reward_flow: crate::run::CardRewardFlow::None,
                     });
@@ -4530,10 +4498,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 potion_offer: None,
                 potion_offers,
                 relic_offer: None,
-                relic_key_offer: None,
                 pending_relic_offer: None,
-                pending_relic_key_offer: None,
-                queued_relic_key_offers: Vec::new(),
+                queued_relic_offers: Vec::new(),
                 boss_relic_choices: Vec::new(),
                 card_reward_flow: crate::run::CardRewardFlow::None,
             });
@@ -4561,7 +4527,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         Event::MindBloom if screen.stage == 0 && choice_index == 0 => {
             let boss = roll_mind_bloom_boss(&mut next);
             next.pending_event_combat_gold_offer = if next.ascension >= 13 { 25 } else { 50 };
-            next.pending_event_combat_relic_key_offer =
+            next.pending_event_combat_relic_offer =
                 Some(super::reward::roll_relic_reward(&mut next, RelicTier::Rare));
             let event_room_override = next.current_room_override;
             next.current_room_override = Some(crate::map::RoomKind::Boss);
@@ -5101,10 +5067,7 @@ mod tests {
         assert!((55..=65).contains(&fight.pending_event_combat_gold_offer));
         assert_eq!(fight.misc_rng_counter, misc_counter_before_fight + 1);
         assert_eq!(fight.treasure_rng_counter, treasure_counter_before_fight);
-        assert_eq!(
-            fight.pending_event_combat_relic_key_offer,
-            Some(expected_relic)
-        );
+        assert_eq!(fight.pending_event_combat_relic_offer, Some(expected_relic));
     }
 
     #[test]
@@ -5175,7 +5138,7 @@ mod tests {
             crate::run::grid::confirm_grid(&selected).expect("curse offering resolves");
 
         assert!(after_confirm.deck.is_empty());
-        assert!(after_confirm.relic_keys.contains(&RelicKey::SpiritPoop));
+        assert!(after_confirm.relics.contains(&Relic::SpiritPoop));
     }
 
     #[test]
@@ -6142,7 +6105,7 @@ mod tests {
             .count();
         assert_eq!(regret_count, 0);
         assert_eq!(after_box.pending_obtain_cards, vec![REGRET_ID]);
-        assert!(after_box.relics.len() + after_box.relic_keys.len() > run.relics.len());
+        assert!(after_box.relics.len() > run.relics.len());
 
         let after_leave = apply_event_action(&after_box, EventAction::Choose { choice_index: 0 })
             .expect("Big Fish leave applies");

@@ -146,10 +146,8 @@ pub(crate) fn enter_orrery_reward_screen(run: &mut RunState) {
         potion_offer: None,
         potion_offers: Vec::new(),
         relic_offer: None,
-        relic_key_offer: None,
         pending_relic_offer: None,
-        pending_relic_key_offer: None,
-        queued_relic_key_offers: Vec::new(),
+        queued_relic_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
@@ -887,31 +885,21 @@ pub(crate) fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey
     pools.return_random_relic(tier, &context)
 }
 
-fn split_relic_offer(key: RelicKey) -> (Option<Relic>, Option<RelicKey>) {
-    let relic_offer = Relic::from_key(key);
-    let relic_key_offer = if relic_offer.is_some() {
-        None
-    } else {
-        Some(key)
-    };
-    (relic_offer, relic_key_offer)
-}
-
-fn roll_bonus_relic_offer(run: &mut RunState) -> (Option<Relic>, Option<RelicKey>) {
+fn roll_bonus_relic_offer(run: &mut RunState) -> Relic {
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_relic_tier(&mut relic_rng, run.current_act);
     run.store_rng_counter(RunRngStream::Relic, &relic_rng);
-    split_relic_offer(roll_relic_reward(run, tier))
+    roll_relic_reward(run, tier)
 }
 
-fn roll_matryoshka_bonus_relic_offer(run: &mut RunState) -> (Option<Relic>, Option<RelicKey>) {
+fn roll_matryoshka_bonus_relic_offer(run: &mut RunState) -> Relic {
     // Matryoshka.onChestOpen uses relicRng.randomBoolean(0.75F): its bonus
     // relic is common on true and uncommon on false. It does not use the
     // normal act relic-tier distribution.
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_matryoshka_relic_tier(&mut relic_rng);
     run.store_rng_counter(RunRngStream::Relic, &relic_rng);
-    split_relic_offer(roll_relic_reward(run, tier))
+    roll_relic_reward(run, tier)
 }
 
 fn target_matryoshka_relic_tier(relic_rng: &mut StsRng) -> RelicTier {
@@ -934,14 +922,10 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
     };
     run.store_rng_counter(RunRngStream::Relic, &relic_rng);
 
-    let key = roll_relic_reward(run, tier);
-    let (relic_offer, relic_key_offer) = split_relic_offer(key);
-    let (pending_relic_offer, pending_relic_key_offer) =
-        if kind == CombatRewardKind::Elite && run.relics.contains(&Relic::BlackStar) {
-            roll_bonus_relic_offer(run)
-        } else {
-            (None, None)
-        };
+    let relic_offer = Some(roll_relic_reward(run, tier));
+    let pending_relic_offer = (kind == CombatRewardKind::Elite
+        && run.relics.contains(&Relic::BlackStar))
+    .then(|| roll_bonus_relic_offer(run));
 
     if run.can_gain_potions() {
         let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
@@ -968,10 +952,8 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
         potion_offer: None,
         potion_offers: Vec::new(),
         relic_offer,
-        relic_key_offer,
         pending_relic_offer,
-        pending_relic_key_offer,
-        queued_relic_key_offers: Vec::new(),
+        queued_relic_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
@@ -1000,10 +982,8 @@ pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
         potion_offer: None,
         potion_offers: Vec::new(),
         relic_offer: None,
-        relic_key_offer: None,
         pending_relic_offer: None,
-        pending_relic_key_offer: None,
-        queued_relic_key_offers: Vec::new(),
+        queued_relic_offers: Vec::new(),
         boss_relic_choices,
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
@@ -1013,7 +993,6 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
     let common = roll_screenless_relic_reward(run, RelicTier::Common);
     let uncommon = roll_screenless_relic_reward(run, RelicTier::Uncommon);
     let rare = roll_screenless_relic_reward(run, RelicTier::Rare);
-    let (relic_offer, relic_key_offer) = split_relic_offer(common);
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -1025,11 +1004,9 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
         stolen_gold_offer: 0,
         potion_offer: None,
         potion_offers: Vec::new(),
-        relic_offer,
-        relic_key_offer,
+        relic_offer: Some(common),
         pending_relic_offer: None,
-        pending_relic_key_offer: None,
-        queued_relic_key_offers: vec![uncommon, rare],
+        queued_relic_offers: vec![uncommon, rare],
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
@@ -1214,7 +1191,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         .map(|combat| suppress_gold_for_all_escaped_monsters(&combat.monsters))
         .unwrap_or(false);
     let pending_event_gold_offer = std::mem::take(&mut run.pending_event_combat_gold_offer);
-    let pending_event_relic_key_offer = run.pending_event_combat_relic_key_offer.take();
+    let relic_offer = run.pending_event_combat_relic_offer.take();
     let gold_offer = if pending_event_gold_offer > 0 {
         combat_gold_offer_with_relics(run, pending_event_gold_offer)
     } else if all_monsters_escaped {
@@ -1226,10 +1203,6 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
         gold_offer
     };
-    let (relic_offer, relic_key_offer) = pending_event_relic_key_offer
-        .map(split_relic_offer)
-        .unwrap_or((None, None));
-
     let potion_offer = if run.can_gain_potions() {
         let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
         let potion_capacity = run.potion_capacity();
@@ -1271,10 +1244,8 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) {
         potion_offer,
         potion_offers: Vec::new(),
         relic_offer,
-        relic_key_offer,
         pending_relic_offer: None,
-        pending_relic_key_offer: None,
-        queued_relic_key_offers: Vec::new(),
+        queued_relic_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::pending(pending_card_reward_count),
     });
@@ -1325,13 +1296,11 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_elite_relic_tier(&mut relic_rng);
     run.store_rng_counter(RunRngStream::Relic, &relic_rng);
-    let key = roll_relic_reward(run, tier);
-    let (relic_offer, relic_key_offer) = split_relic_offer(key);
-    let (pending_relic_offer, pending_relic_key_offer) = if run.relics.contains(&Relic::BlackStar) {
-        roll_bonus_relic_offer(run)
-    } else {
-        (None, None)
-    };
+    let relic_offer = Some(roll_relic_reward(run, tier));
+    let pending_relic_offer = run
+        .relics
+        .contains(&Relic::BlackStar)
+        .then(|| roll_bonus_relic_offer(run));
 
     let potion_offer = if run.can_gain_potions() {
         let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
@@ -1361,10 +1330,8 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) {
         potion_offer,
         potion_offers: Vec::new(),
         relic_offer,
-        relic_key_offer,
         pending_relic_offer,
-        pending_relic_key_offer,
-        queued_relic_key_offers: Vec::new(),
+        queued_relic_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::pending(1),
     });
@@ -1404,10 +1371,8 @@ pub fn enter_boss_combat_reward_screen(run: &mut RunState) {
         potion_offer,
         potion_offers: Vec::new(),
         relic_offer: None,
-        relic_key_offer: None,
         pending_relic_offer: None,
-        pending_relic_key_offer: None,
-        queued_relic_key_offers: Vec::new(),
+        queued_relic_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::pending(1),
     });
@@ -1520,40 +1485,26 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
     } else {
         0
     };
-    let (bonus_relic_offer, bonus_relic_key_offer) =
+    let bonus_relic_offer =
         if run.relics.contains(&Relic::Matryoshka) && run.matryoshka_chests_opened < 2 {
             run.matryoshka_chests_opened += 1;
-            roll_matryoshka_bonus_relic_offer(run)
+            Some(roll_matryoshka_bonus_relic_offer(run))
         } else {
-            (None, None)
+            None
         };
     // AbstractChest.open invokes relic onChestOpen hooks before adding the
     // chest's own relic reward. Matryoshka therefore consumes relic RNG and
     // removes its relic from the pool before the normal chest relic is rolled.
-    let key = roll_relic_reward(run, tier);
-    let (chest_relic_offer, chest_relic_key_offer) = split_relic_offer(key);
+    let chest_relic_offer = Some(roll_relic_reward(run, tier));
     // Matryoshka's extra reward is inserted before the chest's normal relic
     // in the target reward list.
-    let (
-        mut relic_offer,
-        mut relic_key_offer,
-        mut pending_relic_offer,
-        mut pending_relic_key_offer,
-    ) = if bonus_relic_offer.is_some() || bonus_relic_key_offer.is_some() {
-        (
-            bonus_relic_offer,
-            bonus_relic_key_offer,
-            chest_relic_offer,
-            chest_relic_key_offer,
-        )
+    let (mut relic_offer, mut pending_relic_offer) = if bonus_relic_offer.is_some() {
+        (bonus_relic_offer, chest_relic_offer)
     } else {
-        (chest_relic_offer, chest_relic_key_offer, None, None)
+        (chest_relic_offer, None)
     };
-    if pending_relic_offer.is_some_and(is_bottled_relic_offer)
-        || pending_relic_key_offer.is_some_and(is_bottled_relic_key_offer)
-    {
+    if pending_relic_offer.is_some_and(is_bottled_relic_offer) {
         std::mem::swap(&mut relic_offer, &mut pending_relic_offer);
-        std::mem::swap(&mut relic_key_offer, &mut pending_relic_key_offer);
     }
 
     run.phase = RunPhase::Reward;
@@ -1567,10 +1518,8 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
         potion_offer: None,
         potion_offers: Vec::new(),
         relic_offer,
-        relic_key_offer,
         pending_relic_offer,
-        pending_relic_key_offer,
-        queued_relic_key_offers: Vec::new(),
+        queued_relic_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
@@ -1580,13 +1529,6 @@ fn is_bottled_relic_offer(relic: Relic) -> bool {
     matches!(
         relic,
         Relic::BottledFlame | Relic::BottledLightning | Relic::BottledTornado
-    )
-}
-
-fn is_bottled_relic_key_offer(key: RelicKey) -> bool {
-    matches!(
-        key,
-        RelicKey::BottledFlame | RelicKey::BottledLightning | RelicKey::BottledTornado
     )
 }
 
@@ -2019,8 +1961,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             } else if is_boss_room
                 && reward.boss_relic_choices.is_empty()
                 && reward.pending_relic_offer.is_none()
-                && reward.pending_relic_key_offer.is_none()
-                && reward.queued_relic_key_offers.is_empty()
+                && reward.queued_relic_offers.is_empty()
             {
                 enter_boss_reward_chest(&mut next);
             } else if next.event.is_some() {
@@ -2090,14 +2031,14 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             next.gain_potion(potion)?;
         }
         RunAction::TakeRelicReward => {
-            let (relic_offer, relic_key_offer) = {
-                let reward = next.reward.as_mut().expect("validated reward screen");
-                (reward.relic_offer.take(), reward.relic_key_offer.take())
-            };
+            let relic_offer = next
+                .reward
+                .as_mut()
+                .expect("validated reward screen")
+                .relic_offer
+                .take();
             if let Some(relic) = relic_offer {
                 next.gain_relic(relic);
-            } else if let Some(key) = relic_key_offer {
-                next.gain_relic_key(key);
             }
             if next.phase == RunPhase::Reward && next.card_grid.is_none() {
                 advance_pending_relic_offer(&mut next);
@@ -2105,10 +2046,8 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             let boss_calling_bell_rewards_complete = next.boss_chest_opened
                 && next.reward.as_ref().is_some_and(|reward| {
                     reward.relic_offer.is_none()
-                        && reward.relic_key_offer.is_none()
                         && reward.pending_relic_offer.is_none()
-                        && reward.pending_relic_key_offer.is_none()
-                        && reward.queued_relic_key_offers.is_empty()
+                        && reward.queued_relic_offers.is_empty()
                 });
             if boss_calling_bell_rewards_complete {
                 next.phase = RunPhase::Treasure;
@@ -2215,10 +2154,8 @@ fn return_to_event_if_reward_empty(run: &mut RunState) {
         || reward.stolen_gold_offer > 0
         || reward.potion_offer.is_some()
         || reward.relic_offer.is_some()
-        || reward.relic_key_offer.is_some()
         || reward.pending_relic_offer.is_some()
-        || reward.pending_relic_key_offer.is_some()
-        || !reward.queued_relic_key_offers.is_empty()
+        || !reward.queued_relic_offers.is_empty()
         || !reward.boss_relic_choices.is_empty()
     {
         return;
@@ -2245,10 +2182,8 @@ pub(crate) fn reward_is_empty(reward: &RewardScreen) -> bool {
         && reward.potion_offer.is_none()
         && reward.potion_offers.is_empty()
         && reward.relic_offer.is_none()
-        && reward.relic_key_offer.is_none()
         && reward.pending_relic_offer.is_none()
-        && reward.pending_relic_key_offer.is_none()
-        && reward.queued_relic_key_offers.is_empty()
+        && reward.queued_relic_offers.is_empty()
         && reward.boss_relic_choices.is_empty()
 }
 
@@ -2257,31 +2192,17 @@ pub(crate) fn advance_pending_relic_offer(run: &mut RunState) {
         return;
     };
 
-    if reward.pending_relic_offer.is_some() || reward.pending_relic_key_offer.is_some() {
+    if reward.pending_relic_offer.is_some() {
         reward.relic_offer = reward.pending_relic_offer.take();
-        reward.relic_key_offer = if reward.relic_offer.is_some() {
-            reward.pending_relic_key_offer = None;
-            None
-        } else {
-            reward.pending_relic_key_offer.take()
-        };
         return;
     }
 
-    let Some(next_key) = reward.queued_relic_key_offers.first().copied() else {
+    let Some(next_relic) = reward.queued_relic_offers.first().copied() else {
         reward.relic_offer = None;
-        reward.relic_key_offer = None;
         return;
     };
-    reward.queued_relic_key_offers.remove(0);
-    let (relic_offer, relic_key_offer) = split_relic_offer(next_key);
-    reward.relic_offer = relic_offer;
-    reward.relic_key_offer = if reward.relic_offer.is_some() {
-        reward.pending_relic_key_offer = None;
-        None
-    } else {
-        relic_key_offer
-    };
+    reward.queued_relic_offers.remove(0);
+    reward.relic_offer = Some(next_relic);
 }
 
 #[cfg(test)]
@@ -2375,10 +2296,8 @@ mod tests {
             potion_offer: None,
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: crate::run::CardRewardFlow::None,
         });
@@ -2835,7 +2754,7 @@ mod tests {
         run.current_act = 1;
         run.player_hp = 10;
         run.player_max_hp = 80;
-        run.relic_keys.push(RelicKey::MarkOfBloom);
+        run.relics.push(Relic::MarkOfBloom);
 
         enter_next_act_map(&mut run);
 

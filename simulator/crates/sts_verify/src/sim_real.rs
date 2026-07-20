@@ -6459,7 +6459,6 @@ fn seed_start_boss_swap_relic_ids(run: &RunState) -> Vec<String> {
     run.relics
         .iter()
         .map(|relic| relic.key())
-        .chain(run.relic_keys.iter().copied())
         .filter(|key| *key != RelicKey::BurningBlood)
         .filter_map(|key| {
             let name = relic_key_trace_name(key);
@@ -6513,7 +6512,6 @@ fn seed_start_unsupported_boss_swap_reason(run: &RunState) -> Option<String> {
         .relics
         .iter()
         .map(|relic| relic.key())
-        .chain(run.relic_keys.iter().copied())
         .find(|key| relic_key_trace_name(*key) == "Unknown Relic");
     unmapped.map(|key| {
         format!(
@@ -6671,11 +6669,6 @@ fn seed_start_newest_trace_relic_name(run: &RunState) -> String {
         .iter()
         .last()
         .map(|relic| relic_key_trace_name(relic.key()).to_owned())
-        .or_else(|| {
-            run.relic_keys
-                .last()
-                .map(|key| relic_key_trace_name(*key).to_owned())
-        })
         .unwrap_or_else(|| "Unknown Relic".to_owned())
 }
 
@@ -8683,12 +8676,6 @@ fn relic_ids_for_simulated_subset(run: &RunState, carry: &[String]) -> Vec<Strin
             out.push(name);
         }
     }
-    for key in &run.relic_keys {
-        let name = relic_key_trace_name(*key).to_owned();
-        if name != "Unknown Relic" && !out.contains(&name) {
-            out.push(name);
-        }
-    }
     remove_simulated_replaced_starter_relics(run, &mut out);
     if run.neow_lament_combats_remaining > 0 && !out.iter().any(|name| name == "Neow's Lament") {
         out.push("Neow's Lament".to_owned());
@@ -8726,7 +8713,7 @@ fn remove_simulated_replaced_starter_relics(run: &RunState, relics: &mut Vec<Str
 }
 
 fn run_has_relic_key(run: &RunState, key: RelicKey) -> bool {
-    run.relic_keys.contains(&key) || run.relics.iter().any(|relic| relic.key() == key)
+    run.relics.iter().any(|relic| relic.key() == key)
 }
 
 fn seed_start_update_carry_from_run(
@@ -8738,12 +8725,6 @@ fn seed_start_update_carry_from_run(
     remove_simulated_replaced_starter_relics(run, relics);
     for relic in &run.relics {
         let name = relic_key_trace_name(relic.key()).to_owned();
-        if name != "Unknown Relic" && !relics.contains(&name) {
-            relics.push(name);
-        }
-    }
-    for key in &run.relic_keys {
-        let name = relic_key_trace_name(*key).to_owned();
         if name != "Unknown Relic" && !relics.contains(&name) {
             relics.push(name);
         }
@@ -9463,9 +9444,8 @@ fn seed_start_reward_sequence_complete(run: &RunState) -> bool {
         && reward.potion_offer.is_none()
         && reward.potion_offers.is_empty()
         && reward.relic_offer.is_none()
-        && reward.relic_key_offer.is_none()
         && reward.pending_relic_offer.is_none()
-        && reward.pending_relic_key_offer.is_none()
+        && reward.queued_relic_offers.is_empty()
         && !reward.card_reward_is_pending()
         && reward.choices.is_empty()
 }
@@ -9488,9 +9468,8 @@ fn seed_start_phase_after_reward_completion(run: &RunState) -> SeedStartPhase {
 
 fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
     let mut choices = Vec::new();
-    let has_relic = reward.relic_offer.is_some() || reward.relic_key_offer.is_some();
-    let has_pending_relic =
-        reward.pending_relic_offer.is_some() || reward.pending_relic_key_offer.is_some();
+    let has_relic = reward.relic_offer.is_some();
+    let has_pending_relic = reward.pending_relic_offer.is_some();
     if has_relic && has_pending_relic && reward.gold_offer > 0 {
         choices.push("relic".to_owned());
         choices.push("gold".to_owned());
@@ -9510,7 +9489,7 @@ fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
         }
         choices.extend(std::iter::repeat_n(
             "relic".to_owned(),
-            reward.queued_relic_key_offers.len(),
+            reward.queued_relic_offers.len(),
         ));
     }
     if !reward.potion_offers.is_empty() {
@@ -9642,12 +9621,7 @@ fn verify_primary_relic_offer_matches_observed(
     let predicted = run
         .reward
         .as_ref()
-        .and_then(|reward| {
-            reward
-                .relic_offer
-                .map(|relic| relic.key())
-                .or(reward.relic_key_offer)
-        })
+        .and_then(|reward| reward.relic_offer.map(|relic| relic.key()))
         .ok_or_else(|| "no relic reward offered".to_owned())?;
     if predicted == observed {
         return Ok(());
@@ -13286,10 +13260,8 @@ mod tests {
             potion_offer: None,
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::pending(
                 sts_core::relic::ORRERY_CARD_REWARDS,
@@ -13471,10 +13443,8 @@ mod tests {
             potion_offer: Some(Potion::Dexterity),
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::None,
         });
@@ -13512,10 +13482,8 @@ mod tests {
             potion_offer: Some(Potion::Dexterity),
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::None,
         });
@@ -13557,10 +13525,8 @@ mod tests {
             potion_offer: None,
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::active(1),
         });
@@ -13593,10 +13559,8 @@ mod tests {
             potion_offer: None,
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::pending(1),
         });
@@ -13644,10 +13608,8 @@ mod tests {
             potion_offer: None,
             potion_offers: Vec::new(),
             relic_offer: Some(Relic::TheBoot),
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::None,
         });
@@ -15324,10 +15286,8 @@ mod tests {
             potion_offer: None,
             potion_offers: Vec::new(),
             relic_offer: None,
-            relic_key_offer: None,
             pending_relic_offer: None,
-            pending_relic_key_offer: None,
-            queued_relic_key_offers: Vec::new(),
+            queued_relic_offers: Vec::new(),
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::None,
         });
@@ -16727,7 +16687,7 @@ mod tests {
 
         assert!(seed_start_neow_option_is_supported_boss_swap(option));
         assert!(!run.relics.contains(&Relic::BurningBlood));
-        assert_eq!(run.relics.len() + run.relic_keys.len(), 1);
+        assert_eq!(run.relics.len(), 1);
 
         let relic_ids = seed_start_boss_swap_relic_ids(&run);
         assert_eq!(relic_ids.len(), 1);
@@ -17111,7 +17071,6 @@ mod tests {
                 .relics
                 .iter()
                 .map(|relic| relic.key())
-                .chain(run.relic_keys.iter().copied())
                 .find(|key| *key != RelicKey::BurningBlood)
             else {
                 continue;
