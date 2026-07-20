@@ -1166,7 +1166,7 @@ fn prepare_next_intents_for_ids(
                     damage: crate::content::monsters::transient_attack_damage(
                         monster.moves_executed,
                         state.ascension,
-                    ),
+                    )?,
                 };
                 record_target_move(monster);
                 continue;
@@ -2044,7 +2044,7 @@ mod tests {
         assert_eq!(
             state.monsters[0].intent,
             crate::MonsterIntent::Attack {
-                damage: transient_attack_damage(2, 4)
+                damage: transient_attack_damage(2, 4).expect("Transient damage is in range")
             }
         );
         assert_eq!(state.rng.monster_rng.counter(), 0);

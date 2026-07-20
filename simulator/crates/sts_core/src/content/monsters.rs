@@ -2096,7 +2096,7 @@ pub fn target_beyond_encounter_spawn_for_key_with_misc_rng(
         "Transient" => {
             let mut spawn =
                 target_combat_entry_spawn("Transient", TRANSIENT_HP, neow_lament, vec![]);
-            let damage = transient_attack_damage(0, ascension);
+            let damage = transient_attack_base_damage(ascension);
             spawn.intent = TargetSpawnIntent::Attack { damage };
             spawn.rolled_attack_damage = Some(damage);
             Some(vec![spawn])
@@ -3992,6 +3992,11 @@ pub fn prepare_monster_intent_for_ascension(
             "monster requires rolled attack damage",
         ));
     }
+    if monster.content_id == TRANSIENT_ID {
+        return Ok(MonsterIntent::Attack {
+            damage: transient_attack_damage(monster.moves_executed, ascension)?,
+        });
+    }
     let mut intent = prepare_monster_intent_for_monster(
         definition,
         monster.moves_executed,
@@ -4162,9 +4167,6 @@ fn prepare_monster_intent_for_monster(
     if definition.content_id == REPULSOR_ID {
         return repulsor_intent(moves_executed, ascension);
     }
-    if definition.content_id == TRANSIENT_ID {
-        return transient_intent(moves_executed, ascension);
-    }
     if definition.content_id == SLIME_BOSS_ID {
         return slime_boss_intent(moves_executed, ascension);
     }
@@ -4218,7 +4220,6 @@ fn prepare_monster_intent_for(
         EXPLODER_ID => exploder_intent(moves_executed, 0),
         SPIKER_ID => spiker_intent(moves_executed, 0),
         REPULSOR_ID => repulsor_intent(moves_executed, 0),
-        TRANSIENT_ID => transient_intent(moves_executed, 0),
         _ if is_public_backlog_monster_content_id(definition.content_id) => {
             public_backlog_monster_intent(definition.content_id, moves_executed, 0)
         }
@@ -4719,21 +4720,23 @@ pub fn target_repulsor_next_intent_from_roll(
     }
 }
 
-#[must_use]
-pub fn transient_attack_damage(moves_executed: u32, ascension: u8) -> i32 {
-    let base_damage = if ascension >= 4 {
+fn transient_attack_base_damage(ascension: u8) -> i32 {
+    if ascension >= 4 {
         TRANSIENT_A4_ATTACK_DAMAGE
     } else {
         TRANSIENT_ATTACK_DAMAGE
-    };
-    base_damage + i32::try_from(moves_executed).unwrap_or(i32::MAX) * TRANSIENT_ATTACK_DAMAGE_STEP
+    }
 }
 
-#[must_use]
-fn transient_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
-    MonsterIntent::Attack {
-        damage: transient_attack_damage(moves_executed, ascension),
-    }
+pub fn transient_attack_damage(moves_executed: u32, ascension: u8) -> SimResult<i32> {
+    let moves = i32::try_from(moves_executed)
+        .map_err(|_| SimError::InvalidState("transient attack damage exceeds supported range"))?;
+    moves
+        .checked_mul(TRANSIENT_ATTACK_DAMAGE_STEP)
+        .and_then(|increase| transient_attack_base_damage(ascension).checked_add(increase))
+        .ok_or(SimError::InvalidState(
+            "transient attack damage exceeds supported range",
+        ))
 }
 
 #[must_use]
@@ -11459,8 +11462,14 @@ mod tests {
             Some(TRANSIENT_A4_ATTACK_DAMAGE)
         );
         assert_eq!(
-            transient_attack_damage(3, 4),
+            transient_attack_damage(3, 4).expect("Transient damage is in range"),
             TRANSIENT_A4_ATTACK_DAMAGE + 30
+        );
+        assert_eq!(
+            transient_attack_damage(u32::MAX, 4),
+            Err(SimError::InvalidState(
+                "transient attack damage exceeds supported range"
+            ))
         );
     }
 
@@ -11477,6 +11486,15 @@ mod tests {
         assert_eq!(
             prepare_monster_intent_for_ascension(&awakened, 0),
             Err(SimError::UnsupportedMechanic(AWAKENED_ONE_ID))
+        );
+
+        let mut transient = monster_state(&TRANSIENT_A0, MonsterId::new(1));
+        transient.moves_executed = u32::MAX;
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&transient, 4),
+            Err(SimError::InvalidState(
+                "transient attack damage exceeds supported range"
+            ))
         );
     }
 
