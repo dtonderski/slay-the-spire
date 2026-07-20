@@ -126,11 +126,13 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
     } else {
         apply_map_action(map_state, action)?
     };
+    let next_floor = i32::try_from(next_map.floor)
+        .map_err(|_| SimError::InvalidState("map floor exceeds supported run range"))?;
 
     let mut next = run.clone();
     next.map = Some(next_map);
     if let Some(map) = next.map.as_ref() {
-        next.current_floor = i32::try_from(map.floor).unwrap_or(i32::MAX);
+        next.current_floor = next_floor;
         next.current_act = i32::from(map.act);
     }
     next.reinit_room_rngs_for_floor();
@@ -908,9 +910,13 @@ fn apply_wing_boots_map_action(
         .map
         .node(node_id)
         .ok_or(SimError::UnknownMapNode(node_id))?;
+    let floor = map_state
+        .floor
+        .checked_add(1)
+        .ok_or(SimError::InvalidState("map floor overflow"))?;
     Ok(crate::MapRunState {
         act: target.act,
-        floor: map_state.floor + 1,
+        floor,
         current_node: node_id,
         map: map_state.map.clone(),
     })
@@ -1044,6 +1050,53 @@ mod tests {
         },
         ContentId, MonsterIntent,
     };
+
+    #[test]
+    fn standalone_map_transition_rejects_floor_overflow() {
+        let mut map = crate::map::milestone8_fixture();
+        map.floor = u32::MAX;
+
+        assert_eq!(
+            apply_map_action(
+                &map,
+                MapAction::ChooseNode {
+                    node_id: crate::MapNodeId::new(1),
+                },
+            ),
+            Err(SimError::InvalidState("map floor overflow"))
+        );
+    }
+
+    #[test]
+    fn run_validation_rejects_unrepresentable_map_floor() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map fixture").floor = (i32::MAX as u32) + 1;
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "map floor exceeds supported run range"
+            ))
+        );
+    }
+
+    #[test]
+    fn run_map_transition_rejects_next_unrepresentable_floor() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map fixture").floor = i32::MAX as u32;
+
+        assert_eq!(
+            apply_map_action_on_run(
+                &run,
+                MapAction::ChooseNode {
+                    node_id: crate::MapNodeId::new(1),
+                },
+            ),
+            Err(SimError::InvalidState(
+                "map floor exceeds supported run range"
+            ))
+        );
+    }
 
     #[test]
     fn target_spawn_slime_size_preserves_target_class_independently_of_hp() {

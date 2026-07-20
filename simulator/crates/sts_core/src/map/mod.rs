@@ -133,10 +133,14 @@ pub fn apply_map_action(state: &MapRunState, action: MapAction) -> SimResult<Map
         .map
         .node(node_id)
         .ok_or(SimError::UnknownMapNode(node_id))?;
+    let floor = state
+        .floor
+        .checked_add(1)
+        .ok_or(SimError::InvalidState("map floor overflow"))?;
 
     Ok(MapRunState {
         act: target.act,
-        floor: state.floor + 1,
+        floor,
         current_node: node_id,
         map: state.map.clone(),
     })
