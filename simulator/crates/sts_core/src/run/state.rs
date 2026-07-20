@@ -763,6 +763,53 @@ impl RunState {
             _ => {}
         }
 
+        match (&self.event, &self.match_and_keep) {
+            (Some(screen), Some(state)) if screen.event == super::event::Event::MatchAndKeep => {
+                for card in &state.cards {
+                    if get_card_definition(card.content_id).is_none() {
+                        return Err(SimError::UnknownContent(card.content_id));
+                    }
+                }
+                for content_id in &state.matched_cards {
+                    if get_card_definition(*content_id).is_none() {
+                        return Err(SimError::UnknownContent(*content_id));
+                    }
+                }
+                if state
+                    .first_flipped_index
+                    .is_some_and(|index| index >= state.cards.len())
+                    || state
+                        .second_flipped_index
+                        .is_some_and(|index| index >= state.cards.len())
+                {
+                    return Err(SimError::InvalidState(
+                        "Match and Keep flipped card index is out of bounds",
+                    ));
+                }
+                if state.second_flipped_index.is_some() && state.first_flipped_index.is_none() {
+                    return Err(SimError::InvalidState(
+                        "Match and Keep second flip has no first flip",
+                    ));
+                }
+                if state.first_flipped_index.is_some()
+                    && state.first_flipped_index == state.second_flipped_index
+                {
+                    return Err(SimError::InvalidState(
+                        "Match and Keep flipped card indices are not unique",
+                    ));
+                }
+            }
+            (Some(screen), None) if screen.event == super::event::Event::MatchAndKeep => {
+                return Err(SimError::InvalidState("Match and Keep state is missing"));
+            }
+            (_, Some(_)) => {
+                return Err(SimError::InvalidState(
+                    "Match and Keep state exists outside its event",
+                ));
+            }
+            _ => {}
+        }
+
         if self.potions.len() + self.empty_potion_slots.len() > self.potion_capacity() {
             return Err(SimError::InvalidState("potion slots exceed capacity"));
         }

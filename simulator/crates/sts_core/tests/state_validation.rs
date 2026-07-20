@@ -1,3 +1,4 @@
+use sts_core::run::event::{Event, MatchAndKeepCard, MatchAndKeepState};
 use sts_core::{
     apply_combat_action,
     card::CardInstance,
@@ -380,6 +381,39 @@ fn rest_phase_requires_a_rest_room() {
     assert_eq!(
         legal_rest_actions(&run),
         Err(SimError::InvalidState("rest phase is not in a rest room"))
+    );
+}
+
+#[test]
+fn match_and_keep_authoritative_state_is_validated() {
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.phase = RunPhase::Event;
+    run.event = Some(sts_core::event_screen(Event::MatchAndKeep));
+    run.match_and_keep = Some(MatchAndKeepState {
+        cards: vec![MatchAndKeepCard {
+            content_id: cards::STRIKE_R_ID,
+            revealed: false,
+            matched: false,
+        }],
+        attempts_remaining: 5,
+        first_flipped_index: Some(1),
+        second_flipped_index: None,
+        matched_cards: Vec::new(),
+    });
+
+    assert_eq!(
+        run.validate(),
+        Err(SimError::InvalidState(
+            "Match and Keep flipped card index is out of bounds"
+        ))
+    );
+
+    let state = run.match_and_keep.as_mut().expect("state exists");
+    state.first_flipped_index = None;
+    state.cards[0].content_id = ContentId::new(999_999);
+    assert_eq!(
+        run.validate(),
+        Err(SimError::UnknownContent(ContentId::new(999_999)))
     );
 }
 

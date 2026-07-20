@@ -1933,31 +1933,32 @@ pub fn match_and_keep_label_index_for_group(group_index: usize, card_count: usiz
     }
 }
 
-fn match_and_keep_card_choices(run: &RunState) -> Vec<EventChoice> {
-    run.match_and_keep
+fn match_and_keep_card_choices(run: &RunState) -> SimResult<Vec<EventChoice>> {
+    let state = run
+        .match_and_keep
         .as_ref()
-        .map(|state| {
-            let card_count = state.cards.len();
-            (0..card_count)
-                .filter_map(|label_index| {
-                    let group_index = match_and_keep_group_index_for_label(label_index, card_count);
-                    let card = state.cards.get(group_index)?;
-                    let currently_flipped = state.first_flipped_index == Some(group_index)
-                        || state.second_flipped_index == Some(group_index);
-                    (!card.matched && !currently_flipped).then_some((label_index, card))
-                })
-                .map(|(label_index, card)| EventChoice {
-                    label: if card.revealed {
-                        get_card_definition(card.content_id)
-                            .map(|definition| definition.name.to_ascii_lowercase())
-                            .unwrap_or_else(|| format!("card{label_index}"))
-                    } else {
-                        format!("card{label_index}")
-                    },
-                })
-                .collect()
+        .ok_or(SimError::InvalidState("Match and Keep state is missing"))?;
+    let card_count = state.cards.len();
+    (0..card_count)
+        .filter_map(|label_index| {
+            let group_index = match_and_keep_group_index_for_label(label_index, card_count);
+            let card = state.cards.get(group_index)?;
+            let currently_flipped = state.first_flipped_index == Some(group_index)
+                || state.second_flipped_index == Some(group_index);
+            (!card.matched && !currently_flipped).then_some((label_index, card))
         })
-        .unwrap_or_else(|| match_and_keep_choices(2, 12))
+        .map(|(label_index, card)| {
+            let label = if card.revealed {
+                get_card_definition(card.content_id)
+                    .ok_or(SimError::UnknownContent(card.content_id))?
+                    .name
+                    .to_ascii_lowercase()
+            } else {
+                format!("card{label_index}")
+            };
+            Ok(EventChoice { label })
+        })
+        .collect()
 }
 
 fn initialize_match_and_keep_state(run: &mut RunState) -> MatchAndKeepState {
@@ -4577,12 +4578,9 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             ));
         }
         Event::MatchAndKeep if screen.stage == 1 && choice_index == 0 => {
-            if next.match_and_keep.is_none() {
-                next.match_and_keep = Some(initialize_match_and_keep_state(&mut next));
-            }
             next.event = Some(make_event_screen(
                 Event::MatchAndKeep,
-                match_and_keep_card_choices(&next),
+                match_and_keep_card_choices(&next)?,
                 2,
             ));
         }
@@ -4712,7 +4710,7 @@ fn apply_match_and_keep_card_choice(run: &mut RunState, choice_index: usize) -> 
     } else {
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
-            match_and_keep_card_choices(run),
+            match_and_keep_card_choices(run)?,
             2,
         ));
     }
@@ -5224,8 +5222,10 @@ mod tests {
     #[test]
     fn match_and_keep_continue_opens_play_choice() {
         let mut run = RunState::seeded_ironclad(1, 0);
+        let state = initialize_match_and_keep_state(&mut run);
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::MatchAndKeep));
+        run.match_and_keep = Some(state);
 
         let after_continue = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("continue choice applies");
@@ -5245,12 +5245,14 @@ mod tests {
     #[test]
     fn match_and_keep_play_opens_twelve_card_choices() {
         let mut run = RunState::seeded_ironclad(1, 0);
+        let state = initialize_match_and_keep_state(&mut run);
         run.phase = RunPhase::Event;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
             match_and_keep_choices(1, 0),
             1,
         ));
+        run.match_and_keep = Some(state);
 
         let after_play = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("play choice applies");
@@ -5270,6 +5272,22 @@ mod tests {
                 "card0", "card1", "card2", "card3", "card4", "card5", "card6", "card7", "card8",
                 "card9", "card10", "card11"
             ]
+        );
+    }
+
+    #[test]
+    fn match_and_keep_missing_state_fails_closed() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::MatchAndKeep));
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState("Match and Keep state is missing"))
+        );
+        assert_eq!(
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }),
+            Err(SimError::InvalidState("Match and Keep state is missing"))
         );
     }
 
