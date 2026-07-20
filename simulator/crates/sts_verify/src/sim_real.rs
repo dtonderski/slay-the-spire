@@ -3446,19 +3446,13 @@ fn verify_seed_start_transitions(
                 let _enters_hand_select =
                     is_play_command && screen_type(&post.message) == Some("HAND_SELECT");
                 let combat_card_reward_choose = is_choose_command
-                    && screen_type(&pre.message) == Some("CARD_REWARD")
-                    && pre
-                        .message
-                        .get("game_state")
-                        .and_then(|game| game.get("combat_state"))
-                        .is_some();
+                    && seed_sim
+                        .as_ref()
+                        .is_some_and(seed_start_run_has_combat_card_reward);
                 let combat_card_reward_skip = command.eq_ignore_ascii_case("SKIP")
-                    && screen_type(&pre.message) == Some("CARD_REWARD")
-                    && pre
-                        .message
-                        .get("game_state")
-                        .and_then(|game| game.get("combat_state"))
-                        .is_some();
+                    && seed_sim
+                        .as_ref()
+                        .is_some_and(seed_start_run_has_combat_card_reward);
                 let combat_hand_select_choose = is_choose_command
                     && seed_sim
                         .as_ref()
@@ -3550,30 +3544,19 @@ fn verify_seed_start_transitions(
                         pending_smoke_bomb_reward = Some(next);
                         continue;
                     }
-                    if screen_type(&post.message) == Some("CARD_REWARD") {
-                        let mut observed = seed_start_combat_observed_subset(&post.message);
-                        // A discovery potion's visible offer is transient. Verify the
-                        // resulting combat state when the player picks or skips instead;
-                        // a picked-card mismatch is then caught in the hand comparison.
-                        if let Some(object) = observed.as_object_mut() {
-                            object.remove("card_reward_ids");
-                        }
-                        let mut simulated = seed_start_simulated_combat_subset(&next, false);
-                        if let Some(object) = simulated.as_object_mut() {
-                            object.remove("card_reward_ids");
-                        }
+                    if seed_start_run_has_combat_card_reward(&next) {
                         seed_start_compare_combat_subset(
                             report,
                             action,
                             "combat potion card reward",
-                            observed,
-                            simulated,
+                            seed_start_combat_observed_subset(&post.message),
+                            seed_start_simulated_combat_subset(&next, false),
                             false,
                         );
                         *sim = next;
                         continue;
                     }
-                    if screen_type(&post.message) == Some("COMBAT_REWARD") {
+                    if next.phase == RunPhase::Reward && next.reward.is_some() {
                         seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                         compare_subset(
                             report,
@@ -3585,6 +3568,24 @@ fn verify_seed_start_transitions(
                         *sim = next;
                         phase = SeedStartPhase::Reward;
                         continue;
+                    }
+                    if next.phase != RunPhase::Combat || next.combat.is_none() {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_combat_potion_destination".to_owned(),
+                            reason: format!(
+                                "combat potion produced phase {:?}, combat={}, reward={}",
+                                next.phase,
+                                next.combat.is_some(),
+                                next.reward.is_some(),
+                            ),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
                     }
                     seed_start_compare_combat_subset(
                         report,
@@ -3629,17 +3630,11 @@ fn verify_seed_start_transitions(
                                 .to_owned(),
                         });
                     };
-                    let mut observed = seed_start_combat_observed_subset(&post.message);
-                    if screen_type(&post.message) == Some("COMBAT_REWARD") {
-                        if let Some(object) = observed.as_object_mut() {
-                            object.remove("deck_ids");
-                        }
-                    }
                     seed_start_compare_combat_subset(
                         report,
                         action,
                         "combat potion card reward",
-                        observed,
+                        seed_start_combat_observed_subset(&post.message),
                         seed_start_simulated_combat_subset(&next, false),
                         false,
                     );
@@ -8630,6 +8625,14 @@ fn seed_start_simulated_combat_subset(run: &RunState, end_turn_snapshot: bool) -
     seed_start_simulated_combat_subset_with_options(run, end_turn_snapshot, &[])
 }
 
+fn seed_start_run_has_combat_card_reward(run: &RunState) -> bool {
+    run.combat.as_ref().is_some_and(|combat| {
+        combat.potion_card_reward.is_some()
+            || combat.discovery_card_reward.is_some()
+            || combat.toolbox_card_reward.is_some()
+    })
+}
+
 fn seed_start_simulated_map_combat_subset(
     run: &RunState,
     relics: &[String],
@@ -11973,8 +11976,8 @@ mod tests {
     use super::*;
     use sts_core::content::cards::{
         BASH_PLUS_ID, BATTLE_TRANCE_ID, BURN_ID, COMBUST_ID, CORRUPTION_PLUS_ID, DEFEND_R_ID,
-        DRAMATIC_ENTRANCE_ID, DROPKICK_ID, ENTRENCH_ID, POMMEL_STRIKE_PLUS_ID, STRIKE_R_PLUS_ID,
-        TWIN_STRIKE_ID,
+        DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, ENTRENCH_ID, POMMEL_STRIKE_PLUS_ID,
+        STRIKE_R_PLUS_ID, TWIN_STRIKE_ID,
     };
     use sts_core::content::monsters::{monster_state, SLAVER_BLUE_A0};
     use sts_core::relic::IRONCLAD_BOSS_RELIC_POOL;
@@ -13259,6 +13262,71 @@ mod tests {
         assert!(report.unexpected_diffs.iter().all(|diff| {
             diff.action_step != chest_action_step || diff.label != "open boss relic chest"
         }));
+    }
+
+    #[test]
+    fn observed_combat_potion_offer_is_compared_at_open() {
+        let path = crate::corpus_path("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl");
+        let content = std::fs::read_to_string(path).expect("retained trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (potion_action_step, reward_post) = transitions
+            .transitions
+            .iter()
+            .find_map(|(_, action, post)| {
+                (action.command.starts_with("POTION USE ")
+                    && screen_type(&post.message) == Some("CARD_REWARD")
+                    && post.message.pointer("/game_state/combat_state").is_some())
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture opens a combat potion card reward");
+
+        let mut mutated_lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let mutated_state = mutated_lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if *state == reward_post => Some(state),
+                _ => None,
+            })
+            .expect("combat potion reward post-state remains in imported trace");
+        *mutated_state
+            .message
+            .pointer_mut("/game_state/screen_state/cards/0")
+            .expect("first combat potion card offer") =
+            json!({"id": "Strike_R", "name": "Strike", "upgrades": 0});
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
+        let report = verify_communication_mod_trace(&mutated).expect("mutated trace parses");
+        let offer_diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| {
+                diff.action_step == potion_action_step && diff.label == "combat potion card reward"
+            })
+            .and_then(|diff| {
+                diff.diffs
+                    .iter()
+                    .find(|line| line.starts_with("card_reward_ids"))
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "forged combat potion offer must differ when the offer opens: {:#?}",
+                    report.unexpected_diffs
+                )
+            });
+        assert!(
+            offer_diff.contains(&STRIKE_R_ID.get().to_string()),
+            "{offer_diff}"
+        );
+        assert!(
+            offer_diff.contains(&DEMON_FORM_ID.get().to_string()),
+            "{offer_diff}"
+        );
     }
 
     #[test]
