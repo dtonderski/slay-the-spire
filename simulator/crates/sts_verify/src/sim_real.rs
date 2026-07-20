@@ -906,6 +906,13 @@ struct PendingDeckAssertion {
     expected_deck: Vec<String>,
 }
 
+struct PendingMapAssertion {
+    action: TraceAction,
+    label: String,
+    simulated_map: Value,
+    transient_matches: bool,
+}
+
 enum SmokeBombUiState {
     Escaping {
         source: Box<RunState>,
@@ -966,6 +973,7 @@ fn verify_seed_start_transitions(
     let mut seed_sim: Option<RunState> = None;
     let mut smoke_bomb_ui: Option<SmokeBombUiState> = None;
     let mut pending_deck_assertion: Option<PendingDeckAssertion> = None;
+    let mut pending_map_assertion: Option<PendingMapAssertion> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
 
     macro_rules! finish_boundary {
@@ -977,6 +985,7 @@ fn verify_seed_start_transitions(
                 boss_unlocks,
                 reconciled_deferred_action_steps,
                 usize::from(pending_deck_assertion.is_some())
+                    + usize::from(pending_map_assertion.is_some())
                     + smoke_bomb_ui
                         .as_ref()
                         .map_or(0, SmokeBombUiState::unresolved_assertions),
@@ -1018,6 +1027,91 @@ fn verify_seed_start_transitions(
             recorded_action_playtime_seconds(pre, action),
         ) {
             sim.playtime_seconds = playtime_seconds;
+        }
+        if pending_map_assertion.is_some() {
+            if screen_type(&pre.message) == Some("MAP") {
+                let pending = pending_map_assertion
+                    .take()
+                    .expect("pending map assertion checked above");
+                let stable_matches =
+                    seed_start_compare_pending_map_assertion(report, &pending, &pre.message);
+                if pending.transient_matches && stable_matches {
+                    report.verified.push(VerifiedTransition {
+                        action_step: pending.action.step,
+                        command: pending.action.command,
+                        label: pending.label,
+                    });
+                    reconciled_deferred_action_steps.push(pending.action.step);
+                }
+                phase = SeedStartPhase::Map;
+            } else if is_trace_observation_poll(action) {
+                if screen_type(&post.message) == Some("MAP") {
+                    let pending = pending_map_assertion
+                        .take()
+                        .expect("pending map assertion checked above");
+                    let stable_matches =
+                        seed_start_compare_pending_map_assertion(report, &pending, &post.message);
+                    if pending.transient_matches && stable_matches {
+                        report.verified.push(VerifiedTransition {
+                            action_step: pending.action.step,
+                            command: pending.action.command,
+                            label: pending.label,
+                        });
+                        reconciled_deferred_action_steps.push(pending.action.step);
+                    }
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "stable next-act map observation poll".to_owned(),
+                    });
+                    phase = SeedStartPhase::Map;
+                    continue;
+                }
+                if seed_start_is_candidate_boss_act_transient_frame(&post.message) {
+                    let pending = pending_map_assertion
+                        .as_mut()
+                        .expect("pending map assertion checked above");
+                    pending.transient_matches &= seed_start_compare_deferred_subset(
+                        report,
+                        &pending.action,
+                        "transient boss-act frame",
+                        seed_start_boss_act_transient_observed_subset(&post.message),
+                        seed_start_boss_act_transient_simulated_subset(),
+                    );
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "transient boss-act observation poll".to_owned(),
+                    });
+                    continue;
+                }
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_pending_map_transition".to_owned(),
+                    reason: format!(
+                        "next-act map assertion reached unsupported poll screen {:?}",
+                        screen_type(&post.message)
+                    ),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return finish_boundary!(boundary);
+            } else {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unresolved_pending_map_transition".to_owned(),
+                    reason: "next-act map assertion did not reach a stable map before another semantic command".to_owned(),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return finish_boundary!(boundary);
+            }
         }
         if action.command.eq_ignore_ascii_case("state")
             || smoke_bomb_ui.is_some() && action.command.eq_ignore_ascii_case("wait")
@@ -1120,6 +1214,7 @@ fn verify_seed_start_transitions(
                         &mut _reward_step,
                         &mut map_path_xs,
                         &mut seed_sim,
+                        &mut pending_map_assertion,
                         &mut relics,
                         &mut deck_ids,
                     ) {
@@ -2985,6 +3080,24 @@ fn verify_seed_start_transitions(
                     *sim = next;
                     simulated_return
                 };
+                if seed_start_is_candidate_boss_act_transient_frame(&post.message) {
+                    let label = "boss chest proceed to settled next-act map";
+                    let transient_matches = seed_start_compare_deferred_subset(
+                        report,
+                        action,
+                        label,
+                        seed_start_boss_act_transient_observed_subset(&post.message),
+                        seed_start_boss_act_transient_simulated_subset(),
+                    );
+                    pending_map_assertion = Some(PendingMapAssertion {
+                        action: action.clone(),
+                        label: label.to_owned(),
+                        simulated_map: simulated_return,
+                        transient_matches,
+                    });
+                    phase = SeedStartPhase::Proceed;
+                    continue;
+                }
                 compare_subset(
                     report,
                     action,
@@ -3938,6 +4051,7 @@ fn verify_seed_start_transitions(
                             &mut _reward_step,
                             &mut map_path_xs,
                             &mut seed_sim,
+                            &mut pending_map_assertion,
                             &mut relics,
                             &mut deck_ids,
                         ) {
@@ -4218,6 +4332,7 @@ fn verify_seed_start_transitions(
                         &mut _reward_step,
                         &mut map_path_xs,
                         &mut seed_sim,
+                        &mut pending_map_assertion,
                         &mut relics,
                         &mut deck_ids,
                     ) {
@@ -5078,6 +5193,7 @@ fn verify_seed_start_transitions(
                         &mut _reward_step,
                         &mut map_path_xs,
                         &mut seed_sim,
+                        &mut pending_map_assertion,
                         &mut relics,
                         &mut deck_ids,
                     ) {
@@ -5709,6 +5825,39 @@ fn seed_start_map_return_observed_subset(message: &Value) -> Value {
         },
         "next_nodes": map_nodes_from_value(screen_state.and_then(|state| state.get("next_nodes"))),
     })
+}
+
+fn seed_start_is_candidate_boss_act_transient_frame(message: &Value) -> bool {
+    screen_type(message) == Some("NONE")
+}
+
+fn seed_start_boss_act_transient_observed_subset(message: &Value) -> Value {
+    json!({
+        "screen_name": message.pointer("/game_state/screen_name").and_then(Value::as_str).unwrap_or(""),
+        "room_type": message.pointer("/game_state/room_type").and_then(Value::as_str).unwrap_or(""),
+    })
+}
+
+fn seed_start_boss_act_transient_simulated_subset() -> Value {
+    json!({
+        "screen_name": "NONE",
+        "room_type": "TreasureRoomBoss",
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn seed_start_compare_pending_map_assertion(
+    report: &mut SimRealReport,
+    pending: &PendingMapAssertion,
+    message: &Value,
+) -> bool {
+    seed_start_compare_deferred_subset(
+        report,
+        &pending.action,
+        &pending.label,
+        seed_start_map_return_observed_subset(message),
+        pending.simulated_map.clone(),
+    )
 }
 
 fn observed_monster_intents_visible(game: &Value) -> bool {
@@ -6813,6 +6962,7 @@ fn seed_start_handle_proceed_to_map(
     reward_step: &mut usize,
     map_path_xs: &mut Vec<i32>,
     seed_sim: &mut Option<RunState>,
+    pending_map_assertion: &mut Option<PendingMapAssertion>,
     carried_relics: &mut Vec<String>,
     carried_deck_ids: &mut Vec<String>,
 ) -> Option<SeedStartBoundary> {
@@ -6823,18 +6973,20 @@ fn seed_start_handle_proceed_to_map(
             reason: "proceed-to-map command without initialized deterministic replay".to_owned(),
         });
     };
-    let transient_boss_act_transition = screen_type(post_message) == Some("NONE")
+    let boss_room_none = screen_type(post_message) == Some("NONE")
         && post_message
             .get("game_state")
             .and_then(|game| game.get("room_type"))
             .and_then(Value::as_str)
             == Some("TreasureRoomBoss");
+    let transient_boss_act_transition =
+        seed_start_is_candidate_boss_act_transient_frame(post_message);
     let ftue_open = post_message
         .get("game_state")
         .and_then(|game| game.get("screen_name"))
         .and_then(Value::as_str)
         .is_some_and(|screen| screen.eq_ignore_ascii_case("FTUE"));
-    if transient_boss_act_transition && ftue_open && sim.phase == RunPhase::Reward {
+    if boss_room_none && ftue_open && sim.phase == RunPhase::Reward {
         report.verified.push(VerifiedTransition {
             action_step: action.step,
             command: action.command.clone(),
@@ -6906,18 +7058,38 @@ fn seed_start_handle_proceed_to_map(
                 ),
             });
         }
-        report.verified.push(VerifiedTransition {
-            action_step: action.step,
-            command: action.command.clone(),
-            label: "boss reward proceed awaiting settled next-act map".to_owned(),
-        });
+        let label = "boss reward proceed to settled next-act map";
+        let transient_matches = seed_start_compare_deferred_subset(
+            report,
+            action,
+            label,
+            seed_start_boss_act_transient_observed_subset(post_message),
+            seed_start_boss_act_transient_simulated_subset(),
+        );
         if let Some(sim) = seed_sim.as_mut() {
             seed_start_update_carry_from_run(sim, carried_relics, carried_deck_ids);
         }
         map_path_xs.clear();
+        let deck = seed_sim
+            .as_ref()
+            .map(|sim| deck_content_keys(&sim.deck))
+            .unwrap_or_else(|| carried_deck_ids.clone());
+        *pending_map_assertion = Some(PendingMapAssertion {
+            action: action.clone(),
+            label: label.to_owned(),
+            simulated_map: seed_start_simulated_map_return(
+                start.numeric_seed,
+                map_path_xs,
+                seed_sim.as_ref(),
+                carried_relics,
+                &deck,
+                &deck,
+            ),
+            transient_matches,
+        });
         *combat_index = 0;
         *reward_step = 0;
-        *phase = SeedStartPhase::Map;
+        *phase = SeedStartPhase::Proceed;
         return None;
     }
     let label = format!("return to map after floor {}", *combat_index + 1);
@@ -13828,6 +14000,186 @@ mod tests {
             .unexpected_diffs
             .iter()
             .all(|diff| { diff.action_step != purchase_step || diff.label != "shop purge grid" }));
+    }
+
+    #[test]
+    fn transient_boss_act_proceed_reconciles_only_at_the_stable_map() {
+        let path =
+            crate::corpus_path("permanent_traces/live-regression-2026-07-02T23-24-13-178Z.jsonl");
+        let content = std::fs::read_to_string(path).expect("complete two-act trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (proceed_step, stable_map) = transitions
+            .transitions
+            .iter()
+            .find_map(|(pre, action, post)| {
+                (screen_type(&pre.message) == Some("CHEST")
+                    && trace_room_type(&pre.message) == Some("TreasureRoomBoss")
+                    && action.command.eq_ignore_ascii_case("PROCEED")
+                    && screen_type(&post.message) == Some("MAP")
+                    && post
+                        .message
+                        .pointer("/game_state/act")
+                        .and_then(Value::as_u64)
+                        == Some(3))
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture proceeds from the act-two boss chest to act three");
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mut lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let action_index = lines
+            .iter()
+            .position(|line| {
+                matches!(line, TraceLine::Action(action) if action.step == proceed_step && action.command.eq_ignore_ascii_case("PROCEED"))
+            })
+            .expect("boss proceed action remains in trace");
+        let stable_index = lines
+            .iter()
+            .enumerate()
+            .skip(action_index + 1)
+            .find_map(|(index, line)| {
+                matches!(line, TraceLine::State(state) if *state == stable_map).then_some(index)
+            })
+            .expect("stable act-three map state remains in trace");
+        let mut transient = stable_map.clone();
+        transient.step = proceed_step;
+        *transient
+            .message
+            .pointer_mut("/game_state/screen_type")
+            .expect("map screen type") = json!("NONE");
+        *transient
+            .message
+            .pointer_mut("/game_state/screen_name")
+            .expect("map screen name") = json!("NONE");
+        *transient
+            .message
+            .pointer_mut("/game_state/room_type")
+            .expect("map room type") = json!("TreasureRoomBoss");
+        assert!(seed_start_is_candidate_boss_act_transient_frame(
+            &transient.message
+        ));
+
+        let mut unresolved_lines = lines[..stable_index].to_vec();
+        unresolved_lines.push(TraceLine::State(transient.clone()));
+        let unresolved_transitions =
+            trace_transitions(&unresolved_lines).expect("transient trace transitions");
+        assert!(unresolved_transitions
+            .transitions
+            .iter()
+            .any(|(_, action, post)| action.step == proceed_step
+                && action.command.eq_ignore_ascii_case("PROCEED")
+                && seed_start_is_candidate_boss_act_transient_frame(&post.message)));
+        let unresolved_trace =
+            crate::serialize_communication_mod_trace(&metadata, &unresolved_lines);
+        let unresolved =
+            verify_communication_mod_trace(&unresolved_trace).expect("transient-only trace parses");
+        let proceed_disposition = unresolved
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == proceed_step && entry.command == "PROCEED");
+        let proceed_diffs = unresolved
+            .unexpected_diffs
+            .iter()
+            .filter(|entry| entry.action_step == proceed_step)
+            .collect::<Vec<_>>();
+        let proceed_unsupported = unresolved
+            .unsupported
+            .iter()
+            .filter(|entry| entry.action_step == proceed_step)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unresolved
+                .action_integrity
+                .as_ref()
+                .expect("action integrity")
+                .unresolved_transient_assertions,
+            1,
+            "a transient boss frame cannot complete the proceed assertion: boundary={:?}, disposition={proceed_disposition:?}, diffs={proceed_diffs:?}, unsupported={proceed_unsupported:?}",
+            unresolved
+                .seed_start
+                .as_ref()
+                .map(|report| &report.first_boundary)
+        );
+        assert!(unresolved.verified.iter().all(|entry| {
+            entry.action_step != proceed_step
+                || entry.label != "boss reward proceed to settled next-act map"
+        }));
+
+        const POLL_STEP: u32 = 900_522;
+        lines.insert(stable_index, TraceLine::State(transient));
+        lines.insert(
+            stable_index + 1,
+            TraceLine::Action(TraceAction {
+                step: POLL_STEP,
+                command: "STATE".to_owned(),
+                sent_at: None,
+                playtime_seconds: None,
+            }),
+        );
+        let settled_trace = crate::serialize_communication_mod_trace(&metadata, &lines);
+        let settled = verify_communication_mod_trace(&settled_trace).expect("settled trace parses");
+        assert!(
+            settled.unexpected_diffs.is_empty(),
+            "{:#?}",
+            settled.unexpected_diffs
+        );
+        assert!(settled.unsupported.is_empty(), "{:#?}", settled.unsupported);
+        assert_eq!(
+            settled
+                .action_integrity
+                .as_ref()
+                .expect("action integrity")
+                .unresolved_transient_assertions,
+            0
+        );
+        let proceed = settled
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == proceed_step && entry.command == "PROCEED")
+            .expect("boss proceed disposition");
+        assert_eq!(proceed.disposition, ActionDispositionKind::Verified);
+        assert!(proceed.deferred_assertion_reconciled);
+        assert!(settled.verified.iter().any(|entry| {
+            entry.action_step == POLL_STEP && entry.label == "stable next-act map observation poll"
+        }));
+
+        let mut forged_lines = lines;
+        let TraceLine::State(forged_transient) = &mut forged_lines[stable_index] else {
+            panic!("inserted transient state remains at its expected position");
+        };
+        *forged_transient
+            .message
+            .pointer_mut("/game_state/screen_name")
+            .expect("transient screen name") = json!("FORGED_TRANSIENT");
+        let forged_trace = crate::serialize_communication_mod_trace(&metadata, &forged_lines);
+        let forged = verify_communication_mod_trace(&forged_trace).expect("forged trace parses");
+        let forged_diff = forged
+            .unexpected_diffs
+            .iter()
+            .find(|entry| entry.action_step == proceed_step)
+            .expect("forged transient field must differ");
+        assert!(
+            forged_diff
+                .diffs
+                .iter()
+                .any(|diff| diff.starts_with("screen_name:")),
+            "{forged_diff:#?}"
+        );
+        let forged_proceed = forged
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == proceed_step && entry.command == "PROCEED")
+            .expect("forged boss proceed disposition");
+        assert_eq!(
+            forged_proceed.disposition,
+            ActionDispositionKind::UnexpectedDiff
+        );
+        assert!(!forged_proceed.deferred_assertion_reconciled);
     }
 
     #[test]
