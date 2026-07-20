@@ -12117,7 +12117,30 @@ mod tests {
                         screen.entry("cards").or_insert_with(|| json!([]));
                     }
                     "COMBAT_REWARD" => {
-                        screen.entry("rewards").or_insert_with(|| json!([]));
+                        let rewards = screen
+                            .entry("rewards")
+                            .or_insert_with(|| json!([]))
+                            .as_array_mut()
+                            .expect("test rewards are an array");
+                        for reward in rewards {
+                            let reward = reward.as_object_mut().expect("test reward is an object");
+                            match reward.get("reward_type").and_then(Value::as_str) {
+                                Some("GOLD" | "STOLEN_GOLD") => {
+                                    reward.entry("gold").or_insert_with(|| json!(0));
+                                }
+                                Some("POTION") => {
+                                    reward
+                                        .entry("potion")
+                                        .or_insert_with(|| json!({ "id": "Unknown Potion" }));
+                                }
+                                Some("RELIC") => {
+                                    reward
+                                        .entry("relic")
+                                        .or_insert_with(|| json!({ "id": "Unknown Relic" }));
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     "EVENT" => {
                         screen

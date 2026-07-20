@@ -742,6 +742,7 @@ fn validate_screen_state_collections(
             rewards,
             "reward_type",
         )?;
+        validate_reward_payloads(step, rewards)?;
     }
     if let Some(options) = screen.get("options") {
         validate_object_array_field(step, "game_state.screen_state.options", options, "text")?;
@@ -771,6 +772,56 @@ fn validate_screen_state_collections(
                 )));
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_reward_payloads(step: u32, value: &Value) -> Result<(), serde_json::Error> {
+    let rewards = value
+        .as_array()
+        .expect("reward collection was validated as an array");
+    for reward in rewards {
+        let reward = reward
+            .as_object()
+            .expect("reward entry was validated as an object");
+        match reward
+            .get("reward_type")
+            .and_then(Value::as_str)
+            .expect("reward type was validated as a string")
+        {
+            "GOLD" | "STOLEN_GOLD" => {
+                validate_i32_field(step, "game_state.screen_state.rewards[]", reward, "gold")?;
+            }
+            "POTION" => validate_reward_identity_payload(step, reward, "potion")?,
+            "RELIC" => validate_reward_identity_payload(step, reward, "relic")?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_reward_identity_payload(
+    step: u32,
+    reward: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<(), serde_json::Error> {
+    let payload = reward
+        .get(field)
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {field} reward requires an object {field} payload"
+            ))
+        })?;
+    if payload
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| payload.get("name").and_then(Value::as_str))
+        .is_none_or(|identity| identity.trim().is_empty())
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {field} reward payload requires an id or name"
+        )));
     }
     Ok(())
 }
@@ -1098,6 +1149,26 @@ mod tests {
         let content = r#"{"type":"state","step":21,"message":{"game_state":{"screen_type":"GRID","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"cards":[{"id":"Strike_R"}],"selected_cards":[],"confirm_up":true,"for_purge":true,"for_transform":false,"for_upgrade":false,"any_number":false,"num_cards":1}}}}"#;
 
         parse_trace_jsonl(content).expect("confirmation overlay omits ordinary choices");
+    }
+
+    #[test]
+    fn parse_trace_rejects_gold_reward_without_amount() {
+        let content = r#"{"type":"state","step":22,"message":{"game_state":{"screen_type":"COMBAT_REWARD","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"rewards":[{"reward_type":"GOLD"}]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing gold amount is invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 22 game_state.screen_state.rewards[].gold must be an integer"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_relic_reward_without_identity() {
+        let content = r#"{"type":"state","step":23,"message":{"game_state":{"screen_type":"COMBAT_REWARD","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"rewards":[{"reward_type":"RELIC","relic":{}}]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing relic identity is invalid");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 23 relic reward payload requires an id or name"));
     }
 
     #[test]
