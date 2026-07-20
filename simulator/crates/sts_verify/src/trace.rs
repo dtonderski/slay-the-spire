@@ -235,7 +235,98 @@ fn parse_state_line(value: Value) -> Result<TraceState, serde_json::Error> {
             "trace state message must be a JSON object",
         ));
     }
+    validate_game_state_schema(state.step, &state.message)?;
     Ok(state)
+}
+
+fn validate_game_state_schema(step: u32, message: &Value) -> Result<(), serde_json::Error> {
+    let Some(game_value) = message.get("game_state") else {
+        return Ok(());
+    };
+    let game = game_value.as_object().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} game_state must be a JSON object"
+        ))
+    })?;
+    let screen_type = game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .filter(|screen_type| !screen_type.trim().is_empty())
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_type must be a string"
+            ))
+        })?;
+    if screen_type.eq_ignore_ascii_case("MENU") {
+        return Ok(());
+    }
+
+    let ascension = required_unsigned_game_field(step, game, "ascension_level")?;
+    if u8::try_from(ascension).is_err() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.ascension_level is out of range"
+        )));
+    }
+    let floor = required_unsigned_game_field(step, game, "floor")?;
+    if u32::try_from(floor).is_err() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.floor is out of range"
+        )));
+    }
+    for field in ["gold", "current_hp", "max_hp"] {
+        let Some(value) = game.get(field).and_then(Value::as_i64) else {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.{field} must be an integer"
+            )));
+        };
+        if i32::try_from(value).is_err() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.{field} is out of range"
+            )));
+        }
+    }
+    for field in ["deck", "relics"] {
+        let entries = game.get(field).and_then(Value::as_array).ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.{field} must be an array"
+            ))
+        })?;
+        if entries.iter().any(|entry| {
+            !entry.as_object().is_some_and(|entry| {
+                entry
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .or_else(|| entry.get("name").and_then(Value::as_str))
+                    .is_some_and(|identity| !identity.trim().is_empty())
+            })
+        }) {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.{field} entries must name an id or name"
+            )));
+        }
+    }
+    if game.get("choice_list").is_some_and(|choices| {
+        choices
+            .as_array()
+            .is_none_or(|choices| choices.iter().any(|choice| !choice.is_string()))
+    }) {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.choice_list must be an array of strings"
+        )));
+    }
+    Ok(())
+}
+
+fn required_unsigned_game_field(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<u64, serde_json::Error> {
+    game.get(field).and_then(Value::as_u64).ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.{field} must be a non-negative integer"
+        ))
+    })
 }
 
 fn parse_action_line(value: Value) -> Result<TraceAction, serde_json::Error> {
@@ -361,6 +452,36 @@ mod tests {
     }
 
     #[test]
+    fn parse_trace_rejects_incomplete_non_menu_game_state() {
+        let content = r#"{"type":"state","step":7,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"relics":[]}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing deck is invalid input");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 7 game_state.deck must be an array"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_unnamed_authoritative_entries() {
+        let content = r#"{"type":"state","step":8,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[{}],"relics":[]}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("unnamed deck entry is invalid input");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 8 game_state.deck entries must name an id or name"));
+    }
+
+    #[test]
+    fn parse_trace_allows_partial_menu_game_state() {
+        let lines = parse_trace_jsonl(
+            r#"{"type":"state","step":0,"message":{"game_state":{"screen_type":"MENU"}}}"#,
+        )
+        .expect("menu state does not represent an active run");
+
+        assert!(matches!(&lines[0], TraceLine::State(state) if state.step == 0));
+    }
+
+    #[test]
     fn parse_trace_rejects_empty_action_command() {
         let error = parse_trace_jsonl(r#"{"type":"action","step":1,"command":"  "}"#)
             .expect_err("empty action command is invalid");
@@ -372,7 +493,7 @@ mod tests {
 
     #[test]
     fn parse_trace_accepts_live_trace_session_records() {
-        let content = r#"{"type":"state","sequence":7,"state":{"raw":{"current_state":{"step":6,"received_at":"now","message":{"game_state":{"floor":0}}}}}}
+        let content = r#"{"type":"state","sequence":7,"state":{"raw":{"current_state":{"step":6,"received_at":"now","message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[]}}}}}}
 {"type":"action","sequence":7,"action":{"command":{"command":"CHOOSE 0","source_state_seq":6},"playtime_seconds":812}}"#;
 
         let lines = parse_trace_jsonl(content).expect("parses");

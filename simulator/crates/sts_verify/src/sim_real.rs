@@ -13278,7 +13278,7 @@ mod tests {
 {"type":"action","step":1,"command":"START IRONCLAD 0 VERIFY01"}
 {"type":"state","step":1,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"choice_list":["talk"]}}}
 {"type":"action","step":2,"command":"CHOOSE nope"}
-{"type":"state","step":2,"message":{"game_state":{"screen_type":"EVENT","choice_list":["talk"]}}}"#;
+{"type":"state","step":2,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"choice_list":["talk"]}}}"#;
 
         let error = verify_communication_mod_trace(content).expect_err("malformed trace rejected");
         assert!(matches!(
