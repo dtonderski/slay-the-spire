@@ -694,6 +694,7 @@ impl RunState {
         }
         if let Some(grid) = &self.card_grid {
             validate_run_choice_cards(&grid.cards)?;
+            let mut selected_indices = BTreeSet::new();
             if grid.selected.is_some_and(|index| index >= grid.cards.len())
                 || grid
                     .selected_indices
@@ -702,6 +703,15 @@ impl RunState {
             {
                 return Err(SimError::InvalidState(
                     "card grid selection index is out of bounds",
+                ));
+            }
+            if grid
+                .selected_indices
+                .iter()
+                .any(|index| !selected_indices.insert(*index))
+            {
+                return Err(SimError::InvalidState(
+                    "card grid selection indices contain duplicates",
                 ));
             }
         }

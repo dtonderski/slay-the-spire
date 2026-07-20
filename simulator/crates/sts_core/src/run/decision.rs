@@ -1,13 +1,21 @@
 use crate::{
     action::{CombatAction, EventAction, RestAction},
+    combat::{legal_combat_actions, validate_combat_action, CombatState, ExhaustSelectPurpose},
     map::MapAction,
-    SimResult,
+    potion::Potion,
+    RunPhase, SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{
     apply_combat_action_on_run, apply_event_action, apply_map_action_on_run, apply_rest_action,
-    apply_run_action, cancel_grid, confirm_grid, select_grid_card, RunAction, RunState,
+    apply_run_action, cancel_grid, confirm_grid, legal_event_actions, legal_map_actions_on_run,
+    legal_rest_actions, legal_shop_actions, select_grid_card, validate_event_action,
+    validate_potion_action, validate_rest_action, validate_shop_action, RunAction, RunState,
+};
+use super::{
+    grid::{validate_grid_cancel, validate_grid_confirm, validate_grid_select},
+    map::validate_map_action_on_run,
 };
 
 /// One authoritative decision at any supported run boundary.
@@ -23,9 +31,116 @@ pub enum RunDecisionAction {
     Run(RunAction),
 }
 
+/// Validates one top-level run decision without executing simulator mechanics.
+pub fn validate_run_decision_action(run: &RunState, action: RunDecisionAction) -> SimResult<()> {
+    run.validate()?;
+    match action {
+        RunDecisionAction::Combat(action) => {
+            if run.phase != RunPhase::Combat {
+                return Err(SimError::IllegalAction(
+                    "combat actions require combat phase",
+                ));
+            }
+            let combat = run
+                .combat
+                .as_ref()
+                .ok_or(SimError::InvalidState("combat state is missing"))?;
+            validate_combat_action(combat, action)
+        }
+        RunDecisionAction::Event(action) => validate_event_action(run, action),
+        RunDecisionAction::GridSelect { index } => validate_grid_select(run, index),
+        RunDecisionAction::GridConfirm => validate_grid_confirm(run),
+        RunDecisionAction::GridCancel => validate_grid_cancel(run),
+        RunDecisionAction::Map(action) => validate_map_action_on_run(run, action),
+        RunDecisionAction::Rest(action) => validate_rest_action(run, action),
+        RunDecisionAction::Run(action) => validate_run_action(run, action),
+    }
+}
+
+/// Enumerates the complete supported decision boundary without executing transitions or RNG.
+pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAction>> {
+    run.validate()?;
+    let mut actions = Vec::new();
+
+    if let Some(grid) = run.card_grid.as_ref() {
+        actions.extend((0..grid.cards.len()).map(|index| RunDecisionAction::GridSelect { index }));
+        actions.push(RunDecisionAction::GridConfirm);
+        actions.push(RunDecisionAction::GridCancel);
+        return validated_decision_candidates(run, actions);
+    }
+
+    match run.phase {
+        RunPhase::Combat => {
+            let combat = run
+                .combat
+                .as_ref()
+                .ok_or(SimError::InvalidState("combat state is missing"))?;
+            let select_actions = legal_combat_select_actions_on_run(run, combat)?;
+            if !select_actions.is_empty() {
+                return Ok(select_actions
+                    .into_iter()
+                    .map(RunDecisionAction::Run)
+                    .collect());
+            }
+            actions.extend(
+                legal_combat_actions(combat)
+                    .into_iter()
+                    .map(RunDecisionAction::Combat),
+            );
+            actions.extend(
+                legal_potion_actions_on_run(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+        }
+        RunPhase::Reward => {
+            actions.extend(
+                legal_reward_actions(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+            actions.extend(
+                legal_potion_actions_on_run(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+        }
+        RunPhase::Treasure => {
+            actions.extend(
+                [RunAction::OpenChest, RunAction::Proceed]
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+        }
+        RunPhase::Idle => actions.extend(
+            legal_map_actions_on_run(run)
+                .into_iter()
+                .map(RunDecisionAction::Map),
+        ),
+        RunPhase::Rest => actions.extend(
+            legal_rest_actions(run)
+                .into_iter()
+                .map(RunDecisionAction::Rest),
+        ),
+        RunPhase::Event => actions.extend(
+            legal_event_actions(run)
+                .into_iter()
+                .map(RunDecisionAction::Event),
+        ),
+        RunPhase::Shop => actions.extend(
+            legal_shop_actions(run)
+                .into_iter()
+                .map(RunDecisionAction::Run),
+        ),
+        RunPhase::Complete => {}
+    }
+
+    validated_decision_candidates(run, actions)
+}
+
 /// Applies one top-level run decision and validates both sides of the boundary.
 pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> SimResult<RunState> {
-    run.validate()?;
+    validate_run_decision_action(run, action)?;
     let next = match action {
         RunDecisionAction::Combat(action) => apply_combat_action_on_run(run, action),
         RunDecisionAction::Event(action) => apply_event_action(run, action),
@@ -40,10 +155,183 @@ pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> S
     Ok(next)
 }
 
+fn validate_run_action(run: &RunState, action: RunAction) -> SimResult<()> {
+    match action {
+        RunAction::OpenChest => super::reward::validate_treasure_action(run, action),
+        RunAction::Proceed if run.phase == RunPhase::Reward => run.validate_reward_action(action),
+        RunAction::Proceed if run.phase == RunPhase::Shop => validate_shop_action(run, action),
+        RunAction::Proceed => super::reward::validate_treasure_action(run, action),
+        RunAction::BuyShopCard { .. }
+        | RunAction::BuyShopRelic { .. }
+        | RunAction::BuyShopPotion { .. }
+        | RunAction::EnterShop
+        | RunAction::LeaveShop
+        | RunAction::OpenShopRemove => validate_shop_action(run, action),
+        RunAction::UsePotion { .. }
+        | RunAction::DiscardPotion { .. }
+        | RunAction::ChooseCombatCardReward { .. }
+        | RunAction::SkipCombatCardReward
+        | RunAction::ChooseHandSelect { .. }
+        | RunAction::ConfirmHandSelect
+        | RunAction::ChooseDrawSelect { .. }
+        | RunAction::ConfirmDrawSelect
+        | RunAction::ChooseDiscardSelect { .. }
+        | RunAction::ConfirmDiscardSelect
+        | RunAction::ChooseExhaustSelect { .. }
+        | RunAction::ConfirmExhaustSelect => validate_potion_action(run, action),
+        _ => run.validate_reward_action(action),
+    }
+}
+
+fn validated_decision_candidates(
+    run: &RunState,
+    candidates: Vec<RunDecisionAction>,
+) -> SimResult<Vec<RunDecisionAction>> {
+    let mut legal = Vec::new();
+    for action in candidates {
+        match validate_run_decision_action(run, action) {
+            Ok(()) => legal.push(action),
+            Err(SimError::IllegalAction(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(legal)
+}
+
+fn validated_run_action_candidates(
+    run: &RunState,
+    candidates: impl IntoIterator<Item = RunAction>,
+) -> SimResult<Vec<RunAction>> {
+    let mut legal = Vec::new();
+    for action in candidates {
+        match validate_run_action(run, action) {
+            Ok(()) => legal.push(action),
+            Err(SimError::IllegalAction(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(legal)
+}
+
+fn legal_combat_select_actions_on_run(
+    run: &RunState,
+    combat: &CombatState,
+) -> SimResult<Vec<RunAction>> {
+    if let Some(choices) = combat
+        .potion_card_reward
+        .as_ref()
+        .or(combat.toolbox_card_reward.as_ref())
+        .or(combat.discovery_card_reward.as_ref())
+    {
+        let mut candidates = (0..choices.len())
+            .map(|index| RunAction::ChooseCombatCardReward { index })
+            .collect::<Vec<_>>();
+        if combat.potion_card_reward.is_some() {
+            candidates.push(RunAction::SkipCombatCardReward);
+        }
+        return validated_run_action_candidates(run, candidates);
+    }
+
+    let mut candidates = Vec::new();
+    if combat.hand_select.is_some() {
+        candidates.extend(
+            (0..combat.piles.hand.len()).map(|index| RunAction::ChooseHandSelect { index }),
+        );
+        candidates.push(RunAction::ConfirmHandSelect);
+    }
+    if combat.draw_select.is_some() {
+        candidates.extend(
+            (0..combat.piles.draw_pile.len()).map(|index| RunAction::ChooseDrawSelect { index }),
+        );
+        candidates.push(RunAction::ConfirmDrawSelect);
+    }
+    if combat.discard_select.is_some() {
+        candidates.extend(
+            (0..combat.piles.discard_pile.len())
+                .map(|index| RunAction::ChooseDiscardSelect { index }),
+        );
+        candidates.push(RunAction::ConfirmDiscardSelect);
+    }
+    if let Some(select) = combat.exhaust_select.as_ref() {
+        let choice_count = if select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
+            combat.piles.exhaust_pile.len()
+        } else {
+            combat.piles.hand.len()
+        };
+        candidates.extend((0..choice_count).map(|index| RunAction::ChooseExhaustSelect { index }));
+        candidates.push(RunAction::ConfirmExhaustSelect);
+    }
+    validated_run_action_candidates(run, candidates)
+}
+
+fn legal_reward_actions(run: &RunState) -> SimResult<Vec<RunAction>> {
+    let mut candidates = vec![
+        RunAction::SkipReward,
+        RunAction::CloseCardReward,
+        RunAction::TakeGoldReward,
+        RunAction::TakeStolenGoldReward,
+        RunAction::TakeRelicReward,
+        RunAction::Proceed,
+        RunAction::OpenCardReward,
+        RunAction::SkipPotionReward,
+        RunAction::TakeSingingBowlReward,
+    ];
+    if let Some(reward) = run.reward.as_ref() {
+        let potion_offer_count = reward
+            .potion_offers
+            .len()
+            .max(usize::from(reward.potion_offer.is_some()));
+        candidates
+            .extend((0..potion_offer_count).map(|index| RunAction::TakePotionReward { index }));
+        candidates.extend(
+            (0..reward.boss_relic_choices.len())
+                .map(|index| RunAction::ChooseBossRelicReward { index }),
+        );
+        candidates.extend(
+            reward
+                .choices
+                .iter()
+                .map(|choice| RunAction::TakeCardReward { card_id: choice.id }),
+        );
+    }
+    validated_run_action_candidates(run, candidates)
+}
+
+fn legal_potion_actions_on_run(run: &RunState) -> SimResult<Vec<RunAction>> {
+    let candidates = run
+        .occupied_potion_slots()
+        .into_iter()
+        .flat_map(|(slot, potion)| potion_use_candidates(slot, potion, run.combat.as_ref()))
+        .collect::<Vec<_>>();
+    validated_run_action_candidates(run, candidates)
+}
+
+fn potion_use_candidates(
+    slot: usize,
+    potion: Potion,
+    combat: Option<&CombatState>,
+) -> Vec<RunAction> {
+    if potion.requires_target() {
+        let Some(combat) = combat else {
+            return Vec::new();
+        };
+        return combat
+            .monsters
+            .iter()
+            .filter(|monster| monster.alive)
+            .map(|monster| RunAction::UsePotion {
+                slot,
+                target: Some(monster.id),
+            })
+            .collect();
+    }
+    vec![RunAction::UsePotion { slot, target: None }]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{legal_map_actions_on_run, RunPhase, SimError};
+    use crate::{legal_map_actions_on_run, CardGridScreen, GridPurpose};
 
     #[test]
     fn top_level_map_step_matches_the_specialized_transition() {
@@ -66,6 +354,71 @@ mod tests {
         assert_eq!(
             apply_run_decision_action(&run, RunDecisionAction::Run(RunAction::Proceed)),
             Err(SimError::InvalidState("shop phase has no shop screen"))
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_are_validator_backed() {
+        let run = RunState::map_fixture();
+        let actions = legal_run_decision_actions(&run).expect("valid map fixture");
+
+        assert!(!actions.is_empty());
+        assert!(actions
+            .iter()
+            .all(|action| validate_run_decision_action(&run, *action).is_ok()));
+        assert_eq!(
+            actions,
+            legal_map_actions_on_run(&run)
+                .into_iter()
+                .map(RunDecisionAction::Map)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_reject_malformed_state() {
+        let mut run = RunState::seeded_ironclad(22_079_335_079, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.shop = None;
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Err(SimError::InvalidState("shop phase has no shop screen"))
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_do_not_hide_invalid_candidate_state() {
+        let mut run = RunState::map_fixture();
+        run.card_grid = Some(CardGridScreen {
+            cards: vec![run.deck[0]],
+            purpose: GridPurpose::ShopRemove,
+            selected: Some(0),
+            selected_indices: Vec::new(),
+        });
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Err(SimError::InvalidState("shop screen is missing"))
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_reject_duplicate_grid_selections() {
+        let mut run = RunState::map_fixture();
+        run.card_grid = Some(CardGridScreen {
+            cards: vec![run.deck[0]],
+            purpose: GridPurpose::Astrolabe,
+            selected: None,
+            selected_indices: vec![0, 0, 0],
+        });
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Err(SimError::InvalidState(
+                "card grid selection indices contain duplicates"
+            ))
         );
     }
 }

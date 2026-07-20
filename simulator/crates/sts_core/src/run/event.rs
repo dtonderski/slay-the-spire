@@ -1560,6 +1560,10 @@ fn bonfire_card_class(content_id: ContentId) -> Option<BonfireCardClass> {
     }
 }
 
+pub(crate) fn bonfire_card_is_supported(content_id: ContentId) -> bool {
+    bonfire_card_class(content_id).is_some()
+}
+
 pub(crate) fn complete_bonfire_elementals_card(
     run: &mut RunState,
     card: CardInstance,

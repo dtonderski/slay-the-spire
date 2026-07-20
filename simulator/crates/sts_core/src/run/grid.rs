@@ -476,7 +476,8 @@ pub fn open_astrolabe_grid(run: &mut RunState) {
 
 const ASTROLABE_TRANSFORM_COUNT: usize = 3;
 
-pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
+pub(crate) fn validate_grid_select(run: &RunState, index: usize) -> SimResult<()> {
+    run.validate()?;
     let grid = run
         .card_grid
         .as_ref()
@@ -484,6 +485,12 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     if index >= grid.cards.len() {
         return Err(SimError::IllegalAction("grid index out of range"));
     }
+    Ok(())
+}
+
+pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
+    validate_grid_select(run, index)?;
+    let grid = run.card_grid.as_ref().expect("validated card grid");
 
     if grid_multi_select_count(grid.purpose).is_some() {
         let mut next = run.clone();
@@ -508,20 +515,88 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     Ok(next)
 }
 
-pub fn cancel_grid(run: &RunState) -> SimResult<RunState> {
+pub(crate) fn validate_grid_cancel(run: &RunState) -> SimResult<()> {
+    run.validate()?;
     if run.card_grid.is_none() {
         return Err(SimError::IllegalAction("no card grid is open"));
     }
+    Ok(())
+}
+
+pub fn cancel_grid(run: &RunState) -> SimResult<RunState> {
+    validate_grid_cancel(run)?;
     let mut next = run.clone();
     next.card_grid = None;
     Ok(next)
 }
 
-pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
+pub(crate) fn validate_grid_confirm(run: &RunState) -> SimResult<()> {
+    run.validate()?;
     let grid = run
         .card_grid
         .as_ref()
         .ok_or(SimError::IllegalAction("no card grid is open"))?;
+
+    match grid.purpose {
+        GridPurpose::CallingBellCurse => {
+            grid.cards
+                .first()
+                .ok_or(SimError::InvalidState("calling bell grid is empty"))?;
+        }
+        GridPurpose::PandorasBox => {}
+        purpose if grid_multi_select_count(purpose).is_some() => {
+            let required = grid_multi_select_count(purpose).expect("matched multi-select purpose");
+            if grid.selected_indices.len() < required {
+                return Err(SimError::IllegalAction("grid requires more selected cards"));
+            }
+            for index in grid.selected_indices.iter().take(required) {
+                let card = grid
+                    .cards
+                    .get(*index)
+                    .ok_or(SimError::IllegalAction("grid index out of range"))?;
+                validate_grid_card_is_in_deck(run, *card)?;
+            }
+        }
+        purpose => {
+            let card = selected_grid_card(grid)?;
+            if !matches!(
+                purpose,
+                GridPurpose::EventObtainCard | GridPurpose::EventObtainCardReturnToEvent { .. }
+            ) {
+                validate_grid_card_is_in_deck(run, card)?;
+            }
+            if matches!(
+                purpose,
+                GridPurpose::RestSmith
+                    | GridPurpose::NeowUpgrade
+                    | GridPurpose::EventUpgrade
+                    | GridPurpose::EventUpgradeReturnToEvent { .. }
+            ) && upgrade_card_instance(card).is_none()
+            {
+                return Err(SimError::IllegalAction("card cannot be upgraded"));
+            }
+            if purpose == GridPurpose::ShopRemove {
+                let shop = run
+                    .shop
+                    .as_ref()
+                    .ok_or(SimError::InvalidState("shop screen is missing"))?;
+                if run.gold < shop.remove_cost {
+                    return Err(SimError::IllegalAction("not enough gold"));
+                }
+            }
+            if purpose == GridPurpose::BonfireElementals
+                && !super::event::bonfire_card_is_supported(card.content_id)
+            {
+                return Err(SimError::UnsupportedMechanic(card.content_id));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
+    validate_grid_confirm(run)?;
+    let grid = run.card_grid.as_ref().expect("validated card grid");
 
     let mut next = run.clone();
     match grid.purpose {
@@ -709,6 +784,16 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
     }
 
     Ok(next)
+}
+
+fn validate_grid_card_is_in_deck(run: &RunState, card: CardInstance) -> SimResult<()> {
+    if run.deck.contains(&card) {
+        Ok(())
+    } else {
+        Err(SimError::InvalidState(
+            "grid card does not match the run deck",
+        ))
+    }
 }
 
 fn grid_multi_select_count(purpose: GridPurpose) -> Option<usize> {

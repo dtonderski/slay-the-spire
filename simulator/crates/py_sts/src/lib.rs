@@ -2,12 +2,10 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use sts_core::combat::ExhaustSelectPurpose;
 use sts_core::{
-    apply_combat_action_with_events, apply_run_action as apply_core_run_action,
-    apply_run_decision_action, cancel_grid, confirm_grid, legal_combat_actions,
-    legal_event_actions, legal_map_actions_on_run, legal_rest_actions, legal_shop_actions,
-    select_grid_card, validate_potion_action, CardId, CombatAction, CombatPhase, CombatState,
-    EventAction, MapAction, MonsterId, MonsterIntent, Potion, RestAction, RunAction,
-    RunDecisionAction, RunPhase, RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+    apply_combat_action_with_events, apply_run_decision_action, legal_combat_actions,
+    legal_run_decision_actions, CardId, CombatAction, CombatPhase, CombatState, EventAction,
+    MapAction, MonsterId, MonsterIntent, RestAction, RunAction, RunDecisionAction, RunPhase,
+    RunState, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 
 const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
@@ -424,7 +422,7 @@ impl PyOmniRunEnv {
         run_unsupported_reason(&self.state).map(str::to_owned)
     }
 
-    pub fn exact_legal_actions(&self) -> Vec<PyExactRunAction> {
+    pub fn exact_legal_actions(&self) -> PyResult<Vec<PyExactRunAction>> {
         exact_run_legal_actions(&self.state)
     }
 
@@ -444,7 +442,7 @@ impl PyOmniRunEnv {
             snapshot_hash: resulting_hash.clone(),
             phase: self.phase(),
             current_decision: self.current_decision(),
-            exact_legal_actions: self.exact_legal_actions(),
+            exact_legal_actions: self.exact_legal_actions()?,
             transition: PyDebugTransition {
                 action_json,
                 previous_hash,
@@ -568,110 +566,17 @@ fn to_json<T: serde::Serialize>(value: &T) -> PyResult<String> {
         .map_err(|error| PyRuntimeError::new_err(format!("JSON serialization failed: {error}")))
 }
 
-fn exact_run_legal_actions(state: &RunState) -> Vec<PyExactRunAction> {
-    exact_run_legal_action_kinds(state)
+fn exact_run_legal_actions(state: &RunState) -> PyResult<Vec<PyExactRunAction>> {
+    Ok(exact_run_legal_action_kinds(state)?
         .into_iter()
         .map(|action| PyExactRunAction { action })
-        .collect()
+        .collect())
 }
 
-fn exact_run_legal_action_kinds(state: &RunState) -> Vec<ExactRunActionKind> {
-    let mut actions = Vec::new();
-
-    if let Some(grid) = state.card_grid.as_ref() {
-        actions.extend(
-            (0..grid.cards.len())
-                .filter(|index| select_grid_card(state, *index).is_ok())
-                .map(|index| ExactRunActionKind::GridSelect { index }),
-        );
-        if confirm_grid(state).is_ok() {
-            actions.push(ExactRunActionKind::GridConfirm);
-        }
-        if cancel_grid(state).is_ok() {
-            actions.push(ExactRunActionKind::GridCancel);
-        }
-        return actions;
-    }
-
-    if state.phase == RunPhase::Combat {
-        if let Some(combat) = state.combat.as_ref() {
-            let select_actions = legal_combat_select_actions_on_run(state, combat);
-            if !select_actions.is_empty() {
-                actions.extend(select_actions.into_iter().map(ExactRunActionKind::Run));
-                return actions;
-            }
-            let combat_actions = legal_combat_actions(combat)
-                .into_iter()
-                .map(ExactRunActionKind::Combat);
-            if combat.duplication_potion_pending {
-                actions.extend(
-                    combat_actions.filter(|action| apply_exact_run_action(state, action).is_ok()),
-                );
-            } else {
-                actions.extend(combat_actions);
-            }
-            actions.extend(
-                legal_potion_actions_on_run(state)
-                    .into_iter()
-                    .map(ExactRunActionKind::Run),
-            );
-        }
-    }
-
-    if state.phase == RunPhase::Reward {
-        actions.extend(
-            legal_reward_actions(state)
-                .into_iter()
-                .map(ExactRunActionKind::Run),
-        );
-        actions.extend(
-            legal_potion_actions_on_run(state)
-                .into_iter()
-                .map(ExactRunActionKind::Run),
-        );
-    }
-
-    if state.phase == RunPhase::Treasure {
-        for action in [RunAction::OpenChest, RunAction::Proceed] {
-            if apply_core_run_action(state, action).is_ok() {
-                actions.push(ExactRunActionKind::Run(action));
-            }
-        }
-    }
-
-    if state.phase == RunPhase::Idle {
-        actions.extend(
-            legal_map_actions_on_run(state)
-                .into_iter()
-                .map(ExactRunActionKind::Map),
-        );
-    }
-
-    if state.phase == RunPhase::Rest {
-        actions.extend(
-            legal_rest_actions(state)
-                .into_iter()
-                .map(ExactRunActionKind::Rest),
-        );
-    }
-
-    if state.phase == RunPhase::Event {
-        actions.extend(
-            legal_event_actions(state)
-                .into_iter()
-                .map(ExactRunActionKind::Event),
-        );
-    }
-
-    if state.phase == RunPhase::Shop {
-        actions.extend(
-            legal_shop_actions(state)
-                .into_iter()
-                .map(ExactRunActionKind::Run),
-        );
-    }
-
-    actions
+fn exact_run_legal_action_kinds(state: &RunState) -> PyResult<Vec<ExactRunActionKind>> {
+    legal_run_decision_actions(state).map_err(|error| {
+        PyValueError::new_err(format!("invalid exact run decision state: {error:?}"))
+    })
 }
 
 fn rust_greedy_combat_search(
@@ -695,7 +600,7 @@ fn rust_greedy_combat_search(
     let mut terminal_reason = run_terminal_reason(&current);
 
     while terminal_reason.is_none() && actions_taken < max_actions {
-        let actions = filtered_run_actions(&current, allowed_potions.as_deref());
+        let actions = filtered_run_actions(&current, allowed_potions.as_deref())?;
         if actions.is_empty() {
             break;
         }
@@ -794,7 +699,7 @@ fn rust_beam_combat_search(
                 next_frontier.push(node);
                 continue;
             }
-            let actions = filtered_run_actions(&node.state, allowed_potions.as_deref());
+            let actions = filtered_run_actions(&node.state, allowed_potions.as_deref())?;
             if actions.is_empty() {
                 if rust_node_better(&node, &best) {
                     best = node.clone();
@@ -888,12 +793,12 @@ fn rust_node_order(left: &RustBeamNode, right: &RustBeamNode) -> std::cmp::Order
 fn filtered_run_actions(
     state: &RunState,
     allowed_potions: Option<&[String]>,
-) -> Vec<ExactRunActionKind> {
-    let actions: Vec<_> = exact_run_legal_action_kinds(state)
+) -> PyResult<Vec<ExactRunActionKind>> {
+    let actions: Vec<_> = exact_run_legal_action_kinds(state)?
         .into_iter()
         .filter(|action| rust_action_allowed(state, action, allowed_potions))
         .collect();
-    preferred_select_actions(state, &actions).unwrap_or(actions)
+    Ok(preferred_select_actions(state, &actions).unwrap_or(actions))
 }
 
 fn preferred_select_actions(
@@ -1188,127 +1093,6 @@ fn intent_damage(intent: MonsterIntent) -> i32 {
     }
 }
 
-fn legal_combat_select_actions_on_run(state: &RunState, combat: &CombatState) -> Vec<RunAction> {
-    if let Some(choices) = combat
-        .potion_card_reward
-        .as_ref()
-        .or(combat.toolbox_card_reward.as_ref())
-        .or(combat.discovery_card_reward.as_ref())
-    {
-        let mut actions = (0..choices.len())
-            .map(|index| RunAction::ChooseCombatCardReward { index })
-            .filter(|action| apply_core_run_action(state, *action).is_ok())
-            .collect::<Vec<_>>();
-        if combat.potion_card_reward.is_some()
-            && apply_core_run_action(state, RunAction::SkipCombatCardReward).is_ok()
-        {
-            actions.push(RunAction::SkipCombatCardReward);
-        }
-        return actions;
-    }
-
-    let mut candidates = Vec::new();
-    if combat.hand_select.is_some() {
-        candidates.extend(
-            (0..combat.piles.hand.len()).map(|index| RunAction::ChooseHandSelect { index }),
-        );
-        candidates.push(RunAction::ConfirmHandSelect);
-    }
-    if combat.draw_select.is_some() {
-        candidates.extend(
-            (0..combat.piles.draw_pile.len()).map(|index| RunAction::ChooseDrawSelect { index }),
-        );
-        candidates.push(RunAction::ConfirmDrawSelect);
-    }
-    if combat.discard_select.is_some() {
-        candidates.extend(
-            (0..combat.piles.discard_pile.len())
-                .map(|index| RunAction::ChooseDiscardSelect { index }),
-        );
-        candidates.push(RunAction::ConfirmDiscardSelect);
-    }
-    if let Some(select) = combat.exhaust_select.as_ref() {
-        let choice_count = if select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
-            combat.piles.exhaust_pile.len()
-        } else {
-            combat.piles.hand.len()
-        };
-        candidates.extend((0..choice_count).map(|index| RunAction::ChooseExhaustSelect { index }));
-        candidates.push(RunAction::ConfirmExhaustSelect);
-    }
-    candidates
-        .into_iter()
-        .filter(|action| apply_core_run_action(state, *action).is_ok())
-        .collect()
-}
-
-fn legal_reward_actions(state: &RunState) -> Vec<RunAction> {
-    let mut candidates = vec![
-        RunAction::SkipReward,
-        RunAction::CloseCardReward,
-        RunAction::TakeGoldReward,
-        RunAction::TakeStolenGoldReward,
-        RunAction::TakeRelicReward,
-        RunAction::Proceed,
-        RunAction::OpenCardReward,
-        RunAction::SkipPotionReward,
-        RunAction::TakeSingingBowlReward,
-    ];
-    if let Some(reward) = state.reward.as_ref() {
-        let potion_offer_count = reward
-            .potion_offers
-            .len()
-            .max(usize::from(reward.potion_offer.is_some()));
-        candidates
-            .extend((0..potion_offer_count).map(|index| RunAction::TakePotionReward { index }));
-        candidates.extend(
-            (0..reward.boss_relic_choices.len())
-                .map(|index| RunAction::ChooseBossRelicReward { index }),
-        );
-        candidates.extend(
-            reward
-                .choices
-                .iter()
-                .map(|choice| RunAction::TakeCardReward { card_id: choice.id }),
-        );
-    }
-    candidates
-        .into_iter()
-        .filter(|action| state.validate_reward_action(*action).is_ok())
-        .collect()
-}
-
-fn legal_potion_actions_on_run(state: &RunState) -> Vec<RunAction> {
-    state
-        .occupied_potion_slots()
-        .into_iter()
-        .flat_map(|(slot, potion)| potion_use_candidates(slot, potion, state.combat.as_ref()))
-        .filter(|action| validate_potion_action(state, *action).is_ok())
-        .collect()
-}
-
-fn potion_use_candidates(
-    slot: usize,
-    potion: Potion,
-    combat: Option<&CombatState>,
-) -> Vec<RunAction> {
-    if potion.requires_target() {
-        let Some(combat) = combat else {
-            return Vec::new();
-        };
-        return combat
-            .monsters
-            .iter()
-            .filter(|monster| monster.alive)
-            .map(|monster| RunAction::UsePotion {
-                slot,
-                target: Some(monster.id),
-            })
-            .collect();
-    }
-    vec![RunAction::UsePotion { slot, target: None }]
-}
-
 fn apply_exact_run_action(
     state: &RunState,
     action: &ExactRunActionKind,
@@ -1420,10 +1204,12 @@ fn run_unsupported_reason(state: &RunState) -> Option<&'static str> {
     if state.phase == RunPhase::Complete {
         return None;
     }
-    if exact_run_legal_actions(state).is_empty() {
-        Some("no exact run legal-action adapter for current decision")
-    } else {
-        None
+    match legal_run_decision_actions(state) {
+        Ok(actions) if actions.is_empty() => {
+            Some("no exact run legal-action adapter for current decision")
+        }
+        Err(_) => Some("invalid run state at exact action boundary"),
+        Ok(_) => None,
     }
 }
 
@@ -1464,6 +1250,7 @@ fn terminal_reason(phase: CombatPhase) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sts_core::Potion;
 
     #[test]
     fn schema_one_combat_snapshot_migrates_when_state_is_valid() {
@@ -1509,6 +1296,15 @@ mod tests {
         assert!(error
             .to_string()
             .contains("combat state exists outside combat phase"));
+    }
+
+    #[test]
+    fn exact_run_legal_actions_report_invalid_state() {
+        let mut env = PyOmniRunEnv::map_fixture();
+        env.state.phase = RunPhase::Shop;
+        env.state.shop = None;
+
+        assert!(env.exact_legal_actions().is_err());
     }
 
     #[test]
@@ -1606,7 +1402,7 @@ mod tests {
     fn run_combat_fixture_exposes_combat_actions_and_steps() {
         let mut env = PyOmniRunEnv::combat_fixture();
         let before = env.snapshot_hash().expect("run hashes before");
-        let actions = env.exact_legal_actions();
+        let actions = env.exact_legal_actions().expect("run legal actions");
         let strike = actions
             .iter()
             .find(|action| action.kind() == "play_card")
@@ -1626,13 +1422,14 @@ mod tests {
         env.state.potions = vec![Potion::Elixir];
         let elixir = env
             .exact_legal_actions()
+            .expect("run legal actions")
             .into_iter()
             .find(|action| action.kind() == "use_potion")
             .expect("elixir is usable")
             .clone();
 
         env.step(&elixir).expect("elixir opens exhaust select");
-        let actions = env.exact_legal_actions();
+        let actions = env.exact_legal_actions().expect("run legal actions");
 
         assert!(actions
             .iter()
@@ -1653,6 +1450,7 @@ mod tests {
 
         let fruit_juice = env
             .exact_legal_actions()
+            .expect("run legal actions")
             .into_iter()
             .find(|action| action.kind() == "use_potion")
             .expect("Fruit Juice is usable from reward screen")
@@ -1693,6 +1491,7 @@ mod tests {
 
         let take_potion = env
             .exact_legal_actions()
+            .expect("run legal actions")
             .into_iter()
             .find(|action| action.kind() == "take_potion_reward")
             .expect("potion reward can be taken")
@@ -1718,6 +1517,7 @@ mod tests {
         env.state.potions = vec![Potion::Elixir];
         let elixir = env
             .exact_legal_actions()
+            .expect("run legal actions")
             .into_iter()
             .find(|action| action.kind() == "use_potion")
             .expect("elixir is usable")
@@ -1781,6 +1581,7 @@ mod tests {
         );
         assert!(env
             .exact_legal_actions()
+            .expect("run legal actions")
             .iter()
             .any(|action| action.family() == "map"));
     }
@@ -1795,7 +1596,10 @@ mod tests {
 
         assert_eq!(restored.phase(), "complete");
         assert_eq!(restored.current_decision(), "complete");
-        assert!(restored.exact_legal_actions().is_empty());
+        assert!(restored
+            .exact_legal_actions()
+            .expect("run legal actions")
+            .is_empty());
         assert!(restored.unsupported_reason().is_none());
         assert_eq!(
             restored.snapshot_hash().expect("restored hashes"),
@@ -1821,6 +1625,7 @@ mod tests {
         );
         assert!(first
             .exact_legal_actions()
+            .expect("run legal actions")
             .iter()
             .any(|action| action.family() == "event"));
     }
