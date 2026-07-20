@@ -547,6 +547,14 @@ pub const NECRONOMICON_ID: ContentId = ContentId::new(443);
 pub const ENCHIRIDION_ID: ContentId = ContentId::new(444);
 /// Content id for [Relic::NilrysCodex].
 pub const NILRYS_CODEX_ID: ContentId = ContentId::new(445);
+/// Content id for [Relic::MarkOfBloom].
+pub const MARK_OF_BLOOM_ID: ContentId = ContentId::new(446);
+/// Content id for [Relic::SpiritPoop].
+pub const SPIRIT_POOP_ID: ContentId = ContentId::new(447);
+/// Content id for [Relic::OddMushroom].
+pub const ODD_MUSHROOM_ID: ContentId = ContentId::new(448);
+/// Content id for [Relic::NlothsGift].
+pub const NLOTHS_GIFT_ID: ContentId = ContentId::new(449);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -626,170 +634,8 @@ pub enum RelicTier {
     Shop,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RelicKey {
-    BurningBlood,
-    CrackedCore,
-    RingOfTheSnake,
-    PureWater,
-    Whetstone,
-    TheBoot,
-    BloodVial,
-    MealTicket,
-    PenNib,
-    Akabeko,
-    Lantern,
-    RegalPillow,
-    BagOfPreparation,
-    AncientTeaSet,
-    SmilingMask,
-    PotionBelt,
-    PreservedInsect,
-    Omamori,
-    MawBank,
-    ArtOfWar,
-    ToyOrnithopter,
-    CeramicFish,
-    Vajra,
-    CentennialPuzzle,
-    Strawberry,
-    HappyFlower,
-    OddlySmoothStone,
-    WarPaint,
-    BronzeScales,
-    JuzuBracelet,
-    DreamCatcher,
-    Nunchaku,
-    TinyChest,
-    Orichalcum,
-    Anchor,
-    BagOfMarbles,
-    RedSkull,
-    BottledTornado,
-    Sundial,
-    Kunai,
-    Pear,
-    BlueCandle,
-    EternalFeather,
-    StrikeDummy,
-    SingingBowl,
-    Matryoshka,
-    InkBottle,
-    TheCourier,
-    FrozenEgg,
-    OrnamentalFan,
-    BottledLightning,
-    GremlinHorn,
-    HornCleat,
-    ToxicEgg,
-    LetterOpener,
-    QuestionCard,
-    BottledFlame,
-    Shuriken,
-    MoltenEgg,
-    MeatOnTheBone,
-    DarkstonePeriapt,
-    MummifiedHand,
-    Pantograph,
-    WhiteBeastStatue,
-    MercuryHourglass,
-    SelfFormingClay,
-    PaperPhrog,
-    Ginger,
-    OldCoin,
-    BirdFacedUrn,
-    UnceasingTop,
-    Torii,
-    StoneCalendar,
-    Shovel,
-    WingBoots,
-    ThreadAndNeedle,
-    Turnip,
-    IceCream,
-    Calipers,
-    LizardTail,
-    PrayerWheel,
-    Girya,
-    DeadBranch,
-    DuVuDoll,
-    Pocketwatch,
-    Mango,
-    IncenseBurner,
-    GamblingChip,
-    PeacePipe,
-    CaptainsWheel,
-    FossilizedHelix,
-    TungstenRod,
-    MagicFlower,
-    CharonsAshes,
-    ChampionBelt,
-    FusionHammer,
-    VelvetChoker,
-    RunicDome,
-    SlaversCollar,
-    SneckoEye,
-    PandorasBox,
-    CursedKey,
-    BustedCrown,
-    Ectoplasm,
-    TinyHouse,
-    Sozu,
-    PhilosophersStone,
-    Astrolabe,
-    BlackStar,
-    SacredBark,
-    EmptyCage,
-    RunicPyramid,
-    CallingBell,
-    CoffeeDripper,
-    BlackBlood,
-    FrozenCore,
-    RingOfTheSerpent,
-    HolyWater,
-    MarkOfPain,
-    RunicCube,
-    SlingOfCourage,
-    HandDrill,
-    Toolbox,
-    ChemicalX,
-    LeesWaffle,
-    Orrery,
-    DollysMirror,
-    OrangePellets,
-    PrismaticShard,
-    ClockworkSouvenir,
-    FrozenEye,
-    TheAbacus,
-    MedicalKit,
-    Cauldron,
-    StrangeSpoon,
-    MembershipCard,
-    Brimstone,
-    Necronomicon,
-    Enchiridion,
-    NilrysCodex,
-    MutagenicStrength,
-    WarpedTongs,
-    GoldenIdol,
-    BloodyIdol,
-    /// The Mind Bloom reward; represented symbolically because no relic content
-    /// definition is needed, while its no-healing passive is modeled by run/combat state.
-    MarkOfBloom,
-    /// The no-effect relic awarded by Bonfire Elementals for offering a curse.
-    SpiritPoop,
-    /// The event reward from Hypnotizing Colored Mushrooms; its combat effect is not modeled yet.
-    OddMushroom,
-    /// The relic awarded by N'loth; its passive effect is not modeled yet.
-    NlothsGift,
-    RedMask,
-    Circlet,
-    RedCirclet,
-    CultistMask,
-    FaceOfCleric,
-    GremlinMask,
-    NlothsMask,
-    SsserpentHead,
-}
+/// Source-compatible name for the former duplicate relic identity enum.
+pub use Relic as RelicKey;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelicPoolState {
@@ -1083,7 +929,7 @@ fn remove_relic_from_pool(pool: &mut Vec<RelicKey>, key: RelicKey) {
 
 #[must_use]
 pub fn relic_can_spawn(relic: RelicKey, context: &RelicSpawnContext) -> bool {
-    use RelicKey::{
+    use Relic::{
         AncientTeaSet, BlackBlood, BottledFlame, BottledLightning, BottledTornado, BurningBlood,
         CeramicFish, CrackedCore, DarkstonePeriapt, DreamCatcher, Ectoplasm, FrozenCore, FrozenEgg,
         Girya, HolyWater, JuzuBracelet, MawBank, MealTicket, MeatOnTheBone, MoltenEgg, OldCoin,
@@ -1284,6 +1130,10 @@ pub enum Relic {
     Necronomicon,
     Enchiridion,
     NilrysCodex,
+    MarkOfBloom,
+    SpiritPoop,
+    OddMushroom,
+    NlothsGift,
 }
 
 impl Relic {
@@ -1442,6 +1292,10 @@ impl Relic {
             Relic::Necronomicon => NECRONOMICON_ID,
             Relic::Enchiridion => ENCHIRIDION_ID,
             Relic::NilrysCodex => NILRYS_CODEX_ID,
+            Relic::MarkOfBloom => MARK_OF_BLOOM_ID,
+            Relic::SpiritPoop => SPIRIT_POOP_ID,
+            Relic::OddMushroom => ODD_MUSHROOM_ID,
+            Relic::NlothsGift => NLOTHS_GIFT_ID,
         }
     }
 
@@ -1600,6 +1454,10 @@ impl Relic {
             id if id == NECRONOMICON_ID => Some(Relic::Necronomicon),
             id if id == ENCHIRIDION_ID => Some(Relic::Enchiridion),
             id if id == NILRYS_CODEX_ID => Some(Relic::NilrysCodex),
+            id if id == MARK_OF_BLOOM_ID => Some(Relic::MarkOfBloom),
+            id if id == SPIRIT_POOP_ID => Some(Relic::SpiritPoop),
+            id if id == ODD_MUSHROOM_ID => Some(Relic::OddMushroom),
+            id if id == NLOTHS_GIFT_ID => Some(Relic::NlothsGift),
             _ => None,
         }
     }
@@ -1796,6 +1654,10 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::GremlinMask => {}
             Relic::NlothsMask => {}
             Relic::SsserpentHead => {}
+            Relic::MarkOfBloom => {}
+            Relic::SpiritPoop => {}
+            Relic::OddMushroom => {}
+            Relic::NlothsGift => {}
         }
     }
 
@@ -2339,5 +2201,36 @@ mod tests {
 
         assert_eq!(powers.vulnerable, 2);
         assert_eq!(powers.weak, CHAMPION_BELT_WEAK);
+    }
+
+    #[test]
+    fn former_key_only_relics_have_canonical_identity_and_content() {
+        for relic in [
+            Relic::MarkOfBloom,
+            Relic::SpiritPoop,
+            Relic::OddMushroom,
+            Relic::NlothsGift,
+        ] {
+            assert_eq!(relic.key(), relic);
+            assert_eq!(Relic::from_key(relic), Some(relic));
+            assert_eq!(Relic::from_content_id(relic.content_id()), Some(relic));
+        }
+    }
+
+    #[test]
+    fn relic_key_alias_preserves_wire_names() {
+        use RelicKey::MarkOfBloom;
+
+        let key: RelicKey = MarkOfBloom;
+
+        assert_eq!(
+            serde_json::to_string(&key).expect("relic identity serializes"),
+            r#""MarkOfBloom""#
+        );
+        assert_eq!(
+            serde_json::from_str::<RelicKey>(r#""NlothsGift""#)
+                .expect("legacy key name deserializes"),
+            Relic::NlothsGift
+        );
     }
 }
