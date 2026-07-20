@@ -496,6 +496,7 @@ fn validate_visible_screen_schema(
     let required_collection = match screen_type {
         "CARD_REWARD" => Some("cards"),
         "COMBAT_REWARD" => Some("rewards"),
+        "EVENT" => return validate_event_screen_schema(step, game),
         "MAP" => Some("next_nodes"),
         "GRID" => None,
         _ => return validate_optional_screen_state(step, game),
@@ -514,6 +515,53 @@ fn validate_visible_screen_schema(
                 "trace state at step {step} {screen_type} screen requires an array game_state.screen_state.{field}"
             )));
         }
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_event_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = game
+        .get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} EVENT screen requires an object game_state.screen_state"
+            ))
+        })?;
+    if screen
+        .get("event_id")
+        .and_then(Value::as_str)
+        .or_else(|| screen.get("event_name").and_then(Value::as_str))
+        .is_none_or(|identity| identity.trim().is_empty())
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} EVENT screen requires an event_id or event_name"
+        )));
+    }
+    let choices = game
+        .get("choice_list")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} EVENT screen requires an array game_state.choice_list"
+            ))
+        })?;
+    if choices.iter().any(|choice| {
+        choice
+            .as_str()
+            .is_none_or(|choice| choice.trim().is_empty())
+    }) {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} EVENT game_state.choice_list entries must be nonblank strings"
+        )));
+    }
+    if screen.get("options").and_then(Value::as_array).is_none() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} EVENT screen requires an array game_state.screen_state.options"
+        )));
     }
     validate_screen_state_collections(step, screen)
 }
@@ -841,6 +889,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_trace_rejects_event_without_identity() {
+        let content = r#"{"type":"state","step":15,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":2,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["Leave"],"screen_state":{"options":[{"text":"Leave"}]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing event identity is invalid");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 15 EVENT screen requires an event_id or event_name"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_event_without_choice_authority() {
+        let content = r#"{"type":"state","step":16,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":2,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"event_id":"Golden Shrine","options":[]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing event choices are invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 16 EVENT screen requires an array game_state.choice_list"
+        ));
+    }
+
+    #[test]
     fn parse_trace_allows_partial_menu_game_state() {
         let lines = parse_trace_jsonl(
             r#"{"type":"state","step":0,"message":{"game_state":{"screen_type":"MENU"}}}"#,
@@ -862,7 +930,7 @@ mod tests {
 
     #[test]
     fn parse_trace_accepts_live_trace_session_records() {
-        let content = r#"{"type":"state","sequence":7,"state":{"raw":{"current_state":{"step":6,"received_at":"now","message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[]}}}}}}
+        let content = r#"{"type":"state","sequence":7,"state":{"raw":{"current_state":{"step":6,"received_at":"now","message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["Leave"],"screen_state":{"event_id":"Golden Shrine","options":[{"text":"Leave"}]}}}}}}}
 {"type":"action","sequence":7,"action":{"command":{"command":"CHOOSE 0","source_state_seq":6},"playtime_seconds":812}}"#;
 
         let lines = parse_trace_jsonl(content).expect("parses");

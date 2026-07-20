@@ -12089,9 +12089,20 @@ mod tests {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
+            let event_options = game
+                .get("choice_list")
+                .and_then(Value::as_array)
+                .map(|choices| {
+                    choices
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(|text| json!({ "text": text }))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
             if matches!(
                 screen_type.as_str(),
-                "CARD_REWARD" | "COMBAT_REWARD" | "GRID" | "MAP"
+                "CARD_REWARD" | "COMBAT_REWARD" | "EVENT" | "GRID" | "MAP"
             ) {
                 let screen = game
                     .entry("screen_state")
@@ -12104,6 +12115,14 @@ mod tests {
                     }
                     "COMBAT_REWARD" => {
                         screen.entry("rewards").or_insert_with(|| json!([]));
+                    }
+                    "EVENT" => {
+                        screen
+                            .entry("event_id")
+                            .or_insert_with(|| json!("Neow Event"));
+                        screen
+                            .entry("options")
+                            .or_insert_with(|| json!(event_options));
                     }
                     "MAP" => {
                         screen.entry("next_nodes").or_insert_with(|| json!([]));
@@ -13344,9 +13363,9 @@ mod tests {
         let content = r#"{"type":"metadata","schema":1,"source":"communication_mod"}
 {"type":"state","step":0,"message":{}}
 {"type":"action","step":1,"command":"START IRONCLAD 0 VERIFY01"}
-{"type":"state","step":1,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"potions":[],"choice_list":["talk"]}}}
+{"type":"state","step":1,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"potions":[],"choice_list":["talk"],"screen_state":{"event_id":"Neow Event","options":[{"text":"talk"}]}}}}
 {"type":"action","step":2,"command":"CHOOSE nope"}
-{"type":"state","step":2,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"potions":[],"choice_list":["talk"]}}}"#;
+{"type":"state","step":2,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"potions":[],"choice_list":["talk"],"screen_state":{"event_id":"Neow Event","options":[{"text":"talk"}]}}}}"#;
 
         let error = verify_communication_mod_trace(content).expect_err("malformed trace rejected");
         assert!(matches!(
@@ -13712,6 +13731,13 @@ mod tests {
             .message
             .pointer_mut("/game_state/screen_type")
             .expect("shop screen type") = json!("EVENT");
+        let event_screen = mutated_state
+            .message
+            .pointer_mut("/game_state/screen_state")
+            .and_then(Value::as_object_mut)
+            .expect("shop screen state");
+        event_screen.insert("event_id".to_owned(), json!("Golden Shrine"));
+        event_screen.insert("options".to_owned(), json!([]));
 
         let metadata = imported.metadata.expect("trace metadata");
         let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);

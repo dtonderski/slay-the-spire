@@ -255,7 +255,11 @@ mod tests {
                         "deck": deck,
                         "relics": [{ "name": "Burning Blood" }],
                         "potions": [],
-                        "choice_list": ["talk"]
+                        "choice_list": ["talk"],
+                        "screen_state": {
+                            "event_id": "Neow Event",
+                            "options": [{ "text": "talk" }]
+                        }
                     }
                 }
             }),
