@@ -13,8 +13,9 @@ use std::{
     time::Duration,
 };
 use sts_core::{
-    apply_map_action_on_run, content::cards::get_card_definition, legal_map_actions_on_run,
-    match_and_keep_label_index_for_group, ContentId, MapAction, RoomKind, RunPhase, RunState,
+    apply_run_decision_action, content::cards::get_card_definition, legal_run_decision_actions,
+    match_and_keep_label_index_for_group, ContentId, MapAction, RoomKind, RunDecisionAction,
+    RunPhase, RunState, SimError, SimResult,
 };
 use sts_verify::{
     import_slaythedata_run_json, slaythedata_replay_plan, slaythedata_replay_preflight,
@@ -3030,7 +3031,9 @@ fn bind_map_step_to_live_action_with_route_suffix<'a>(
         )
     })?;
     let idle = run_completed_for_route_lookahead(run);
-    let legal_map_actions = legal_map_actions_on_run(&idle);
+    let legal_map_actions = core_map_actions(&idle).map_err(|error| {
+        format!("simulator rejected route lookahead state before map choice: {error}")
+    })?;
     let mut route_matches = Vec::new();
     for action in symbol_matches {
         let Some(slot) = live_map_action_slot(action) else {
@@ -3042,10 +3045,11 @@ fn bind_map_step_to_live_action_with_route_suffix<'a>(
         if !core_map_action_matches_symbol(&idle, map_action, symbol) {
             continue;
         }
-        let Ok(next) = apply_map_action_on_run(&idle, map_action) else {
-            continue;
-        };
-        if run_state_can_match_route_suffix(next, &future_route) {
+        let next = apply_run_decision_action(&idle, RunDecisionAction::Map(map_action))
+            .map_err(|error| format!("simulator rejected route lookahead map choice: {error}"))?;
+        if run_state_can_match_route_suffix(next, &future_route).map_err(|error| {
+            format!("simulator rejected remaining route lookahead state: {error}")
+        })? {
             route_matches.push(action);
         }
     }
@@ -3293,24 +3297,37 @@ fn command_slot(command: &str) -> Option<usize> {
         .and_then(|slot| slot.parse().ok())
 }
 
-fn run_state_can_match_route_suffix(run: RunState, route: &[String]) -> bool {
+fn run_state_can_match_route_suffix(run: RunState, route: &[String]) -> SimResult<bool> {
     let Some((symbol, rest)) = route.split_first() else {
-        return true;
+        return Ok(true);
     };
     let idle = run_completed_for_route_lookahead(run);
-    let actions = legal_map_actions_on_run(&idle);
+    let actions = core_map_actions(&idle)?;
     if actions.is_empty() {
-        return current_run_room_kind(&idle) == Some(RoomKind::Boss);
+        return Ok(current_run_room_kind(&idle) == Some(RoomKind::Boss));
     }
-    actions.into_iter().any(|action| {
+    for action in actions {
         if !core_map_action_matches_symbol(&idle, action, symbol) {
-            return false;
+            continue;
         }
-        let Ok(next) = apply_map_action_on_run(&idle, action) else {
-            return false;
-        };
-        run_state_can_match_route_suffix(next, rest)
-    })
+        let next = apply_run_decision_action(&idle, RunDecisionAction::Map(action))?;
+        if run_state_can_match_route_suffix(next, rest)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn core_map_actions(run: &RunState) -> SimResult<Vec<MapAction>> {
+    legal_run_decision_actions(run)?
+        .into_iter()
+        .map(|action| match action {
+            RunDecisionAction::Map(action) => Ok(action),
+            _ => Err(SimError::InvalidState(
+                "idle route lookahead exposed a non-map decision",
+            )),
+        })
+        .collect()
 }
 
 fn current_run_room_kind(run: &RunState) -> Option<RoomKind> {
@@ -4383,6 +4400,16 @@ mod tests {
         time::SystemTime,
     };
     use sts_core::{FixedMap, MapNode, MapNodeId, MapRunState};
+
+    #[test]
+    fn route_lookahead_propagates_invalid_core_state() {
+        let mut run = RunState::map_fixture();
+        run.deck.push(run.deck[0]);
+
+        let result = run_state_can_match_route_suffix(run, &["M".to_owned()]);
+
+        assert!(matches!(result, Err(SimError::InvalidState(_))));
+    }
 
     #[test]
     fn event_choice_mapping_covers_source_metric_labels() {
