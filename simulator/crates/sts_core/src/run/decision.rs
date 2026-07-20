@@ -331,7 +331,11 @@ fn potion_use_candidates(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{legal_map_actions_on_run, CardGridScreen, GridPurpose};
+    use crate::{
+        combat::{DrawSelectPurpose, DrawSelectState, HandSelectPurpose, HandSelectState},
+        content::cards::DEFEND_R_ID,
+        legal_map_actions_on_run, CardGridScreen, CardId, CardInstance, GridPurpose,
+    };
 
     #[test]
     fn top_level_map_step_matches_the_specialized_transition() {
@@ -420,5 +424,59 @@ mod tests {
                 "card grid selection indices contain duplicates"
             ))
         );
+    }
+
+    #[test]
+    fn top_level_legal_actions_omit_single_select_noops() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let source_card_id = combat.piles.hand[0].id;
+        combat.hand_select = Some(HandSelectState {
+            purpose: HandSelectPurpose::WarcryPutOnDraw,
+            source_card_id,
+            selected_hand_index: None,
+            selected_hand_indices: Vec::new(),
+        });
+
+        let selected = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { index: 0 }),
+        )
+        .expect("valid hand selection");
+        let actions = legal_run_decision_actions(&selected).expect("valid selected state");
+
+        assert!(
+            !actions.contains(&RunDecisionAction::Run(RunAction::ChooseHandSelect {
+                index: 0,
+            }))
+        );
+        assert!(actions.contains(&RunDecisionAction::Run(RunAction::ConfirmHandSelect)));
+    }
+
+    #[test]
+    fn top_level_legal_actions_omit_selected_draw_choice() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let source_card_id = combat.piles.hand[0].id;
+        combat.piles.draw_pile = vec![CardInstance::new(CardId::new(900), DEFEND_R_ID)];
+        combat.draw_select = Some(DrawSelectState {
+            purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
+            source_card_id,
+            selected_draw_index: None,
+        });
+
+        let selected = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::ChooseDrawSelect { index: 0 }),
+        )
+        .expect("valid draw selection");
+        let actions = legal_run_decision_actions(&selected).expect("valid selected state");
+
+        assert!(
+            !actions.contains(&RunDecisionAction::Run(RunAction::ChooseDrawSelect {
+                index: 0,
+            }))
+        );
+        assert!(actions.contains(&RunDecisionAction::Run(RunAction::ConfirmDrawSelect)));
     }
 }

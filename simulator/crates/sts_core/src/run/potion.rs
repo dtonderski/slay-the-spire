@@ -166,7 +166,18 @@ pub fn validate_hand_select_choice(run: &RunState, index: usize) -> SimResult<()
         .combat
         .as_ref()
         .ok_or(SimError::IllegalAction("hand select requires combat"))?;
-    hand_select_ui_to_hand_index(combat, index)?;
+    let hand_index = hand_select_ui_to_hand_index(combat, index)?;
+    let hand_select = combat
+        .hand_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    if hand_select.purpose != HandSelectPurpose::ForethoughtPutAnyOnDraw
+        && hand_select.selected_hand_index == Some(hand_index)
+    {
+        return Err(SimError::IllegalAction(
+            "hand select choice is already selected",
+        ));
+    }
     Ok(())
 }
 
@@ -192,7 +203,16 @@ pub fn validate_draw_select_choice(run: &RunState, index: usize) -> SimResult<()
         .combat
         .as_ref()
         .ok_or(SimError::IllegalAction("draw select requires combat"))?;
-    draw_select_ui_to_draw_index(combat, index)?;
+    let draw_index = draw_select_ui_to_draw_index(combat, index)?;
+    let draw_select = combat
+        .draw_select
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no draw select is open"))?;
+    if draw_select.selected_draw_index == Some(draw_index) {
+        return Err(SimError::IllegalAction(
+            "draw select choice is already selected",
+        ));
+    }
     Ok(())
 }
 

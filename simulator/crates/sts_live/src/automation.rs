@@ -10,17 +10,16 @@ use std::{
     time::{Duration, Instant},
 };
 use sts_core::{
-    apply_combat_action_on_run, apply_run_action,
+    apply_run_decision_action,
     card::CardType,
-    combat::ExhaustSelectPurpose,
     content::{
         cards::{get_card_definition, HAVOC_ID, HAVOC_PLUS_ID},
         monsters::get_monster_definition,
     },
-    legal_combat_actions,
+    legal_combat_actions, legal_run_decision_actions,
     potion::PotionRarity,
-    validate_potion_action, CardId, CombatAction, CombatPhase, CombatState, ContentId, MonsterId,
-    MonsterIntent, Potion, RunAction, RunPhase, RunState,
+    CardId, CombatAction, CombatPhase, CombatState, ContentId, MonsterId, MonsterIntent, Potion,
+    RunAction, RunDecisionAction, RunPhase, RunState, SimError, SimResult,
 };
 
 #[derive(Clone)]
@@ -229,7 +228,8 @@ fn plan_search_action(
         AutomationPolicy::GreedySearch => greedy_search(&run, config),
         AutomationPolicy::BeamSearch => beam_search_with_warm_start(&run, config, warm_steps),
         AutomationPolicy::FakePlayFirstCard => unreachable!("handled by caller"),
-    };
+    }
+    .map_err(planner_simulator_blocked)?;
     if recommendation.principal_variation.is_empty() {
         return Err(blocked(
             "automation_no_plan",
@@ -253,18 +253,11 @@ fn plan_search_action(
     );
 
     let mut planned_actions = vec![planned.clone()];
-    let mut future_run = apply_planner_action(&run, first).ok();
+    let mut future_run = apply_planner_action(&run, first).map_err(planner_simulator_blocked)?;
     for action in recommendation.principal_variation.iter().skip(1) {
-        let Some(run_before_action) = future_run.as_ref() else {
-            planned_actions.push(planned_future_action(state.sequence, &run, action));
-            continue;
-        };
-        planned_actions.push(planned_future_action(
-            state.sequence,
-            run_before_action,
-            action,
-        ));
-        future_run = apply_planner_action(run_before_action, action).ok();
+        planned_actions.push(planned_future_action(state.sequence, &future_run, action));
+        future_run =
+            apply_planner_action(&future_run, action).map_err(planner_simulator_blocked)?;
     }
 
     let snapshot = AutomationPlanSnapshot {
@@ -329,23 +322,21 @@ fn observed_run_state(state: &LiveState) -> Result<RunState, BlockedState> {
     ))
 }
 
-fn greedy_search(state: &RunState, config: &AutomationConfig) -> SearchRecommendation {
+fn greedy_search(state: &RunState, config: &AutomationConfig) -> SimResult<SearchRecommendation> {
     let mut current = state.clone();
     let mut principal_variation = Vec::new();
     let mut nodes = 1usize;
     let mut terminal = terminal_reason(&current);
 
     while terminal.is_none() && principal_variation.len() < config.depth {
-        let actions = planner_actions(&current, config);
+        let actions = planner_actions(&current, config)?;
         if actions.is_empty() {
             break;
         }
         let mut best_action = None;
         let mut best_score = f64::NEG_INFINITY;
         for action in actions {
-            let Ok(next) = apply_planner_action(&current, &action) else {
-                continue;
-            };
+            let next = apply_planner_action(&current, &action)?;
             nodes += 1;
             let next_terminal_reason = terminal_reason(&next);
             let score = child_score(
@@ -363,9 +354,7 @@ fn greedy_search(state: &RunState, config: &AutomationConfig) -> SearchRecommend
         let Some(action) = best_action else {
             break;
         };
-        let Ok(next) = apply_planner_action(&current, &action) else {
-            break;
-        };
+        let next = apply_planner_action(&current, &action)?;
         principal_variation.push(action);
         current = next;
         terminal = terminal_reason(&current);
@@ -374,7 +363,7 @@ fn greedy_search(state: &RunState, config: &AutomationConfig) -> SearchRecommend
     let value = search_score(&current, terminal.as_deref());
     let (final_hp, monster_hp) = combat_hp(&current);
     let terminal_nodes = usize::from(terminal.is_some());
-    SearchRecommendation {
+    Ok(SearchRecommendation {
         principal_variation,
         value,
         nodes,
@@ -391,11 +380,11 @@ fn greedy_search(state: &RunState, config: &AutomationConfig) -> SearchRecommend
         duplicate_checks: 0,
         duplicates: 0,
         cache_hits: 0,
-    }
+    })
 }
 
 #[cfg(test)]
-fn beam_search(state: &RunState, config: &AutomationConfig) -> SearchRecommendation {
+fn beam_search(state: &RunState, config: &AutomationConfig) -> SimResult<SearchRecommendation> {
     beam_search_with_node_limit(state, config, usize::MAX, &[], None)
 }
 
@@ -403,7 +392,7 @@ fn beam_search_with_warm_start(
     state: &RunState,
     config: &AutomationConfig,
     warm_steps: &[AutomationPlannedAction],
-) -> SearchRecommendation {
+) -> SimResult<SearchRecommendation> {
     let warm_actions = warm_steps
         .iter()
         .map(|step| planner_action_from_label(&step.planner_action))
@@ -425,8 +414,8 @@ fn beam_search_with_node_limit(
     node_limit: usize,
     warm_actions: &[PlannerAction],
     deadline: Option<Instant>,
-) -> SearchRecommendation {
-    let (warm_node, cache_hits) = validated_warm_start(state, warm_actions);
+) -> SimResult<SearchRecommendation> {
+    let (warm_node, cache_hits) = validated_warm_start(state, warm_actions)?;
     let primary = action_depth_beam_search_with_node_limit(
         state,
         config,
@@ -434,9 +423,9 @@ fn beam_search_with_node_limit(
         warm_node.as_ref(),
         cache_hits,
         deadline,
-    );
+    )?;
     if primary.terminal_reason.is_some() || primary.nodes >= node_limit || primary.timed_out {
-        return primary;
+        return Ok(primary);
     }
 
     let remaining_node_limit = node_limit.saturating_sub(primary.nodes).saturating_add(1);
@@ -447,8 +436,8 @@ fn beam_search_with_node_limit(
         warm_node.as_ref(),
         0,
         deadline,
-    );
-    combine_fallback_effort(primary, fallback)
+    )?;
+    Ok(combine_fallback_effort(primary, fallback))
 }
 
 fn combine_fallback_effort(
@@ -482,7 +471,7 @@ fn action_depth_beam_search_with_node_limit(
     warm_node: Option<&SearchNode>,
     cache_hits: usize,
     deadline: Option<Instant>,
-) -> SearchRecommendation {
+) -> SimResult<SearchRecommendation> {
     let initial_terminal_reason = terminal_reason(state);
     let mut best = SearchNode {
         state: state.clone(),
@@ -520,7 +509,7 @@ fn action_depth_beam_search_with_node_limit(
                 continue;
             }
             expanded += 1;
-            let actions = planner_actions(&node.state, config);
+            let actions = planner_actions(&node.state, config)?;
             if actions.is_empty() {
                 if node_better(&node, &best) {
                     best = node.clone();
@@ -536,9 +525,7 @@ fn action_depth_beam_search_with_node_limit(
                     timed_out = nodes < node_limit;
                     break 'depth;
                 }
-                let Ok(next_state) = apply_planner_action(&node.state, &action) else {
-                    continue;
-                };
+                let next_state = apply_planner_action(&node.state, &action)?;
                 nodes += 1;
                 generated += 1;
                 let child_terminal_reason = terminal_reason(&next_state);
@@ -592,7 +579,7 @@ fn action_depth_beam_search_with_node_limit(
     }
 
     let (final_hp, monster_hp) = combat_hp(&best.state);
-    SearchRecommendation {
+    Ok(SearchRecommendation {
         principal_variation: best.principal_variation,
         value: best.score,
         nodes,
@@ -609,7 +596,7 @@ fn action_depth_beam_search_with_node_limit(
         duplicate_checks,
         duplicates,
         cache_hits,
-    }
+    })
 }
 
 fn complete_turn_beam_search_with_node_limit(
@@ -619,7 +606,7 @@ fn complete_turn_beam_search_with_node_limit(
     warm_node: Option<&SearchNode>,
     cache_hits: usize,
     deadline: Option<Instant>,
-) -> SearchRecommendation {
+) -> SimResult<SearchRecommendation> {
     let initial_terminal_reason = terminal_reason(state);
     let mut best = SearchNode {
         state: state.clone(),
@@ -665,7 +652,7 @@ fn complete_turn_beam_search_with_node_limit(
             &mut duplicates,
             deadline,
             &mut best,
-        );
+        )?;
         if frontier.is_empty() || budget_exhausted {
             break;
         }
@@ -681,7 +668,7 @@ fn complete_turn_beam_search_with_node_limit(
     }
 
     let (final_hp, monster_hp) = combat_hp(&best.state);
-    SearchRecommendation {
+    Ok(SearchRecommendation {
         principal_variation: best.principal_variation,
         value: best.score,
         nodes,
@@ -698,7 +685,7 @@ fn complete_turn_beam_search_with_node_limit(
         duplicate_checks,
         duplicates,
         cache_hits,
-    }
+    })
 }
 
 const MAX_ACTIONS_PER_TURN: usize = 24;
@@ -721,7 +708,7 @@ fn expand_complete_turns(
     duplicates: &mut usize,
     deadline: Option<Instant>,
     best: &mut SearchNode,
-) -> Vec<SearchNode> {
+) -> SimResult<Vec<SearchNode>> {
     let mut active = turn_roots;
     let mut completed = Vec::new();
 
@@ -736,7 +723,7 @@ fn expand_complete_turns(
                 continue;
             }
             *expanded += 1;
-            let actions = planner_actions(&node.state, config);
+            let actions = planner_actions(&node.state, config)?;
             if actions.is_empty() {
                 if node_better(&node, best) {
                     *best = node.clone();
@@ -752,9 +739,7 @@ fn expand_complete_turns(
                     *timed_out = *nodes < node_limit;
                     break;
                 }
-                let Ok(next_state) = apply_planner_action(&node.state, &action) else {
-                    continue;
-                };
+                let next_state = apply_planner_action(&node.state, &action)?;
                 *nodes += 1;
                 *generated += 1;
                 let child_terminal_reason = terminal_reason(&next_state);
@@ -822,7 +807,7 @@ fn expand_complete_turns(
         *duplicates += removed;
     }
     *max_frontier = (*max_frontier).max(completed.len());
-    completed
+    Ok(completed)
 }
 
 fn deduplicate_search_nodes(nodes: Vec<SearchNode>) -> (Vec<SearchNode>, usize, usize) {
@@ -848,7 +833,7 @@ fn deduplicate_search_nodes(nodes: Vec<SearchNode>) -> (Vec<SearchNode>, usize, 
 fn validated_warm_start(
     state: &RunState,
     actions: &[PlannerAction],
-) -> (Option<SearchNode>, usize) {
+) -> SimResult<(Option<SearchNode>, usize)> {
     let mut current = state.clone();
     let mut principal_variation = Vec::new();
     let mut score = search_score(&current, terminal_reason(&current).as_deref());
@@ -859,8 +844,10 @@ fn validated_warm_start(
             break;
         }
         let parent = current.clone();
-        let Ok(next) = apply_planner_action(&parent, action) else {
-            break;
+        let next = match apply_planner_action(&parent, action) {
+            Ok(next) => next,
+            Err(SimError::IllegalAction(_)) => break,
+            Err(error) => return Err(error),
         };
         terminal = terminal_reason(&next);
         score = child_score(
@@ -876,9 +863,9 @@ fn validated_warm_start(
 
     let cache_hits = principal_variation.len();
     if principal_variation.is_empty() {
-        return (None, 0);
+        return Ok((None, 0));
     }
-    (
+    Ok((
         Some(SearchNode {
             state: current,
             first_action: principal_variation.first().cloned(),
@@ -888,7 +875,7 @@ fn validated_warm_start(
             terminal_reason: terminal,
         }),
         cache_hits,
-    )
+    ))
 }
 
 pub(crate) fn benchmark_beam_search(
@@ -905,6 +892,42 @@ pub(crate) fn benchmark_beam_search(
         None,
     );
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let recommendation = match recommendation {
+        Ok(recommendation) => recommendation,
+        Err(error) => {
+            let (final_hp, final_max_hp) = state
+                .combat
+                .as_ref()
+                .map(|combat| (combat.player.hp, combat.player.max_hp))
+                .unwrap_or((state.player_hp, state.player_max_hp));
+            let (_, remaining_monster_hp) = combat_hp(state);
+            return BenchmarkSearchResult {
+                outcome: "illegal".to_owned(),
+                terminal_reason: terminal_reason(state),
+                final_hp,
+                final_max_hp,
+                final_gold: state.gold,
+                remaining_potions: state.potions.len(),
+                remaining_potion_value: potion_inventory_value(state),
+                remaining_monster_hp,
+                transitions: 0,
+                budget_exhausted: false,
+                timed_out: false,
+                elapsed_ms,
+                expanded: 0,
+                generated: 0,
+                terminal_nodes: 0,
+                pruned: 0,
+                max_frontier: 0,
+                duplicate_checks: 0,
+                duplicates: 0,
+                cache_hits: 0,
+                actions: 0,
+                action_labels: Vec::new(),
+                replay_error: Some(error.to_string()),
+            };
+        }
+    };
     let mut replay = state.clone();
     let mut replay_error = None;
     let mut action_labels = Vec::new();
@@ -961,154 +984,66 @@ pub(crate) fn benchmark_beam_search(
     }
 }
 
-fn planner_actions(state: &RunState, config: &AutomationConfig) -> Vec<PlannerAction> {
-    let Some(combat) = state.combat.as_ref() else {
-        return Vec::new();
-    };
-    let mut actions = Vec::new();
-    if state.phase == RunPhase::Combat {
-        let card_reward = combat
-            .potion_card_reward
-            .as_ref()
-            .or(combat.toolbox_card_reward.as_ref())
-            .or(combat.discovery_card_reward.as_ref());
-        if let Some(choices) = card_reward {
-            actions.extend(
-                (0..choices.len())
-                    .map(|index| RunAction::ChooseCombatCardReward { index })
-                    .filter(|action| apply_run_action(state, *action).is_ok())
-                    .map(PlannerAction::Run),
-            );
-            return actions;
-        }
+fn planner_actions(state: &RunState, config: &AutomationConfig) -> SimResult<Vec<PlannerAction>> {
+    if state.phase != RunPhase::Combat {
+        return Ok(Vec::new());
     }
-    if state.phase == RunPhase::Combat && combat.hand_select.is_some() {
-        actions.extend(
-            (0..combat.piles.hand.len())
-                .map(|index| RunAction::ChooseHandSelect { index })
-                .filter(|action| run_action_changes_state(state, *action))
-                .map(PlannerAction::Run),
-        );
-        if apply_run_action(state, RunAction::ConfirmHandSelect).is_ok() {
-            actions.push(PlannerAction::Run(RunAction::ConfirmHandSelect));
-        }
-        return actions;
-    }
-    if state.phase == RunPhase::Combat && combat.draw_select.is_some() {
-        actions.extend(
-            (0..combat.piles.draw_pile.len())
-                .map(|index| RunAction::ChooseDrawSelect { index })
-                .filter(|action| run_action_changes_state(state, *action))
-                .map(PlannerAction::Run),
-        );
-        if apply_run_action(state, RunAction::ConfirmDrawSelect).is_ok() {
-            actions.push(PlannerAction::Run(RunAction::ConfirmDrawSelect));
-        }
-        return actions;
-    }
-    if state.phase == RunPhase::Combat && combat.discard_select.is_some() {
-        actions.extend(
-            (0..combat.piles.discard_pile.len())
-                .map(|index| RunAction::ChooseDiscardSelect { index })
-                .filter(|action| apply_run_action(state, *action).is_ok())
-                .map(PlannerAction::Run),
-        );
-        if apply_run_action(state, RunAction::ConfirmDiscardSelect).is_ok() {
-            actions.push(PlannerAction::Run(RunAction::ConfirmDiscardSelect));
-        }
-        return actions;
-    }
-    if state.phase == RunPhase::Combat && combat.exhaust_select.is_some() {
-        actions.extend(
-            (0..combat.piles.hand.len().max(combat.piles.exhaust_pile.len()))
-                .map(|index| RunAction::ChooseExhaustSelect { index })
-                .filter(|action| apply_run_action(state, *action).is_ok())
-                .map(PlannerAction::Run),
-        );
-        if apply_run_action(state, RunAction::ConfirmExhaustSelect).is_ok() {
-            actions.push(PlannerAction::Run(RunAction::ConfirmExhaustSelect));
-        }
-        return actions;
-    }
-    if state.phase == RunPhase::Combat
-        && combat
-            .exhaust_select
-            .as_ref()
-            .is_some_and(|select| select.purpose == ExhaustSelectPurpose::GamblingChip)
-    {
-        actions.push(PlannerAction::Run(RunAction::ConfirmExhaustSelect));
-        return actions;
-    }
-    if state.phase == RunPhase::Combat && combat.phase == CombatPhase::WaitingForPlayer {
-        actions.extend(
-            legal_combat_actions(combat)
-                .into_iter()
-                .map(PlannerAction::Combat),
-        );
-    }
-    if !config.allowed_potion_slots.is_empty() {
-        actions.extend(
-            legal_potion_actions(state)
-                .into_iter()
-                .filter(|action| match action {
-                    RunAction::UsePotion { slot, .. } => config.allowed_potion_slots.contains(slot),
-                    _ => false,
-                })
-                .map(PlannerAction::Potion),
-        );
-    }
-    actions
-}
 
-fn run_action_changes_state(state: &RunState, action: RunAction) -> bool {
-    apply_run_action(state, action).is_ok_and(|next| next != *state)
-}
-
-fn legal_potion_actions(state: &RunState) -> Vec<RunAction> {
-    state
-        .occupied_potion_slots()
+    Ok(legal_run_decision_actions(state)?
         .into_iter()
-        // The combat agent's primary objective is to win the combat. Escaping
-        // skips rewards and breaks SlayTheData's post-combat guidance, so keep
-        // Smoke Bomb available for manual use but never offer it to search.
-        .filter(|(_, potion)| *potion != Potion::SmokeBomb)
-        // Attack/Skill/Power/Colorless potions use DiscoveryAction. Under
-        // SuperFastMode its hidden update count is frame-timing dependent, so
-        // using one can desynchronize cardRandomRng even when the visible
-        // choices match. Preserve them for manual use; autonomous search must
-        // keep future simulator fidelity deterministic.
-        .filter(|(_, potion)| {
-            !matches!(
-                potion,
-                Potion::Attack | Potion::Skill | Potion::Power | Potion::Colorless
-            )
-        })
-        .flat_map(|(slot, potion)| {
-            if potion.requires_target() {
-                return state
-                    .combat
-                    .as_ref()
-                    .into_iter()
-                    .flat_map(|combat| combat.monsters.iter())
-                    .filter(|monster| monster.alive)
-                    .map(move |monster| RunAction::UsePotion {
-                        slot,
-                        target: Some(monster.id),
-                    })
-                    .collect::<Vec<_>>();
+        .filter_map(|action| match action {
+            RunDecisionAction::Combat(action) => Some(PlannerAction::Combat(action)),
+            RunDecisionAction::Run(action @ RunAction::UsePotion { slot, .. })
+                if planner_allows_potion(state, config, slot) =>
+            {
+                Some(PlannerAction::Potion(action))
             }
-            vec![RunAction::UsePotion { slot, target: None }]
+            RunDecisionAction::Run(
+                action @ (RunAction::ChooseCombatCardReward { .. }
+                | RunAction::ChooseHandSelect { .. }
+                | RunAction::ConfirmHandSelect
+                | RunAction::ChooseDrawSelect { .. }
+                | RunAction::ConfirmDrawSelect
+                | RunAction::ChooseDiscardSelect { .. }
+                | RunAction::ConfirmDiscardSelect
+                | RunAction::ChooseExhaustSelect { .. }
+                | RunAction::ConfirmExhaustSelect),
+            ) => Some(PlannerAction::Run(action)),
+            _ => None,
         })
-        .filter(|action| validate_potion_action(state, *action).is_ok())
-        .collect()
+        .collect())
+}
+
+fn planner_allows_potion(state: &RunState, config: &AutomationConfig, slot: usize) -> bool {
+    if !config.allowed_potion_slots.contains(&slot) {
+        return false;
+    }
+    let Some(potion) = state.potion_at_slot(slot) else {
+        return false;
+    };
+
+    // Escaping skips rewards and breaks SlayTheData's post-combat guidance, so
+    // keep Smoke Bomb available for manual use but never offer it to search.
+    if potion == Potion::SmokeBomb {
+        return false;
+    }
+    // Discovery potion timing can desynchronize cardRandomRng in SuperFastMode.
+    // Keep these potions available for manual use until their hidden update
+    // contract is modeled deterministically.
+    !matches!(
+        potion,
+        Potion::Attack | Potion::Skill | Potion::Power | Potion::Colorless
+    )
 }
 
 fn apply_planner_action(state: &RunState, action: &PlannerAction) -> sts_core::SimResult<RunState> {
-    match action {
-        PlannerAction::Combat(action) => apply_combat_action_on_run(state, *action),
-        PlannerAction::Potion(action) => apply_run_action(state, *action),
-        PlannerAction::Run(action) => apply_run_action(state, *action),
-    }
+    let action = match action {
+        PlannerAction::Combat(action) => RunDecisionAction::Combat(*action),
+        PlannerAction::Potion(action) | PlannerAction::Run(action) => {
+            RunDecisionAction::Run(*action)
+        }
+    };
+    apply_run_decision_action(state, action)
 }
 
 fn terminal_reason(state: &RunState) -> Option<String> {
@@ -1770,6 +1705,13 @@ pub(super) fn blocked(reason_code: &str, message: &str) -> BlockedState {
     }
 }
 
+fn planner_simulator_blocked(error: SimError) -> BlockedState {
+    blocked(
+        "automation_simulator_error",
+        &format!("combat planner rejected simulator state: {error}"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1790,6 +1732,41 @@ mod tests {
         verify_seed_start_communication_mod_trace, TraceLine, TraceMetadata, TraceState,
     };
 
+    fn planner_run_actions(run: &RunState) -> Vec<RunAction> {
+        planner_actions(run, &AutomationConfig::default())
+            .expect("valid combat decisions")
+            .into_iter()
+            .filter_map(|action| match action {
+                PlannerAction::Potion(action) | PlannerAction::Run(action) => Some(action),
+                PlannerAction::Combat(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn invalid_simulator_state_blocks_search_instead_of_looking_actionless() {
+        let mut run = RunState::combat_fixture();
+        let duplicate = run.combat.as_ref().expect("combat").piles.hand[0];
+        run.combat
+            .as_mut()
+            .expect("combat")
+            .piles
+            .draw_pile
+            .push(duplicate);
+        let state = LiveState {
+            sequence: 1,
+            phase: LivePhase::Combat,
+            legal_actions: Vec::new(),
+            raw: json!({"sim_run_state": run}),
+        };
+
+        let error = plan_search_action(&AutomationConfig::default(), &state, &[])
+            .expect_err("invalid simulator state must block automation");
+
+        assert_eq!(error.reason_code, "automation_simulator_error");
+        assert!(error.message.contains("invalid state"));
+    }
+
     #[test]
     fn warm_suffix_seeds_but_does_not_replace_fresh_search() {
         let run = RunState::combat_fixture();
@@ -1805,7 +1782,8 @@ mod tests {
             100,
             &[PlannerAction::Combat(CombatAction::EndTurn)],
             None,
-        );
+        )
+        .expect("valid combat search");
 
         assert_eq!(result.cache_hits, 1);
         assert!(
@@ -1830,7 +1808,8 @@ mod tests {
             10_000,
             &[],
             Some(Instant::now() - Duration::from_millis(1)),
-        );
+        )
+        .expect("valid combat search");
 
         assert!(result.budget_exhausted);
         assert!(result.timed_out);
@@ -1912,7 +1891,7 @@ mod tests {
             .map(|monster| monster.id)
             .collect::<Vec<_>>();
 
-        let actions = legal_potion_actions(&run);
+        let actions = planner_run_actions(&run);
 
         assert_eq!(actions.len(), living_targets.len());
         for target in living_targets {
@@ -1950,7 +1929,8 @@ mod tests {
         };
         let run: RunState = serde_json::from_value(state.raw["sim_run_state"].clone()).unwrap();
 
-        let actions = planner_actions(&run, &AutomationConfig::default());
+        let actions =
+            planner_actions(&run, &AutomationConfig::default()).expect("valid combat decisions");
 
         assert_eq!(actions.len(), 3);
         assert!(matches!(
@@ -1979,12 +1959,12 @@ mod tests {
             .piles
             .discard_pile
             .push(recalled);
-        let run = apply_run_action(
+        let run = apply_run_decision_action(
             &run,
-            RunAction::UsePotion {
+            RunDecisionAction::Run(RunAction::UsePotion {
                 slot: 0,
                 target: None,
-            },
+            }),
         )
         .expect("Liquid Memories opens its discard selection");
         let state = LiveState {
@@ -2002,7 +1982,8 @@ mod tests {
         };
         let run: RunState = serde_json::from_value(state.raw["sim_run_state"].clone()).unwrap();
 
-        let actions = planner_actions(&run, &AutomationConfig::default());
+        let actions =
+            planner_actions(&run, &AutomationConfig::default()).expect("valid combat decisions");
 
         assert!(matches!(
             actions.as_slice(),
@@ -2044,7 +2025,8 @@ mod tests {
             raw: json!({"sim_run_state": run}),
         };
 
-        let actions = planner_actions(&run, &AutomationConfig::default());
+        let actions =
+            planner_actions(&run, &AutomationConfig::default()).expect("valid combat decisions");
         assert!(matches!(
             actions.as_slice(),
             [PlannerAction::Run(RunAction::ChooseHandSelect { index: 0 })]
@@ -2054,9 +2036,13 @@ mod tests {
             Some("CHOOSE 0".to_owned())
         );
 
-        let selected = apply_run_action(&run, RunAction::ChooseHandSelect { index: 0 })
-            .expect("Warcry choice applies");
-        let follow_up = planner_actions(&selected, &AutomationConfig::default());
+        let selected = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { index: 0 }),
+        )
+        .expect("Warcry choice applies");
+        let follow_up = planner_actions(&selected, &AutomationConfig::default())
+            .expect("valid follow-up decisions");
         assert!(matches!(
             follow_up.as_slice(),
             [PlannerAction::Run(RunAction::ConfirmHandSelect)]
@@ -2110,7 +2096,7 @@ mod tests {
         run.potions = vec![Potion::SmokeBomb, Potion::Energy];
         run.empty_potion_slots = vec![2];
 
-        let actions = legal_potion_actions(&run);
+        let actions = planner_run_actions(&run);
 
         assert!(!actions
             .iter()
@@ -2132,7 +2118,7 @@ mod tests {
             let mut run = RunState::combat_fixture();
             run.potions = vec![potion, Potion::Energy];
             run.empty_potion_slots = vec![2];
-            let actions = legal_potion_actions(&run);
+            let actions = planner_run_actions(&run);
             assert!(!actions
                 .iter()
                 .any(|action| matches!(action, RunAction::UsePotion { slot: 0, .. })));
@@ -2418,7 +2404,10 @@ mod tests {
                 continue;
             }
 
-            let recommendation = beam_search(&root, config);
+            let Ok(recommendation) = beam_search(&root, config) else {
+                skipped += 1;
+                continue;
+            };
             let Some(reason) = recommendation.terminal_reason.as_deref() else {
                 skipped += 1;
                 continue;
