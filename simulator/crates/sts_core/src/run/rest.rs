@@ -35,14 +35,14 @@ pub fn can_dig(run: &RunState) -> bool {
     run.relics.contains(&Relic::Shovel)
 }
 
-#[must_use]
-pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
+pub fn legal_rest_actions(run: &RunState) -> SimResult<Vec<RestAction>> {
+    run.validate()?;
     if run.phase != RunPhase::Rest {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     if run.rest_room_complete {
-        return vec![RestAction::Proceed];
+        return Ok(vec![RestAction::Proceed]);
     }
 
     let mut actions = Vec::new();
@@ -71,9 +71,9 @@ pub fn legal_rest_actions(run: &RunState) -> Vec<RestAction> {
         }
     }
     if actions.is_empty() {
-        vec![RestAction::Proceed]
+        Ok(vec![RestAction::Proceed])
     } else {
-        actions
+        Ok(actions)
     }
 }
 
@@ -83,20 +83,21 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
     if run.phase != RunPhase::Rest {
         return Err(SimError::IllegalAction("rest actions require rest phase"));
     }
+    let legal_actions = legal_rest_actions(run)?;
 
     match action {
-        RestAction::Proceed if legal_rest_actions(run).contains(&action) => Ok(()),
+        RestAction::Proceed if legal_actions.contains(&action) => Ok(()),
         RestAction::Proceed => Err(SimError::IllegalAction("rest room is not complete")),
         _ if run.rest_room_complete => Err(SimError::IllegalAction("rest room is complete")),
         RestAction::Heal if run.relics.contains(&Relic::CoffeeDripper) => {
             Err(SimError::IllegalAction("heal is not available"))
         }
-        RestAction::Heal if legal_rest_actions(run).contains(&action) => Ok(()),
+        RestAction::Heal if legal_actions.contains(&action) => Ok(()),
         RestAction::Heal => Err(SimError::IllegalAction("heal is not available")),
         RestAction::OpenSmith if !can_smith(run) => {
             Err(SimError::IllegalAction("smith is not available"))
         }
-        RestAction::OpenSmith if legal_rest_actions(run).contains(&action) => Ok(()),
+        RestAction::OpenSmith if legal_actions.contains(&action) => Ok(()),
         RestAction::OpenSmith => Err(SimError::IllegalAction("smith is not available")),
         RestAction::OpenRemove if !can_remove_at_rest(run) => {
             Err(SimError::IllegalAction("remove is not available"))

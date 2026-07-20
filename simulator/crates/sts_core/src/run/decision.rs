@@ -121,17 +121,17 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
                 .map(RunDecisionAction::Map),
         ),
         RunPhase::Rest => actions.extend(
-            legal_rest_actions(run)
+            legal_rest_actions(run)?
                 .into_iter()
                 .map(RunDecisionAction::Rest),
         ),
         RunPhase::Event => actions.extend(
-            legal_event_actions(run)
+            legal_event_actions(run)?
                 .into_iter()
                 .map(RunDecisionAction::Event),
         ),
         RunPhase::Shop => actions.extend(
-            legal_shop_actions(run)
+            legal_shop_actions(run)?
                 .into_iter()
                 .map(RunDecisionAction::Run),
         ),

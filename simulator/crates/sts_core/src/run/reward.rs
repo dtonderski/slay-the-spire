@@ -2371,7 +2371,9 @@ mod tests {
         assert_eq!(terminal_event.event, Event::SpireHeart);
         assert_eq!(terminal_event.stage, 4);
         assert!(terminal_event.choices.is_empty());
-        assert!(crate::legal_event_actions(&completed).is_empty());
+        assert!(crate::legal_event_actions(&completed)
+            .expect("valid completed event state")
+            .is_empty());
 
         let json = serde_json::to_string(&completed).expect("serialize completed run state");
         let restored: RunState = serde_json::from_str(&json).expect("restore completed run state");

@@ -549,14 +549,14 @@ pub fn shop_choice_labels(run: &RunState) -> Vec<String> {
         .collect()
 }
 
-#[must_use]
-pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
-    if run.phase != RunPhase::Shop || run.shop.is_none() {
-        return Vec::new();
+pub fn legal_shop_actions(run: &RunState) -> SimResult<Vec<RunAction>> {
+    run.validate()?;
+    if run.phase != RunPhase::Shop {
+        return Ok(Vec::new());
     }
 
     if run.card_grid.is_some() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     if !run.shop_merchant_open {
@@ -564,11 +564,11 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
         if run.shop.is_some() {
             actions.push(RunAction::Proceed);
         }
-        return actions;
+        return Ok(actions);
     }
 
     let Some(shop) = run.shop.as_ref() else {
-        return Vec::new();
+        return Err(SimError::InvalidState("shop screen is missing"));
     };
 
     let mut actions = Vec::new();
@@ -600,7 +600,7 @@ pub fn legal_shop_actions(run: &RunState) -> Vec<RunAction> {
     }
 
     actions.push(RunAction::LeaveShop);
-    actions
+    Ok(actions)
 }
 
 pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> {
@@ -814,13 +814,16 @@ mod tests {
     }
 
     #[test]
-    fn missing_shop_inventory_is_invalid_and_exposes_no_actions() {
+    fn missing_shop_inventory_is_invalid_for_legal_actions() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Shop;
         run.shop = None;
         run.shop_merchant_open = false;
 
-        assert!(legal_shop_actions(&run).is_empty());
+        assert_eq!(
+            legal_shop_actions(&run),
+            Err(SimError::InvalidState("shop phase has no shop screen"))
+        );
         assert_eq!(
             validate_shop_action(&run, RunAction::EnterShop),
             Err(SimError::InvalidState("shop phase has no shop screen"))
@@ -842,7 +845,7 @@ mod tests {
         assert!(!closed.shop_merchant_open);
         assert_eq!(closed.shop.as_ref(), Some(&inventory));
         assert_eq!(
-            legal_shop_actions(&closed),
+            legal_shop_actions(&closed).expect("valid closed merchant state"),
             vec![RunAction::EnterShop, RunAction::Proceed]
         );
 

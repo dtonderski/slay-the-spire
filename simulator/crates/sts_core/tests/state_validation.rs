@@ -5,9 +5,9 @@ use sts_core::{
     content::cards,
     content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
-    enter_reward_screen, legal_run_decision_actions, CardGridScreen, CardId, CombatAction,
-    CombatState, ContentId, GridPurpose, MapNodeId, MonsterId, MonsterIntent, Relic, RunPhase,
-    RunState, SimError,
+    enter_reward_screen, legal_event_actions, legal_run_decision_actions, legal_shop_actions,
+    CardGridScreen, CardId, CombatAction, CombatState, ContentId, GridPurpose, MapNodeId,
+    MonsterId, MonsterIntent, Relic, RunPhase, RunState, SimError,
 };
 
 #[test]
@@ -339,6 +339,10 @@ fn overlay_state_cannot_replace_the_required_phase_owner() {
         event.validate(),
         Err(SimError::InvalidState("event phase has no event screen"))
     );
+    assert_eq!(
+        legal_event_actions(&event),
+        Err(SimError::InvalidState("event phase has no event screen"))
+    );
 }
 
 #[test]
@@ -347,6 +351,10 @@ fn screen_backed_phases_require_their_authoritative_state() {
     shop.phase = RunPhase::Shop;
     assert_eq!(
         shop.validate(),
+        Err(SimError::InvalidState("shop phase has no shop screen"))
+    );
+    assert_eq!(
+        legal_shop_actions(&shop),
         Err(SimError::InvalidState("shop phase has no shop screen"))
     );
 

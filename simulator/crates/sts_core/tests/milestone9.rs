@@ -73,6 +73,18 @@ fn valid_map_actions(run: &RunState) -> Vec<MapAction> {
     legal_map_actions_on_run(run).expect("valid run map state")
 }
 
+fn valid_event_actions(run: &RunState) -> Vec<EventAction> {
+    legal_event_actions(run).expect("valid run event state")
+}
+
+fn valid_rest_actions(run: &RunState) -> Vec<RestAction> {
+    legal_rest_actions(run).expect("valid run rest state")
+}
+
+fn valid_shop_actions(run: &RunState) -> Vec<RunAction> {
+    legal_shop_actions(run).expect("valid run shop state")
+}
+
 fn leave_shop_merchant_and_room(mut run: RunState) -> RunState {
     run = apply_run_action(&run, RunAction::LeaveShop).expect("leave merchant");
     leave_shop_room(&mut run);
@@ -141,7 +153,7 @@ fn entering_rest_room_exposes_heal_and_blocks_map_actions() {
             expected.push(RestAction::Smith { card_id: card.id });
         }
     }
-    assert_eq!(legal_rest_actions(&run), expected);
+    assert_eq!(valid_rest_actions(&run), expected);
     assert!(valid_map_actions(&run).is_empty());
 }
 
@@ -264,7 +276,7 @@ fn explicit_legacy_shop_fixture_exposes_anger_and_blocks_map_actions() {
     assert_eq!(potion.potion, Potion::Fire);
     assert_eq!(potion.price, SHOP_FIRE_POTION_PRICE);
     assert_eq!(
-        legal_shop_actions(&run),
+        valid_shop_actions(&run),
         vec![
             RunAction::OpenShopRemove,
             RunAction::BuyShopCard { slot: 0 },
@@ -411,7 +423,7 @@ fn entering_legacy_event_fixture_exposes_golden_shrine() {
     assert_eq!(event.event, Event::GoldenShrine);
     assert_eq!(event.choices.len(), 1);
     assert_eq!(
-        legal_event_actions(&run),
+        valid_event_actions(&run),
         vec![EventAction::Choose { choice_index: 0 }]
     );
     assert!(valid_map_actions(&run).is_empty());
@@ -429,7 +441,7 @@ fn golden_shrine_choice_grants_gold_and_returns_to_map() {
     assert_eq!(after_pray.phase, RunPhase::Event);
     assert_eq!(after_pray.gold, gold_before + GOLDEN_SHRINE_GOLD);
     assert_eq!(
-        legal_event_actions(&after_pray),
+        valid_event_actions(&after_pray),
         vec![EventAction::Choose { choice_index: 0 }]
     );
     assert!(valid_map_actions(&after_pray).is_empty());
@@ -457,7 +469,7 @@ fn golden_shrine_choice_grants_gold_and_returns_to_map() {
 fn event_actions_are_unavailable_outside_event_phase() {
     let run = RunState::map_fixture();
 
-    assert!(legal_event_actions(&run).is_empty());
+    assert!(valid_event_actions(&run).is_empty());
     let err = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
         .expect_err("not at event");
 

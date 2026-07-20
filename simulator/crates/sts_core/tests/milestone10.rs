@@ -366,7 +366,9 @@ fn coffee_dripper_disables_rest_heal() {
     run.player_hp = 40;
     run.gain_relic(Relic::CoffeeDripper);
 
-    assert!(!legal_rest_actions(&run).contains(&RestAction::Heal));
+    assert!(!legal_rest_actions(&run)
+        .expect("valid rest state")
+        .contains(&RestAction::Heal));
     let err = apply_rest_action(&run, RestAction::Heal).expect_err("coffee dripper blocks rest");
 
     assert_eq!(
@@ -382,7 +384,10 @@ fn coffee_dripper_and_fusion_hammer_allow_immediate_campfire_proceed() {
     run.gain_relic(Relic::CoffeeDripper);
     run.gain_relic(Relic::FusionHammer);
 
-    assert_eq!(legal_rest_actions(&run), vec![RestAction::Proceed]);
+    assert_eq!(
+        legal_rest_actions(&run).expect("valid completed rest state"),
+        vec![RestAction::Proceed]
+    );
 
     let next = apply_rest_action(&run, RestAction::Proceed)
         .expect("a campfire with no available activities auto-completes");

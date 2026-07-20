@@ -2435,23 +2435,22 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) {
     });
 }
 
-#[must_use]
-pub fn legal_event_actions(run: &RunState) -> Vec<EventAction> {
+pub fn legal_event_actions(run: &RunState) -> SimResult<Vec<EventAction>> {
+    run.validate()?;
     if run.phase != RunPhase::Event {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
-    run.event
+    let event = run
+        .event
         .as_ref()
-        .map(|event| {
-            event
-                .choices
-                .iter()
-                .enumerate()
-                .map(|(choice_index, _)| EventAction::Choose { choice_index })
-                .collect()
-        })
-        .unwrap_or_default()
+        .ok_or(SimError::InvalidState("event screen is missing"))?;
+    Ok(event
+        .choices
+        .iter()
+        .enumerate()
+        .map(|(choice_index, _)| EventAction::Choose { choice_index })
+        .collect())
 }
 
 pub fn validate_event_action(run: &RunState, action: EventAction) -> SimResult<()> {
