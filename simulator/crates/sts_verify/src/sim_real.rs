@@ -5455,8 +5455,10 @@ fn seed_start_apply_boss_unlocks(
     numeric_seed: i64,
     boss_unlocks: BossUnlockState,
 ) {
-    run.act1_boss = target_exordium_act_one_boss_kind_with_unlocks(numeric_seed, boss_unlocks);
-    run.act3_boss = target_beyond_act_three_boss_kind_with_unlocks(numeric_seed, boss_unlocks);
+    run.act1_boss = target_exordium_act_one_boss_kind_with_unlocks(numeric_seed, boss_unlocks)
+        .expect("static Exordium encounter pools are valid");
+    run.act3_boss = target_beyond_act_three_boss_kind_with_unlocks(numeric_seed, boss_unlocks)
+        .expect("static Beyond encounter pools are valid");
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

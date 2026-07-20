@@ -761,8 +761,9 @@ fn boss_combat_monsters_for_run(run: &RunState) -> SimResult<Vec<MonsterState>> 
             crate::run::Act1Boss::Guardian => GUARDIAN_ID,
         },
         2 => {
-            let boss_key =
-                crate::content::encounters::target_city_act_two_boss(run.monster_rng_seed as i64);
+            let boss_key = crate::content::encounters::try_target_city_act_two_boss(
+                run.monster_rng_seed as i64,
+            )?;
             content_id_from_game_monster_id(&boss_key).ok_or(SimError::InvalidState(
                 "Act 2 boss has unknown monster content",
             ))?

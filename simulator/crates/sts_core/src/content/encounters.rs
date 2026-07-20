@@ -1,6 +1,7 @@
 use crate::{
     map::TargetMapAct,
     rng::{JavaRng, StsRng},
+    SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
 
@@ -172,27 +173,34 @@ pub const BEYOND_ELITE_ENCOUNTERS: [(&str, f32); 3] =
 pub fn generate_exordium_weak_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
     generate_exordium_weak_encounters_with_rng(&mut rng, 3)
+        .expect("static Exordium weak encounter pool is valid")
 }
 
 #[must_use]
 pub fn generate_exordium_normal_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
-    let mut encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3);
-    append_exordium_strong_encounters_with_rng(&mut rng, &mut encounters, 12);
+    let mut encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3)
+        .expect("static Exordium weak encounter pool is valid");
+    append_exordium_strong_encounters_with_rng(&mut rng, &mut encounters, 12)
+        .expect("static Exordium strong encounter pool is valid");
     encounters
 }
 
 #[must_use]
 pub fn generate_exordium_elite_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
-    let mut normal_encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3);
-    append_exordium_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
+    let mut normal_encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3)
+        .expect("static Exordium weak encounter pool is valid");
+    append_exordium_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12)
+        .expect("static Exordium strong encounter pool is valid");
     generate_exordium_elite_encounters_with_rng(&mut rng, 10)
+        .expect("static Exordium elite encounter pool is valid")
 }
 
 #[must_use]
 pub fn target_exordium_act_one_boss(seed: i64) -> String {
     target_exordium_act_one_boss_kind(seed)
+        .expect("static Exordium encounter pools are valid")
         .trace_name()
         .to_owned()
 }
@@ -200,67 +208,79 @@ pub fn target_exordium_act_one_boss(seed: i64) -> String {
 #[must_use]
 pub fn target_exordium_act_one_boss_with_unlocks(seed: i64, unlocks: BossUnlockState) -> String {
     target_exordium_act_one_boss_kind_with_unlocks(seed, unlocks)
+        .expect("static Exordium encounter pools are valid")
         .trace_name()
         .to_owned()
 }
 
-#[must_use]
-pub fn target_exordium_act_one_boss_kind(seed: i64) -> Act1Boss {
+pub fn target_exordium_act_one_boss_kind(seed: i64) -> SimResult<Act1Boss> {
     target_exordium_act_one_boss_kind_with_unlocks(seed, BossUnlockState::default())
 }
 
-#[must_use]
 pub fn target_exordium_act_one_boss_kind_with_unlocks(
     seed: i64,
     unlocks: BossUnlockState,
-) -> Act1Boss {
+) -> SimResult<Act1Boss> {
     if !unlocks.guardian_seen {
-        return Act1Boss::Guardian;
+        return Ok(Act1Boss::Guardian);
     }
     if !unlocks.hexaghost_seen {
-        return Act1Boss::Hexaghost;
+        return Ok(Act1Boss::Hexaghost);
     }
     if !unlocks.slime_boss_seen {
-        return Act1Boss::SlimeBoss;
+        return Ok(Act1Boss::SlimeBoss);
     }
     let mut rng = StsRng::new(seed);
-    let mut normal_encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3);
-    append_exordium_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
-    let _elite_encounters = generate_exordium_elite_encounters_with_rng(&mut rng, 10);
+    let mut normal_encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3)?;
+    append_exordium_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12)?;
+    let _elite_encounters = generate_exordium_elite_encounters_with_rng(&mut rng, 10)?;
     let mut bosses = [Act1Boss::Guardian, Act1Boss::Hexaghost, Act1Boss::SlimeBoss];
     JavaRng::new(rng.random_long()).collections_shuffle(&mut bosses);
-    bosses[0]
+    Ok(bosses[0])
 }
 
 #[must_use]
 pub fn target_city_act_two_boss(seed: i64) -> String {
-    target_city_act_two_boss_with_unlocks(seed, BossUnlockState::default())
+    try_target_city_act_two_boss(seed).expect("static City encounter pools are valid")
 }
 
 #[must_use]
 pub fn target_city_act_two_boss_with_unlocks(seed: i64, unlocks: BossUnlockState) -> String {
+    try_target_city_act_two_boss_with_unlocks(seed, unlocks)
+        .expect("static City encounter pools are valid")
+}
+
+pub fn try_target_city_act_two_boss(seed: i64) -> SimResult<String> {
+    try_target_city_act_two_boss_with_unlocks(seed, BossUnlockState::default())
+}
+
+pub fn try_target_city_act_two_boss_with_unlocks(
+    seed: i64,
+    unlocks: BossUnlockState,
+) -> SimResult<String> {
     if !unlocks.champ_seen {
-        return "Champ".to_owned();
+        return Ok("Champ".to_owned());
     }
     if !unlocks.automaton_seen {
-        return "Automaton".to_owned();
+        return Ok("Automaton".to_owned());
     }
     if !unlocks.collector_seen {
-        return "Collector".to_owned();
+        return Ok("Collector".to_owned());
     }
     let mut rng = StsRng::new(seed);
-    advance_exordium_content_generation_rng(&mut rng);
-    let mut normal_encounters = generate_city_weak_encounters_with_rng(&mut rng, 2);
-    append_city_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
-    let _elite_encounters = generate_city_elite_encounters_with_rng(&mut rng, 10);
+    advance_exordium_content_generation_rng(&mut rng)?;
+    let mut normal_encounters = generate_city_weak_encounters_with_rng(&mut rng, 2)?;
+    append_city_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12)?;
+    let _elite_encounters = generate_city_elite_encounters_with_rng(&mut rng, 10)?;
     let mut bosses = ["Automaton", "Collector", "Champ"];
     JavaRng::new(rng.random_long()).collections_shuffle(&mut bosses);
-    bosses[0].to_owned()
+    Ok(bosses[0].to_owned())
 }
 
 #[must_use]
 pub fn target_beyond_act_three_boss(seed: i64) -> String {
     target_beyond_act_three_boss_kind(seed)
+        .expect("static Beyond encounter pools are valid")
         .trace_name()
         .to_owned()
 }
@@ -268,109 +288,125 @@ pub fn target_beyond_act_three_boss(seed: i64) -> String {
 #[must_use]
 pub fn target_beyond_act_three_boss_with_unlocks(seed: i64, unlocks: BossUnlockState) -> String {
     target_beyond_act_three_boss_kind_with_unlocks(seed, unlocks)
+        .expect("static Beyond encounter pools are valid")
         .trace_name()
         .to_owned()
 }
 
-#[must_use]
-pub fn target_beyond_act_three_boss_kind(seed: i64) -> Act3Boss {
+pub fn target_beyond_act_three_boss_kind(seed: i64) -> SimResult<Act3Boss> {
     target_beyond_act_three_boss_kind_with_unlocks(seed, BossUnlockState::default())
 }
 
-#[must_use]
 pub fn target_beyond_act_three_boss_kind_with_unlocks(
     seed: i64,
     unlocks: BossUnlockState,
-) -> Act3Boss {
+) -> SimResult<Act3Boss> {
     if !unlocks.awakened_one_seen {
-        return Act3Boss::AwakenedOne;
+        return Ok(Act3Boss::AwakenedOne);
     }
     if !unlocks.donu_deca_seen {
-        return Act3Boss::DonuAndDeca;
+        return Ok(Act3Boss::DonuAndDeca);
     }
     if !unlocks.time_eater_seen {
-        return Act3Boss::TimeEater;
+        return Ok(Act3Boss::TimeEater);
     }
     let mut rng = StsRng::new(seed);
-    advance_exordium_content_generation_rng(&mut rng);
-    let _ = generate_city_encounter_lists_with_rng(&mut rng);
-    let mut normal_encounters = generate_beyond_weak_encounters_with_rng(&mut rng, 2);
-    append_beyond_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
-    let _elite_encounters = generate_beyond_elite_encounters_with_rng(&mut rng, 10);
+    advance_exordium_content_generation_rng(&mut rng)?;
+    let _ = generate_city_encounter_lists_with_rng(&mut rng)?;
+    let mut normal_encounters = generate_beyond_weak_encounters_with_rng(&mut rng, 2)?;
+    append_beyond_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12)?;
+    let _elite_encounters = generate_beyond_elite_encounters_with_rng(&mut rng, 10)?;
     let mut bosses = [
         Act3Boss::AwakenedOne,
         Act3Boss::TimeEater,
         Act3Boss::DonuAndDeca,
     ];
     JavaRng::new(rng.random_long()).collections_shuffle(&mut bosses);
-    bosses[0]
+    Ok(bosses[0])
 }
 
 #[must_use]
 pub fn generate_city_weak_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
     generate_city_weak_encounters_with_rng(&mut rng, 2)
+        .expect("static City weak encounter pool is valid")
 }
 
 #[must_use]
 pub fn generate_city_normal_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
-    let mut encounters = generate_city_weak_encounters_with_rng(&mut rng, 2);
-    append_city_strong_encounters_with_rng(&mut rng, &mut encounters, 12);
+    let mut encounters = generate_city_weak_encounters_with_rng(&mut rng, 2)
+        .expect("static City weak encounter pool is valid");
+    append_city_strong_encounters_with_rng(&mut rng, &mut encounters, 12)
+        .expect("static City strong encounter pool is valid");
     encounters
 }
 
 #[must_use]
 pub fn generate_city_elite_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
-    let mut normal_encounters = generate_city_weak_encounters_with_rng(&mut rng, 2);
-    append_city_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12);
+    let mut normal_encounters = generate_city_weak_encounters_with_rng(&mut rng, 2)
+        .expect("static City weak encounter pool is valid");
+    append_city_strong_encounters_with_rng(&mut rng, &mut normal_encounters, 12)
+        .expect("static City strong encounter pool is valid");
     generate_city_elite_encounters_with_rng(&mut rng, 10)
+        .expect("static City elite encounter pool is valid")
 }
 
 #[must_use]
 pub fn generate_beyond_normal_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
-    advance_exordium_content_generation_rng(&mut rng);
-    let _ = generate_city_encounter_lists_with_rng(&mut rng);
-    let (normal, _) = generate_beyond_encounter_lists_with_rng(&mut rng);
+    advance_exordium_content_generation_rng(&mut rng)
+        .expect("static Exordium encounter pools are valid");
+    let _ = generate_city_encounter_lists_with_rng(&mut rng)
+        .expect("static City encounter pools are valid");
+    let (normal, _) = generate_beyond_encounter_lists_with_rng(&mut rng)
+        .expect("static Beyond encounter pools are valid");
     normal
 }
 
 #[must_use]
 pub fn generate_beyond_elite_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
-    advance_exordium_content_generation_rng(&mut rng);
-    let _ = generate_city_encounter_lists_with_rng(&mut rng);
-    let (_, elite) = generate_beyond_encounter_lists_with_rng(&mut rng);
+    advance_exordium_content_generation_rng(&mut rng)
+        .expect("static Exordium encounter pools are valid");
+    let _ = generate_city_encounter_lists_with_rng(&mut rng)
+        .expect("static City encounter pools are valid");
+    let (_, elite) = generate_beyond_encounter_lists_with_rng(&mut rng)
+        .expect("static Beyond encounter pools are valid");
     elite
 }
 
-pub fn advance_exordium_content_generation_rng(rng: &mut StsRng) {
-    let mut normal_encounters = generate_exordium_weak_encounters_with_rng(rng, 3);
-    append_exordium_strong_encounters_with_rng(rng, &mut normal_encounters, 12);
-    let _elite_encounters = generate_exordium_elite_encounters_with_rng(rng, 10);
+pub fn advance_exordium_content_generation_rng(rng: &mut StsRng) -> SimResult<()> {
+    let mut normal_encounters = generate_exordium_weak_encounters_with_rng(rng, 3)?;
+    append_exordium_strong_encounters_with_rng(rng, &mut normal_encounters, 12)?;
+    let _elite_encounters = generate_exordium_elite_encounters_with_rng(rng, 10)?;
     let _boss_shuffle_seed = rng.random_long();
+    Ok(())
 }
 
-pub fn generate_city_encounter_lists_with_rng(rng: &mut StsRng) -> (Vec<String>, Vec<String>) {
-    let mut normal_encounters = generate_city_weak_encounters_with_rng(rng, 2);
-    append_city_strong_encounters_with_rng(rng, &mut normal_encounters, 12);
-    let elite_encounters = generate_city_elite_encounters_with_rng(rng, 10);
+pub fn generate_city_encounter_lists_with_rng(
+    rng: &mut StsRng,
+) -> SimResult<(Vec<String>, Vec<String>)> {
+    let mut normal_encounters = generate_city_weak_encounters_with_rng(rng, 2)?;
+    append_city_strong_encounters_with_rng(rng, &mut normal_encounters, 12)?;
+    let elite_encounters = generate_city_elite_encounters_with_rng(rng, 10)?;
     // AbstractDungeon consumes one monster-RNG long to seed the shuffled boss
     // list after constructing each act's encounter lists.  Beyond generation
     // continues from that stream, so omitting the City draw changes Act 3's
     // weak encounter order.
     let _boss_shuffle_seed = rng.random_long();
-    (normal_encounters, elite_encounters)
+    Ok((normal_encounters, elite_encounters))
 }
 
-pub fn generate_beyond_encounter_lists_with_rng(rng: &mut StsRng) -> (Vec<String>, Vec<String>) {
-    let mut normal_encounters = generate_beyond_weak_encounters_with_rng(rng, 2);
-    append_beyond_strong_encounters_with_rng(rng, &mut normal_encounters, 12);
-    let elite_encounters = generate_beyond_elite_encounters_with_rng(rng, 10);
+pub fn generate_beyond_encounter_lists_with_rng(
+    rng: &mut StsRng,
+) -> SimResult<(Vec<String>, Vec<String>)> {
+    let mut normal_encounters = generate_beyond_weak_encounters_with_rng(rng, 2)?;
+    append_beyond_strong_encounters_with_rng(rng, &mut normal_encounters, 12)?;
+    let elite_encounters = generate_beyond_elite_encounters_with_rng(rng, 10)?;
     let _boss_shuffle_seed = rng.random_long();
-    (normal_encounters, elite_encounters)
+    Ok((normal_encounters, elite_encounters))
 }
 
 /// Returns the normal encounter key for the `combat_index`-th Act 1 combat room entered.
@@ -423,85 +459,103 @@ pub fn target_normal_encounter_key_at_combat_index(
     }
 }
 
-pub fn generate_exordium_weak_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
-    let pool = normalized_monster_weights(&EXORDIUM_WEAK_ENCOUNTERS);
+pub fn generate_exordium_weak_encounters_with_rng(
+    rng: &mut StsRng,
+    count: usize,
+) -> SimResult<Vec<String>> {
+    let pool = normalized_monster_weights(&EXORDIUM_WEAK_ENCOUNTERS)?;
     let mut encounters = Vec::with_capacity(count);
 
-    populate_monster_list(&pool, rng, &mut encounters, count);
-    encounters
+    populate_monster_list(&pool, rng, &mut encounters, count)?;
+    Ok(encounters)
 }
 
-pub fn generate_city_weak_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
-    let pool = normalized_monster_weights(&CITY_WEAK_ENCOUNTERS);
+pub fn generate_city_weak_encounters_with_rng(
+    rng: &mut StsRng,
+    count: usize,
+) -> SimResult<Vec<String>> {
+    let pool = normalized_monster_weights(&CITY_WEAK_ENCOUNTERS)?;
     let mut encounters = Vec::with_capacity(count);
 
-    populate_monster_list(&pool, rng, &mut encounters, count);
-    encounters
+    populate_monster_list(&pool, rng, &mut encounters, count)?;
+    Ok(encounters)
 }
 
-pub fn generate_beyond_weak_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
-    let pool = normalized_monster_weights(&BEYOND_WEAK_ENCOUNTERS);
+pub fn generate_beyond_weak_encounters_with_rng(
+    rng: &mut StsRng,
+    count: usize,
+) -> SimResult<Vec<String>> {
+    let pool = normalized_monster_weights(&BEYOND_WEAK_ENCOUNTERS)?;
     let mut encounters = Vec::with_capacity(count);
 
-    populate_monster_list(&pool, rng, &mut encounters, count);
-    encounters
+    populate_monster_list(&pool, rng, &mut encounters, count)?;
+    Ok(encounters)
 }
 
 pub fn append_exordium_strong_encounters_with_rng(
     rng: &mut StsRng,
     encounters: &mut Vec<String>,
     count: usize,
-) {
-    let pool = normalized_monster_weights(&EXORDIUM_STRONG_ENCOUNTERS);
+) -> SimResult<()> {
+    let pool = normalized_monster_weights(&EXORDIUM_STRONG_ENCOUNTERS)?;
     let exclusions = first_strong_exclusions(encounters.last().map(String::as_str));
-    populate_first_strong_enemy(&pool, rng, encounters, &exclusions);
-    populate_monster_list(&pool, rng, encounters, count);
+    populate_first_strong_enemy(&pool, rng, encounters, &exclusions)?;
+    populate_monster_list(&pool, rng, encounters, count)
 }
 
 pub fn append_city_strong_encounters_with_rng(
     rng: &mut StsRng,
     encounters: &mut Vec<String>,
     count: usize,
-) {
-    let pool = normalized_monster_weights(&CITY_STRONG_ENCOUNTERS);
+) -> SimResult<()> {
+    let pool = normalized_monster_weights(&CITY_STRONG_ENCOUNTERS)?;
     let exclusions = city_first_strong_exclusions(encounters.last().map(String::as_str));
-    populate_first_strong_enemy(&pool, rng, encounters, &exclusions);
-    populate_monster_list(&pool, rng, encounters, count);
+    populate_first_strong_enemy(&pool, rng, encounters, &exclusions)?;
+    populate_monster_list(&pool, rng, encounters, count)
 }
 
 pub fn append_beyond_strong_encounters_with_rng(
     rng: &mut StsRng,
     encounters: &mut Vec<String>,
     count: usize,
-) {
-    let pool = normalized_monster_weights(&BEYOND_STRONG_ENCOUNTERS);
+) -> SimResult<()> {
+    let pool = normalized_monster_weights(&BEYOND_STRONG_ENCOUNTERS)?;
     let exclusions = beyond_first_strong_exclusions(encounters.last().map(String::as_str));
-    populate_first_strong_enemy(&pool, rng, encounters, &exclusions);
-    populate_monster_list(&pool, rng, encounters, count);
+    populate_first_strong_enemy(&pool, rng, encounters, &exclusions)?;
+    populate_monster_list(&pool, rng, encounters, count)
 }
 
-pub fn generate_exordium_elite_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
-    let pool = normalized_monster_weights(&EXORDIUM_ELITE_ENCOUNTERS);
+pub fn generate_exordium_elite_encounters_with_rng(
+    rng: &mut StsRng,
+    count: usize,
+) -> SimResult<Vec<String>> {
+    let pool = normalized_monster_weights(&EXORDIUM_ELITE_ENCOUNTERS)?;
     let mut encounters = Vec::with_capacity(count);
 
-    populate_elite_monster_list(&pool, rng, &mut encounters, count);
-    encounters
+    populate_elite_monster_list(&pool, rng, &mut encounters, count)?;
+    Ok(encounters)
 }
 
-pub fn generate_city_elite_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
-    let pool = normalized_monster_weights(&CITY_ELITE_ENCOUNTERS);
+pub fn generate_city_elite_encounters_with_rng(
+    rng: &mut StsRng,
+    count: usize,
+) -> SimResult<Vec<String>> {
+    let pool = normalized_monster_weights(&CITY_ELITE_ENCOUNTERS)?;
     let mut encounters = Vec::with_capacity(count);
 
-    populate_elite_monster_list(&pool, rng, &mut encounters, count);
-    encounters
+    populate_elite_monster_list(&pool, rng, &mut encounters, count)?;
+    Ok(encounters)
 }
 
-pub fn generate_beyond_elite_encounters_with_rng(rng: &mut StsRng, count: usize) -> Vec<String> {
-    let pool = normalized_monster_weights(&BEYOND_ELITE_ENCOUNTERS);
+pub fn generate_beyond_elite_encounters_with_rng(
+    rng: &mut StsRng,
+    count: usize,
+) -> SimResult<Vec<String>> {
+    let pool = normalized_monster_weights(&BEYOND_ELITE_ENCOUNTERS)?;
     let mut encounters = Vec::with_capacity(count);
 
-    populate_elite_monster_list(&pool, rng, &mut encounters, count);
-    encounters
+    populate_elite_monster_list(&pool, rng, &mut encounters, count)?;
+    Ok(encounters)
 }
 
 fn populate_monster_list(
@@ -509,10 +563,10 @@ fn populate_monster_list(
     rng: &mut StsRng,
     encounters: &mut Vec<String>,
     count: usize,
-) {
+) -> SimResult<()> {
     let target_len = encounters.len() + count;
     while encounters.len() < target_len {
-        let candidate = roll_monster_info(pool, rng.random_float());
+        let candidate = roll_monster_info(pool, rng.random_float())?;
         if encounters.last().is_some_and(|last| last == candidate)
             || encounters
                 .len()
@@ -524,6 +578,7 @@ fn populate_monster_list(
         }
         encounters.push(candidate.to_owned());
     }
+    Ok(())
 }
 
 fn populate_elite_monster_list(
@@ -531,15 +586,16 @@ fn populate_elite_monster_list(
     rng: &mut StsRng,
     encounters: &mut Vec<String>,
     count: usize,
-) {
+) -> SimResult<()> {
     let target_len = encounters.len() + count;
     while encounters.len() < target_len {
-        let candidate = roll_monster_info(pool, rng.random_float());
+        let candidate = roll_monster_info(pool, rng.random_float())?;
         if encounters.last().is_some_and(|last| last == candidate) {
             continue;
         }
         encounters.push(candidate.to_owned());
     }
+    Ok(())
 }
 
 fn populate_first_strong_enemy(
@@ -547,12 +603,12 @@ fn populate_first_strong_enemy(
     rng: &mut StsRng,
     encounters: &mut Vec<String>,
     exclusions: &[&str],
-) {
+) -> SimResult<()> {
     loop {
-        let candidate = roll_monster_info(pool, rng.random_float());
+        let candidate = roll_monster_info(pool, rng.random_float())?;
         if !exclusions.contains(&candidate) {
             encounters.push(candidate.to_owned());
-            return;
+            return Ok(());
         }
     }
 }
@@ -585,35 +641,62 @@ fn beyond_first_strong_exclusions(last_weak: Option<&str>) -> Vec<&'static str> 
     }
 }
 
-fn normalized_monster_weights(entries: &[(&'static str, f32)]) -> Vec<(&'static str, f32)> {
+fn normalized_monster_weights(
+    entries: &[(&'static str, f32)],
+) -> SimResult<Vec<(&'static str, f32)>> {
+    if entries.is_empty()
+        || entries
+            .iter()
+            .any(|(name, weight)| name.is_empty() || !weight.is_finite() || *weight <= 0.0)
+    {
+        return Err(SimError::InvalidState(
+            "encounter pool entries must have names and positive finite weights",
+        ));
+    }
     let mut entries = entries.to_vec();
     entries.sort_by(|(_, left_weight), (_, right_weight)| left_weight.total_cmp(right_weight));
     let total: f32 = entries.iter().map(|(_, weight)| *weight).sum();
-    entries
+    if !total.is_finite() || total <= 0.0 {
+        return Err(SimError::InvalidState(
+            "encounter pool total weight is invalid",
+        ));
+    }
+    Ok(entries
         .iter()
         .map(|(name, weight)| (*name, *weight / total))
-        .collect()
+        .collect())
 }
 
-fn roll_monster_info<'a>(entries: &'a [(&'a str, f32)], roll: f32) -> &'a str {
+fn roll_monster_info<'a>(entries: &'a [(&'a str, f32)], roll: f32) -> SimResult<&'a str> {
+    if !roll.is_finite() || !(0.0..1.0).contains(&roll) {
+        return Err(SimError::InvalidState(
+            "encounter roll must be finite and within [0, 1)",
+        ));
+    }
     let mut cumulative = 0.0;
     for (name, weight) in entries {
         cumulative += *weight;
         if roll < cumulative {
-            return name;
+            return Ok(name);
         }
     }
-    "ERROR"
+    Err(SimError::InvalidState(
+        "normalized encounter pool does not cover roll",
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        generate_beyond_normal_encounters, target_beyond_act_three_boss,
-        target_beyond_act_three_boss_kind_with_unlocks, target_beyond_act_three_boss_with_unlocks,
-        target_city_act_two_boss, target_city_act_two_boss_with_unlocks,
-        target_exordium_act_one_boss, target_exordium_act_one_boss_kind_with_unlocks,
-        target_exordium_act_one_boss_with_unlocks, Act1Boss, Act3Boss, BossUnlockState,
+        generate_beyond_normal_encounters, normalized_monster_weights, roll_monster_info,
+        target_beyond_act_three_boss, target_beyond_act_three_boss_kind_with_unlocks,
+        target_beyond_act_three_boss_with_unlocks, target_city_act_two_boss,
+        target_city_act_two_boss_with_unlocks, target_exordium_act_one_boss,
+        target_exordium_act_one_boss_kind_with_unlocks, target_exordium_act_one_boss_with_unlocks,
+        Act1Boss, Act3Boss, BossUnlockState, BEYOND_ELITE_ENCOUNTERS, BEYOND_STRONG_ENCOUNTERS,
+        BEYOND_WEAK_ENCOUNTERS, CITY_ELITE_ENCOUNTERS, CITY_STRONG_ENCOUNTERS,
+        CITY_WEAK_ENCOUNTERS, EXORDIUM_ELITE_ENCOUNTERS, EXORDIUM_STRONG_ENCOUNTERS,
+        EXORDIUM_WEAK_ENCOUNTERS,
     };
 
     #[test]
@@ -629,7 +712,7 @@ mod tests {
         );
         assert_eq!(
             target_exordium_act_one_boss_kind_with_unlocks(1, unlocks),
-            Act1Boss::Guardian
+            Ok(Act1Boss::Guardian)
         );
 
         let unlocks = BossUnlockState {
@@ -650,8 +733,58 @@ mod tests {
         );
         assert_eq!(
             target_beyond_act_three_boss_kind_with_unlocks(1, unlocks),
-            Act3Boss::AwakenedOne
+            Ok(Act3Boss::AwakenedOne)
         );
+    }
+
+    #[test]
+    fn malformed_encounter_pools_and_rolls_fail_closed() {
+        assert_eq!(
+            normalized_monster_weights(&[]),
+            Err(crate::SimError::InvalidState(
+                "encounter pool entries must have names and positive finite weights"
+            ))
+        );
+        assert_eq!(
+            normalized_monster_weights(&[("Cultist", 0.0)]),
+            Err(crate::SimError::InvalidState(
+                "encounter pool entries must have names and positive finite weights"
+            ))
+        );
+        assert_eq!(
+            roll_monster_info(&[("Cultist", 1.0)], 1.0),
+            Err(crate::SimError::InvalidState(
+                "encounter roll must be finite and within [0, 1)"
+            ))
+        );
+        assert_eq!(
+            roll_monster_info(&[("Cultist", 0.25)], 0.5),
+            Err(crate::SimError::InvalidState(
+                "normalized encounter pool does not cover roll"
+            ))
+        );
+    }
+
+    #[test]
+    fn every_static_encounter_pool_covers_the_largest_target_float_roll() {
+        let pools: &[&[(&str, f32)]] = &[
+            &EXORDIUM_WEAK_ENCOUNTERS,
+            &EXORDIUM_STRONG_ENCOUNTERS,
+            &EXORDIUM_ELITE_ENCOUNTERS,
+            &CITY_WEAK_ENCOUNTERS,
+            &CITY_STRONG_ENCOUNTERS,
+            &CITY_ELITE_ENCOUNTERS,
+            &BEYOND_WEAK_ENCOUNTERS,
+            &BEYOND_STRONG_ENCOUNTERS,
+            &BEYOND_ELITE_ENCOUNTERS,
+        ];
+        let largest_roll_below_one = f32::from_bits(1.0_f32.to_bits() - 1);
+
+        for entries in pools {
+            let normalized = normalized_monster_weights(entries).expect("valid static pool");
+            roll_monster_info(&normalized, largest_roll_below_one)
+                .expect("normalized static pool covers every target roll");
+        }
     }
 
     #[test]

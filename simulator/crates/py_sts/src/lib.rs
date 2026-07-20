@@ -340,7 +340,8 @@ impl PyOmniRunEnv {
             ));
         }
         let ascension = ascension.unwrap_or(0);
-        let state = RunState::seeded_ironclad(stable_seed(seed), ascension);
+        let state = RunState::try_seeded_ironclad(stable_seed(seed), ascension)
+            .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;
         state
             .validate()
             .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;

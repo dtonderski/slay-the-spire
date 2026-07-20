@@ -1378,7 +1378,11 @@ impl RunState {
     /// Start a deterministic seeded Ironclad run from production state.
     #[must_use]
     pub fn seeded_ironclad(seed: u64, ascension: u8) -> Self {
-        Self::seeded_ironclad_with_boss_unlocks(
+        Self::try_seeded_ironclad(seed, ascension).expect("static target encounter pools are valid")
+    }
+
+    pub fn try_seeded_ironclad(seed: u64, ascension: u8) -> SimResult<Self> {
+        Self::try_seeded_ironclad_with_boss_unlocks(
             seed,
             ascension,
             crate::content::encounters::BossUnlockState::default(),
@@ -1392,6 +1396,16 @@ impl RunState {
         ascension: u8,
         boss_unlocks: crate::content::encounters::BossUnlockState,
     ) -> Self {
+        Self::try_seeded_ironclad_with_boss_unlocks(seed, ascension, boss_unlocks)
+            .expect("static target encounter pools are valid")
+    }
+
+    /// Fallible production constructor for a deterministic seeded Ironclad run.
+    pub fn try_seeded_ironclad_with_boss_unlocks(
+        seed: u64,
+        ascension: u8,
+        boss_unlocks: crate::content::encounters::BossUnlockState,
+    ) -> SimResult<Self> {
         let mut run = Self::ironclad_run_base(ascension);
         run.map = Some(generate_target_fixed_map(
             seed as i64,
@@ -1400,11 +1414,11 @@ impl RunState {
         run.act1_boss = crate::content::encounters::target_exordium_act_one_boss_kind_with_unlocks(
             seed as i64,
             boss_unlocks,
-        );
+        )?;
         run.act3_boss = crate::content::encounters::target_beyond_act_three_boss_kind_with_unlocks(
             seed as i64,
             boss_unlocks,
-        );
+        )?;
         run.relics = vec![Relic::BurningBlood];
         run.phase = RunPhase::Event;
         run.event = Some(super::event::neow_talk_screen());
@@ -1418,7 +1432,7 @@ impl RunState {
         run.merchant_rng_seed = seed;
         run.misc_rng_seed = seed;
         run.monster_rng_seed = seed;
-        run
+        Ok(run)
     }
 
     pub fn reinit_misc_rng_for_floor(&mut self) {

@@ -1411,7 +1411,7 @@ fn enter_boss_reward_chest(run: &mut RunState) {
     run.reinit_room_rngs_for_floor();
 }
 
-fn enter_next_act_map(run: &mut RunState) {
+fn enter_next_act_map(run: &mut RunState) -> SimResult<()> {
     let next_act = run.current_act + 1;
     advance_card_rng_for_dungeon_transition(run);
     run.potion_chance = 0;
@@ -1426,7 +1426,7 @@ fn enter_next_act_map(run: &mut RunState) {
         if let Some(map) = run.map.as_mut() {
             map.floor = run.current_floor as u32;
         }
-        generate_city_encounters_for_next_act(run);
+        generate_city_encounters_for_next_act(run)?;
         run.current_act = 2;
     } else if next_act == 3 {
         run.map = Some(generate_target_fixed_map(
@@ -1436,7 +1436,7 @@ fn enter_next_act_map(run: &mut RunState) {
         if let Some(map) = run.map.as_mut() {
             map.floor = run.current_floor as u32;
         }
-        generate_beyond_encounters_for_next_act(run);
+        generate_beyond_encounters_for_next_act(run)?;
         run.current_act = 3;
     }
     run.phase = RunPhase::Idle;
@@ -1451,28 +1451,31 @@ fn enter_next_act_map(run: &mut RunState) {
     if !run.has_mark_of_bloom() {
         run.player_hp = run.player_max_hp;
     }
+    Ok(())
 }
 
-fn generate_city_encounters_for_next_act(run: &mut RunState) {
+fn generate_city_encounters_for_next_act(run: &mut RunState) -> SimResult<()> {
     let mut rng = StsRng::new(run.monster_rng_seed as i64);
-    crate::content::encounters::advance_exordium_content_generation_rng(&mut rng);
-    let (normal, elite) = generate_city_encounter_lists_with_rng(&mut rng);
+    crate::content::encounters::advance_exordium_content_generation_rng(&mut rng)?;
+    let (normal, elite) = generate_city_encounter_lists_with_rng(&mut rng)?;
     run.normal_encounter_list = normal;
     run.elite_encounter_list = elite;
     run.monster_rng_counter = rng.counter();
+    Ok(())
 }
 
-fn generate_beyond_encounters_for_next_act(run: &mut RunState) {
+fn generate_beyond_encounters_for_next_act(run: &mut RunState) -> SimResult<()> {
     // Dungeon content generation is replayed from the run seed for each act;
     // combat AI rolls accumulated during Act 2 must not contaminate the Act 3
     // encounter list.
     let mut rng = StsRng::new(run.monster_rng_seed as i64);
-    crate::content::encounters::advance_exordium_content_generation_rng(&mut rng);
-    let _ = generate_city_encounter_lists_with_rng(&mut rng);
-    let (normal, elite) = generate_beyond_encounter_lists_with_rng(&mut rng);
+    crate::content::encounters::advance_exordium_content_generation_rng(&mut rng)?;
+    let _ = generate_city_encounter_lists_with_rng(&mut rng)?;
+    let (normal, elite) = generate_beyond_encounter_lists_with_rng(&mut rng)?;
     run.normal_encounter_list = normal;
     run.elite_encounter_list = elite;
     run.monster_rng_counter = rng.counter();
+    Ok(())
 }
 
 fn advance_card_rng_for_dungeon_transition(run: &mut RunState) {
@@ -1956,7 +1959,7 @@ pub fn apply_treasure_action(run: &RunState, action: RunAction) -> SimResult<Run
             Ok(next)
         }
         RunAction::Proceed => {
-            enter_next_act_map(&mut next);
+            enter_next_act_map(&mut next)?;
             Ok(next)
         }
         _ => unreachable!("validated treasure action"),
@@ -2784,7 +2787,7 @@ mod tests {
         run.player_max_hp = 80;
         run.relics.push(Relic::MarkOfBloom);
 
-        enter_next_act_map(&mut run);
+        enter_next_act_map(&mut run).expect("static target encounter pools are valid");
 
         assert_eq!(run.current_act, 2);
         assert_eq!(run.player_hp, 10);

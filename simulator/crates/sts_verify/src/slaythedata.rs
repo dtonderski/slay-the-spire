@@ -809,6 +809,7 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
         .run_start
         .as_ref()
         .map(|start| slaythedata_seed_to_long(&start.seed_played));
+    let mut run_initialization_error = None;
     let mut run = plan.run_start.as_ref().and_then(|start| {
         if !start.character.eq_ignore_ascii_case("IRONCLAD") {
             return None;
@@ -820,7 +821,13 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
             return None;
         }
         let seed = seed_result.as_ref()?.as_ref().ok()?;
-        Some(RunState::seeded_ironclad(*seed as u64, ascension))
+        match RunState::try_seeded_ironclad(*seed as u64, ascension) {
+            Ok(run) => Some(run),
+            Err(error) => {
+                run_initialization_error = Some(error.to_string());
+                None
+            }
+        }
     });
     let numeric_seed = seed_result
         .as_ref()
@@ -836,13 +843,17 @@ pub fn slaythedata_replay_preflight(plan: &SlayTheDataReplayPlan) -> SlayTheData
     }
 
     if plan.run_start.is_some() && run.is_none() {
+        let message = run_initialization_error
+            .map(|error| format!("core rejected seeded run initialization: {error}"))
+            .unwrap_or_else(|| {
+                "preflight can currently initialize only Ironclad runs with ascension in 0..=20"
+                    .to_owned()
+            });
         diagnostics.push(SlayTheDataDiagnostic {
             severity: SlayTheDataDiagnosticSeverity::Error,
             code: "cannot_initialize_run_state".to_owned(),
             path: "$.run_start".to_owned(),
-            message:
-                "preflight can currently initialize only Ironclad runs with ascension in 0..=20"
-                    .to_owned(),
+            message,
         });
     }
 
