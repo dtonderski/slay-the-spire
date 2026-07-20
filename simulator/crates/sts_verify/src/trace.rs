@@ -497,7 +497,7 @@ fn validate_visible_screen_schema(
         "CARD_REWARD" => Some("cards"),
         "COMBAT_REWARD" => Some("rewards"),
         "EVENT" => return validate_event_screen_schema(step, game),
-        "MAP" => Some("next_nodes"),
+        "MAP" => return validate_map_screen_schema(step, game),
         "GRID" => None,
         _ => return validate_optional_screen_state(step, game),
     };
@@ -517,6 +517,91 @@ fn validate_visible_screen_schema(
         }
     }
     validate_screen_state_collections(step, screen)
+}
+
+fn validate_map_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = game
+        .get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} MAP screen requires an object game_state.screen_state"
+            ))
+        })?;
+    let first_node_chosen = screen
+        .get("first_node_chosen")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} MAP screen requires boolean game_state.screen_state.first_node_chosen"
+            ))
+        })?;
+    let current_node = screen
+        .get("current_node")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} MAP screen requires object game_state.screen_state.current_node"
+            ))
+        })?;
+    for field in ["x", "y"] {
+        if current_node.get(field).and_then(Value::as_i64).is_none() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} MAP current_node.{field} must be an integer"
+            )));
+        }
+    }
+    let symbol = current_node.get("symbol");
+    if first_node_chosen {
+        if symbol
+            .and_then(Value::as_str)
+            .is_none_or(|symbol| symbol.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} MAP chosen current_node requires a string symbol"
+            )));
+        }
+    } else if symbol.is_some_and(|symbol| {
+        symbol
+            .as_str()
+            .is_none_or(|symbol| !symbol.trim().is_empty())
+    }) {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} MAP unchosen current_node must omit symbol"
+        )));
+    }
+    validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    if screen.get("next_nodes").and_then(Value::as_array).is_none() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} MAP screen requires an array game_state.screen_state.next_nodes"
+        )));
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_nonblank_string_array(
+    step: u32,
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+    path: &str,
+) -> Result<(), serde_json::Error> {
+    let entries = object.get(field).and_then(Value::as_array).ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path} must be an array"
+        ))
+    })?;
+    if entries
+        .iter()
+        .any(|entry| entry.as_str().is_none_or(|entry| entry.trim().is_empty()))
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {path} entries must be nonblank strings"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_event_screen_schema(
@@ -850,7 +935,7 @@ mod tests {
 
     #[test]
     fn parse_trace_rejects_malformed_visible_map_nodes() {
-        let content = r#"{"type":"state","step":11,"message":{"game_state":{"screen_type":"MAP","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"next_nodes":[{"symbol":"M","x":0}]}}}}"#;
+        let content = r#"{"type":"state","step":11,"message":{"game_state":{"screen_type":"MAP","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["x=0"],"screen_state":{"first_node_chosen":false,"current_node":{"x":0,"y":-1},"next_nodes":[{"symbol":"M","x":0}]}}}}"#;
 
         let error = parse_trace_jsonl(content).expect_err("incomplete visible node is invalid");
         assert!(error.to_string().contains(
@@ -906,6 +991,33 @@ mod tests {
         assert!(error.to_string().contains(
             "trace state at step 16 EVENT screen requires an array game_state.choice_list"
         ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_map_without_current_node_authority() {
+        let content = r#"{"type":"state","step":17,"message":{"game_state":{"screen_type":"MAP","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["x=0"],"screen_state":{"first_node_chosen":true,"next_nodes":[]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing current map node is invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 17 MAP screen requires object game_state.screen_state.current_node"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_chosen_map_node_without_symbol() {
+        let content = r#"{"type":"state","step":18,"message":{"game_state":{"screen_type":"MAP","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["x=1"],"screen_state":{"first_node_chosen":true,"current_node":{"x":0,"y":0},"next_nodes":[]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("chosen node identity is required");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 18 MAP chosen current_node requires a string symbol"));
+    }
+
+    #[test]
+    fn parse_trace_accepts_unselected_map_sentinel() {
+        let content = r#"{"type":"state","step":19,"message":{"game_state":{"screen_type":"MAP","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["x=0"],"screen_state":{"first_node_chosen":false,"current_node":{"x":0,"y":-1},"next_nodes":[{"symbol":"M","x":0,"y":0}]}}}}"#;
+
+        parse_trace_jsonl(content).expect("pre-first-node sentinel is authoritative");
     }
 
     #[test]

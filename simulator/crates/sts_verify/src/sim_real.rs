@@ -12100,6 +12100,9 @@ mod tests {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            if screen_type == "MAP" {
+                game.entry("choice_list").or_insert_with(|| json!([]));
+            }
             if matches!(
                 screen_type.as_str(),
                 "CARD_REWARD" | "COMBAT_REWARD" | "EVENT" | "GRID" | "MAP"
@@ -12126,6 +12129,12 @@ mod tests {
                     }
                     "MAP" => {
                         screen.entry("next_nodes").or_insert_with(|| json!([]));
+                        screen
+                            .entry("first_node_chosen")
+                            .or_insert_with(|| json!(false));
+                        screen
+                            .entry("current_node")
+                            .or_insert_with(|| json!({ "x": 0, "y": -1 }));
                     }
                     "GRID" => {}
                     _ => unreachable!(),
