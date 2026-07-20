@@ -17,6 +17,10 @@ folds paired reward offer fields into one `Relic` field at each stage. Schemas
 and duplicate cross-store ownership fail closed. Current snapshots and raw run
 state reject the retired fields rather than repairing them.
 
-Static relic definitions will own content ID, tier, display/trace aliases, and
-modeled-effect status. Unknown trace names remain unknown; recognizing a relic
-identity must not imply that its gameplay effect is modeled.
+Core relic definitions now expose content ID, Ironclad pool tier, canonical
+trace name, accepted aliases, and modeled-effect status. The verifier delegates
+relic name parsing and display to this metadata instead of maintaining parallel
+tables. Status is conservative: `Partial` does not attest full fidelity, and
+recognized but unsupported or identity-only relics are labeled explicitly.
+Unknown trace names remain unknown; recognizing a relic identity does not imply
+that its gameplay effect is modeled.

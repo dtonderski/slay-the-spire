@@ -432,17 +432,17 @@ pub const CIRCLET_ID: ContentId = ContentId::new(395);
 /// Content id for [Relic::RedCirclet].
 pub const RED_CIRCLET_ID: ContentId = ContentId::new(396);
 /// Content id for [Relic::RedMask].
-pub const RED_MASK_ID: ContentId = ContentId::new(397);
+pub const RED_MASK_ID: ContentId = ContentId::new(450);
 /// Content id for [Relic::CultistMask].
-pub const CULTIST_MASK_ID: ContentId = ContentId::new(430);
+pub const CULTIST_MASK_ID: ContentId = ContentId::new(451);
 /// Content id for [Relic::FaceOfCleric].
-pub const FACE_OF_CLERIC_ID: ContentId = ContentId::new(431);
+pub const FACE_OF_CLERIC_ID: ContentId = ContentId::new(452);
 /// Content id for [Relic::GremlinMask].
-pub const GREMLIN_MASK_ID: ContentId = ContentId::new(432);
+pub const GREMLIN_MASK_ID: ContentId = ContentId::new(453);
 /// Content id for [Relic::NlothsMask].
-pub const NLOTHS_MASK_ID: ContentId = ContentId::new(433);
+pub const NLOTHS_MASK_ID: ContentId = ContentId::new(454);
 /// Content id for [Relic::SsserpentHead].
-pub const SSSERPENT_HEAD_ID: ContentId = ContentId::new(434);
+pub const SSSERPENT_HEAD_ID: ContentId = ContentId::new(455);
 /// Content id for [Relic::SacredBark].
 pub const SACRED_BARK_ID: ContentId = ContentId::new(397);
 /// Content id for [Relic::RunicPyramid].
@@ -632,6 +632,28 @@ pub enum RelicTier {
     Rare,
     Boss,
     Shop,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelicEffectStatus {
+    /// The simulator models the relic's relevant behavior end to end.
+    Modeled,
+    /// Some behavior is modeled, but full fidelity has not been established.
+    Partial,
+    /// The identity is tracked, but its gameplay effect is unsupported.
+    Unsupported,
+    /// The relic is identity- or score-only for the simulator.
+    IdentityOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RelicDefinition {
+    pub relic: Relic,
+    pub content_id: ContentId,
+    pub tier: Option<RelicTier>,
+    pub trace_name: &'static str,
+    pub aliases: &'static [&'static str],
+    pub effect_status: RelicEffectStatus,
 }
 
 /// Source-compatible name for the former duplicate relic identity enum.
@@ -1136,7 +1158,411 @@ pub enum Relic {
     NlothsGift,
 }
 
+pub const ALL_RELICS: &[Relic] = &[
+    Relic::BurningBlood,
+    Relic::BloodVial,
+    Relic::Vajra,
+    Relic::OddlySmoothStone,
+    Relic::Strawberry,
+    Relic::Pear,
+    Relic::Mango,
+    Relic::OldCoin,
+    Relic::LeesWaffle,
+    Relic::PotionBelt,
+    Relic::Lantern,
+    Relic::BagOfPreparation,
+    Relic::BagOfMarbles,
+    Relic::BronzeScales,
+    Relic::ThreadAndNeedle,
+    Relic::RedSkull,
+    Relic::Nunchaku,
+    Relic::ArtOfWar,
+    Relic::Shuriken,
+    Relic::Kunai,
+    Relic::LetterOpener,
+    Relic::HappyFlower,
+    Relic::Orichalcum,
+    Relic::HornCleat,
+    Relic::CaptainsWheel,
+    Relic::MercuryHourglass,
+    Relic::StoneCalendar,
+    Relic::MeatOnTheBone,
+    Relic::QuestionCard,
+    Relic::BlackBlood,
+    Relic::MealTicket,
+    Relic::RegalPillow,
+    Relic::DreamCatcher,
+    Relic::EternalFeather,
+    Relic::Torii,
+    Relic::TungstenRod,
+    Relic::CeramicFish,
+    Relic::MembershipCard,
+    Relic::SmilingMask,
+    Relic::Pantograph,
+    Relic::Ginger,
+    Relic::Turnip,
+    Relic::MarkOfPain,
+    Relic::MagicFlower,
+    Relic::PaperPhrog,
+    Relic::ChampionBelt,
+    Relic::PreservedInsect,
+    Relic::Omamori,
+    Relic::SlingOfCourage,
+    Relic::MawBank,
+    Relic::AncientTeaSet,
+    Relic::Calipers,
+    Relic::SingingBowl,
+    Relic::DarkstonePeriapt,
+    Relic::DuVuDoll,
+    Relic::FusionHammer,
+    Relic::Sozu,
+    Relic::BustedCrown,
+    Relic::VelvetChoker,
+    Relic::ToyOrnithopter,
+    Relic::MoltenEgg,
+    Relic::ToxicEgg,
+    Relic::FrozenEgg,
+    Relic::TheBoot,
+    Relic::BirdFacedUrn,
+    Relic::CoffeeDripper,
+    Relic::Anchor,
+    Relic::InkBottle,
+    Relic::OrnamentalFan,
+    Relic::IceCream,
+    Relic::ChemicalX,
+    Relic::PhilosophersStone,
+    Relic::SlaversCollar,
+    Relic::Ectoplasm,
+    Relic::RunicDome,
+    Relic::StrikeDummy,
+    Relic::Brimstone,
+    Relic::WhiteBeastStatue,
+    Relic::Whetstone,
+    Relic::WarPaint,
+    Relic::Akabeko,
+    Relic::CentennialPuzzle,
+    Relic::PenNib,
+    Relic::SelfFormingClay,
+    Relic::ClockworkSouvenir,
+    Relic::RunicCube,
+    Relic::TheAbacus,
+    Relic::GremlinHorn,
+    Relic::Sundial,
+    Relic::CharonsAshes,
+    Relic::BlueCandle,
+    Relic::MedicalKit,
+    Relic::LizardTail,
+    Relic::Pocketwatch,
+    Relic::HandDrill,
+    Relic::RedMask,
+    Relic::Circlet,
+    Relic::RedCirclet,
+    Relic::CultistMask,
+    Relic::FaceOfCleric,
+    Relic::GremlinMask,
+    Relic::NlothsMask,
+    Relic::SsserpentHead,
+    Relic::SacredBark,
+    Relic::RunicPyramid,
+    Relic::FrozenEye,
+    Relic::PeacePipe,
+    Relic::OrangePellets,
+    Relic::Girya,
+    Relic::UnceasingTop,
+    Relic::Shovel,
+    Relic::FossilizedHelix,
+    Relic::BlackStar,
+    Relic::Matryoshka,
+    Relic::EmptyCage,
+    Relic::BottledFlame,
+    Relic::BottledLightning,
+    Relic::BottledTornado,
+    Relic::DollysMirror,
+    Relic::PrayerWheel,
+    Relic::CrackedCore,
+    Relic::FrozenCore,
+    Relic::PureWater,
+    Relic::HolyWater,
+    Relic::RingOfTheSnake,
+    Relic::RingOfTheSerpent,
+    Relic::Cauldron,
+    Relic::TinyHouse,
+    Relic::DeadBranch,
+    Relic::MummifiedHand,
+    Relic::TheCourier,
+    Relic::IncenseBurner,
+    Relic::CursedKey,
+    Relic::TinyChest,
+    Relic::Orrery,
+    Relic::SneckoEye,
+    Relic::StrangeSpoon,
+    Relic::WingBoots,
+    Relic::CallingBell,
+    Relic::PandorasBox,
+    Relic::Astrolabe,
+    Relic::GamblingChip,
+    Relic::Toolbox,
+    Relic::JuzuBracelet,
+    Relic::PrismaticShard,
+    Relic::MutagenicStrength,
+    Relic::WarpedTongs,
+    Relic::GoldenIdol,
+    Relic::BloodyIdol,
+    Relic::Necronomicon,
+    Relic::Enchiridion,
+    Relic::NilrysCodex,
+    Relic::MarkOfBloom,
+    Relic::SpiritPoop,
+    Relic::OddMushroom,
+    Relic::NlothsGift,
+];
+
+fn normalize_relic_name(name: &str) -> String {
+    name.chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect()
+}
+
 impl Relic {
+    #[must_use]
+    pub fn definition(self) -> RelicDefinition {
+        RelicDefinition {
+            relic: self,
+            content_id: self.content_id(),
+            tier: self.tier(),
+            trace_name: self.trace_name(),
+            aliases: self.aliases(),
+            effect_status: self.effect_status(),
+        }
+    }
+
+    #[must_use]
+    pub fn tier(self) -> Option<RelicTier> {
+        if IRONCLAD_COMMON_RELIC_POOL.contains(&self) {
+            Some(RelicTier::Common)
+        } else if IRONCLAD_UNCOMMON_RELIC_POOL.contains(&self) {
+            Some(RelicTier::Uncommon)
+        } else if IRONCLAD_RARE_RELIC_POOL.contains(&self) {
+            Some(RelicTier::Rare)
+        } else if IRONCLAD_SHOP_RELIC_POOL.contains(&self) {
+            Some(RelicTier::Shop)
+        } else if IRONCLAD_BOSS_RELIC_POOL.contains(&self) {
+            Some(RelicTier::Boss)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn effect_status(self) -> RelicEffectStatus {
+        match self {
+            Relic::MarkOfBloom => RelicEffectStatus::Modeled,
+            Relic::Circlet | Relic::RedCirclet | Relic::CultistMask | Relic::SpiritPoop => {
+                RelicEffectStatus::IdentityOnly
+            }
+            Relic::CrackedCore
+            | Relic::FrozenCore
+            | Relic::PureWater
+            | Relic::HolyWater
+            | Relic::RingOfTheSnake
+            | Relic::RingOfTheSerpent
+            | Relic::FaceOfCleric
+            | Relic::GremlinMask
+            | Relic::NlothsMask
+            | Relic::OddMushroom
+            | Relic::NlothsGift => RelicEffectStatus::Unsupported,
+            _ => RelicEffectStatus::Partial,
+        }
+    }
+
+    #[must_use]
+    pub const fn aliases(self) -> &'static [&'static str] {
+        match self {
+            Relic::MarkOfBloom => &["Mark of Bloom"],
+            Relic::MoltenEgg => &["Molten Egg 2"],
+            Relic::FrozenEgg => &["Frozen Egg 2"],
+            Relic::CultistMask => &["Cultist Mask"],
+            Relic::FaceOfCleric => &["Cleric Face", "Face of Cleric"],
+            Relic::GremlinMask => &["Gremlin Visage", "Gremlin Mask"],
+            _ => &[],
+        }
+    }
+
+    #[must_use]
+    pub fn from_trace_name(name: &str) -> Option<Self> {
+        let normalized = normalize_relic_name(name);
+        ALL_RELICS.iter().copied().find(|relic| {
+            normalize_relic_name(relic.trace_name()) == normalized
+                || relic
+                    .aliases()
+                    .iter()
+                    .any(|alias| normalize_relic_name(alias) == normalized)
+        })
+    }
+
+    #[must_use]
+    pub const fn trace_name(self) -> &'static str {
+        match self {
+            Relic::Akabeko => "Akabeko",
+            Relic::CrackedCore => "Cracked Core",
+            Relic::RingOfTheSnake => "Ring of the Snake",
+            Relic::PureWater => "Pure Water",
+            Relic::Vajra => "Vajra",
+            Relic::BottledTornado => "Bottled Tornado",
+            Relic::Sundial => "Sundial",
+            Relic::TheCourier => "The Courier",
+            Relic::OrnamentalFan => "Ornamental Fan",
+            Relic::HornCleat => "Horn Cleat",
+            Relic::BottledFlame => "Bottled Flame",
+            Relic::DarkstonePeriapt => "Darkstone Periapt",
+            Relic::MercuryHourglass => "Mercury Hourglass",
+            Relic::OldCoin => "Old Coin",
+            Relic::Shovel => "Shovel",
+            Relic::Turnip => "Turnip",
+            Relic::FrozenCore => "Frozen Core",
+            Relic::RingOfTheSerpent => "Ring of the Serpent",
+            Relic::HolyWater => "Holy Water",
+            Relic::HandDrill => "Hand Drill",
+            Relic::LeesWaffle => "Lee's Waffle",
+            Relic::FrozenEye => "Frozen Eye",
+            Relic::TheAbacus => "The Abacus",
+            Relic::Necronomicon => "Necronomicon",
+            Relic::Enchiridion => "Enchiridion",
+            Relic::NilrysCodex => "Nilry's Codex",
+            Relic::MutagenicStrength => "Mutagenic Strength",
+            Relic::BloodyIdol => "Bloody Idol",
+            Relic::MarkOfBloom => "Mark of the Bloom",
+            Relic::SpiritPoop => "Spirit Poop",
+            Relic::OddMushroom => "Odd Mushroom",
+            Relic::NlothsGift => "N'loth's Gift",
+            Relic::Circlet => "Circlet",
+            Relic::RedCirclet => "Red Circlet",
+            Relic::Anchor => "Anchor",
+            Relic::TheBoot => "The Boot",
+            Relic::TinyChest => "Tiny Chest",
+            Relic::BagOfMarbles => "Bag of Marbles",
+            Relic::BagOfPreparation => "Bag of Preparation",
+            Relic::BurningBlood => "Burning Blood",
+            Relic::BloodVial => "Blood Vial",
+            Relic::RedSkull => "Red Skull",
+            Relic::DreamCatcher => "Dream Catcher",
+            Relic::Torii => "Torii",
+            Relic::MoltenEgg => "Molten Egg",
+            Relic::ToxicEgg => "Toxic Egg",
+            Relic::FrozenEgg => "Frozen Egg",
+            Relic::MummifiedHand => "Mummified Hand",
+            Relic::CharonsAshes => "Charon's Ashes",
+            Relic::CeramicFish => "Ceramic Fish",
+            Relic::GamblingChip => "Gambling Chip",
+            Relic::PenNib => "Pen Nib",
+            Relic::MembershipCard => "Membership Card",
+            Relic::Pantograph => "Pantograph",
+            Relic::StrikeDummy => "Strike Dummy",
+            Relic::WhiteBeastStatue => "White Beast Statue",
+            Relic::SmilingMask => "Smiling Mask",
+            Relic::Whetstone => "Whetstone",
+            Relic::Orichalcum => "Orichalcum",
+            Relic::BronzeScales => "Bronze Scales",
+            Relic::Ginger => "Ginger",
+            Relic::Strawberry => "Strawberry",
+            Relic::TungstenRod => "Tungsten Rod",
+            Relic::MagicFlower => "Magic Flower",
+            Relic::ToyOrnithopter => "Toy Ornithopter",
+            Relic::BirdFacedUrn => "Bird-Faced Urn",
+            Relic::UnceasingTop => "Unceasing Top",
+            Relic::Toolbox => "Toolbox",
+            Relic::PotionBelt => "Potion Belt",
+            Relic::RegalPillow => "Regal Pillow",
+            Relic::Mango => "Mango",
+            Relic::GremlinHorn => "Gremlin Horn",
+            Relic::JuzuBracelet => "Juzu Bracelet",
+            Relic::MawBank => "Maw Bank",
+            Relic::Omamori => "Omamori",
+            Relic::Lantern => "Lantern",
+            Relic::AncientTeaSet => "Ancient Tea Set",
+            Relic::Pocketwatch => "Pocketwatch",
+            Relic::CentennialPuzzle => "Centennial Puzzle",
+            Relic::OddlySmoothStone => "Oddly Smooth Stone",
+            Relic::MeatOnTheBone => "Meat on the Bone",
+            Relic::ClockworkSouvenir => "Clockwork Souvenir",
+            Relic::Orrery => "Orrery",
+            Relic::StoneCalendar => "Stone Calendar",
+            Relic::IceCream => "Ice Cream",
+            Relic::ChemicalX => "Chemical X",
+            Relic::Calipers => "Calipers",
+            Relic::QuestionCard => "Question Card",
+            Relic::SingingBowl => "Singing Bowl",
+            Relic::CursedKey => "Cursed Key",
+            Relic::FusionHammer => "Fusion Hammer",
+            Relic::VelvetChoker => "Velvet Choker",
+            Relic::RunicDome => "Runic Dome",
+            Relic::SlaversCollar => "Slaver's Collar",
+            Relic::SneckoEye => "Snecko Eye",
+            Relic::PandorasBox => "Pandora's Box",
+            Relic::BustedCrown => "Busted Crown",
+            Relic::Ectoplasm => "Ectoplasm",
+            Relic::TinyHouse => "Tiny House",
+            Relic::Cauldron => "Cauldron",
+            Relic::Sozu => "Sozu",
+            Relic::PhilosophersStone => "Philosopher's Stone",
+            Relic::Astrolabe => "Astrolabe",
+            Relic::BlackStar => "Black Star",
+            Relic::SacredBark => "Sacred Bark",
+            Relic::EmptyCage => "Empty Cage",
+            Relic::RunicPyramid => "Runic Pyramid",
+            Relic::CallingBell => "Calling Bell",
+            Relic::CoffeeDripper => "Coffee Dripper",
+            Relic::BlackBlood => "Black Blood",
+            Relic::Brimstone => "Brimstone",
+            Relic::RedMask => "Red Mask",
+            Relic::EternalFeather => "Eternal Feather",
+            Relic::Pear => "Pear",
+            Relic::MarkOfPain => "Mark of Pain",
+            Relic::RunicCube => "Runic Cube",
+            Relic::DeadBranch => "Dead Branch",
+            Relic::MealTicket => "Meal Ticket",
+            Relic::PrismaticShard => "Prismatic Shard",
+            Relic::ChampionBelt => "Champion Belt",
+            Relic::GoldenIdol => "Golden Idol",
+            Relic::DuVuDoll => "Du-Vu Doll",
+            Relic::MedicalKit => "Medical Kit",
+            Relic::WarPaint => "War Paint",
+            Relic::LetterOpener => "Letter Opener",
+            Relic::PreservedInsect => "Preserved Insect",
+            Relic::SlingOfCourage => "Sling of Courage",
+            Relic::ArtOfWar => "Art of War",
+            Relic::PrayerWheel => "Prayer Wheel",
+            Relic::CaptainsWheel => "Captain's Wheel",
+            Relic::LizardTail => "Lizard Tail",
+            Relic::Nunchaku => "Nunchaku",
+            Relic::InkBottle => "Ink Bottle",
+            Relic::Shuriken => "Shuriken",
+            Relic::Kunai => "Kunai",
+            Relic::HappyFlower => "Happy Flower",
+            Relic::IncenseBurner => "Incense Burner",
+            Relic::ThreadAndNeedle => "Thread and Needle",
+            Relic::FossilizedHelix => "Fossilized Helix",
+            Relic::PeacePipe => "Peace Pipe",
+            Relic::PaperPhrog => "Paper Phrog",
+            Relic::StrangeSpoon => "Strange Spoon",
+            Relic::DollysMirror => "Dolly's Mirror",
+            Relic::SelfFormingClay => "Self-Forming Clay",
+            Relic::OrangePellets => "Orange Pellets",
+            Relic::Matryoshka => "Matryoshka",
+            Relic::BlueCandle => "Blue Candle",
+            Relic::BottledLightning => "Bottled Lightning",
+            Relic::WingBoots => "Wing Boots",
+            Relic::CultistMask => "Cultist Headpiece",
+            Relic::FaceOfCleric => "FaceOfCleric",
+            Relic::GremlinMask => "GremlinMask",
+            Relic::Girya => "Girya",
+            Relic::NlothsMask => "NlothsMask",
+            Relic::SsserpentHead => "Ssserpent Head",
+            Relic::WarpedTongs => "Warped Tongs",
+        }
+    }
+
     #[must_use]
     pub fn content_id(self) -> ContentId {
         match self {
@@ -2231,6 +2657,69 @@ mod tests {
             serde_json::from_str::<RelicKey>(r#""NlothsGift""#)
                 .expect("legacy key name deserializes"),
             Relic::NlothsGift
+        );
+    }
+
+    #[test]
+    fn canonical_relic_metadata_is_complete_and_self_consistent() {
+        assert_eq!(ALL_RELICS.len(), 156);
+        let mut relics = Vec::new();
+        let mut content_ids = Vec::new();
+        let mut names = Vec::new();
+
+        for relic in ALL_RELICS.iter().copied() {
+            let definition = relic.definition();
+            assert_eq!(definition.relic, relic);
+            assert_eq!(Relic::from_content_id(definition.content_id), Some(relic));
+            assert_eq!(Relic::from_trace_name(definition.trace_name), Some(relic));
+            assert!(!relics.contains(&relic), "duplicate relic {relic:?}");
+            assert!(
+                !content_ids.contains(&definition.content_id),
+                "duplicate content id for {relic:?}"
+            );
+            let normalized_name = normalize_relic_name(definition.trace_name);
+            assert!(
+                !names.contains(&normalized_name),
+                "duplicate trace name for {relic:?}"
+            );
+            for alias in definition.aliases {
+                assert_eq!(Relic::from_trace_name(alias), Some(relic), "alias {alias}");
+            }
+            relics.push(relic);
+            content_ids.push(definition.content_id);
+            names.push(normalized_name);
+        }
+
+        for (tier, pool) in [
+            (RelicTier::Common, IRONCLAD_COMMON_RELIC_POOL.as_slice()),
+            (RelicTier::Uncommon, IRONCLAD_UNCOMMON_RELIC_POOL.as_slice()),
+            (RelicTier::Rare, IRONCLAD_RARE_RELIC_POOL.as_slice()),
+            (RelicTier::Shop, IRONCLAD_SHOP_RELIC_POOL.as_slice()),
+            (RelicTier::Boss, IRONCLAD_BOSS_RELIC_POOL.as_slice()),
+        ] {
+            for relic in pool {
+                assert_eq!(relic.definition().tier, Some(tier), "{relic:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn relic_effect_status_does_not_treat_recognition_as_support() {
+        assert_eq!(
+            Relic::MarkOfBloom.definition().effect_status,
+            RelicEffectStatus::Modeled
+        );
+        assert_eq!(
+            Relic::SpiritPoop.definition().effect_status,
+            RelicEffectStatus::IdentityOnly
+        );
+        assert_eq!(
+            Relic::OddMushroom.definition().effect_status,
+            RelicEffectStatus::Unsupported
+        );
+        assert_eq!(
+            Relic::NlothsGift.definition().effect_status,
+            RelicEffectStatus::Unsupported
         );
     }
 }
