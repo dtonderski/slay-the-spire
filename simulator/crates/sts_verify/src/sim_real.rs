@@ -907,32 +907,31 @@ struct PendingDeckAssertion {
     expected_deck: Vec<String>,
 }
 
+enum SmokeBombUiState {
+    Escaping {
+        source: Box<RunState>,
+        action: TraceAction,
+        transient_matches: bool,
+    },
+    Reward {
+        pending_proceeds: Vec<TraceAction>,
+    },
+}
+
+impl SmokeBombUiState {
+    fn unresolved_assertions(&self) -> usize {
+        match self {
+            Self::Escaping { .. } => 1,
+            Self::Reward { pending_proceeds } => pending_proceeds.len(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum PendingDeckObservation {
     Settled,
     Deferred,
     Diverged(Vec<String>),
-}
-
-fn seed_start_empty_combat_reward() -> RewardScreen {
-    RewardScreen {
-        continuation: sts_core::RewardContinuation::None,
-        choices: Vec::new(),
-        queued_card_rewards: Vec::new(),
-        gold_offer: 0,
-        stolen_gold_offer: 0,
-        potion_offer: None,
-        potion_offers: Vec::new(),
-        relic_offer: None,
-        relic_key_offer: None,
-        pending_relic_offer: None,
-        pending_relic_key_offer: None,
-        queued_relic_key_offers: Vec::new(),
-        boss_relic_choices: Vec::new(),
-        card_reward_active: false,
-        card_reward_pending: false,
-        pending_card_reward_count: 0,
-    }
 }
 
 fn verify_seed_start_transitions(
@@ -966,9 +965,7 @@ fn verify_seed_start_transitions(
     let mut relics = vec!["Burning Blood".to_owned()];
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
-    let mut pending_smoke_bomb_reward: Option<RunState> = None;
-    let mut smoke_bomb_reward_active = false;
-    let mut smoke_bomb_proceed_pending = false;
+    let mut smoke_bomb_ui: Option<SmokeBombUiState> = None;
     let mut pending_deck_assertion: Option<PendingDeckAssertion> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
 
@@ -980,7 +977,10 @@ fn verify_seed_start_transitions(
                 start.numeric_seed,
                 boss_unlocks,
                 reconciled_deferred_action_steps,
-                usize::from(pending_deck_assertion.is_some()),
+                usize::from(pending_deck_assertion.is_some())
+                    + smoke_bomb_ui
+                        .as_ref()
+                        .map_or(0, SmokeBombUiState::unresolved_assertions),
             )
         };
     }
@@ -1020,50 +1020,139 @@ fn verify_seed_start_transitions(
         ) {
             sim.playtime_seconds = playtime_seconds;
         }
-        if action.command.eq_ignore_ascii_case("state") {
-            if pending_smoke_bomb_reward.is_some()
-                && screen_type(&post.message) == Some("COMBAT_REWARD")
+        if action.command.eq_ignore_ascii_case("state")
+            || smoke_bomb_ui.is_some() && action.command.eq_ignore_ascii_case("wait")
+        {
+            if let Some(SmokeBombUiState::Escaping {
+                source,
+                action: escape_action,
+                transient_matches,
+            }) = smoke_bomb_ui.as_mut()
             {
-                let mut settled = pending_smoke_bomb_reward
-                    .take()
-                    .expect("pending Smoke Bomb reward checked above");
-                settled.phase = RunPhase::Reward;
-                settled.reward = Some(seed_start_empty_combat_reward());
-                seed_start_update_carry_from_run(&settled, &mut relics, &mut deck_ids);
-                compare_subset(
-                    report,
-                    action,
-                    "Smoke Bomb escape settled to empty reward",
-                    seed_start_reward_observed_subset(&post.message),
-                    seed_start_reward_simulated_subset(&settled, &relics),
-                );
-                seed_sim = Some(settled);
-                phase = SeedStartPhase::Reward;
-                smoke_bomb_reward_active = true;
-                continue;
-            }
-            if smoke_bomb_reward_active
-                && smoke_bomb_proceed_pending
-                && screen_type(&post.message) == Some("MAP")
-            {
-                smoke_bomb_reward_active = false;
-                smoke_bomb_proceed_pending = false;
-                if let Some(boundary) = seed_start_handle_proceed_to_map(
-                    report,
-                    action,
-                    &post.message,
-                    start,
-                    &mut phase,
-                    &mut combat_index,
-                    &mut _reward_step,
-                    &mut map_path_xs,
-                    &mut seed_sim,
-                    &mut relics,
-                    &mut deck_ids,
-                ) {
-                    return finish_boundary!(boundary);
+                if screen_type(&post.message) == Some("NONE")
+                    && post.message.pointer("/game_state/combat_state").is_some()
+                {
+                    let destination = seed_sim
+                        .as_ref()
+                        .expect("Smoke Bomb escape keeps its core destination");
+                    *transient_matches &= seed_start_compare_deferred_combat_subset(
+                        report,
+                        escape_action,
+                        "Smoke Bomb transient combat frame",
+                        seed_start_smoke_bomb_transient_observed_subset(&post.message),
+                        seed_start_smoke_bomb_transient_simulated_subset(source, destination),
+                    );
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "Smoke Bomb transient observation poll".to_owned(),
+                    });
+                    continue;
                 }
-                continue;
+                if screen_type(&post.message) == Some("COMBAT_REWARD") {
+                    let destination = seed_sim
+                        .as_ref()
+                        .expect("Smoke Bomb escape keeps its core destination");
+                    let stable_matches = seed_start_compare_deferred_subset(
+                        report,
+                        escape_action,
+                        "Smoke Bomb escape settled to empty reward",
+                        seed_start_reward_observed_subset(&post.message),
+                        seed_start_reward_simulated_subset(destination, &relics),
+                    );
+                    if *transient_matches && stable_matches {
+                        report.verified.push(VerifiedTransition {
+                            action_step: escape_action.step,
+                            command: escape_action.command.clone(),
+                            label: "Smoke Bomb escape reconciled at empty reward".to_owned(),
+                        });
+                        reconciled_deferred_action_steps.push(escape_action.step);
+                    }
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "Smoke Bomb stable reward observation poll".to_owned(),
+                    });
+                    phase = SeedStartPhase::Reward;
+                    smoke_bomb_ui = Some(SmokeBombUiState::Reward {
+                        pending_proceeds: Vec::new(),
+                    });
+                    continue;
+                }
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_smoke_bomb_ui_transition".to_owned(),
+                    reason: format!(
+                        "Smoke Bomb escape poll reached unsupported screen {:?}",
+                        screen_type(&post.message)
+                    ),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return finish_boundary!(boundary);
+            }
+            if let Some(SmokeBombUiState::Reward { pending_proceeds }) = smoke_bomb_ui.as_ref() {
+                if screen_type(&post.message) == Some("COMBAT_REWARD") {
+                    let destination = seed_sim
+                        .as_ref()
+                        .expect("Smoke Bomb reward keeps its core destination");
+                    compare_subset(
+                        report,
+                        action,
+                        "Smoke Bomb empty reward observation poll",
+                        seed_start_reward_observed_subset(&post.message),
+                        seed_start_reward_simulated_subset(destination, &relics),
+                    );
+                    continue;
+                }
+                if !pending_proceeds.is_empty() && screen_type(&post.message) == Some("MAP") {
+                    let pending_proceeds = pending_proceeds.clone();
+                    let diff_count = report.unexpected_diffs.len();
+                    if let Some(boundary) = seed_start_handle_proceed_to_map(
+                        report,
+                        action,
+                        &post.message,
+                        start,
+                        &mut phase,
+                        &mut combat_index,
+                        &mut _reward_step,
+                        &mut map_path_xs,
+                        &mut seed_sim,
+                        &mut relics,
+                        &mut deck_ids,
+                    ) {
+                        return finish_boundary!(boundary);
+                    }
+                    if report.unexpected_diffs.len() == diff_count {
+                        for pending in pending_proceeds {
+                            report.verified.push(VerifiedTransition {
+                                action_step: pending.step,
+                                command: pending.command,
+                                label: "Smoke Bomb reward proceed reconciled at map".to_owned(),
+                            });
+                            reconciled_deferred_action_steps.push(pending.step);
+                        }
+                        smoke_bomb_ui = None;
+                    }
+                    continue;
+                }
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_smoke_bomb_ui_transition".to_owned(),
+                    reason: format!(
+                        "Smoke Bomb reward poll reached unsupported screen {:?}",
+                        screen_type(&post.message)
+                    ),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return finish_boundary!(boundary);
             }
             report.verified.push(VerifiedTransition {
                 action_step: action.step,
@@ -3545,31 +3634,78 @@ fn verify_seed_start_transitions(
                             reason: "seed-start combat potion simulation failed".to_owned(),
                         });
                     };
-                    if is_smoke_bomb
-                        && screen_type(&post.message) == Some("NONE")
-                        && post
-                            .message
-                            .get("game_state")
-                            .and_then(|game| game.get("combat_state"))
-                            .is_some()
-                    {
-                        let mut settling = next.clone();
-                        settling.phase = sim.phase;
-                        settling.reward = sim.reward.clone();
-                        settling.combat = sim.combat.clone();
-                        settling.player_hp = sim.player_hp;
-                        settling.player_max_hp = sim.player_max_hp;
-                        seed_start_compare_combat_subset(
-                            report,
-                            action,
-                            "Smoke Bomb escape queued",
-                            seed_start_combat_observed_subset(&post.message),
-                            seed_start_simulated_combat_subset(&settling, false),
-                            false,
-                        );
-                        *sim = settling;
-                        pending_smoke_bomb_reward = Some(next);
-                        continue;
+                    if is_smoke_bomb {
+                        if next.phase != RunPhase::Idle
+                            || next.combat.is_some()
+                            || next.reward.is_some()
+                        {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "invalid_smoke_bomb_core_destination".to_owned(),
+                                reason: format!(
+                                    "Smoke Bomb core transition produced phase {:?}, combat={}, reward={}",
+                                    next.phase,
+                                    next.combat.is_some(),
+                                    next.reward.is_some(),
+                                ),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
+                        if screen_type(&post.message) == Some("NONE")
+                            && post.message.pointer("/game_state/combat_state").is_some()
+                        {
+                            let source = sim.clone();
+                            let transient_matches = seed_start_compare_deferred_combat_subset(
+                                report,
+                                action,
+                                "Smoke Bomb escape queued",
+                                seed_start_smoke_bomb_transient_observed_subset(&post.message),
+                                seed_start_smoke_bomb_transient_simulated_subset(&source, &next),
+                            );
+                            seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                            *sim = next;
+                            smoke_bomb_ui = Some(SmokeBombUiState::Escaping {
+                                source: Box::new(source),
+                                action: action.clone(),
+                                transient_matches,
+                            });
+                            continue;
+                        }
+                        if screen_type(&post.message) == Some("COMBAT_REWARD") {
+                            seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                            compare_subset(
+                                report,
+                                action,
+                                "Smoke Bomb escape settled to empty reward",
+                                seed_start_reward_observed_subset(&post.message),
+                                seed_start_reward_simulated_subset(&next, &relics),
+                            );
+                            *sim = next;
+                            phase = SeedStartPhase::Reward;
+                            smoke_bomb_ui = Some(SmokeBombUiState::Reward {
+                                pending_proceeds: Vec::new(),
+                            });
+                            continue;
+                        }
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_smoke_bomb_ui_transition".to_owned(),
+                            reason: format!(
+                                "Smoke Bomb command reached unsupported screen {:?}",
+                                screen_type(&post.message)
+                            ),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
                     }
                     if seed_start_run_has_combat_card_reward(&next) {
                         seed_start_compare_combat_subset(
@@ -3762,17 +3898,79 @@ fn verify_seed_start_transitions(
                 *sim = next;
             }
             SeedStartPhase::Reward => {
-                if smoke_bomb_reward_active
+                if matches!(smoke_bomb_ui, Some(SmokeBombUiState::Reward { .. }))
                     && action.command.eq_ignore_ascii_case("PROCEED")
-                    && screen_type(&post.message) == Some("COMBAT_REWARD")
                 {
-                    smoke_bomb_proceed_pending = true;
-                    report.verified.push(VerifiedTransition {
+                    let destination = seed_sim
+                        .as_ref()
+                        .expect("Smoke Bomb reward keeps its core destination");
+                    if screen_type(&post.message) == Some("COMBAT_REWARD") {
+                        if seed_start_compare_deferred_subset(
+                            report,
+                            action,
+                            "Smoke Bomb reward proceed awaiting map",
+                            seed_start_reward_observed_subset(&post.message),
+                            seed_start_reward_simulated_subset(destination, &relics),
+                        ) {
+                            let Some(SmokeBombUiState::Reward { pending_proceeds }) =
+                                smoke_bomb_ui.as_mut()
+                            else {
+                                unreachable!("Smoke Bomb reward state checked above");
+                            };
+                            pending_proceeds.push(action.clone());
+                        }
+                        continue;
+                    }
+                    if screen_type(&post.message) == Some("MAP") {
+                        let pending_proceeds = match smoke_bomb_ui.as_ref() {
+                            Some(SmokeBombUiState::Reward { pending_proceeds }) => {
+                                pending_proceeds.clone()
+                            }
+                            _ => unreachable!("Smoke Bomb reward state checked above"),
+                        };
+                        let diff_count = report.unexpected_diffs.len();
+                        if let Some(boundary) = seed_start_handle_proceed_to_map(
+                            report,
+                            action,
+                            &post.message,
+                            start,
+                            &mut phase,
+                            &mut combat_index,
+                            &mut _reward_step,
+                            &mut map_path_xs,
+                            &mut seed_sim,
+                            &mut relics,
+                            &mut deck_ids,
+                        ) {
+                            return finish_boundary!(boundary);
+                        }
+                        if report.unexpected_diffs.len() == diff_count {
+                            for pending in pending_proceeds {
+                                report.verified.push(VerifiedTransition {
+                                    action_step: pending.step,
+                                    command: pending.command,
+                                    label: "Smoke Bomb reward proceed reconciled at map".to_owned(),
+                                });
+                                reconciled_deferred_action_steps.push(pending.step);
+                            }
+                            smoke_bomb_ui = None;
+                        }
+                        continue;
+                    }
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_smoke_bomb_ui_transition".to_owned(),
+                        reason: format!(
+                            "Smoke Bomb reward proceed reached unsupported screen {:?}",
+                            screen_type(&post.message)
+                        ),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
                         action_step: action.step,
                         command: action.command.clone(),
-                        label: "Smoke Bomb reward proceed awaiting map".to_owned(),
+                        reason: boundary.reason.clone(),
                     });
-                    continue;
+                    return finish_boundary!(boundary);
                 }
                 if action.command.trim().eq_ignore_ascii_case("SKIP") {
                     let Some(sim) = seed_sim.as_mut() else {
@@ -5198,6 +5396,30 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
         }
     }
     subset
+}
+
+fn seed_start_smoke_bomb_transient_observed_subset(message: &Value) -> Value {
+    let mut subset = seed_start_combat_observed_subset(message);
+    seed_start_defer_smoke_bomb_hp(&mut subset);
+    subset
+}
+
+fn seed_start_smoke_bomb_transient_simulated_subset(
+    source: &RunState,
+    destination: &RunState,
+) -> Value {
+    let mut projection = source.clone();
+    projection.potions = destination.potions.clone();
+    let mut subset = seed_start_simulated_combat_subset(&projection, false);
+    seed_start_defer_smoke_bomb_hp(&mut subset);
+    subset
+}
+
+fn seed_start_defer_smoke_bomb_hp(subset: &mut Value) {
+    if let Value::Object(fields) = subset {
+        fields.remove("current_hp");
+        fields.remove("combat_player_hp");
+    }
 }
 
 fn seed_start_reward_observed_subset(message: &Value) -> Value {
@@ -9160,6 +9382,26 @@ fn seed_start_compare_combat_subset(
     compare_subset(report, action, label, expected, actual);
 }
 
+fn seed_start_compare_deferred_combat_subset(
+    report: &mut SimRealReport,
+    action: &TraceAction,
+    label: &str,
+    expected: Value,
+    actual: Value,
+) -> bool {
+    let mut expected = seed_start_normalize_combat_compare(expected, false);
+    let mut actual = seed_start_normalize_combat_compare(actual, false);
+    apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
+    if let (Some(expected_obj), Some(actual_obj)) = (expected.as_object(), actual.as_object_mut()) {
+        for key in ["ascension", "deck_ids", "relic_ids"] {
+            if !expected_obj.contains_key(key) {
+                actual_obj.remove(key);
+            }
+        }
+    }
+    seed_start_compare_deferred_subset(report, action, label, expected, actual)
+}
+
 fn apply_observed_debug_intent_visibility_contract(expected: &mut Value, actual: &mut Value) {
     if let (Some(expected_monsters), Some(actual_monsters)) = (
         expected.get_mut("monsters").and_then(Value::as_array_mut),
@@ -10057,6 +10299,35 @@ fn compare_subset(
             label: label.to_owned(),
             diffs,
         });
+    }
+}
+
+fn seed_start_compare_deferred_subset(
+    report: &mut SimRealReport,
+    action: &TraceAction,
+    label: &str,
+    expected: Value,
+    actual: Value,
+) -> bool {
+    let diffs = subset_diffs(expected, actual);
+    if diffs.is_empty() {
+        true
+    } else {
+        if let Some(existing) = report.unexpected_diffs.iter_mut().find(|existing| {
+            existing.action_step == action.step && existing.command == action.command
+        }) {
+            existing
+                .diffs
+                .extend(diffs.into_iter().map(|diff| format!("{label}: {diff}")));
+        } else {
+            report.unexpected_diffs.push(UnexpectedDiff {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: label.to_owned(),
+                diffs,
+            });
+        }
+        false
     }
 }
 
@@ -11809,6 +12080,79 @@ mod tests {
     };
     use sts_core::content::monsters::{monster_state, SLAVER_BLUE_A0};
     use sts_core::relic::IRONCLAD_BOSS_RELIC_POOL;
+
+    #[test]
+    fn smoke_bomb_transient_projection_preserves_the_core_destination() {
+        let mut source = RunState::map_fixture();
+        source.player_hp = 10;
+        source.player_max_hp = 80;
+        source.potions = vec![Potion::SmokeBomb];
+        source.phase = RunPhase::Combat;
+        let mut combat = source.init_combat(CombatState::initial_fixture());
+        combat.player.hp = 10;
+        combat.player.max_hp = 80;
+        source.combat = Some(combat);
+
+        let destination = apply_run_action(
+            &source,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Smoke Bomb reaches the core escape destination");
+        assert_eq!(destination.phase, RunPhase::Idle);
+        assert!(destination.combat.is_none());
+        assert!(destination.reward.is_none());
+        assert!(destination.potions.is_empty());
+
+        let projection = seed_start_smoke_bomb_transient_simulated_subset(&source, &destination);
+        assert_eq!(projection["screen_type"], json!("NONE"));
+        assert_eq!(projection["potion_ids"], json!([]));
+        assert!(projection.get("current_hp").is_none());
+        assert!(projection.get("combat_player_hp").is_none());
+        assert_eq!(source.phase, RunPhase::Combat);
+        assert!(source.combat.is_some());
+        assert_eq!(destination.phase, RunPhase::Idle);
+        assert!(destination.combat.is_none());
+    }
+
+    #[test]
+    fn smoke_bomb_trace_reconciles_escape_and_reward_proceeds_at_stable_frames() {
+        let Some(content) =
+            crate::load_corpus_file("communication_mod/trace-2026-07-07T18-33-54-807Z.jsonl")
+        else {
+            return;
+        };
+        let report = verify_seed_start_communication_mod_trace(&content)
+            .expect("Smoke Bomb regression trace verifies");
+        assert!(
+            report.unexpected_diffs.is_empty(),
+            "{:#?}",
+            report.unexpected_diffs
+        );
+        assert!(report.unsupported.is_empty(), "{:#?}", report.unsupported);
+        assert_eq!(
+            report
+                .action_integrity
+                .as_ref()
+                .expect("action integrity")
+                .unresolved_transient_assertions,
+            0
+        );
+        for (step, command) in [(808, "POTION USE 1 0"), (811, "PROCEED"), (812, "PROCEED")] {
+            let disposition = report
+                .action_dispositions
+                .iter()
+                .find(|entry| entry.action_step == step && entry.command == command)
+                .unwrap_or_else(|| panic!("disposition for step {step} {command}"));
+            assert_eq!(disposition.disposition, ActionDispositionKind::Verified);
+            assert!(
+                disposition.deferred_assertion_reconciled,
+                "step {step} must be reconciled only after its stable frame"
+            );
+        }
+    }
 
     #[test]
     fn recorded_action_input_drives_time_gated_run_state_without_gameplay_hydration() {
