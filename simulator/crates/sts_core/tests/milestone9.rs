@@ -4,11 +4,11 @@ use sts_core::{
     content::cards::ANGER_ID,
     content::cards::{PARASITE_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP,
-    enter_event_screen, enter_fixed_event_screen, leave_shop_room, legal_event_actions,
-    legal_map_actions_on_run, legal_rest_actions, legal_shop_actions, rest_heal_amount, CardId,
-    CardInstance, Event, EventAction, MapAction, MapNodeId, Potion, Relic, RelicKey, RestAction,
-    RoomKind, RunAction, RunPhase, RunState, ShopCardSlot, ShopPotionSlot, ShopRelicSlot,
-    ShopScreen, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, VAJRA_STRENGTH,
+    enter_event_screen, leave_shop_room, legal_event_actions, legal_map_actions_on_run,
+    legal_rest_actions, legal_shop_actions, rest_heal_amount, CardId, CardInstance, Event,
+    EventAction, MapAction, MapNodeId, Potion, Relic, RelicKey, RestAction, RoomKind, RunAction,
+    RunPhase, RunState, ShopCardSlot, ShopPotionSlot, ShopRelicSlot, ShopScreen, SimError,
+    FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, VAJRA_STRENGTH,
 };
 
 const SHOP_ANGER_PRICE: i32 = 50;
@@ -37,6 +37,14 @@ fn legacy_fixed_shop_screen(next_card_id: u64) -> ShopScreen {
         sale_slot: None,
     }
 }
+
+fn enter_legacy_fixed_event_screen_fixture(run: &mut RunState) {
+    let mut screen = sts_core::event_screen(Event::GoldenShrine);
+    screen.choices.truncate(1);
+    run.phase = RunPhase::Event;
+    run.event = Some(screen);
+}
+
 fn reach_shop_via_left_branch() -> RunState {
     let mut run = RunState::map_fixture();
     for node_id in [MapNodeId::new(1), MapNodeId::new(3), MapNodeId::new(4)] {
@@ -389,10 +397,10 @@ fn discard_potion_removes_it_from_belt() {
 }
 
 #[test]
-fn entering_fixed_event_exposes_golden_shrine() {
+fn entering_legacy_event_fixture_exposes_golden_shrine() {
     let mut run = RunState::map_fixture();
 
-    enter_fixed_event_screen(&mut run);
+    enter_legacy_fixed_event_screen_fixture(&mut run);
 
     assert_eq!(run.phase, RunPhase::Event);
     let event = run.event.as_ref().expect("event screen");
@@ -408,7 +416,7 @@ fn entering_fixed_event_exposes_golden_shrine() {
 #[test]
 fn golden_shrine_choice_grants_gold_and_returns_to_map() {
     let mut run = RunState::map_fixture();
-    enter_fixed_event_screen(&mut run);
+    enter_legacy_fixed_event_screen_fixture(&mut run);
     let gold_before = run.gold;
 
     let after_pray =

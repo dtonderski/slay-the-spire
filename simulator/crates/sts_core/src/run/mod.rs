@@ -9,11 +9,9 @@ pub mod shop;
 pub mod state;
 
 pub use event::{
-    apply_event_action, enter_event_screen, enter_fixed_event_screen,
-    enter_legacy_fixed_event_screen, event_screen, fixed_event_screen, golden_shrine_gold,
-    legacy_fixed_event_screen, legal_event_actions, match_and_keep_group_index_for_label,
-    match_and_keep_label_index_for_group, validate_event_action, Event, EventChoice, EventScreen,
-    GOLDEN_SHRINE_GOLD,
+    apply_event_action, enter_event_screen, event_screen, golden_shrine_gold, legal_event_actions,
+    match_and_keep_group_index_for_label, match_and_keep_label_index_for_group,
+    validate_event_action, Event, EventChoice, EventScreen, GOLDEN_SHRINE_GOLD,
 };
 pub use grid::{
     cancel_grid, confirm_grid, open_astrolabe_grid, open_bonfire_elementals_grid, open_bottle_grid,

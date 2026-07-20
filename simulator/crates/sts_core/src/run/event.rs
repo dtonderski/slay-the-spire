@@ -1890,17 +1890,6 @@ fn make_event_screen(event: Event, choices: Vec<EventChoice>, stage: u32) -> Eve
     }
 }
 
-#[must_use]
-pub fn legacy_fixed_event_screen() -> EventScreen {
-    make_event_screen(
-        Event::GoldenShrine,
-        vec![EventChoice {
-            label: "Pray".to_owned(),
-        }],
-        0,
-    )
-}
-
 fn golden_shrine_choices(stage: u32) -> Vec<EventChoice> {
     match stage {
         0 => labeled_choices(&["Pray", "Desecrate", "Leave"]),
@@ -2096,27 +2085,6 @@ fn has_wing_statue_attack_card(run: &RunState) -> bool {
     })
 }
 
-/// Compatibility wrapper for [`legacy_fixed_event_screen`].
-///
-/// Fidelity: [`crate::FidelityCategory::LegacyFixed`]. This is an early
-/// milestone Golden Shrine fixture, not general event RNG.
-#[must_use]
-pub fn fixed_event_screen() -> EventScreen {
-    legacy_fixed_event_screen()
-}
-
-pub fn enter_legacy_fixed_event_screen(run: &mut RunState) {
-    run.phase = RunPhase::Event;
-    run.event = Some(legacy_fixed_event_screen());
-}
-
-/// Compatibility wrapper for [`enter_legacy_fixed_event_screen`].
-///
-/// Fidelity: [`crate::FidelityCategory::LegacyFixed`].
-pub fn enter_fixed_event_screen(run: &mut RunState) {
-    enter_legacy_fixed_event_screen(run);
-}
-
 pub fn enter_event_screen(run: &mut RunState) {
     run.reinit_misc_rng_for_floor();
     run.ensure_ironclad_relic_pools();
@@ -2143,7 +2111,7 @@ pub fn event_screen(event: Event) -> EventScreen {
             make_event_screen(event, hypnotizing_colored_mushrooms_choices(0), 0)
         }
         Event::Nloth => make_event_screen(event, labeled_choices(&["Trade", "Trade", "Leave"]), 0),
-        Event::GoldenShrine => legacy_fixed_event_screen(),
+        Event::GoldenShrine => make_event_screen(event, golden_shrine_choices(0), 0),
         Event::FountainOfCleansing => make_event_screen(event, fountain_of_cleansing_choices(0), 0),
         Event::Transmorgrifier => make_event_screen(event, labeled_choices(&["Pray", "Leave"]), 0),
         Event::Purifier => make_event_screen(
@@ -2281,7 +2249,6 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
     match event {
         Event::Neow => make_event_screen(event, neow_option_choices(run), 1),
         Event::Designer => designer_screen(run, 0, 0),
-        Event::GoldenShrine => make_event_screen(event, golden_shrine_choices(0), 0),
         Event::Vampires => make_event_screen(
             event,
             vampires_choices(run.relics.contains(&Relic::BloodVial)),
@@ -6253,6 +6220,23 @@ mod tests {
             1
         );
         assert!(after_leave.pending_obtain_cards.is_empty());
+    }
+
+    #[test]
+    fn golden_shrine_constructors_share_canonical_opening_choices() {
+        let run = RunState::placeholder_seeded_ironclad(1, 0);
+        let generic = event_screen(Event::GoldenShrine);
+        let run_aware = event_screen_for_run(&run, Event::GoldenShrine);
+
+        assert_eq!(generic, run_aware);
+        assert_eq!(
+            generic
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Pray", "Desecrate", "Leave"]
+        );
     }
 
     #[test]
