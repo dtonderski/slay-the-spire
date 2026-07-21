@@ -34,6 +34,15 @@ id_type!(ActionId, "action");
 id_type!(ContentId, "content");
 id_type!(MapNodeId, "map_node");
 
+/// Card-instance IDs share the positive signed-long domain used by external
+/// state and reserve the upper unsigned range for allocation headroom.
+pub(crate) const MAX_SUPPORTED_CARD_INSTANCE_ID: u64 = i64::MAX as u64;
+
+#[must_use]
+pub(crate) const fn card_instance_id_is_supported(id: CardId) -> bool {
+    id.get() > 0 && id.get() <= MAX_SUPPORTED_CARD_INSTANCE_ID
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,5 +64,14 @@ mod tests {
         assert_eq!(MonsterId::new(2).to_string(), "monster:2");
         assert_eq!(ActionId::new(3).to_string(), "action:3");
         assert_eq!(ContentId::new(4).to_string(), "content:4");
+    }
+
+    #[test]
+    fn card_instance_ids_use_the_positive_signed_long_domain() {
+        assert!(!card_instance_id_is_supported(CardId::new(0)));
+        assert!(card_instance_id_is_supported(CardId::new(i64::MAX as u64)));
+        assert!(!card_instance_id_is_supported(CardId::new(
+            i64::MAX as u64 + 1
+        )));
     }
 }

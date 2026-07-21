@@ -10,7 +10,7 @@ use crate::{
         requires_rolled_attack_damage, CULTIST_A0, FIXED_SIMPLE_MONSTER, LAGAVULIN_A0,
         RED_LOUSE_A0, RED_LOUSE_BITE_DAMAGE, SENTRY_A0,
     },
-    ids::{CardId, MonsterId},
+    ids::{card_instance_id_is_supported, CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
     relic::{Relic, RelicCounters},
     rng::StsRng,
@@ -841,13 +841,11 @@ impl CombatState {
         self.validate_unique_card_piles()?;
         let mut card_ids = BTreeSet::new();
         for card in self.authoritative_cards() {
+            validate_combat_card(card)?;
             if !card_ids.insert(card.id) {
                 return Err(SimError::InvalidState(
                     "duplicate authoritative card instance ID",
                 ));
-            }
-            if get_card_definition(card.content_id).is_none() {
-                return Err(SimError::UnknownContent(card.content_id));
             }
         }
 
@@ -885,13 +883,11 @@ impl CombatState {
                 ));
             }
             if let Some(card) = &monster.stasis_card {
+                validate_combat_card(card)?;
                 if !card_ids.insert(card.id) {
                     return Err(SimError::InvalidState(
                         "duplicate authoritative card instance ID",
                     ));
-                }
-                if get_card_definition(card.content_id).is_none() {
-                    return Err(SimError::UnknownContent(card.content_id));
                 }
             }
         }
@@ -937,6 +933,18 @@ impl CombatState {
         }
         cards
     }
+}
+
+fn validate_combat_card(card: &CardInstance) -> SimResult<()> {
+    if !card_instance_id_is_supported(card.id) {
+        return Err(SimError::InvalidState(
+            "card instance ID is outside the supported allocation range",
+        ));
+    }
+    if get_card_definition(card.content_id).is_none() {
+        return Err(SimError::UnknownContent(card.content_id));
+    }
+    Ok(())
 }
 
 fn extend_decision_cards<'a>(cards: &mut Vec<&'a CardInstance>, decision: &'a CombatDecisionState) {
@@ -1065,5 +1073,25 @@ mod tests {
         assert!(state.piles.all_cards().next().is_none());
         assert_eq!(state.ascension, 9);
         assert_eq!(state.rng, rng);
+    }
+
+    #[test]
+    fn combat_validation_rejects_card_ids_outside_the_allocation_domain() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand[0].id = CardId::new(0);
+        assert_eq!(
+            state.validate(),
+            Err(SimError::InvalidState(
+                "card instance ID is outside the supported allocation range"
+            ))
+        );
+
+        state.piles.hand[0].id = CardId::new(i64::MAX as u64 + 1);
+        assert_eq!(
+            state.validate(),
+            Err(SimError::InvalidState(
+                "card instance ID is outside the supported allocation range"
+            ))
+        );
     }
 }

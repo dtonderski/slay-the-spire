@@ -12,7 +12,7 @@ use crate::{
         colorless_discovery_card_choices, discovery_card_choices, shop_card_is_colorless,
         shop_card_type,
     },
-    ids::{CardId, ContentId, MonsterId},
+    ids::{card_instance_id_is_supported, CardId, ContentId, MonsterId},
     map::{generate_target_fixed_map, milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
     potion::{Potion, MAX_POTIONS},
     relic::{
@@ -109,6 +109,26 @@ mod tests {
         run.current_floor = 1;
 
         assert_eq!(run.rng_stream_state(RunRngStream::CardRandom).seed, 0);
+    }
+
+    #[test]
+    fn run_validation_rejects_card_ids_outside_the_allocation_domain() {
+        let mut run = RunState::map_fixture();
+        run.deck[0].id = CardId::new(0);
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "card instance ID is outside the supported allocation range"
+            ))
+        );
+
+        run.deck[0].id = CardId::new(i64::MAX as u64 + 1);
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "card instance ID is outside the supported allocation range"
+            ))
+        );
     }
 
     #[test]
@@ -582,12 +602,14 @@ impl RewardScreen {
 }
 
 fn validate_run_card_content(card: &CardInstance) -> SimResult<()> {
+    validate_run_card_instance_id(card)?;
     get_card_definition(card.content_id)
         .map(|_| ())
         .ok_or(SimError::UnknownContent(card.content_id))
 }
 
 fn validate_run_choice_card_content(card: &CardInstance) -> SimResult<()> {
+    validate_run_card_instance_id(card)?;
     if get_card_definition(card.content_id).is_some()
         || ironclad_reward_card_rarity(card.content_id).is_some()
         || super::reward::any_color_reward_card_key(card.content_id).is_some()
@@ -596,6 +618,15 @@ fn validate_run_choice_card_content(card: &CardInstance) -> SimResult<()> {
     } else {
         Err(SimError::UnknownContent(card.content_id))
     }
+}
+
+fn validate_run_card_instance_id(card: &CardInstance) -> SimResult<()> {
+    if !card_instance_id_is_supported(card.id) {
+        return Err(SimError::InvalidState(
+            "card instance ID is outside the supported allocation range",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_run_choice_cards(cards: &[CardInstance]) -> SimResult<()> {
