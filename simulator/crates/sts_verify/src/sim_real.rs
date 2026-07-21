@@ -12261,6 +12261,19 @@ mod tests {
         );
     }
 
+    fn forge_rest_observation(message: &mut Value) {
+        let game = message
+            .get_mut("game_state")
+            .and_then(Value::as_object_mut)
+            .expect("forged observation has game state");
+        game.insert("screen_type".to_owned(), json!("REST"));
+        game.insert("choice_list".to_owned(), json!(["rest"]));
+        game.insert(
+            "screen_state".to_owned(),
+            json!({ "has_rested": false, "rest_options": ["rest"] }),
+        );
+    }
+
     #[test]
     fn unknown_boss_relic_identity_remains_visible() {
         let game = json!({
@@ -13805,15 +13818,7 @@ mod tests {
                 _ => None,
             })
             .expect("rest card reward post-state remains in imported trace");
-        *mutated_state
-            .message
-            .pointer_mut("/game_state/screen_type")
-            .expect("reward screen type") = json!("REST");
-        *mutated_state
-            .message
-            .pointer_mut("/game_state/screen_state/cards/0")
-            .expect("first rest card reward") =
-            json!({"id": "Strike_R", "name": "Strike", "upgrades": 0});
+        forge_rest_observation(&mut mutated_state.message);
 
         let metadata = imported.metadata.expect("trace metadata");
         let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);

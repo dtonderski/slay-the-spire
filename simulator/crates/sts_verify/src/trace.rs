@@ -501,6 +501,7 @@ fn validate_visible_screen_schema(
         "EVENT" => return validate_event_screen_schema(step, game),
         "MAP" => return validate_map_screen_schema(step, game),
         "GRID" => return validate_grid_screen_schema(step, game),
+        "REST" => return validate_rest_screen_schema(step, game),
         _ => return validate_optional_screen_state(step, game),
     };
     let screen = game
@@ -599,6 +600,58 @@ fn validate_chest_screen_schema(
     }
     if !chest_open || game.get("choice_list").is_some() {
         validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_rest_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "REST", game)?;
+    let has_rested = screen
+        .get("has_rested")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.has_rested must be a boolean"
+            ))
+        })?;
+    validate_nonblank_string_array(
+        step,
+        screen,
+        "rest_options",
+        "game_state.screen_state.rest_options",
+    )?;
+    let rest_options = screen
+        .get("rest_options")
+        .and_then(Value::as_array)
+        .expect("validated rest options are an array");
+    if has_rested {
+        if !rest_options.is_empty() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} completed REST screen must not expose rest_options"
+            )));
+        }
+        if game.get("choice_list").is_some() {
+            validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+            if game
+                .get("choice_list")
+                .and_then(Value::as_array)
+                .is_some_and(|choices| !choices.is_empty())
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} completed REST screen must not expose choices"
+                )));
+            }
+        }
+    } else {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+        if game.get("choice_list") != screen.get("rest_options") {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} REST choice_list must match screen_state.rest_options"
+            )));
+        }
     }
     validate_screen_state_collections(step, screen)
 }
@@ -1304,6 +1357,33 @@ mod tests {
         let content = r#"{"type":"state","step":27,"message":{"game_state":{"screen_type":"CHEST","ascension_level":0,"floor":16,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"chest_open":true,"chest_type":"BossChest"}}}}"#;
 
         parse_trace_jsonl(content).expect("open chest transition may omit choice authority");
+    }
+
+    #[test]
+    fn parse_trace_rejects_active_rest_without_choice_authority() {
+        let content = r#"{"type":"state","step":28,"message":{"game_state":{"screen_type":"REST","ascension_level":0,"floor":15,"gold":99,"current_hp":40,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"has_rested":false,"rest_options":["rest","smith"]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("active rest choices are authoritative");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 28 game_state.choice_list must be an array"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_divergent_rest_choice_sources() {
+        let content = r#"{"type":"state","step":29,"message":{"game_state":{"screen_type":"REST","ascension_level":0,"floor":15,"gold":99,"current_hp":40,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["rest"],"screen_state":{"has_rested":false,"rest_options":["rest","smith"]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("rest choice sources must agree");
+        assert!(error.to_string().contains(
+            "trace state at step 29 REST choice_list must match screen_state.rest_options"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_allows_completed_rest_without_choice_list() {
+        let content = r#"{"type":"state","step":30,"message":{"game_state":{"screen_type":"REST","ascension_level":0,"floor":15,"gold":99,"current_hp":56,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"has_rested":true,"rest_options":[]}}}}"#;
+
+        parse_trace_jsonl(content).expect("completed rest transition may omit choice authority");
     }
 
     #[test]
