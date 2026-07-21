@@ -4333,13 +4333,15 @@ fn verify_seed_start_transitions(
                 let label = combat_label(command, sim);
                 let observed = seed_start_combat_observed_subset(&post.message);
                 let simulated = seed_start_simulated_combat_subset(&next, false);
-                if seed_start_has_pending_double_tap_copy_frame(
-                    combat,
-                    combat_action,
+                let copied_attack = seed_start_copied_attack_expectation(combat, combat_action);
+                let stable_projection_matches =
+                    seed_start_combat_subsets_match(observed.clone(), simulated.clone());
+                if seed_start_classify_copied_attack_frame(
+                    stable_projection_matches,
+                    copied_attack,
                     &post.message,
-                    &observed,
-                    &simulated,
-                ) {
+                ) == CopiedAttackFrame::Deferred
+                {
                     let transient_matches = seed_start_compare_transient_combat_subset(
                         report, action, &label, observed, simulated,
                     );
@@ -9476,48 +9478,88 @@ fn seed_start_is_transient_combat_entry_post_state(message: &Value) -> bool {
         && game.get("current_action").is_some()
 }
 
-fn seed_start_has_pending_double_tap_copy_frame(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CopiedAttackExpectation {
+    remaining_double_tap: i64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CopiedAttackFrame {
+    Stable,
+    Deferred,
+    Diverged,
+}
+
+fn seed_start_copied_attack_expectation(
     pre_combat: &CombatState,
     action: CombatAction,
-    post_message: &Value,
-    observed: &Value,
-    simulated: &Value,
-) -> bool {
+) -> Option<CopiedAttackExpectation> {
     let CombatAction::PlayCard { card_id, .. } = action else {
-        return false;
+        return None;
     };
     if pre_combat.double_tap_pending <= 0 {
-        return false;
+        return None;
     }
-    let Some(card) = pre_combat.piles.hand.iter().find(|card| card.id == card_id) else {
-        return false;
-    };
-    let Some(definition) = sts_core::content::cards::get_card_definition(card.content_id) else {
-        return false;
-    };
+    let card = pre_combat
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)?;
+    let definition = sts_core::content::cards::get_card_definition(card.content_id)?;
     if definition.card_type != CardType::Attack {
-        return false;
+        return None;
     }
 
-    let observed_double_tap = post_message
-        .pointer("/game_state/combat_state/player/powers")
+    Some(CopiedAttackExpectation {
+        remaining_double_tap: i64::from(pre_combat.double_tap_pending.saturating_sub(1)),
+    })
+}
+
+fn seed_start_classify_copied_attack_frame(
+    stable_projection_matches: bool,
+    expectation: Option<CopiedAttackExpectation>,
+    post_message: &Value,
+) -> CopiedAttackFrame {
+    if stable_projection_matches {
+        return CopiedAttackFrame::Stable;
+    }
+    if expectation.is_some_and(|expectation| {
+        seed_start_observed_double_tap_matches(post_message, expectation.remaining_double_tap)
+    }) {
+        CopiedAttackFrame::Deferred
+    } else {
+        CopiedAttackFrame::Diverged
+    }
+}
+
+fn seed_start_observed_double_tap_matches(post_message: &Value, expected: i64) -> bool {
+    let Some(game) = post_message.get("game_state") else {
+        return false;
+    };
+    if game.get("screen_type").and_then(Value::as_str) != Some("NONE")
+        || game.get("action_phase").and_then(Value::as_str) != Some("WAITING_ON_USER")
+        || game.get("current_action").is_some()
+    {
+        return false;
+    }
+    let Some(powers) = game
+        .pointer("/combat_state/player/powers")
         .and_then(Value::as_array)
-        .and_then(|powers| {
-            powers
-                .iter()
-                .find(|power| power.get("id").and_then(Value::as_str) == Some("Double Tap"))
-        })
-        .and_then(|power| power.get("amount"))
-        .and_then(Value::as_i64)
-        .unwrap_or(0);
-    let expected_remaining = i64::from(pre_combat.double_tap_pending.saturating_sub(1));
-    if observed_double_tap != expected_remaining {
+    else {
         return false;
-    }
+    };
+    let observed = powers
+        .iter()
+        .find(|power| power.get("id").and_then(Value::as_str) == Some("Double Tap"));
+    let observed = match observed {
+        Some(power) => match power.get("amount").and_then(Value::as_i64) {
+            Some(amount) => amount,
+            None => return false,
+        },
+        None => 0,
+    };
 
-    let observed_monsters = observed.get("monsters").cloned().unwrap_or(Value::Null);
-    let simulated_monsters = simulated.get("monsters").cloned().unwrap_or(Value::Null);
-    !subset_diffs(observed_monsters, simulated_monsters).is_empty()
+    observed == expected
 }
 
 fn seed_start_compare_transient_combat_subset(
@@ -12576,6 +12618,107 @@ mod tests {
         let diffs = subset_diffs(json!(["Offering+"]), json!(["unknown"]));
 
         assert_eq!(diffs, vec!["[0]: \"Offering+\" != \"unknown\""]);
+    }
+
+    #[test]
+    fn copied_attack_visibility_separates_command_semantics_from_observation() {
+        let attack_id = CardId::new(91_001);
+        let skill_id = CardId::new(91_002);
+        let mut combat = CombatState::initial_fixture();
+        combat.double_tap_pending = 2;
+        combat.piles.hand = vec![
+            CardInstance::new(attack_id, STRIKE_R_ID),
+            CardInstance::new(skill_id, DEFEND_R_ID),
+        ];
+
+        let expectation = seed_start_copied_attack_expectation(
+            &combat,
+            CombatAction::PlayCard {
+                card_id: attack_id,
+                target: Some(MonsterId::new(1)),
+            },
+        );
+        assert_eq!(
+            expectation,
+            Some(CopiedAttackExpectation {
+                remaining_double_tap: 1,
+            })
+        );
+        assert!(seed_start_copied_attack_expectation(
+            &combat,
+            CombatAction::PlayCard {
+                card_id: skill_id,
+                target: None,
+            },
+        )
+        .is_none());
+
+        let queued_frame = json!({
+            "game_state": {
+                "screen_type": "NONE",
+                "action_phase": "WAITING_ON_USER",
+                "combat_state": {
+                    "player": {
+                        "powers": [{"id": "Double Tap", "amount": 1}],
+                    },
+                },
+            },
+        });
+        assert_eq!(
+            seed_start_classify_copied_attack_frame(false, expectation, &queued_frame),
+            CopiedAttackFrame::Deferred
+        );
+        assert_eq!(
+            seed_start_classify_copied_attack_frame(true, expectation, &queued_frame),
+            CopiedAttackFrame::Stable,
+            "a fully matching projection cannot be forced into deferral"
+        );
+
+        for malformed in [
+            json!({"game_state": {"screen_type": "NONE", "action_phase": "WAITING_ON_USER"}}),
+            json!({"game_state": {
+                "screen_type": "NONE",
+                "action_phase": "WAITING_ON_USER",
+                "combat_state": {"player": {"powers": [{"id": "Double Tap"}]}},
+            }}),
+            json!({"game_state": {
+                "screen_type": "NONE",
+                "action_phase": "EXECUTING_ACTIONS",
+                "combat_state": {"player": {"powers": [{"id": "Double Tap", "amount": 1}]}},
+            }}),
+            json!({"game_state": {
+                "screen_type": "NONE",
+                "action_phase": "WAITING_ON_USER",
+                "current_action": {},
+                "combat_state": {"player": {"powers": [{"id": "Double Tap", "amount": 1}]}},
+            }}),
+        ] {
+            assert_eq!(
+                seed_start_classify_copied_attack_frame(false, expectation, &malformed),
+                CopiedAttackFrame::Diverged
+            );
+        }
+
+        combat.double_tap_pending = 1;
+        let final_copy = seed_start_copied_attack_expectation(
+            &combat,
+            CombatAction::PlayCard {
+                card_id: attack_id,
+                target: Some(MonsterId::new(1)),
+            },
+        );
+        let consumed_power_frame = json!({
+            "game_state": {
+                "screen_type": "NONE",
+                "action_phase": "WAITING_ON_USER",
+                "combat_state": {"player": {"powers": []}},
+            },
+        });
+        assert_eq!(
+            seed_start_classify_copied_attack_frame(false, final_copy, &consumed_power_frame,),
+            CopiedAttackFrame::Deferred,
+            "an authoritative empty power array represents zero remaining copies"
+        );
     }
 
     #[test]
