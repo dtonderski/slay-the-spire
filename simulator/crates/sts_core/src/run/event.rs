@@ -16,10 +16,8 @@ use crate::{
             HEXAGHOST_A0, LAGAVULIN_A0, ORB_WALKER_A0, SENTRY_A0, SLAVER_BLUE_A0, SLAVER_RED_A0,
             SLIME_BOSS_A0, TASKMASTER_A0,
         },
-        reward_pool::{random_normal_curse, IRONCLAD_REWARD_ENTRIES},
-        shop_pool::{
-            colorless_match_and_keep_pool, random_colorless_from_pool, shop_card_content_id,
-        },
+        reward_pool::{random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
+        shop_pool::{colorless_match_and_keep_pool, random_colorless_from_pool},
     },
     ids::ContentId,
     relic::{Relic, RelicKey, RelicTier},
@@ -1997,24 +1995,24 @@ fn match_and_keep_card_choices(run: &RunState) -> SimResult<Vec<EventChoice>> {
         .collect()
 }
 
-fn initialize_match_and_keep_state(run: &mut RunState) -> MatchAndKeepState {
+fn initialize_match_and_keep_state(run: &mut RunState) -> SimResult<MatchAndKeepState> {
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
     let mut shuffle_rng = run.rng_for_stream(RunRngStream::Shuffle);
     let mut contents = if run.ascension >= 15 {
         vec![
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Rare),
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Uncommon),
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Common),
+            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Rare)?,
+            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Uncommon)?,
+            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Common)?,
             random_normal_curse(&mut card_rng),
             random_normal_curse(&mut card_rng),
             BASH_ID,
         ]
     } else {
         vec![
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Rare),
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Uncommon),
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Common),
-            random_colorless_for_match_and_keep(&mut shuffle_rng, CardRarity::Uncommon),
+            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Rare)?,
+            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Uncommon)?,
+            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Common)?,
+            random_colorless_for_match_and_keep(&mut shuffle_rng, CardRarity::Uncommon)?,
             random_normal_curse(&mut card_rng),
             BASH_ID,
         ]
@@ -2029,7 +2027,7 @@ fn initialize_match_and_keep_state(run: &mut RunState) -> MatchAndKeepState {
     let shuffle_seed = misc_rng.random_long();
     run.store_rng_counter(RunRngStream::Misc, &misc_rng);
     JavaRng::new(shuffle_seed).collections_shuffle(&mut contents);
-    MatchAndKeepState {
+    Ok(MatchAndKeepState {
         cards: contents
             .into_iter()
             .map(|content_id| MatchAndKeepCard {
@@ -2042,11 +2040,21 @@ fn initialize_match_and_keep_state(run: &mut RunState) -> MatchAndKeepState {
         first_flipped_index: None,
         second_flipped_index: None,
         matched_cards: Vec::new(),
-    }
+    })
 }
 
-fn random_colorless_for_match_and_keep(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
-    let mut pool = colorless_match_and_keep_pool();
+fn random_colorless_for_match_and_keep(
+    rng: &mut StsRng,
+    rarity: CardRarity,
+) -> SimResult<ContentId> {
+    random_colorless_for_match_and_keep_from_pool(rng, rarity, colorless_match_and_keep_pool())
+}
+
+fn random_colorless_for_match_and_keep_from_pool(
+    rng: &mut StsRng,
+    rarity: CardRarity,
+    mut pool: Vec<ContentId>,
+) -> SimResult<ContentId> {
     let shuffle_seed = rng.random_long();
     JavaRng::new(shuffle_seed).collections_shuffle(&mut pool);
     pool.into_iter()
@@ -2056,18 +2064,33 @@ fn random_colorless_for_match_and_keep(rng: &mut StsRng, rarity: CardRarity) -> 
                     .is_some_and(|(_, card_rarity)| card_rarity == rarity)
             })
         })
-        .unwrap_or_else(|| shop_card_content_id("SWIFT_STRIKE"))
+        .ok_or(SimError::InvalidState(
+            "Match and Keep colorless pool has no card for requested rarity",
+        ))
 }
 
-fn random_ironclad_card_by_rarity(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
-    let candidate_indices = IRONCLAD_REWARD_ENTRIES
+fn random_ironclad_card_by_rarity(rng: &mut StsRng, rarity: CardRarity) -> SimResult<ContentId> {
+    random_ironclad_card_by_rarity_from_pool(rng, rarity, IRONCLAD_REWARD_ENTRIES)
+}
+
+fn random_ironclad_card_by_rarity_from_pool(
+    rng: &mut StsRng,
+    rarity: CardRarity,
+    pool: &[RewardCardEntry],
+) -> SimResult<ContentId> {
+    let candidate_indices = pool
         .iter()
         .enumerate()
         .filter(|(_, entry)| entry.rarity == rarity)
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
+    if candidate_indices.is_empty() {
+        return Err(SimError::InvalidState(
+            "Match and Keep Ironclad pool has no card for requested rarity",
+        ));
+    }
     let pick = rng.random_int((candidate_indices.len() - 1) as i32) as usize;
-    IRONCLAD_REWARD_ENTRIES[candidate_indices[pick]].content_id
+    Ok(pool[candidate_indices[pick]].content_id)
 }
 
 fn wheel_of_change_gold(act: i32) -> i32 {
@@ -2105,15 +2128,18 @@ fn has_wing_statue_attack_card(run: &RunState) -> bool {
     })
 }
 
-pub fn enter_event_screen(run: &mut RunState) {
-    run.reinit_misc_rng_for_floor();
-    run.ensure_ironclad_relic_pools();
-    ensure_event_lists(run);
-    let mut rng = StsRng::with_counter(run.event_rng_seed as i64, run.event_rng_counter);
-    let event = generate_event(run, &mut rng);
-    run.phase = RunPhase::Event;
-    run.match_and_keep = None;
-    run.event = Some(entered_event_screen_for_run(run, event));
+pub fn enter_event_screen(run: &mut RunState) -> SimResult<()> {
+    let mut next = run.clone();
+    next.reinit_misc_rng_for_floor();
+    next.ensure_ironclad_relic_pools();
+    ensure_event_lists(&mut next);
+    let mut rng = StsRng::with_counter(next.event_rng_seed as i64, next.event_rng_counter);
+    let event = generate_event(&mut next, &mut rng);
+    next.phase = RunPhase::Event;
+    next.match_and_keep = None;
+    next.event = Some(entered_event_screen_for_run(&mut next, event)?);
+    *run = next;
+    Ok(())
 }
 
 #[must_use]
@@ -2310,8 +2336,8 @@ pub(crate) fn enter_spire_heart_event(run: &mut RunState) {
     run.event = Some(event_screen(Event::SpireHeart));
 }
 
-fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> EventScreen {
-    match event {
+fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> SimResult<EventScreen> {
+    Ok(match event {
         Event::WorldOfGoop => {
             let gold_loss = roll_world_of_goop_gold_loss(run);
             EventScreen {
@@ -2331,7 +2357,7 @@ fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> EventScreen
             }
         }
         Event::MatchAndKeep => {
-            run.match_and_keep = Some(initialize_match_and_keep_state(run));
+            run.match_and_keep = Some(initialize_match_and_keep_state(run)?);
             event_screen_for_run(run, event)
         }
         Event::Designer => {
@@ -2352,7 +2378,7 @@ fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> EventScreen
             }
         }
         _ => event_screen_for_run(run, event),
-    }
+    })
 }
 
 #[must_use]
@@ -4951,7 +4977,7 @@ mod tests {
         run.current_floor = 25;
         run.event_rng_counter = 9;
 
-        enter_event_screen(&mut run);
+        enter_event_screen(&mut run).expect("event entry succeeds");
 
         assert_eq!(run.event_rng_counter, 9);
     }
@@ -5335,7 +5361,8 @@ mod tests {
     #[test]
     fn match_and_keep_continue_opens_play_choice() {
         let mut run = RunState::seeded_ironclad(1, 0);
-        let state = initialize_match_and_keep_state(&mut run);
+        let state = initialize_match_and_keep_state(&mut run)
+            .expect("Match and Keep initialization succeeds");
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::MatchAndKeep));
         run.match_and_keep = Some(state);
@@ -5358,7 +5385,8 @@ mod tests {
     #[test]
     fn match_and_keep_play_opens_twelve_card_choices() {
         let mut run = RunState::seeded_ironclad(1, 0);
-        let state = initialize_match_and_keep_state(&mut run);
+        let state = initialize_match_and_keep_state(&mut run)
+            .expect("Match and Keep initialization succeeds");
         run.phase = RunPhase::Event;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
@@ -5405,9 +5433,41 @@ mod tests {
     }
 
     #[test]
+    fn match_and_keep_missing_rarity_pools_fail_closed() {
+        let mut colorless_rng = StsRng::new(1);
+        assert_eq!(
+            random_colorless_for_match_and_keep_from_pool(
+                &mut colorless_rng,
+                CardRarity::Uncommon,
+                Vec::new(),
+            ),
+            Err(SimError::InvalidState(
+                "Match and Keep colorless pool has no card for requested rarity"
+            ))
+        );
+
+        let mut ironclad_rng = StsRng::new(1);
+        let common_only = [RewardCardEntry {
+            content_id: STRIKE_R_ID,
+            rarity: CardRarity::Common,
+        }];
+        assert_eq!(
+            random_ironclad_card_by_rarity_from_pool(
+                &mut ironclad_rng,
+                CardRarity::Rare,
+                &common_only,
+            ),
+            Err(SimError::InvalidState(
+                "Match and Keep Ironclad pool has no card for requested rarity"
+            ))
+        );
+    }
+
+    #[test]
     fn match_and_keep_uses_ironclad_event_starter_card() {
         let mut run = RunState::seeded_ironclad(1, 0);
-        let state = initialize_match_and_keep_state(&mut run);
+        let state = initialize_match_and_keep_state(&mut run)
+            .expect("Match and Keep initialization succeeds");
         let bash_count = state
             .cards
             .iter()
@@ -6002,7 +6062,8 @@ mod tests {
         run.gain_potion(Potion::Elixir)
             .expect("potion slot is open");
         run.phase = RunPhase::Event;
-        let screen = entered_event_screen_for_run(&mut run, Event::WeMeetAgain);
+        let screen = entered_event_screen_for_run(&mut run, Event::WeMeetAgain)
+            .expect("We Meet Again entry succeeds");
         run.event = Some(screen);
 
         let choices = run

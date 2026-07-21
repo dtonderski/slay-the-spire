@@ -490,8 +490,8 @@ fn event_rng_selects_fixed_event_deterministically() {
     first.event_rng_seed = 19;
     second.event_rng_seed = 19;
 
-    enter_event_screen(&mut first);
-    enter_event_screen(&mut second);
+    enter_event_screen(&mut first).expect("first event entry succeeds");
+    enter_event_screen(&mut second).expect("second event entry succeeds");
 
     assert_eq!(first.phase, RunPhase::Event);
     assert_eq!(first.event, second.event);

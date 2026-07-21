@@ -974,7 +974,7 @@ fn apply_event_room_outcome(run: &mut RunState, last_room_was_shop: bool) -> Sim
         }
         EventRoomOutcome::Event => {
             run.current_room_override = Some(RoomKind::Event);
-            enter_event_screen(run);
+            enter_event_screen(run)?;
         }
     }
     Ok(())
