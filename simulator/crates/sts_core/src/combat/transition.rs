@@ -1749,7 +1749,9 @@ pub(crate) fn apply_player_direct_block_gain(state: &mut CombatState, amount: i3
     if state.player.no_block_turns > 0 {
         return;
     }
-    state.player.block += amount;
+    // The target runtime uses signed 32-bit arithmetic. Authoritative combat
+    // transitions validate that block remains nonnegative before returning.
+    state.player.block = state.player.block.wrapping_add(amount);
     apply_juggernaut_after_direct_block_gain(state, amount);
 }
 
@@ -1830,8 +1832,10 @@ fn dead_branch_card_pool() -> Vec<ContentId> {
 
 pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) {
     match exhausted_card_content_id(state, card_id) {
-        Some(SENTINEL_PLUS_ID) => state.player.energy += 3,
-        Some(SENTINEL_ID) => state.player.energy += 2,
+        // Energy is nonnegative in every valid combat state, so signed target
+        // overflow is rejected by the authoritative transition validation.
+        Some(SENTINEL_PLUS_ID) => state.player.energy = state.player.energy.wrapping_add(3),
+        Some(SENTINEL_ID) => state.player.energy = state.player.energy.wrapping_add(2),
         _ => {}
     }
     if state.player.powers.feel_no_pain > 0 {
@@ -3550,6 +3554,50 @@ mod tests {
             ),
             Err(SimError::InvalidState(
                 "combat integer addition overflows i32"
+            ))
+        );
+    }
+
+    #[test]
+    fn rage_block_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.player.block = i32::MAX;
+        state.player.temp_rage_block = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: Some(state.monsters[0].id),
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat player block or energy is negative"
+            ))
+        );
+    }
+
+    #[test]
+    fn sentinel_energy_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = i32::MAX;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), TRUE_GRIT_ID),
+            CardInstance::new(CardId::new(2), SENTINEL_ID),
+        ];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat player block or energy is negative"
             ))
         );
     }
