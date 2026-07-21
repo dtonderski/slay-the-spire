@@ -4,24 +4,32 @@ use crate::content::monsters::{
     check_slime_boss_split, guardian_on_hp_damage, wake_lagavulin_on_damage,
 };
 use crate::relic::{heal_combat_player_with_relics, heal_player_in_combat_with_relics, Relic};
-use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId};
+use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId, SimError, SimResult};
 
-pub fn apply_end_of_player_turn_powers(state: &mut CombatState) {
-    apply_player_end_of_turn_powers_for_combat_state(state);
+pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()> {
+    apply_player_end_of_turn_powers_for_combat_state(state)?;
     apply_end_of_turn_constricted(state);
     if state.player.hp <= 0 {
-        return;
+        return Ok(());
     }
     apply_end_of_turn_combust(state);
     if state.player.hp <= 0 {
-        return;
+        return Ok(());
     }
     apply_end_of_turn_bomb_timers(state);
+    Ok(())
 }
 
-fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) {
+fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) -> SimResult<()> {
     if state.player.powers.ritual > 0 {
-        state.player.powers.strength += state.player.powers.ritual;
+        state.player.powers.strength = state
+            .player
+            .powers
+            .strength
+            .checked_add(state.player.powers.ritual)
+            .ok_or(SimError::InvalidState(
+                "combat integer addition overflows i32",
+            ))?;
     }
     if state.player.powers.metallicize > 0 {
         crate::combat::transition::apply_player_direct_block_gain(
@@ -48,6 +56,7 @@ fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) {
     if state.player.powers.entangled > 0 {
         state.player.powers.entangled = 0;
     }
+    Ok(())
 }
 
 fn apply_end_of_turn_constricted(state: &mut CombatState) {
@@ -235,7 +244,7 @@ mod tests {
         state.player.powers.rupture = 2;
         let monster_hp = state.monsters[0].hp;
 
-        apply_end_of_player_turn_powers(&mut state);
+        apply_end_of_player_turn_powers(&mut state).expect("end-turn powers resolve");
 
         assert_eq!(state.player.hp, 18);
         assert_eq!(state.player.powers.strength, 2);

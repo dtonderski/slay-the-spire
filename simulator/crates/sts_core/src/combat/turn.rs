@@ -84,8 +84,8 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     // Metallicize resolve. Both block grants therefore apply when the player
     // clicks End Turn with zero block.
     crate::relic::apply_orichalcum_end_of_player_turn(&mut next);
-    apply_end_of_player_turn_powers(&mut next);
-    resolve_player_temp_strength(&mut next);
+    apply_end_of_player_turn_powers(&mut next)?;
+    resolve_player_temp_strength(&mut next)?;
     let deferred_stasis_cards = if next.monsters.iter().any(|monster| monster.alive) {
         take_released_stasis_cards_from_piles(&mut next, &stasis_cards_before_end_powers)
     } else {
@@ -243,16 +243,17 @@ fn checked_turn_add(value: i32, amount: i32) -> SimResult<i32> {
     ))
 }
 
-fn resolve_player_temp_strength(state: &mut CombatState) {
+fn resolve_player_temp_strength(state: &mut CombatState) -> SimResult<()> {
     let amount = std::mem::take(&mut state.player.temp_strength);
     if amount <= 0 || state.player.powers.artifact <= 0 {
-        return;
+        return Ok(());
     }
 
     // Flex's LoseStrengthPower applies negative Strength at end of turn. Artifact
     // can therefore block it even when Artifact was gained after Flex resolved.
     state.player.powers.artifact -= 1;
-    state.player.powers.strength += amount;
+    state.player.powers.strength = checked_turn_add(state.player.powers.strength, amount)?;
+    Ok(())
 }
 
 pub fn finish_monster_turn_after_player_revival(state: &mut CombatState) {
@@ -1670,6 +1671,37 @@ mod tests {
 
         // Orichalcum (6) and Metallicize (3) both block the 36-damage hit.
         assert_eq!(next.player.hp, 53);
+    }
+
+    #[test]
+    fn end_player_turn_rejects_ritual_strength_overflow() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.strength = i32::MAX;
+        state.player.powers.ritual = 1;
+        state.validate().expect("input combat is valid");
+
+        assert_eq!(
+            end_player_turn(&state),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+    }
+
+    #[test]
+    fn end_player_turn_rejects_temporary_strength_restore_overflow() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.strength = i32::MAX;
+        state.player.powers.artifact = 1;
+        state.player.temp_strength = 1;
+        state.validate().expect("input combat is valid");
+
+        assert_eq!(
+            end_player_turn(&state),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
     }
 
     #[test]

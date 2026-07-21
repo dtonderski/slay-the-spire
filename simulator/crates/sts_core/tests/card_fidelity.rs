@@ -235,7 +235,7 @@ fn metallicize_plus_grants_four_end_turn_block() {
     assert_eq!(next.player.powers.metallicize, 4);
     assert_eq!(next.player.block, 0);
 
-    apply_end_of_player_turn_powers(&mut next);
+    apply_end_of_player_turn_powers(&mut next).expect("end-turn powers resolve");
 
     assert_eq!(next.player.block, 4);
 }
@@ -982,17 +982,17 @@ fn the_bomb_plus_arms_three_turn_fifty_damage_timer() {
         cards::THE_BOMB_PLUS_ID
     );
 
-    apply_end_of_player_turn_powers(&mut next);
+    apply_end_of_player_turn_powers(&mut next).expect("end-turn powers resolve");
     assert_eq!(next.bomb_timers[0].turns_remaining, 2);
     assert_eq!(next.monsters[0].hp, 60);
     assert_eq!(next.monsters[1].hp, 70);
 
-    apply_end_of_player_turn_powers(&mut next);
+    apply_end_of_player_turn_powers(&mut next).expect("end-turn powers resolve");
     assert_eq!(next.bomb_timers[0].turns_remaining, 1);
     assert_eq!(next.monsters[0].hp, 60);
     assert_eq!(next.monsters[1].hp, 70);
 
-    apply_end_of_player_turn_powers(&mut next);
+    apply_end_of_player_turn_powers(&mut next).expect("end-turn powers resolve");
     assert!(next.bomb_timers.is_empty());
     assert_eq!(next.monsters[0].hp, 10);
     assert_eq!(next.monsters[1].hp, 20);

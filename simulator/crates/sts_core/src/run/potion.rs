@@ -984,7 +984,8 @@ mod tests {
         assert_eq!(combat.player.powers.combust_damage, 5);
         let player_hp = combat.player.hp;
         let monster_hp = combat.monsters[0].hp;
-        crate::combat::turn_powers::apply_end_of_player_turn_powers(&mut combat);
+        crate::combat::turn_powers::apply_end_of_player_turn_powers(&mut combat)
+            .expect("end-turn powers resolve");
         assert_eq!(combat.player.hp, player_hp - 1);
         assert_eq!(combat.monsters[0].hp, monster_hp - 5);
     }
