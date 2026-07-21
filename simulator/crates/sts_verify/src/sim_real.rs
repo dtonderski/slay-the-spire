@@ -2978,12 +2978,18 @@ fn verify_seed_start_transitions(
                                     phase = SeedStartPhase::Shop;
                                 }
                                 RunPhase::Idle => {
-                                    compare_subset(
+                                    seed_start_compare_map_return(
                                         report,
                                         action,
-                                        "map return",
-                                        seed_start_map_return_observed_subset(&post.message),
-                                        seed_start_map_return_observed_subset(&post.message),
+                                        &post.message,
+                                        seed_start_simulated_map_return(
+                                            start.numeric_seed,
+                                            &map_path_xs,
+                                            Some(&next),
+                                            &relics,
+                                            &deck_ids,
+                                            &deck_ids,
+                                        ),
                                     );
                                     seed_sim = Some(next);
                                     phase = SeedStartPhase::Map;
@@ -7267,6 +7273,21 @@ fn room_kind_symbol(kind: RoomKind) -> &'static str {
         RoomKind::Boss => "B",
         RoomKind::Victory => "V",
     }
+}
+
+fn seed_start_compare_map_return(
+    report: &mut SimRealReport,
+    action: &TraceAction,
+    post_message: &Value,
+    simulated: Value,
+) {
+    compare_subset(
+        report,
+        action,
+        "map return",
+        seed_start_map_return_observed_subset(post_message),
+        simulated,
+    );
 }
 
 fn seed_start_simulated_map_return(
@@ -14976,6 +14997,53 @@ mod tests {
         assert_eq!(projected["choices"], json!(["boss"]));
         assert_eq!(projected["next_nodes"], json!([]));
         assert_eq!(projected["current_node"]["y"], json!(14));
+    }
+
+    #[test]
+    fn observed_map_return_cannot_verify_itself() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Idle;
+        run.gold = 99;
+        let forged_post = json!({
+            "game_state": {
+                "screen_type": "MAP",
+                "gold": 1099
+            }
+        });
+        let action = TraceAction {
+            step: 7,
+            command: "CHOOSE 0".to_owned(),
+            sent_at: None,
+            playtime_seconds: None,
+        };
+        let mut report = SimRealReport {
+            total_actions: 1,
+            ignored_tail_actions: 0,
+            action_dispositions: Vec::new(),
+            action_integrity: None,
+            verified: Vec::new(),
+            unsupported: Vec::new(),
+            unexpected_diffs: Vec::new(),
+            seed_start: None,
+        };
+
+        seed_start_compare_map_return(
+            &mut report,
+            &action,
+            &forged_post,
+            seed_start_simulated_map_return(1, &[], Some(&run), &[], &[], &[]),
+        );
+
+        assert!(report.verified.is_empty());
+        let diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| diff.label == "map return")
+            .expect("forged map return must differ from simulator projection");
+        assert!(
+            diff.diffs.iter().any(|line| line == "gold: 1099 != 99"),
+            "{diff:#?}"
+        );
     }
 
     #[test]
