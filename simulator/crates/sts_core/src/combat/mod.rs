@@ -5,7 +5,7 @@ pub mod draw;
 pub mod hand;
 pub mod hp_loss;
 pub mod legal;
-pub mod piles;
+pub(crate) mod piles;
 pub mod setup;
 pub mod state;
 pub mod transition;

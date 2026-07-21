@@ -1,11 +1,14 @@
 use crate::{
     card::{CardInstance, CardRarity},
-    combat::piles::{add_cards_to_discard, add_cards_to_draw_random_spot},
+    combat::piles::{
+        add_cards_to_discard, add_cards_to_draw_random_spot,
+        upgrade_burns_and_add_upgraded_to_discard,
+    },
     combat::turn_powers::monster_attack_damage,
     combat::{CardPiles, MonsterIntent, MonsterState, SlimeSize},
     content::ascension::AscensionConfig,
     content::cards::{card_type_and_rarity, BURN_ID, DAZED_ID, SLIMED_ID},
-    ids::{CardId, ContentId, MonsterId},
+    ids::{ContentId, MonsterId},
     power::MonsterPowers,
     rng::{seed_for_floor, StsRng},
     SimError, SimResult,
@@ -8403,8 +8406,25 @@ pub fn apply_collector_death_escape(monsters: &mut [MonsterState], monster_id: M
     }
 }
 
-pub(crate) fn heal_monster_to_stored_cap(monster: &mut MonsterState, amount: i32) {
-    monster.hp = (monster.hp + amount).min(monster.max_hp);
+pub(crate) fn heal_monster_to_stored_cap(monster: &mut MonsterState, amount: i32) -> SimResult<()> {
+    if amount < 0 {
+        return Err(SimError::InvalidState("monster healing amount is negative"));
+    }
+    let missing_hp = monster
+        .max_hp
+        .checked_sub(monster.hp)
+        .ok_or(SimError::InvalidState("monster healing state is invalid"))?;
+    if missing_hp < 0 {
+        return Err(SimError::InvalidState("monster healing state is invalid"));
+    }
+    let applied = amount.min(missing_hp);
+    monster.hp = monster
+        .hp
+        .checked_add(applied)
+        .ok_or(SimError::InvalidState(
+            "monster healing arithmetic overflow",
+        ))?;
+    Ok(())
 }
 
 /// Spike Slime (S) opens with Spit, then Lick.
@@ -9422,15 +9442,27 @@ pub fn target_large_acid_slime_next_intent_from_roll(
     }
 }
 
-pub fn apply_monster_intent_with_card_rng(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_monster_intent_with_card_rng(
     monster: &mut MonsterState,
     player: &mut crate::PlayerState,
     piles: &mut CardPiles,
+    allocated_card_id_through: u64,
     ascension: u8,
     player_before: &crate::PlayerState,
     relics: &[crate::Relic],
     card_random_rng: &mut StsRng,
 ) -> SimResult<i32> {
+    let local_allocated_through = monster
+        .stasis_card
+        .as_ref()
+        .map_or_else(|| piles.max_card_instance_id(), |card| card.id.get())
+        .max(piles.max_card_instance_id());
+    if allocated_card_id_through < local_allocated_through {
+        return Err(SimError::InvalidState(
+            "monster intent card allocator trails authoritative state",
+        ));
+    }
     let mut next_monster = monster.clone();
     let mut next_player = player.clone();
     let mut next_piles = piles.clone();
@@ -9439,6 +9471,7 @@ pub fn apply_monster_intent_with_card_rng(
         &mut next_monster,
         &mut next_player,
         &mut next_piles,
+        allocated_card_id_through,
         ascension,
         player_before,
         relics,
@@ -9537,6 +9570,7 @@ fn apply_monster_intent_with_card_rng_inner(
     monster: &mut MonsterState,
     player: &mut crate::PlayerState,
     piles: &mut CardPiles,
+    allocated_card_id_through: u64,
     ascension: u8,
     player_before: &crate::PlayerState,
     relics: &[crate::Relic],
@@ -9778,7 +9812,7 @@ fn apply_monster_intent_with_card_rng_inner(
             1,
         ),
         MonsterIntent::AddSlimedToDiscard { count } => {
-            add_cards_to_discard(piles, SLIMED_ID, count);
+            add_cards_to_discard(piles, SLIMED_ID, count, allocated_card_id_through)?;
             (0, 0)
         }
         MonsterIntent::AttackAddWoundsToDiscard { damage, .. } => {
@@ -9848,15 +9882,21 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
         MonsterIntent::AddDazedToDiscard { count } => {
-            add_cards_to_discard(piles, DAZED_ID, count);
+            add_cards_to_discard(piles, DAZED_ID, count, allocated_card_id_through)?;
             (0, 0)
         }
         MonsterIntent::AddDazedToDraw { count } => {
-            add_cards_to_draw_random_spot(piles, DAZED_ID, count, card_random_rng);
+            add_cards_to_draw_random_spot(
+                piles,
+                DAZED_ID,
+                count,
+                card_random_rng,
+                allocated_card_id_through,
+            )?;
             (0, 0)
         }
         MonsterIntent::AddBurnToDiscard { count, damage } => {
-            add_cards_to_discard(piles, BURN_ID, count);
+            add_cards_to_discard(piles, BURN_ID, count, allocated_card_id_through)?;
             (monster_attack_damage(monster, scale_damage(damage)?)?, 1)
         }
         MonsterIntent::AddBurnToDiscardAndDraw { damage, .. } => {
@@ -9867,7 +9907,7 @@ fn apply_monster_intent_with_card_rng_inner(
             hits,
             count,
         } => {
-            upgrade_burns_and_add_upgraded_to_discard(piles, count);
+            upgrade_burns_and_add_upgraded_to_discard(piles, count, allocated_card_id_through)?;
             let hit_damage =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             let effective_hits =
@@ -10000,25 +10040,6 @@ fn apply_multi_hit_thorns(
         }
     }
     effective_hits
-}
-
-fn upgrade_burns_and_add_upgraded_to_discard(piles: &mut CardPiles, count: i32) {
-    for card in piles
-        .discard_pile
-        .iter_mut()
-        .chain(piles.draw_pile.iter_mut())
-    {
-        if card.content_id == BURN_ID {
-            card.upgrades = card.upgrades.saturating_add(1);
-        }
-    }
-
-    for _ in 0..count {
-        let next_id = CardId::new(piles.max_card_instance_id() + 1);
-        let mut burn = CardInstance::new(next_id, BURN_ID);
-        burn.upgrades = 1;
-        piles.discard_pile.push(burn);
-    }
 }
 
 fn lagavulin_sleep_or_stun(content_id: ContentId, intent: MonsterIntent) -> bool {
@@ -10181,11 +10202,13 @@ mod tests {
         monster.intent = guardian_intent(false, 0, monster.moves_executed, 0);
         let mut player = state.player.clone();
         let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
 
         let damage = apply_monster_intent_with_card_rng(
             &mut monster,
             &mut player,
             &mut state.piles,
+            allocated_card_id_through,
             0,
             &player_before,
             &[],
@@ -10209,11 +10232,13 @@ mod tests {
         let monster_before = monster.clone();
         let piles_before = state.piles.clone();
         let rng_before = state.rng.card_random_rng.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
 
         let result = apply_monster_intent_with_card_rng(
             &mut monster,
             &mut player,
             &mut state.piles,
+            allocated_card_id_through,
             0,
             &player_before,
             &[],
@@ -10241,11 +10266,13 @@ mod tests {
         let monster_before = monster.clone();
         let piles_before = state.piles.clone();
         let rng_before = state.rng.card_random_rng.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
 
         let result = apply_monster_intent_with_card_rng(
             &mut monster,
             &mut player,
             &mut state.piles,
+            allocated_card_id_through,
             0,
             &player_before,
             &[],
@@ -10273,11 +10300,13 @@ mod tests {
         let monster_before = monster.clone();
         let piles_before = state.piles.clone();
         let rng_before = state.rng.card_random_rng.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
 
         let result = apply_monster_intent_with_card_rng(
             &mut monster,
             &mut player,
             &mut state.piles,
+            allocated_card_id_through,
             0,
             &player_before,
             &[],
@@ -10309,11 +10338,13 @@ mod tests {
         player.block = 8;
         player.powers.thorns = 3;
         let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
 
         let damage = apply_monster_intent_with_card_rng(
             &mut monster,
             &mut player,
             &mut state.piles,
+            allocated_card_id_through,
             0,
             &player_before,
             &[],
@@ -11221,6 +11252,7 @@ mod tests {
             weak: SNAKE_PLANT_SPORES_DEBUFF,
         };
         let state = crate::CombatState::initial_fixture();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
         let mut player = state.player;
         let player_before = player.clone();
         let mut piles = state.piles;
@@ -11230,6 +11262,7 @@ mod tests {
             &mut source_monster,
             &mut player,
             &mut piles,
+            allocated_card_id_through,
             0,
             &player_before,
             &[],
@@ -11969,6 +12002,7 @@ mod tests {
         );
 
         let state = crate::CombatState::initial_fixture();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
         let mut player = state.player;
         let player_before = player.clone();
         let mut piles = state.piles;
@@ -11982,6 +12016,7 @@ mod tests {
             &mut source_monster,
             &mut player,
             &mut piles,
+            allocated_card_id_through,
             17,
             &player_before,
             &[],

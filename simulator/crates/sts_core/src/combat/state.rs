@@ -1011,10 +1011,10 @@ fn is_zero_u32(value: &u32) -> bool {
 }
 
 impl CombatState {
-    /// Returns an unused card-instance ID across every authoritative combat
+    /// Returns the greatest card-instance ID across every authoritative combat
     /// card location, including open choices and monster stasis.
     #[must_use]
-    pub fn next_card_instance_id(&self) -> u64 {
+    pub(crate) fn max_authoritative_card_instance_id(&self) -> u64 {
         self.authoritative_cards()
             .into_iter()
             .chain(
@@ -1025,12 +1025,18 @@ impl CombatState {
             .map(|card| card.id.get())
             .max()
             .unwrap_or(0)
-            + 1
+    }
+
+    /// Returns an unused card-instance ID across every authoritative combat
+    /// card location, including open choices and monster stasis.
+    #[must_use]
+    pub fn next_card_instance_id(&self) -> u64 {
+        self.max_authoritative_card_instance_id() + 1
     }
 }
 
 impl CardPiles {
-    pub fn max_card_instance_id(&self) -> u64 {
+    pub(crate) fn max_card_instance_id(&self) -> u64 {
         self.all_cards()
             .map(|card| card.id.get())
             .max()

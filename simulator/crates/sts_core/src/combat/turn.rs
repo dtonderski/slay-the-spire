@@ -10,7 +10,10 @@ use crate::{
             shuffle_discard_into_draw_with_combat_rng, MAX_HAND_SIZE,
         },
         hand::{discard_end_of_turn_hand, resolve_end_of_turn_hand},
-        piles::{add_cards_to_discard, add_cards_to_draw_random_spot},
+        piles::{
+            add_cards_to_discard, add_cards_to_draw_random_spot,
+            upgrade_burns_and_add_upgraded_to_discard,
+        },
     },
     combat::{CombatPhase, CombatState, SlimeSize},
     content::cards::{BURN_ID, DAZED_ID, SLIMED_ID, WOUND_ID},
@@ -240,6 +243,12 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
 fn checked_turn_add(value: i32, amount: i32) -> SimResult<i32> {
     value.checked_add(amount).ok_or(SimError::InvalidState(
         "combat integer addition overflows i32",
+    ))
+}
+
+fn checked_turn_mul(value: i32, amount: i32) -> SimResult<i32> {
+    value.checked_mul(amount).ok_or(SimError::InvalidState(
+        "combat integer multiplication overflows i32",
     ))
 }
 
@@ -533,10 +542,12 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 if state.monsters[index].content_id == BYRD_ID && damage == 3 =>
             {
                 let player_snapshot = state.player.clone();
+                let allocated_card_id_through = state.max_authoritative_card_instance_id();
                 let damage = apply_monster_intent_with_card_rng(
                     &mut state.monsters[index],
                     &mut state.player,
                     &mut state.piles,
+                    allocated_card_id_through,
                     ascension,
                     &player_snapshot,
                     &state.relics,
@@ -732,10 +743,12 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
         let piles_before_post_damage_effects = (deferred_burn_to_discard > 0
             || deferred_upgrade_burns > 0)
             .then(|| state.piles.clone());
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
         let damage = apply_monster_intent_with_card_rng(
             &mut state.monsters[index],
             &mut state.player,
             &mut state.piles,
+            allocated_card_id_through,
             ascension,
             &player_snapshot,
             &relics,
@@ -772,7 +785,10 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             || deferred_upgrade_burns > 0
         {
             let heal_self_thorns = if heal_self.is_some() {
-                (state.player.powers.thorns + state.player.temp_thorns) * hits.max(1)
+                checked_turn_mul(
+                    checked_turn_add(state.player.powers.thorns, state.player.temp_thorns)?,
+                    hits.max(1),
+                )?
             } else {
                 0
             };
@@ -791,14 +807,32 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
         }
         if state.player.hp > 0 {
             if let crate::MonsterIntent::AttackAddSlimedToDiscard { count, .. } = intent {
-                add_cards_to_discard(&mut state.piles, SLIMED_ID, count);
+                let allocated_card_id_through = state.max_authoritative_card_instance_id();
+                add_cards_to_discard(
+                    &mut state.piles,
+                    SLIMED_ID,
+                    count,
+                    allocated_card_id_through,
+                )?;
             }
             if deferred_wounds_to_discard > 0 {
-                add_cards_to_discard(&mut state.piles, WOUND_ID, deferred_wounds_to_discard);
+                let allocated_card_id_through = state.max_authoritative_card_instance_id();
+                add_cards_to_discard(
+                    &mut state.piles,
+                    WOUND_ID,
+                    deferred_wounds_to_discard,
+                    allocated_card_id_through,
+                )?;
             }
         }
         if state.player.hp > 0 && dazed_to_discard > 0 {
-            add_cards_to_discard(&mut state.piles, DAZED_ID, dazed_to_discard);
+            let allocated_card_id_through = state.max_authoritative_card_instance_id();
+            add_cards_to_discard(
+                &mut state.piles,
+                DAZED_ID,
+                dazed_to_discard,
+                allocated_card_id_through,
+            )?;
         }
         if state.monsters[index].alive && state.monsters[index].content_id == NEMESIS_ID {
             if nemesis_had_intangible {
@@ -950,57 +984,60 @@ fn apply_monster_pending_effects(
         let hit_damage = damage / hit_count;
         for _ in 0..hit_count {
             let hp_damage = deal_damage_to_player(state, hit_damage)?;
-            apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
-            total_hp_damage += hp_damage;
+            apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage)?;
+            total_hp_damage = checked_turn_add(total_hp_damage, hp_damage)?;
         }
     } else if damage > 0 {
         let hp_damage = deal_damage_to_player(state, damage)?;
-        apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
-        total_hp_damage += hp_damage;
+        apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage)?;
+        total_hp_damage = checked_turn_add(total_hp_damage, hp_damage)?;
     }
     if state.player.hp <= 0 {
         return Ok(());
     }
     if weak > 0 {
+        if !state.relics.contains(&crate::Relic::Ginger) && state.player.powers.artifact == 0 {
+            checked_turn_add(state.player.powers.weak, weak)?;
+        }
         crate::relic::apply_player_weak_with_relics(&mut state.player.powers, &state.relics, weak);
     }
-    apply_attack_heal_self_after_player_damage(state, heal_self, total_hp_damage);
+    apply_attack_heal_self_after_player_damage(state, heal_self, total_hp_damage)?;
     apply_attack_heal_self_thorns_after_heal(state, heal_self, heal_self_thorns);
     if burn_to_discard_and_draw > 0 {
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
         add_cards_to_draw_random_spot(
             &mut state.piles,
             BURN_ID,
             burn_to_discard_and_draw,
             &mut state.rng.card_random_rng,
-        );
-        add_cards_to_discard(&mut state.piles, BURN_ID, burn_to_discard_and_draw);
+            allocated_card_id_through,
+        )?;
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+        add_cards_to_discard(
+            &mut state.piles,
+            BURN_ID,
+            burn_to_discard_and_draw,
+            allocated_card_id_through,
+        )?;
     }
     if burn_to_discard > 0 {
-        add_cards_to_discard(&mut state.piles, BURN_ID, burn_to_discard);
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+        add_cards_to_discard(
+            &mut state.piles,
+            BURN_ID,
+            burn_to_discard,
+            allocated_card_id_through,
+        )?;
     }
     if upgrade_burns > 0 {
-        upgrade_burns_and_add_upgraded_to_discard(&mut state.piles, upgrade_burns);
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+        upgrade_burns_and_add_upgraded_to_discard(
+            &mut state.piles,
+            upgrade_burns,
+            allocated_card_id_through,
+        )?;
     }
     Ok(())
-}
-
-fn upgrade_burns_and_add_upgraded_to_discard(piles: &mut crate::combat::CardPiles, count: i32) {
-    for card in piles
-        .discard_pile
-        .iter_mut()
-        .chain(piles.draw_pile.iter_mut())
-    {
-        if card.content_id == BURN_ID {
-            card.upgrades = card.upgrades.saturating_add(1);
-        }
-    }
-
-    for _ in 0..count {
-        let next_id = crate::CardId::new(piles.max_card_instance_id() + 1);
-        let mut burn = crate::CardInstance::new(next_id, BURN_ID);
-        burn.upgrades = 1;
-        piles.discard_pile.push(burn);
-    }
 }
 
 fn effective_current_move_hits(
@@ -1080,38 +1117,38 @@ fn apply_painful_stabs_after_player_damage(
     state: &mut CombatState,
     painful_stabs: i32,
     hp_damage: i32,
-) {
+) -> SimResult<()> {
     if painful_stabs <= 0 || hp_damage <= 0 {
-        return;
+        return Ok(());
     }
-
-    for _ in 0..painful_stabs {
-        let next_id = crate::CardId::new(state.next_card_instance_id());
-        state
-            .piles
-            .discard_pile
-            .push(crate::CardInstance::new(next_id, WOUND_ID));
-    }
+    let allocated_card_id_through = state.max_authoritative_card_instance_id();
+    add_cards_to_discard(
+        &mut state.piles,
+        WOUND_ID,
+        painful_stabs,
+        allocated_card_id_through,
+    )
 }
 
 fn apply_attack_heal_self_after_player_damage(
     state: &mut CombatState,
     monster_id: Option<MonsterId>,
     hp_damage: i32,
-) {
+) -> SimResult<()> {
     if hp_damage <= 0 {
-        return;
+        return Ok(());
     }
     let Some(monster_id) = monster_id else {
-        return;
+        return Ok(());
     };
     if let Some(monster) = state
         .monsters
         .iter_mut()
         .find(|monster| monster.id == monster_id && monster.alive)
     {
-        heal_monster_to_stored_cap(monster, hp_damage);
+        heal_monster_to_stored_cap(monster, hp_damage)?;
     }
+    Ok(())
 }
 
 fn apply_attack_heal_self_thorns_after_heal(
@@ -1786,6 +1823,68 @@ mod tests {
                 "combat integer addition overflows i32"
             ))
         );
+    }
+
+    #[test]
+    fn pending_effects_reject_weak_overflow_without_mutating_input() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.weak = i32::MAX;
+        let before = state.clone();
+
+        assert_eq!(
+            apply_monster_pending_effects(&mut state, 0, 1, 0, None, 0, 0, 1, 0, 0),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn capped_monster_healing_avoids_intermediate_overflow() {
+        let mut monster = CombatState::initial_fixture().monsters.remove(0);
+        monster.max_hp = i32::MAX;
+        monster.hp = i32::MAX - 1;
+
+        heal_monster_to_stored_cap(&mut monster, i32::MAX)
+            .expect("capped healing remains representable");
+
+        assert_eq!(monster.hp, i32::MAX);
+    }
+
+    #[test]
+    fn end_player_turn_rejects_healing_thorns_overflow_without_mutating_input() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.thorns = i32::MAX;
+        state.player.temp_thorns = 1;
+        state.monsters[0].intent = crate::MonsterIntent::AttackHealSelf { damage: 1 };
+        state.monsters[0].initial_intent_locked = true;
+        let before = state.clone();
+
+        assert_eq!(
+            end_player_turn(&state),
+            Err(SimError::InvalidState("monster intent arithmetic overflow"))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn end_player_turn_reserves_stasis_ids_for_generated_statuses() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].intent = crate::MonsterIntent::AddDazedToDiscard { count: 1 };
+        state.monsters[0].stasis_card = Some(CardInstance::new(
+            CardId::new(i64::MAX as u64),
+            POMMEL_STRIKE_ID,
+        ));
+        let before = state.clone();
+
+        assert_eq!(
+            end_player_turn(&state),
+            Err(SimError::InvalidState(
+                "generated combat card ID exceeds the target signed range"
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     #[test]
@@ -3122,6 +3221,7 @@ mod tests {
         assert_eq!((source_monster.hp, source_monster.max_hp), (190, 190));
         source_monster.intent = crate::MonsterIntent::ApplyPlayerConstricted { amount: 12 };
         let fixture = CombatState::initial_fixture();
+        let allocated_card_id_through = fixture.max_authoritative_card_instance_id();
         let mut player = fixture.player;
         let before = player.clone();
         let mut piles = fixture.piles;
@@ -3130,6 +3230,7 @@ mod tests {
             &mut source_monster,
             &mut player,
             &mut piles,
+            allocated_card_id_through,
             17,
             &before,
             &[],

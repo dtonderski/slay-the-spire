@@ -17,5 +17,9 @@ that could silently clamp an out-of-range value.
 This boundary covers the generic single-monster intent executor. The surrounding
 dispatcher uses its own checked move counters, transactional group buffs, and
 fallible cleanup powers. Combat and run-level revival share one checked
-percentage calculation. Summons and pending-effect aggregation remain separate
-follow-up audit surfaces.
+percentage calculation. Pending attack effects now check accumulated damage,
+Weak, self-healing, thorns aggregation, status-card generation, and Burn
+upgrades. Generated status cards reserve IDs above every authoritative combat
+card location, including decision-owned cards and monster Stasis, and allocation
+or upgrade failure leaves the authoritative transition unchanged. Summons remain
+a separate follow-up audit surface.
