@@ -15,5 +15,6 @@ once, matching the existing observable behavior without relying on a float cast
 that could silently clamp an out-of-range value.
 
 This boundary covers the generic single-monster intent executor. The surrounding
-whole-monster-turn dispatcher, group buffs, summons, cleanup powers, and revival
-helpers remain separate follow-up audit surfaces.
+dispatcher uses its own checked move counters, transactional group buffs, and
+fallible cleanup powers. Summons, pending-effect aggregation, and revival
+calculations remain separate follow-up audit surfaces.

@@ -175,24 +175,49 @@ fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i3
     }
 }
 
-pub fn apply_end_of_monster_turn_powers(monster: &mut MonsterState) {
-    apply_end_of_monster_turn_powers_with_ritual(monster, true);
+pub fn apply_end_of_monster_turn_powers(monster: &mut MonsterState) -> SimResult<()> {
+    apply_end_of_monster_turn_powers_with_ritual(monster, true)
 }
 
-pub fn apply_end_of_monster_turn_powers_without_ritual(monster: &mut MonsterState) {
-    apply_end_of_monster_turn_powers_with_ritual(monster, false);
+pub fn apply_end_of_monster_turn_powers_without_ritual(
+    monster: &mut MonsterState,
+) -> SimResult<()> {
+    apply_end_of_monster_turn_powers_with_ritual(monster, false)
 }
 
-fn apply_end_of_monster_turn_powers_with_ritual(monster: &mut MonsterState, apply_ritual: bool) {
-    if apply_ritual && monster.powers.ritual > 0 {
-        monster.powers.strength += monster.powers.ritual;
-    }
+fn apply_end_of_monster_turn_powers_with_ritual(
+    monster: &mut MonsterState,
+    apply_ritual: bool,
+) -> SimResult<()> {
+    let strength = if apply_ritual && monster.powers.ritual > 0 {
+        monster
+            .powers
+            .strength
+            .checked_add(monster.powers.ritual)
+            .ok_or(SimError::InvalidState(
+                "monster end-turn arithmetic overflow",
+            ))?
+    } else {
+        monster.powers.strength
+    };
+    let mut block = monster.block;
     if monster.powers.metallicize > 0 {
-        monster.block += monster.powers.metallicize;
+        block = block
+            .checked_add(monster.powers.metallicize)
+            .ok_or(SimError::InvalidState(
+                "monster end-turn arithmetic overflow",
+            ))?;
     }
     if monster.powers.plated_armor > 0 {
-        monster.block += monster.powers.plated_armor;
+        block = block
+            .checked_add(monster.powers.plated_armor)
+            .ok_or(SimError::InvalidState(
+                "monster end-turn arithmetic overflow",
+            ))?;
     }
+    monster.powers.strength = strength;
+    monster.block = block;
+    Ok(())
 }
 
 pub fn monster_attack_damage(monster: &MonsterState, base: i32) -> SimResult<i32> {

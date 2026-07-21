@@ -243,6 +243,13 @@ fn checked_turn_add(value: i32, amount: i32) -> SimResult<i32> {
     ))
 }
 
+fn checked_turn_increment(value: &mut u32) -> SimResult<()> {
+    *value = value
+        .checked_add(1)
+        .ok_or(SimError::InvalidState("combat turn counter overflows u32"))?;
+    Ok(())
+}
+
 fn resolve_player_temp_strength(state: &mut CombatState) -> SimResult<()> {
     let amount = std::mem::take(&mut state.player.temp_strength);
     if amount <= 0 || state.player.powers.artifact <= 0 {
@@ -256,7 +263,14 @@ fn resolve_player_temp_strength(state: &mut CombatState) -> SimResult<()> {
     Ok(())
 }
 
-pub fn finish_monster_turn_after_player_revival(state: &mut CombatState) {
+pub fn finish_monster_turn_after_player_revival(state: &mut CombatState) -> SimResult<()> {
+    let mut next = state.clone();
+    finish_monster_turn_after_player_revival_inner(&mut next)?;
+    *state = next;
+    Ok(())
+}
+
+fn finish_monster_turn_after_player_revival_inner(state: &mut CombatState) -> SimResult<()> {
     for monster in &mut state.monsters {
         if monster.alive {
             if monster.powers.vulnerable > 0 {
@@ -268,7 +282,7 @@ pub fn finish_monster_turn_after_player_revival(state: &mut CombatState) {
             if monster.powers.malleable_base > 0 {
                 monster.powers.malleable = monster.powers.malleable_base;
             }
-            apply_end_of_monster_turn_powers(monster);
+            apply_end_of_monster_turn_powers(monster)?;
             if monster.content_id == BYRD_ID && monster.powers.flight > 0 {
                 monster.powers.flight = target_byrd_flight_amount(state.ascension);
             }
@@ -276,7 +290,8 @@ pub fn finish_monster_turn_after_player_revival(state: &mut CombatState) {
                 monster.powers.slow = 0;
             }
             if monster.temp_strength_down > 0 {
-                monster.powers.strength += monster.temp_strength_down;
+                monster.powers.strength =
+                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?;
                 monster.temp_strength_down = 0;
             }
         }
@@ -294,6 +309,7 @@ pub fn finish_monster_turn_after_player_revival(state: &mut CombatState) {
     }
 
     apply_turn_transition_block_loss(state);
+    Ok(())
 }
 
 fn apply_start_of_turn_brutality(state: &mut CombatState) {
@@ -434,7 +450,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             crate::MonsterIntent::Attack { damage }
                 if is_half_dead_darkling(&state.monsters[index]) && damage == 0 =>
             {
-                state.monsters[index].moves_executed += 1;
+                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
@@ -443,22 +459,24 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 state.monsters[index].escaped = false;
                 state.monsters[index].hp = state.monsters[index].max_hp / 2;
                 if state.relics.contains(&crate::Relic::PhilosophersStone) {
-                    state.monsters[index].powers.strength +=
-                        crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH;
+                    state.monsters[index].powers.strength = checked_turn_add(
+                        state.monsters[index].powers.strength,
+                        crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH,
+                    )?;
                 }
-                state.monsters[index].moves_executed += 1;
+                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::HealAllMonsters { amount } => {
-                apply_heal_all_monsters(&mut state.monsters, amount);
-                state.monsters[index].moves_executed += 1;
+                apply_heal_all_monsters(&mut state.monsters, amount)?;
+                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::StrengthAllMonsters { amount } => {
-                apply_strength_all_monsters(&mut state.monsters, amount);
-                state.monsters[index].moves_executed += 1;
+                apply_strength_all_monsters(&mut state.monsters, amount)?;
+                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
@@ -469,22 +487,23 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 state.monsters[index].powers.vulnerable = 0;
                 state.monsters[index].powers.weak = 0;
                 state.monsters[index].temp_strength_down = 0;
-                state.monsters[index].powers.strength += amount;
-                state.monsters[index].moves_executed += 1;
+                state.monsters[index].powers.strength =
+                    checked_turn_add(state.monsters[index].powers.strength, amount)?;
+                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
             crate::MonsterIntent::StrengthAndBlock { strength, block }
                 if state.monsters[index].content_id == THE_COLLECTOR_ID =>
             {
-                apply_strength_all_monsters(&mut state.monsters, strength);
+                apply_strength_all_monsters(&mut state.monsters, strength)?;
                 if let Some(monster) = state
                     .monsters
                     .iter_mut()
                     .find(|monster| monster.id == actor_id)
                 {
-                    monster.block += block;
-                    monster.moves_executed += 1;
+                    monster.block = checked_turn_add(monster.block, block)?;
+                    checked_turn_increment(&mut monster.moves_executed)?;
                 }
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
@@ -492,9 +511,10 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             crate::MonsterIntent::StrengthAndBlock { strength, block }
                 if state.monsters[index].content_id == CHAMP_ID =>
             {
-                state.monsters[index].block += block;
-                state.monsters[index].powers.metallicize += strength;
-                state.monsters[index].moves_executed += 1;
+                state.monsters[index].block = checked_turn_add(state.monsters[index].block, block)?;
+                state.monsters[index].powers.metallicize =
+                    checked_turn_add(state.monsters[index].powers.metallicize, strength)?;
+                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
@@ -503,8 +523,8 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 if state.monsters[index].content_id == GREMLIN_LEADER_ID {
                     let _ = state.rng.monster_rng.random_int(2);
                 }
-                apply_gremlin_leader_encourage(&mut state.monsters, leader_id, strength, block);
-                state.monsters[index].moves_executed += 1;
+                apply_gremlin_leader_encourage(&mut state.monsters, leader_id, strength, block)?;
+                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
             }
@@ -590,7 +610,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     .iter_mut()
                     .find(|monster| monster.id == summoner_id)
                 {
-                    monster.moves_executed += 1;
+                    checked_turn_increment(&mut monster.moves_executed)?;
                     summoner_alive = monster.alive;
                 }
                 if summoner_alive {
@@ -612,7 +632,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     .iter_mut()
                     .find(|monster| monster.id == summoner_id)
                 {
-                    monster.moves_executed += 1;
+                    checked_turn_increment(&mut monster.moves_executed)?;
                 }
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
@@ -625,14 +645,14 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     .iter_mut()
                     .find(|monster| monster.alive && monster.content_id == BRONZE_AUTOMATON_ID)
                 {
-                    automaton.block += block;
+                    automaton.block = checked_turn_add(automaton.block, block)?;
                 }
                 if let Some(monster) = state
                     .monsters
                     .iter_mut()
                     .find(|monster| monster.id == actor_id)
                 {
-                    monster.moves_executed += 1;
+                    checked_turn_increment(&mut monster.moves_executed)?;
                 }
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
@@ -640,13 +660,13 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             crate::MonsterIntent::Block { block }
                 if state.monsters[index].content_id == DECA_ID =>
             {
-                apply_deca_square(&mut state.monsters, block, ascension);
+                apply_deca_square(&mut state.monsters, block, ascension)?;
                 if let Some(monster) = state
                     .monsters
                     .iter_mut()
                     .find(|monster| monster.id == actor_id)
                 {
-                    monster.moves_executed += 1;
+                    checked_turn_increment(&mut monster.moves_executed)?;
                 }
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
@@ -662,13 +682,13 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     actor_id,
                     block,
                     &mut state.rng.monster_rng,
-                );
+                )?;
                 if let Some(monster) = state
                     .monsters
                     .iter_mut()
                     .find(|monster| monster.id == actor_id)
                 {
-                    monster.moves_executed += 1;
+                    checked_turn_increment(&mut monster.moves_executed)?;
                 }
                 prepare_next_intent_for_actor(state, actor_id)?;
                 continue;
@@ -807,15 +827,16 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 monster.powers.malleable = monster.powers.malleable_base;
             }
             if skip_ritual_tick.contains(&monster.id) {
-                apply_end_of_monster_turn_powers_without_ritual(monster);
+                apply_end_of_monster_turn_powers_without_ritual(monster)?;
             } else {
-                apply_end_of_monster_turn_powers(monster);
+                apply_end_of_monster_turn_powers(monster)?;
             }
             if monster.content_id == BYRD_ID && monster.powers.flight > 0 {
                 monster.powers.flight = target_byrd_flight_amount(state.ascension);
             }
             if monster.temp_strength_down > 0 {
-                monster.powers.strength += monster.temp_strength_down;
+                monster.powers.strength =
+                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?;
                 monster.temp_strength_down = 0;
             }
         }
@@ -1592,7 +1613,7 @@ fn apply_shield_gremlin_random_block(
     source_id: MonsterId,
     block: i32,
     rng: &mut StsRng,
-) {
+) -> SimResult<()> {
     let candidates = monsters
         .iter()
         .enumerate()
@@ -1609,17 +1630,36 @@ fn apply_shield_gremlin_random_block(
         Some(candidates[rng.random_int(candidates.len() as i32 - 1) as usize])
     };
     if let Some(target_index) = target_index {
-        monsters[target_index].block += block;
+        monsters[target_index].block = checked_turn_add(monsters[target_index].block, block)?;
     }
+    Ok(())
 }
 
-fn apply_deca_square(monsters: &mut [crate::MonsterState], block: i32, ascension: u8) {
-    for monster in monsters.iter_mut().filter(|monster| monster.alive) {
-        monster.block += block;
-        if ascension >= 19 {
-            monster.powers.plated_armor += 3;
-        }
+fn apply_deca_square(
+    monsters: &mut [crate::MonsterState],
+    block: i32,
+    ascension: u8,
+) -> SimResult<()> {
+    let values = monsters
+        .iter()
+        .map(|monster| {
+            if !monster.alive {
+                return Ok((monster.block, monster.powers.plated_armor));
+            }
+            let next_block = checked_turn_add(monster.block, block)?;
+            let next_plated_armor = if ascension >= 19 {
+                checked_turn_add(monster.powers.plated_armor, 3)?
+            } else {
+                monster.powers.plated_armor
+            };
+            Ok((next_block, next_plated_armor))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    for (monster, (block, plated_armor)) in monsters.iter_mut().zip(values) {
+        monster.block = block;
+        monster.powers.plated_armor = plated_armor;
     }
+    Ok(())
 }
 
 fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize {
@@ -1702,6 +1742,53 @@ mod tests {
                 "combat integer addition overflows i32"
             ))
         );
+    }
+
+    #[test]
+    fn end_player_turn_rejects_special_move_counter_overflow_without_mutating_input() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].intent = crate::MonsterIntent::StrengthAllMonsters { amount: 1 };
+        state.monsters[0].moves_executed = u32::MAX;
+        let before = state.clone();
+
+        assert_eq!(
+            end_player_turn(&state),
+            Err(SimError::InvalidState("combat turn counter overflows u32"))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn end_player_turn_rejects_monster_cleanup_overflow_without_mutating_input() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].intent = crate::MonsterIntent::Block { block: 0 };
+        state.monsters[0].powers.strength = i32::MAX;
+        state.monsters[0].powers.ritual = 1;
+        let before = state.clone();
+
+        assert_eq!(
+            end_player_turn(&state),
+            Err(SimError::InvalidState(
+                "monster end-turn arithmetic overflow"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn revival_cleanup_overflow_is_transactional() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].powers.strength = i32::MAX;
+        state.monsters[0].powers.ritual = 1;
+        let before = state.clone();
+
+        assert_eq!(
+            finish_monster_turn_after_player_revival(&mut state),
+            Err(SimError::InvalidState(
+                "monster end-turn arithmetic overflow"
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     #[test]

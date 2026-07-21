@@ -7712,16 +7712,47 @@ fn slaver_red_scrape_intent(ascension: u8) -> MonsterIntent {
     }
 }
 
-pub fn apply_heal_all_monsters(monsters: &mut [MonsterState], amount: i32) {
-    for monster in monsters.iter_mut().filter(|monster| monster.alive) {
-        monster.hp = (monster.hp + amount).min(monster.max_hp);
+pub fn apply_heal_all_monsters(monsters: &mut [MonsterState], amount: i32) -> SimResult<()> {
+    if amount < 0 {
+        return Err(SimError::InvalidState(
+            "monster group healing amount is negative",
+        ));
     }
+    let healed_hp = monsters
+        .iter()
+        .map(|monster| {
+            if monster.alive {
+                Ok(monster.hp.saturating_add(amount).min(monster.max_hp))
+            } else {
+                Ok(monster.hp)
+            }
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    for (monster, hp) in monsters.iter_mut().zip(healed_hp) {
+        monster.hp = hp;
+    }
+    Ok(())
 }
 
-pub fn apply_strength_all_monsters(monsters: &mut [MonsterState], amount: i32) {
-    for monster in monsters.iter_mut().filter(|monster| monster.alive) {
-        monster.powers.strength += amount;
+pub fn apply_strength_all_monsters(monsters: &mut [MonsterState], amount: i32) -> SimResult<()> {
+    let strengths = monsters
+        .iter()
+        .map(|monster| {
+            if monster.alive {
+                monster
+                    .powers
+                    .strength
+                    .checked_add(amount)
+                    .ok_or(SimError::InvalidState("monster group arithmetic overflow"))
+            } else {
+                Ok(monster.powers.strength)
+            }
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    for (monster, strength) in monsters.iter_mut().zip(strengths) {
+        monster.powers.strength = strength;
     }
+    Ok(())
 }
 
 pub fn apply_gremlin_leader_encourage(
@@ -7729,13 +7760,34 @@ pub fn apply_gremlin_leader_encourage(
     leader_id: MonsterId,
     strength: i32,
     block: i32,
-) {
-    for monster in monsters.iter_mut().filter(|monster| monster.alive) {
-        monster.powers.strength += strength;
-        if monster.id != leader_id {
-            monster.block += block;
-        }
+) -> SimResult<()> {
+    let values = monsters
+        .iter()
+        .map(|monster| {
+            if !monster.alive {
+                return Ok((monster.powers.strength, monster.block));
+            }
+            let next_strength = monster
+                .powers
+                .strength
+                .checked_add(strength)
+                .ok_or(SimError::InvalidState("monster group arithmetic overflow"))?;
+            let next_block = if monster.id == leader_id {
+                monster.block
+            } else {
+                monster
+                    .block
+                    .checked_add(block)
+                    .ok_or(SimError::InvalidState("monster group arithmetic overflow"))?
+            };
+            Ok((next_strength, next_block))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    for (monster, (strength, block)) in monsters.iter_mut().zip(values) {
+        monster.powers.strength = strength;
+        monster.block = block;
     }
+    Ok(())
 }
 
 #[allow(clippy::explicit_counter_loop)]
@@ -11383,9 +11435,54 @@ mod tests {
             }
         );
 
-        apply_heal_all_monsters(&mut monsters, HEALER_HEAL);
+        apply_heal_all_monsters(&mut monsters, HEALER_HEAL).expect("monster healing is valid");
         assert_eq!(monsters[0].hp, 80);
         assert_eq!(monsters[1].hp, 53);
+    }
+
+    #[test]
+    fn monster_group_healing_clamps_at_the_target_hp_limit() {
+        let mut monster = monster_state(&HEALER_A0, MonsterId::new(1));
+        monster.hp = i32::MAX;
+        monster.max_hp = i32::MAX;
+
+        apply_heal_all_monsters(std::slice::from_mut(&mut monster), 1)
+            .expect("positive healing clamps at max HP");
+
+        assert_eq!(monster.hp, i32::MAX);
+    }
+
+    #[test]
+    fn monster_group_strength_overflow_is_transactional() {
+        let mut first = monster_state(&CENTURION_A0, MonsterId::new(1));
+        first.powers.strength = 4;
+        let mut second = monster_state(&HEALER_A0, MonsterId::new(2));
+        second.powers.strength = i32::MAX;
+        let mut monsters = vec![first, second];
+        let before = monsters.clone();
+
+        assert_eq!(
+            apply_strength_all_monsters(&mut monsters, 1),
+            Err(SimError::InvalidState("monster group arithmetic overflow"))
+        );
+        assert_eq!(monsters, before);
+    }
+
+    #[test]
+    fn gremlin_encourage_overflow_is_transactional() {
+        let leader_id = MonsterId::new(1);
+        let mut leader = monster_state(&GREMLIN_LEADER_A0, leader_id);
+        leader.powers.strength = 4;
+        let mut minion = monster_state(&GREMLIN_WARRIOR_A0, MonsterId::new(2));
+        minion.block = i32::MAX;
+        let mut monsters = vec![leader, minion];
+        let before = monsters.clone();
+
+        assert_eq!(
+            apply_gremlin_leader_encourage(&mut monsters, leader_id, 1, 1),
+            Err(SimError::InvalidState("monster group arithmetic overflow"))
+        );
+        assert_eq!(monsters, before);
     }
 
     #[test]
