@@ -48,7 +48,7 @@ use sts_core::content::monsters::{
 use sts_core::{
     city_room_kinds_on_path, enter_normal_combat_reward_screen, event_screen,
     exordium_room_kinds_on_path, generate_neow_three_potions, initialize_combat_piles_with_relics,
-    CardPiles, EventChoice, EventScreen, MonsterPowers, PlayerPowers, RelicCounters, StsRng,
+    CardPiles, EventChoice, EventScreen, MonsterPowers, PlayerPowers, StsRng,
 };
 #[cfg(test)]
 use sts_core::{target_room_kinds_on_path, TargetMapAct};
@@ -8072,103 +8072,6 @@ fn relic_keys_from_value(value: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
-fn observed_combat_relics_and_counters(game: &Value) -> (Vec<Relic>, RelicCounters) {
-    let mut relics = Vec::new();
-    let mut counters = RelicCounters::default();
-
-    for relic in observed_relic_entries(game) {
-        let Some(observed) = relic_from_trace_name(relic.name) else {
-            continue;
-        };
-        if !relics.contains(&observed) {
-            relics.push(observed);
-        }
-
-        let Some(counter) = relic.counter else {
-            continue;
-        };
-        match observed {
-            Relic::InkBottle => counters.ink_bottle_cards_played = counter,
-            Relic::Nunchaku => counters.nunchaku_attacks_played = counter,
-            Relic::PenNib => counters.pen_nib_attacks_played = counter,
-            Relic::Shuriken => counters.shuriken_attacks_this_turn = counter,
-            Relic::Kunai => counters.kunai_attacks_this_turn = counter,
-            Relic::LetterOpener => counters.letter_opener_skills_this_turn = counter,
-            Relic::Pocketwatch => counters.cards_played_this_turn = counter,
-            Relic::HappyFlower => counters.happy_flower_turns = counter,
-            Relic::StoneCalendar => counters.player_turns_started = counter,
-            Relic::IncenseBurner => counters.incense_burner_counter = counter,
-            _ => {}
-        }
-    }
-
-    (relics, counters)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn observed_combat_turn(combat: &Value) -> Option<u32> {
-    combat
-        .get("turn")
-        .and_then(Value::as_u64)
-        .and_then(|turn| u32::try_from(turn).ok())
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-struct ObservedRelicEntry<'a> {
-    name: &'a str,
-    counter: Option<u32>,
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn observed_relic_entries(game: &Value) -> Vec<ObservedRelicEntry<'_>> {
-    let Some(relics) = game.get("relics").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-
-    relics
-        .iter()
-        .filter_map(|relic| {
-            let name = relic
-                .get("name")
-                .or_else(|| relic.get("id"))
-                .and_then(Value::as_str)?;
-            let counter = relic
-                .get("counter")
-                .and_then(Value::as_i64)
-                .and_then(|counter| u32::try_from(counter).ok());
-            Some(ObservedRelicEntry { name, counter })
-        })
-        .collect()
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn observed_energy_per_turn(relics: &[Relic]) -> i32 {
-    if relics.iter().any(|relic| {
-        matches!(
-            relic,
-            Relic::CoffeeDripper
-                | Relic::CursedKey
-                | Relic::Ectoplasm
-                | Relic::FusionHammer
-                | Relic::MarkOfPain
-                | Relic::PhilosophersStone
-                | Relic::RunicDome
-                | Relic::Sozu
-                | Relic::VelvetChoker
-        )
-    }) {
-        4
-    } else {
-        3
-    }
-}
-
 fn choice_list_from_value(value: Option<&Value>) -> Vec<String> {
     let Some(choices) = value.and_then(Value::as_array) else {
         return Vec::new();
@@ -8238,44 +8141,6 @@ fn potion_from_trace_name(name: &str) -> Option<Potion> {
         "Ancient Potion" => Some(Potion::Ancient),
         _ => None,
     }
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn potions_from_observed(game: &Value) -> Vec<Potion> {
-    game.get("potions")
-        .and_then(Value::as_array)
-        .map(|potions| {
-            potions
-                .iter()
-                .filter_map(|potion| {
-                    let name = potion.get("name").and_then(Value::as_str)?;
-                    if name.eq_ignore_ascii_case("Potion Slot") {
-                        return None;
-                    }
-                    potion_from_trace_name(name)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn empty_potion_slots_from_observed(game: &Value) -> Vec<usize> {
-    game.get("potions")
-        .and_then(Value::as_array)
-        .map(|potions| {
-            potions
-                .iter()
-                .enumerate()
-                .filter_map(|(index, potion)| {
-                    let name = potion.get("name").and_then(Value::as_str)?;
-                    name.eq_ignore_ascii_case("Potion Slot").then_some(index)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 fn potion_keys_from_value(value: Option<&Value>) -> Vec<String> {
