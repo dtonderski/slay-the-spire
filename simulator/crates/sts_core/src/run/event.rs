@@ -573,6 +573,22 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
         }
+        Event::Designer => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Designer stage is invalid"));
+            }
+            if screen.stage < 2 {
+                if screen.event_data & !0b11 != 0 {
+                    return Err(SimError::InvalidState(
+                        "Designer event data has unknown bits",
+                    ));
+                }
+            } else if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "completed Designer event retains option data",
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -5313,6 +5329,58 @@ mod tests {
         assert_eq!(
             cursed_tome_add_hp_loss(0, -1),
             Err(SimError::InvalidState("Cursed Tome HP loss is negative"))
+        );
+    }
+
+    #[test]
+    fn designer_validation_accepts_only_reachable_stage_data_pairs() {
+        for stage in 0..=1 {
+            for event_data in 0..=3 {
+                let mut run = RunState::seeded_ironclad(1, 0);
+                run.current_act = 2;
+                run.phase = RunPhase::Event;
+                run.event = Some(designer_screen(&run, stage, event_data));
+                run.validate().expect("reachable Designer state is valid");
+            }
+        }
+
+        let mut completed = RunState::seeded_ironclad(1, 0);
+        completed.current_act = 2;
+        completed.phase = RunPhase::Event;
+        completed.event = Some(designer_screen(&completed, 2, 0));
+        completed
+            .validate()
+            .expect("completed Designer state is valid");
+
+        let mut unknown_bits = RunState::seeded_ironclad(1, 0);
+        unknown_bits.current_act = 2;
+        unknown_bits.phase = RunPhase::Event;
+        unknown_bits.event = Some(designer_screen(&unknown_bits, 1, 0b100));
+        assert_eq!(
+            unknown_bits.validate(),
+            Err(SimError::InvalidState(
+                "Designer event data has unknown bits"
+            ))
+        );
+
+        let mut retained_data = RunState::seeded_ironclad(1, 0);
+        retained_data.current_act = 2;
+        retained_data.phase = RunPhase::Event;
+        retained_data.event = Some(designer_screen(&retained_data, 2, 1));
+        assert_eq!(
+            retained_data.validate(),
+            Err(SimError::InvalidState(
+                "completed Designer event retains option data"
+            ))
+        );
+
+        let mut invalid_stage = RunState::seeded_ironclad(1, 0);
+        invalid_stage.current_act = 2;
+        invalid_stage.phase = RunPhase::Event;
+        invalid_stage.event = Some(designer_screen(&invalid_stage, 3, 0));
+        assert_eq!(
+            invalid_stage.validate(),
+            Err(SimError::InvalidState("Designer stage is invalid"))
         );
     }
 
