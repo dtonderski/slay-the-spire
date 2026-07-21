@@ -172,6 +172,37 @@ mod tests {
     }
 
     #[test]
+    fn healing_at_the_target_integer_limit_clamps_without_overflow() {
+        let mut run = RunState::map_fixture();
+        run.player_max_hp = i32::MAX;
+        run.player_hp = i32::MAX - 2;
+
+        run.heal_player(10);
+
+        assert_eq!(run.player_hp, i32::MAX);
+        run.validate().expect("clamped healing remains valid");
+    }
+
+    #[test]
+    fn relic_integer_overflow_produces_invalid_state_without_panicking() {
+        let mut hp_run = RunState::map_fixture();
+        hp_run.player_max_hp = i32::MAX;
+        hp_run.gain_relic(Relic::Strawberry);
+        assert_eq!(
+            hp_run.validate(),
+            Err(SimError::InvalidState("run player HP is out of bounds"))
+        );
+
+        let mut energy_run = RunState::map_fixture();
+        energy_run.energy_per_turn = i32::MAX;
+        energy_run.gain_relic(Relic::CoffeeDripper);
+        assert_eq!(
+            energy_run.validate(),
+            Err(SimError::InvalidState("run gold or energy is negative"))
+        );
+    }
+
+    #[test]
     fn snecko_eye_does_not_grant_energy() {
         let mut run = RunState::map_fixture();
 
@@ -1183,7 +1214,7 @@ impl RunState {
         ) && self.relics.contains(&Relic::SlaversCollar)
         {
             combat.player.max_energy += SLAVERS_COLLAR_ENERGY;
-            combat.player.energy += SLAVERS_COLLAR_ENERGY;
+            combat.player.energy = combat.player.energy.wrapping_add(SLAVERS_COLLAR_ENERGY);
         }
         if self.current_room_kind() == Some(RoomKind::Boss)
             && self.relics.contains(&Relic::Pantograph)
@@ -1216,7 +1247,7 @@ impl RunState {
             combat.player.powers.strength += self.girya_lifts as i32;
         }
         if self.relics.contains(&Relic::AncientTeaSet) && self.ancient_tea_set_armed {
-            combat.player.energy += ANCIENT_TEA_SET_ENERGY;
+            combat.player.energy = combat.player.energy.wrapping_add(ANCIENT_TEA_SET_ENERGY);
         }
         if self.relics.contains(&Relic::PhilosophersStone) {
             for monster in &mut combat.monsters {
@@ -1723,8 +1754,8 @@ impl RunState {
             self.gain_gold(CERAMIC_FISH_GOLD);
         }
         if self.relics.contains(&Relic::DarkstonePeriapt) && is_curse_content_id(content_id) {
-            self.player_max_hp += DARKSTONE_PERIAPT_MAX_HP;
-            self.player_hp += DARKSTONE_PERIAPT_MAX_HP;
+            self.player_max_hp = self.player_max_hp.wrapping_add(DARKSTONE_PERIAPT_MAX_HP);
+            self.player_hp = self.player_hp.wrapping_add(DARKSTONE_PERIAPT_MAX_HP);
         }
     }
 
@@ -1834,13 +1865,21 @@ impl RunState {
 
     pub fn heal_player(&mut self, amount: i32) {
         if amount > 0 && !self.has_mark_of_bloom() {
-            self.player_hp = (self.player_hp + amount).min(self.player_max_hp);
+            let Some(missing_hp) = self.player_max_hp.checked_sub(self.player_hp) else {
+                return;
+            };
+            if missing_hp > 0 {
+                self.player_hp = self.player_hp.wrapping_add(amount.min(missing_hp));
+            }
         }
     }
 
     pub fn gain_gold(&mut self, amount: i32) {
         if amount > 0 && self.can_gain_gold() {
-            self.gold += amount;
+            // Target gold is a Java `int`. Preserve its overflow semantics so
+            // the authoritative post-transition validator returns InvalidState
+            // instead of behavior depending on the Rust build profile.
+            self.gold = self.gold.wrapping_add(amount);
             if self.relics.contains(&Relic::BloodyIdol) {
                 self.heal_player(BLOODY_IDOL_HEAL);
             }
@@ -1892,38 +1931,38 @@ impl RunState {
         }
         match relic {
             Relic::Strawberry => {
-                self.player_max_hp += STRAWBERRY_MAX_HP;
+                self.player_max_hp = self.player_max_hp.wrapping_add(STRAWBERRY_MAX_HP);
                 self.heal_player(STRAWBERRY_MAX_HP);
             }
             Relic::Pear => {
-                self.player_max_hp += PEAR_MAX_HP;
+                self.player_max_hp = self.player_max_hp.wrapping_add(PEAR_MAX_HP);
                 self.heal_player(PEAR_MAX_HP);
             }
             Relic::Mango => {
-                self.player_max_hp += MANGO_MAX_HP;
+                self.player_max_hp = self.player_max_hp.wrapping_add(MANGO_MAX_HP);
                 self.heal_player(MANGO_MAX_HP);
             }
             Relic::OldCoin => {
                 self.gain_gold(OLD_COIN_GOLD);
             }
             Relic::LeesWaffle => {
-                self.player_max_hp += LEES_WAFFLE_MAX_HP;
+                self.player_max_hp = self.player_max_hp.wrapping_add(LEES_WAFFLE_MAX_HP);
                 self.heal_player(self.player_max_hp);
             }
             Relic::CoffeeDripper => {
-                self.energy_per_turn += COFFEE_DRIPPER_ENERGY;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(COFFEE_DRIPPER_ENERGY);
             }
             Relic::MarkOfPain => {
-                self.energy_per_turn += MARK_OF_PAIN_ENERGY;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(MARK_OF_PAIN_ENERGY);
             }
             Relic::FusionHammer => {
-                self.energy_per_turn += FUSION_HAMMER_ENERGY;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(FUSION_HAMMER_ENERGY);
             }
             Relic::Sozu => {
-                self.energy_per_turn += SOZU_ENERGY;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(SOZU_ENERGY);
             }
             Relic::BustedCrown => {
-                self.energy_per_turn += BUSTED_CROWN_ENERGY;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(BUSTED_CROWN_ENERGY);
             }
             Relic::SneckoEye => {}
             Relic::WingBoots => {
@@ -1939,19 +1978,19 @@ impl RunState {
                 super::grid::open_astrolabe_grid(self);
             }
             Relic::VelvetChoker => {
-                self.energy_per_turn += VELVET_CHOKER_ENERGY;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(VELVET_CHOKER_ENERGY);
             }
             Relic::PhilosophersStone => {
-                self.energy_per_turn += PHILOSOPHERS_STONE_ENERGY;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(PHILOSOPHERS_STONE_ENERGY);
             }
             Relic::CursedKey => {
-                self.energy_per_turn += 1;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(1);
             }
             Relic::Ectoplasm => {
-                self.energy_per_turn += ECTOPLASM_ENERGY;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(ECTOPLASM_ENERGY);
             }
             Relic::RunicDome => {
-                self.energy_per_turn += RUNIC_DOME_ENERGY;
+                self.energy_per_turn = self.energy_per_turn.wrapping_add(RUNIC_DOME_ENERGY);
             }
             Relic::Whetstone => {
                 self.upgrade_random_deck_cards(CardType::Attack, 2);
@@ -1978,11 +2017,11 @@ impl RunState {
                 self.fill_potions_from_cauldron();
             }
             Relic::TinyHouse => {
-                self.player_max_hp += TINY_HOUSE_MAX_HP;
+                self.player_max_hp = self.player_max_hp.wrapping_add(TINY_HOUSE_MAX_HP);
                 self.heal_player(TINY_HOUSE_MAX_HP + TINY_HOUSE_HEAL);
                 self.upgrade_random_deck_cards_matching(1, |_| true);
                 if let Some(reward) = self.reward.as_mut() {
-                    reward.gold_offer += TINY_HOUSE_GOLD;
+                    reward.gold_offer = reward.gold_offer.wrapping_add(TINY_HOUSE_GOLD);
                     let mut misc_rng =
                         StsRng::with_counter(self.misc_rng_seed as i64, self.misc_rng_counter);
                     reward.potion_offer = Some(crate::run::reward::target_uniform_random_potion(

@@ -351,8 +351,8 @@ pub fn open_neow_reward_grid(run: &mut RunState, reward: NeowRewardType) {
 }
 
 fn gain_max_hp(run: &mut RunState, amount: i32) {
-    run.player_max_hp += amount;
-    run.player_hp += amount;
+    run.player_max_hp = run.player_max_hp.wrapping_add(amount);
+    run.player_hp = run.player_hp.wrapping_add(amount);
 }
 
 fn lose_max_hp(run: &mut RunState, amount: i32) {

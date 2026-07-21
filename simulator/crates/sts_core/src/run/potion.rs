@@ -673,7 +673,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::Energy => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.energy += ENERGY_POTION_ENERGY * multiplier;
+                    combat.player.energy = combat
+                        .player
+                        .energy
+                        .wrapping_add(ENERGY_POTION_ENERGY * multiplier);
                 }
                 Potion::EssenceOfSteel => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -827,11 +830,11 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::FruitJuice => {
                     let max_hp = FRUIT_JUICE_MAX_HP * multiplier;
-                    next.player_max_hp += max_hp;
-                    next.player_hp += max_hp;
+                    next.player_max_hp = next.player_max_hp.wrapping_add(max_hp);
+                    next.player_hp = next.player_hp.wrapping_add(max_hp);
                     if let Some(combat) = next.combat.as_mut() {
-                        combat.player.max_hp += max_hp;
-                        combat.player.hp += max_hp;
+                        combat.player.max_hp = combat.player.max_hp.wrapping_add(max_hp);
+                        combat.player.hp = combat.player.hp.wrapping_add(max_hp);
                     }
                 }
                 Potion::GamblersBrew => {

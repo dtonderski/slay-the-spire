@@ -1407,7 +1407,7 @@ fn enter_boss_reward_chest(run: &mut RunState) {
     run.treasure_room = None;
     run.boss_chest_opened = false;
     run.pending_boss_relic_choices.clear();
-    run.current_floor += 1;
+    run.current_floor = run.current_floor.wrapping_add(1);
     run.reinit_room_rngs_for_floor();
 }
 
@@ -2024,8 +2024,8 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             let reward = next.reward.as_mut().expect("validated reward screen");
             reward.choices.clear();
             reward.consume_active_card_reward()?;
-            next.player_max_hp += SINGING_BOWL_MAX_HP;
-            next.player_hp += SINGING_BOWL_MAX_HP;
+            next.player_max_hp = next.player_max_hp.wrapping_add(SINGING_BOWL_MAX_HP);
+            next.player_hp = next.player_hp.wrapping_add(SINGING_BOWL_MAX_HP);
             return_to_reward_continuation_if_empty(&mut next);
         }
         RunAction::TakeGoldReward => {
@@ -2379,6 +2379,34 @@ mod tests {
         let json = serde_json::to_string(&completed).expect("serialize completed run state");
         let restored: RunState = serde_json::from_str(&json).expect("restore completed run state");
         assert_eq!(restored, completed);
+    }
+
+    #[test]
+    fn gold_reward_overflow_fails_closed_at_the_core_action_boundary() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Reward;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.event = None;
+        run.gold = i32::MAX;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 1,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: crate::run::CardRewardFlow::None,
+        });
+
+        assert_eq!(
+            apply_run_action(&run, RunAction::TakeGoldReward),
+            Err(SimError::InvalidState("run gold or energy is negative"))
+        );
     }
 
     #[test]

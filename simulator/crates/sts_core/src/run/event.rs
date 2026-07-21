@@ -1418,12 +1418,19 @@ fn woman_in_blue_choices(run: &RunState) -> Vec<EventChoice> {
     ];
     choices.push(EventChoice {
         label: if run.ascension >= 15 {
-            format!("Get punched ({} HP)", (run.player_max_hp + 19) / 20)
+            format!(
+                "Get punched ({} HP)",
+                woman_in_blue_punch_hp_loss(run.player_max_hp)
+            )
         } else {
             "Leave".to_owned()
         },
     });
     choices
+}
+
+fn woman_in_blue_punch_hp_loss(max_hp: i32) -> i32 {
+    max_hp / 20 + i32::from(max_hp % 20 != 0)
 }
 
 fn joust_event_data(bet_for: bool, owner_wins: bool) -> u32 {
@@ -1932,7 +1939,7 @@ pub(crate) fn complete_bonfire_elementals_card(
             run.heal_player(run.player_max_hp);
         }
         BonfireCardClass::Rare => {
-            run.player_max_hp += 10;
+            run.player_max_hp = run.player_max_hp.wrapping_add(10);
             run.heal_player(run.player_max_hp);
         }
     }
@@ -2691,7 +2698,7 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
 }
 
 pub(crate) fn enter_spire_heart_event(run: &mut RunState) {
-    run.current_floor += 1;
+    run.current_floor = run.current_floor.wrapping_add(1);
     run.current_room_override = Some(crate::map::RoomKind::Victory);
     run.phase = RunPhase::Event;
     run.combat = None;
@@ -3674,7 +3681,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         }
         Event::TheWomanInBlue if screen.stage == 0 && choice_index == 3 => {
             if next.ascension >= 15 {
-                let hp_loss = (next.player_max_hp + 19) / 20;
+                let hp_loss = woman_in_blue_punch_hp_loss(next.player_max_hp);
                 next.player_hp = (next.player_hp - hp_loss).max(0);
             }
             next.event = Some(make_event_screen(
@@ -4186,8 +4193,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             0 if choice_index == 1 => {
-                next.player_max_hp += BIG_FISH_MAX_HP_GAIN;
-                next.player_hp += BIG_FISH_MAX_HP_GAIN;
+                next.player_max_hp = next.player_max_hp.wrapping_add(BIG_FISH_MAX_HP_GAIN);
+                next.player_hp = next.player_hp.wrapping_add(BIG_FISH_MAX_HP_GAIN);
                 next.event = Some(EventScreen {
                     event: Event::BigFish,
                     choices: big_fish_choices(1),
@@ -4588,8 +4595,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             0 if choice_index == usize::from(next.relics.contains(&Relic::GoldenIdol)) => {
                 let hp_loss = forgotten_altar_hp_loss(next.player_max_hp, next.ascension);
-                next.player_max_hp += FORGOTTEN_ALTAR_MAX_HP_GAIN;
-                next.player_hp += FORGOTTEN_ALTAR_MAX_HP_GAIN;
+                next.player_max_hp = next.player_max_hp.wrapping_add(FORGOTTEN_ALTAR_MAX_HP_GAIN);
+                next.player_hp = next.player_hp.wrapping_add(FORGOTTEN_ALTAR_MAX_HP_GAIN);
                 lose_event_hp(&mut next, hp_loss);
                 next.event = Some(EventScreen {
                     event: Event::ForgottenAltar,
@@ -8045,13 +8052,15 @@ mod tests {
 
         let mut punched = RunState::seeded_ironclad(1, 15);
         punched.phase = RunPhase::Event;
+        punched.player_max_hp = i32::MAX;
+        punched.player_hp = i32::MAX;
         punched.event = Some(event_screen_for_run(&punched, Event::TheWomanInBlue));
         let initial_hp = punched.player_hp;
         let after_punch = apply_event_action(&punched, EventAction::Choose { choice_index: 3 })
             .expect("Woman in Blue punch applies");
         assert_eq!(
             after_punch.player_hp,
-            initial_hp - (punched.player_max_hp + 19) / 20
+            initial_hp - woman_in_blue_punch_hp_loss(punched.player_max_hp)
         );
         assert_eq!(after_punch.event.as_ref().expect("result").stage, 1);
     }
