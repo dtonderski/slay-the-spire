@@ -1286,7 +1286,7 @@ fn verify_seed_start_transitions(
                 .as_ref()
                 .expect("pending combat assertion keeps authoritative simulator state");
             let observed = seed_start_combat_observed_subset(&pre.message);
-            let simulated = seed_start_simulated_combat_subset(sim, false);
+            let simulated = seed_start_simulated_combat_subset(sim, false, &relics);
             if seed_start_combat_subsets_match(observed, simulated) {
                 let pending = pending_combat_assertion
                     .take()
@@ -1418,7 +1418,7 @@ fn verify_seed_start_transitions(
                     "combat observation poll",
                     &post.message,
                     seed_start_combat_observed_subset(&post.message),
-                    seed_start_simulated_combat_subset(sim, false),
+                    seed_start_simulated_combat_subset(sim, false, &relics),
                     &mut pending_combat_assertion,
                     &mut reconciled_deferred_action_steps,
                 );
@@ -1481,7 +1481,11 @@ fn verify_seed_start_transitions(
                         escape_action,
                         "Smoke Bomb transient combat frame",
                         seed_start_smoke_bomb_transient_observed_subset(&post.message),
-                        seed_start_smoke_bomb_transient_simulated_subset(source, destination),
+                        seed_start_smoke_bomb_transient_simulated_subset(
+                            source,
+                            destination,
+                            &relics,
+                        ),
                     );
                     report.verified.push(VerifiedTransition {
                         action_step: action.step,
@@ -3830,7 +3834,7 @@ fn verify_seed_start_transitions(
                     }
                     let label = "event combat";
                     let observed = seed_start_encounter_observed_subset(&post.message);
-                    let simulated = seed_start_simulated_combat_subset(&next, false);
+                    let simulated = seed_start_simulated_combat_subset(&next, false, &relics);
                     seed_start_compare_or_defer_combat_entry(
                         report,
                         action,
@@ -4012,7 +4016,7 @@ fn verify_seed_start_transitions(
                             "combat decision refresh",
                             &post.message,
                             seed_start_combat_observed_subset(&post.message),
-                            seed_start_simulated_combat_subset(sim, false),
+                            seed_start_simulated_combat_subset(sim, false, &relics),
                             &mut pending_combat_assertion,
                             &mut reconciled_deferred_action_steps,
                         );
@@ -4050,7 +4054,7 @@ fn verify_seed_start_transitions(
                         label,
                         &post.message,
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
+                        seed_start_simulated_combat_subset(&next, false, &relics),
                         &mut pending_combat_assertion,
                         &mut reconciled_deferred_action_steps,
                     );
@@ -4108,7 +4112,9 @@ fn verify_seed_start_transitions(
                                 action,
                                 "Smoke Bomb escape queued",
                                 seed_start_smoke_bomb_transient_observed_subset(&post.message),
-                                seed_start_smoke_bomb_transient_simulated_subset(&source, &next),
+                                seed_start_smoke_bomb_transient_simulated_subset(
+                                    &source, &next, &relics,
+                                ),
                             );
                             seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                             *sim = next;
@@ -4157,7 +4163,7 @@ fn verify_seed_start_transitions(
                             "combat potion card reward",
                             &post.message,
                             seed_start_combat_observed_subset(&post.message),
-                            seed_start_simulated_combat_subset(&next, false),
+                            seed_start_simulated_combat_subset(&next, false, &relics),
                             &mut pending_combat_assertion,
                             &mut reconciled_deferred_action_steps,
                         );
@@ -4201,7 +4207,7 @@ fn verify_seed_start_transitions(
                         "combat potion use",
                         &post.message,
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
+                        seed_start_simulated_combat_subset(&next, false, &relics),
                         &mut pending_combat_assertion,
                         &mut reconciled_deferred_action_steps,
                     );
@@ -4332,7 +4338,7 @@ fn verify_seed_start_transitions(
                 };
                 let label = combat_label(command, sim);
                 let observed = seed_start_combat_observed_subset(&post.message);
-                let simulated = seed_start_simulated_combat_subset(&next, false);
+                let simulated = seed_start_simulated_combat_subset(&next, false, &relics);
                 let copied_attack = seed_start_copied_attack_expectation(combat, combat_action);
                 let stable_projection_matches =
                     seed_start_combat_subsets_match(observed.clone(), simulated.clone());
@@ -5954,6 +5960,7 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
     {
         return json!({
             "screen_type": "COMBAT_REWARD",
+            "ascension": game.get("ascension_level").and_then(Value::as_u64).unwrap_or(0),
             "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
             "gold": int(game, "gold"),
             "current_hp": int(game, "current_hp"),
@@ -5988,10 +5995,13 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
     let monster_intents_visible = observed_monster_intents_visible(game);
     let mut subset = json!({
         "screen_type": screen_type,
+        "ascension": game.get("ascension_level").and_then(Value::as_u64).unwrap_or(0),
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
         "gold": int(game, "gold"),
         "current_hp": current_hp,
         "max_hp": int(game, "max_hp"),
+        "deck_ids": deck_keys_from_value(game.get("deck")),
+        "relic_ids": relic_keys_from_value(game.get("relics")),
         "potion_ids": potion_keys_from_value(game.get("potions")),
         "combat_player_hp": if screen_type == "CARD_REWARD" { current_hp } else { player.map(|p| int(p, "current_hp")).unwrap_or(0) },
         "combat_player_block": player.map(|p| int(p, "block")).unwrap_or(0),
@@ -6034,10 +6044,11 @@ fn seed_start_smoke_bomb_transient_observed_subset(message: &Value) -> Value {
 fn seed_start_smoke_bomb_transient_simulated_subset(
     source: &RunState,
     destination: &RunState,
+    relics: &[String],
 ) -> Value {
     let mut projection = source.clone();
     projection.potions = destination.potions.clone();
-    let mut subset = seed_start_simulated_combat_subset(&projection, false);
+    let mut subset = seed_start_simulated_combat_subset(&projection, false, relics);
     seed_start_defer_smoke_bomb_hp(&mut subset);
     subset
 }
@@ -8648,8 +8659,12 @@ fn seed_start_opening_piles_match(simulated: &CardPiles, message: &Value) -> boo
     observed_hand == simulated_hand && observed_draw == simulated_draw
 }
 
-fn seed_start_simulated_combat_subset(run: &RunState, end_turn_snapshot: bool) -> Value {
-    seed_start_simulated_combat_subset_with_options(run, end_turn_snapshot, &[])
+fn seed_start_simulated_combat_subset(
+    run: &RunState,
+    end_turn_snapshot: bool,
+    relics: &[String],
+) -> Value {
+    seed_start_simulated_combat_subset_with_options(run, end_turn_snapshot, relics)
 }
 
 fn seed_start_run_has_combat_card_reward(run: &RunState) -> bool {
@@ -8757,10 +8772,13 @@ fn seed_start_simulated_combat_subset_with_options(
     let Some(combat) = run.combat.as_ref() else {
         return json!({
             "screen_type": "NO_COMBAT",
+            "ascension": run.ascension,
             "floor": run.current_floor,
             "gold": run.gold,
             "current_hp": run.player_hp,
             "max_hp": run.player_max_hp,
+            "deck_ids": deck_content_keys(&run.deck),
+            "relic_ids": relic_ids_for_simulated_subset(run, relics),
             "potion_ids": run.potions.iter().map(|potion| potion_trace_name(*potion)).collect::<Vec<_>>(),
             "combat_player_hp": run.player_hp,
             "combat_player_block": 0,
@@ -9386,13 +9404,6 @@ fn seed_start_compare_combat_subset(
     let mut expected = seed_start_normalize_combat_compare(expected);
     let mut actual = seed_start_normalize_combat_compare(actual);
     apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
-    if let (Some(expected_obj), Some(actual_obj)) = (expected.as_object(), actual.as_object_mut()) {
-        for key in ["ascension", "deck_ids", "relic_ids"] {
-            if !expected_obj.contains_key(key) {
-                actual_obj.remove(key);
-            }
-        }
-    }
     compare_subset(report, action, label, expected, actual);
 }
 
@@ -9406,13 +9417,6 @@ fn seed_start_compare_deferred_combat_subset(
     let mut expected = seed_start_normalize_combat_compare(expected);
     let mut actual = seed_start_normalize_combat_compare(actual);
     apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
-    if let (Some(expected_obj), Some(actual_obj)) = (expected.as_object(), actual.as_object_mut()) {
-        for key in ["ascension", "deck_ids", "relic_ids"] {
-            if !expected_obj.contains_key(key) {
-                actual_obj.remove(key);
-            }
-        }
-    }
     seed_start_compare_deferred_subset(report, action, label, expected, actual)
 }
 
@@ -9420,13 +9424,6 @@ fn seed_start_combat_subsets_match(mut expected: Value, mut actual: Value) -> bo
     expected = seed_start_normalize_combat_compare(expected);
     actual = seed_start_normalize_combat_compare(actual);
     apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
-    if let (Some(expected_obj), Some(actual_obj)) = (expected.as_object(), actual.as_object_mut()) {
-        for key in ["ascension", "deck_ids", "relic_ids"] {
-            if !expected_obj.contains_key(key) {
-                actual_obj.remove(key);
-            }
-        }
-    }
     subset_diffs(expected, actual).is_empty()
 }
 
@@ -12495,7 +12492,8 @@ mod tests {
         assert!(destination.reward.is_none());
         assert!(destination.potions.is_empty());
 
-        let projection = seed_start_smoke_bomb_transient_simulated_subset(&source, &destination);
+        let projection =
+            seed_start_smoke_bomb_transient_simulated_subset(&source, &destination, &[]);
         assert_eq!(projection["screen_type"], json!("NONE"));
         assert_eq!(projection["potion_ids"], json!([]));
         assert!(projection.get("current_hp").is_none());
@@ -12719,6 +12717,54 @@ mod tests {
             CopiedAttackFrame::Deferred,
             "an authoritative empty power array represents zero remaining copies"
         );
+    }
+
+    #[test]
+    fn combat_projection_schema_keeps_authoritative_run_identity() {
+        let message = json!({
+            "game_state": {
+                "screen_type": "NONE",
+                "ascension_level": 7,
+                "floor": 12,
+                "gold": 123,
+                "current_hp": 40,
+                "max_hp": 80,
+                "deck": [
+                    {"id": "Strike_R", "name": "Strike", "type": "ATTACK", "rarity": "BASIC", "upgrades": 0},
+                    {"id": "Bash", "name": "Bash", "type": "ATTACK", "rarity": "BASIC", "upgrades": 0},
+                ],
+                "relics": [{"id": "Burning Blood", "name": "Burning Blood"}],
+                "potions": [],
+                "combat_state": {
+                    "player": {
+                        "current_hp": 40,
+                        "block": 0,
+                        "energy": 3,
+                        "powers": [],
+                    },
+                    "hand": [],
+                    "draw_pile": [],
+                    "discard_pile": [],
+                    "monsters": [],
+                },
+            },
+        });
+        let observed = seed_start_combat_observed_subset(&message);
+        assert_eq!(observed["ascension"], json!(7));
+        assert_eq!(observed["deck_ids"], json!(["Strike_R", "Bash"]));
+        assert_eq!(observed["relic_ids"], json!(["Burning Blood"]));
+
+        for missing_key in ["ascension", "deck_ids", "relic_ids"] {
+            let mut missing = observed.clone();
+            missing
+                .as_object_mut()
+                .expect("combat projection is an object")
+                .remove(missing_key);
+            assert!(
+                !seed_start_combat_subsets_match(missing, observed.clone()),
+                "missing observed {missing_key} must not delete simulator authority"
+            );
+        }
     }
 
     #[test]
@@ -12969,7 +13015,7 @@ mod tests {
             pending_actions: Default::default(),
         });
         run.combat = Some(combat);
-        let projected = seed_start_simulated_combat_subset(&run, false);
+        let projected = seed_start_simulated_combat_subset(&run, false, &[]);
 
         assert_eq!(projected["hand_ids"], json!(["Pommel Strike", "Combust"]));
         assert_eq!(projected["screen_type"], json!("HAND_SELECT"));
@@ -16308,7 +16354,7 @@ mod tests {
         run.relics = vec![Relic::BurningBlood, Relic::BloodVial];
         run.combat = Some(run.init_combat(CombatState::initial_fixture()));
 
-        let subset = seed_start_simulated_combat_subset(&run, false);
+        let subset = seed_start_simulated_combat_subset(&run, false, &[]);
 
         assert_eq!(subset["current_hp"], json!(36));
         assert_eq!(subset["combat_player_hp"], json!(36));
@@ -16320,7 +16366,7 @@ mod tests {
         run.current_floor = 17;
         run.combat = Some(run.init_combat(CombatState::initial_fixture()));
 
-        let subset = seed_start_simulated_combat_subset(&run, false);
+        let subset = seed_start_simulated_combat_subset(&run, false, &[]);
 
         assert_eq!(subset["floor"], json!(17));
     }
@@ -16332,7 +16378,7 @@ mod tests {
         combat.monsters[0].hp = 31;
         combat.monsters[0].max_hp = 47;
         run.combat = Some(combat);
-        let subset = seed_start_simulated_combat_subset(&run, false);
+        let subset = seed_start_simulated_combat_subset(&run, false, &[]);
 
         assert_eq!(subset["monsters"][0]["current_hp"], json!(31));
         assert_eq!(subset["monsters"][0]["max_hp"], json!(47));
@@ -16410,7 +16456,7 @@ mod tests {
         );
         let mut toolbox_run = RunState::map_fixture();
         toolbox_run.combat = Some(combat.clone());
-        let toolbox_subset = seed_start_simulated_combat_subset(&toolbox_run, false);
+        let toolbox_subset = seed_start_simulated_combat_subset(&toolbox_run, false, &[]);
         assert_eq!(toolbox_subset["screen_type"], json!("CARD_REWARD"));
         assert_eq!(
             toolbox_subset["card_reward_ids"],
@@ -16541,7 +16587,7 @@ mod tests {
         });
         run.combat = Some(combat);
 
-        let subset = seed_start_simulated_combat_subset(&run, false);
+        let subset = seed_start_simulated_combat_subset(&run, false, &[]);
 
         assert_eq!(subset["screen_type"], json!("CARD_REWARD"));
         assert_eq!(
@@ -16587,7 +16633,7 @@ mod tests {
         });
 
         let observed = seed_start_combat_observed_subset(&message);
-        let simulated = seed_start_simulated_combat_subset(&run, false);
+        let simulated = seed_start_simulated_combat_subset(&run, false, &[]);
 
         assert_eq!(simulated["screen_type"], json!("NO_COMBAT"));
         assert!(!subset_diffs(observed, simulated).is_empty());
@@ -17070,6 +17116,25 @@ mod tests {
         let relic_ids = relic_ids_for_simulated_subset(&run, &["Neow's Lament".to_owned()]);
 
         assert!(relic_ids.contains(&"Neow's Lament".to_owned()));
+    }
+
+    #[test]
+    fn combat_projection_preserves_carried_used_up_neows_lament() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.neow_lament_combats_remaining = 0;
+        run.combat = Some(run.init_combat(CombatState::initial_fixture()));
+
+        let subset = seed_start_simulated_combat_subset(
+            &run,
+            false,
+            &["Burning Blood".to_owned(), "Neow's Lament".to_owned()],
+        );
+
+        assert_eq!(
+            subset["relic_ids"],
+            json!(["Burning Blood", "Neow's Lament"])
+        );
     }
 
     #[test]
