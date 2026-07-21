@@ -35,8 +35,6 @@ use sts_core::{
 };
 
 #[cfg(test)]
-use crate::normalize_communication_mod_message;
-#[cfg(test)]
 use sts_core::content::monsters::{
     looter_theft, target_beyond_encounter_spawn_for_key,
     target_city_normal_encounter_spawn_at_combat_index,
@@ -10067,34 +10065,6 @@ fn is_final_combat_blow(run: &RunState, action: CombatAction) -> bool {
 }
 
 #[cfg(test)]
-fn observed_combat_subset(message: &Value, fields: &[&str]) -> Value {
-    let Some(obs) = normalize_communication_mod_message(message) else {
-        return json!({});
-    };
-    let Some(combat) = obs.combat else {
-        return json!({});
-    };
-    let monster = combat.monsters.iter().find(|monster| monster.hp > 0);
-    let mut out = serde_json::Map::new();
-    for field in fields {
-        match *field {
-            "player_hp" => insert(&mut out, field, combat.player_hp),
-            "player_block" => insert(&mut out, field, combat.player_block),
-            "player_energy" => insert(&mut out, field, combat.player_energy),
-            "monster_hp" => insert(&mut out, field, monster.map(|m| m.hp).unwrap_or(0)),
-            "monster_block" => insert(&mut out, field, monster.map(|m| m.block).unwrap_or(0)),
-            "monster_intent" => insert(
-                &mut out,
-                field,
-                monster.map(|m| m.intent.clone()).unwrap_or_default(),
-            ),
-            _ => {}
-        }
-    }
-    Value::Object(out)
-}
-
-#[cfg(test)]
 fn unsupported_monster_ai_reason(message: &Value) -> Option<String> {
     let groups: Vec<String> = message
         .get("game_state")?
@@ -19755,24 +19725,6 @@ mod tests {
             unsupported_seed_start_combat_command(&combat, "PLAY 1"),
             None
         );
-    }
-
-    #[test]
-    fn observed_combat_subset_uses_first_living_monster() {
-        let message = json!({
-            "game_state": {
-                "combat_state": {
-                    "player": {"current_hp": 70, "block": 0, "energy": 2},
-                    "monsters": [
-                        {"current_hp": 0, "block": 0, "intent": "ATTACK", "move_base_damage": 5},
-                        {"current_hp": 24, "block": 3, "intent": "ATTACK", "move_base_damage": 7}
-                    ]
-                }
-            }
-        });
-        let subset = observed_combat_subset(&message, &["monster_hp", "monster_block"]);
-        assert_eq!(subset["monster_hp"], 24);
-        assert_eq!(subset["monster_block"], 3);
     }
 
     #[test]

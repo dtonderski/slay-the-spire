@@ -2,9 +2,7 @@
 #![doc = "Trace formats, canonical diffs, and fixture loaders for simulator verification."]
 
 pub mod diff;
-pub mod importer;
 pub mod minimize;
-pub mod normalize;
 pub mod outcome;
 pub mod seed;
 pub mod sim_real;
@@ -12,14 +10,9 @@ pub mod slaythedata;
 pub mod trace;
 
 pub use diff::canonical_diff;
-pub use importer::{observations_from_trace, ImportedTraceStep};
 pub use minimize::{
     minimize_communication_mod_trace, serialize_communication_mod_trace, MinimizeError,
     MinimizeFailureKind, MinimizeReport,
-};
-pub use normalize::{
-    normalize_combat_state, normalize_communication_mod_message, CanonicalCombatObservation,
-    CanonicalMonsterObservation, CanonicalRunObservation,
 };
 pub use outcome::{
     assess_verification, ExpectedBoundary, RetainedPrefixEndpoint, VerificationCorpusEntry,

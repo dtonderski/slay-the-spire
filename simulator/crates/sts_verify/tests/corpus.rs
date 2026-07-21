@@ -9,10 +9,9 @@ use sts_core::{
     ExordiumMapChoiceStep, RoomKind,
 };
 use sts_verify::{
-    assess_verification, canonical_diff, corpus_path, load_corpus_file, observations_from_trace,
-    verify_communication_mod_trace, verify_seed_start_communication_mod_trace,
-    ActionDispositionKind, ManualFixture, VerificationCorpusManifest,
-    VERIFICATION_CORPUS_MANIFEST_SCHEMA,
+    assess_verification, corpus_path, load_corpus_file, verify_communication_mod_trace,
+    verify_seed_start_communication_mod_trace, ActionDispositionKind, ManualFixture,
+    VerificationCorpusManifest, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
 #[derive(Debug, serde::Deserialize)]
@@ -376,38 +375,6 @@ fn assert_captured_map_matches_target_topology(content: &str, seed: i64) {
         .collect::<Vec<_>>();
 
     assert_sequence_eq("captured Exordium full map", generated, captured);
-}
-
-#[test]
-fn cultist_manual_fixture_matches_imported_trace_step_if_present() {
-    let (Some(trace_content), Some(manual_content)) = (
-        load_corpus_file("communication_mod/trace-2026-06-18T00-53-06-235Z.jsonl"),
-        load_corpus_file("manual/cultist_bash.json"),
-    ) else {
-        return;
-    };
-
-    let manual: serde_json::Value = serde_json::from_str(&manual_content).expect("manual json");
-    let expected = manual
-        .get("observation")
-        .expect("observation field")
-        .to_string();
-    let step = manual
-        .get("step")
-        .and_then(|value| value.as_u64())
-        .expect("step") as u32;
-
-    let imported = observations_from_trace(&trace_content).expect("import trace");
-    let actual = imported
-        .iter()
-        .find(|entry| entry.step == step)
-        .expect("trace step")
-        .observation
-        .clone();
-    let actual_json = serde_json::to_string(&actual).expect("serialize observation");
-
-    let diffs = canonical_diff(&expected, &actual_json);
-    assert!(diffs.is_empty(), "diffs: {diffs:?}");
 }
 
 #[test]
