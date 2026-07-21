@@ -6,7 +6,7 @@ use crate::{
         monsters::{check_slime_boss_split, guardian_on_hp_damage, wake_lagavulin_on_damage},
     },
     ids::{ContentId, MonsterId},
-    rng::{JavaRng, RngStream, SimulatorRng, StsRng},
+    rng::{JavaRng, StsRng},
     CardInstance, Relic,
 };
 
@@ -19,26 +19,6 @@ pub(crate) const MAX_HAND_SIZE: usize = 10;
 
 fn drawable_count(state: &CombatState, count: usize) -> usize {
     count.min(MAX_HAND_SIZE.saturating_sub(state.piles.hand.len()))
-}
-
-pub fn draw_cards(state: &mut CombatState, count: usize, rng: &mut SimulatorRng) {
-    for _ in 0..drawable_count(state, count) {
-        if state.piles.draw_pile.is_empty() {
-            shuffle_discard_into_draw(state, rng);
-        }
-
-        if state.piles.draw_pile.is_empty() {
-            break;
-        }
-
-        if let Some(mut card) = draw_card_from_pile_top(state) {
-            let content_id = card.content_id;
-            apply_confusion_cost_randomization(state, &mut card);
-            state.piles.hand.push(card);
-            apply_fire_breathing_on_draw(state, content_id);
-            draw_cards(state, evolve_extra_draw_count(state, content_id), rng);
-        }
-    }
 }
 
 pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut StsRng) {
@@ -144,20 +124,6 @@ pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: 
     }
     let rng = &mut state.rng.card_random_rng;
     card.temp_cost = Some(rng.random_int(3) as u8);
-}
-
-pub(crate) fn shuffle_discard_into_draw(state: &mut CombatState, rng: &mut SimulatorRng) {
-    if state.piles.discard_pile.is_empty() {
-        return;
-    }
-
-    state.piles.draw_pile.append(&mut state.piles.discard_pile);
-
-    for index in (1..state.piles.draw_pile.len()).rev() {
-        let swap_with = rng.next_usize(RngStream::Shuffle, "combat::draw::shuffle", index + 1);
-        state.piles.draw_pile.swap(index, swap_with);
-    }
-    crate::relic::apply_shuffle_relics(state);
 }
 
 pub(crate) fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut StsRng) {
