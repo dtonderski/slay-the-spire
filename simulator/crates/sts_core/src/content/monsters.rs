@@ -7793,56 +7793,89 @@ pub fn apply_gremlin_leader_encourage(
     Ok(())
 }
 
-#[allow(clippy::explicit_counter_loop)]
-pub fn apply_gremlin_leader_rally_representative(monsters: &mut Vec<MonsterState>, count: i32) {
-    if count <= 0 {
-        return;
+fn positive_monster_spawn_count(count: i32) -> SimResult<usize> {
+    let count = usize::try_from(count)
+        .map_err(|_| SimError::InvalidState("monster summon count is not positive"))?;
+    if count == 0 {
+        return Err(SimError::InvalidState(
+            "monster summon count is not positive",
+        ));
     }
+    Ok(count)
+}
 
-    let mut next_id = monsters
+fn reserve_monster_spawn_ids(monsters: &mut Vec<MonsterState>, count: usize) -> SimResult<u64> {
+    if count == 0 {
+        return Err(SimError::InvalidState(
+            "monster summon reserved no instance IDs",
+        ));
+    }
+    let max_id = monsters
         .iter()
         .map(|monster| monster.id.get())
         .max()
-        .unwrap_or(0)
-        + 1;
-    let mut summoned = 0;
-    for _ in 0..3 {
-        if summoned >= count {
-            break;
-        }
-        if gremlin_leader_live_minion_count(monsters) >= 3 {
-            break;
-        }
-        monsters.insert(
-            gremlin_leader_representative_summon_index(monsters),
-            monster_state(&GREMLIN_WARRIOR_A0, MonsterId::new(next_id)),
-        );
-        next_id += 1;
-        summoned += 1;
-    }
+        .unwrap_or(0);
+    let count_u64 = u64::try_from(count)
+        .map_err(|_| SimError::InvalidState("monster summon count exceeds the ID domain"))?;
+    max_id.checked_add(count_u64).ok_or(SimError::InvalidState(
+        "monster summon instance ID overflows u64",
+    ))?;
+    monsters
+        .try_reserve(count)
+        .map_err(|_| SimError::InvalidState("monster summon storage cannot be allocated"))?;
+    max_id.checked_add(1).ok_or(SimError::InvalidState(
+        "monster summon instance ID overflows u64",
+    ))
 }
 
-pub fn apply_gremlin_leader_rally_target(
+pub(crate) fn apply_gremlin_leader_rally_target(
     monsters: &mut Vec<MonsterState>,
     count: i32,
     ai_rng: &mut crate::rng::StsRng,
     hp_rng: &mut crate::rng::StsRng,
     ascension: u8,
-) {
-    if count <= 0 {
-        return;
+) -> SimResult<()> {
+    let mut next_monsters = monsters.clone();
+    let mut next_ai_rng = ai_rng.clone();
+    let mut next_hp_rng = hp_rng.clone();
+    apply_gremlin_leader_rally_target_inner(
+        &mut next_monsters,
+        count,
+        &mut next_ai_rng,
+        &mut next_hp_rng,
+        ascension,
+    )?;
+    *monsters = next_monsters;
+    *ai_rng = next_ai_rng;
+    *hp_rng = next_hp_rng;
+    Ok(())
+}
+
+fn apply_gremlin_leader_rally_target_inner(
+    monsters: &mut Vec<MonsterState>,
+    count: i32,
+    ai_rng: &mut crate::rng::StsRng,
+    hp_rng: &mut crate::rng::StsRng,
+    ascension: u8,
+) -> SimResult<()> {
+    let count = positive_monster_spawn_count(count)?;
+    if count != 2 {
+        return Err(SimError::InvalidState(
+            "Gremlin Leader rally count differs from the target move",
+        ));
+    }
+    if !monsters
+        .iter()
+        .any(|monster| monster.alive && monster.content_id == GREMLIN_LEADER_ID)
+    {
+        return Err(SimError::InvalidState(
+            "Gremlin Leader rally is missing its living summoner",
+        ));
     }
 
     let mut planned = Vec::new();
     let mut reserved_slots = Vec::new();
-    let first_id = monsters
-        .iter()
-        .map(|monster| monster.id.get())
-        .max()
-        .unwrap_or(0)
-        + 1;
-
-    for next_id in (first_id..).take(count as usize) {
+    for _ in 0..count {
         if gremlin_leader_live_minion_count(monsters) + planned.len() as i32 >= 3 {
             break;
         }
@@ -7851,16 +7884,25 @@ pub fn apply_gremlin_leader_rally_target(
             break;
         };
         reserved_slots.push(slot);
+        planned.push(slot);
+    }
+    if planned.is_empty() {
+        return Ok(());
+    }
+    let first_id = reserve_monster_spawn_ids(monsters, planned.len())?;
+    let mut spawned = Vec::with_capacity(planned.len());
+
+    for (offset, slot) in planned.into_iter().enumerate() {
+        let next_id = first_id + offset as u64;
         let name = target_random_gremlin_name(ai_rng);
-        let content_id = content_id_from_game_monster_id(name)
-            .expect("target random gremlin name is registered");
-        let definition = get_monster_definition(content_id)
-            .expect("target random gremlin definition is registered");
+        let content_id = content_id_from_game_monster_id(name).ok_or(SimError::InvalidState(
+            "random gremlin identity is not registered",
+        ))?;
+        let definition =
+            get_monster_definition(content_id).ok_or(SimError::UnknownContent(content_id))?;
         let max_hp = target_city_monster_hp_range(name, ascension)
             .map(|range| range.roll(hp_rng))
-            .unwrap_or_else(|| {
-                monster_state_for_ascension(definition, MonsterId::new(0), ascension).hp
-            });
+            .ok_or(SimError::UnsupportedMechanic(content_id))?;
         let mut monster =
             monster_state_for_ascension(definition, MonsterId::new(next_id), ascension);
         monster.hp = max_hp;
@@ -7870,30 +7912,65 @@ pub fn apply_gremlin_leader_rally_target(
             monster.powers.anger = gremlin_warrior_anger(ascension);
         }
         monster.gremlin_leader_slot = Some(slot as u8);
-        planned.push((slot, monster));
+        spawned.push((slot, monster));
     }
 
-    for (_, monster) in &mut planned {
+    for (_, monster) in &mut spawned {
         let roll = ai_rng.random_int(99);
         monster.intent = gremlin_leader_minion_intent(monster.content_id, 0, ascension);
         let _ = roll;
         record_target_move(monster);
     }
 
-    for (slot, monster) in planned {
+    for (slot, monster) in spawned {
         monsters.insert(gremlin_leader_summon_insert_index(monsters, slot), monster);
     }
+    Ok(())
 }
 
-pub fn apply_collector_spawn_torch_heads(
+pub(crate) fn apply_collector_spawn_torch_heads(
     monsters: &mut Vec<MonsterState>,
     count: i32,
     ai_rng: &mut crate::rng::StsRng,
     hp_rng: &mut crate::rng::StsRng,
     ascension: u8,
-) {
-    if count <= 0 {
-        return;
+) -> SimResult<()> {
+    let mut next_monsters = monsters.clone();
+    let mut next_ai_rng = ai_rng.clone();
+    let mut next_hp_rng = hp_rng.clone();
+    apply_collector_spawn_torch_heads_inner(
+        &mut next_monsters,
+        count,
+        &mut next_ai_rng,
+        &mut next_hp_rng,
+        ascension,
+    )?;
+    *monsters = next_monsters;
+    *ai_rng = next_ai_rng;
+    *hp_rng = next_hp_rng;
+    Ok(())
+}
+
+fn apply_collector_spawn_torch_heads_inner(
+    monsters: &mut Vec<MonsterState>,
+    count: i32,
+    ai_rng: &mut crate::rng::StsRng,
+    hp_rng: &mut crate::rng::StsRng,
+    ascension: u8,
+) -> SimResult<()> {
+    let count = positive_monster_spawn_count(count)?;
+    if count != 2 {
+        return Err(SimError::InvalidState(
+            "Collector summon count differs from the target move",
+        ));
+    }
+    if !monsters
+        .iter()
+        .any(|monster| monster.alive && monster.content_id == THE_COLLECTOR_ID)
+    {
+        return Err(SimError::InvalidState(
+            "Collector summon is missing its living summoner",
+        ));
     }
 
     let range = if ascension >= 9 {
@@ -7901,12 +7978,7 @@ pub fn apply_collector_spawn_torch_heads(
     } else {
         TORCH_HEAD_A0_HP_RANGE
     };
-    let first_id = monsters
-        .iter()
-        .map(|monster| monster.id.get())
-        .max()
-        .unwrap_or(0)
-        + 1;
+    let first_id = reserve_monster_spawn_ids(monsters, count)?;
     let mut hp_values = (0..count)
         .map(|_| {
             // TorchHead rolls the A0 range for AbstractMonster's hp
@@ -7952,33 +8024,64 @@ pub fn apply_collector_spawn_torch_heads(
             .unwrap_or(monsters.len());
         monsters.insert(insert_index, monster);
     }
+    Ok(())
 }
 
-pub fn apply_bronze_automaton_orb_spawn(
+pub(crate) fn apply_bronze_automaton_orb_spawn(
     monsters: &mut Vec<MonsterState>,
     automaton_id: MonsterId,
+    count: i32,
     ai_rng: &mut StsRng,
     hp_rng: &mut StsRng,
     ascension: u8,
-) {
+) -> SimResult<()> {
+    let mut next_monsters = monsters.clone();
+    let mut next_ai_rng = ai_rng.clone();
+    let mut next_hp_rng = hp_rng.clone();
+    apply_bronze_automaton_orb_spawn_inner(
+        &mut next_monsters,
+        automaton_id,
+        count,
+        &mut next_ai_rng,
+        &mut next_hp_rng,
+        ascension,
+    )?;
+    *monsters = next_monsters;
+    *ai_rng = next_ai_rng;
+    *hp_rng = next_hp_rng;
+    Ok(())
+}
+
+fn apply_bronze_automaton_orb_spawn_inner(
+    monsters: &mut Vec<MonsterState>,
+    automaton_id: MonsterId,
+    count: i32,
+    ai_rng: &mut StsRng,
+    hp_rng: &mut StsRng,
+    ascension: u8,
+) -> SimResult<()> {
+    if positive_monster_spawn_count(count)? != 2 {
+        return Err(SimError::InvalidState(
+            "Bronze Automaton summon count differs from the target move",
+        ));
+    }
     let Some(automaton_index) = monsters.iter().position(|monster| {
-        monster.id == automaton_id && monster.content_id == BRONZE_AUTOMATON_ID
+        monster.id == automaton_id && monster.alive && monster.content_id == BRONZE_AUTOMATON_ID
     }) else {
-        return;
+        return Err(SimError::InvalidState(
+            "Bronze Automaton summon is missing its living summoner",
+        ));
     };
     if monsters
         .iter()
         .any(|monster| monster.alive && monster.content_id == BRONZE_ORB_ID)
     {
-        return;
+        return Err(SimError::InvalidState(
+            "Bronze Automaton cannot repeat its opening Orb summon",
+        ));
     }
 
-    let next_id = monsters
-        .iter()
-        .map(|monster| monster.id.get())
-        .max()
-        .unwrap_or(0)
-        + 1;
+    let next_id = reserve_monster_spawn_ids(monsters, 2)?;
     let mut left = monster_state(&BRONZE_ORB_A0, MonsterId::new(next_id));
     let mut right = monster_state(&BRONZE_ORB_A0, MonsterId::new(next_id + 1));
     let hp_range = bronze_orb_hp_range(ascension);
@@ -8001,6 +8104,7 @@ pub fn apply_bronze_automaton_orb_spawn(
 
     monsters.insert(automaton_index, left);
     monsters.insert(automaton_index + 2, right);
+    Ok(())
 }
 
 #[must_use]
@@ -8012,37 +8116,65 @@ fn bronze_orb_hp_range(ascension: u8) -> MonsterHpRange {
     }
 }
 
-pub fn apply_reptomancer_dagger_spawn(
+pub(crate) fn apply_reptomancer_dagger_spawn(
     monsters: &mut Vec<MonsterState>,
     reptomancer_id: MonsterId,
     count: i32,
     ai_rng: &mut StsRng,
     hp_rng: &mut StsRng,
-) {
-    let Some(_reptomancer_index) = monsters
-        .iter()
-        .position(|monster| monster.id == reptomancer_id && monster.content_id == REPTOMANCER_ID)
-    else {
-        return;
+) -> SimResult<()> {
+    let mut next_monsters = monsters.clone();
+    let mut next_ai_rng = ai_rng.clone();
+    let mut next_hp_rng = hp_rng.clone();
+    apply_reptomancer_dagger_spawn_inner(
+        &mut next_monsters,
+        reptomancer_id,
+        count,
+        &mut next_ai_rng,
+        &mut next_hp_rng,
+    )?;
+    *monsters = next_monsters;
+    *ai_rng = next_ai_rng;
+    *hp_rng = next_hp_rng;
+    Ok(())
+}
+
+fn apply_reptomancer_dagger_spawn_inner(
+    monsters: &mut Vec<MonsterState>,
+    reptomancer_id: MonsterId,
+    count: i32,
+    ai_rng: &mut StsRng,
+    hp_rng: &mut StsRng,
+) -> SimResult<()> {
+    let count = positive_monster_spawn_count(count)?;
+    if count > 2 {
+        return Err(SimError::InvalidState(
+            "Reptomancer summon count exceeds the target move",
+        ));
+    }
+    let Some(_reptomancer_index) = monsters.iter().position(|monster| {
+        monster.id == reptomancer_id && monster.alive && monster.content_id == REPTOMANCER_ID
+    }) else {
+        return Err(SimError::InvalidState(
+            "Reptomancer summon is missing its living summoner",
+        ));
     };
-    let mut next_id = monsters
-        .iter()
-        .map(|monster| monster.id.get())
-        .max()
-        .unwrap_or(0)
-        + 1;
-    let mut spawned = 0;
-    for slot in 0..4 {
-        if spawned >= count {
-            break;
-        }
-        if monsters.iter().any(|monster| {
-            monster.alive
-                && monster.content_id == DAGGER_ID
-                && monster.gremlin_leader_slot == Some(slot)
-        }) {
-            continue;
-        }
+    let available_slots = (0..4)
+        .filter(|slot| {
+            !monsters.iter().any(|monster| {
+                monster.alive
+                    && monster.content_id == DAGGER_ID
+                    && monster.gremlin_leader_slot == Some(*slot)
+            })
+        })
+        .take(count)
+        .collect::<Vec<_>>();
+    if available_slots.is_empty() {
+        return Ok(());
+    }
+    let first_id = reserve_monster_spawn_ids(monsters, available_slots.len())?;
+    for (offset, slot) in available_slots.into_iter().enumerate() {
+        let next_id = first_id + offset as u64;
         let mut dagger = monster_state(&DAGGER_A0, MonsterId::new(next_id));
         let max_hp = DAGGER_HP_RANGE.roll(hp_rng);
         dagger.hp = max_hp;
@@ -8057,9 +8189,8 @@ pub fn apply_reptomancer_dagger_spawn(
         record_target_move(&mut dagger);
         let insert_index = reptomancer_dagger_insert_index(monsters, slot);
         monsters.insert(insert_index, dagger);
-        next_id += 1;
-        spawned += 1;
     }
+    Ok(())
 }
 
 fn reptomancer_dagger_insert_index(monsters: &[MonsterState], slot: u8) -> usize {
@@ -8108,28 +8239,53 @@ fn reptomancer_position_key_for_slot(slot: u8) -> u8 {
     }
 }
 
-pub fn apply_large_acid_slime_split(
+pub(crate) fn apply_large_acid_slime_split(
     monsters: &mut Vec<MonsterState>,
     slime_id: MonsterId,
+    count: i32,
     rng: &mut StsRng,
     ascension: u8,
-) {
-    let Some(slime_index) = monsters
-        .iter()
-        .position(|monster| monster.id == slime_id && monster.content_id == ACID_SLIME_ID)
-    else {
-        return;
+) -> SimResult<()> {
+    let mut next_monsters = monsters.clone();
+    let mut next_rng = rng.clone();
+    apply_large_acid_slime_split_inner(
+        &mut next_monsters,
+        slime_id,
+        count,
+        &mut next_rng,
+        ascension,
+    )?;
+    *monsters = next_monsters;
+    *rng = next_rng;
+    Ok(())
+}
+
+fn apply_large_acid_slime_split_inner(
+    monsters: &mut Vec<MonsterState>,
+    slime_id: MonsterId,
+    count: i32,
+    rng: &mut StsRng,
+    ascension: u8,
+) -> SimResult<()> {
+    if positive_monster_spawn_count(count)? != 2 {
+        return Err(SimError::InvalidState(
+            "Acid Slime split count differs from the target move",
+        ));
+    }
+    let Some(slime_index) = monsters.iter().position(|monster| {
+        monster.id == slime_id && monster.alive && monster.content_id == ACID_SLIME_ID
+    }) else {
+        return Err(SimError::InvalidState(
+            "Acid Slime split is missing its living parent",
+        ));
     };
-    if !monsters[slime_index].alive {
-        return;
+    if monsters[slime_index].hp <= 0 {
+        return Err(SimError::InvalidState(
+            "Acid Slime split parent has no positive HP",
+        ));
     }
 
-    let next_id = monsters
-        .iter()
-        .map(|monster| monster.id.get())
-        .max()
-        .unwrap_or(0)
-        + 1;
+    let next_id = reserve_monster_spawn_ids(monsters, 2)?;
     let split_hp = monsters[slime_index].hp;
     let mut left = monster_state(&ACID_SLIME_A0, MonsterId::new(next_id));
     let mut right = monster_state(&ACID_SLIME_A0, MonsterId::new(next_id + 1));
@@ -8170,30 +8326,56 @@ pub fn apply_large_acid_slime_split(
         monsters.insert(slime_index, left);
         monsters.insert(slime_index + 2, right);
     }
+    Ok(())
 }
 
-pub fn apply_large_spike_slime_split(
+pub(crate) fn apply_large_spike_slime_split(
     monsters: &mut Vec<MonsterState>,
     slime_id: MonsterId,
+    count: i32,
     rng: &mut StsRng,
     ascension: u8,
-) {
-    let Some(slime_index) = monsters
-        .iter()
-        .position(|monster| monster.id == slime_id && monster.content_id == SPIKE_SLIME_ID)
-    else {
-        return;
+) -> SimResult<()> {
+    let mut next_monsters = monsters.clone();
+    let mut next_rng = rng.clone();
+    apply_large_spike_slime_split_inner(
+        &mut next_monsters,
+        slime_id,
+        count,
+        &mut next_rng,
+        ascension,
+    )?;
+    *monsters = next_monsters;
+    *rng = next_rng;
+    Ok(())
+}
+
+fn apply_large_spike_slime_split_inner(
+    monsters: &mut Vec<MonsterState>,
+    slime_id: MonsterId,
+    count: i32,
+    rng: &mut StsRng,
+    ascension: u8,
+) -> SimResult<()> {
+    if positive_monster_spawn_count(count)? != 2 {
+        return Err(SimError::InvalidState(
+            "Spike Slime split count differs from the target move",
+        ));
+    }
+    let Some(slime_index) = monsters.iter().position(|monster| {
+        monster.id == slime_id && monster.alive && monster.content_id == SPIKE_SLIME_ID
+    }) else {
+        return Err(SimError::InvalidState(
+            "Spike Slime split is missing its living parent",
+        ));
     };
-    if !monsters[slime_index].alive {
-        return;
+    if monsters[slime_index].hp <= 0 {
+        return Err(SimError::InvalidState(
+            "Spike Slime split parent has no positive HP",
+        ));
     }
 
-    let next_id = monsters
-        .iter()
-        .map(|monster| monster.id.get())
-        .max()
-        .unwrap_or(0)
-        + 1;
+    let next_id = reserve_monster_spawn_ids(monsters, 2)?;
     let split_hp = monsters[slime_index].hp;
     let mut left = monster_state(&SPIKE_SLIME_A0, MonsterId::new(next_id));
     let mut right = monster_state(&SPIKE_SLIME_A0, MonsterId::new(next_id + 1));
@@ -8232,30 +8414,50 @@ pub fn apply_large_spike_slime_split(
     );
     monsters.insert(slime_index, left);
     monsters.insert(slime_index + 2, right);
+    Ok(())
 }
 
-pub fn apply_slime_boss_split(
+pub(crate) fn apply_slime_boss_split(
     monsters: &mut Vec<MonsterState>,
     boss_id: MonsterId,
+    count: i32,
     rng: &mut StsRng,
     ascension: u8,
-) {
-    let Some(boss_index) = monsters
-        .iter()
-        .position(|monster| monster.id == boss_id && monster.content_id == SLIME_BOSS_ID)
-    else {
-        return;
+) -> SimResult<()> {
+    let mut next_monsters = monsters.clone();
+    let mut next_rng = rng.clone();
+    apply_slime_boss_split_inner(&mut next_monsters, boss_id, count, &mut next_rng, ascension)?;
+    *monsters = next_monsters;
+    *rng = next_rng;
+    Ok(())
+}
+
+fn apply_slime_boss_split_inner(
+    monsters: &mut Vec<MonsterState>,
+    boss_id: MonsterId,
+    count: i32,
+    rng: &mut StsRng,
+    ascension: u8,
+) -> SimResult<()> {
+    if positive_monster_spawn_count(count)? != 2 {
+        return Err(SimError::InvalidState(
+            "Slime Boss split count differs from the target move",
+        ));
+    }
+    let Some(boss_index) = monsters.iter().position(|monster| {
+        monster.id == boss_id && monster.alive && monster.content_id == SLIME_BOSS_ID
+    }) else {
+        return Err(SimError::InvalidState(
+            "Slime Boss split is missing its living parent",
+        ));
     };
-    if !monsters[boss_index].alive {
-        return;
+    if monsters[boss_index].hp <= 0 {
+        return Err(SimError::InvalidState(
+            "Slime Boss split parent has no positive HP",
+        ));
     }
 
-    let next_id = monsters
-        .iter()
-        .map(|monster| monster.id.get())
-        .max()
-        .unwrap_or(0)
-        + 1;
+    let next_id = reserve_monster_spawn_ids(monsters, 2)?;
     let split_hp = monsters[boss_index].hp;
     let mut spike = monster_state(&SPIKE_SLIME_A0, MonsterId::new(next_id));
     let mut acid = monster_state(&ACID_SLIME_A0, MonsterId::new(next_id + 1));
@@ -8294,6 +8496,7 @@ pub fn apply_slime_boss_split(
     monsters[boss_index].split_triggered = true;
     monsters.insert(boss_index, spike);
     monsters.insert(boss_index + 2, acid);
+    Ok(())
 }
 
 fn gremlin_leader_live_minion_count(monsters: &[MonsterState]) -> i32 {
@@ -10845,7 +11048,8 @@ mod tests {
         let mut monsters = vec![parent];
         let mut rng = StsRng::new(0);
 
-        apply_large_spike_slime_split(&mut monsters, parent_id, &mut rng, 17);
+        apply_large_spike_slime_split(&mut monsters, parent_id, 2, &mut rng, 17)
+            .expect("large Spike Slime split is valid");
 
         let children = monsters
             .iter()
@@ -10870,7 +11074,8 @@ mod tests {
         let mut monsters = vec![parent];
         let mut rng = StsRng::new(0);
 
-        apply_large_acid_slime_split(&mut monsters, parent_id, &mut rng, 0);
+        apply_large_acid_slime_split(&mut monsters, parent_id, 2, &mut rng, 0)
+            .expect("large Acid Slime split is valid");
 
         let children = monsters
             .iter()
@@ -10901,7 +11106,8 @@ mod tests {
             .expect("test seed range should include a Spike Slime Spit roll");
         let mut rng = StsRng::new(seed);
 
-        apply_slime_boss_split(&mut monsters, boss_id, &mut rng, 0);
+        apply_slime_boss_split(&mut monsters, boss_id, 2, &mut rng, 0)
+            .expect("Slime Boss split is valid");
 
         let spike = monsters
             .iter()
@@ -10936,7 +11142,15 @@ mod tests {
         let right_roll = expected_ai_rng.random_int(99);
         let right_intent = target_bronze_orb_next_intent_from_roll(&[], right_roll);
 
-        apply_bronze_automaton_orb_spawn(&mut monsters, automaton_id, &mut ai_rng, &mut hp_rng, 9);
+        apply_bronze_automaton_orb_spawn(
+            &mut monsters,
+            automaton_id,
+            2,
+            &mut ai_rng,
+            &mut hp_rng,
+            9,
+        )
+        .expect("Bronze Automaton opening summon is valid");
 
         assert_eq!(hp_rng.counter(), 4);
         assert_eq!(ai_rng.counter(), 2);
@@ -10955,6 +11169,122 @@ mod tests {
     }
 
     #[test]
+    fn bronze_automaton_spawn_id_overflow_rolls_back_monsters_and_rng() {
+        let automaton_id = MonsterId::new(u64::MAX);
+        let mut monsters = vec![monster_state(&BRONZE_AUTOMATON_A0, automaton_id)];
+        let monsters_before = monsters.clone();
+        let mut ai_rng = StsRng::new(5678);
+        let mut hp_rng = StsRng::new(1234);
+        let ai_rng_before = ai_rng.clone();
+        let hp_rng_before = hp_rng.clone();
+
+        let result = apply_bronze_automaton_orb_spawn(
+            &mut monsters,
+            automaton_id,
+            2,
+            &mut ai_rng,
+            &mut hp_rng,
+            0,
+        );
+
+        assert_eq!(
+            result,
+            Err(SimError::InvalidState(
+                "monster summon instance ID overflows u64"
+            ))
+        );
+        assert_eq!(monsters, monsters_before);
+        assert_eq!(ai_rng, ai_rng_before);
+        assert_eq!(hp_rng, hp_rng_before);
+    }
+
+    #[test]
+    fn bronze_automaton_spawn_rejects_invalid_count_without_mutating_state() {
+        let automaton_id = MonsterId::new(1);
+        let mut monsters = vec![monster_state(&BRONZE_AUTOMATON_A0, automaton_id)];
+        let monsters_before = monsters.clone();
+        let mut ai_rng = StsRng::new(5678);
+        let mut hp_rng = StsRng::new(1234);
+        let ai_rng_before = ai_rng.clone();
+        let hp_rng_before = hp_rng.clone();
+
+        let result = apply_bronze_automaton_orb_spawn(
+            &mut monsters,
+            automaton_id,
+            0,
+            &mut ai_rng,
+            &mut hp_rng,
+            0,
+        );
+
+        assert_eq!(
+            result,
+            Err(SimError::InvalidState(
+                "monster summon count is not positive"
+            ))
+        );
+        assert_eq!(monsters, monsters_before);
+        assert_eq!(ai_rng, ai_rng_before);
+        assert_eq!(hp_rng, hp_rng_before);
+    }
+
+    #[test]
+    fn bronze_automaton_spawn_rejects_a_duplicate_opening_without_mutating_state() {
+        let automaton_id = MonsterId::new(1);
+        let mut monsters = vec![
+            monster_state(&BRONZE_AUTOMATON_A0, automaton_id),
+            monster_state(&BRONZE_ORB_A0, MonsterId::new(2)),
+        ];
+        let monsters_before = monsters.clone();
+        let mut ai_rng = StsRng::new(5678);
+        let mut hp_rng = StsRng::new(1234);
+        let ai_rng_before = ai_rng.clone();
+        let hp_rng_before = hp_rng.clone();
+
+        let result = apply_bronze_automaton_orb_spawn(
+            &mut monsters,
+            automaton_id,
+            2,
+            &mut ai_rng,
+            &mut hp_rng,
+            0,
+        );
+
+        assert_eq!(
+            result,
+            Err(SimError::InvalidState(
+                "Bronze Automaton cannot repeat its opening Orb summon"
+            ))
+        );
+        assert_eq!(monsters, monsters_before);
+        assert_eq!(ai_rng, ai_rng_before);
+        assert_eq!(hp_rng, hp_rng_before);
+    }
+
+    #[test]
+    fn collector_spawn_requires_a_living_collector_without_consuming_rng() {
+        let mut monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+        let monsters_before = monsters.clone();
+        let mut ai_rng = StsRng::new(5678);
+        let mut hp_rng = StsRng::new(1234);
+        let ai_rng_before = ai_rng.clone();
+        let hp_rng_before = hp_rng.clone();
+
+        let result =
+            apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
+
+        assert_eq!(
+            result,
+            Err(SimError::InvalidState(
+                "Collector summon is missing its living summoner"
+            ))
+        );
+        assert_eq!(monsters, monsters_before);
+        assert_eq!(ai_rng, ai_rng_before);
+        assert_eq!(hp_rng, hp_rng_before);
+    }
+
+    #[test]
     fn manual01_floor33_bronze_automaton_advances_hp_before_orb_spawn() {
         let automaton_id = MonsterId::new(1);
         let mut monsters = vec![monster_state(&BRONZE_AUTOMATON_A0, automaton_id)];
@@ -10962,7 +11292,15 @@ mod tests {
         let mut ai_rng = StsRng::new(1_435_099_163_226 + 33);
 
         MonsterHpRange::new(300, 300).roll(&mut hp_rng);
-        apply_bronze_automaton_orb_spawn(&mut monsters, automaton_id, &mut ai_rng, &mut hp_rng, 0);
+        apply_bronze_automaton_orb_spawn(
+            &mut monsters,
+            automaton_id,
+            2,
+            &mut ai_rng,
+            &mut hp_rng,
+            0,
+        )
+        .expect("Bronze Automaton opening summon is valid");
 
         assert_eq!((monsters[0].hp, monsters[0].max_hp), (53, 53));
         assert_eq!((monsters[2].hp, monsters[2].max_hp), (52, 52));
@@ -11596,7 +11934,8 @@ mod tests {
         let slot_two_hp = DAGGER_HP_RANGE.roll(&mut expected_hp_rng);
         let slot_three_hp = DAGGER_HP_RANGE.roll(&mut expected_hp_rng);
 
-        apply_reptomancer_dagger_spawn(&mut monsters, reptomancer_id, 2, &mut ai_rng, &mut hp_rng);
+        apply_reptomancer_dagger_spawn(&mut monsters, reptomancer_id, 2, &mut ai_rng, &mut hp_rng)
+            .expect("Reptomancer summon is valid");
 
         assert_eq!(hp_rng.counter(), 2);
         assert_eq!(ai_rng.counter(), 2);
@@ -11674,7 +12013,8 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        apply_gremlin_leader_rally_target(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
+        apply_gremlin_leader_rally_target(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+            .expect("Gremlin Leader rally is valid");
 
         for (slot, content_id, max_hp) in expected {
             let summoned = monsters
@@ -11747,7 +12087,8 @@ mod tests {
         let _second_constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
         let second_hp = TORCH_HEAD_A9_HP_RANGE.roll(&mut expected_hp_rng);
 
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 9);
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 9)
+            .expect("Collector summon is valid");
 
         assert_eq!(hp_rng.counter(), 4);
         assert_eq!(ai_rng.counter(), 2);
@@ -11774,7 +12115,8 @@ mod tests {
         let _second_constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
         let second_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
 
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+            .expect("Collector summon is valid");
 
         assert_eq!(hp_rng.counter(), 4);
         assert_eq!(ai_rng.counter(), 2);
@@ -11792,7 +12134,8 @@ mod tests {
             .expect("Collector has a fixed setHp roll")
             .roll(&mut hp_rng);
         assert_eq!(collector_hp, 282);
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+            .expect("Collector initial summon is valid");
         assert_eq!(
             monsters
                 .iter()
@@ -11808,7 +12151,8 @@ mod tests {
                 monster.hp = 0;
             }
         }
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+            .expect("Collector replacement summon is valid");
 
         assert_eq!(hp_rng.counter(), 9);
         assert_eq!(

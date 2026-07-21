@@ -577,10 +577,11 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     apply_bronze_automaton_orb_spawn(
                         &mut state.monsters,
                         summoner_id,
+                        count,
                         &mut state.rng.monster_rng,
                         &mut state.rng.monster_hp_rng,
                         ascension,
-                    );
+                    )?;
                 } else if state.monsters[index].content_id == THE_COLLECTOR_ID {
                     apply_collector_spawn_torch_heads(
                         &mut state.monsters,
@@ -588,28 +589,31 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                         &mut state.rng.monster_rng,
                         &mut state.rng.monster_hp_rng,
                         ascension,
-                    );
+                    )?;
                 } else if state.monsters[index].content_id == ACID_SLIME_ID {
                     apply_large_acid_slime_split(
                         &mut state.monsters,
                         summoner_id,
+                        count,
                         &mut state.rng.monster_rng,
                         ascension,
-                    );
+                    )?;
                 } else if state.monsters[index].content_id == SPIKE_SLIME_ID {
                     apply_large_spike_slime_split(
                         &mut state.monsters,
                         summoner_id,
+                        count,
                         &mut state.rng.monster_rng,
                         ascension,
-                    );
+                    )?;
                 } else if state.monsters[index].content_id == SLIME_BOSS_ID {
                     apply_slime_boss_split(
                         &mut state.monsters,
                         summoner_id,
+                        count,
                         &mut state.rng.monster_rng,
                         ascension,
-                    );
+                    )?;
                 } else if state.monsters[index].content_id == REPTOMANCER_ID {
                     apply_reptomancer_dagger_spawn(
                         &mut state.monsters,
@@ -617,15 +621,19 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                         count,
                         &mut state.rng.monster_rng,
                         &mut state.rng.monster_hp_rng,
-                    );
-                } else {
+                    )?;
+                } else if state.monsters[index].content_id == GREMLIN_LEADER_ID {
                     apply_gremlin_leader_rally_target(
                         &mut state.monsters,
                         count,
                         &mut state.rng.monster_rng,
                         &mut state.rng.monster_hp_rng,
                         ascension,
-                    );
+                    )?;
+                } else {
+                    return Err(SimError::InvalidState(
+                        "summon intent is incompatible with monster content",
+                    ));
                 }
                 let mut summoner_alive = false;
                 if let Some(monster) = state
@@ -649,7 +657,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     &mut state.rng.monster_rng,
                     &mut state.rng.monster_hp_rng,
                     ascension,
-                );
+                )?;
                 if let Some(monster) = state
                     .monsters
                     .iter_mut()
@@ -1882,6 +1890,22 @@ mod tests {
             end_player_turn(&state),
             Err(SimError::InvalidState(
                 "generated combat card ID exceeds the target signed range"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn end_player_turn_rejects_summon_intent_for_incompatible_content() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].intent = crate::MonsterIntent::SummonGremlins { count: 2 };
+        state.monsters[0].initial_intent_locked = true;
+        let before = state.clone();
+
+        assert_eq!(
+            end_player_turn(&state),
+            Err(SimError::InvalidState(
+                "summon intent is incompatible with monster content"
             ))
         );
         assert_eq!(state, before);
