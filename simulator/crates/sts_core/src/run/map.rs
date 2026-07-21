@@ -553,9 +553,20 @@ fn gremlin_leader_alive_minion_count(monsters: &[MonsterState]) -> usize {
         .count()
 }
 
+fn encounter_floor(run: &RunState) -> SimResult<u32> {
+    let floor = u32::try_from(run.current_floor)
+        .map_err(|_| SimError::InvalidState("combat encounter requires a positive floor"))?;
+    if floor == 0 {
+        return Err(SimError::InvalidState(
+            "combat encounter requires a positive floor",
+        ));
+    }
+    Ok(floor)
+}
+
 fn normal_combat_monsters_for_run(run: &mut RunState) -> SimResult<Vec<MonsterState>> {
     let combat_index = normal_combat_index_for_run(run);
-    let floor = u32::try_from(run.current_floor.max(1)).unwrap_or(1);
+    let floor = encounter_floor(run)?;
     let neow_lament = run.neow_lament_combats_remaining > 0;
     let spawns = if run.current_act == 3 {
         run.normal_encounter_list
@@ -617,7 +628,7 @@ fn normal_combat_monsters_for_run(run: &mut RunState) -> SimResult<Vec<MonsterSt
 
 fn elite_combat_monsters_for_run(run: &mut RunState) -> SimResult<Vec<MonsterState>> {
     let combat_index = run.elite_combat_count as usize;
-    let floor = u32::try_from(run.current_floor.max(1)).unwrap_or(1);
+    let floor = encounter_floor(run)?;
     let neow_lament = run.neow_lament_combats_remaining > 0;
     let act = match run.current_act {
         1 => TargetMapAct::Exordium,
@@ -1148,6 +1159,7 @@ mod tests {
         );
 
         let mut run = RunState::map_fixture();
+        run.current_floor = 1;
         run.current_act = 2;
         run.normal_encounter_list = vec!["not-an-encounter".to_owned()];
         run.normal_combat_count = 0;
@@ -1165,6 +1177,29 @@ mod tests {
                 "boss combat requires a supported act"
             ))
         );
+    }
+
+    #[test]
+    fn encounter_entry_rejects_nonpositive_floor_instead_of_using_floor_one() {
+        for current_floor in [-1, 0] {
+            let mut normal_run = RunState::map_fixture();
+            normal_run.current_floor = current_floor;
+            assert_eq!(
+                normal_combat_monsters_for_run(&mut normal_run),
+                Err(SimError::InvalidState(
+                    "combat encounter requires a positive floor"
+                ))
+            );
+
+            let mut elite_run = RunState::map_fixture();
+            elite_run.current_floor = current_floor;
+            assert_eq!(
+                elite_combat_monsters_for_run(&mut elite_run),
+                Err(SimError::InvalidState(
+                    "combat encounter requires a positive floor"
+                ))
+            );
+        }
     }
 
     #[test]
