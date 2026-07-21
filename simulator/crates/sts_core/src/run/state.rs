@@ -20,14 +20,16 @@ use crate::{
         RelicPoolState, RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BLOODY_IDOL_HEAL,
         BUSTED_CROWN_ENERGY, CAULDRON_POTIONS, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY,
         DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY,
-        ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, FUSION_HAMMER_ENERGY, LEES_WAFFLE_MAX_HP,
-        MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MAW_BANK_GOLD, OLD_COIN_GOLD, OMAMORI_CHARGES,
-        ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP, PHILOSOPHERS_STONE_ENERGY,
+        ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, FUSION_HAMMER_ENERGY, GIRYA_MAX_LIFTS,
+        HAPPY_FLOWER_THRESHOLD, INCENSE_BURNER_THRESHOLD, INK_BOTTLE_THRESHOLD, LEES_WAFFLE_MAX_HP,
+        MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MATRYOSHKA_MAX_CHESTS, MAW_BANK_GOLD,
+        NUNCHAKU_THRESHOLD, OLD_COIN_GOLD, OMAMORI_CHARGES, ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL,
+        PEAR_MAX_HP, PEN_NIB_THRESHOLD, PHILOSOPHERS_STONE_ENERGY,
         PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
         PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
         SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, SSSERPENT_HEAD_GOLD, STRAWBERRY_MAX_HP,
-        TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
-        WING_BOOTS_CHARGES,
+        TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP,
+        VELVET_CHOKER_ENERGY, WING_BOOTS_CHARGES,
     },
     rng::{rng_counter_is_supported, JavaRng, StsRng},
     SimError, SimResult,
@@ -39,6 +41,7 @@ pub use crate::content::encounters::{Act1Boss, Act3Boss};
 
 pub const STARTING_GOLD: i32 = 99;
 const ENCHIRIDION_HAND_LIMIT: usize = 10;
+pub(crate) const NEOW_LAMENT_COMBATS: u32 = 3;
 
 fn default_energy_per_turn() -> i32 {
     BASE_PLAYER_ENERGY
@@ -139,6 +142,31 @@ mod tests {
             run.validate(),
             Err(SimError::InvalidState(
                 "run RNG counter exceeds the target signed range"
+            ))
+        );
+    }
+
+    #[test]
+    fn run_validation_rejects_consumed_or_impossible_relic_counters() {
+        let mut run = RunState::map_fixture();
+        run.tiny_chest_counter = TINY_CHEST_THRESHOLD - 1;
+        run.wing_boots_charges = u32::from(WING_BOOTS_CHARGES);
+        run.validate().expect("stable counter maxima are valid");
+
+        run.tiny_chest_counter = TINY_CHEST_THRESHOLD;
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "run relic counter is outside its stable range"
+            ))
+        );
+
+        run.tiny_chest_counter = 0;
+        run.wing_boots_charges = u32::from(WING_BOOTS_CHARGES) + 1;
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "run relic counter is outside its stable range"
             ))
         );
     }
@@ -738,6 +766,22 @@ impl RunState {
         {
             return Err(SimError::InvalidState(
                 "run RNG counter exceeds the target signed range",
+            ));
+        }
+        if self.omamori_charges_used > OMAMORI_CHARGES
+            || self.girya_lifts > GIRYA_MAX_LIFTS
+            || self.matryoshka_chests_opened > MATRYOSHKA_MAX_CHESTS
+            || self.incense_burner_counter >= INCENSE_BURNER_THRESHOLD
+            || self.pen_nib_attacks_played >= PEN_NIB_THRESHOLD
+            || self.ink_bottle_cards_played >= INK_BOTTLE_THRESHOLD
+            || self.happy_flower_turns >= HAPPY_FLOWER_THRESHOLD
+            || self.nunchaku_attacks_played >= NUNCHAKU_THRESHOLD
+            || self.tiny_chest_counter >= TINY_CHEST_THRESHOLD
+            || self.wing_boots_charges > u32::from(WING_BOOTS_CHARGES)
+            || self.neow_lament_combats_remaining > NEOW_LAMENT_COMBATS
+        {
+            return Err(SimError::InvalidState(
+                "run relic counter is outside its stable range",
             ));
         }
         if self.ascension > 20 {

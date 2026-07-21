@@ -1053,7 +1053,7 @@ fn apply_tiny_chest(run: &mut RunState) -> bool {
     }
 
     run.tiny_chest_counter += 1;
-    if run.tiny_chest_counter >= 4 {
+    if run.tiny_chest_counter >= crate::relic::TINY_CHEST_THRESHOLD {
         run.tiny_chest_counter = 0;
         true
     } else {

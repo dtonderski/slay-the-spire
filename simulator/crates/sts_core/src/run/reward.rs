@@ -1509,13 +1509,14 @@ pub fn enter_chest_relic_reward_screen(run: &mut RunState) {
     } else {
         0
     };
-    let bonus_relic_offer =
-        if run.relics.contains(&Relic::Matryoshka) && run.matryoshka_chests_opened < 2 {
-            run.matryoshka_chests_opened += 1;
-            Some(roll_matryoshka_bonus_relic_offer(run))
-        } else {
-            None
-        };
+    let bonus_relic_offer = if run.relics.contains(&Relic::Matryoshka)
+        && run.matryoshka_chests_opened < crate::relic::MATRYOSHKA_MAX_CHESTS
+    {
+        run.matryoshka_chests_opened += 1;
+        Some(roll_matryoshka_bonus_relic_offer(run))
+    } else {
+        None
+    };
     // AbstractChest.open invokes relic onChestOpen hooks before adding the
     // chest's own relic reward. Matryoshka therefore consumes relic RNG and
     // removes its relic from the pool before the normal chest relic is rolled.

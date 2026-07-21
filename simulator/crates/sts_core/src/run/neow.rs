@@ -312,7 +312,7 @@ pub fn apply_neow_simple_reward(run: &mut RunState, reward: NeowRewardType) {
 }
 
 pub fn apply_neow_lament_reward(run: &mut RunState) {
-    run.neow_lament_combats_remaining = 3;
+    run.neow_lament_combats_remaining = super::state::NEOW_LAMENT_COMBATS;
 }
 
 pub fn apply_neow_simple_drawback(run: &mut RunState, drawback: NeowDrawback) {

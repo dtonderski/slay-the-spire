@@ -816,6 +816,11 @@ impl CombatState {
                 "combat RNG counter exceeds the target signed range",
             ));
         }
+        if self.relic_counters.has_out_of_bounds_stable_counter() {
+            return Err(SimError::InvalidState(
+                "combat relic counter is outside its stable range",
+            ));
+        }
         if self.ascension > 20 {
             return Err(SimError::InvalidState("combat ascension exceeds 20"));
         }
@@ -1119,6 +1124,21 @@ mod tests {
             state.validate(),
             Err(SimError::InvalidState(
                 "combat RNG counter exceeds the target signed range"
+            ))
+        );
+    }
+
+    #[test]
+    fn combat_validation_rejects_consumed_relic_counter_values() {
+        let mut state = CombatState::initial_fixture();
+        state.relic_counters.ink_bottle_cards_played = crate::relic::INK_BOTTLE_THRESHOLD - 1;
+        state.validate().expect("last unconsumed counter is valid");
+
+        state.relic_counters.ink_bottle_cards_played = crate::relic::INK_BOTTLE_THRESHOLD;
+        assert_eq!(
+            state.validate(),
+            Err(SimError::InvalidState(
+                "combat relic counter is outside its stable range"
             ))
         );
     }

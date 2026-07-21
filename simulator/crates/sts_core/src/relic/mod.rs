@@ -36,6 +36,8 @@ pub const ORRERY_EAGER_CARD_REWARDS: u8 = 5;
 pub const SNECKO_EYE_DRAW: usize = 2;
 /// Map jumps granted by [Relic::WingBoots] on pickup.
 pub const WING_BOOTS_CHARGES: u8 = 3;
+/// Chests that can grant an extra relic while [Relic::Matryoshka] is owned.
+pub const MATRYOSHKA_MAX_CHESTS: u32 = 2;
 /// Extra potion slots granted by [Relic::PotionBelt] on pickup.
 pub const POTION_BELT_SLOTS: usize = 2;
 /// HP healed by [Relic::BloodVial] at combat start.
@@ -130,6 +132,10 @@ pub const LETTER_OPENER_THRESHOLD: u32 = 3;
 pub const LETTER_OPENER_DAMAGE: i32 = 5;
 /// Turns before [Relic::HappyFlower] grants energy.
 pub const HAPPY_FLOWER_THRESHOLD: u32 = 3;
+/// Turns in the stable [Relic::IncenseBurner] counter cycle.
+pub const INCENSE_BURNER_THRESHOLD: u32 = 6;
+/// Rooms in the stable [Relic::TinyChest] counter cycle.
+pub const TINY_CHEST_THRESHOLD: u32 = 4;
 /// Energy granted by [Relic::HappyFlower].
 pub const HAPPY_FLOWER_ENERGY: i32 = 1;
 /// Energy granted by [Relic::ArtOfWar] after a turn with no Attacks played.
@@ -611,6 +617,24 @@ pub struct RelicCounters {
     pub red_skull_active: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub necronomicon_used_this_turn: bool,
+}
+
+impl RelicCounters {
+    /// Whether a stable combat snapshot contains a counter value that target
+    /// relic code would already have consumed and reset.
+    #[must_use]
+    pub(crate) fn has_out_of_bounds_stable_counter(&self) -> bool {
+        self.ink_bottle_cards_played >= INK_BOTTLE_THRESHOLD
+            || self.ornamental_fan_attacks_this_turn >= ORNAMENTAL_FAN_THRESHOLD
+            || self.nunchaku_attacks_played >= NUNCHAKU_THRESHOLD
+            || self.pen_nib_attacks_played >= PEN_NIB_THRESHOLD
+            || self.shuriken_attacks_this_turn >= SHURIKEN_THRESHOLD
+            || self.kunai_attacks_this_turn >= KUNAI_THRESHOLD
+            || self.letter_opener_skills_this_turn >= LETTER_OPENER_THRESHOLD
+            || self.centennial_puzzle_triggers > 1
+            || self.happy_flower_turns >= HAPPY_FLOWER_THRESHOLD
+            || self.incense_burner_counter >= INCENSE_BURNER_THRESHOLD
+    }
 }
 
 fn is_zero_u32(value: &u32) -> bool {
@@ -2283,7 +2307,7 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
 
     if state.relics.contains(&Relic::IncenseBurner) {
         state.relic_counters.incense_burner_counter += 1;
-        if state.relic_counters.incense_burner_counter >= 6 {
+        if state.relic_counters.incense_burner_counter >= INCENSE_BURNER_THRESHOLD {
             state.relic_counters.incense_burner_counter = 0;
             state.player.powers.intangible += 1;
         }
