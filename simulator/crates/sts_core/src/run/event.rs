@@ -589,6 +589,19 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
         }
+        Event::TheJoust => {
+            let valid_data = match screen.stage {
+                0 | 1 | 4 => screen.event_data == 0,
+                2 => screen.event_data <= 1,
+                3 => screen.event_data <= 3,
+                _ => return Err(SimError::InvalidState("The Joust stage is invalid")),
+            };
+            if !valid_data {
+                return Err(SimError::InvalidState(
+                    "The Joust event data does not match its stage",
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -7420,6 +7433,64 @@ mod tests {
                 .expect("Joust resolution applies");
         assert_eq!(after_resolve.gold, 100);
         assert_eq!(after_resolve.event.as_ref().expect("complete").stage, 4);
+    }
+
+    #[test]
+    fn the_joust_validation_accepts_only_reachable_stage_data_pairs() {
+        for (stage, event_data) in [
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (2, 1),
+            (3, 0),
+            (3, 1),
+            (3, 2),
+            (3, 3),
+            (4, 0),
+        ] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.current_act = 2;
+            run.phase = RunPhase::Event;
+            run.event = Some(EventScreen {
+                event: Event::TheJoust,
+                choices: joust_choices(stage),
+                stage,
+                event_data,
+            });
+            run.validate().expect("reachable Joust state is valid");
+        }
+
+        for (stage, event_data) in [(0, 1), (1, 1), (2, 2), (3, 4), (4, 1)] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.current_act = 2;
+            run.phase = RunPhase::Event;
+            run.event = Some(EventScreen {
+                event: Event::TheJoust,
+                choices: joust_choices(stage),
+                stage,
+                event_data,
+            });
+            assert_eq!(
+                run.validate(),
+                Err(SimError::InvalidState(
+                    "The Joust event data does not match its stage"
+                ))
+            );
+        }
+
+        let mut invalid_stage = RunState::seeded_ironclad(1, 0);
+        invalid_stage.current_act = 2;
+        invalid_stage.phase = RunPhase::Event;
+        invalid_stage.event = Some(EventScreen {
+            event: Event::TheJoust,
+            choices: joust_choices(5),
+            stage: 5,
+            event_data: 0,
+        });
+        assert_eq!(
+            invalid_stage.validate(),
+            Err(SimError::InvalidState("The Joust stage is invalid"))
+        );
     }
 
     #[test]
