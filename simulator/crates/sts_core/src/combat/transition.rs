@@ -315,6 +315,17 @@ pub fn flush_pending_monster_death_relics_if_ready(state: &mut CombatState) {
     }
 }
 
+fn checked_combat_sum(value: i32, amount: i32) -> SimResult<i32> {
+    value.checked_add(amount).ok_or(SimError::InvalidState(
+        "combat integer addition overflows i32",
+    ))
+}
+
+fn checked_add_combat_value(value: &mut i32, amount: i32) -> SimResult<()> {
+    *value = checked_combat_sum(*value, amount)?;
+    Ok(())
+}
+
 fn apply_internal_action(
     state: &mut CombatState,
     action: InternalAction,
@@ -492,7 +503,7 @@ fn apply_internal_action(
             check_slime_boss_split(state, info.target);
             if !still_alive {
                 if !minion {
-                    state.combat_gold_gained += gold.max(0);
+                    checked_add_combat_value(&mut state.combat_gold_gained, gold.max(0))?;
                 }
                 apply_monster_death_hooks(state, info.target);
             }
@@ -671,8 +682,13 @@ fn apply_internal_action(
                 if !minion && monster_content_id != DARKLING_ID {
                     let hp_gain =
                         crate::relic::combat_healing_amount_with_relics(max_hp_gain, &state.relics);
-                    state.player.max_hp += max_hp_gain;
-                    state.player.hp = (state.player.hp + hp_gain).min(state.player.max_hp);
+                    let max_hp = checked_combat_sum(state.player.max_hp, max_hp_gain)?;
+                    let missing_hp = max_hp
+                        .checked_sub(state.player.hp)
+                        .ok_or(SimError::InvalidState("combat HP bounds overflow i32"))?;
+                    let hp = checked_combat_sum(state.player.hp, hp_gain.min(missing_hp))?;
+                    state.player.max_hp = max_hp;
+                    state.player.hp = hp;
                     crate::relic::sync_red_skull_strength(state);
                 }
                 apply_monster_death_hooks(state, info.target);
@@ -790,10 +806,10 @@ fn apply_internal_action(
             crate::relic::heal_combat_player_with_relics(state, amount);
             Ok(Vec::new())
         }
-        InternalAction::GainBlock { amount } => Ok(apply_player_card_block_gain(state, amount)),
+        InternalAction::GainBlock { amount } => apply_player_card_block_gain(state, amount),
         InternalAction::GainMonsterBlock { target, amount } => {
             if let Some(monster) = living_monster_mut_opt(state, target) {
-                monster.block += amount;
+                checked_add_combat_value(&mut monster.block, amount)?;
             }
             Ok(Vec::new())
         }
@@ -802,11 +818,18 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainTemporaryThorns { amount } => {
-            state.player.temp_thorns += amount;
+            checked_add_combat_value(&mut state.player.temp_thorns, amount)?;
             Ok(Vec::new())
         }
         InternalAction::DoublePlayerBlock => {
-            state.player.block *= 2;
+            state.player.block =
+                state
+                    .player
+                    .block
+                    .checked_mul(2)
+                    .ok_or(SimError::InvalidState(
+                        "combat integer multiplication overflows i32",
+                    ))?;
             Ok(Vec::new())
         }
         InternalAction::ApplyVulnerable { target, amount } => {
@@ -838,7 +861,7 @@ fn apply_internal_action(
             if let Some(monster) = living_monster_mut_opt(state, target) {
                 applied = reduce_monster_strength(&mut monster.powers, amount);
                 if applied {
-                    monster.temp_strength_down += amount;
+                    checked_add_combat_value(&mut monster.temp_strength_down, amount)?;
                 }
             }
             apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
@@ -991,7 +1014,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainEnergy { amount } => {
-            state.player.energy += amount;
+            checked_add_combat_value(&mut state.player.energy, amount)?;
             Ok(Vec::new())
         }
         InternalAction::LoseHp { amount, source } => {
@@ -1008,7 +1031,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainRage { amount } => {
-            state.player.temp_rage_block += amount;
+            checked_add_combat_value(&mut state.player.temp_rage_block, amount)?;
             Ok(Vec::new())
         }
         InternalAction::SetRandomHandCardCostForCombat { amount } => {
@@ -1024,17 +1047,17 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::IncreaseRampageDamage { card_id, amount } => {
-            find_combat_card_mut(state, card_id)
-                .ok_or(SimError::UnknownCard(card_id))?
-                .rampage_damage_bonus += amount;
+            let card =
+                find_combat_card_mut(state, card_id).ok_or(SimError::UnknownCard(card_id))?;
+            checked_add_combat_value(&mut card.rampage_damage_bonus, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainFeelNoPain { amount } => {
-            state.player.powers.feel_no_pain += amount;
+            checked_add_combat_value(&mut state.player.powers.feel_no_pain, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainDarkEmbrace { amount } => {
-            state.player.powers.dark_embrace += amount;
+            checked_add_combat_value(&mut state.player.powers.dark_embrace, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainBarricade { amount } => {
@@ -1042,44 +1065,46 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainEvolve { amount } => {
-            state.player.powers.evolve += amount;
+            checked_add_combat_value(&mut state.player.powers.evolve, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainBerserk { amount } => {
-            state.player.powers.berserk += amount;
+            checked_add_combat_value(&mut state.player.powers.berserk, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainRupture { amount } => {
-            state.player.powers.rupture += amount;
+            checked_add_combat_value(&mut state.player.powers.rupture, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainJuggernaut { amount } => {
-            state.player.powers.juggernaut += amount;
+            checked_add_combat_value(&mut state.player.powers.juggernaut, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainBrutality { amount } => {
-            state.player.powers.brutality += amount;
+            checked_add_combat_value(&mut state.player.powers.brutality, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainMayhem { amount } => {
-            state.player.powers.mayhem += amount;
+            checked_add_combat_value(&mut state.player.powers.mayhem, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainPanache { amount } => {
-            state.player.powers.panache += amount;
+            checked_add_combat_value(&mut state.player.powers.panache, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainCombust { amount } => {
-            state.player.powers.combust += 1;
-            state.player.powers.combust_damage += amount;
+            let combust = checked_combat_sum(state.player.powers.combust, 1)?;
+            let combust_damage = checked_combat_sum(state.player.powers.combust_damage, amount)?;
+            state.player.powers.combust = combust;
+            state.player.powers.combust_damage = combust_damage;
             Ok(Vec::new())
         }
         InternalAction::GainDoubleTap { amount } => {
-            state.double_tap_pending += amount;
+            checked_add_combat_value(&mut state.double_tap_pending, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainFireBreathing { amount } => {
-            state.player.powers.fire_breathing += amount;
+            checked_add_combat_value(&mut state.player.powers.fire_breathing, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainCorruption { amount } => {
@@ -1087,11 +1112,11 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainSadisticNature { amount } => {
-            state.player.powers.sadistic_nature += amount;
+            checked_add_combat_value(&mut state.player.powers.sadistic_nature, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainMagnetism { amount } => {
-            state.player.powers.magnetism += amount;
+            checked_add_combat_value(&mut state.player.powers.magnetism, amount)?;
             Ok(Vec::new())
         }
         InternalAction::ArmTheBomb { turns, damage } => {
@@ -1106,15 +1131,15 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::GainMetallicize { amount } => {
-            state.player.powers.metallicize += amount;
+            checked_add_combat_value(&mut state.player.powers.metallicize, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainStrength { amount } => {
-            state.player.powers.strength += amount;
+            checked_add_combat_value(&mut state.player.powers.strength, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainDexterity { amount } => {
-            state.player.powers.dexterity += amount;
+            checked_add_combat_value(&mut state.player.powers.dexterity, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainTempStrength { amount } => {
@@ -1122,23 +1147,24 @@ fn apply_internal_action(
             // turn. Artifact blocks that debuff when it is created, consuming
             // one Artifact and leaving the gained Strength permanent.
             if state.player.powers.artifact > 0 {
+                let strength = checked_combat_sum(state.player.powers.strength, amount)?;
                 state.player.powers.artifact -= 1;
-                state.player.powers.strength += amount;
+                state.player.powers.strength = strength;
             } else {
-                state.player.temp_strength += amount;
+                checked_add_combat_value(&mut state.player.temp_strength, amount)?;
             }
             Ok(Vec::new())
         }
         InternalAction::GainIntangible { amount } => {
-            state.player.powers.intangible += amount;
+            checked_add_combat_value(&mut state.player.powers.intangible, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainRitual { amount } => {
-            state.player.powers.ritual += amount;
+            checked_add_combat_value(&mut state.player.powers.ritual, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainArtifact { amount } => {
-            state.player.powers.artifact += amount;
+            checked_add_combat_value(&mut state.player.powers.artifact, amount)?;
             Ok(Vec::new())
         }
         InternalAction::UpgradeCombatCards => {
@@ -1698,13 +1724,16 @@ pub(crate) fn apply_juggernaut_after_direct_block_gain(state: &mut CombatState, 
     }
 }
 
-fn apply_player_card_block_gain(state: &mut CombatState, amount: i32) -> Vec<InternalAction> {
+fn apply_player_card_block_gain(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
     if state.player.no_block_turns > 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let gained = calculate_block(amount, state.player.powers);
-    state.player.block += gained;
-    juggernaut_follow_up_for_positive_block_gain(state, gained)
+    checked_add_combat_value(&mut state.player.block, gained)?;
+    Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
 }
 
 pub(crate) fn apply_player_direct_block_gain(state: &mut CombatState, amount: i32) {
@@ -3474,6 +3503,26 @@ mod tests {
         monster_state, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
     };
     use crate::rng::StsRng;
+
+    #[test]
+    fn power_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.strength = i32::MAX;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), INFLAME_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+    }
 
     #[test]
     fn hex_dazed_waits_for_armaments_hand_select_to_close() {
