@@ -354,22 +354,22 @@ fn apply_internal_action(
             let card = find_hand_card(state, card_id)?;
             let definition = get_card_definition(card.content_id)
                 .ok_or(SimError::UnknownContent(card.content_id))?;
-            apply_enrage_on_card_type(state, definition.card_type);
+            apply_enrage_on_card_type(state, definition.card_type)?;
             apply_rage_on_card_type(state, definition.card_type);
             let mut follow_ups =
                 crate::relic::apply_on_card_play_relics(state, definition.card_type);
             apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
-            follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
+            follow_ups.extend(apply_on_card_play_powers(state, definition.card_type)?);
             follow_ups.extend(apply_hand_card_play_triggers(state, card_id));
             Ok(follow_ups)
         }
         InternalAction::PlayCardCopy { card_id } => {
             let definition = card_content_definition(state, card_id)?;
-            apply_enrage_on_card_type(state, definition.card_type);
+            apply_enrage_on_card_type(state, definition.card_type)?;
             apply_rage_on_card_type(state, definition.card_type);
             let mut follow_ups =
                 crate::relic::apply_on_card_play_relics(state, definition.card_type);
-            follow_ups.extend(apply_on_card_play_powers(state, definition.card_type));
+            follow_ups.extend(apply_on_card_play_powers(state, definition.card_type)?);
             follow_ups.extend(apply_copied_card_play_triggers(state));
             Ok(follow_ups)
         }
@@ -443,7 +443,7 @@ fn apply_internal_action(
             }
             check_slime_boss_split(state, info.target);
             if !still_alive {
-                queue_monster_death_hooks(state, info.target);
+                queue_monster_death_hooks(state, info.target)?;
             }
             apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
             Ok(follow_ups)
@@ -1425,12 +1425,15 @@ fn apply_mummified_hand_on_power_play(
     card.temp_cost_turn_only = true;
 }
 
-fn apply_on_card_play_powers(state: &mut CombatState, card_type: CardType) -> Vec<InternalAction> {
+fn apply_on_card_play_powers(
+    state: &mut CombatState,
+    card_type: CardType,
+) -> SimResult<Vec<InternalAction>> {
     let mut follow_ups = Vec::new();
 
     for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
         if monster.content_id == GIANT_HEAD_ID || monster.powers.slow > 0 {
-            monster.powers.slow += 1;
+            checked_add_combat_value(&mut monster.powers.slow, 1)?;
         }
     }
 
@@ -1442,8 +1445,8 @@ fn apply_on_card_play_powers(state: &mut CombatState, card_type: CardType) -> Ve
                 monster.alive && monster.content_id == GUARDIAN_ID && monster.powers.spikes > 0
             })
             .map(|monster| monster.powers.spikes)
-            .sum();
-        state.pending_player_spikes_damage += sharp_hide_damage;
+            .try_fold(0, checked_combat_sum)?;
+        checked_add_combat_value(&mut state.pending_player_spikes_damage, sharp_hide_damage)?;
     }
 
     if state.player.powers.hex > 0 && card_type != CardType::Attack {
@@ -1455,11 +1458,11 @@ fn apply_on_card_play_powers(state: &mut CombatState, card_type: CardType) -> Ve
     }
 
     if state.player.powers.panache <= 0 {
-        return follow_ups;
+        return Ok(follow_ups);
     }
-    state.player.powers.panache_cards_played += 1;
+    checked_add_combat_value(&mut state.player.powers.panache_cards_played, 1)?;
     if state.player.powers.panache_cards_played < 5 {
-        return follow_ups;
+        return Ok(follow_ups);
     }
 
     state.player.powers.panache_cards_played = 0;
@@ -1474,7 +1477,7 @@ fn apply_on_card_play_powers(state: &mut CombatState, card_type: CardType) -> Ve
                 amount,
             }),
     );
-    follow_ups
+    Ok(follow_ups)
 }
 
 fn apply_hand_card_play_triggers(
@@ -1630,13 +1633,19 @@ pub(crate) fn apply_monster_death_hooks(state: &mut CombatState, monster_id: Mon
     }
 }
 
-fn queue_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) {
+fn queue_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) -> SimResult<()> {
     apply_monster_death_non_relic_hooks(state, monster_id);
     if state.monsters.iter().any(|monster| monster.alive)
         && state.relics.contains(&Relic::GremlinHorn)
     {
-        state.pending_monster_death_relic_triggers += 1;
+        state.pending_monster_death_relic_triggers = state
+            .pending_monster_death_relic_triggers
+            .checked_add(1)
+            .ok_or(SimError::InvalidState(
+                "combat death trigger counter overflows u32",
+            ))?;
     }
+    Ok(())
 }
 
 fn apply_monster_death_non_relic_hooks(state: &mut CombatState, monster_id: MonsterId) {
@@ -2047,9 +2056,9 @@ fn living_monster_mut_opt(state: &mut CombatState, target: MonsterId) -> Option<
         .find(|monster| monster.id == target && monster.alive)
 }
 
-fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
+fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) -> SimResult<()> {
     if card_type != CardType::Skill {
-        return;
+        return Ok(());
     }
 
     for monster in &mut state.monsters {
@@ -2059,9 +2068,10 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) {
         if get_monster_definition(monster.content_id).is_some_and(|definition| {
             definition.enrage_weak_on_skill > 0 && monster.powers.anger > 0
         }) {
-            monster.powers.strength += monster.powers.anger;
+            checked_add_combat_value(&mut monster.powers.strength, monster.powers.anger)?;
         }
     }
+    Ok(())
 }
 
 fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) {
@@ -3522,6 +3532,46 @@ mod tests {
                 "combat integer addition overflows i32"
             ))
         );
+    }
+
+    #[test]
+    fn card_play_trigger_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].powers.slow = i32::MAX;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), INFLAME_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+    }
+
+    #[test]
+    fn queued_monster_death_counter_overflow_fails_without_wrapping() {
+        let mut state = CombatState::initial_fixture();
+        let dead_id = state.monsters[0].id;
+        let mut survivor = state.monsters[0].clone();
+        survivor.id = MonsterId::new(2);
+        state.monsters[0].alive = false;
+        state.monsters.push(survivor);
+        state.relics.push(Relic::GremlinHorn);
+        state.pending_monster_death_relic_triggers = u32::MAX;
+
+        assert_eq!(
+            queue_monster_death_hooks(&mut state, dead_id),
+            Err(SimError::InvalidState(
+                "combat death trigger counter overflows u32"
+            ))
+        );
+        assert_eq!(state.pending_monster_death_relic_triggers, u32::MAX);
     }
 
     #[test]
