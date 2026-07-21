@@ -178,8 +178,6 @@ pub struct SeedStartReport {
     pub start_command: StartRunCommand,
     pub failed: bool,
     pub first_boundary: SeedStartBoundary,
-    pub rng_boundaries: Vec<RngBoundary>,
-    pub m22_encounter_report: Option<crate::m22::M22EncounterReport>,
     #[serde(skip)]
     pub sim_run_state: Option<RunState>,
 }
@@ -197,15 +195,6 @@ pub struct StartRunCommand {
 pub struct SeedStartBoundary {
     pub path: String,
     pub category: String,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RngBoundary {
-    pub stream: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub save_counter: Option<String>,
-    pub status: String,
     pub reason: String,
 }
 
@@ -287,18 +276,10 @@ fn verify_seed_start_trace(content: &str) -> Result<SimRealReport, SimRealError>
     let verification =
         verify_seed_start_transitions(&transitions.transitions, &start, &mut report, boss_unlocks);
     let failed = verification.boundary.category != "none";
-    let m22_encounter_report = Some(crate::m22::verify_m22_encounter_spawn_prefix(
-        &trace.lines,
-        &start.external_seed,
-        start.numeric_seed,
-        start.ascension,
-    ));
     report.seed_start = Some(SeedStartReport {
         start_command: start,
         failed,
         first_boundary: verification.boundary,
-        rng_boundaries: seed_start_rng_boundaries(),
-        m22_encounter_report,
         sim_run_state: verification.final_run_state,
     });
     let (action_dispositions, action_integrity) = build_action_accounting(
@@ -8424,83 +8405,6 @@ fn deck_instances_from_keys(deck_ids: &[String]) -> Vec<CardInstance> {
                 .map(|content_id| CardInstance::new(CardId::new(index as u64 + 1), content_id))
         })
         .collect()
-}
-
-fn seed_start_rng_boundaries() -> Vec<RngBoundary> {
-    vec![
-        RngBoundary {
-            stream: "seed_conversion".to_owned(),
-            save_counter: None,
-            status: "source_backed".to_owned(),
-            reason: "SeedHelper.getLong from the target 12-18-2022 desktop jar uppercases seed text, maps O to 0, and parses it with base-35 alphabet 0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ".to_owned(),
-        },
-        RngBoundary {
-            stream: "neowRng".to_owned(),
-            save_counter: None,
-            status: "source_backed_options_with_partial_application".to_owned(),
-            reason: "Neow option generation uses target-style NeowEvent.rng initialization from Settings.seed, visible slot order, and five option-screen draws. Seed-start branch dispatch uses generated selected options; CODEX04/TEST colorless choices, CODEX04 three-potion choices, VERIFY01 common relic identity, MANUAL01 immediate rare-card identity, simple-drawback rare relic identity, and M290001/M290008 transform identity are generated. Core helpers cover card, colorless, potion, fixed-tier relic, boss-swap, transform, grid, curse-combo card/relic, Neow's Lament combat carry state, and simple no-RNG reward/drawback surfaces. Synthetic verifier follow-ups now cover Calling Bell, Astrolabe, Pandora's Box, Empty Cage, and Tiny House boss-swap paths. Selected-trace coverage for many branch combinations and broad boss-swap selected-trace evidence remain partial/caveated.".to_owned(),
-        },
-        RngBoundary {
-            stream: "mapRng".to_owned(),
-            save_counter: None,
-            status: "source_backed_topology_prefix".to_owned(),
-            reason: "decoded Exordium mapRng initialization uses seed + actNum and MapGenerator topology reproduces captured VERIFY01 first choices x=1/x=2, CODEX04 first choices x=0/x=2/x=4/x=5, and CODEX04 chosen-path next choices x=3 then x=2/x=3; fixed generateMap rows are row 0 combat, row 8 treasure, and row 14 rest; generateRoomTypes, RoomTypeAssigner two-stage room-list construction, raw RandomXS128 Collections.shuffle prefix, and full VERIFY01/CODEX04 room-symbol placement match decoded target behavior and captured map payloads".to_owned(),
-        },
-        RngBoundary {
-            stream: "monsterRng".to_owned(),
-            save_counter: Some("monster_seed_count".to_owned()),
-            status: "source_backed_normal_list_prefix".to_owned(),
-            reason: "decoded Exordium normal encounter list generation covers weak encounters, strong encounter weights, first-strong exclusions, and no-repeat-last-two retries; room execution maps combat index to list entries and target spawn state covers Cultist, Jaw Worm, Small Slimes, and 2 Louse for captured VERIFY01/CODEX04/CODEX03 first-three prefixes".to_owned(),
-        },
-        RngBoundary {
-            stream: "monsterHpRng".to_owned(),
-            save_counter: Some("monster_seed_count".to_owned()),
-            status: "source_backed_floor_prefix".to_owned(),
-            reason: "decoded room transition reinitializes monsterHpRng with Settings.seed + floorNum; floor-1 Cultist HP rolls reproduce VERIFY01 49 and CODEX04 54, CODEX04 floor-2 Small Slimes rolls reproduce Spike Slime (S) 11 plus Acid Slime (M) 32, and CODEX04 floor-3 louse constructors reproduce 13/15 with bite-damage interleaving".to_owned(),
-        },
-        RngBoundary {
-            stream: "shuffleRng".to_owned(),
-            save_counter: Some("card_random_seed_count".to_owned()),
-            status: "captured_branch".to_owned(),
-            reason: "Selected Ironclad A0 starter and modified-deck first combats derive opening piles from the current master-deck order: CardGroup.shuffle seeds Java Collections.shuffle with shuffleRng.randomLong(), draw piles use top-of-pile semantics, and innate/bottled cards are placed on top before opening draw. Broader in-combat and post-END state parity must be proven by simulator transitions, not trace repair.".to_owned(),
-        },
-        RngBoundary {
-            stream: "cardRewardRng".to_owned(),
-            save_counter: Some("card_seed_count".to_owned()),
-            status: "source_backed_full_pool".to_owned(),
-            reason: "card reward rarity rolls use target-style cardRng.random(99) + cardRarityFactor thresholds, common/rare factor mutation, duplicate rerolls, and StsRng counter consumption over the full 72-card Ironclad reward pool; many pool entries are RNG-only until their card mechanics are implemented".to_owned(),
-        },
-        RngBoundary {
-            stream: "rewardGoldRng".to_owned(),
-            save_counter: Some("treasure_seed_count".to_owned()),
-            status: "source_backed_normal_combat".to_owned(),
-            reason: "normal-combat gold uses target-style treasureRng.random(10, 20) with StsRng counter persistence; VERIFY01 and CODEX04 seed-start reward screens are generated from simulation-driven reward RNG rather than pinned constants".to_owned(),
-        },
-        RngBoundary {
-            stream: "relicRng".to_owned(),
-            save_counter: Some("relic_seed_count".to_owned()),
-            status: "source_backed_pool_selection_wired".to_owned(),
-            reason: "relic tier rolls for normal/chest-style and elite rewards use target thresholds and persisted relic_seed_count; Ironclad relic pools initialize, pop, and filter like target; elite/chest/boss relic reward screens and shop relic offers are wired from persisted pool state. VERIFY01 Neow common relic identity and simple-drawback Neow rare relic identity are generated through the fixed-tier relic helper; curse-combo rare relics and boss-swap follow-ups remain partial/caveated".to_owned(),
-        },
-        RngBoundary {
-            stream: "merchantRng".to_owned(),
-            save_counter: Some("merchant_seed_count".to_owned()),
-            status: "source_backed_shop_inventory".to_owned(),
-            reason: "shop inventory uses target-style Shop.cpp layout: 5 class cards + 2 colorless cards with sale slot, 3 relics (2 tier rolls + shop tier), 3 potions, and card-remove pricing; merchantRng/cardRng/potionRng/relic pool state drive generation without regressing relic_rng_counter".to_owned(),
-        },
-        RngBoundary {
-            stream: "eventRng".to_owned(),
-            save_counter: Some("event_seed_count".to_owned()),
-            status: "source_backed_event_pool_with_captured_branches".to_owned(),
-            reason: "Act 1 event/shrine pools initialize from target EventPools::Act1 lists; generateEvent uses 25% shrine chance and removes picked entries; Golden Shrine, Cleric heal, Shining Light, and The Ssssserpent outcomes are implemented. TEST and M290001 still use captured event-entry branches where broader event RNG alignment is not yet proven".to_owned(),
-        },
-        RngBoundary {
-            stream: "potionRng".to_owned(),
-            save_counter: Some("potion_seed_count".to_owned()),
-            status: "source_backed_reward_drop".to_owned(),
-            reason: "normal reward potion drops use target-style potionRng.random(99), persisted potionChance, target rarity thresholds, and the full 33-potion Ironclad reward pool; potion use effects and broader potion RNG surfaces remain partial".to_owned(),
-        },
-    ]
 }
 
 #[cfg(test)]

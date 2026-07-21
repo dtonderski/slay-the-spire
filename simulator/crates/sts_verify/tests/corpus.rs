@@ -552,66 +552,6 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
                 && entry.reason.contains("no potion-use transition")),
         "Toy Ornithopter trace-only scope should be classified"
     );
-
-    for stream in [
-        "seed_conversion",
-        "neowRng",
-        "mapRng",
-        "monsterRng",
-        "monsterHpRng",
-        "shuffleRng",
-        "cardRewardRng",
-        "rewardGoldRng",
-        "relicRng",
-        "potionRng",
-    ] {
-        assert!(
-            seed_start
-                .rng_boundaries
-                .iter()
-                .any(|boundary| boundary.stream == stream),
-            "missing RNG boundary for {stream}"
-        );
-    }
-    let seed_conversion = seed_start
-        .rng_boundaries
-        .iter()
-        .find(|boundary| boundary.stream == "seed_conversion")
-        .expect("seed conversion boundary");
-    assert_eq!(seed_conversion.status, "source_backed");
-    assert!(
-        seed_start
-            .rng_boundaries
-            .iter()
-            .all(|boundary| boundary.status != "captured_opaque"),
-        "no RNG boundary should remain captured_opaque"
-    );
-
-    let m22 = seed_start
-        .m22_encounter_report
-        .as_ref()
-        .expect("m22 encounter report");
-    assert!(
-        m22.mismatches.is_empty(),
-        "m22 mismatches: {:?}",
-        m22.mismatches
-    );
-    assert_eq!(m22.verified_entries.len(), 1);
-    assert_eq!(m22.predicted_entries.len(), 2);
-    assert_eq!(
-        m22.verified_entries
-            .iter()
-            .map(|entry| entry.encounter_key.as_str())
-            .collect::<Vec<_>>(),
-        vec!["Cultist"]
-    );
-    assert_eq!(
-        m22.predicted_entries
-            .iter()
-            .map(|entry| entry.encounter_key.as_str())
-            .collect::<Vec<_>>(),
-        vec!["Jaw Worm", "2 Louse"]
-    );
 }
 
 #[test]
@@ -749,25 +689,6 @@ fn codex04_seed_start_enters_first_captured_encounter_after_colorless_neow_pick(
         "unchosen CODEX04 Neow branches are counterfactual caveats, not unsupported transitions: {:?}",
         report.unsupported
     );
-
-    let m22 = seed_start
-        .m22_encounter_report
-        .as_ref()
-        .expect("m22 encounter report");
-    assert!(
-        m22.mismatches.is_empty(),
-        "m22 mismatches: {:?}",
-        m22.mismatches
-    );
-    assert_eq!(m22.verified_entries.len(), 3);
-    assert!(m22.predicted_entries.is_empty());
-    assert_eq!(
-        m22.verified_entries
-            .iter()
-            .map(|entry| entry.encounter_key.as_str())
-            .collect::<Vec<_>>(),
-        vec!["Cultist", "Small Slimes", "2 Louse"]
-    );
 }
 
 #[test]
@@ -794,24 +715,6 @@ fn codex03_seed_start_replays_neow_lament_three_combat_prefix() {
         .first_boundary
         .reason
         .contains("verifiable transitions"));
-
-    let m22 = seed_start
-        .m22_encounter_report
-        .as_ref()
-        .expect("m22 encounter report");
-    assert!(
-        m22.mismatches.is_empty(),
-        "m22 mismatches: {:?}",
-        m22.mismatches
-    );
-    assert_eq!(m22.verified_entries.len(), 3);
-    assert_eq!(
-        m22.verified_entries
-            .iter()
-            .map(|entry| entry.encounter_key.as_str())
-            .collect::<Vec<_>>(),
-        vec!["Jaw Worm", "Cultist", "2 Louse"]
-    );
 }
 
 #[test]

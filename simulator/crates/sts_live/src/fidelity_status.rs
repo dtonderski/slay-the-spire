@@ -147,8 +147,6 @@ mod tests {
                     reason: "seed-start bootstrap harness did not expect command 'PLAY 2' in phase Event"
                         .to_owned(),
                 },
-                rng_boundaries: Vec::new(),
-                m22_encounter_report: None,
                 sim_run_state: None,
             }),
         });

@@ -293,8 +293,6 @@ mod tests {
                 },
                 failed: false,
                 first_boundary: no_boundary(),
-                rng_boundaries: Vec::new(),
-                m22_encounter_report: None,
                 sim_run_state: None,
             }),
         }

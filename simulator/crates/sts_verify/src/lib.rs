@@ -3,7 +3,6 @@
 
 pub mod diff;
 pub mod importer;
-pub mod m22;
 pub mod minimize;
 pub mod normalize;
 pub mod outcome;
@@ -14,9 +13,6 @@ pub mod trace;
 
 pub use diff::canonical_diff;
 pub use importer::{observations_from_trace, ImportedTraceStep};
-pub use m22::{
-    verify_m22_encounter_spawn_prefix, M22EncounterEntry, M22EncounterMismatch, M22EncounterReport,
-};
 pub use minimize::{
     minimize_communication_mod_trace, serialize_communication_mod_trace, MinimizeError,
     MinimizeFailureKind, MinimizeReport,
@@ -36,8 +32,8 @@ pub use seed::{
 };
 pub use sim_real::{
     verify_communication_mod_trace, verify_seed_start_communication_mod_trace, ActionDisposition,
-    ActionDispositionKind, RngBoundary, SeedStartBoundary, SeedStartReport, SimRealError,
-    SimRealReport, StartRunCommand, UnexpectedDiff, UnsupportedTransition, VerifiedTransition,
+    ActionDispositionKind, SeedStartBoundary, SeedStartReport, SimRealError, SimRealReport,
+    StartRunCommand, UnexpectedDiff, UnsupportedTransition, VerifiedTransition,
 };
 pub use slaythedata::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,
