@@ -58,7 +58,7 @@ use crate::{
     },
     ids::MonsterId,
     rng::StsRng,
-    SimResult, TargetRequirement,
+    SimError, SimResult, TargetRequirement,
 };
 
 const HAND_SIZE: usize = 5;
@@ -175,7 +175,7 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
     crate::relic::reset_turn_relic_counters(state);
     reset_turn_only_temp_costs(state);
     if crate::relic::preserves_energy_between_turns(&state.relics) {
-        state.player.energy += state.player.max_energy;
+        state.player.energy = checked_turn_add(state.player.energy, state.player.max_energy)?;
     } else {
         state.player.energy = state.player.max_energy;
     }
@@ -196,10 +196,17 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
         state.player.no_block_turns -= 1;
     }
     if state.player.temp_dexterity > 0 {
-        state.player.powers.dexterity -= state.player.temp_dexterity;
+        state.player.powers.dexterity = state
+            .player
+            .powers
+            .dexterity
+            .checked_sub(state.player.temp_dexterity)
+            .ok_or(SimError::InvalidState(
+                "combat integer subtraction overflows i32",
+            ))?;
         state.player.temp_dexterity = 0;
     }
-    state.player.energy += state.player.powers.berserk;
+    state.player.energy = checked_turn_add(state.player.energy, state.player.powers.berserk)?;
     crate::relic::apply_start_of_player_turn_relics(state);
     apply_start_of_turn_brutality(state);
     if state.player.hp <= 0 {
@@ -228,6 +235,12 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
     }
     state.phase = CombatPhase::WaitingForPlayer;
     Ok(())
+}
+
+fn checked_turn_add(value: i32, amount: i32) -> SimResult<i32> {
+    value.checked_add(amount).ok_or(SimError::InvalidState(
+        "combat integer addition overflows i32",
+    ))
 }
 
 fn resolve_player_temp_strength(state: &mut CombatState) {
@@ -2071,6 +2084,58 @@ mod tests {
         start_player_turn(&mut state).expect("player turn starts");
 
         assert_eq!(state.player.energy, 6);
+    }
+
+    #[test]
+    fn start_player_turn_rejects_ice_cream_energy_overflow_without_mutating_state() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::IceCream);
+        state.player.energy = i32::MAX;
+        state.player.max_energy = 1;
+        state.validate().expect("input combat is valid");
+        let before = state.clone();
+
+        assert_eq!(
+            start_player_turn(&mut state),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn start_player_turn_rejects_temporary_dexterity_underflow_without_mutating_state() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.dexterity = i32::MIN;
+        state.player.temp_dexterity = 1;
+        state.validate().expect("input combat is valid");
+        let before = state.clone();
+
+        assert_eq!(
+            start_player_turn(&mut state),
+            Err(SimError::InvalidState(
+                "combat integer subtraction overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn start_player_turn_rejects_berserk_energy_overflow_without_mutating_state() {
+        let mut state = CombatState::initial_fixture();
+        state.player.max_energy = i32::MAX;
+        state.player.powers.berserk = 1;
+        state.validate().expect("input combat is valid");
+        let before = state.clone();
+
+        assert_eq!(
+            start_player_turn(&mut state),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     #[test]
