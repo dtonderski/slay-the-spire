@@ -492,6 +492,33 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
         }
+        Event::KnowingSkull => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Knowing Skull stage is invalid"));
+            }
+            if screen.stage == 0 {
+                if screen.event_data != 0 {
+                    return Err(SimError::InvalidState(
+                        "Knowing Skull intro retains cost data",
+                    ));
+                }
+            } else {
+                if screen.event_data == 0 {
+                    return Err(SimError::InvalidState(
+                        "Knowing Skull active costs are missing",
+                    ));
+                }
+                let costs = knowing_skull_costs(screen.event_data);
+                if [costs.potion, costs.gold, costs.card, costs.leave]
+                    .into_iter()
+                    .any(|cost| cost < KNOWING_SKULL_STARTING_COST)
+                {
+                    return Err(SimError::InvalidState(
+                        "Knowing Skull cost is below its starting value",
+                    ));
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -629,11 +656,19 @@ fn knowing_skull_costs(event_data: u32) -> KnowingSkullCosts {
     }
 }
 
-fn knowing_skull_event_data(costs: KnowingSkullCosts) -> u32 {
-    (costs.potion as u32)
-        | ((costs.gold as u32) << 8)
-        | ((costs.card as u32) << 16)
-        | ((costs.leave as u32) << 24)
+fn knowing_skull_event_data(costs: KnowingSkullCosts) -> SimResult<u32> {
+    let encode_cost = |cost| {
+        u8::try_from(cost)
+            .map_err(|_| SimError::InvalidState("Knowing Skull cost exceeds event encoding"))
+    };
+    let potion = encode_cost(costs.potion)?;
+    let gold = encode_cost(costs.gold)?;
+    let card = encode_cost(costs.card)?;
+    let leave = encode_cost(costs.leave)?;
+    Ok(u32::from(potion)
+        | (u32::from(gold) << 8)
+        | (u32::from(card) << 16)
+        | (u32::from(leave) << 24))
 }
 
 fn knowing_skull_gain_random_colorless(run: &mut RunState) {
@@ -4351,7 +4386,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         },
         Event::KnowingSkull => match screen.stage {
             0 if choice_index == 0 => {
-                let event_data = knowing_skull_event_data(knowing_skull_costs(0));
+                let event_data = knowing_skull_event_data(knowing_skull_costs(0))?;
                 next.event = Some(EventScreen {
                     event: Event::KnowingSkull,
                     choices: knowing_skull_choices(1, event_data),
@@ -4363,7 +4398,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let mut costs = knowing_skull_costs(screen.event_data);
                 lose_event_hp(&mut next, costs.potion);
                 costs.potion += 1;
-                let event_data = knowing_skull_event_data(costs);
+                let event_data = knowing_skull_event_data(costs)?;
                 knowing_skull_gain_random_potion(&mut next);
                 next.event = Some(EventScreen {
                     event: Event::KnowingSkull,
@@ -4376,7 +4411,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let mut costs = knowing_skull_costs(screen.event_data);
                 lose_event_hp(&mut next, costs.gold);
                 costs.gold += 1;
-                let event_data = knowing_skull_event_data(costs);
+                let event_data = knowing_skull_event_data(costs)?;
                 next.gain_gold(KNOWING_SKULL_GOLD_REWARD);
                 next.event = Some(EventScreen {
                     event: Event::KnowingSkull,
@@ -4389,7 +4424,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let mut costs = knowing_skull_costs(screen.event_data);
                 lose_event_hp(&mut next, costs.card);
                 costs.card += 1;
-                let event_data = knowing_skull_event_data(costs);
+                let event_data = knowing_skull_event_data(costs)?;
                 knowing_skull_gain_random_colorless(&mut next);
                 next.event = Some(EventScreen {
                     event: Event::KnowingSkull,
@@ -6799,6 +6834,70 @@ mod tests {
         assert!(!after_trade.relics.contains(&Relic::BurningBlood));
         assert!(has_relic_key(&after_trade, RelicKey::NlothsGift));
         assert_eq!(after_trade.event.as_ref().expect("leave screen").stage, 1);
+    }
+
+    #[test]
+    fn knowing_skull_cost_encoding_rejects_negative_and_oversized_values() {
+        for potion in [-1, 256] {
+            assert_eq!(
+                knowing_skull_event_data(KnowingSkullCosts {
+                    potion,
+                    gold: KNOWING_SKULL_STARTING_COST,
+                    card: KNOWING_SKULL_STARTING_COST,
+                    leave: KNOWING_SKULL_STARTING_COST,
+                }),
+                Err(SimError::InvalidState(
+                    "Knowing Skull cost exceeds event encoding"
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn knowing_skull_import_rejects_missing_active_costs() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::KnowingSkull,
+            choices: knowing_skull_choices(1, 0),
+            stage: 1,
+            event_data: 0,
+        });
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "Knowing Skull active costs are missing"
+            ))
+        );
+    }
+
+    #[test]
+    fn knowing_skull_cost_increment_fails_instead_of_wrapping_to_start() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        let event_data = knowing_skull_event_data(KnowingSkullCosts {
+            potion: 255,
+            gold: KNOWING_SKULL_STARTING_COST,
+            card: KNOWING_SKULL_STARTING_COST,
+            leave: KNOWING_SKULL_STARTING_COST,
+        })
+        .expect("maximum byte cost is representable");
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::KnowingSkull,
+            choices: knowing_skull_choices(1, event_data),
+            stage: 1,
+            event_data,
+        });
+        let before = run.clone();
+
+        assert_eq!(
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }),
+            Err(SimError::InvalidState(
+                "Knowing Skull cost exceeds event encoding"
+            ))
+        );
+        assert_eq!(run, before);
     }
 
     #[test]
