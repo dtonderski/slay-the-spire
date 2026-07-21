@@ -502,6 +502,8 @@ fn validate_visible_screen_schema(
         "MAP" => return validate_map_screen_schema(step, game),
         "GRID" => return validate_grid_screen_schema(step, game),
         "REST" => return validate_rest_screen_schema(step, game),
+        "SHOP_ROOM" => return validate_shop_room_schema(step, game),
+        "SHOP_SCREEN" => return validate_shop_screen_schema(step, game),
         _ => return validate_optional_screen_state(step, game),
     };
     let screen = game
@@ -652,6 +654,80 @@ fn validate_rest_screen_schema(
                 "trace state at step {step} REST choice_list must match screen_state.rest_options"
             )));
         }
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_shop_room_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "SHOP_ROOM", game)?;
+    validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_shop_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "SHOP_SCREEN", game)?;
+    let missing_offers = Value::Null;
+    for field in ["cards", "relics", "potions"] {
+        let path = format!("game_state.screen_state.{field}");
+        let offers = screen.get(field).unwrap_or(&missing_offers);
+        validate_identity_array(step, &path, offers)?;
+        for offer in offers
+            .as_array()
+            .expect("validated shop offers are an array")
+        {
+            let offer = offer
+                .as_object()
+                .expect("validated shop offer is an object");
+            if offer
+                .get("price")
+                .and_then(Value::as_u64)
+                .and_then(|price| u32::try_from(price).ok())
+                .is_none()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} {path} entries require a non-negative u32 price"
+                )));
+            }
+            if field == "cards"
+                && offer
+                    .get("upgrades")
+                    .and_then(Value::as_u64)
+                    .and_then(|upgrades| u8::try_from(upgrades).ok())
+                    .is_none()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} {path} entry upgrades must be a non-negative u8"
+                )));
+            }
+        }
+    }
+    if screen
+        .get("purge_available")
+        .and_then(Value::as_bool)
+        .is_none()
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.purge_available must be a boolean"
+        )));
+    }
+    if screen
+        .get("purge_cost")
+        .and_then(Value::as_u64)
+        .and_then(|cost| u32::try_from(cost).ok())
+        .is_none()
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.purge_cost must be a non-negative u32"
+        )));
+    }
+    if game.get("choice_list").is_some() {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
     }
     validate_screen_state_collections(step, screen)
 }
@@ -1384,6 +1460,33 @@ mod tests {
         let content = r#"{"type":"state","step":30,"message":{"game_state":{"screen_type":"REST","ascension_level":0,"floor":15,"gold":99,"current_hp":56,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"has_rested":true,"rest_options":[]}}}}"#;
 
         parse_trace_jsonl(content).expect("completed rest transition may omit choice authority");
+    }
+
+    #[test]
+    fn parse_trace_rejects_shop_room_without_choice_authority() {
+        let content = r#"{"type":"state","step":31,"message":{"game_state":{"screen_type":"SHOP_ROOM","ascension_level":0,"floor":6,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("shop entry choice is authoritative");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 31 game_state.choice_list must be an array"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_shop_offer_without_price_authority() {
+        let content = r#"{"type":"state","step":32,"message":{"game_state":{"screen_type":"SHOP_SCREEN","ascension_level":0,"floor":6,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["strike"],"screen_state":{"cards":[{"id":"Strike_R","upgrades":0}],"relics":[],"potions":[],"purge_available":true,"purge_cost":75}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("shop price is authoritative");
+        assert!(error.to_string().contains(
+            "trace state at step 32 game_state.screen_state.cards entries require a non-negative u32 price"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_allows_shop_screen_without_affordable_choices() {
+        let content = r#"{"type":"state","step":33,"message":{"game_state":{"screen_type":"SHOP_SCREEN","ascension_level":0,"floor":6,"gold":0,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"cards":[{"id":"Strike_R","price":50,"upgrades":0}],"relics":[{"id":"Anchor","price":150}],"potions":[{"id":"Fire Potion","price":50}],"purge_available":false,"purge_cost":75}}}}"#;
+
+        parse_trace_jsonl(content).expect("choice-free merchant state remains valid");
     }
 
     #[test]
