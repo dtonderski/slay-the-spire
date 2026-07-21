@@ -8857,11 +8857,11 @@ fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
         choices.push("relic".to_owned());
         return choices;
     }
-    if reward.gold_offer > 0 {
-        choices.push("gold".to_owned());
-    }
     if reward.stolen_gold_offer > 0 {
         choices.push("stolen_gold".to_owned());
+    }
+    if reward.gold_offer > 0 {
+        choices.push("gold".to_owned());
     }
     if has_relic {
         choices.push("relic".to_owned());
@@ -8906,18 +8906,6 @@ fn seed_start_apply_grid_command(sim: &RunState, command: &str) -> Result<RunSta
     }
 }
 
-fn reward_types_from_combat_reward(message: &Value) -> Vec<String> {
-    reward_types_from_value(
-        message
-            .get("game_state")
-            .and_then(|game| game.get("screen_state"))
-            .and_then(|screen| screen.get("rewards")),
-    )
-    .into_iter()
-    .map(|reward_type| reward_type.to_ascii_lowercase())
-    .collect()
-}
-
 fn seed_start_apply_reward_choose(
     sim: &mut RunState,
     command: &str,
@@ -8937,11 +8925,13 @@ fn seed_start_apply_reward_choose(
         .as_ref()
         .is_some_and(RewardScreen::card_reward_is_active)
     {
-        let live_card_choices = choice_list_from_value(pre.pointer("/game_state/choice_list"));
-        if live_card_choices
-            .get(choose_index)
-            .is_some_and(|choice| choice.eq_ignore_ascii_case("bowl"))
-        {
+        let card_choice_count = sim
+            .reward
+            .as_ref()
+            .expect("card reward is active")
+            .choices
+            .len();
+        if choose_index == card_choice_count && sim.relics.contains(&Relic::SingingBowl) {
             let next = apply_run_action(sim, RunAction::TakeSingingBowlReward)
                 .map_err(|err| err.to_string())?;
             *sim = next;
@@ -8959,15 +8949,19 @@ fn seed_start_apply_reward_choose(
         return Ok(format!("card reward pick {choose_index}"));
     }
 
-    let observed_types = reward_types_from_combat_reward(pre);
-    let choice = observed_types
+    let simulated_choices = sim
+        .reward
+        .as_ref()
+        .map(sim_reward_combat_choices)
+        .ok_or_else(|| "reward screen is missing".to_owned())?;
+    let choice = simulated_choices
         .get(choose_index)
         .cloned()
         .ok_or_else(|| format!("reward choice index {choose_index} is not available"))?;
 
-    let potion_index = observed_types[..choose_index]
+    let potion_index = simulated_choices[..choose_index]
         .iter()
-        .filter(|reward_type| reward_type.as_str() == "potion")
+        .filter(|choice| choice.as_str() == "potion")
         .count();
     let next = match choice.as_str() {
         "stolen_gold" => apply_run_action(sim, RunAction::TakeStolenGoldReward),
@@ -12849,6 +12843,29 @@ mod tests {
     }
 
     #[test]
+    fn reward_projection_places_stolen_gold_before_combat_gold() {
+        let reward = RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 19,
+            stolen_gold_offer: 30,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: sts_core::CardRewardFlow::pending(1),
+        };
+
+        assert_eq!(
+            sim_reward_combat_choices(&reward),
+            ["stolen_gold", "gold", "card"].map(str::to_owned)
+        );
+    }
+
+    #[test]
     fn fusion_hammer_removes_smith_from_seed_start_rest_projection() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Rest;
@@ -13102,6 +13119,49 @@ mod tests {
     }
 
     #[test]
+    fn observed_reward_order_cannot_steer_simulated_choice() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Reward;
+        run.gold = 99;
+        run.potions.clear();
+        run.reward = Some(RewardScreen {
+            continuation: sts_core::RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 120,
+            stolen_gold_offer: 0,
+            potion_offer: Some(Potion::Dexterity),
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: sts_core::CardRewardFlow::None,
+        });
+        let forged_pre = json!({
+            "game_state": {
+                "screen_state": {
+                    "rewards": [
+                        {"reward_type": "POTION", "potion": {"id": "Dexterity Potion"}},
+                        {"reward_type": "GOLD", "gold": 120}
+                    ]
+                }
+            }
+        });
+
+        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 0", &forged_pre)
+            .expect("simulator-owned first reward is taken");
+
+        assert_eq!(label, "gold reward");
+        assert_eq!(run.gold, 219);
+        assert!(run.potions.is_empty());
+        assert_eq!(
+            run.reward.as_ref().and_then(|reward| reward.potion_offer),
+            Some(Potion::Dexterity)
+        );
+    }
+
+    #[test]
     fn singing_bowl_is_exposed_and_applied_on_active_card_rewards() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Reward;
@@ -13128,7 +13188,7 @@ mod tests {
             Some(&json!("bowl"))
         );
 
-        let pre = json!({"game_state": {"choice_list": ["strike", "bowl"]}});
+        let pre = json!({"game_state": {"choice_list": ["bowl", "strike"]}});
         let max_hp = run.player_max_hp;
         let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre)
             .expect("Singing Bowl choice applies");
