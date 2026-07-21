@@ -2934,8 +2934,14 @@ fn verify_seed_start_transitions(
                                         &relics,
                                         normal_combat_index,
                                     );
-                                    seed_start_compare_combat_subset(
-                                        report, action, &label, observed, simulated, true,
+                                    seed_start_compare_or_defer_combat_entry(
+                                        report,
+                                        action,
+                                        &label,
+                                        &post.message,
+                                        observed,
+                                        simulated,
+                                        &mut pending_combat_assertion,
                                     );
                                     seed_sim = Some(next);
                                     phase = SeedStartPhase::Combat;
@@ -3531,8 +3537,14 @@ fn verify_seed_start_transitions(
                     let label = "event combat";
                     let observed = seed_start_encounter_observed_subset(&post.message);
                     let simulated = seed_start_simulated_combat_subset(&next, false);
-                    seed_start_compare_combat_subset(
-                        report, action, label, observed, simulated, true,
+                    seed_start_compare_or_defer_combat_entry(
+                        report,
+                        action,
+                        label,
+                        &post.message,
+                        observed,
+                        simulated,
+                        &mut pending_combat_assertion,
                     );
                     seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                     *sim = next;
@@ -5639,6 +5651,9 @@ fn seed_start_encounter_observed_subset(message: &Value) -> Value {
         "combat_player_hp": player.map(|p| int(p, "current_hp")).unwrap_or(0),
         "combat_player_block": player.map(|p| int(p, "block")).unwrap_or(0),
         "combat_player_energy": player.map(|p| int(p, "energy")).unwrap_or(0),
+        "hand_ids": combat_card_ids(combat.and_then(|combat| combat.get("hand"))),
+        "draw_ids": combat_card_ids(combat.and_then(|combat| combat.get("draw_pile"))),
+        "discard_ids": combat_card_ids(combat.and_then(|combat| combat.get("discard_pile"))),
         "monster_intents_visible": monster_intents_visible,
         "monsters": seed_start_monsters_from_value(
             combat.and_then(|combat| combat.get("monsters")),
@@ -9183,10 +9198,9 @@ fn seed_start_compare_combat_subset(
     label: &str,
     expected: Value,
     actual: Value,
-    strip_piles: bool,
 ) {
-    let mut expected = seed_start_normalize_combat_compare(expected, strip_piles);
-    let mut actual = seed_start_normalize_combat_compare(actual, strip_piles);
+    let mut expected = seed_start_normalize_combat_compare(expected);
+    let mut actual = seed_start_normalize_combat_compare(actual);
     apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
     if let (Some(expected_obj), Some(actual_obj)) = (expected.as_object(), actual.as_object_mut()) {
         for key in ["ascension", "deck_ids", "relic_ids"] {
@@ -9205,8 +9219,8 @@ fn seed_start_compare_deferred_combat_subset(
     expected: Value,
     actual: Value,
 ) -> bool {
-    let mut expected = seed_start_normalize_combat_compare(expected, false);
-    let mut actual = seed_start_normalize_combat_compare(actual, false);
+    let mut expected = seed_start_normalize_combat_compare(expected);
+    let mut actual = seed_start_normalize_combat_compare(actual);
     apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
     if let (Some(expected_obj), Some(actual_obj)) = (expected.as_object(), actual.as_object_mut()) {
         for key in ["ascension", "deck_ids", "relic_ids"] {
@@ -9219,8 +9233,8 @@ fn seed_start_compare_deferred_combat_subset(
 }
 
 fn seed_start_combat_subsets_match(mut expected: Value, mut actual: Value) -> bool {
-    expected = seed_start_normalize_combat_compare(expected, false);
-    actual = seed_start_normalize_combat_compare(actual, false);
+    expected = seed_start_normalize_combat_compare(expected);
+    actual = seed_start_normalize_combat_compare(actual);
     apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
     if let (Some(expected_obj), Some(actual_obj)) = (expected.as_object(), actual.as_object_mut()) {
         for key in ["ascension", "deck_ids", "relic_ids"] {
@@ -9268,6 +9282,15 @@ fn seed_start_is_transient_combat_post_state(message: &Value) -> bool {
     let action_phase = game.get("action_phase").and_then(Value::as_str);
     matches!(screen_type, Some("GRID" | "HAND_SELECT"))
         && action_phase == Some("EXECUTING_ACTIONS")
+        && game.get("current_action").is_some()
+}
+
+fn seed_start_is_transient_combat_entry_post_state(message: &Value) -> bool {
+    let Some(game) = message.get("game_state") else {
+        return false;
+    };
+    game.get("combat_state").is_some()
+        && game.get("action_phase").and_then(Value::as_str) == Some("EXECUTING_ACTIONS")
         && game.get("current_action").is_some()
 }
 
@@ -9329,6 +9352,9 @@ fn seed_start_compare_transient_combat_subset(
                 "combat_player_hp",
                 "combat_player_block",
                 "combat_player_energy",
+                "hand_ids",
+                "draw_ids",
+                "discard_ids",
                 "monsters",
             ] {
                 object.remove(key);
@@ -9336,6 +9362,31 @@ fn seed_start_compare_transient_combat_subset(
         }
     }
     seed_start_compare_deferred_combat_subset(report, action, label, expected, actual)
+}
+
+fn seed_start_compare_or_defer_combat_entry(
+    report: &mut SimRealReport,
+    action: &TraceAction,
+    label: &str,
+    post_message: &Value,
+    observed: Value,
+    simulated: Value,
+    pending_combat_assertion: &mut Option<PendingCombatAssertion>,
+) {
+    if seed_start_is_transient_combat_entry_post_state(post_message) {
+        let transient_matches =
+            seed_start_compare_transient_combat_subset(report, action, label, observed, simulated);
+        pending_combat_assertion
+            .get_or_insert_default()
+            .transitions
+            .push(PendingCombatTransition {
+                action: action.clone(),
+                label: label.to_owned(),
+                transient_matches,
+            });
+        return;
+    }
+    seed_start_compare_combat_subset(report, action, label, observed, simulated);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -9349,7 +9400,10 @@ fn seed_start_compare_or_defer_combat_transition(
     pending_combat_assertion: &mut Option<PendingCombatAssertion>,
     reconciled_deferred_action_steps: &mut Vec<u32>,
 ) {
-    if seed_start_is_transient_combat_post_state(post_message) {
+    if seed_start_is_transient_combat_post_state(post_message)
+        || pending_combat_assertion.is_some()
+            && seed_start_is_transient_combat_entry_post_state(post_message)
+    {
         let transient_matches =
             seed_start_compare_transient_combat_subset(report, action, label, observed, simulated);
         pending_combat_assertion
@@ -9364,7 +9418,7 @@ fn seed_start_compare_or_defer_combat_transition(
     }
 
     let diff_count = report.unexpected_diffs.len();
-    seed_start_compare_combat_subset(report, action, label, observed, simulated, false);
+    seed_start_compare_combat_subset(report, action, label, observed, simulated);
     let stable_matches = report.unexpected_diffs.len() == diff_count;
     let Some(pending) = pending_combat_assertion.take() else {
         return;
@@ -9393,7 +9447,7 @@ fn seed_start_compare_or_defer_combat_transition(
     }
 }
 
-fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> Value {
+fn seed_start_normalize_combat_compare(mut value: Value) -> Value {
     let Some(obj) = value.as_object_mut() else {
         return value;
     };
@@ -9402,11 +9456,6 @@ fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> V
         .and_then(Value::as_i64)
         .is_some_and(|hp| hp <= 0);
     obj.remove("unobservable");
-    if strip_piles {
-        obj.remove("hand_ids");
-        obj.remove("draw_ids");
-        obj.remove("discard_ids");
-    }
     if let Some(monsters) = obj.get_mut("monsters").and_then(Value::as_array_mut) {
         for monster in monsters {
             if let Some(fields) = monster.as_object_mut() {
@@ -9433,18 +9482,6 @@ fn seed_start_normalize_combat_compare(mut value: Value, strip_piles: bool) -> V
         }
     }
     Value::Object(obj.clone())
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn seed_start_normalize_combat_entry_compare(value: Value) -> Value {
-    let mut value = seed_start_normalize_combat_compare(value, true);
-    if let Some(obj) = value.as_object_mut() {
-        obj.remove("ascension");
-        obj.remove("deck_ids");
-        obj.remove("relic_ids");
-    }
-    value
 }
 
 fn unsupported_seed_start_combat_command(combat: &CombatState, command: &str) -> Option<String> {
@@ -10265,19 +10302,6 @@ fn subset_diffs(expected: Value, actual: Value) -> Vec<String> {
     let expected_json = serde_json::to_string(&expected).expect("json serializes");
     let actual_json = serde_json::to_string(&actual).expect("json serializes");
     canonical_diff(&expected_json, &actual_json)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn normalized_combat_subset_diffs(
-    expected: Value,
-    actual: Value,
-    strip_piles: bool,
-) -> Vec<String> {
-    subset_diffs(
-        seed_start_normalize_combat_compare(expected, strip_piles),
-        seed_start_normalize_combat_compare(actual, strip_piles),
-    )
 }
 
 #[cfg(test)]
@@ -12327,7 +12351,7 @@ mod tests {
             ]
         });
 
-        let normalized = seed_start_normalize_combat_compare(value, false);
+        let normalized = seed_start_normalize_combat_compare(value);
         assert_eq!(normalized["monsters"][0]["strength"], json!(3));
         assert_eq!(normalized["monsters"][0]["ritual"], json!(5));
         assert_eq!(normalized["monsters"][0]["vulnerable"], json!(2));
@@ -12342,20 +12366,17 @@ mod tests {
 
     #[test]
     fn terminal_player_death_hides_only_monster_intent_fields() {
-        let normalized = seed_start_normalize_combat_compare(
-            json!({
-                "combat_player_hp": 0,
-                "monsters": [{
-                    "current_hp": 47,
-                    "strength": 3,
-                    "ritual": 2,
-                    "vulnerable": 1,
-                    "intent": "ATTACK",
-                    "move_id": 6,
-                }]
-            }),
-            false,
-        );
+        let normalized = seed_start_normalize_combat_compare(json!({
+            "combat_player_hp": 0,
+            "monsters": [{
+                "current_hp": 47,
+                "strength": 3,
+                "ritual": 2,
+                "vulnerable": 1,
+                "intent": "ATTACK",
+                "move_id": 6,
+            }]
+        }));
 
         assert_eq!(normalized["monsters"][0]["strength"], json!(3));
         assert_eq!(normalized["monsters"][0]["ritual"], json!(2));
@@ -13765,6 +13786,90 @@ mod tests {
         assert!(
             offer_diff.contains(&DEMON_FORM_ID.get().to_string()),
             "{offer_diff}"
+        );
+    }
+
+    #[test]
+    fn stable_combat_entry_compares_opening_piles() {
+        let path = crate::corpus_path("permanent_traces/trace-session-8.jsonl");
+        let content = std::fs::read_to_string(path).expect("complete trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let transitions = trace_transitions(&imported.lines).expect("trace transitions");
+        let (entry_step, entry_post) = transitions
+            .transitions
+            .iter()
+            .find_map(|(pre, action, post)| {
+                (screen_type(&pre.message) == Some("MAP")
+                    && command_head_eq(&action.command, "CHOOSE")
+                    && post.message.pointer("/game_state/combat_state").is_some()
+                    && post
+                        .message
+                        .pointer("/game_state/action_phase")
+                        .and_then(Value::as_str)
+                        == Some("WAITING_ON_USER"))
+                .then_some((action.step, post.clone()))
+            })
+            .expect("fixture has a stable map-to-combat entry");
+
+        let mut mutated_lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let mutated_state = mutated_lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if *state == entry_post => Some(state),
+                _ => None,
+            })
+            .expect("combat entry post-state remains in imported trace");
+        let card_id = mutated_state
+            .message
+            .pointer_mut("/game_state/combat_state/hand/0/id")
+            .expect("stable combat entry exposes its opening hand");
+        *card_id = if card_id.as_str() == Some("Bash") {
+            json!("Strike_R")
+        } else {
+            json!("Bash")
+        };
+
+        let metadata = imported.metadata.expect("trace metadata");
+        let mutated = crate::serialize_communication_mod_trace(&metadata, &mutated_lines);
+        let report = verify_communication_mod_trace(&mutated).expect("mutated trace parses");
+        let pile_diff = report
+            .unexpected_diffs
+            .iter()
+            .find(|diff| {
+                diff.action_step == entry_step
+                    && diff
+                        .diffs
+                        .iter()
+                        .any(|line| line.starts_with("hand_ids[0]:"))
+            })
+            .expect("forged opening hand must differ from simulator piles");
+        assert!(pile_diff.label.contains("monster node"), "{pile_diff:#?}");
+    }
+
+    #[test]
+    fn executing_toolbox_entry_reconciles_at_a_stable_combat_frame() {
+        let path = crate::corpus_path("permanent_traces/trace-session-17.jsonl");
+        let content = std::fs::read_to_string(path).expect("Toolbox trace");
+        let report = verify_communication_mod_trace(&content).expect("Toolbox trace verifies");
+        let entry = report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 5356 && entry.command == "CHOOSE 0")
+            .expect("Toolbox combat-entry disposition");
+
+        assert_eq!(entry.disposition, ActionDispositionKind::Verified);
+        assert!(entry.deferred_assertion_reconciled);
+        assert_eq!(
+            report
+                .action_integrity
+                .as_ref()
+                .expect("action integrity")
+                .unresolved_transient_assertions,
+            0
         );
     }
 
