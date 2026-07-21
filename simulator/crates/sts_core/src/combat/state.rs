@@ -13,7 +13,7 @@ use crate::{
     ids::{card_instance_id_is_supported, CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
     relic::{Relic, RelicCounters},
-    rng::StsRng,
+    rng::{rng_counter_is_supported, StsRng},
     ContentId, SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
@@ -803,6 +803,19 @@ impl CombatState {
     /// This check is pure: it must not advance RNG or normalize malformed
     /// imported state into a plausible state.
     pub fn validate(&self) -> SimResult<()> {
+        if [
+            self.rng.shuffle_rng.counter(),
+            self.rng.monster_rng.counter(),
+            self.rng.monster_hp_rng.counter(),
+            self.rng.card_random_rng.counter(),
+        ]
+        .into_iter()
+        .any(|counter| !rng_counter_is_supported(counter))
+        {
+            return Err(SimError::InvalidState(
+                "combat RNG counter exceeds the target signed range",
+            ));
+        }
         if self.ascension > 20 {
             return Err(SimError::InvalidState("combat ascension exceeds 20"));
         }
@@ -1091,6 +1104,21 @@ mod tests {
             state.validate(),
             Err(SimError::InvalidState(
                 "card instance ID is outside the supported allocation range"
+            ))
+        );
+    }
+
+    #[test]
+    fn combat_validation_rejects_rng_counters_outside_the_target_domain() {
+        let mut value =
+            serde_json::to_value(CombatState::initial_fixture()).expect("combat serializes");
+        value["shuffle_rng"]["counter"] = serde_json::json!(i32::MAX as u32 + 1);
+        let state: CombatState = serde_json::from_value(value).expect("combat deserializes");
+
+        assert_eq!(
+            state.validate(),
+            Err(SimError::InvalidState(
+                "combat RNG counter exceeds the target signed range"
             ))
         );
     }

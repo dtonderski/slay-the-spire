@@ -29,8 +29,7 @@ use crate::{
         TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
         WING_BOOTS_CHARGES,
     },
-    rng::JavaRng,
-    rng::StsRng,
+    rng::{rng_counter_is_supported, JavaRng, StsRng},
     SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
@@ -127,6 +126,19 @@ mod tests {
             run.validate(),
             Err(SimError::InvalidState(
                 "card instance ID is outside the supported allocation range"
+            ))
+        );
+    }
+
+    #[test]
+    fn run_validation_rejects_rng_counters_outside_the_target_domain() {
+        let mut run = RunState::map_fixture();
+        run.monster_rng_counter = i32::MAX as u32 + 1;
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "run RNG counter exceeds the target signed range"
             ))
         );
     }
@@ -709,6 +721,25 @@ impl RunState {
     /// this rejects contradictory ownership without normalizing valid
     /// event/reward/grid subflows.
     pub fn validate(&self) -> SimResult<()> {
+        if [
+            self.card_rng_counter,
+            self.card_random_rng_counter,
+            self.treasure_rng_counter,
+            self.potion_rng_counter,
+            self.relic_rng_counter,
+            self.shuffle_rng_counter,
+            self.merchant_rng_counter,
+            self.event_rng_counter,
+            self.misc_rng_counter,
+            self.monster_rng_counter,
+        ]
+        .into_iter()
+        .any(|counter| !rng_counter_is_supported(counter))
+        {
+            return Err(SimError::InvalidState(
+                "run RNG counter exceeds the target signed range",
+            ));
+        }
         if self.ascension > 20 {
             return Err(SimError::InvalidState("run ascension exceeds 20"));
         }

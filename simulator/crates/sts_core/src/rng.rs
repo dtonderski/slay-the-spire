@@ -1,5 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+/// Largest RNG draw counter representable by the target game's signed Java
+/// `int` field.
+pub(crate) const MAX_SUPPORTED_RNG_COUNTER: u32 = i32::MAX as u32;
+
+#[must_use]
+pub(crate) const fn rng_counter_is_supported(counter: u32) -> bool {
+    counter <= MAX_SUPPORTED_RNG_COUNTER
+}
+
 /// Slay the Spire's target-game RNG wrapper for version `12-18-2022`.
 ///
 /// The game class `com.megacrit.cardcrawl.random.Random` wraps libGDX
@@ -68,6 +77,10 @@ impl StsRng {
     }
 
     pub fn set_counter(&mut self, target: u32) {
+        assert!(
+            rng_counter_is_supported(target),
+            "STS RNG counter exceeds the target signed range"
+        );
         assert!(
             target >= self.counter,
             "STS RNG counter cannot move backwards"
@@ -251,6 +264,20 @@ mod tests {
             advanced.clone().random_int(99),
             stepped.clone().random_int(99)
         );
+    }
+
+    #[test]
+    fn target_rng_counter_range_is_signed_java_int() {
+        assert!(rng_counter_is_supported(0));
+        assert!(rng_counter_is_supported(i32::MAX as u32));
+        assert!(!rng_counter_is_supported(i32::MAX as u32 + 1));
+        assert!(!rng_counter_is_supported(u32::MAX));
+    }
+
+    #[test]
+    #[should_panic(expected = "STS RNG counter exceeds the target signed range")]
+    fn counter_reconstruction_rejects_unrepresentable_target_before_advancing() {
+        let _ = StsRng::with_counter(1, i32::MAX as u32 + 1);
     }
 
     #[test]
