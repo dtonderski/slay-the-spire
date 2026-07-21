@@ -527,28 +527,6 @@ pub fn leave_shop_room(run: &mut RunState) {
     run.phase = RunPhase::Idle;
 }
 
-#[must_use]
-pub fn shop_choice_labels(run: &RunState) -> Vec<String> {
-    affordable_shop_picks(run)
-        .into_iter()
-        .map(|pick| match pick {
-            ShopPick::Purge => "purge".to_owned(),
-            ShopPick::BuyCard(slot) => {
-                let shop = run.shop.as_ref().expect("shop pick without shop");
-                format!("card{}", shop.cards[slot].card.content_id.get())
-            }
-            ShopPick::BuyRelic(slot) => {
-                let shop = run.shop.as_ref().expect("shop pick without shop");
-                format!("{:?}", shop.relics[slot].relic_key).to_ascii_lowercase()
-            }
-            ShopPick::BuyPotion(slot) => {
-                let shop = run.shop.as_ref().expect("shop pick without shop");
-                format!("{:?}", shop.potions[slot].potion).to_ascii_lowercase()
-            }
-        })
-        .collect()
-}
-
 pub fn legal_shop_actions(run: &RunState) -> SimResult<Vec<RunAction>> {
     run.validate()?;
     if run.phase != RunPhase::Shop {

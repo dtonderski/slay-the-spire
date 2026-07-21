@@ -7,10 +7,8 @@ use crate::{
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
         get_monster_definition, is_unsupported_approximate_monster_intent, monster_state,
-        requires_rolled_attack_damage, ACID_SLIME_A0, CULTIST_A0, FIXED_SIMPLE_MONSTER,
-        GREEN_LOUSE_A0, GREEN_LOUSE_BITE_DAMAGE, GREMLIN_NOB_A0, GUARDIAN_A0, HEXAGHOST_A0,
-        JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0, RED_LOUSE_A0, RED_LOUSE_BITE_DAMAGE, SENTRY_A0,
-        SLIME_BOSS_A0, SPIKE_SLIME_A0,
+        requires_rolled_attack_damage, CULTIST_A0, FIXED_SIMPLE_MONSTER, LAGAVULIN_A0,
+        RED_LOUSE_A0, RED_LOUSE_BITE_DAMAGE, SENTRY_A0,
     },
     ids::{CardId, MonsterId},
     power::{MonsterPowers, PlayerPowers},
@@ -755,46 +753,10 @@ impl CombatState {
     }
 
     #[must_use]
-    pub fn jaw_worm_fixture() -> Self {
-        let mut state = Self::initial_fixture();
-        state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
-        state
-    }
-
-    #[must_use]
-    pub fn gremlin_nob_fixture() -> Self {
-        let mut state = Self::initial_fixture();
-        state.monsters = vec![monster_state(&GREMLIN_NOB_A0, MonsterId::new(1))];
-        state
-    }
-
-    #[must_use]
     pub fn red_louse_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![monster_state(&RED_LOUSE_A0, MonsterId::new(1))];
         state.monsters[0].rolled_attack_damage = Some(RED_LOUSE_BITE_DAMAGE);
-        state
-    }
-
-    #[must_use]
-    pub fn green_louse_fixture() -> Self {
-        let mut state = Self::initial_fixture();
-        state.monsters = vec![monster_state(&GREEN_LOUSE_A0, MonsterId::new(1))];
-        state.monsters[0].rolled_attack_damage = Some(GREEN_LOUSE_BITE_DAMAGE);
-        state
-    }
-
-    #[must_use]
-    pub fn spike_slime_fixture() -> Self {
-        let mut state = Self::initial_fixture();
-        state.monsters = vec![monster_state(&SPIKE_SLIME_A0, MonsterId::new(1))];
-        state
-    }
-
-    #[must_use]
-    pub fn acid_slime_fixture() -> Self {
-        let mut state = Self::initial_fixture();
-        state.monsters = vec![monster_state(&ACID_SLIME_A0, MonsterId::new(1))];
         state
     }
 
@@ -806,13 +768,6 @@ impl CombatState {
     }
 
     #[must_use]
-    pub fn looter_fixture() -> Self {
-        let mut state = Self::initial_fixture();
-        state.monsters = vec![monster_state(&LOOTER_A0, MonsterId::new(1))];
-        state
-    }
-
-    #[must_use]
     pub fn sentry_fixture() -> Self {
         let mut state = Self::initial_fixture();
         state.monsters = vec![
@@ -820,27 +775,6 @@ impl CombatState {
             monster_state(&SENTRY_A0, MonsterId::new(2)),
             monster_state(&SENTRY_A0, MonsterId::new(3)),
         ];
-        state
-    }
-
-    #[must_use]
-    pub fn hexaghost_fixture() -> Self {
-        let mut state = Self::initial_fixture();
-        state.monsters = vec![monster_state(&HEXAGHOST_A0, MonsterId::new(1))];
-        state
-    }
-
-    #[must_use]
-    pub fn slime_boss_fixture() -> Self {
-        let mut state = Self::initial_fixture();
-        state.monsters = vec![monster_state(&SLIME_BOSS_A0, MonsterId::new(1))];
-        state
-    }
-
-    #[must_use]
-    pub fn guardian_fixture() -> Self {
-        let mut state = Self::initial_fixture();
-        state.monsters = vec![monster_state(&GUARDIAN_A0, MonsterId::new(1))];
         state
     }
 

@@ -77,7 +77,6 @@ pub const SPIRE_SPEAR_ID: ContentId = ContentId::new(161);
 pub(crate) const RED_LOUSE_BITE_DAMAGE: i32 = 6;
 pub(crate) const LOUSE_CURL_STRENGTH: i32 = 3;
 
-pub(crate) const GREEN_LOUSE_BITE_DAMAGE: i32 = 6;
 pub const GREEN_LOUSE_WEAK: i32 = 2;
 const GREEN_LOUSE_SPIKES: i32 = 3;
 

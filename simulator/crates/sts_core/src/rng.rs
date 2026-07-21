@@ -78,11 +78,6 @@ impl SimulatorRng {
     }
 
     #[must_use]
-    pub fn next_bool(&mut self, stream: RngStream, call_site: &'static str) -> bool {
-        self.next_usize(stream, call_site, 2) == 0
-    }
-
-    #[must_use]
     pub fn seed_state(&self) -> u64 {
         self.state
     }
@@ -163,11 +158,6 @@ impl StsRng {
     pub fn random_bool(&mut self) -> bool {
         self.counter += 1;
         (self.next_long() & 1) != 0
-    }
-
-    pub fn random_next_boolean(&mut self) -> bool {
-        self.counter += 1;
-        (self.next_long() as i64) < 0
     }
 
     pub fn random_float(&mut self) -> f32 {

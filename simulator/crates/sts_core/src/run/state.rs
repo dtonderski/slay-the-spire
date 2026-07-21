@@ -2,7 +2,6 @@ use crate::{
     card::{CardInstance, CardType},
     combat::state::BASE_PLAYER_ENERGY,
     combat::{CombatDecisionState, CombatState},
-    content::ascension::AscensionConfig,
     content::cards::{
         card_instance_is_upgradeable, card_type_and_rarity, get_card_definition,
         is_basic_starter_card, is_curse_content_id, upgrade_card_instance, upgrade_content_id,
@@ -1209,11 +1208,6 @@ impl RunState {
                 .node(map_state.current_node)
                 .map(|node| node.room_kind)
         })
-    }
-
-    #[must_use]
-    pub fn ascension_config(&self) -> AscensionConfig {
-        AscensionConfig::new(self.ascension)
     }
 
     #[must_use]

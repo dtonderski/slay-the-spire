@@ -2727,10 +2727,6 @@ fn dual_wield_select_allows_card(card: &CardInstance) -> bool {
     })
 }
 
-pub fn open_discard_select(state: &mut CombatState) -> SimResult<()> {
-    open_discard_select_with_max_choices(state, 1)
-}
-
 pub fn open_discard_select_with_max_choices(
     state: &mut CombatState,
     max_choices: usize,
