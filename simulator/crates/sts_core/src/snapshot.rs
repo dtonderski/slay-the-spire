@@ -12,13 +12,10 @@ pub const LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION: u32 = 2;
 pub const LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Snapshot<T = PlaceholderState> {
+pub struct Snapshot<T> {
     pub schema_version: u32,
     pub state: T,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlaceholderState {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct SnapshotHash(u64);
@@ -29,16 +26,6 @@ pub enum SnapshotRestoreError {
     InvalidDocument(&'static str),
     UnsupportedSchemaVersion(u32),
     InvalidState(SimError),
-}
-
-impl Snapshot<PlaceholderState> {
-    #[must_use]
-    pub const fn placeholder() -> Self {
-        Self {
-            schema_version: SNAPSHOT_SCHEMA_VERSION,
-            state: PlaceholderState {},
-        }
-    }
 }
 
 impl<T> Snapshot<T>
@@ -649,6 +636,16 @@ mod tests {
     };
     use serde_json::json;
 
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    struct EmptySnapshotState {}
+
+    fn empty_snapshot() -> Snapshot<EmptySnapshotState> {
+        Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: EmptySnapshotState {},
+        }
+    }
+
     fn legacy_run_snapshot_json(version: u32, active: bool, pending: bool, count: u8) -> String {
         let snapshot = Snapshot {
             schema_version: version,
@@ -706,8 +703,8 @@ mod tests {
 
     #[test]
     fn same_snapshot_hashes_identically() {
-        let first = Snapshot::placeholder();
-        let second = Snapshot::placeholder();
+        let first = empty_snapshot();
+        let second = empty_snapshot();
 
         assert_eq!(
             first.hash().expect("first hashes"),
@@ -717,7 +714,7 @@ mod tests {
 
     #[test]
     fn canonical_field_order_does_not_drift() {
-        let snapshot = Snapshot::placeholder();
+        let snapshot = empty_snapshot();
 
         assert_eq!(
             snapshot.canonical_json().expect("snapshot serializes"),
@@ -727,10 +724,11 @@ mod tests {
 
     #[test]
     fn snapshot_round_trip_preserves_hash() {
-        let snapshot = Snapshot::placeholder();
+        let snapshot = empty_snapshot();
         let before = snapshot.hash().expect("snapshot hashes");
         let json = snapshot.canonical_json().expect("snapshot serializes");
-        let restored: Snapshot = serde_json::from_str(&json).expect("snapshot deserializes");
+        let restored: Snapshot<EmptySnapshotState> =
+            serde_json::from_str(&json).expect("snapshot deserializes");
 
         assert_eq!(restored, snapshot);
         assert_eq!(restored.hash().expect("restored hashes"), before);

@@ -93,8 +93,8 @@ pub use run::{
     REWARD_GOLD_AMOUNT, STARTING_GOLD,
 };
 pub use snapshot::{
-    restore_combat_snapshot_json, restore_run_snapshot_json, PlaceholderState, Snapshot,
-    SnapshotHash, SnapshotRestoreError, LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION,
+    restore_combat_snapshot_json, restore_run_snapshot_json, Snapshot, SnapshotHash,
+    SnapshotRestoreError, LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION,
     LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION, LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION,
     LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION, LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,
     PREVIOUS_SNAPSHOT_SCHEMA_VERSION, SNAPSHOT_SCHEMA_VERSION,
