@@ -1374,17 +1374,29 @@ fn we_meet_again_options_for_run(run: &mut RunState) -> WeMeetAgainOptions {
     }
 }
 
-fn we_meet_again_event_data(options: WeMeetAgainOptions) -> u32 {
-    let potion = options
-        .potion_slot
-        .and_then(|slot| u8::try_from(slot).ok())
-        .unwrap_or(WE_MEET_AGAIN_NO_OPTION);
-    let gold = u8::try_from(options.gold_amount).unwrap_or(0);
-    let card = options
-        .card_index
-        .and_then(|index| u8::try_from(index).ok())
-        .unwrap_or(WE_MEET_AGAIN_NO_OPTION);
-    u32::from(potion) | (u32::from(gold) << 8) | (u32::from(card) << 16)
+fn we_meet_again_event_data(options: WeMeetAgainOptions) -> SimResult<u32> {
+    let potion = we_meet_again_option_index_byte(
+        options.potion_slot,
+        "We Meet Again potion slot exceeds event encoding",
+    )?;
+    let gold = u8::try_from(options.gold_amount)
+        .map_err(|_| SimError::InvalidState("We Meet Again gold amount exceeds event encoding"))?;
+    let card = we_meet_again_option_index_byte(
+        options.card_index,
+        "We Meet Again card index exceeds event encoding",
+    )?;
+    Ok(u32::from(potion) | (u32::from(gold) << 8) | (u32::from(card) << 16))
+}
+
+fn we_meet_again_option_index_byte(index: Option<usize>, overflow: &'static str) -> SimResult<u8> {
+    let Some(index) = index else {
+        return Ok(WE_MEET_AGAIN_NO_OPTION);
+    };
+    let encoded = u8::try_from(index).map_err(|_| SimError::InvalidState(overflow))?;
+    if encoded == WE_MEET_AGAIN_NO_OPTION {
+        return Err(SimError::InvalidState(overflow));
+    }
+    Ok(encoded)
 }
 
 fn we_meet_again_options_from_event_data(event_data: u32) -> WeMeetAgainOptions {
@@ -2353,7 +2365,7 @@ fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> SimResult<E
                 event,
                 choices: we_meet_again_choices(0, options),
                 stage: 0,
-                event_data: we_meet_again_event_data(options),
+                event_data: we_meet_again_event_data(options)?,
             }
         }
         Event::MatchAndKeep => {
@@ -6090,6 +6102,60 @@ mod tests {
         assert_eq!(after_attack.gold, 132);
         assert_eq!(after_attack.potions, run.potions);
         assert_eq!(leave_choices, vec!["Leave"]);
+    }
+
+    #[test]
+    fn we_meet_again_event_data_round_trips_largest_encodable_options() {
+        let options = WeMeetAgainOptions {
+            potion_slot: Some(254),
+            gold_amount: 255,
+            card_index: Some(254),
+        };
+
+        let encoded = we_meet_again_event_data(options).expect("options fit event encoding");
+
+        assert_eq!(we_meet_again_options_from_event_data(encoded), options);
+    }
+
+    #[test]
+    fn we_meet_again_event_data_rejects_unrepresentable_options() {
+        let potion_error = we_meet_again_event_data(WeMeetAgainOptions {
+            potion_slot: Some(255),
+            gold_amount: 0,
+            card_index: None,
+        });
+        assert_eq!(
+            potion_error,
+            Err(SimError::InvalidState(
+                "We Meet Again potion slot exceeds event encoding"
+            ))
+        );
+
+        let card_error = we_meet_again_event_data(WeMeetAgainOptions {
+            potion_slot: None,
+            gold_amount: 0,
+            card_index: Some(255),
+        });
+        assert_eq!(
+            card_error,
+            Err(SimError::InvalidState(
+                "We Meet Again card index exceeds event encoding"
+            ))
+        );
+
+        for gold_amount in [-1, 256] {
+            let gold_error = we_meet_again_event_data(WeMeetAgainOptions {
+                potion_slot: None,
+                gold_amount,
+                card_index: None,
+            });
+            assert_eq!(
+                gold_error,
+                Err(SimError::InvalidState(
+                    "We Meet Again gold amount exceeds event encoding"
+                ))
+            );
+        }
     }
 
     #[test]
