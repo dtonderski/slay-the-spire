@@ -615,6 +615,46 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
         }
+        Event::WorldOfGoop => {
+            let (min_gold_loss, max_gold_loss) = if run.ascension >= 15 {
+                (
+                    WORLD_OF_GOOP_A15_MIN_GOLD_LOSS,
+                    WORLD_OF_GOOP_A15_MAX_GOLD_LOSS,
+                )
+            } else {
+                (WORLD_OF_GOOP_MIN_GOLD_LOSS, WORLD_OF_GOOP_MAX_GOLD_LOSS)
+            };
+            let min_gold_loss = min_gold_loss as u32;
+            let max_gold_loss = max_gold_loss as u32;
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("World of Goop stage is invalid"));
+            }
+            if screen.event_data > max_gold_loss {
+                return Err(SimError::InvalidState(
+                    "World of Goop gold loss exceeds its roll range",
+                ));
+            }
+            if screen.stage == 0 {
+                let current_gold = run.gold as u32;
+                let valid_loss = if current_gold < min_gold_loss {
+                    screen.event_data == current_gold
+                } else {
+                    (min_gold_loss..=current_gold.min(max_gold_loss)).contains(&screen.event_data)
+                };
+                if !valid_loss {
+                    return Err(SimError::InvalidState(
+                        "World of Goop gold loss is not reachable from current gold",
+                    ));
+                }
+            } else if screen.event_data < min_gold_loss
+                && run.gold != 0
+                && run.gold as u32 != screen.event_data + WORLD_OF_GOOP_GOLD as u32
+            {
+                return Err(SimError::InvalidState(
+                    "World of Goop retained loss is inconsistent with current gold",
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -5370,6 +5410,94 @@ mod tests {
         assert_eq!(completed.phase, RunPhase::Idle);
         assert_eq!(completed.gold, 50);
         assert!(completed.event.is_none());
+    }
+
+    #[test]
+    fn world_of_goop_validation_accepts_only_reachable_gold_losses() {
+        let state = |ascension, gold, stage, event_data| {
+            let mut run = RunState::seeded_ironclad(1, ascension);
+            run.phase = RunPhase::Event;
+            run.gold = gold;
+            run.event = Some(EventScreen {
+                event: Event::WorldOfGoop,
+                choices: world_of_goop_choices(stage, event_data as i32),
+                stage,
+                event_data,
+            });
+            run
+        };
+
+        for (ascension, gold, stage, event_data) in [
+            (0, 0, 0, 0),
+            (0, 19, 0, 19),
+            (0, 20, 0, 20),
+            (0, 35, 0, 20),
+            (0, 35, 0, 35),
+            (0, 100, 0, 50),
+            (15, 34, 0, 34),
+            (15, 35, 0, 35),
+            (15, 60, 0, 60),
+            (15, 100, 0, 75),
+            (0, 0, 1, 19),
+            (0, 94, 1, 19),
+            (0, 0, 1, 50),
+            (15, 0, 1, 75),
+        ] {
+            state(ascension, gold, stage, event_data)
+                .validate()
+                .expect("reachable World of Goop state is valid");
+        }
+
+        for (ascension, gold, event_data) in [(0, 10, 0), (0, 30, 19), (0, 30, 31), (15, 100, 34)] {
+            assert_eq!(
+                state(ascension, gold, 0, event_data).validate(),
+                Err(SimError::InvalidState(
+                    "World of Goop gold loss is not reachable from current gold"
+                ))
+            );
+        }
+
+        for (ascension, stage, event_data) in [(0, 0, 51), (0, 1, 51), (15, 0, 76)] {
+            assert_eq!(
+                state(ascension, 100, stage, event_data).validate(),
+                Err(SimError::InvalidState(
+                    "World of Goop gold loss exceeds its roll range"
+                ))
+            );
+        }
+
+        assert_eq!(
+            state(0, 10, 1, 5).validate(),
+            Err(SimError::InvalidState(
+                "World of Goop retained loss is inconsistent with current gold"
+            ))
+        );
+
+        assert_eq!(
+            state(0, 100, 2, 0).validate(),
+            Err(SimError::InvalidState("World of Goop stage is invalid"))
+        );
+    }
+
+    #[test]
+    fn world_of_goop_rejects_wrapped_negative_gold_loss_before_transition() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.gold = 100;
+        run.event = Some(EventScreen {
+            event: Event::WorldOfGoop,
+            choices: world_of_goop_choices(0, -1),
+            stage: 0,
+            event_data: u32::MAX,
+        });
+
+        assert_eq!(
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }),
+            Err(SimError::InvalidState(
+                "World of Goop gold loss exceeds its roll range"
+            ))
+        );
+        assert_eq!(run.gold, 100);
     }
 
     #[test]
