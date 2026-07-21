@@ -2138,23 +2138,24 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
 
 pub fn apply_shuffle_relics(state: &mut CombatState) {
     if state.relics.contains(&Relic::TheAbacus) {
-        state.player.block += THE_ABACUS_BLOCK;
+        crate::combat::transition::apply_player_direct_block_gain(state, THE_ABACUS_BLOCK);
     }
     if state.relics.contains(&Relic::Sundial) {
-        state.relic_counters.sundial_shuffles += 1;
+        state.relic_counters.sundial_shuffles =
+            state.relic_counters.sundial_shuffles.wrapping_add(1);
         if state
             .relic_counters
             .sundial_shuffles
             .is_multiple_of(SUNDIAL_THRESHOLD)
         {
-            state.player.energy += SUNDIAL_ENERGY;
+            state.player.energy = state.player.energy.wrapping_add(SUNDIAL_ENERGY);
         }
     }
 }
 
 pub fn apply_monster_death_relics(state: &mut CombatState) {
     if state.relics.contains(&Relic::GremlinHorn) {
-        state.player.energy += GREMLIN_HORN_ENERGY;
+        state.player.energy = state.player.energy.wrapping_add(GREMLIN_HORN_ENERGY);
         crate::combat::transition::player_draw_cards(state, GREMLIN_HORN_DRAW);
     }
 }

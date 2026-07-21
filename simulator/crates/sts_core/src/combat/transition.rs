@@ -3644,6 +3644,100 @@ mod tests {
         );
     }
 
+    fn shuffle_trigger_state(relic: Relic) -> CombatState {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(relic);
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), SHRUG_IT_OFF_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(2), STRIKE_R_ID)];
+        state
+    }
+
+    #[test]
+    fn abacus_block_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = shuffle_trigger_state(Relic::TheAbacus);
+        state.player.block = i32::MAX;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), POMMEL_STRIKE_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: Some(state.monsters[0].id),
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat player block or energy is negative"
+            ))
+        );
+    }
+
+    #[test]
+    fn sundial_counter_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = shuffle_trigger_state(Relic::Sundial);
+        state.relic_counters.sundial_shuffles = i32::MAX as u32;
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat relic counter is outside its stable range"
+            ))
+        );
+    }
+
+    #[test]
+    fn sundial_energy_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = shuffle_trigger_state(Relic::Sundial);
+        state.player.energy = i32::MAX;
+        state.relic_counters.sundial_shuffles = crate::relic::SUNDIAL_THRESHOLD - 1;
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat player block or energy is negative"
+            ))
+        );
+    }
+
+    #[test]
+    fn gremlin_horn_energy_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = i32::MAX;
+        state.relics.push(Relic::GremlinHorn);
+        state.monsters[0].hp = 1;
+        let mut survivor = state.monsters[0].clone();
+        survivor.id = MonsterId::new(2);
+        survivor.hp = survivor.max_hp;
+        state.monsters.push(survivor);
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), ANGER_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: Some(state.monsters[0].id),
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat player block or energy is negative"
+            ))
+        );
+    }
+
     #[test]
     fn queued_monster_death_counter_overflow_fails_without_wrapping() {
         let mut state = CombatState::initial_fixture();
