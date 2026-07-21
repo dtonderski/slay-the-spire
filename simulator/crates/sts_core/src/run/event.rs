@@ -1956,26 +1956,37 @@ fn match_and_keep_choices(stage: u32, card_count: usize) -> Vec<EventChoice> {
     }
 }
 
-pub fn match_and_keep_group_index_for_label(label_index: usize, card_count: usize) -> usize {
+pub fn match_and_keep_group_index_for_label(
+    label_index: usize,
+    card_count: usize,
+) -> Option<usize> {
+    if label_index >= card_count {
+        return None;
+    }
     if card_count == 12 {
         // CommunicationMod enumerates the 4x3 card grid in hitbox order,
         // which differs from MatchAndKeep's backing CardGroup order.
         const COMMUNICATION_MOD_GROUP_ORDER: [usize; 12] = [0, 9, 6, 3, 4, 1, 10, 7, 8, 5, 2, 11];
-        COMMUNICATION_MOD_GROUP_ORDER[label_index]
+        COMMUNICATION_MOD_GROUP_ORDER.get(label_index).copied()
     } else {
-        label_index
+        Some(label_index)
     }
 }
 
-pub fn match_and_keep_label_index_for_group(group_index: usize, card_count: usize) -> usize {
+pub fn match_and_keep_label_index_for_group(
+    group_index: usize,
+    card_count: usize,
+) -> Option<usize> {
+    if group_index >= card_count {
+        return None;
+    }
     if card_count == 12 {
         const COMMUNICATION_MOD_GROUP_ORDER: [usize; 12] = [0, 9, 6, 3, 4, 1, 10, 7, 8, 5, 2, 11];
         COMMUNICATION_MOD_GROUP_ORDER
             .iter()
             .position(|candidate| *candidate == group_index)
-            .unwrap_or(group_index)
     } else {
-        group_index
+        Some(group_index)
     }
 }
 
@@ -1987,7 +1998,7 @@ fn match_and_keep_card_choices(run: &RunState) -> SimResult<Vec<EventChoice>> {
     let card_count = state.cards.len();
     (0..card_count)
         .filter_map(|label_index| {
-            let group_index = match_and_keep_group_index_for_label(label_index, card_count);
+            let group_index = match_and_keep_group_index_for_label(label_index, card_count)?;
             let card = state.cards.get(group_index)?;
             let currently_flipped = state.first_flipped_index == Some(group_index)
                 || state.second_flipped_index == Some(group_index);
@@ -4725,14 +4736,18 @@ fn match_and_keep_card_index_for_choice(
         ))?
         .label
         .as_str();
-    label
-        .strip_prefix("card")
-        .and_then(|index| index.parse::<usize>().ok())
-        .map(|label_index| match_and_keep_group_index_for_label(label_index, card_count))
-        .or_else(|| match_and_keep_group_index_for_visible_choice(run, choice_index))
-        .ok_or(SimError::InvalidState(
-            "Match and Keep card label is invalid",
-        ))
+    if let Some(index) = label.strip_prefix("card") {
+        let label_index = index
+            .parse::<usize>()
+            .map_err(|_| SimError::InvalidState("Match and Keep card label is invalid"))?;
+        return match_and_keep_group_index_for_label(label_index, card_count).ok_or(
+            SimError::InvalidState("Match and Keep card label is invalid"),
+        );
+    }
+
+    match_and_keep_group_index_for_visible_choice(run, choice_index).ok_or(SimError::InvalidState(
+        "Match and Keep card label is invalid",
+    ))
 }
 
 fn match_and_keep_group_index_for_visible_choice(
@@ -4743,7 +4758,7 @@ fn match_and_keep_group_index_for_visible_choice(
     let card_count = state.cards.len();
     (0..card_count)
         .filter_map(|label_index| {
-            let group_index = match_and_keep_group_index_for_label(label_index, card_count);
+            let group_index = match_and_keep_group_index_for_label(label_index, card_count)?;
             let card = state.cards.get(group_index)?;
             let currently_flipped = state.first_flipped_index == Some(group_index)
                 || state.second_flipped_index == Some(group_index);
@@ -5499,9 +5514,44 @@ mod tests {
     fn match_and_keep_card_labels_use_communication_mod_grid_order() {
         let expected = [0, 9, 6, 3, 4, 1, 10, 7, 8, 5, 2, 11];
         for (label, group) in expected.into_iter().enumerate() {
-            assert_eq!(match_and_keep_group_index_for_label(label, 12), group);
-            assert_eq!(match_and_keep_label_index_for_group(group, 12), label);
+            assert_eq!(match_and_keep_group_index_for_label(label, 12), Some(group));
+            assert_eq!(match_and_keep_label_index_for_group(group, 12), Some(label));
         }
+        assert_eq!(match_and_keep_group_index_for_label(12, 12), None);
+        assert_eq!(match_and_keep_label_index_for_group(12, 12), None);
+    }
+
+    #[test]
+    fn match_and_keep_rejects_out_of_range_imported_card_label() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(make_event_screen(
+            Event::MatchAndKeep,
+            vec![EventChoice {
+                label: "card12".to_owned(),
+            }],
+            2,
+        ));
+        run.match_and_keep = Some(MatchAndKeepState {
+            cards: (0..12)
+                .map(|_| MatchAndKeepCard {
+                    content_id: STRIKE_R_ID,
+                    revealed: false,
+                    matched: false,
+                })
+                .collect(),
+            attempts_remaining: 5,
+            first_flipped_index: None,
+            second_flipped_index: None,
+            matched_cards: Vec::new(),
+        });
+
+        assert_eq!(
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }),
+            Err(SimError::InvalidState(
+                "Match and Keep card label is invalid"
+            ))
+        );
     }
 
     #[test]

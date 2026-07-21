@@ -3781,7 +3781,7 @@ fn event_card_label_index_for_group(
     _state: &LiveState,
     group_index: usize,
     card_count: usize,
-) -> usize {
+) -> Option<usize> {
     match_and_keep_label_index_for_group(group_index, card_count)
 }
 
@@ -3790,7 +3790,7 @@ fn event_card_action_by_index(
     group_index: usize,
     card_count: usize,
 ) -> Option<&LegalAction> {
-    let label_index = event_card_label_index_for_group(state, group_index, card_count);
+    let label_index = event_card_label_index_for_group(state, group_index, card_count)?;
     let label = format!("card{label_index}");
     if let Some(action) = unique_event_choice_by_label(state, &label) {
         return Some(action);
@@ -3804,7 +3804,7 @@ fn event_card_action_by_index(
         .iter()
         .enumerate()
         .filter(|(_, card)| !json_bool(card, "matched"))
-        .map(|(candidate_group, _)| {
+        .filter_map(|(candidate_group, _)| {
             event_card_label_index_for_group(state, candidate_group, card_count)
         })
         .filter(|candidate_label| *candidate_label < label_index)
@@ -7613,7 +7613,8 @@ mod tests {
             raw: json!({"sim_run_state": {"match_and_keep": {"first_flipped_index": 11}}}),
         };
 
-        assert_eq!(event_card_label_index_for_group(&state, 3, 12), 3);
+        assert_eq!(event_card_label_index_for_group(&state, 3, 12), Some(3));
+        assert_eq!(event_card_label_index_for_group(&state, 12, 12), None);
     }
 
     #[test]
