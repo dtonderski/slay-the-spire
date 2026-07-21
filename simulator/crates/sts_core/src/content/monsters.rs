@@ -9379,11 +9379,121 @@ pub fn apply_monster_intent_with_card_rng(
     relics: &[crate::Relic],
     card_random_rng: &mut StsRng,
 ) -> SimResult<i32> {
+    let mut next_monster = monster.clone();
+    let mut next_player = player.clone();
+    let mut next_piles = piles.clone();
+    let mut next_card_random_rng = card_random_rng.clone();
+    let damage = apply_monster_intent_with_card_rng_inner(
+        &mut next_monster,
+        &mut next_player,
+        &mut next_piles,
+        ascension,
+        player_before,
+        relics,
+        &mut next_card_random_rng,
+    )?;
+    *monster = next_monster;
+    *player = next_player;
+    *piles = next_piles;
+    *card_random_rng = next_card_random_rng;
+    Ok(damage)
+}
+
+fn checked_monster_intent_add(value: i32, amount: i32) -> SimResult<i32> {
+    value
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))
+}
+
+fn checked_add_monster_intent_value(value: &mut i32, amount: i32) -> SimResult<()> {
+    *value = checked_monster_intent_add(*value, amount)?;
+    Ok(())
+}
+
+fn checked_monster_intent_mul(value: i32, amount: i32) -> SimResult<i32> {
+    value
+        .checked_mul(amount)
+        .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))
+}
+
+fn checked_player_debuff_add(current: i32, artifact: i32, amount: i32) -> SimResult<()> {
+    if artifact == 0 {
+        checked_monster_intent_add(current, amount)?;
+    }
+    Ok(())
+}
+
+fn apply_player_weak_from_monster(
+    powers: &mut crate::power::PlayerPowers,
+    relics: &[crate::Relic],
+    amount: i32,
+) -> SimResult<()> {
+    if !relics.contains(&crate::Relic::Ginger) {
+        checked_player_debuff_add(powers.weak, powers.artifact, amount)?;
+    }
+    crate::relic::apply_player_weak_with_relics(powers, relics, amount);
+    Ok(())
+}
+
+fn apply_player_vulnerable_from_monster(
+    powers: &mut crate::power::PlayerPowers,
+    amount: i32,
+) -> SimResult<()> {
+    checked_player_debuff_add(powers.vulnerable, powers.artifact, amount)?;
+    crate::power::apply_player_vulnerable(powers, amount);
+    Ok(())
+}
+
+fn apply_player_frail_from_monster(
+    powers: &mut crate::power::PlayerPowers,
+    amount: i32,
+) -> SimResult<()> {
+    checked_player_debuff_add(powers.frail, powers.artifact, amount)?;
+    crate::power::apply_player_frail(powers, amount);
+    Ok(())
+}
+
+fn apply_player_hex_from_monster(
+    powers: &mut crate::power::PlayerPowers,
+    amount: i32,
+) -> SimResult<()> {
+    checked_player_debuff_add(powers.hex, powers.artifact, amount)?;
+    crate::power::apply_player_hex(powers, amount);
+    Ok(())
+}
+
+fn apply_player_entangled_from_monster(
+    powers: &mut crate::power::PlayerPowers,
+    amount: i32,
+) -> SimResult<()> {
+    checked_player_debuff_add(powers.entangled, powers.artifact, amount)?;
+    crate::power::apply_player_entangled(powers, amount);
+    Ok(())
+}
+
+fn reduce_player_power_from_monster(current: i32, artifact: i32, amount: i32) -> SimResult<()> {
+    if artifact == 0 {
+        current
+            .checked_sub(amount)
+            .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn apply_monster_intent_with_card_rng_inner(
+    monster: &mut MonsterState,
+    player: &mut crate::PlayerState,
+    piles: &mut CardPiles,
+    ascension: u8,
+    player_before: &crate::PlayerState,
+    relics: &[crate::Relic],
+    card_random_rng: &mut StsRng,
+) -> SimResult<i32> {
     use crate::combat::damage::deal_unmodified_damage_to_monster;
     use crate::combat::turn_powers::monster_damage_to_player;
     use crate::power::{
-        apply_player_confusion, apply_player_constricted, apply_player_entangled,
-        apply_player_frail, apply_player_hex, apply_player_vulnerable, reduce_player_dexterity,
+        apply_player_confusion, apply_player_constricted, reduce_player_dexterity,
         reduce_player_strength,
     };
 
@@ -9414,15 +9524,18 @@ pub fn apply_monster_intent_with_card_rng(
             | GIANT_HEAD_ID
             | NEMESIS_ID
     );
-    let scale_damage = |damage: i32| {
+    let scale_damage = |damage: i32| -> SimResult<i32> {
         if source_scaled_damage {
-            damage
+            Ok(damage)
         } else {
-            config.scaled_attack_damage(damage)
+            damage
+                .checked_add(config.normal_enemy_damage_bonus())
+                .and_then(|damage| damage.checked_add(config.deadly_enemies_damage_bonus()))
+                .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))
         }
     };
     let mut block_after_thorns = 0;
-    let total_thorns = player.powers.thorns + player.temp_thorns;
+    let total_thorns = checked_monster_intent_add(player.powers.thorns, player.temp_thorns)?;
     let mut thorns_already_applied = false;
     let (damage, thorns_hits) = match monster.intent {
         MonsterIntent::PendingAiRoll => {
@@ -9432,7 +9545,7 @@ pub fn apply_monster_intent_with_card_rng(
         }
         MonsterIntent::Attack { damage } => {
             let damage_taken =
-                monster_damage_to_player(player_before, monster, scale_damage(damage));
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             if monster.content_id == DAGGER_ID && damage == DAGGER_EXPLODE_DAMAGE {
                 monster.hp = 0;
                 monster.alive = false;
@@ -9441,11 +9554,11 @@ pub fn apply_monster_intent_with_card_rng(
             (damage_taken, 1)
         }
         MonsterIntent::Block { block } => {
-            monster.block += block;
+            checked_add_monster_intent_value(&mut monster.block, block)?;
             (0, 0)
         }
         MonsterIntent::Ritual { amount } => {
-            monster.powers.ritual += amount;
+            checked_add_monster_intent_value(&mut monster.powers.ritual, amount)?;
             (0, 0)
         }
         MonsterIntent::AttackAndBlock { damage, block } => {
@@ -9454,25 +9567,25 @@ pub fn apply_monster_intent_with_card_rng(
                 // DamageAction, so reactive thorns damage lands into the newly
                 // gained block. Other modeled AttackAndBlock users retain their
                 // source attack-then-block ordering.
-                monster.block += block;
+                checked_add_monster_intent_value(&mut monster.block, block)?;
             } else {
                 block_after_thorns = block;
             }
             (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)),
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
             )
         }
         MonsterIntent::StrengthAndBlock { strength, block } => {
             if monster.content_id == SPIKER_ID {
-                monster.powers.spiker_thorns_buffs += 1;
-                monster.powers.spikes += SPIKER_THORNS_BUFF;
+                checked_add_monster_intent_value(&mut monster.powers.spiker_thorns_buffs, 1)?;
+                checked_add_monster_intent_value(&mut monster.powers.spikes, SPIKER_THORNS_BUFF)?;
             } else if monster.content_id == CHAMP_ID {
-                monster.block += block;
-                monster.powers.metallicize += strength;
+                checked_add_monster_intent_value(&mut monster.block, block)?;
+                checked_add_monster_intent_value(&mut monster.powers.metallicize, strength)?;
             } else {
-                monster.powers.strength += strength;
-                monster.block += block;
+                checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
+                checked_add_monster_intent_value(&mut monster.block, block)?;
             }
             (0, 0)
         }
@@ -9480,32 +9593,32 @@ pub fn apply_monster_intent_with_card_rng(
             if monster.content_id == BYRD_ID && amount == 0 {
                 monster.powers.flight = target_byrd_flight_amount(ascension);
             } else if monster.content_id == GREMLIN_NOB_ID {
-                monster.powers.anger += amount;
+                checked_add_monster_intent_value(&mut monster.powers.anger, amount)?;
             } else {
-                monster.powers.strength += amount;
+                checked_add_monster_intent_value(&mut monster.powers.strength, amount)?;
             }
             (0, 0)
         }
         MonsterIntent::ApplyPlayerWeak { amount } => {
-            crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, amount);
+            apply_player_weak_from_monster(&mut player.powers, relics, amount)?;
             (0, 0)
         }
         MonsterIntent::AttackApplyPlayerWeak { damage, weak } => {
-            crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
+            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
             (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)),
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
             )
         }
         MonsterIntent::AttackApplyPlayerVulnerable { damage, vulnerable } => {
             let starts_new_vulnerable =
                 vulnerable > 0 && player.powers.vulnerable == 0 && player.powers.artifact == 0;
-            apply_player_vulnerable(&mut player.powers, vulnerable);
+            apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
             if starts_new_vulnerable {
                 player.vulnerable_just_applied = true;
             }
             (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)),
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
             )
         }
@@ -9514,15 +9627,15 @@ pub fn apply_monster_intent_with_card_rng(
             weak,
             vulnerable,
         } => {
-            crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
+            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
             let starts_new_vulnerable =
                 vulnerable > 0 && player.powers.vulnerable == 0 && player.powers.artifact == 0;
-            apply_player_vulnerable(&mut player.powers, vulnerable);
+            apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
             if starts_new_vulnerable {
                 player.vulnerable_just_applied = true;
             }
             (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)),
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
             )
         }
@@ -9531,26 +9644,26 @@ pub fn apply_monster_intent_with_card_rng(
             frail,
             weak,
         } => {
-            apply_player_frail(&mut player.powers, frail);
-            crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
+            apply_player_frail_from_monster(&mut player.powers, frail)?;
+            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
             (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)),
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
             )
         }
         MonsterIntent::AttackApplyPlayerFrail { damage, frail } => {
-            apply_player_frail(&mut player.powers, frail);
+            apply_player_frail_from_monster(&mut player.powers, frail)?;
             (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)),
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
             )
         }
         MonsterIntent::AttackHealSelf { damage } => (
-            monster_damage_to_player(player_before, monster, scale_damage(damage)),
+            monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
             0,
         ),
         MonsterIntent::ApplyPlayerHex { amount } => {
-            apply_player_hex(&mut player.powers, amount);
+            apply_player_hex_from_monster(&mut player.powers, amount)?;
             (0, 0)
         }
         MonsterIntent::ApplyPlayerFrailAndWeak { frail, weak } => {
@@ -9566,8 +9679,8 @@ pub fn apply_monster_intent_with_card_rng(
                 } else {
                     frail
                 };
-                apply_player_frail(&mut player.powers, applied_frail);
-                crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
+                apply_player_frail_from_monster(&mut player.powers, applied_frail)?;
+                apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
             }
             (0, 0)
         }
@@ -9576,19 +9689,19 @@ pub fn apply_monster_intent_with_card_rng(
             weak,
             vulnerable,
         } => {
-            apply_player_frail(&mut player.powers, frail);
-            crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
+            apply_player_frail_from_monster(&mut player.powers, frail)?;
+            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
             let starts_new_vulnerable =
                 vulnerable > 0 && player.powers.vulnerable == 0 && player.powers.artifact == 0;
-            apply_player_vulnerable(&mut player.powers, vulnerable);
+            apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
             if starts_new_vulnerable {
                 player.vulnerable_just_applied = true;
             }
             (0, 0)
         }
         MonsterIntent::ApplyPlayerWeakStrengthSelf { weak, strength } => {
-            crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, weak);
-            monster.powers.strength += strength;
+            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+            checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
             (0, 0)
         }
         MonsterIntent::ApplyPlayerConfusion => {
@@ -9596,7 +9709,7 @@ pub fn apply_monster_intent_with_card_rng(
             (0, 0)
         }
         MonsterIntent::ApplyPlayerEntangled { amount } => {
-            apply_player_entangled(&mut player.powers, amount);
+            apply_player_entangled_from_monster(&mut player.powers, amount)?;
             (0, 0)
         }
         MonsterIntent::ApplyPlayerConstricted { amount } => {
@@ -9609,7 +9722,7 @@ pub fn apply_monster_intent_with_card_rng(
         | MonsterIntent::SummonCollectorTorchHeads { .. }
         | MonsterIntent::SummonGremlins { .. } => (0, 0),
         MonsterIntent::AttackAddSlimedToDiscard { damage, .. } => (
-            monster_damage_to_player(player_before, monster, scale_damage(damage)),
+            monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
             1,
         ),
         MonsterIntent::AddSlimedToDiscard { count } => {
@@ -9618,16 +9731,19 @@ pub fn apply_monster_intent_with_card_rng(
         }
         MonsterIntent::AttackAddWoundsToDiscard { damage, .. } => {
             let damage_taken =
-                monster_damage_to_player(player_before, monster, scale_damage(damage));
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             if monster.content_id == TASKMASTER_ID && ascension >= 18 {
-                monster.powers.strength += TASKMASTER_A18_STRENGTH;
+                checked_add_monster_intent_value(
+                    &mut monster.powers.strength,
+                    TASKMASTER_A18_STRENGTH,
+                )?;
             }
             (damage_taken, 1)
         }
         MonsterIntent::AttackStealGold { damage, amount } => {
-            monster.stolen_gold += amount.max(0);
+            checked_add_monster_intent_value(&mut monster.stolen_gold, amount.max(0))?;
             (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)),
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
             )
         }
@@ -9649,7 +9765,7 @@ pub fn apply_monster_intent_with_card_rng(
         MonsterIntent::Stun => {
             if monster.content_id == EXPLODER_ID && monster.powers.explosive > 0 {
                 let damage_taken =
-                    monster_damage_to_player(player_before, monster, monster.powers.explosive);
+                    monster_damage_to_player(player_before, monster, monster.powers.explosive)?;
                 monster.hp = 0;
                 monster.alive = false;
                 monster.block = 0;
@@ -9663,7 +9779,17 @@ pub fn apply_monster_intent_with_card_rng(
             strength,
             dexterity,
         } => {
+            reduce_player_power_from_monster(
+                player.powers.strength,
+                player.powers.artifact,
+                strength,
+            )?;
             reduce_player_strength(&mut player.powers, strength);
+            reduce_player_power_from_monster(
+                player.powers.dexterity,
+                player.powers.artifact,
+                dexterity,
+            )?;
             reduce_player_dexterity(&mut player.powers, dexterity);
             bronze_orb_apply_stasis(monster, piles, card_random_rng);
             monster.has_siphoned = true;
@@ -9679,10 +9805,10 @@ pub fn apply_monster_intent_with_card_rng(
         }
         MonsterIntent::AddBurnToDiscard { count, damage } => {
             add_cards_to_discard(piles, BURN_ID, count);
-            (monster_attack_damage(monster, scale_damage(damage)), 1)
+            (monster_attack_damage(monster, scale_damage(damage)?)?, 1)
         }
         MonsterIntent::AddBurnToDiscardAndDraw { damage, .. } => {
-            (monster_attack_damage(monster, scale_damage(damage)), 1)
+            (monster_attack_damage(monster, scale_damage(damage)?)?, 1)
         }
         MonsterIntent::AttackMultipleUpgradeBurns {
             damage,
@@ -9690,7 +9816,8 @@ pub fn apply_monster_intent_with_card_rng(
             count,
         } => {
             upgrade_burns_and_add_upgraded_to_discard(piles, count);
-            let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
+            let hit_damage =
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             let effective_hits =
                 apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
             monster.intent = MonsterIntent::AttackMultipleUpgradeBurns {
@@ -9699,10 +9826,14 @@ pub fn apply_monster_intent_with_card_rng(
                 count,
             };
             thorns_already_applied = total_thorns > 0 && effective_hits > 0;
-            (hit_damage * effective_hits, effective_hits)
+            (
+                checked_monster_intent_mul(hit_damage, effective_hits)?,
+                effective_hits,
+            )
         }
         MonsterIntent::AttackMultiple { damage, hits } => {
-            let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
+            let hit_damage =
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             let effective_hits =
                 apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
             monster.intent = MonsterIntent::AttackMultiple {
@@ -9710,10 +9841,14 @@ pub fn apply_monster_intent_with_card_rng(
                 hits: effective_hits,
             };
             thorns_already_applied = total_thorns > 0 && effective_hits > 0;
-            (hit_damage * effective_hits, effective_hits)
+            (
+                checked_monster_intent_mul(hit_damage, effective_hits)?,
+                effective_hits,
+            )
         }
         MonsterIntent::AttackMultipleApplyPlayerWeak { damage, hits, weak } => {
-            let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
+            let hit_damage =
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             let effective_hits =
                 apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
             monster.intent = MonsterIntent::AttackMultipleApplyPlayerWeak {
@@ -9722,14 +9857,18 @@ pub fn apply_monster_intent_with_card_rng(
                 weak,
             };
             thorns_already_applied = total_thorns > 0 && effective_hits > 0;
-            (hit_damage * effective_hits, effective_hits)
+            (
+                checked_monster_intent_mul(hit_damage, effective_hits)?,
+                effective_hits,
+            )
         }
         MonsterIntent::AttackMultipleAddDazedToDiscard {
             damage,
             hits,
             count,
         } => {
-            let hit_damage = monster_damage_to_player(player_before, monster, scale_damage(damage));
+            let hit_damage =
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             let effective_hits =
                 apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
             monster.intent = MonsterIntent::AttackMultipleAddDazedToDiscard {
@@ -9738,15 +9877,18 @@ pub fn apply_monster_intent_with_card_rng(
                 count,
             };
             thorns_already_applied = total_thorns > 0 && effective_hits > 0;
-            (hit_damage * effective_hits, effective_hits)
+            (
+                checked_monster_intent_mul(hit_damage, effective_hits)?,
+                effective_hits,
+            )
         }
         MonsterIntent::GuardianCloseUp { sharp_hide } => {
             monster.powers.spikes = sharp_hide;
             (0, 0)
         }
         MonsterIntent::DefensiveCharge { block, strength } => {
-            monster.block += block;
-            monster.powers.strength += strength;
+            checked_add_monster_intent_value(&mut monster.block, block)?;
+            checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
             if monster.defensive_turns_remaining > 0 {
                 monster.defensive_turns_remaining -= 1;
             }
@@ -9754,19 +9896,25 @@ pub fn apply_monster_intent_with_card_rng(
         }
     };
     if total_thorns > 0 && thorns_hits > 0 && !thorns_already_applied {
-        deal_unmodified_damage_to_monster(monster, total_thorns * thorns_hits);
+        deal_unmodified_damage_to_monster(
+            monster,
+            checked_monster_intent_mul(total_thorns, thorns_hits)?,
+        );
     }
     if monster.alive && block_after_thorns > 0 {
-        monster.block += block_after_thorns;
+        checked_add_monster_intent_value(&mut monster.block, block_after_thorns)?;
     }
     if monster.alive && thorns_hits > 0 && monster.powers.strength_up > 0 {
-        monster.powers.strength += monster.powers.strength_up;
+        checked_add_monster_intent_value(&mut monster.powers.strength, monster.powers.strength_up)?;
     }
     if monster.content_id == GUARDIAN_ID && monster.in_defensive_mode {
         finish_guardian_defensive_turn(monster);
     }
     if !lagavulin_sleep_or_stun(monster.content_id, monster.intent) {
-        monster.moves_executed += 1;
+        monster.moves_executed = monster
+            .moves_executed
+            .checked_add(1)
+            .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))?;
     }
     Ok(damage)
 }
@@ -9996,6 +10144,102 @@ mod tests {
         assert_eq!(player.powers.weak, GUARDIAN_VENT_DEBUFF);
         assert_eq!(player.powers.vulnerable, GUARDIAN_VENT_DEBUFF);
         assert!(player.vulnerable_just_applied);
+    }
+
+    #[test]
+    fn monster_intent_rejects_block_overflow_without_mutating_inputs() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.block = i32::MAX;
+        monster.intent = MonsterIntent::Block { block: 1 };
+        let mut player = state.player.clone();
+        let player_before = player.clone();
+        let monster_before = monster.clone();
+        let piles_before = state.piles.clone();
+        let rng_before = state.rng.card_random_rng.clone();
+
+        let result = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(
+            result,
+            Err(SimError::InvalidState("monster intent arithmetic overflow"))
+        );
+        assert_eq!(monster, monster_before);
+        assert_eq!(player, player_before);
+        assert_eq!(state.piles, piles_before);
+        assert_eq!(state.rng.card_random_rng, rng_before);
+    }
+
+    #[test]
+    fn monster_intent_rolls_back_when_move_counter_overflows_after_effect() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.moves_executed = u32::MAX;
+        monster.intent = MonsterIntent::StrengthSelf { amount: 2 };
+        let mut player = state.player.clone();
+        let player_before = player.clone();
+        let monster_before = monster.clone();
+        let piles_before = state.piles.clone();
+        let rng_before = state.rng.card_random_rng.clone();
+
+        let result = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(
+            result,
+            Err(SimError::InvalidState("monster intent arithmetic overflow"))
+        );
+        assert_eq!(monster, monster_before);
+        assert_eq!(player, player_before);
+        assert_eq!(state.piles, piles_before);
+        assert_eq!(state.rng.card_random_rng, rng_before);
+    }
+
+    #[test]
+    fn monster_intent_rejects_player_debuff_overflow_transactionally() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::ApplyPlayerWeak { amount: 1 };
+        let mut player = state.player.clone();
+        player.powers.weak = i32::MAX;
+        let player_before = player.clone();
+        let monster_before = monster.clone();
+        let piles_before = state.piles.clone();
+        let rng_before = state.rng.card_random_rng.clone();
+
+        let result = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(
+            result,
+            Err(SimError::InvalidState("monster intent arithmetic overflow"))
+        );
+        assert_eq!(monster, monster_before);
+        assert_eq!(player, player_before);
+        assert_eq!(state.piles, piles_before);
+        assert_eq!(state.rng.card_random_rng, rng_before);
     }
 
     #[test]

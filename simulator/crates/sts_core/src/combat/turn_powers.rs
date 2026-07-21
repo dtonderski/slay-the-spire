@@ -195,26 +195,45 @@ fn apply_end_of_monster_turn_powers_with_ritual(monster: &mut MonsterState, appl
     }
 }
 
-pub fn monster_attack_damage(monster: &MonsterState, base: i32) -> i32 {
-    let with_strength = (base + monster.powers.strength).max(0);
+pub fn monster_attack_damage(monster: &MonsterState, base: i32) -> SimResult<i32> {
+    let with_strength = base
+        .checked_add(monster.powers.strength)
+        .ok_or(SimError::InvalidState(
+            "monster attack damage arithmetic overflow",
+        ))?
+        .max(0);
     if monster.powers.weak > 0 {
-        with_strength * 3 / 4
+        Ok(i32::try_from(i64::from(with_strength) * 3 / 4)
+            .map_err(|_| SimError::InvalidState("monster attack damage arithmetic overflow"))?)
     } else {
-        with_strength
+        Ok(with_strength)
     }
 }
 
 /// Monster attack damage after monster Weak and player Vulnerable.
-#[must_use]
-pub fn monster_damage_to_player(player: &PlayerState, monster: &MonsterState, base: i32) -> i32 {
-    let mut damage = (base + monster.powers.strength).max(0) as f32;
+pub fn monster_damage_to_player(
+    player: &PlayerState,
+    monster: &MonsterState,
+    base: i32,
+) -> SimResult<i32> {
+    let damage = base
+        .checked_add(monster.powers.strength)
+        .ok_or(SimError::InvalidState(
+            "monster attack damage arithmetic overflow",
+        ))?
+        .max(0);
+    let mut numerator = i128::from(damage);
+    let mut denominator = 1_i128;
     if monster.powers.weak > 0 {
-        damage *= 0.75;
+        numerator *= 3;
+        denominator *= 4;
     }
     if player.powers.vulnerable > 0 {
-        damage *= 1.5;
+        numerator *= 3;
+        denominator *= 2;
     }
-    damage as i32
+    i32::try_from(numerator / denominator)
+        .map_err(|_| SimError::InvalidState("monster attack damage arithmetic overflow"))
 }
 
 #[cfg(test)]
@@ -231,7 +250,34 @@ mod tests {
 
         assert_eq!(
             monster_damage_to_player(&state.player, &state.monsters[0], 18),
-            23
+            Ok(23)
+        );
+    }
+
+    #[test]
+    fn monster_attack_damage_rejects_unrepresentable_values() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].powers.strength = i32::MAX;
+
+        assert_eq!(
+            monster_damage_to_player(&state.player, &state.monsters[0], 1),
+            Err(SimError::InvalidState(
+                "monster attack damage arithmetic overflow"
+            ))
+        );
+
+        state.monsters[0].powers.strength = 0;
+        assert_eq!(
+            monster_damage_to_player(&state.player, &state.monsters[0], i32::MAX),
+            Ok(i32::MAX)
+        );
+
+        state.player.powers.vulnerable = 1;
+        assert_eq!(
+            monster_damage_to_player(&state.player, &state.monsters[0], i32::MAX),
+            Err(SimError::InvalidState(
+                "monster attack damage arithmetic overflow"
+            ))
         );
     }
 
