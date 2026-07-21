@@ -39,10 +39,10 @@ use crate::normalize_communication_mod_message;
 #[cfg(test)]
 use sts_core::content::monsters::{
     looter_theft, target_beyond_encounter_spawn_for_key,
-    target_city_normal_encounter_spawn_at_combat_index, target_move_byte,
+    target_city_normal_encounter_spawn_at_combat_index,
     target_normal_encounter_spawn_at_combat_index, TargetEncounterSpawn, TargetSpawnPower,
-    GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LAGAVULIN_ID, LOOTER_ID, MUGGER_ID,
-    SLAVER_RED_ID, TASKMASTER_ID,
+    GREMLIN_NOB_ID, GUARDIAN_CHARGE_BLOCK, GUARDIAN_ID, LOOTER_ID, MUGGER_ID, SLAVER_RED_ID,
+    TASKMASTER_ID,
 };
 #[cfg(test)]
 use sts_core::{
@@ -7879,12 +7879,6 @@ fn seed_start_target_act_from_floor(floor: u32) -> TargetMapAct {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
-fn seed_start_core_neow_lament_active(run: Option<&RunState>) -> bool {
-    run.is_some_and(|run| run.neow_lament_combats_remaining > 0)
-}
-
-#[cfg(test)]
 fn seed_start_monster_from_spawn(
     seed: i64,
     floor: u32,
@@ -8742,39 +8736,6 @@ fn seed_start_simulated_combat_screen_type(combat: &CombatState) -> &'static str
     } else {
         "NONE"
     }
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn combat_reward_card_display_key(combat: &CombatState, content_id: ContentId) -> &'static str {
-    use sts_core::content::cards::{
-        ARMAMENTS_ID, FLEX_ID, METALLICIZE_ID, OFFERING_ID, SHRUG_IT_OFF_ID, WARCRY_PLUS_ID,
-    };
-    if content_id == WARCRY_PLUS_ID {
-        return "Warcry+";
-    }
-    if combat
-        .relics
-        .iter()
-        .any(|relic| relic.key() == RelicKey::ToxicEgg)
-    {
-        if content_id == ARMAMENTS_ID {
-            return "Armaments+";
-        }
-        if content_id == METALLICIZE_ID {
-            return "Metallicize+";
-        }
-        if content_id == FLEX_ID {
-            return "Flex+";
-        }
-        if content_id == OFFERING_ID {
-            return "Offering+";
-        }
-        if content_id == SHRUG_IT_OFF_ID {
-            return "Shrug It Off+";
-        }
-    }
-    deck_content_key(content_id)
 }
 
 fn seed_start_victory_observed_subset(message: &Value) -> Value {
@@ -10230,85 +10191,6 @@ fn observed_combat_subset(message: &Value, fields: &[&str]) -> Value {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
-fn simulated_combat_subset(run: &RunState, fields: &[&str]) -> Value {
-    let combat = run.combat.as_ref().expect("combat available");
-    let monster = combat.monsters.iter().find(|monster| monster.alive);
-    let mut out = serde_json::Map::new();
-    for field in fields {
-        match *field {
-            "player_hp" => insert(&mut out, field, combat.player.hp),
-            "player_block" => insert(&mut out, field, combat.player.block),
-            "player_energy" => insert(&mut out, field, combat.player.energy),
-            "monster_hp" => insert(&mut out, field, monster.map(|m| m.hp).unwrap_or(0)),
-            "monster_block" => insert(&mut out, field, monster.map(|m| m.block).unwrap_or(0)),
-            "monster_intent" => {
-                insert(&mut out, field, monster.map(intent_key).unwrap_or_default())
-            }
-            _ => {}
-        }
-    }
-    Value::Object(out)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn observed_run_subset(message: &Value, fields: &[&str]) -> Value {
-    let Some(game) = message.get("game_state") else {
-        return json!({});
-    };
-    let mut out = serde_json::Map::new();
-    for field in fields {
-        match *field {
-            "gold" => insert(&mut out, field, int(game, "gold")),
-            "current_hp" => insert(&mut out, field, int(game, "current_hp")),
-            "deck_size" => insert(
-                &mut out,
-                field,
-                game.get("deck")
-                    .and_then(Value::as_array)
-                    .map(Vec::len)
-                    .unwrap_or(0),
-            ),
-            "deck_ids" => insert(&mut out, field, deck_keys_from_value(game.get("deck"))),
-            _ => {}
-        }
-    }
-    Value::Object(out)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn simulated_run_subset(run: &RunState, fields: &[&str]) -> Value {
-    let mut out = serde_json::Map::new();
-    for field in fields {
-        match *field {
-            "gold" => insert(&mut out, field, run.gold),
-            "current_hp" => insert(&mut out, field, run.player_hp),
-            "deck_size" => insert(&mut out, field, run.deck.len()),
-            "deck_ids" => insert(&mut out, field, deck_content_keys(&run.deck)),
-            _ => {}
-        }
-    }
-    Value::Object(out)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn deck_has_unmapped_cards(message: &Value) -> bool {
-    message
-        .get("game_state")
-        .and_then(|game| game.get("deck"))
-        .and_then(Value::as_array)
-        .map(|cards| {
-            cards
-                .iter()
-                .any(|card| content_id_from_card_value(card).is_none())
-        })
-        .unwrap_or(false)
-}
-
-#[cfg(test)]
 fn unsupported_monster_ai_reason(message: &Value) -> Option<String> {
     let groups: Vec<String> = message
         .get("game_state")?
@@ -10390,29 +10272,6 @@ fn subset_diffs(expected: Value, actual: Value) -> Vec<String> {
     canonical_diff(&expected_json, &actual_json)
 }
 
-#[cfg(test)]
-#[allow(dead_code)]
-fn post_supported_combat_fields(command: &str) -> &'static [&'static str] {
-    if command.trim().eq_ignore_ascii_case("END") {
-        &[
-            "player_hp",
-            "player_block",
-            "player_energy",
-            "monster_hp",
-            "monster_block",
-            "monster_intent",
-        ]
-    } else {
-        &[
-            "player_hp",
-            "player_block",
-            "player_energy",
-            "monster_hp",
-            "monster_block",
-        ]
-    }
-}
-
 fn combat_label(command: &str, run: &RunState) -> String {
     let Some(combat) = &run.combat else {
         return "combat".to_owned();
@@ -10429,216 +10288,6 @@ fn combat_label(command: &str, run: &RunState) -> String {
         .map(|card| content_key(card.content_id))
         .unwrap_or("unknown");
     key.to_owned()
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn monsters_from_observed(
-    value: Option<&Value>,
-    _player: &Value,
-    ascension: u8,
-) -> Vec<MonsterState> {
-    let Some(monsters) = value.and_then(Value::as_array) else {
-        return Vec::new();
-    };
-
-    monsters
-        .iter()
-        .enumerate()
-        .map(|(index, monster)| {
-            let game_id = monster
-                .get("id")
-                .and_then(Value::as_str)
-                .unwrap_or("Cultist");
-            let content_id = sts_core::content::monsters::content_id_from_game_monster_id(game_id)
-                .expect("test observation monster id is modeled");
-            let rolled_attack_damage = louse_bite_damage_from_observed(monster, content_id);
-            let powers = monster_powers(monster.get("powers"));
-            let replay = elite_boss_replay_fields(monster, content_id, &powers, ascension);
-            let move_history = target_move_byte(content_id, replay.intent)
-                .map(|move_byte| vec![move_byte])
-                .unwrap_or_default();
-            let is_gone = monster
-                .get("is_gone")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            MonsterState {
-                id: MonsterId::new(index as u64 + 1),
-                hp: int(monster, "current_hp"),
-                max_hp: int(monster, "max_hp"),
-                block: int(monster, "block"),
-                alive: int(monster, "current_hp") > 0 && !is_gone,
-                escaped: is_gone,
-                powers,
-                temp_strength_down: 0,
-                content_id,
-                slime_size: None,
-                moves_executed: replay.moves_executed,
-                sleep_turns_remaining: replay.sleep_turns_remaining,
-                has_siphoned: replay.has_siphoned,
-                split_triggered: false,
-                defensive_turns_remaining: replay.defensive_turns_remaining,
-                mode_shift: replay.mode_shift,
-                mode_shift_threshold: replay.mode_shift_threshold,
-                in_defensive_mode: replay.in_defensive_mode,
-                rolled_attack_damage,
-                stolen_gold: 0,
-                move_history,
-                gremlin_leader_slot: None,
-                stasis_card: None,
-                initial_intent_locked: false,
-                intent: replay.intent,
-            }
-        })
-        .collect()
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-struct EliteBossReplayFields {
-    moves_executed: u32,
-    sleep_turns_remaining: u32,
-    has_siphoned: bool,
-    defensive_turns_remaining: u32,
-    mode_shift: i32,
-    mode_shift_threshold: i32,
-    in_defensive_mode: bool,
-    intent: MonsterIntent,
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn elite_boss_replay_fields(
-    monster: &Value,
-    content_id: ContentId,
-    powers: &MonsterPowers,
-    ascension: u8,
-) -> EliteBossReplayFields {
-    let intent_str = monster.get("intent").and_then(Value::as_str).unwrap_or("");
-    let damage = int(monster, "move_base_damage");
-
-    match content_id {
-        LAGAVULIN_ID => {
-            let sleep_turns_remaining = if matches!(intent_str, "SLEEP" | "DEBUG") {
-                3
-            } else {
-                0
-            };
-            let has_siphoned = intent_str == "ATTACK";
-            let intent = if sleep_turns_remaining > 0 {
-                MonsterIntent::Sleep
-            } else if intent_str == "STUN" {
-                MonsterIntent::Stun
-            } else if !has_siphoned {
-                MonsterIntent::SiphonPlayer {
-                    strength: 1,
-                    dexterity: 1,
-                }
-            } else {
-                MonsterIntent::Attack { damage: 18 }
-            };
-            EliteBossReplayFields {
-                moves_executed: u32::from(has_siphoned),
-                sleep_turns_remaining,
-                has_siphoned,
-                defensive_turns_remaining: 0,
-                mode_shift: 0,
-                mode_shift_threshold: 0,
-                in_defensive_mode: false,
-                intent,
-            }
-        }
-        GREMLIN_NOB_ID => {
-            let moves_executed = match (intent_str, damage) {
-                ("DEBUG" | "BUFF", _) => 0,
-                ("ATTACK_DEBUFF", 6) => 0,
-                ("ATTACK", 14) => 1,
-                ("ATTACK_DEBUFF", _) => 2,
-                ("ATTACK", _) => 1,
-                _ => moves_executed_from_observed(monster, content_id),
-            };
-            EliteBossReplayFields {
-                moves_executed,
-                sleep_turns_remaining: 0,
-                has_siphoned: false,
-                defensive_turns_remaining: 0,
-                mode_shift: 0,
-                mode_shift_threshold: 0,
-                in_defensive_mode: false,
-                intent: observed_intent(monster, content_id, ascension),
-            }
-        }
-        GUARDIAN_ID => {
-            let mode_shift = monster
-                .get("powers")
-                .and_then(Value::as_array)
-                .and_then(|powers| {
-                    powers.iter().find_map(|power| {
-                        if power_id(power).as_deref() == Some("Mode Shift") {
-                            Some(int(power, "amount"))
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .unwrap_or(30);
-            let in_defensive_mode = powers.spikes > 0
-                || intent_str == "BUFF"
-                || (intent_str == "ATTACK" && damage == 9);
-            let defensive_turns_remaining = if in_defensive_mode {
-                match (intent_str, damage) {
-                    ("BUFF", _) => 7,
-                    ("ATTACK", 9) => 5,
-                    ("ATTACK", 8) => 3,
-                    _ => 4,
-                }
-            } else {
-                0
-            };
-            EliteBossReplayFields {
-                moves_executed: if in_defensive_mode {
-                    7_u32.saturating_sub(defensive_turns_remaining)
-                } else {
-                    match (intent_str, damage) {
-                        ("DEBUG", _) => 0,
-                        ("ATTACK", 32) => 0,
-                        ("ATTACK", 5) => 1,
-                        _ => 0,
-                    }
-                },
-                sleep_turns_remaining: 0,
-                has_siphoned: false,
-                defensive_turns_remaining,
-                mode_shift,
-                mode_shift_threshold: mode_shift.max(30),
-                in_defensive_mode,
-                intent: observed_intent(monster, content_id, ascension),
-            }
-        }
-        _ => EliteBossReplayFields {
-            moves_executed: moves_executed_from_observed(monster, content_id),
-            sleep_turns_remaining: 0,
-            has_siphoned: false,
-            defensive_turns_remaining: 0,
-            mode_shift: 0,
-            mode_shift_threshold: 0,
-            in_defensive_mode: false,
-            intent: observed_intent(monster, content_id, ascension),
-        },
-    }
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn louse_bite_damage_from_observed(monster: &Value, content_id: ContentId) -> Option<i32> {
-    if !matches!(
-        content_id,
-        sts_core::content::monsters::RED_LOUSE_ID | sts_core::content::monsters::GREEN_LOUSE_ID
-    ) {
-        return None;
-    }
-    let damage = int(monster, "move_base_damage");
-    (damage > 0).then_some(damage)
 }
 
 #[cfg(test)]
@@ -11215,64 +10864,7 @@ fn reward_choices_from_observed(game: &Value) -> Vec<CardInstance> {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
-fn observed_reward_choice(message: &Value, choice_index: usize) -> Option<&Value> {
-    message
-        .get("game_state")?
-        .get("screen_state")?
-        .get("cards")?
-        .as_array()?
-        .get(choice_index)
-}
-
-#[cfg(test)]
 fn card_instances_from_array(value: Option<&Value>, base_id: u64) -> Vec<CardInstance> {
-    card_instances_from_array_impl(value, base_id, false, false)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn combat_card_instances_from_array(value: Option<&Value>, base_id: u64) -> Vec<CardInstance> {
-    card_instances_from_array_impl(value, base_id, false, true)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn hand_from_comm_mod_visible_order(value: Option<&Value>, base_id: u64) -> Vec<CardInstance> {
-    combat_card_instances_from_array(value, base_id)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn draw_pile_from_comm_mod_visible_order(value: Option<&Value>, base_id: u64) -> Vec<CardInstance> {
-    combat_card_instances_from_array(value, base_id)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn discard_pile_from_comm_mod_visible_order(
-    value: Option<&Value>,
-    base_id: u64,
-) -> Vec<CardInstance> {
-    combat_card_instances_from_array(value, base_id)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn exhaust_pile_from_comm_mod_visible_order(
-    value: Option<&Value>,
-    base_id: u64,
-) -> Vec<CardInstance> {
-    combat_card_instances_from_array(value, base_id)
-}
-
-#[cfg(test)]
-fn card_instances_from_array_impl(
-    value: Option<&Value>,
-    base_id: u64,
-    use_observed_shrug_plus: bool,
-    use_observed_cost: bool,
-) -> Vec<CardInstance> {
     let Some(cards) = value.and_then(Value::as_array) else {
         return Vec::new();
     };
@@ -11281,92 +10873,10 @@ fn card_instances_from_array_impl(
         .iter()
         .enumerate()
         .filter_map(|(index, card)| {
-            let content_id = if use_observed_shrug_plus {
-                content_id_from_card_value_with_observed_shrug_plus(card)
-            } else {
-                content_id_from_card_value(card)
-            }?;
+            let content_id = content_id_from_card_value(card)?;
             let mut instance = CardInstance::new(CardId::new(base_id + index as u64), content_id);
             instance.upgrades = card_upgrade_count(card);
-            if use_observed_cost {
-                if let Some(cost) = card
-                    .get("cost")
-                    .and_then(Value::as_i64)
-                    .and_then(|cost| u8::try_from(cost).ok())
-                {
-                    instance.temp_cost = Some(cost);
-                }
-            }
             Some(instance)
-        })
-        .collect()
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn combat_card_instances_from_array_with_observed_shrug_plus(
-    value: Option<&Value>,
-    base_id: u64,
-) -> Vec<CardInstance> {
-    card_instances_from_array_impl(value, base_id, true, true)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn hand_from_comm_mod_visible_order_with_observed_shrug_plus(
-    value: Option<&Value>,
-    base_id: u64,
-) -> Vec<CardInstance> {
-    combat_card_instances_from_array_with_observed_shrug_plus(value, base_id)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn draw_pile_from_comm_mod_visible_order_with_observed_shrug_plus(
-    value: Option<&Value>,
-    base_id: u64,
-) -> Vec<CardInstance> {
-    combat_card_instances_from_array_with_observed_shrug_plus(value, base_id)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn discard_pile_from_comm_mod_visible_order_with_observed_shrug_plus(
-    value: Option<&Value>,
-    base_id: u64,
-) -> Vec<CardInstance> {
-    combat_card_instances_from_array_with_observed_shrug_plus(value, base_id)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn exhaust_pile_from_comm_mod_visible_order_with_observed_shrug_plus(
-    value: Option<&Value>,
-    base_id: u64,
-) -> Vec<CardInstance> {
-    combat_card_instances_from_array_with_observed_shrug_plus(value, base_id)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn card_instances_from_array_with_observed_shrug_plus(
-    value: Option<&Value>,
-    base_id: u64,
-) -> Vec<CardInstance> {
-    let Some(cards) = value.and_then(Value::as_array) else {
-        return Vec::new();
-    };
-
-    cards
-        .iter()
-        .enumerate()
-        .filter_map(|(index, card)| {
-            content_id_from_card_value_with_observed_shrug_plus(card).map(|content_id| {
-                let mut instance =
-                    CardInstance::new(CardId::new(base_id + index as u64), content_id);
-                instance.upgrades = card_upgrade_count(card);
-                instance
-            })
         })
         .collect()
 }
@@ -11387,17 +10897,6 @@ fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
         return upgrade_content_id(base).or(Some(base));
     }
     Some(base)
-}
-
-#[cfg(test)]
-fn content_id_from_card_value_with_observed_shrug_plus(card: &Value) -> Option<ContentId> {
-    let id = card.get("id").and_then(Value::as_str)?;
-    let upgrades = card.get("upgrades").and_then(Value::as_u64).unwrap_or(0);
-    let base = content_id_from_key(id)?;
-    if upgrades > 0 && base == sts_core::content::cards::SHRUG_IT_OFF_ID {
-        return Some(sts_core::content::cards::SHRUG_IT_OFF_PLUS_ID);
-    }
-    content_id_from_card_value(card)
 }
 
 fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
@@ -11907,16 +11406,6 @@ fn screen_type(message: &Value) -> Option<&str> {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
-fn room_type(message: &Value) -> Option<&str> {
-    message
-        .get("game_state")
-        .and_then(|game| game.get("room_type"))
-        .and_then(Value::as_str)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
 fn first_choice(message: &Value) -> Option<&str> {
     message
         .get("game_state")
@@ -11924,46 +11413,6 @@ fn first_choice(message: &Value) -> Option<&str> {
         .and_then(Value::as_array)
         .and_then(|choices| choices.first())
         .and_then(Value::as_str)
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn unsupported_reason(pre: &TraceState, action: &TraceAction) -> String {
-    match action.command.split_whitespace().next().unwrap_or("") {
-        "START" => "seed-start run creation is source-backed/generated for selected Ironclad A0 surfaces, with remaining map, Neow branch-combo, and reward RNG parity gaps classified".to_owned(),
-        "CHOOSE" if screen_type(&pre.message) == Some("EVENT") => {
-            "Neow/event choice side effects are unsupported in sim-to-real replay".to_owned()
-        }
-        "CHOOSE" if screen_type(&pre.message) == Some("MAP") => {
-            "map node selection is unsupported until exact seed-to-map parity is implemented".to_owned()
-        }
-        "CHOOSE" if screen_type(&pre.message) == Some("COMBAT_REWARD") => {
-            "reward card-screen opening is a UI transition; card pickup is verified from CARD_REWARD".to_owned()
-        }
-        "CHOOSE"
-            if matches!(
-                screen_type(&pre.message),
-                Some("SHOP_ROOM" | "SHOP_SCREEN" | "GRID")
-            ) && room_type(&pre.message).is_some_and(|room| room.eq_ignore_ascii_case("ShopRoom")) =>
-        {
-            "shop UI choices are covered by seed-start shop replay".to_owned()
-        }
-        "CONFIRM"
-            if screen_type(&pre.message) == Some("GRID")
-                && room_type(&pre.message).is_some_and(|room| room.eq_ignore_ascii_case("ShopRoom")) =>
-        {
-            "shop UI choices are covered by seed-start shop replay".to_owned()
-        }
-        "LEAVE"
-            if matches!(screen_type(&pre.message), Some("SHOP_ROOM" | "SHOP_SCREEN"))
-                && room_type(&pre.message).is_some_and(|room| room.eq_ignore_ascii_case("ShopRoom")) =>
-        {
-            "shop UI choices are covered by seed-start shop replay".to_owned()
-        }
-        "PROCEED" => "reward-to-map UI transition is out-of-scope for simulator state parity".to_owned(),
-        "state" => "trace client poll command is not a game transition".to_owned(),
-        _ => "unsupported or unobservable CommunicationMod command".to_owned(),
-    }
 }
 
 fn intent_key(monster: &MonsterState) -> String {
