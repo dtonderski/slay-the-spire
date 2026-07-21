@@ -764,7 +764,9 @@ mod tests {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Combat;
         run.current_room_override = Some(RoomKind::Combat);
-        let mut combat = run.init_combat(CombatState::initial_fixture());
+        let mut combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
         combat.player.powers.combust = 1;
         combat.player.powers.combust_damage = 5;
         run.combat = Some(combat);

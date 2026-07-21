@@ -286,7 +286,9 @@ fn relic_reward_applies_on_next_combat_start() {
     run.reward.as_mut().expect("reward").relic_offer = Some(Relic::OddlySmoothStone);
     let run = apply_run_action(&run, RunAction::TakeRelicReward).expect("take relic");
     let mut run = run;
-    let combat = run.init_combat(sts_core::CombatState::initial_fixture());
+    let combat = run
+        .init_combat(sts_core::CombatState::initial_fixture())
+        .expect("combat initializes");
     run.combat = Some(combat);
     let combat = run.combat.expect("combat initialized");
 
@@ -313,7 +315,9 @@ fn strawberry_hp_bonus_applies_to_next_combat() {
     run.player_max_hp = 80;
     run.gain_relic(Relic::Strawberry);
 
-    let combat = run.init_combat(sts_core::CombatState::initial_fixture());
+    let combat = run
+        .init_combat(sts_core::CombatState::initial_fixture())
+        .expect("combat initializes");
 
     assert_eq!(combat.player.max_hp, 80 + STRAWBERRY_MAX_HP);
     assert_eq!(combat.player.hp, 40 + STRAWBERRY_MAX_HP);
@@ -349,7 +353,9 @@ fn coffee_dripper_energy_applies_to_combat_and_next_turn_refill() {
     let mut run = RunState::map_fixture();
     run.gain_relic(Relic::CoffeeDripper);
 
-    let mut combat = run.init_combat(sts_core::CombatState::initial_fixture());
+    let mut combat = run
+        .init_combat(sts_core::CombatState::initial_fixture())
+        .expect("combat initializes");
     assert_eq!(combat.player.max_energy, 4);
     assert_eq!(combat.player.energy, 4);
 

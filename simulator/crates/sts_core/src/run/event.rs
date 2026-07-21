@@ -5273,7 +5273,7 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) ->
     combat.rng.monster_rng = monster_rng;
     run.phase = RunPhase::Combat;
     run.event = None;
-    let initialized = run.init_combat_consuming_relics(combat);
+    let initialized = run.init_combat_consuming_relics(combat)?;
     initialized.validate()?;
     run.combat = Some(initialized);
     Ok(())
@@ -8250,7 +8250,9 @@ mod tests {
         run.heal_player(30);
         assert_eq!(run.player_hp, 20);
 
-        let mut combat = run.init_combat(CombatState::initial_fixture());
+        let mut combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
         assert!(combat.mark_of_bloom);
         let before = combat.player.hp;
         crate::relic::heal_combat_player_with_relics(&mut combat, 30);

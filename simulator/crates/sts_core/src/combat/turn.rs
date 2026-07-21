@@ -207,7 +207,7 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
         state.player.temp_dexterity = 0;
     }
     state.player.energy = checked_turn_add(state.player.energy, state.player.powers.berserk)?;
-    crate::relic::apply_start_of_player_turn_relics(state);
+    crate::relic::apply_start_of_player_turn_relics(state)?;
     apply_start_of_turn_brutality(state);
     if state.player.hp <= 0 {
         state.player.hp = 0;
@@ -2168,6 +2168,35 @@ mod tests {
             ))
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn start_player_turn_rejects_brimstone_strength_overflow_without_mutating_state() {
+        let mut player_overflow = CombatState::initial_fixture();
+        player_overflow.relics.push(Relic::Brimstone);
+        player_overflow.player.powers.strength = i32::MAX;
+        player_overflow.validate().expect("input combat is valid");
+        let player_before = player_overflow.clone();
+        assert_eq!(
+            start_player_turn(&mut player_overflow),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+        assert_eq!(player_overflow, player_before);
+
+        let mut monster_overflow = CombatState::initial_fixture();
+        monster_overflow.relics.push(Relic::Brimstone);
+        monster_overflow.monsters[0].powers.strength = i32::MAX;
+        monster_overflow.validate().expect("input combat is valid");
+        let monster_before = monster_overflow.clone();
+        assert_eq!(
+            start_player_turn(&mut monster_overflow),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+        assert_eq!(monster_overflow, monster_before);
     }
 
     #[test]

@@ -2619,7 +2619,9 @@ mod tests {
         run.relics = vec![Relic::HappyFlower];
         run.happy_flower_turns = 1;
 
-        let combat = run.init_combat(CombatState::initial_fixture());
+        let combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
         run.happy_flower_turns = combat.relic_counters.happy_flower_turns;
         run.combat = Some(combat);
 
@@ -2642,7 +2644,7 @@ mod tests {
         let mut base = CombatState::initial_fixture();
         base.piles.draw_pile.clear();
         base.monsters[0].intent = crate::MonsterIntent::Stun;
-        let combat = run.init_combat(base);
+        let combat = run.init_combat(base).expect("combat initializes");
         assert_eq!(combat.relic_counters.sundial_shuffles, 2);
         run.combat = Some(combat);
 

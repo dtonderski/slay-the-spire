@@ -1273,7 +1273,9 @@ mod tests {
         ];
         run.happy_flower_turns = 2;
 
-        let combat = run.init_combat(CombatState::initial_fixture());
+        let combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
         assert!(combat.toolbox_card_reward_choices().is_some());
         assert_eq!(combat.relic_counters.happy_flower_turns, 0);
         assert_eq!(combat.player.energy, 3);
@@ -1299,7 +1301,9 @@ mod tests {
             crate::relic::Relic::Toolbox,
         ];
 
-        let combat = run.init_combat(CombatState::initial_fixture());
+        let combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
         assert!(matches!(
             combat.decision.as_ref(),
             Some(CombatDecisionState::ToolboxCardReward { .. })

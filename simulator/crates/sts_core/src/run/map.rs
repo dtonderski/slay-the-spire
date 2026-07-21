@@ -228,7 +228,7 @@ fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -
     record_initial_monster_moves(&mut combat);
     combat.rng.monster_rng = monster_rng.clone();
     run.phase = RunPhase::Combat;
-    let mut initialized = run.init_combat_consuming_relics(combat);
+    let mut initialized = run.init_combat_consuming_relics(combat)?;
     initialized.rng.monster_rng = monster_rng;
     add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized);
     initialized.validate()?;

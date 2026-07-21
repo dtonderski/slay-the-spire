@@ -47,6 +47,12 @@ fn default_energy_per_turn() -> i32 {
     BASE_PLAYER_ENERGY
 }
 
+fn checked_combat_initialization_add(value: i32, amount: i32) -> SimResult<i32> {
+    value.checked_add(amount).ok_or(SimError::InvalidState(
+        "combat integer addition overflows i32",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,11 +213,87 @@ mod tests {
         let mut run = RunState::map_fixture();
 
         run.gain_relic(Relic::SneckoEye);
-        let combat = run.init_combat(CombatState::cultist_fixture());
+        let combat = run
+            .init_combat(CombatState::cultist_fixture())
+            .expect("combat initializes");
 
         assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY);
         assert_eq!(combat.player.max_energy, BASE_PLAYER_ENERGY);
         assert_eq!(combat.player.energy, BASE_PLAYER_ENERGY);
+    }
+
+    #[test]
+    fn combat_initialization_rejects_starting_relic_arithmetic_overflow() {
+        let mut energy_run = RunState::map_fixture();
+        energy_run.energy_per_turn = i32::MAX;
+        energy_run.relics = vec![Relic::Lantern];
+        assert_eq!(
+            energy_run.init_combat(CombatState::initial_fixture()),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+
+        let mut strength_run = RunState::map_fixture();
+        strength_run.relics = vec![Relic::Vajra];
+        let mut base = CombatState::initial_fixture();
+        base.player.powers.strength = i32::MAX;
+        base.validate().expect("input combat is valid");
+        assert_eq!(
+            strength_run.init_combat(base),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+    }
+
+    #[test]
+    fn combat_initialization_rejects_first_turn_counter_overflow() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::Brimstone];
+        let mut base = CombatState::initial_fixture();
+        base.relic_counters.player_turns_started = i32::MAX as u32;
+        base.validate().expect("input combat is valid");
+
+        assert_eq!(
+            run.init_combat(base),
+            Err(SimError::InvalidState(
+                "combat relic counter exceeds the target signed range"
+            ))
+        );
+    }
+
+    #[test]
+    fn blood_vial_at_the_target_hp_limit_clamps_without_overflow() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = i32::MAX;
+        run.player_max_hp = i32::MAX;
+        run.relics = vec![Relic::BloodVial];
+
+        let combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
+
+        assert_eq!(combat.player.hp, i32::MAX);
+        assert_eq!(combat.player.max_hp, i32::MAX);
+    }
+
+    #[test]
+    fn failed_consuming_combat_initialization_does_not_mutate_run_state() {
+        let mut run = RunState::map_fixture();
+        run.energy_per_turn = i32::MAX;
+        run.relics = vec![Relic::Lantern];
+        run.neow_lament_combats_remaining = 1;
+        run.ancient_tea_set_armed = true;
+        let before = run.clone();
+
+        assert_eq!(
+            run.init_combat_consuming_relics(CombatState::initial_fixture()),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+        assert_eq!(run, before);
     }
 
     #[test]
@@ -1196,8 +1278,8 @@ impl RunState {
         self.set_rng_stream_counter(stream, rng.counter());
     }
 
-    #[must_use]
-    pub fn init_combat(&self, base: CombatState) -> CombatState {
+    pub fn init_combat(&self, base: CombatState) -> SimResult<CombatState> {
+        base.validate()?;
         let mut combat = base;
         combat.mark_of_bloom = self.has_mark_of_bloom();
         combat.player.hp = self.player_hp;
@@ -1213,8 +1295,10 @@ impl RunState {
             Some(RoomKind::Elite | RoomKind::Boss)
         ) && self.relics.contains(&Relic::SlaversCollar)
         {
-            combat.player.max_energy += SLAVERS_COLLAR_ENERGY;
-            combat.player.energy = combat.player.energy.wrapping_add(SLAVERS_COLLAR_ENERGY);
+            combat.player.max_energy =
+                checked_combat_initialization_add(combat.player.max_energy, SLAVERS_COLLAR_ENERGY)?;
+            combat.player.energy =
+                checked_combat_initialization_add(combat.player.energy, SLAVERS_COLLAR_ENERGY)?;
         }
         if self.current_room_kind() == Some(RoomKind::Boss)
             && self.relics.contains(&Relic::Pantograph)
@@ -1225,33 +1309,55 @@ impl RunState {
             && self.relics.contains(&Relic::PreservedInsect)
         {
             for monster in &mut combat.monsters {
-                monster.hp = (monster.hp * PRESERVED_INSECT_HP_NUMERATOR
-                    / PRESERVED_INSECT_HP_DENOMINATOR)
-                    .max(1);
+                monster.hp = i32::try_from(
+                    (i64::from(monster.hp) * i64::from(PRESERVED_INSECT_HP_NUMERATOR)
+                        / i64::from(PRESERVED_INSECT_HP_DENOMINATOR))
+                    .max(1),
+                )
+                .map_err(|_| SimError::InvalidState("combat HP bounds overflow i32"))?;
             }
         }
         if self.current_room_kind() == Some(RoomKind::Elite)
             && self.relics.contains(&Relic::SlingOfCourage)
         {
-            combat.player.powers.strength += SLING_OF_COURAGE_STRENGTH;
+            combat.player.powers.strength = checked_combat_initialization_add(
+                combat.player.powers.strength,
+                SLING_OF_COURAGE_STRENGTH,
+            )?;
         }
         if self.relics.contains(&Relic::DuVuDoll) {
-            let curses = self
-                .deck
-                .iter()
-                .filter(|card| is_curse_content_id(card.content_id))
-                .count() as i32;
-            combat.player.powers.strength += curses * DU_VU_DOLL_STRENGTH_PER_CURSE;
+            let curses = i32::try_from(
+                self.deck
+                    .iter()
+                    .filter(|card| is_curse_content_id(card.content_id))
+                    .count(),
+            )
+            .map_err(|_| SimError::InvalidState("combat curse count exceeds i32"))?;
+            let strength =
+                curses
+                    .checked_mul(DU_VU_DOLL_STRENGTH_PER_CURSE)
+                    .ok_or(SimError::InvalidState(
+                        "combat integer multiplication overflows i32",
+                    ))?;
+            combat.player.powers.strength =
+                checked_combat_initialization_add(combat.player.powers.strength, strength)?;
         }
         if self.relics.contains(&Relic::Girya) {
-            combat.player.powers.strength += self.girya_lifts as i32;
+            let strength = i32::try_from(self.girya_lifts)
+                .map_err(|_| SimError::InvalidState("Girya lifts exceed i32"))?;
+            combat.player.powers.strength =
+                checked_combat_initialization_add(combat.player.powers.strength, strength)?;
         }
         if self.relics.contains(&Relic::AncientTeaSet) && self.ancient_tea_set_armed {
-            combat.player.energy = combat.player.energy.wrapping_add(ANCIENT_TEA_SET_ENERGY);
+            combat.player.energy =
+                checked_combat_initialization_add(combat.player.energy, ANCIENT_TEA_SET_ENERGY)?;
         }
         if self.relics.contains(&Relic::PhilosophersStone) {
             for monster in &mut combat.monsters {
-                monster.powers.strength += PHILOSOPHERS_STONE_MONSTER_STRENGTH;
+                monster.powers.strength = checked_combat_initialization_add(
+                    monster.powers.strength,
+                    PHILOSOPHERS_STONE_MONSTER_STRENGTH,
+                )?;
             }
         }
         if self.relics.contains(&Relic::IncenseBurner) {
@@ -1272,7 +1378,7 @@ impl RunState {
         if self.relics.contains(&Relic::Nunchaku) {
             combat.relic_counters.nunchaku_attacks_played = self.nunchaku_attacks_played;
         }
-        apply_start_of_combat_relics(&mut combat, &self.relics);
+        apply_start_of_combat_relics(&mut combat, &self.relics)?;
         if self.relics.contains(&Relic::Enchiridion) {
             add_enchiridion_power_to_hand(&mut combat);
         }
@@ -1297,12 +1403,12 @@ impl RunState {
             }
         }
         crate::relic::apply_start_of_player_turn_post_draw_relics(&mut combat);
-        combat
+        combat.validate()?;
+        Ok(combat)
     }
 
-    #[must_use]
-    pub fn init_combat_consuming_relics(&mut self, base: CombatState) -> CombatState {
-        let mut combat = self.init_combat(base);
+    pub fn init_combat_consuming_relics(&mut self, base: CombatState) -> SimResult<CombatState> {
+        let mut combat = self.init_combat(base)?;
         if self.neow_lament_combats_remaining > 0 {
             apply_neow_lament_to_combat(&mut combat);
             self.neow_lament_combats_remaining -= 1;
@@ -1331,7 +1437,8 @@ impl RunState {
         if self.relics.contains(&Relic::Toolbox) || self.relics.contains(&Relic::Enchiridion) {
             self.card_random_rng_counter = combat.rng.card_random_rng.counter();
         }
-        combat
+        combat.validate()?;
+        Ok(combat)
     }
 
     #[must_use]
@@ -1462,7 +1569,9 @@ impl RunState {
             pending_boss_relic_choices: Vec::new(),
             rest_room_complete: false,
         };
-        let combat = run.init_combat(CombatState::initial_fixture());
+        let combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
         run.player_hp = combat.player.hp;
         run.player_max_hp = combat.player.max_hp;
         run.combat = Some(combat);

@@ -510,7 +510,9 @@ fn buy_shop_relic_adds_vajra_and_applies_on_next_combat() {
 
     assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.relics, vec![Relic::Vajra]);
-    let combat = run.init_combat(sts_core::CombatState::initial_fixture());
+    let combat = run
+        .init_combat(sts_core::CombatState::initial_fixture())
+        .expect("combat initializes");
     assert_eq!(combat.player.powers.strength, VAJRA_STRENGTH);
 }
 

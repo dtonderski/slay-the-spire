@@ -1935,7 +1935,7 @@ impl Relic {
     }
 }
 
-pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) {
+pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) -> SimResult<()> {
     for relic in relics {
         match relic {
             Relic::BurningBlood => {}
@@ -1992,19 +1992,25 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Enchiridion => {}
             Relic::NilrysCodex => {}
             Relic::MutagenicStrength => {
-                combat.player.temp_strength += MUTAGENIC_STRENGTH_AMOUNT;
+                checked_add_relic_value(
+                    &mut combat.player.temp_strength,
+                    MUTAGENIC_STRENGTH_AMOUNT,
+                )?;
             }
             Relic::FossilizedHelix => {
-                combat.player.powers.buffer += FOSSILIZED_HELIX_BUFFER;
+                checked_add_relic_value(&mut combat.player.powers.buffer, FOSSILIZED_HELIX_BUFFER)?;
             }
             Relic::BloodVial => {
                 heal_combat_player_with_relics(combat, BLOOD_VIAL_HEAL);
             }
             Relic::Vajra => {
-                combat.player.powers.strength += VAJRA_STRENGTH;
+                checked_add_relic_value(&mut combat.player.powers.strength, VAJRA_STRENGTH)?;
             }
             Relic::OddlySmoothStone => {
-                combat.player.powers.dexterity += ODDLY_SMOOTH_STONE_DEXTERITY;
+                checked_add_relic_value(
+                    &mut combat.player.powers.dexterity,
+                    ODDLY_SMOOTH_STONE_DEXTERITY,
+                )?;
             }
             Relic::Strawberry => {}
             Relic::Pear => {}
@@ -2013,7 +2019,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::LeesWaffle => {}
             Relic::PotionBelt => {}
             Relic::Lantern => {
-                combat.player.energy += LANTERN_ENERGY;
+                checked_add_relic_value(&mut combat.player.energy, LANTERN_ENERGY)?;
             }
             Relic::BagOfPreparation => {
                 crate::combat::transition::player_draw_cards(combat, BAG_OF_PREPARATION_DRAW);
@@ -2028,16 +2034,22 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 }
             }
             Relic::BronzeScales => {
-                combat.player.powers.thorns += BRONZE_SCALES_THORNS;
+                checked_add_relic_value(&mut combat.player.powers.thorns, BRONZE_SCALES_THORNS)?;
             }
             Relic::ThreadAndNeedle => {
-                combat.player.powers.plated_armor += THREAD_AND_NEEDLE_PLATED_ARMOR;
+                checked_add_relic_value(
+                    &mut combat.player.powers.plated_armor,
+                    THREAD_AND_NEEDLE_PLATED_ARMOR,
+                )?;
             }
             Relic::ClockworkSouvenir => {
-                combat.player.powers.artifact += CLOCKWORK_SOUVENIR_ARTIFACT;
+                checked_add_relic_value(
+                    &mut combat.player.powers.artifact,
+                    CLOCKWORK_SOUVENIR_ARTIFACT,
+                )?;
             }
             Relic::RedSkull => {
-                sync_red_skull_strength_present(combat, true);
+                apply_start_of_combat_red_skull(combat)?;
             }
             Relic::Nunchaku => {}
             Relic::ArtOfWar => {}
@@ -2090,7 +2102,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::BirdFacedUrn => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
-                combat.player.block += ANCHOR_BLOCK;
+                checked_add_relic_value(&mut combat.player.block, ANCHOR_BLOCK)?;
             }
             Relic::InkBottle => {}
             Relic::OrnamentalFan => {}
@@ -2133,7 +2145,8 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
         }
     }
 
-    apply_start_of_player_turn_relics(combat);
+    apply_start_of_player_turn_relics(combat)?;
+    Ok(())
 }
 
 pub fn apply_shuffle_relics(state: &mut CombatState) {
@@ -2180,7 +2193,7 @@ pub fn heal_player_in_combat_with_relics(
     relics: &[Relic],
 ) {
     let heal = combat_healing_amount_with_relics(base_heal, relics);
-    *hp = (*hp + heal).min(max_hp);
+    *hp = hp.saturating_add(heal).min(max_hp);
 }
 
 pub fn heal_combat_player_with_relics(state: &mut CombatState, base_heal: i32) {
@@ -2277,29 +2290,41 @@ pub fn reset_turn_relic_counters(state: &mut CombatState) {
     state.relic_counters.necronomicon_used_this_turn = false;
 }
 
-pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
+pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<()> {
     if !has_start_of_turn_relic(state) {
-        return;
+        return Ok(());
     }
 
-    state.relic_counters.player_turns_started += 1;
+    checked_increment_relic_counter(&mut state.relic_counters.player_turns_started)?;
 
     if state.relic_counters.self_forming_clay_next_turn_block > 0 {
         let block = state.relic_counters.self_forming_clay_next_turn_block;
         state.relic_counters.self_forming_clay_next_turn_block = 0;
+        if state.player.no_block_turns == 0 {
+            state
+                .player
+                .block
+                .checked_add(block)
+                .ok_or(SimError::InvalidState(
+                    "combat integer addition overflows i32",
+                ))?;
+        }
         crate::combat::transition::apply_player_direct_block_gain(state, block);
     }
 
     if state.relics.contains(&Relic::HappyFlower) {
-        state.relic_counters.happy_flower_turns += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.happy_flower_turns)?;
         if state.relic_counters.happy_flower_turns >= HAPPY_FLOWER_THRESHOLD {
             state.relic_counters.happy_flower_turns = 0;
             if state.relic_counters.player_turns_started == 1
                 && state.relics.contains(&Relic::Toolbox)
             {
-                state.pending_start_of_turn_relic_energy += HAPPY_FLOWER_ENERGY;
+                checked_add_relic_value(
+                    &mut state.pending_start_of_turn_relic_energy,
+                    HAPPY_FLOWER_ENERGY,
+                )?;
             } else {
-                state.player.energy += HAPPY_FLOWER_ENERGY;
+                checked_add_relic_value(&mut state.player.energy, HAPPY_FLOWER_ENERGY)?;
             }
         }
     }
@@ -2308,33 +2333,34 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) {
         && state.relic_counters.player_turns_started > 1
         && state.relic_counters.attacks_played_last_turn == 0
     {
-        state.player.energy += ART_OF_WAR_ENERGY;
+        checked_add_relic_value(&mut state.player.energy, ART_OF_WAR_ENERGY)?;
     }
 
     match state.relic_counters.player_turns_started {
         HORN_CLEAT_TURN if state.relics.contains(&Relic::HornCleat) => {
-            state.player.block += HORN_CLEAT_BLOCK;
+            checked_add_relic_value(&mut state.player.block, HORN_CLEAT_BLOCK)?;
         }
         CAPTAINS_WHEEL_TURN if state.relics.contains(&Relic::CaptainsWheel) => {
-            state.player.block += CAPTAINS_WHEEL_BLOCK;
+            checked_add_relic_value(&mut state.player.block, CAPTAINS_WHEEL_BLOCK)?;
         }
         _ => {}
     }
 
     if state.relics.contains(&Relic::Brimstone) {
-        state.player.powers.strength += BRIMSTONE_PLAYER_STRENGTH;
+        checked_add_relic_value(&mut state.player.powers.strength, BRIMSTONE_PLAYER_STRENGTH)?;
         for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
-            monster.powers.strength += BRIMSTONE_MONSTER_STRENGTH;
+            checked_add_relic_value(&mut monster.powers.strength, BRIMSTONE_MONSTER_STRENGTH)?;
         }
     }
 
     if state.relics.contains(&Relic::IncenseBurner) {
-        state.relic_counters.incense_burner_counter += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.incense_burner_counter)?;
         if state.relic_counters.incense_burner_counter >= INCENSE_BURNER_THRESHOLD {
             state.relic_counters.incense_burner_counter = 0;
-            state.player.powers.intangible += 1;
+            checked_add_relic_value(&mut state.player.powers.intangible, 1)?;
         }
     }
+    Ok(())
 }
 
 pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) {
@@ -2600,6 +2626,29 @@ fn checked_increment_relic_counter(counter: &mut u32) -> SimResult<()> {
         ));
     }
     *counter += 1;
+    Ok(())
+}
+
+fn checked_add_relic_value(value: &mut i32, amount: i32) -> SimResult<()> {
+    *value = value.checked_add(amount).ok_or(SimError::InvalidState(
+        "combat integer addition overflows i32",
+    ))?;
+    Ok(())
+}
+
+fn apply_start_of_combat_red_skull(state: &mut CombatState) -> SimResult<()> {
+    let should_be_active = i64::from(state.player.hp) * 2 <= i64::from(state.player.max_hp);
+    match (should_be_active, state.relic_counters.red_skull_active) {
+        (true, false) => {
+            checked_add_relic_value(&mut state.player.powers.strength, RED_SKULL_STRENGTH)?;
+            state.relic_counters.red_skull_active = true;
+        }
+        (false, true) => {
+            checked_add_relic_value(&mut state.player.powers.strength, -RED_SKULL_STRENGTH)?;
+            state.relic_counters.red_skull_active = false;
+        }
+        _ => {}
+    }
     Ok(())
 }
 

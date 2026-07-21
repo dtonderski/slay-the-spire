@@ -11662,7 +11662,9 @@ mod tests {
         source.player_max_hp = 80;
         source.potions = vec![Potion::SmokeBomb];
         source.phase = RunPhase::Combat;
-        let mut combat = source.init_combat(CombatState::initial_fixture());
+        let mut combat = source
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
         combat.player.hp = 10;
         combat.player.max_hp = 80;
         source.combat = Some(combat);
@@ -15540,7 +15542,10 @@ mod tests {
         run.player_hp = 34;
         run.player_max_hp = 86;
         run.relics = vec![Relic::BurningBlood, Relic::BloodVial];
-        run.combat = Some(run.init_combat(CombatState::initial_fixture()));
+        run.combat = Some(
+            run.init_combat(CombatState::initial_fixture())
+                .expect("combat initializes"),
+        );
 
         let subset = seed_start_simulated_combat_subset(&run, false, &[]);
 
@@ -15552,7 +15557,10 @@ mod tests {
     fn combat_subset_uses_run_floor() {
         let mut run = RunState::map_fixture();
         run.current_floor = 17;
-        run.combat = Some(run.init_combat(CombatState::initial_fixture()));
+        run.combat = Some(
+            run.init_combat(CombatState::initial_fixture())
+                .expect("combat initializes"),
+        );
 
         let subset = seed_start_simulated_combat_subset(&run, false, &[]);
 
@@ -15562,7 +15570,9 @@ mod tests {
     #[test]
     fn combat_subset_uses_simulated_monster_identity_and_max_hp() {
         let mut run = RunState::map_fixture();
-        let mut combat = run.init_combat(CombatState::initial_fixture());
+        let mut combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
         combat.monsters[0].hp = 31;
         combat.monsters[0].max_hp = 47;
         run.combat = Some(combat);
@@ -15764,7 +15774,9 @@ mod tests {
         };
 
         let mut run = RunState::map_fixture();
-        let mut combat = run.init_combat(CombatState::initial_fixture());
+        let mut combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
         combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
             choices: vec![
                 CardInstance::new(CardId::new(100), SHRUG_IT_OFF_ID),
@@ -16311,7 +16323,10 @@ mod tests {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Combat;
         run.neow_lament_combats_remaining = 0;
-        run.combat = Some(run.init_combat(CombatState::initial_fixture()));
+        run.combat = Some(
+            run.init_combat(CombatState::initial_fixture())
+                .expect("combat initializes"),
+        );
 
         let subset = seed_start_simulated_combat_subset(
             &run,
