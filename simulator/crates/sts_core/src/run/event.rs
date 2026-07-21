@@ -205,6 +205,16 @@ pub fn cursed_tome_final_hp_loss(ascension: u8) -> i32 {
     }
 }
 
+fn cursed_tome_add_hp_loss(accumulated: u32, hp_loss: i32) -> SimResult<u32> {
+    let hp_loss = u32::try_from(hp_loss)
+        .map_err(|_| SimError::InvalidState("Cursed Tome HP loss is negative"))?;
+    accumulated
+        .checked_add(hp_loss)
+        .ok_or(SimError::InvalidState(
+            "Cursed Tome accumulated HP loss overflows",
+        ))
+}
+
 #[must_use]
 pub fn nest_gold_gain(ascension: u8) -> i32 {
     if ascension >= 15 {
@@ -531,6 +541,35 @@ pub(super) fn validate_event_screen_authority(
             if screen.event_data > SCRAP_OOZE_MAX_FAILED_REACHES {
                 return Err(SimError::InvalidState(
                     "Scrap Ooze failed reach count exceeds reachable range",
+                ));
+            }
+        }
+        Event::CursedTome => {
+            let valid_data = match screen.stage {
+                0 | 1 => screen.event_data == 0,
+                2 => screen.event_data == CURSED_TOME_PAGE_1_HP_LOSS as u32,
+                3 => {
+                    screen.event_data
+                        == (CURSED_TOME_PAGE_1_HP_LOSS + CURSED_TOME_PAGE_2_HP_LOSS) as u32
+                }
+                4 => {
+                    screen.event_data
+                        == (CURSED_TOME_PAGE_1_HP_LOSS
+                            + CURSED_TOME_PAGE_2_HP_LOSS
+                            + CURSED_TOME_PAGE_3_HP_LOSS) as u32
+                }
+                5 => {
+                    let stopped_loss = CURSED_TOME_PAGE_1_HP_LOSS
+                        + CURSED_TOME_PAGE_2_HP_LOSS
+                        + CURSED_TOME_PAGE_3_HP_LOSS
+                        + CURSED_TOME_STOP_HP_LOSS;
+                    screen.event_data == 0 || screen.event_data == stopped_loss as u32
+                }
+                _ => return Err(SimError::InvalidState("Cursed Tome stage is invalid")),
+            };
+            if !valid_data {
+                return Err(SimError::InvalidState(
+                    "Cursed Tome accumulated HP loss does not match its stage",
                 ));
             }
         }
@@ -4181,7 +4220,10 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     event: Event::CursedTome,
                     choices: cursed_tome_choices(2, next.ascension),
                     stage: 2,
-                    event_data: screen.event_data + CURSED_TOME_PAGE_1_HP_LOSS as u32,
+                    event_data: cursed_tome_add_hp_loss(
+                        screen.event_data,
+                        CURSED_TOME_PAGE_1_HP_LOSS,
+                    )?,
                 });
             }
             2 if choice_index == 0 => {
@@ -4190,7 +4232,10 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     event: Event::CursedTome,
                     choices: cursed_tome_choices(3, next.ascension),
                     stage: 3,
-                    event_data: screen.event_data + CURSED_TOME_PAGE_2_HP_LOSS as u32,
+                    event_data: cursed_tome_add_hp_loss(
+                        screen.event_data,
+                        CURSED_TOME_PAGE_2_HP_LOSS,
+                    )?,
                 });
             }
             3 if choice_index == 0 => {
@@ -4199,7 +4244,10 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     event: Event::CursedTome,
                     choices: cursed_tome_choices(4, next.ascension),
                     stage: 4,
-                    event_data: screen.event_data + CURSED_TOME_PAGE_3_HP_LOSS as u32,
+                    event_data: cursed_tome_add_hp_loss(
+                        screen.event_data,
+                        CURSED_TOME_PAGE_3_HP_LOSS,
+                    )?,
                 });
             }
             4 if choice_index == 0 => {
@@ -4214,7 +4262,10 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     event: Event::CursedTome,
                     choices: cursed_tome_choices(5, next.ascension),
                     stage: 5,
-                    event_data: screen.event_data + CURSED_TOME_STOP_HP_LOSS as u32,
+                    event_data: cursed_tome_add_hp_loss(
+                        screen.event_data,
+                        CURSED_TOME_STOP_HP_LOSS,
+                    )?,
                 });
             }
             5 if choice_index == 0 => {
@@ -5217,6 +5268,51 @@ mod tests {
                 .map(|choice| choice.label.split(" (").next().unwrap_or_default())
                 .collect::<Vec<_>>(),
             ["Take", "Stop"]
+        );
+    }
+
+    #[test]
+    fn cursed_tome_validation_accepts_only_reachable_stage_data_pairs() {
+        for (stage, event_data) in [(0, 0), (1, 0), (2, 1), (3, 3), (4, 6), (5, 0), (5, 9)] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.phase = RunPhase::Event;
+            run.event = Some(EventScreen {
+                event: Event::CursedTome,
+                choices: cursed_tome_choices(stage as u8, run.ascension),
+                stage,
+                event_data,
+            });
+            run.validate()
+                .expect("reachable Cursed Tome state is valid");
+        }
+
+        let mut malformed = RunState::seeded_ironclad(1, 0);
+        malformed.phase = RunPhase::Event;
+        malformed.event = Some(EventScreen {
+            event: Event::CursedTome,
+            choices: cursed_tome_choices(4, malformed.ascension),
+            stage: 4,
+            event_data: u32::MAX,
+        });
+        assert_eq!(
+            malformed.validate(),
+            Err(SimError::InvalidState(
+                "Cursed Tome accumulated HP loss does not match its stage"
+            ))
+        );
+    }
+
+    #[test]
+    fn cursed_tome_hp_loss_accumulation_fails_closed() {
+        assert_eq!(
+            cursed_tome_add_hp_loss(u32::MAX, 1),
+            Err(SimError::InvalidState(
+                "Cursed Tome accumulated HP loss overflows"
+            ))
+        );
+        assert_eq!(
+            cursed_tome_add_hp_loss(0, -1),
+            Err(SimError::InvalidState("Cursed Tome HP loss is negative"))
         );
     }
 
