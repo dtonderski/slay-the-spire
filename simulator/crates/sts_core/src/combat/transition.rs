@@ -357,7 +357,7 @@ fn apply_internal_action(
             apply_enrage_on_card_type(state, definition.card_type)?;
             apply_rage_on_card_type(state, definition.card_type);
             let mut follow_ups =
-                crate::relic::apply_on_card_play_relics(state, definition.card_type);
+                crate::relic::apply_on_card_play_relics(state, definition.card_type)?;
             apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type)?);
             follow_ups.extend(apply_hand_card_play_triggers(state, card_id));
@@ -368,7 +368,7 @@ fn apply_internal_action(
             apply_enrage_on_card_type(state, definition.card_type)?;
             apply_rage_on_card_type(state, definition.card_type);
             let mut follow_ups =
-                crate::relic::apply_on_card_play_relics(state, definition.card_type);
+                crate::relic::apply_on_card_play_relics(state, definition.card_type)?;
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type)?);
             follow_ups.extend(apply_copied_card_play_triggers(state));
             Ok(follow_ups)
@@ -3598,6 +3598,48 @@ mod tests {
             ),
             Err(SimError::InvalidState(
                 "combat player block or energy is negative"
+            ))
+        );
+    }
+
+    #[test]
+    fn relic_counter_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.relic_counters.cards_played_this_turn = i32::MAX as u32;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), INFLAME_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat relic counter exceeds the target signed range"
+            ))
+        );
+    }
+
+    #[test]
+    fn nunchaku_energy_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = i32::MAX;
+        state.relics.push(Relic::Nunchaku);
+        state.relic_counters.nunchaku_attacks_played = crate::relic::NUNCHAKU_THRESHOLD - 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), ANGER_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: Some(state.monsters[0].id),
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
             ))
         );
     }

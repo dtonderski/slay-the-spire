@@ -1142,4 +1142,19 @@ mod tests {
             ))
         );
     }
+
+    #[test]
+    fn combat_validation_rejects_relic_counters_outside_the_target_domain() {
+        let mut state = CombatState::initial_fixture();
+        state.relic_counters.player_turns_started = i32::MAX as u32;
+        state.validate().expect("largest target counter is valid");
+
+        state.relic_counters.player_turns_started = i32::MAX as u32 + 1;
+        assert_eq!(
+            state.validate(),
+            Err(SimError::InvalidState(
+                "combat relic counter is outside its stable range"
+            ))
+        );
+    }
 }

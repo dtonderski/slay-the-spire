@@ -3,6 +3,7 @@ use crate::card::CardType;
 use crate::combat::CombatState;
 use crate::content::cards::upgrade_card_instance;
 use crate::rng::{JavaRng, StsRng};
+use crate::{SimError, SimResult};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::ContentId;
@@ -624,7 +625,28 @@ impl RelicCounters {
     /// relic code would already have consumed and reset.
     #[must_use]
     pub(crate) fn has_out_of_bounds_stable_counter(&self) -> bool {
-        self.ink_bottle_cards_played >= INK_BOTTLE_THRESHOLD
+        [
+            self.ink_bottle_cards_played,
+            self.ornamental_fan_attacks_this_turn,
+            self.nunchaku_attacks_played,
+            self.pen_nib_attacks_played,
+            self.shuriken_attacks_this_turn,
+            self.kunai_attacks_this_turn,
+            self.letter_opener_skills_this_turn,
+            self.cards_played_this_turn,
+            self.attacks_played_this_turn,
+            self.cards_played_last_turn,
+            self.attacks_played_this_combat,
+            self.centennial_puzzle_triggers,
+            self.attacks_played_last_turn,
+            self.player_turns_started,
+            self.happy_flower_turns,
+            self.sundial_shuffles,
+            self.incense_burner_counter,
+        ]
+        .into_iter()
+        .any(|counter| counter > i32::MAX as u32)
+            || self.ink_bottle_cards_played >= INK_BOTTLE_THRESHOLD
             || self.ornamental_fan_attacks_this_turn >= ORNAMENTAL_FAN_THRESHOLD
             || self.nunchaku_attacks_played >= NUNCHAKU_THRESHOLD
             || self.pen_nib_attacks_played >= PEN_NIB_THRESHOLD
@@ -2472,23 +2494,22 @@ pub fn apply_monster_vulnerable_with_relics(
     }
 }
 
-#[must_use]
 pub fn apply_on_card_play_relics(
     state: &mut CombatState,
     card_type: CardType,
-) -> Vec<InternalAction> {
+) -> SimResult<Vec<InternalAction>> {
     let mut follow_ups = Vec::new();
 
-    state.relic_counters.cards_played_this_turn += 1;
+    checked_increment_relic_counter(&mut state.relic_counters.cards_played_this_turn)?;
     if state.relics.contains(&Relic::Akabeko) && card_type == CardType::Attack {
-        state.relic_counters.attacks_played_this_combat += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.attacks_played_this_combat)?;
     }
     if state.relics.contains(&Relic::ArtOfWar) && card_type == CardType::Attack {
-        state.relic_counters.attacks_played_this_turn += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.attacks_played_this_turn)?;
     }
 
     if state.relics.contains(&Relic::InkBottle) {
-        state.relic_counters.ink_bottle_cards_played += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.ink_bottle_cards_played)?;
         if state.relic_counters.ink_bottle_cards_played >= INK_BOTTLE_THRESHOLD {
             state.relic_counters.ink_bottle_cards_played = 0;
             follow_ups.push(InternalAction::DrawCardsFromInkBottle { count: 1 });
@@ -2496,7 +2517,9 @@ pub fn apply_on_card_play_relics(
     }
 
     if state.relics.contains(&Relic::OrnamentalFan) && card_type == CardType::Attack {
-        state.relic_counters.ornamental_fan_attacks_this_turn += 1;
+        checked_increment_relic_counter(
+            &mut state.relic_counters.ornamental_fan_attacks_this_turn,
+        )?;
         if state.relic_counters.ornamental_fan_attacks_this_turn >= ORNAMENTAL_FAN_THRESHOLD {
             state.relic_counters.ornamental_fan_attacks_this_turn = 0;
             follow_ups.push(InternalAction::GainBlock {
@@ -2506,22 +2529,29 @@ pub fn apply_on_card_play_relics(
     }
 
     if state.relics.contains(&Relic::Nunchaku) && card_type == CardType::Attack {
-        state.relic_counters.nunchaku_attacks_played += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.nunchaku_attacks_played)?;
         if state.relic_counters.nunchaku_attacks_played >= NUNCHAKU_THRESHOLD {
             state.relic_counters.nunchaku_attacks_played = 0;
-            state.player.energy += NUNCHAKU_ENERGY;
+            state.player.energy =
+                state
+                    .player
+                    .energy
+                    .checked_add(NUNCHAKU_ENERGY)
+                    .ok_or(SimError::InvalidState(
+                        "combat integer addition overflows i32",
+                    ))?;
         }
     }
 
     if state.relics.contains(&Relic::PenNib) && card_type == CardType::Attack {
-        state.relic_counters.pen_nib_attacks_played += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.pen_nib_attacks_played)?;
         if state.relic_counters.pen_nib_attacks_played >= PEN_NIB_THRESHOLD {
             state.relic_counters.pen_nib_attacks_played = 0;
         }
     }
 
     if state.relics.contains(&Relic::Shuriken) && card_type == CardType::Attack {
-        state.relic_counters.shuriken_attacks_this_turn += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.shuriken_attacks_this_turn)?;
         if state.relic_counters.shuriken_attacks_this_turn >= SHURIKEN_THRESHOLD {
             state.relic_counters.shuriken_attacks_this_turn = 0;
             follow_ups.push(InternalAction::GainStrength {
@@ -2531,7 +2561,7 @@ pub fn apply_on_card_play_relics(
     }
 
     if state.relics.contains(&Relic::Kunai) && card_type == CardType::Attack {
-        state.relic_counters.kunai_attacks_this_turn += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.kunai_attacks_this_turn)?;
         if state.relic_counters.kunai_attacks_this_turn >= KUNAI_THRESHOLD {
             state.relic_counters.kunai_attacks_this_turn = 0;
             follow_ups.push(InternalAction::GainDexterity {
@@ -2541,7 +2571,7 @@ pub fn apply_on_card_play_relics(
     }
 
     if state.relics.contains(&Relic::LetterOpener) && card_type == CardType::Skill {
-        state.relic_counters.letter_opener_skills_this_turn += 1;
+        checked_increment_relic_counter(&mut state.relic_counters.letter_opener_skills_this_turn)?;
         if state.relic_counters.letter_opener_skills_this_turn >= LETTER_OPENER_THRESHOLD {
             state.relic_counters.letter_opener_skills_this_turn = 0;
             follow_ups.extend(state.monsters.iter().filter(|monster| monster.alive).map(
@@ -2559,7 +2589,17 @@ pub fn apply_on_card_play_relics(
 
     apply_orange_pellets_on_card_play(state, card_type);
 
-    follow_ups
+    Ok(follow_ups)
+}
+
+fn checked_increment_relic_counter(counter: &mut u32) -> SimResult<()> {
+    if *counter >= i32::MAX as u32 {
+        return Err(SimError::InvalidState(
+            "combat relic counter exceeds the target signed range",
+        ));
+    }
+    *counter += 1;
+    Ok(())
 }
 
 fn apply_orange_pellets_on_card_play(state: &mut CombatState, card_type: CardType) {
