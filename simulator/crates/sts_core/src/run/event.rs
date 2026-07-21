@@ -602,6 +602,19 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
         }
+        Event::WheelOfChange => {
+            let valid_data = match screen.stage {
+                0 => screen.event_data == 0,
+                1 | 2 => screen.event_data <= 5,
+                3 => matches!(screen.event_data, 0 | 2 | 3 | 5),
+                _ => return Err(SimError::InvalidState("Wheel of Change stage is invalid")),
+            };
+            if !valid_data {
+                return Err(SimError::InvalidState(
+                    "Wheel of Change result does not match its stage",
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -5275,6 +5288,88 @@ mod tests {
             .expect("prize reveal advances without applying gold twice");
         assert_eq!(after_prize.gold, 215);
         assert_eq!(after_prize.event.as_ref().unwrap().stage, 3);
+    }
+
+    #[test]
+    fn wheel_of_change_validation_accepts_only_reachable_stage_data_pairs() {
+        for (stage, results) in [(0, 0..=0), (1, 0..=5), (2, 0..=5), (3, 0..=5)] {
+            for event_data in results {
+                if stage == 3 && matches!(event_data, 1 | 4) {
+                    continue;
+                }
+                let mut run = RunState::seeded_ironclad(1, 0);
+                run.phase = RunPhase::Event;
+                run.event = Some(EventScreen {
+                    event: Event::WheelOfChange,
+                    choices: wheel_of_change_choices(stage, event_data),
+                    stage,
+                    event_data,
+                });
+                run.validate()
+                    .expect("reachable Wheel of Change state is valid");
+            }
+        }
+
+        for (stage, event_data) in [(0, 1), (1, 6), (2, 6), (3, 1), (3, 4)] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.phase = RunPhase::Event;
+            run.event = Some(EventScreen {
+                event: Event::WheelOfChange,
+                choices: wheel_of_change_choices(stage, event_data),
+                stage,
+                event_data,
+            });
+            assert_eq!(
+                run.validate(),
+                Err(SimError::InvalidState(
+                    "Wheel of Change result does not match its stage"
+                ))
+            );
+        }
+
+        let mut invalid_stage = RunState::seeded_ironclad(1, 0);
+        invalid_stage.phase = RunPhase::Event;
+        invalid_stage.event = Some(EventScreen {
+            event: Event::WheelOfChange,
+            choices: wheel_of_change_choices(4, 0),
+            stage: 4,
+            event_data: 0,
+        });
+        assert_eq!(
+            invalid_stage.validate(),
+            Err(SimError::InvalidState("Wheel of Change stage is invalid"))
+        );
+    }
+
+    #[test]
+    fn wheel_of_change_card_removal_returns_to_leave_without_second_prize() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.gold = 50;
+        run.event = Some(EventScreen {
+            event: Event::WheelOfChange,
+            choices: wheel_of_change_choices(2, 4),
+            stage: 2,
+            event_data: 4,
+        });
+        let initial_deck_len = run.deck.len();
+
+        let grid = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("card removal prize opens its grid");
+        let selected = crate::run::grid::select_grid_card(&grid, 0)
+            .expect("Wheel of Change card can be selected");
+        let leave = crate::run::grid::confirm_grid(&selected)
+            .expect("card removal returns to the event leave screen");
+
+        assert_eq!(leave.deck.len(), initial_deck_len - 1);
+        assert_eq!(leave.gold, 50);
+        assert_eq!(leave.event.as_ref().expect("leave screen").stage, 3);
+
+        let completed = apply_event_action(&leave, EventAction::Choose { choice_index: 0 })
+            .expect("Wheel of Change leave applies");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert_eq!(completed.gold, 50);
+        assert!(completed.event.is_none());
     }
 
     #[test]

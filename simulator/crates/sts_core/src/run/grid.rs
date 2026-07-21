@@ -711,7 +711,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
                 choices: vec![EventChoice {
                     label: "Leave".to_owned(),
                 }],
-                stage: 2,
+                stage: if event == Event::WheelOfChange { 3 } else { 2 },
                 event_data: 0,
             });
         }
