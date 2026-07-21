@@ -519,6 +519,21 @@ pub(super) fn validate_event_screen_authority(
                 }
             }
         }
+        Event::ScrapOoze => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Scrap Ooze stage is invalid"));
+            }
+            if screen.stage == 0 && screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Scrap Ooze intro retains failed reaches",
+                ));
+            }
+            if screen.event_data > SCRAP_OOZE_MAX_FAILED_REACHES {
+                return Err(SimError::InvalidState(
+                    "Scrap Ooze failed reach count exceeds reachable range",
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1740,21 +1755,45 @@ fn neow_option_choices(run: &RunState) -> Vec<EventChoice> {
         .collect()
 }
 
-fn roll_scrap_ooze_relic(run: &mut RunState, event_data: u32) -> bool {
+const SCRAP_OOZE_MAX_FAILED_REACHES: u32 = 8;
+
+fn scrap_ooze_relic_chance(failed_reaches: u32) -> SimResult<i32> {
+    failed_reaches
+        .checked_mul(10)
+        .and_then(|chance| chance.checked_add(25))
+        .and_then(|chance| i32::try_from(chance).ok())
+        .ok_or(SimError::InvalidState(
+            "Scrap Ooze relic chance exceeds supported range",
+        ))
+}
+
+fn roll_scrap_ooze_relic(run: &mut RunState, event_data: u32) -> SimResult<bool> {
+    let relic_chance = scrap_ooze_relic_chance(event_data)?;
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
     let roll = rng.random_int(99);
     run.misc_rng_counter = rng.counter();
-    let relic_chance = i32::try_from(event_data * 10 + 25).expect("scrap ooze relic chance");
-    roll >= 99 - relic_chance
+    Ok(roll >= 99 - relic_chance)
 }
 
-fn scrap_ooze_hp_loss(ascension: u8, failed_reaches: u32) -> i32 {
+fn scrap_ooze_hp_loss(ascension: u8, failed_reaches: u32) -> SimResult<i32> {
     let base = if ascension >= 15 {
         SCRAP_OOZE_REACH_HP_LOSS + 2
     } else {
         SCRAP_OOZE_REACH_HP_LOSS
     };
-    base + i32::try_from(failed_reaches).expect("scrap ooze failed reach count")
+    let failed_reaches = i32::try_from(failed_reaches).map_err(|_| {
+        SimError::InvalidState("Scrap Ooze failed reach count exceeds supported range")
+    })?;
+    base.checked_add(failed_reaches)
+        .ok_or(SimError::InvalidState(
+            "Scrap Ooze HP loss exceeds supported range",
+        ))
+}
+
+fn next_scrap_ooze_failed_reaches(failed_reaches: u32) -> SimResult<u32> {
+    failed_reaches.checked_add(1).ok_or(SimError::InvalidState(
+        "Scrap Ooze failed reach count overflows",
+    ))
 }
 
 fn roll_wing_statue_gold(run: &mut RunState) -> i32 {
@@ -3529,16 +3568,16 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         }
         Event::ScrapOoze => match screen.stage {
             0 if choice_index == 0 => {
-                let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data);
+                let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data)?;
                 next.player_hp = (next.player_hp - hp_loss).max(0);
-                if roll_scrap_ooze_relic(&mut next, screen.event_data) {
+                if roll_scrap_ooze_relic(&mut next, screen.event_data)? {
                     scrap_ooze_success(&mut next);
                 } else {
                     next.event = Some(EventScreen {
                         event: Event::ScrapOoze,
                         choices: scrap_ooze_choices(1),
                         stage: 1,
-                        event_data: screen.event_data + 1,
+                        event_data: next_scrap_ooze_failed_reaches(screen.event_data)?,
                     });
                 }
             }
@@ -3551,16 +3590,16 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 if choice_index == 0 => {
-                let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data);
+                let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data)?;
                 next.player_hp = (next.player_hp - hp_loss).max(0);
-                if roll_scrap_ooze_relic(&mut next, screen.event_data) {
+                if roll_scrap_ooze_relic(&mut next, screen.event_data)? {
                     scrap_ooze_success(&mut next);
                 } else {
                     next.event = Some(EventScreen {
                         event: Event::ScrapOoze,
                         choices: scrap_ooze_choices(1),
                         stage: 1,
-                        event_data: screen.event_data + 1,
+                        event_data: next_scrap_ooze_failed_reaches(screen.event_data)?,
                     });
                 }
             }
@@ -6466,6 +6505,57 @@ mod tests {
 
         assert_eq!(after_leave.phase, RunPhase::Event);
         assert_eq!(choices, vec!["Leave"]);
+    }
+
+    #[test]
+    fn scrap_ooze_import_rejects_unreachable_failed_reach_count() {
+        assert_eq!(
+            scrap_ooze_relic_chance(SCRAP_OOZE_MAX_FAILED_REACHES)
+                .expect("maximum reachable count has a defined chance"),
+            105
+        );
+
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::ScrapOoze,
+            choices: scrap_ooze_choices(1),
+            stage: 1,
+            event_data: SCRAP_OOZE_MAX_FAILED_REACHES + 1,
+        });
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "Scrap Ooze failed reach count exceeds reachable range"
+            ))
+        );
+    }
+
+    #[test]
+    fn scrap_ooze_malformed_arithmetic_fails_before_rng_advances() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        let misc_rng_counter = run.misc_rng_counter;
+
+        assert_eq!(
+            roll_scrap_ooze_relic(&mut run, u32::MAX),
+            Err(SimError::InvalidState(
+                "Scrap Ooze relic chance exceeds supported range"
+            ))
+        );
+        assert_eq!(run.misc_rng_counter, misc_rng_counter);
+        assert_eq!(
+            scrap_ooze_hp_loss(0, u32::MAX),
+            Err(SimError::InvalidState(
+                "Scrap Ooze failed reach count exceeds supported range"
+            ))
+        );
+        assert_eq!(
+            next_scrap_ooze_failed_reaches(u32::MAX),
+            Err(SimError::InvalidState(
+                "Scrap Ooze failed reach count overflows"
+            ))
+        );
     }
 
     #[test]
