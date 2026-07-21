@@ -826,7 +826,7 @@ fn target_spawn_monster_state(
     monster.slime_size = target_spawn_slime_size(spawn.name).or(monster.slime_size);
     monster.block = spawn.block;
     monster.alive = spawn.current_hp > 0;
-    monster.powers = spawn_monster_powers(spawn);
+    monster.powers = spawn_monster_powers(spawn, content_id)?;
     monster.rolled_attack_damage = spawn.rolled_attack_damage;
     monster.intent = match spawn.intent {
         TargetSpawnIntent::PendingAiRoll => crate::MonsterIntent::PendingAiRoll,
@@ -877,7 +877,10 @@ fn target_spawn_slime_size(name: &str) -> Option<SlimeSize> {
     }
 }
 
-fn spawn_monster_powers(spawn: &TargetEncounterSpawn) -> MonsterPowers {
+fn spawn_monster_powers(
+    spawn: &TargetEncounterSpawn,
+    content_id: crate::ContentId,
+) -> SimResult<MonsterPowers> {
     let mut powers = MonsterPowers::default();
     for power in &spawn.powers {
         match power.id {
@@ -890,6 +893,7 @@ fn spawn_monster_powers(spawn: &TargetEncounterSpawn) -> MonsterPowers {
             "Plated Armor" => powers.plated_armor = power.amount,
             "Thorns" => powers.spikes = power.amount,
             "Painful Stabs" => powers.painful_stabs = power.amount,
+            "Explosive" => powers.explosive = power.amount,
             "Malleable" => {
                 powers.malleable = power.amount;
                 powers.malleable_base = power.amount;
@@ -898,10 +902,13 @@ fn spawn_monster_powers(spawn: &TargetEncounterSpawn) -> MonsterPowers {
             "Minion" => powers.minion = power.amount,
             "Angry" => powers.anger = power.amount,
             "Generic Strength Up Power" => powers.strength_up = power.amount,
-            _ => {}
+            // Thievery is represented by AttackStealGold intent rather than a
+            // persistent core monster power.
+            "Thievery" => {}
+            _ => return Err(SimError::UnsupportedMechanic(content_id)),
         }
     }
-    powers
+    Ok(powers)
 }
 
 fn wing_boots_action_is_legal(
@@ -1060,9 +1067,9 @@ mod tests {
             target_exploder_next_intent_from_roll, target_giant_head_next_intent_from_roll,
             target_orb_walker_next_intent_from_roll, target_repulsor_next_intent_from_roll,
             target_sentry_next_intent, target_slaver_red_next_intent_from_roll,
-            target_snecko_next_intent_from_roll, BOOK_OF_STABBING_ID, BRONZE_ORB_ID, CULTIST_ID,
-            DECA_ID, DONU_ID, EXPLODER_ID, GIANT_HEAD_ID, ORB_WALKER_ID, REPULSOR_ID, SENTRY_ID,
-            SLAVER_RED_ID, SNECKO_ID, SPIKE_SLIME_ID, TASKMASTER_ID,
+            target_snecko_next_intent_from_roll, TargetSpawnPower, BOOK_OF_STABBING_ID,
+            BRONZE_ORB_ID, CULTIST_ID, DECA_ID, DONU_ID, EXPLODER_ID, GIANT_HEAD_ID, ORB_WALKER_ID,
+            REPULSOR_ID, SENTRY_ID, SLAVER_RED_ID, SNECKO_ID, SPIKE_SLIME_ID, TASKMASTER_ID,
         },
         ContentId, MonsterIntent,
     };
@@ -1176,6 +1183,34 @@ mod tests {
             Err(SimError::InvalidState(
                 "boss combat requires a supported act"
             ))
+        );
+    }
+
+    #[test]
+    fn encounter_entry_preserves_explosive_and_rejects_unknown_spawn_powers() {
+        let mut spawn = TargetEncounterSpawn {
+            name: "Exploder",
+            current_hp: 30,
+            max_hp: 30,
+            block: 0,
+            intent: TargetSpawnIntent::Attack { damage: 9 },
+            powers: vec![TargetSpawnPower {
+                id: "Explosive",
+                amount: 3,
+            }],
+            rolled_attack_damage: Some(9),
+        };
+
+        let monster = target_spawn_monster_state(&spawn, 0, 0).expect("supported power converts");
+        assert_eq!(monster.powers.explosive, 3);
+
+        spawn.powers = vec![TargetSpawnPower {
+            id: "Unsupported Power",
+            amount: 1,
+        }];
+        assert_eq!(
+            target_spawn_monster_state(&spawn, 0, 0),
+            Err(SimError::UnsupportedMechanic(EXPLODER_ID))
         );
     }
 
