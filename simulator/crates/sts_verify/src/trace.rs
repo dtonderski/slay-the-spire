@@ -501,6 +501,7 @@ fn validate_visible_screen_schema(
         "EVENT" => return validate_event_screen_schema(step, game),
         "MAP" => return validate_map_screen_schema(step, game),
         "GRID" => return validate_grid_screen_schema(step, game),
+        "HAND_SELECT" => return validate_hand_select_screen_schema(step, game),
         "REST" => return validate_rest_screen_schema(step, game),
         "SHOP_ROOM" => return validate_shop_room_schema(step, game),
         "SHOP_SCREEN" => return validate_shop_screen_schema(step, game),
@@ -724,6 +725,67 @@ fn validate_shop_screen_schema(
     {
         return Err(serde_json::Error::custom(format!(
             "trace state at step {step} game_state.screen_state.purge_cost must be a non-negative u32"
+        )));
+    }
+    if game.get("choice_list").is_some() {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_hand_select_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "HAND_SELECT", game)?;
+    let max_cards = screen
+        .get("max_cards")
+        .and_then(Value::as_u64)
+        .filter(|max_cards| *max_cards > 0)
+        .and_then(|max_cards| u32::try_from(max_cards).ok())
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.max_cards must be a positive u32"
+            ))
+        })?;
+    if screen
+        .get("can_pick_zero")
+        .and_then(Value::as_bool)
+        .is_none()
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.can_pick_zero must be a boolean"
+        )));
+    }
+    let missing_cards = Value::Null;
+    for field in ["hand", "selected"] {
+        let path = format!("game_state.screen_state.{field}");
+        let cards = screen.get(field).unwrap_or(&missing_cards);
+        validate_identity_array(step, &path, cards)?;
+        for card in cards
+            .as_array()
+            .expect("validated hand-select cards are an array")
+        {
+            if card
+                .get("upgrades")
+                .and_then(Value::as_u64)
+                .and_then(|upgrades| u8::try_from(upgrades).ok())
+                .is_none()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} {path} entry upgrades must be a non-negative u8"
+                )));
+            }
+        }
+    }
+    let selected_count = screen
+        .get("selected")
+        .and_then(Value::as_array)
+        .expect("validated selected cards are an array")
+        .len();
+    if selected_count > max_cards as usize {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} HAND_SELECT selected card count exceeds max_cards"
         )));
     }
     if game.get("choice_list").is_some() {
@@ -1487,6 +1549,33 @@ mod tests {
         let content = r#"{"type":"state","step":33,"message":{"game_state":{"screen_type":"SHOP_SCREEN","ascension_level":0,"floor":6,"gold":0,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"cards":[{"id":"Strike_R","price":50,"upgrades":0}],"relics":[{"id":"Anchor","price":150}],"potions":[{"id":"Fire Potion","price":50}],"purge_available":false,"purge_cost":75}}}}"#;
 
         parse_trace_jsonl(content).expect("choice-free merchant state remains valid");
+    }
+
+    #[test]
+    fn parse_trace_rejects_hand_select_without_hand_authority() {
+        let content = r#"{"type":"state","step":34,"message":{"game_state":{"screen_type":"HAND_SELECT","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["strike"],"screen_state":{"max_cards":1,"can_pick_zero":false,"selected":[]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("hand choices are authoritative");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 34 game_state.screen_state.hand must be an array"));
+    }
+
+    #[test]
+    fn parse_trace_rejects_hand_select_over_selection() {
+        let content = r#"{"type":"state","step":35,"message":{"game_state":{"screen_type":"HAND_SELECT","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"max_cards":1,"can_pick_zero":false,"hand":[],"selected":[{"id":"Strike_R","upgrades":0},{"id":"Defend_R","upgrades":0}]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("selection count is bounded");
+        assert!(error
+            .to_string()
+            .contains("trace state at step 35 HAND_SELECT selected card count exceeds max_cards"));
+    }
+
+    #[test]
+    fn parse_trace_allows_hand_select_confirmation_without_choices() {
+        let content = r#"{"type":"state","step":36,"message":{"game_state":{"screen_type":"HAND_SELECT","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"max_cards":1,"can_pick_zero":false,"hand":[],"selected":[{"id":"Strike_R","upgrades":0}]}}}}"#;
+
+        parse_trace_jsonl(content).expect("hand-select confirmation may omit choices");
     }
 
     #[test]
