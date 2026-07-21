@@ -918,6 +918,100 @@ fn recorded_action_playtime_seconds(pre: &TraceState, action: &TraceAction) -> O
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingNeowCurseOrder {
+    BeforePickedCard,
+    AfterPickedCard,
+}
+
+fn pending_neow_curse_order(
+    pre: &TraceState,
+    action: &TraceAction,
+) -> Result<PendingNeowCurseOrder, &'static str> {
+    // NeowReward.update can queue the pending curse on the first target update
+    // after the card reward opens. Recorded commands delayed by at least 100 ms
+    // have crossed an update opportunity even on a heavily loaded 10 FPS target.
+    // Traces without timestamps represent synchronous dispatch from their source
+    // state and retain the picked-card-before-curse ordering.
+    const TARGET_UPDATE_OPPORTUNITY_MILLIS: i64 = 100;
+
+    match (pre.received_at.as_deref(), action.sent_at.as_deref()) {
+        (Some(received), Some(sent)) => {
+            let received = trace_timestamp_millis(received)
+                .ok_or("invalid source-state received_at timestamp")?;
+            let sent = trace_timestamp_millis(sent).ok_or("invalid action sent_at timestamp")?;
+            let delay = sent
+                .checked_sub(received)
+                .filter(|delay| *delay >= 0)
+                .ok_or("action sent_at precedes source-state received_at")?;
+            Ok(if delay >= TARGET_UPDATE_OPPORTUNITY_MILLIS {
+                PendingNeowCurseOrder::BeforePickedCard
+            } else {
+                PendingNeowCurseOrder::AfterPickedCard
+            })
+        }
+        _ => Ok(PendingNeowCurseOrder::AfterPickedCard),
+    }
+}
+
+fn trace_timestamp_millis(timestamp: &str) -> Option<i64> {
+    let timestamp = timestamp.strip_suffix('Z')?;
+    let (date, time) = timestamp.split_once('T')?;
+    let mut date = date.split('-');
+    let year = date.next()?.parse::<i64>().ok()?;
+    let month = date.next()?.parse::<i64>().ok()?;
+    let day = date.next()?.parse::<i64>().ok()?;
+    if date.next().is_some() || !(1..=12).contains(&month) {
+        return None;
+    }
+    let days_in_month = match month {
+        2 if year % 400 == 0 || year % 4 == 0 && year % 100 != 0 => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    };
+    if !(1..=days_in_month).contains(&day) {
+        return None;
+    }
+
+    let mut time = time.split(':');
+    let hour = time.next()?.parse::<i64>().ok()?;
+    let minute = time.next()?.parse::<i64>().ok()?;
+    let second_and_fraction = time.next()?;
+    if time.next().is_some() || hour > 23 || minute > 59 {
+        return None;
+    }
+    let (second, fraction) = match second_and_fraction.split_once('.') {
+        Some((_, "")) => return None,
+        Some(parts) => parts,
+        None => (second_and_fraction, ""),
+    };
+    let second = second.parse::<i64>().ok()?;
+    if second > 59 || !fraction.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    let mut millis = 0i64;
+    for (index, digit) in fraction.bytes().take(3).enumerate() {
+        millis += i64::from(digit - b'0') * 10i64.pow(2 - index as u32);
+    }
+
+    // Howard Hinnant's civil-date conversion, with 1970-01-01 as day zero.
+    let adjusted_year = year - i64::from(month <= 2);
+    let era = if adjusted_year >= 0 {
+        adjusted_year
+    } else {
+        adjusted_year - 399
+    } / 400;
+    let year_of_era = adjusted_year - era * 400;
+    let adjusted_month = month + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * adjusted_month + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days_since_epoch = era * 146_097 + day_of_era - 719_468;
+    days_since_epoch
+        .checked_mul(86_400_000)?
+        .checked_add(hour * 3_600_000 + minute * 60_000 + second * 1_000 + millis)
+}
+
 struct SeedStartVerification {
     boundary: SeedStartBoundary,
     final_run_state: Option<RunState>,
@@ -998,7 +1092,6 @@ fn verify_seed_start_transitions(
     let mut neow_potion_rng_counter: Option<u32> = None;
     let mut neow_potions_taken = 0usize;
     let mut delayed_neow_curse: Option<String> = None;
-    let mut delayed_neow_curse_before_last_deck_card = false;
     let mut pending_neow_room_entry_curse: Option<String> = None;
     let mut pending_neow_room_entry_curse_advances_card_rng = false;
     let mut delayed_neow_transform_count = 0usize;
@@ -2693,49 +2786,97 @@ fn verify_seed_start_transitions(
                 if let Some(card_rng_counter) = neow_card_reward_card_rng_counter {
                     run.card_rng_counter = card_rng_counter;
                 }
-                if delayed_neow_curse.is_some() {
-                    let observed_deck_ids = post
-                        .message
-                        .get("game_state")
-                        .and_then(|game| game.get("deck"))
-                        .map(|deck| deck_keys_from_value(Some(deck)))
-                        .unwrap_or_default();
-                    let curse_now_deck_ids = delayed_neow_curse.as_ref().map(|curse| {
-                        let mut ids = pre_pick_deck_ids.clone();
-                        ids.push(curse.clone());
-                        ids.push(picked_card.clone());
-                        ids
-                    });
-                    if curse_now_deck_ids
-                        .as_ref()
-                        .is_some_and(|ids| *ids == observed_deck_ids)
-                    {
-                        deck_ids = curse_now_deck_ids.expect("checked Some");
-                        delayed_neow_curse = None;
-                        run.deck = deck_instances_from_keys(&deck_ids);
-                        run.card_rng_counter = run.card_rng_counter.saturating_add(1);
+                let mut transient_deck = deck_ids.clone();
+                if let Some(curse) = delayed_neow_curse.take() {
+                    let curse_order = match pending_neow_curse_order(pre, action) {
+                        Ok(order) => order,
+                        Err(reason) => {
+                            return finish_boundary!(SeedStartBoundary {
+                                path: format!("$.actions[step={}].sent_at", action.step),
+                                category: "invalid_input".to_owned(),
+                                reason: reason.to_owned(),
+                            });
+                        }
+                    };
+                    // NeowReward.activate marks the curse pending before opening the
+                    // reward. A target update can obtain it while that screen remains
+                    // open; otherwise CardRewardScreen obtains the selected card first.
+                    // The order is bound from pre-state/action timing, never post-state.
+                    deck_ids = pre_pick_deck_ids;
+                    if curse_order == PendingNeowCurseOrder::BeforePickedCard {
+                        deck_ids.push(curse);
+                        deck_ids.push(picked_card);
                     } else {
-                        delayed_neow_curse_before_last_deck_card = false;
+                        deck_ids.push(picked_card);
+                        deck_ids.push(curse);
                     }
+                    if curse_order == PendingNeowCurseOrder::BeforePickedCard {
+                        transient_deck = deck_ids.clone();
+                    }
+                    run.deck = deck_instances_from_keys(&deck_ids);
+                    run.card_rng_counter = run.card_rng_counter.saturating_add(1);
                 }
                 seed_sim = Some(run);
-                compare_subset(
-                    report,
-                    action,
-                    "Neow colorless pickup",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": neow_gold,
-                        "current_hp": neow_current_hp,
-                        "max_hp": neow_max_hp,
-                        "deck_ids": deck_ids,
-                        "relic_ids": relics,
-                        "choices": ["leave"],
-                    }),
-                );
+                let mut observed = seed_start_observed_subset(&post.message);
+                let observed_deck = observed
+                    .as_object_mut()
+                    .and_then(|object| object.remove("deck_ids"))
+                    .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                    .unwrap_or_default();
+                let mut simulated = json!({
+                    "screen_type": "EVENT",
+                    "ascension": start.ascension,
+                    "floor": 0,
+                    "gold": neow_gold,
+                    "current_hp": neow_current_hp,
+                    "max_hp": neow_max_hp,
+                    "deck_ids": deck_ids,
+                    "relic_ids": relics,
+                    "choices": ["leave"],
+                });
+                let simulated_deck = simulated
+                    .as_object_mut()
+                    .and_then(|object| object.remove("deck_ids"))
+                    .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                    .expect("Neow card pickup projection contains a deck");
+                let mut diffs = subset_diffs(observed, simulated);
+                match classify_deferred_deck_observation(
+                    &observed_deck,
+                    &transient_deck,
+                    &simulated_deck,
+                ) {
+                    PendingDeckObservation::Settled if diffs.is_empty() => {
+                        report.verified.push(VerifiedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: "Neow colorless pickup".to_owned(),
+                        });
+                    }
+                    PendingDeckObservation::Deferred if diffs.is_empty() => {
+                        pending_deck_assertion = Some(PendingDeckAssertion {
+                            action: action.clone(),
+                            label: "Neow colorless pickup".to_owned(),
+                            expected_deck: simulated_deck,
+                        });
+                    }
+                    PendingDeckObservation::Diverged(deck_diffs) => {
+                        diffs.extend(deck_diffs);
+                        report.unexpected_diffs.push(UnexpectedDiff {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: "Neow colorless pickup".to_owned(),
+                            diffs,
+                        });
+                    }
+                    PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+                        report.unexpected_diffs.push(UnexpectedDiff {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: "Neow colorless pickup".to_owned(),
+                            diffs,
+                        });
+                    }
+                }
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowPotionReward if command_is_choose(&action.command, 0) => {
@@ -2847,11 +2988,7 @@ fn verify_seed_start_transitions(
                 let settled_deck = pending_neow_room_entry_curse
                     .as_ref()
                     .map(|curse| {
-                        seed_start_deck_with_pending_neow_curse(
-                            &pre_room_entry_deck,
-                            curse,
-                            delayed_neow_curse_before_last_deck_card,
-                        )
+                        seed_start_deck_with_pending_neow_curse(&pre_room_entry_deck, curse)
                     })
                     .unwrap_or_else(|| pre_room_entry_deck.clone());
                 let mut transient_decks = Vec::new();
@@ -2861,11 +2998,8 @@ fn verify_seed_start_transitions(
                 if let Some(lagged) = lagged_visible_deck {
                     transient_decks.push(lagged.clone());
                     if let Some(curse) = pending_neow_room_entry_curse.as_ref() {
-                        transient_decks.push(seed_start_deck_with_pending_neow_curse(
-                            &lagged,
-                            curse,
-                            delayed_neow_curse_before_last_deck_card,
-                        ));
+                        transient_decks
+                            .push(seed_start_deck_with_pending_neow_curse(&lagged, curse));
                     }
                 }
                 transient_decks.retain(|deck| deck != &settled_deck);
@@ -2955,14 +3089,12 @@ fn verify_seed_start_transitions(
                         let next_deck_ids = seed_start_deck_with_pending_neow_curse(
                             &deck_content_keys(&transition_base.deck),
                             &curse,
-                            delayed_neow_curse_before_last_deck_card,
                         );
                         if pending_neow_room_entry_curse_advances_card_rng {
                             transition_base.card_rng_counter =
                                 transition_base.card_rng_counter.saturating_add(1);
                         }
                         pending_neow_room_entry_curse_advances_card_rng = false;
-                        delayed_neow_curse_before_last_deck_card = false;
                         transition_base.deck = deck_instances_from_keys(&next_deck_ids);
                         deck_ids = next_deck_ids;
                     }
@@ -11909,17 +12041,9 @@ fn deck_content_keys(deck: &[CardInstance]) -> Vec<String> {
         .collect()
 }
 
-fn seed_start_deck_with_pending_neow_curse(
-    deck: &[String],
-    curse: &str,
-    before_last_card: bool,
-) -> Vec<String> {
+fn seed_start_deck_with_pending_neow_curse(deck: &[String], curse: &str) -> Vec<String> {
     let mut settled = deck.to_vec();
-    let delayed_tail = before_last_card.then(|| settled.pop()).flatten();
     settled.push(curse.to_owned());
-    if let Some(card) = delayed_tail {
-        settled.push(card);
-    }
     settled
 }
 
@@ -12476,6 +12600,54 @@ mod tests {
             Some(799),
             "the explicit action input wins over its source state's copy"
         );
+    }
+
+    #[test]
+    fn neow_curse_order_uses_only_pre_state_and_typed_action_timing() {
+        let mut pre = TraceState {
+            step: 3,
+            received_at: None,
+            message: json!({"game_state": {"screen_type": "CARD_REWARD"}}),
+        };
+        let mut action = TraceAction {
+            step: 4,
+            command: "CHOOSE 0".to_owned(),
+            sent_at: None,
+            playtime_seconds: None,
+        };
+        assert_eq!(
+            pending_neow_curse_order(&pre, &action),
+            Ok(PendingNeowCurseOrder::AfterPickedCard)
+        );
+
+        pre.received_at = Some("2026-07-07T21:30:35.058Z".to_owned());
+        action.sent_at = Some("2026-07-07T21:30:42.532Z".to_owned());
+        assert_eq!(
+            pending_neow_curse_order(&pre, &action),
+            Ok(PendingNeowCurseOrder::BeforePickedCard)
+        );
+
+        action.sent_at = Some("2026-07-07T21:30:35.099Z".to_owned());
+        assert_eq!(
+            pending_neow_curse_order(&pre, &action),
+            Ok(PendingNeowCurseOrder::AfterPickedCard)
+        );
+        action.sent_at = Some("not-a-timestamp".to_owned());
+        assert_eq!(
+            pending_neow_curse_order(&pre, &action),
+            Err("invalid action sent_at timestamp")
+        );
+    }
+
+    #[test]
+    fn trace_timestamp_millis_handles_calendar_boundaries() {
+        let before_midnight =
+            trace_timestamp_millis("2026-07-07T23:59:59.950Z").expect("valid timestamp");
+        let after_midnight =
+            trace_timestamp_millis("2026-07-08T00:00:00.050Z").expect("valid timestamp");
+        assert_eq!(after_midnight - before_midnight, 100);
+        assert!(trace_timestamp_millis("2025-02-29T00:00:00Z").is_none());
+        assert!(trace_timestamp_millis("2026-07-07T21:30:42.Z").is_none());
     }
 
     #[test]
@@ -18837,7 +19009,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_neow_curse_three_rare_cards_delays_curse_until_leave() {
+    fn seed_start_neow_curse_three_rare_cards_obtains_picked_card_before_curse() {
         let numeric_seed = 3_768_852_066_369_722_076;
         let external_seed = "1418KCQFMRQCW";
         let option = seed_start_selected_neow_option(numeric_seed, "CHOOSE 2")
@@ -18872,8 +19044,8 @@ mod tests {
         let picked_card = reward_ids[0].clone();
         let mut leave_deck = neow_deck.clone();
         leave_deck.push(json!({ "id": picked_card }));
-        let mut map_deck = leave_deck.clone();
-        map_deck.push(json!({ "id": curse_key }));
+        leave_deck.push(json!({ "id": curse_key }));
+        let map_deck = leave_deck.clone();
 
         let lines = vec![
             json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
@@ -19193,6 +19365,151 @@ mod tests {
         assert_eq!(choices, generated.cards);
         assert!(content_id_from_key(&delayed_curse)
             .is_some_and(sts_core::content::cards::is_curse_content_id));
+
+        let external_seed = test_seed_string_from_long(numeric_seed);
+        let starting_deck_keys = ironclad_starter_deck_keys();
+        let starting_deck = starting_deck_keys
+            .iter()
+            .map(|id| json!({ "id": id }))
+            .collect::<Vec<_>>();
+        let reward_ids = seed_start_neow_card_reward_ids(numeric_seed, &option, Some(&run));
+        let reward_names =
+            seed_start_neow_card_reward_choice_names(numeric_seed, &option, Some(&run));
+        let reward_cards = reward_ids
+            .iter()
+            .map(|id| json!({ "id": id, "name": id }))
+            .collect::<Vec<_>>();
+        let picked_card = reward_ids[0].clone();
+        let mut transient_pick_deck = starting_deck_keys.clone();
+        transient_pick_deck.push(picked_card.clone());
+        let mut settled_deck = starting_deck_keys.clone();
+        settled_deck.push(picked_card);
+        settled_deck.push(delayed_curse.clone());
+        let trace_deck = |keys: &[String]| {
+            keys.iter()
+                .map(|id| json!({ "id": id }))
+                .collect::<Vec<_>>()
+        };
+        let lines = vec![
+            json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+            json!({"type": "state", "step": 0, "message": {}}),
+            json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {external_seed}")}),
+            json!({"type": "state", "step": 1, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": starting_deck,
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["talk"]
+            }}}),
+            json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 2, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": trace_deck(&starting_deck_keys),
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_neow_choices(numeric_seed)
+            }}}),
+            json!({"type": "action", "step": 3, "command": format!("CHOOSE {}", option.slot)}),
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "CARD_REWARD",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": run.gold,
+                "current_hp": run.player_hp,
+                "max_hp": run.player_max_hp,
+                "deck": trace_deck(&starting_deck_keys),
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": reward_names,
+                "screen_state": {"cards": reward_cards}
+            }}}),
+            json!({"type": "action", "step": 4, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 4, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": run.gold,
+                "current_hp": run.player_hp,
+                "max_hp": run.player_max_hp,
+                "deck": trace_deck(&transient_pick_deck),
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": ["leave"]
+            }}}),
+            json!({"type": "action", "step": 5, "command": "CHOOSE 0"}),
+            json!({"type": "state", "step": 5, "message": {"game_state": {
+                "screen_type": "MAP",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": run.gold,
+                "current_hp": run.player_hp,
+                "max_hp": run.player_max_hp,
+                "deck": trace_deck(&settled_deck),
+                "relics": [{"name": "Burning Blood"}],
+                "choice_list": seed_start_first_map_choices(&external_seed)
+            }}}),
+        ];
+        let mut immediately_settled_lines = lines.clone();
+        *immediately_settled_lines
+            .iter_mut()
+            .find_map(|line| {
+                (line.get("step").and_then(Value::as_u64) == Some(4))
+                    .then(|| line.pointer_mut("/message/game_state/deck"))
+                    .flatten()
+            })
+            .expect("picked-card post deck") = json!(trace_deck(&settled_deck));
+
+        let lagged = verify_seed_start_communication_mod_trace(&serialize_trace_test_lines(lines))
+            .expect("lagged curse trace verifies");
+        let immediate = verify_seed_start_communication_mod_trace(&serialize_trace_test_lines(
+            immediately_settled_lines,
+        ))
+        .expect("immediately settled curse trace verifies");
+        assert!(lagged.unexpected_diffs.is_empty(), "{lagged:#?}");
+        assert!(immediate.unexpected_diffs.is_empty(), "{immediate:#?}");
+        let lagged_pick = lagged
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 4)
+            .expect("lagged pick disposition");
+        assert_eq!(lagged_pick.disposition, ActionDispositionKind::Verified);
+        assert!(lagged_pick.deferred_assertion_reconciled);
+        let immediate_pick = immediate
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 4)
+            .expect("immediate pick disposition");
+        assert_eq!(immediate_pick.disposition, ActionDispositionKind::Verified);
+        assert!(!immediate_pick.deferred_assertion_reconciled);
+        let lagged_state = lagged
+            .seed_start
+            .as_ref()
+            .and_then(|seed_start| seed_start.sim_run_state.as_ref())
+            .expect("lagged simulator state");
+        let immediate_state = immediate
+            .seed_start
+            .as_ref()
+            .and_then(|seed_start| seed_start.sim_run_state.as_ref())
+            .expect("immediate simulator state");
+        assert_eq!(deck_content_keys(&lagged_state.deck), settled_deck);
+        assert_eq!(
+            deck_content_keys(&lagged_state.deck),
+            deck_content_keys(&immediate_state.deck)
+        );
+        assert_eq!(
+            lagged_state.card_rng_counter,
+            generated.card_rng_counter + 1
+        );
+        assert_eq!(
+            lagged_state.card_rng_counter,
+            immediate_state.card_rng_counter
+        );
     }
 
     #[test]

@@ -432,6 +432,26 @@ selection.
 - `session-29-act3-accursed-blacksmith-event-rng.jsonl` pins the complete
   seed-start prefix through this time-gated event selection.
 
+## Neow curse/card-reward update ordering evidence
+
+Source inspected: target 12-18-2022 desktop-jar bytecode for `NeowReward` and
+`ShowCardAndObtainEffect`, plus two committed CommunicationMod traces.
+
+- A curse drawback sets `NeowReward.cursed` when the reward activates. While a
+  card-reward screen remains open, a later `NeowReward.update` can queue the
+  curse even though no reward card has been selected.
+- Constructing `ShowCardAndObtainEffect` calls `CardHelper.obtain` immediately;
+  its two-second duration is only the subsequent animation. Reward selection
+  likewise obtains the selected card when its obtain effect is constructed.
+- Ordering therefore depends on whether the target receives an update between
+  opening the reward and receiving the choice command. `trace-session-2` sends
+  the choice synchronously and records Panache before Clumsy. The 2026-07-07
+  trace waits 7.474 seconds and records Pain before Offering.
+- Verification binds that nondeterministic input from pre-state/action timing:
+  a recorded delay of at least 100 ms is an update opportunity; missing timing
+  means synchronous source-state dispatch. Post-state is comparison-only and
+  cannot choose deck order or RNG advancement.
+
 ## Live action completion and target timer evidence
 
 - Session 31 exposed a bridge-ordering race after target playtime became
