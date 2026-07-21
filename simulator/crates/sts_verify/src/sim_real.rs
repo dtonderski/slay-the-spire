@@ -939,6 +939,12 @@ struct PendingMapAssertion {
     transient_matches: bool,
 }
 
+struct PendingBossRelicOverlayAssertion {
+    action: TraceAction,
+    simulated_overlay: Value,
+    transient_matches: bool,
+}
+
 struct PendingCombatTransition {
     action: TraceAction,
     label: String,
@@ -1002,6 +1008,7 @@ fn verify_seed_start_transitions(
     let mut smoke_bomb_ui: Option<SmokeBombUiState> = None;
     let mut pending_deck_assertion: Option<PendingDeckAssertion> = None;
     let mut pending_map_assertion: Option<PendingMapAssertion> = None;
+    let mut pending_boss_relic_overlay: Option<PendingBossRelicOverlayAssertion> = None;
     let mut pending_combat_assertion: Option<PendingCombatAssertion> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
 
@@ -1012,6 +1019,9 @@ fn verify_seed_start_transitions(
                 unresolved_deferred_action_steps.push(pending.action.step);
             }
             if let Some(pending) = pending_map_assertion.as_ref() {
+                unresolved_deferred_action_steps.push(pending.action.step);
+            }
+            if let Some(pending) = pending_boss_relic_overlay.as_ref() {
                 unresolved_deferred_action_steps.push(pending.action.step);
             }
             if let Some(pending) = pending_combat_assertion.as_ref() {
@@ -1228,6 +1238,46 @@ fn verify_seed_start_transitions(
                 );
                 continue;
             }
+            if let Some(pending) = pending_boss_relic_overlay.as_ref() {
+                if seed_start_is_boss_relic_master_deck_overlay(&post.message) {
+                    compare_subset(
+                        report,
+                        action,
+                        "boss relic deck overlay observation poll",
+                        seed_start_treasure_observed_subset(&post.message),
+                        pending.simulated_overlay.clone(),
+                    );
+                    continue;
+                }
+                let Some(sim) = seed_sim.as_ref() else {
+                    return finish_boundary!(SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_boss_reward_overlay".to_owned(),
+                        reason: "boss relic overlay poll lost its authoritative simulator state"
+                            .to_owned(),
+                    });
+                };
+                let diff_count = report.unexpected_diffs.len();
+                compare_subset(
+                    report,
+                    action,
+                    "boss relic overlay settled observation poll",
+                    seed_start_treasure_observed_subset(&post.message),
+                    seed_start_treasure_simulated_subset(sim, &relics),
+                );
+                let stable_matches = report.unexpected_diffs.len() == diff_count;
+                let pending = pending_boss_relic_overlay
+                    .take()
+                    .expect("pending overlay checked above");
+                seed_start_reconcile_boss_relic_overlay(
+                    report,
+                    pending,
+                    stable_matches,
+                    action.step,
+                    &mut reconciled_deferred_action_steps,
+                );
+                continue;
+            }
             if let Some(SmokeBombUiState::Escaping {
                 source,
                 action: escape_action,
@@ -1434,6 +1484,7 @@ fn verify_seed_start_transitions(
                             .to_owned(),
                 });
             };
+            let diff_count = report.unexpected_diffs.len();
             compare_subset(
                 report,
                 action,
@@ -1441,6 +1492,16 @@ fn verify_seed_start_transitions(
                 seed_start_treasure_observed_subset(&post.message),
                 seed_start_treasure_simulated_subset(sim, &relics),
             );
+            let stable_matches = report.unexpected_diffs.len() == diff_count;
+            if let Some(pending) = pending_boss_relic_overlay.take() {
+                seed_start_reconcile_boss_relic_overlay(
+                    report,
+                    pending,
+                    stable_matches,
+                    action.step,
+                    &mut reconciled_deferred_action_steps,
+                );
+            }
             continue;
         }
         match phase {
@@ -4642,16 +4703,22 @@ fn verify_seed_start_transitions(
                             seed_start_grid_simulated_subset(&next, &relics),
                         );
                     } else if opened_master_deck_overlay {
-                        compare_subset(
+                        let simulated_overlay = seed_start_boss_relic_deck_overlay_simulated_subset(
+                            &next,
+                            &visible_relics_before_pick,
+                        );
+                        let transient_matches = seed_start_compare_deferred_subset(
                             report,
                             action,
                             "boss relic reward deck overlay",
                             seed_start_treasure_observed_subset(&post.message),
-                            seed_start_boss_relic_deck_overlay_simulated_subset(
-                                &next,
-                                &visible_relics_before_pick,
-                            ),
+                            simulated_overlay.clone(),
                         );
+                        pending_boss_relic_overlay = Some(PendingBossRelicOverlayAssertion {
+                            action: action.clone(),
+                            simulated_overlay,
+                            transient_matches,
+                        });
                     } else {
                         compare_subset(
                             report,
@@ -6753,6 +6820,34 @@ fn seed_start_boss_relic_deck_overlay_simulated_subset(
         "relic_ids": visible_relic_ids_before_pick,
         "choices": Vec::<String>::new(),
     })
+}
+
+fn seed_start_reconcile_boss_relic_overlay(
+    report: &mut SimRealReport,
+    pending: PendingBossRelicOverlayAssertion,
+    stable_matches: bool,
+    stable_action_step: u32,
+    reconciled_deferred_action_steps: &mut Vec<u32>,
+) {
+    if !pending.transient_matches {
+        return;
+    }
+    if stable_matches {
+        report.verified.push(VerifiedTransition {
+            action_step: pending.action.step,
+            command: pending.action.command,
+            label: "boss relic reward reconciled after deck overlay".to_owned(),
+        });
+        reconciled_deferred_action_steps.push(pending.action.step);
+    } else {
+        report.unsupported.push(UnsupportedTransition {
+            action_step: pending.action.step,
+            command: pending.action.command,
+            reason: format!(
+                "boss relic deck overlay did not reconcile at stable action step {stable_action_step}"
+            ),
+        });
+    }
 }
 
 fn seed_start_shop_observed_subset(message: &Value) -> Value {
@@ -14369,6 +14464,96 @@ mod tests {
 
         assert_eq!(parsed.numeric_seed, -5_230_933_468_808_623_542);
         assert_eq!(parsed.external_seed, "-5230933468808623542");
+    }
+
+    #[test]
+    fn boss_relic_deck_overlay_requires_stable_reconciliation() {
+        let path =
+            crate::corpus_path("fidelity_regressions/session-1-boss-relic-deck-overlay.jsonl");
+        let content = std::fs::read_to_string(path).expect("boss relic overlay trace");
+        let report = verify_communication_mod_trace(&content).expect("overlay trace verifies");
+        let relic_pick = report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 350 && entry.command == "CHOOSE 0")
+            .expect("boss relic pick disposition");
+
+        assert_eq!(relic_pick.disposition, ActionDispositionKind::Verified);
+        assert!(relic_pick.deferred_assertion_reconciled);
+        assert!(report.verified.iter().any(|entry| {
+            entry.action_step == 350
+                && entry.label == "boss relic reward reconciled after deck overlay"
+        }));
+        assert_eq!(
+            report
+                .action_integrity
+                .as_ref()
+                .expect("action integrity")
+                .unresolved_transient_assertions,
+            0
+        );
+
+        let imported = import_communication_mod_trace(&content).expect("overlay trace imports");
+        let metadata = imported.metadata.expect("overlay trace metadata");
+        let mut lines = imported
+            .lines
+            .into_iter()
+            .filter(|line| !matches!(line, TraceLine::Metadata(_)))
+            .collect::<Vec<_>>();
+        let mut divergent_lines = lines.clone();
+        let settled_chest = divergent_lines
+            .iter_mut()
+            .find_map(|line| match line {
+                TraceLine::State(state) if state.step == 352 => Some(state),
+                _ => None,
+            })
+            .expect("settled boss chest state");
+        settled_chest
+            .message
+            .pointer_mut("/game_state/relics")
+            .and_then(Value::as_array_mut)
+            .expect("settled relic list")
+            .pop()
+            .expect("picked boss relic is visible after closing the overlay");
+        let divergent_trace = crate::serialize_communication_mod_trace(&metadata, &divergent_lines);
+        let divergent = verify_communication_mod_trace(&divergent_trace)
+            .expect("divergent overlay trace parses");
+        let divergent_pick = divergent
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 350 && entry.command == "CHOOSE 0")
+            .expect("divergent boss relic pick disposition");
+        assert_eq!(
+            divergent_pick.disposition,
+            ActionDispositionKind::Unsupported
+        );
+
+        let overlay_poll = lines
+            .iter()
+            .rposition(|line| matches!(line, TraceLine::State(state) if state.step == 351))
+            .expect("overlay poll state");
+        lines.truncate(overlay_poll + 1);
+        let unresolved_trace = crate::serialize_communication_mod_trace(&metadata, &lines);
+        let unresolved = verify_communication_mod_trace(&unresolved_trace)
+            .expect("truncated overlay trace parses");
+        assert_eq!(
+            unresolved
+                .action_integrity
+                .as_ref()
+                .expect("truncated action integrity")
+                .unresolved_transient_assertions,
+            1
+        );
+        let unresolved_pick = unresolved
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 350 && entry.command == "CHOOSE 0")
+            .expect("unresolved boss relic pick disposition");
+        assert_eq!(
+            unresolved_pick.disposition,
+            ActionDispositionKind::PendingTransient
+        );
+        assert!(!unresolved_pick.deferred_assertion_reconciled);
     }
 
     #[test]
