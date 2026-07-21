@@ -103,6 +103,15 @@ mod tests {
     }
 
     #[test]
+    fn card_random_floor_seed_wraps_in_every_build_profile() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.reward_rng_seed = u64::MAX;
+        run.current_floor = 1;
+
+        assert_eq!(run.rng_stream_state(RunRngStream::CardRandom).seed, 0);
+    }
+
+    #[test]
     fn snecko_eye_does_not_grant_energy() {
         let mut run = RunState::map_fixture();
 
@@ -992,7 +1001,7 @@ impl RunState {
                 counter: self.card_rng_counter,
             },
             RunRngStream::CardRandom => RunRngStreamState {
-                seed: self.reward_rng_seed + self.current_floor as u64,
+                seed: self.reward_rng_seed.wrapping_add(self.current_floor as u64),
                 counter: self.card_random_rng_counter,
             },
             RunRngStream::Event => RunRngStreamState {

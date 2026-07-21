@@ -22,6 +22,13 @@ pub struct JavaRng {
     seed: u64,
 }
 
+/// Derives the target game's per-floor RNG seed with Java `long` overflow
+/// semantics, which must be identical in debug and release builds.
+#[must_use]
+pub(crate) fn seed_for_floor(seed: i64, floor_num: impl Into<i64>) -> i64 {
+    seed.wrapping_add(floor_num.into())
+}
+
 impl StsRng {
     const ZERO_SEED_REPLACEMENT: u64 = 0x8000_0000_0000_0000;
     const MURMUR_MULTIPLIER_1: u64 = 0xff51_afd7_ed55_8ccd;
@@ -244,6 +251,12 @@ mod tests {
             advanced.clone().random_int(99),
             stepped.clone().random_int(99)
         );
+    }
+
+    #[test]
+    fn floor_seed_wraps_with_java_long_semantics() {
+        assert_eq!(seed_for_floor(i64::MAX, 1), i64::MIN);
+        assert_eq!(seed_for_floor(i64::MAX - 1, 3), i64::MIN + 1);
     }
 
     #[test]

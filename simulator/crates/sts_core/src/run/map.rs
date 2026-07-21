@@ -42,7 +42,7 @@ use crate::{
         wing_boots_reachable_nodes, MapAction, RoomKind, TargetMapAct,
     },
     relic::MARK_OF_PAIN_WOUNDS,
-    rng::StsRng,
+    rng::{seed_for_floor, StsRng},
     MonsterPowers, Relic, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -191,12 +191,15 @@ pub(crate) fn enter_secret_portal_boss_combat(run: &mut RunState) -> SimResult<(
 
 fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -> SimResult<()> {
     run.reset_card_random_rng_for_combat();
-    let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
-    let monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
+    let mut shuffle_rng = StsRng::new(seed_for_floor(run.event_rng_seed as i64, run.current_floor));
+    let monster_hp_rng = StsRng::new(seed_for_floor(run.event_rng_seed as i64, run.current_floor));
     let mut card_random_rng = run.card_random_rng();
     // This local field is the target game's combat aiRng. Target monsterRng is the
     // run-level encounter-list stream.
-    let mut monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
+    let mut monster_rng = StsRng::new(seed_for_floor(
+        run.monster_rng_seed as i64,
+        run.current_floor,
+    ));
     let piles = initialize_combat_piles_with_relics(
         &run.deck,
         &mut shuffle_rng,

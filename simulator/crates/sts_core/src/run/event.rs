@@ -21,7 +21,7 @@ use crate::{
     },
     ids::ContentId,
     relic::{Relic, RelicKey, RelicTier},
-    rng::{JavaRng, StsRng},
+    rng::{seed_for_floor, JavaRng, StsRng},
     run::{
         grid::{
             open_bonfire_elementals_grid, open_designer_remove_and_upgrade_grid,
@@ -5213,9 +5213,13 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
 }
 
 fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) -> SimResult<()> {
-    let mut shuffle_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
-    let mut monster_hp_rng = StsRng::new(run.event_rng_seed as i64 + i64::from(run.current_floor));
-    let mut monster_rng = StsRng::new(run.monster_rng_seed as i64 + i64::from(run.current_floor));
+    let mut shuffle_rng = StsRng::new(seed_for_floor(run.event_rng_seed as i64, run.current_floor));
+    let mut monster_hp_rng =
+        StsRng::new(seed_for_floor(run.event_rng_seed as i64, run.current_floor));
+    let mut monster_rng = StsRng::new(seed_for_floor(
+        run.monster_rng_seed as i64,
+        run.current_floor,
+    ));
     let mut card_random_rng = run.card_random_rng();
     let monsters = definitions
         .iter()

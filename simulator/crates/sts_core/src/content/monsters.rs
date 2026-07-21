@@ -7,7 +7,7 @@ use crate::{
     content::cards::{card_type_and_rarity, BURN_ID, DAZED_ID, SLIMED_ID},
     ids::{CardId, ContentId, MonsterId},
     power::MonsterPowers,
-    rng::StsRng,
+    rng::{seed_for_floor, StsRng},
     SimError, SimResult,
 };
 
@@ -1614,25 +1614,25 @@ pub fn looter_theft(ascension: u8) -> i32 {
 
 #[must_use]
 pub fn target_cultist_hp_roll(seed: i64, floor_num: u32, ascension: u8) -> i32 {
-    let mut rng = StsRng::new(seed + i64::from(floor_num));
+    let mut rng = StsRng::new(seed_for_floor(seed, floor_num));
     target_cultist_hp_range(ascension).roll(&mut rng)
 }
 
 #[must_use]
 pub fn target_jaw_worm_hp_roll(seed: i64, floor_num: u32, ascension: u8) -> i32 {
-    let mut rng = StsRng::new(seed + i64::from(floor_num));
+    let mut rng = StsRng::new(seed_for_floor(seed, floor_num));
     target_jaw_worm_hp_range(ascension).roll(&mut rng)
 }
 
 #[must_use]
 pub fn target_looter_hp_roll(seed: i64, floor_num: u32, ascension: u8) -> i32 {
-    let mut rng = StsRng::new(seed + i64::from(floor_num));
+    let mut rng = StsRng::new(seed_for_floor(seed, floor_num));
     target_looter_hp_range(ascension).roll(&mut rng)
 }
 
 #[must_use]
 pub fn target_small_slimes_variant(seed: i64, floor_num: u32) -> SmallSlimesVariant {
-    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut misc_rng = StsRng::new(seed_for_floor(seed, floor_num));
     if misc_rng.random_bool() {
         SmallSlimesVariant::SpikeSmallAcidMedium
     } else {
@@ -1642,7 +1642,7 @@ pub fn target_small_slimes_variant(seed: i64, floor_num: u32) -> SmallSlimesVari
 
 #[must_use]
 pub fn target_large_slime_variant(seed: i64, floor_num: u32) -> LargeSlimeVariant {
-    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut misc_rng = StsRng::new(seed_for_floor(seed, floor_num));
     if misc_rng.random_bool() {
         LargeSlimeVariant::Acid
     } else {
@@ -1658,7 +1658,7 @@ pub fn target_small_slimes_hp_rolls(
 ) -> Option<Vec<TargetMonsterHp>> {
     match target_small_slimes_variant(seed, floor_num) {
         SmallSlimesVariant::SpikeSmallAcidMedium => {
-            let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+            let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
             Some(vec![
                 TargetMonsterHp {
                     name: "Spike Slime (S)",
@@ -1671,7 +1671,7 @@ pub fn target_small_slimes_hp_rolls(
             ])
         }
         SmallSlimesVariant::AcidSmallSpikeMedium => {
-            let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+            let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
             Some(vec![
                 TargetMonsterHp {
                     name: "Acid Slime (S)",
@@ -1689,7 +1689,7 @@ pub fn target_small_slimes_hp_rolls(
 #[must_use]
 pub fn target_large_slime_hp_roll(seed: i64, floor_num: u32, ascension: u8) -> TargetMonsterHp {
     let variant = target_large_slime_variant(seed, floor_num);
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     match variant {
         LargeSlimeVariant::Acid => TargetMonsterHp {
             name: "Acid Slime (L)",
@@ -1704,7 +1704,7 @@ pub fn target_large_slime_hp_roll(seed: i64, floor_num: u32, ascension: u8) -> T
 
 #[must_use]
 pub fn target_two_louse_kinds(seed: i64, floor_num: u32) -> [LouseKind; 2] {
-    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut misc_rng = StsRng::new(seed_for_floor(seed, floor_num));
     [
         target_louse_kind(&mut misc_rng),
         target_louse_kind(&mut misc_rng),
@@ -1749,8 +1749,8 @@ fn target_louse_spawn_states(
     neow_lament: bool,
     count: usize,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
-    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
+    let mut misc_rng = StsRng::new(seed_for_floor(seed, floor_num));
 
     let mut spawns = (0..count)
         .map(|_| {
@@ -2035,7 +2035,7 @@ pub fn target_beyond_encounter_spawn_for_key(
     ascension: u8,
     neow_lament: bool,
 ) -> Option<Vec<TargetEncounterSpawn>> {
-    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut misc_rng = StsRng::new(seed_for_floor(seed, floor_num));
     target_beyond_encounter_spawn_for_key_with_misc_rng(
         seed,
         floor_num,
@@ -2135,7 +2135,7 @@ fn target_reptomancer_encounter_spawn(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     let left_dagger_hp = DAGGER_HP_RANGE.roll(&mut hp_rng);
     let _reptomancer_constructor_hp = REPTOMANCER_A0_HP_RANGE.roll(&mut hp_rng);
     let reptomancer_hp = reptomancer_hp_range(ascension).roll(&mut hp_rng);
@@ -2165,7 +2165,7 @@ fn target_jaw_worm_horde_spawn(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let floor_seed = seed + i64::from(floor_num);
+    let floor_seed = seed_for_floor(seed, floor_num);
     let mut hp_rng = StsRng::new(floor_seed);
     let mut ai_rng = StsRng::new(floor_seed);
     let hp_range = if ascension >= 7 {
@@ -2211,7 +2211,7 @@ fn target_jaw_worm_horde_spawn(
 }
 
 fn target_orb_walker_hp(seed: i64, floor_num: u32, ascension: u8) -> i32 {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     let hp_range = if ascension >= 7 {
         ORB_WALKER_A7_HP_RANGE
     } else {
@@ -2234,7 +2234,7 @@ fn target_darkling_encounter_spawn(
     ascension: u8,
     neow_lament: bool,
 ) -> Option<Vec<TargetEncounterSpawn>> {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     let hp_range = if ascension >= 7 {
         DARKLING_A7_HP_RANGE
     } else {
@@ -2264,7 +2264,7 @@ fn target_three_shapes_encounter_spawn(
     neow_lament: bool,
     misc_rng: &mut StsRng,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     target_shapes_from_pool(3, misc_rng, &mut hp_rng, ascension, neow_lament)
 }
 
@@ -2275,7 +2275,7 @@ fn target_four_shapes_encounter_spawn(
     neow_lament: bool,
     misc_rng: &mut StsRng,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     target_shapes_from_pool(4, misc_rng, &mut hp_rng, ascension, neow_lament)
 }
 
@@ -2286,7 +2286,7 @@ fn target_sphere_and_two_shapes_encounter_spawn(
     neow_lament: bool,
     misc_rng: &mut StsRng,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     let mut spawns = (0..2)
         .map(|_| {
             let name = target_random_ancient_shape_name(misc_rng);
@@ -2426,7 +2426,7 @@ pub fn target_city_encounter_spawn_for_key(
     ascension: u8,
     neow_lament: bool,
 ) -> Option<Vec<TargetEncounterSpawn>> {
-    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut misc_rng = StsRng::new(seed_for_floor(seed, floor_num));
     target_city_encounter_spawn_for_key_with_misc_rng(
         seed,
         floor_num,
@@ -2447,7 +2447,7 @@ pub fn target_city_encounter_spawn_for_key_with_misc_rng(
     misc_rng: &mut StsRng,
 ) -> Option<Vec<TargetEncounterSpawn>> {
     let group = target_city_encounter_group_for_key(encounter_key)?;
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     group
         .members
         .iter()
@@ -3221,7 +3221,7 @@ pub fn target_encounter_spawn_for_key(
             target_exordium_wildlife_spawn_states(seed, floor_num, ascension, neow_lament)
         }
         "Blue Slaver" => {
-            let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+            let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
             let max_hp = target_slaver_hp_range(ascension).roll(&mut hp_rng);
             vec![target_combat_entry_spawn(
                 "SlaverBlue",
@@ -3231,7 +3231,7 @@ pub fn target_encounter_spawn_for_key(
             )]
         }
         "Red Slaver" => {
-            let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+            let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
             let max_hp = target_slaver_hp_range(ascension).roll(&mut hp_rng);
             vec![target_combat_entry_spawn(
                 "SlaverRed",
@@ -3257,7 +3257,7 @@ pub fn target_encounter_spawn_for_key(
             )]
         }
         "GremlinNob" => {
-            let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+            let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
             let max_hp = target_gremlin_nob_hp_range(ascension).roll(&mut hp_rng);
             vec![target_combat_entry_spawn(
                 "GremlinNob",
@@ -3267,7 +3267,7 @@ pub fn target_encounter_spawn_for_key(
             )]
         }
         "Lagavulin" => {
-            let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+            let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
             let max_hp = target_lagavulin_hp_range(ascension).roll(&mut hp_rng);
             let mut spawn = target_combat_entry_spawn("Lagavulin", max_hp, neow_lament, Vec::new());
             spawn.block = 8;
@@ -3284,8 +3284,8 @@ fn target_two_fungi_beasts_spawn_states(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut misc_rng = StsRng::new(seed_for_floor(seed, floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     (0..2)
         .filter_map(|_| {
             target_city_member_spawn(
@@ -3305,7 +3305,7 @@ fn target_exordium_thugs_spawn_states(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let seed = seed + i64::from(floor_num);
+    let seed = seed_for_floor(seed, floor_num);
     let mut misc_rng = StsRng::new(seed);
     let mut hp_rng = StsRng::new(seed);
 
@@ -3406,7 +3406,7 @@ fn target_exordium_wildlife_spawn_states(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let seed = seed + i64::from(floor_num);
+    let seed = seed_for_floor(seed, floor_num);
     let mut misc_rng = StsRng::new(seed);
     let mut hp_rng = StsRng::new(seed);
 
@@ -3500,8 +3500,8 @@ fn target_gremlin_gang_spawn_states(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut misc_rng = StsRng::new(seed_for_floor(seed, floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     let mut pool = vec![
         "GremlinWarrior",
         "GremlinWarrior",
@@ -3546,8 +3546,8 @@ fn target_lots_of_slimes_spawn_states(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut misc_rng = StsRng::new(seed + i64::from(floor_num));
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut misc_rng = StsRng::new(seed_for_floor(seed, floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     let mut pool = vec![
         "Spike Slime (S)",
         "Spike Slime (S)",
@@ -3576,7 +3576,7 @@ fn target_three_sentries_spawn_states(
     ascension: u8,
     neow_lament: bool,
 ) -> Vec<TargetEncounterSpawn> {
-    let mut hp_rng = StsRng::new(seed + i64::from(floor_num));
+    let mut hp_rng = StsRng::new(seed_for_floor(seed, floor_num));
     (0..3)
         .map(|index| {
             let max_hp = target_sentry_hp_range(ascension).roll(&mut hp_rng);
@@ -9903,10 +9903,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn target_hp_generation_wraps_floor_seed_like_java_long() {
+        assert_eq!(
+            target_cultist_hp_roll(i64::MAX, 1, 0),
+            target_cultist_hp_roll(i64::MIN, 0, 0)
+        );
+    }
+
+    #[test]
     fn sphere_and_two_shapes_uses_misc_rng_for_both_shape_identities() {
         let seed = 772_776_727_775_i64;
         let floor = 41;
-        let mut misc_rng = StsRng::new(seed + i64::from(floor));
+        let mut misc_rng = StsRng::new(seed.wrapping_add(i64::from(floor)));
 
         let spawns = target_beyond_encounter_spawn_for_key_with_misc_rng(
             seed,
@@ -9940,13 +9948,13 @@ mod tests {
     fn city_gremlin_leader_entry_requires_and_consumes_misc_rng() {
         let seed = 772_776_727_775_i64;
         let floor = 33;
-        let mut expected_rng = StsRng::new(seed + i64::from(floor));
+        let mut expected_rng = StsRng::new(seed.wrapping_add(i64::from(floor)));
         let expected_names = vec![
             target_random_gremlin_name(&mut expected_rng),
             target_random_gremlin_name(&mut expected_rng),
             "GremlinLeader",
         ];
-        let mut misc_rng = StsRng::new(seed + i64::from(floor));
+        let mut misc_rng = StsRng::new(seed.wrapping_add(i64::from(floor)));
 
         let spawns = target_city_encounter_spawn_for_key_with_misc_rng(
             seed,
@@ -10359,7 +10367,7 @@ mod tests {
     }
 
     fn expected_exordium_thugs_louse_curl_up(seed: i64, floor: u32, ascension: u8) -> i32 {
-        let seed = seed + i64::from(floor);
+        let seed = seed.wrapping_add(i64::from(floor));
         let mut misc_rng = StsRng::new(seed);
         let mut hp_rng = StsRng::new(seed);
 
@@ -10385,7 +10393,7 @@ mod tests {
     }
 
     fn expected_exordium_wildlife_louse_curl_up(seed: i64, floor: u32, ascension: u8) -> i32 {
-        let seed = seed + i64::from(floor);
+        let seed = seed.wrapping_add(i64::from(floor));
         let mut misc_rng = StsRng::new(seed);
         let mut hp_rng = StsRng::new(seed);
 
