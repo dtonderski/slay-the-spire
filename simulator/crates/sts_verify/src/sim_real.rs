@@ -25,9 +25,8 @@ use sts_core::run::neow::{
 use sts_core::{
     affordable_shop_picks, apply_neow_boss_swap, apply_neow_relic_reward,
     apply_neow_simple_drawback, apply_neow_simple_reward, apply_run_decision_action,
-    consume_neow_three_potions_hidden_card_reward, generate_exordium_map_topology,
-    generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
-    generate_neow_three_potions, generate_neow_transform_reward, legal_run_decision_actions,
+    generate_exordium_map_topology, generate_neow_card_reward, generate_neow_colorless_reward,
+    generate_neow_options, generate_neow_transform_reward, legal_run_decision_actions,
     open_neow_reward_grid, shop_action_for_choice_index, CardGridScreen, CardId, CardInstance,
     CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventAction,
     GeneratedNeowOption, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState,
@@ -48,8 +47,8 @@ use sts_core::content::monsters::{
 #[cfg(test)]
 use sts_core::{
     city_room_kinds_on_path, enter_normal_combat_reward_screen, event_screen,
-    exordium_room_kinds_on_path, initialize_combat_piles_with_relics, CardPiles, EventChoice,
-    EventScreen, MonsterPowers, PlayerPowers, RelicCounters, StsRng,
+    exordium_room_kinds_on_path, generate_neow_three_potions, initialize_combat_piles_with_relics,
+    CardPiles, EventChoice, EventScreen, MonsterPowers, PlayerPowers, RelicCounters, StsRng,
 };
 #[cfg(test)]
 use sts_core::{target_room_kinds_on_path, TargetMapAct};
@@ -1088,8 +1087,6 @@ fn verify_seed_start_transitions(
     let mut neow_card_reward_choices: Option<Vec<String>> = None;
     let mut neow_card_reward_card_rng_counter: Option<u32> = None;
     let mut neow_leave_visible_deck_ids: Option<Vec<String>> = None;
-    let mut neow_potion_reward: Vec<String> = Vec::new();
-    let mut neow_potion_rng_counter: Option<u32> = None;
     let mut neow_potions_taken = 0usize;
     let mut delayed_neow_curse: Option<String> = None;
     let mut pending_neow_room_entry_curse: Option<String> = None;
@@ -2023,13 +2020,8 @@ fn verify_seed_start_transitions(
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(|option| option.reward == NeowRewardType::ThreeSmallPotions) =>
             {
-                let reward = generate_neow_three_potions(start.numeric_seed);
-                neow_potion_rng_counter = Some(reward.potion_rng_counter);
-                neow_potion_reward = reward
-                    .potions
-                    .into_iter()
-                    .map(|potion| potion_trace_name(potion).to_owned())
-                    .collect();
+                let option_index = command_choose_index(&action.command)
+                    .expect("matched generated three-potion option");
                 neow_potions_taken = 0;
                 let mut run = seed_start_carried_run(
                     seed_sim.as_ref(),
@@ -2041,61 +2033,46 @@ fn verify_seed_start_transitions(
                 run.gold = neow_gold;
                 run.player_hp = neow_current_hp;
                 run.player_max_hp = neow_max_hp;
-                run.potions = neow_potion_reward
-                    .iter()
-                    .filter_map(|name| potion_from_trace_name(name))
-                    .collect();
-                if let Some(counter) = neow_potion_rng_counter {
-                    run.potion_rng_counter = counter;
-                }
-                consume_neow_three_potions_hidden_card_reward(&mut run);
-                seed_sim = Some(run);
-                if screen_type(&post.message) == Some("EVENT") {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow three potion reward",
-                        seed_start_potion_observed_subset(&post.message),
-                        json!({
-                            "screen_type": "EVENT",
-                            "ascension": start.ascension,
-                            "floor": 0,
-                            "gold": 99,
-                            "current_hp": 80,
-                            "max_hp": 80,
-                            "deck_ids": deck_ids,
-                            "relic_ids": relics,
-                            "potion_ids": neow_potion_reward,
-                            "choices": ["leave"],
-                            "unobservable": {
-                                "potion_reward_uuids": true,
-                            },
-                        }),
-                    );
-                    phase = SeedStartPhase::NeowLeave;
-                    continue;
+                run.phase = RunPhase::Event;
+                run.event = Some(neow_screen_for_stage(&run, 1));
+                let next = match apply_event_action(
+                    &run,
+                    EventAction::Choose {
+                        choice_index: option_index,
+                    },
+                ) {
+                    Ok(next) => next,
+                    Err(err) => {
+                        return finish_boundary!(SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_neow_potion_reward".to_owned(),
+                            reason: format!(
+                                "core rejected generated Neow three-potion option: {err}"
+                            ),
+                        });
+                    }
+                };
+                if next.phase != RunPhase::Reward
+                    || next
+                        .reward
+                        .as_ref()
+                        .is_none_or(|reward| reward.potion_offers.len() != 3)
+                {
+                    return finish_boundary!(SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_neow_potion_reward".to_owned(),
+                        reason: "core Neow three-potion option did not open three potion rewards"
+                            .to_owned(),
+                    });
                 }
                 compare_subset(
                     report,
                     action,
                     "Neow three potion reward",
-                    seed_start_reward_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "COMBAT_REWARD",
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": deck_ids,
-                        "relic_ids": relics,
-                        "choices": ["potion", "potion", "potion"],
-                        "reward_types": ["POTION", "POTION", "POTION"],
-                        "unobservable": {
-                            "reward_gold_rng_draws": true,
-                            "reward_screen_internal_ids": true,
-                        },
-                    }),
+                    seed_start_neow_potion_reward_observed_subset(&post.message),
+                    seed_start_neow_potion_reward_simulated_subset(&next, &relics),
                 );
+                seed_sim = Some(next);
                 phase = SeedStartPhase::NeowPotionReward;
             }
             SeedStartPhase::NeowOptions
@@ -2900,84 +2877,75 @@ fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowPotionReward if command_is_choose(&action.command, 0) => {
+                let Some(sim) = seed_sim.as_ref() else {
+                    return finish_boundary!(SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_neow_potion_reward".to_owned(),
+                        reason: "Neow potion pick has no authoritative core reward state"
+                            .to_owned(),
+                    });
+                };
+                let next = match apply_run_action(sim, RunAction::TakePotionReward { index: 0 }) {
+                    Ok(next) => next,
+                    Err(err) => {
+                        return finish_boundary!(SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_neow_potion_reward".to_owned(),
+                            reason: format!("core rejected Neow potion pick: {err}"),
+                        });
+                    }
+                };
                 neow_potions_taken += 1;
-                let remaining = neow_potion_reward.len().saturating_sub(neow_potions_taken);
                 compare_subset(
                     report,
                     action,
                     &format!("Neow potion reward pick {neow_potions_taken}"),
-                    seed_start_potion_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "COMBAT_REWARD",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": neow_gold,
-                        "current_hp": neow_current_hp,
-                        "max_hp": neow_max_hp,
-                        "deck_ids": deck_ids,
-                        "relic_ids": relics,
-                        "potion_ids": neow_potion_reward
-                            .iter()
-                            .take(neow_potions_taken)
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                        "choices": vec!["potion"; remaining],
-                        "unobservable": {
-                            "potion_reward_uuids": true,
-                        },
-                    }),
+                    seed_start_neow_potion_reward_observed_subset(&post.message),
+                    seed_start_neow_potion_reward_simulated_subset(&next, &relics),
                 );
+                seed_sim = Some(next);
             }
             SeedStartPhase::NeowPotionReward if action.command.eq_ignore_ascii_case("PROCEED") => {
-                if neow_potions_taken < neow_potion_reward.len() {
+                let Some(sim) = seed_sim.as_ref() else {
                     return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_potion_reward".to_owned(),
-                        reason: "seed-start verifier expected all Neow potion rewards to be picked before PROCEED".to_owned(),
+                        category: "invalid_neow_potion_reward".to_owned(),
+                        reason: "Neow potion proceed has no authoritative core reward state"
+                            .to_owned(),
                     });
-                }
+                };
+                let next = match apply_run_action(sim, RunAction::Proceed) {
+                    Ok(next) => next,
+                    Err(err) => {
+                        return finish_boundary!(SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_neow_potion_reward".to_owned(),
+                            reason: format!("core rejected Neow potion reward proceed: {err}"),
+                        });
+                    }
+                };
+                let mut observed = seed_start_map_return_observed_subset(&post.message);
+                seed_start_insert_observed_potion_ids(&mut observed, &post.message);
+                let mut simulated = match seed_start_simulated_map_return(&next, &relics) {
+                    Ok(simulated) => simulated,
+                    Err(reason) => {
+                        return finish_boundary!(SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_neow_potion_map_projection".to_owned(),
+                            reason,
+                        });
+                    }
+                };
+                seed_start_insert_simulated_potion_ids(&mut simulated, &next);
                 compare_subset(
                     report,
                     action,
                     "Neow potion reward proceed",
-                    seed_start_potion_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "MAP",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": neow_gold,
-                        "current_hp": neow_current_hp,
-                        "max_hp": neow_max_hp,
-                        "deck_ids": deck_ids,
-                        "relic_ids": relics,
-                        "potion_ids": neow_potion_reward,
-                        "choices": seed_start_first_map_choices(&start.external_seed),
-                        "unobservable": {
-                            "potion_reward_uuids": true,
-                        },
-                    }),
+                    observed,
+                    simulated,
                 );
-                if seed_sim.is_none() {
-                    let mut run = seed_start_carried_run(
-                        None,
-                        start.numeric_seed,
-                        start.ascension,
-                        &start.external_seed,
-                        &deck_ids,
-                    );
-                    run.gold = neow_gold;
-                    run.player_hp = neow_current_hp;
-                    run.player_max_hp = neow_max_hp;
-                    run.potions = neow_potion_reward
-                        .iter()
-                        .filter_map(|name| potion_from_trace_name(name))
-                        .collect();
-                    if let Some(counter) = neow_potion_rng_counter {
-                        run.potion_rng_counter = counter;
-                    }
-                    consume_neow_three_potions_hidden_card_reward(&mut run);
-                    seed_sim = Some(run);
-                }
+                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                seed_sim = Some(next);
                 phase = SeedStartPhase::Map;
             }
             SeedStartPhase::NeowLeave if command_is_choose(&action.command, 0) => {
@@ -5844,27 +5812,6 @@ fn seed_start_proceed_simulated_subset(run: &RunState, relic_ids: &[String]) -> 
     })
 }
 
-fn seed_start_potion_observed_subset(message: &Value) -> Value {
-    let Some(game) = message.get("game_state") else {
-        return json!({});
-    };
-    json!({
-        "screen_type": game.get("screen_type").and_then(Value::as_str).unwrap_or(""),
-        "ascension": game.get("ascension_level").and_then(Value::as_u64).unwrap_or(0),
-        "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
-        "gold": int(game, "gold"),
-        "current_hp": int(game, "current_hp"),
-        "max_hp": int(game, "max_hp"),
-        "deck_ids": deck_keys_from_value(game.get("deck")),
-        "relic_ids": relic_keys_from_value(game.get("relics")),
-        "potion_ids": potion_keys_from_value(game.get("potions")),
-        "choices": choice_list_from_value(game.get("choice_list")),
-        "unobservable": {
-            "potion_reward_uuids": true,
-        },
-    })
-}
-
 fn seed_start_encounter_observed_subset(message: &Value) -> Value {
     let Some(game) = message.get("game_state") else {
         return json!({});
@@ -6095,6 +6042,70 @@ fn seed_start_reward_observed_subset(message: &Value) -> Value {
         }
     }
     out
+}
+
+fn seed_start_neow_potion_reward_observed_subset(message: &Value) -> Value {
+    let mut subset = seed_start_reward_observed_subset(message);
+    seed_start_insert_observed_potion_ids(&mut subset, message);
+    if let Some(fields) = subset.as_object_mut() {
+        let offers = message
+            .pointer("/game_state/screen_state/rewards")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|reward| reward.get("reward_type").and_then(Value::as_str) == Some("POTION"))
+            .filter_map(|reward| reward.get("potion").and_then(potion_key_from_value))
+            .collect::<Vec<_>>();
+        fields.insert("potion_offer_ids".to_owned(), json!(offers));
+    }
+    subset
+}
+
+fn seed_start_neow_potion_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+    let mut subset = seed_start_reward_simulated_subset(run, relic_ids);
+    seed_start_insert_simulated_potion_ids(&mut subset, run);
+    if let Some(fields) = subset.as_object_mut() {
+        let offers = run
+            .reward
+            .as_ref()
+            .map(|reward| {
+                if reward.potion_offers.is_empty() {
+                    reward.potion_offer.into_iter().collect::<Vec<_>>()
+                } else {
+                    reward.potion_offers.clone()
+                }
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .map(|potion| potion_trace_name(potion).to_owned())
+            .collect::<Vec<_>>();
+        fields.insert("potion_offer_ids".to_owned(), json!(offers));
+    }
+    subset
+}
+
+fn seed_start_insert_observed_potion_ids(subset: &mut Value, message: &Value) {
+    if let Some(fields) = subset.as_object_mut() {
+        fields.insert(
+            "potion_ids".to_owned(),
+            json!(potion_keys_from_value(
+                message.pointer("/game_state/potions")
+            )),
+        );
+    }
+}
+
+fn seed_start_insert_simulated_potion_ids(subset: &mut Value, run: &RunState) {
+    if let Some(fields) = subset.as_object_mut() {
+        fields.insert(
+            "potion_ids".to_owned(),
+            json!(run
+                .potions
+                .iter()
+                .map(|potion| potion_trace_name(*potion).to_owned())
+                .collect::<Vec<_>>()),
+        );
+    }
 }
 
 fn seed_start_map_return_observed_subset(message: &Value) -> Value {
@@ -8175,26 +8186,23 @@ fn empty_potion_slots_from_observed(game: &Value) -> Vec<usize> {
 fn potion_keys_from_value(value: Option<&Value>) -> Vec<String> {
     value
         .and_then(Value::as_array)
-        .map(|potions| {
-            potions
-                .iter()
-                .filter_map(|potion| {
-                    let name = potion
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .or_else(|| potion.get("id").and_then(Value::as_str))?;
-                    if name.eq_ignore_ascii_case("Potion Slot") {
-                        return None;
-                    }
-                    Some(
-                        potion_from_trace_name(name)
-                            .map(|potion| potion_trace_name(potion).to_owned())
-                            .unwrap_or_else(|| name.to_owned()),
-                    )
-                })
-                .collect()
-        })
+        .map(|potions| potions.iter().filter_map(potion_key_from_value).collect())
         .unwrap_or_default()
+}
+
+fn potion_key_from_value(potion: &Value) -> Option<String> {
+    let name = potion
+        .get("name")
+        .and_then(Value::as_str)
+        .or_else(|| potion.get("id").and_then(Value::as_str))?;
+    if name.eq_ignore_ascii_case("Potion Slot") {
+        return None;
+    }
+    Some(
+        potion_from_trace_name(name)
+            .map(|potion| potion_trace_name(potion).to_owned())
+            .unwrap_or_else(|| name.to_owned()),
+    )
 }
 
 fn relic_ids_for_simulated_subset(run: &RunState, carry: &[String]) -> Vec<String> {
@@ -19859,11 +19867,17 @@ mod tests {
             .collect();
         let relics = vec![json!({ "name": "Burning Blood" })];
         let choices = seed_start_neow_choices(22_079_335_079);
-        let potions: Vec<_> = seed_start_neow_potion_names(22_079_335_079)
-            .into_iter()
-            .map(|name| json!({ "name": name }))
+        let potion_names = seed_start_neow_potion_names(22_079_335_079);
+        let potion_rewards: Vec<_> = potion_names
+            .iter()
+            .map(|name| {
+                json!({
+                    "reward_type": "POTION",
+                    "potion": { "name": name },
+                })
+            })
             .collect();
-        let lines = vec![
+        let mut lines = vec![
             json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
             json!({"type": "state", "step": 0, "message": {}}),
             json!({"type": "action", "step": 1, "command": "START IRONCLAD 0 CODEX04"}),
@@ -19892,7 +19906,7 @@ mod tests {
             }}}),
             json!({"type": "action", "step": 3, "command": "CHOOSE 1"}),
             json!({"type": "state", "step": 3, "message": {"game_state": {
-                "screen_type": "EVENT",
+                "screen_type": "COMBAT_REWARD",
                 "ascension_level": 0,
                 "floor": 0,
                 "gold": 99,
@@ -19900,10 +19914,47 @@ mod tests {
                 "max_hp": 80,
                 "deck": deck,
                 "relics": relics,
-                "potions": potions,
-                "choice_list": ["leave"]
+                "potions": [],
+                "choice_list": ["potion", "potion", "potion"],
+                "screen_state": { "rewards": potion_rewards }
             }}}),
         ];
+        let opening_lines = lines.clone();
+        for pick in 1..=3 {
+            let owned = potion_names
+                .iter()
+                .take(pick)
+                .map(|name| json!({ "name": name }))
+                .collect::<Vec<_>>();
+            let remaining = potion_names
+                .iter()
+                .skip(pick)
+                .map(|name| {
+                    json!({
+                        "reward_type": "POTION",
+                        "potion": { "name": name },
+                    })
+                })
+                .collect::<Vec<_>>();
+            let choices = vec!["potion"; 3 - pick];
+            let step = 3 + pick as u32;
+            lines.push(json!({"type": "action", "step": step, "command": "CHOOSE 0"}));
+            lines.push(
+                json!({"type": "state", "step": step, "message": {"game_state": {
+                    "screen_type": "COMBAT_REWARD",
+                    "ascension_level": 0,
+                    "floor": 0,
+                    "gold": 99,
+                    "current_hp": 80,
+                    "max_hp": 80,
+                    "deck": deck,
+                    "relics": relics,
+                    "potions": owned,
+                    "choice_list": choices,
+                    "screen_state": { "rewards": remaining }
+                }}}),
+            );
+        }
         let content = serialize_trace_test_lines(lines);
 
         let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
@@ -19912,6 +19963,12 @@ mod tests {
         assert!(report.verified.iter().any(|transition| {
             transition.action_step == 3 && transition.label == "Neow three potion reward"
         }));
+        for pick in 1..=3 {
+            assert!(report.verified.iter().any(|transition| {
+                transition.action_step == 3 + pick
+                    && transition.label == format!("Neow potion reward pick {pick}")
+            }));
+        }
         assert_eq!(
             report
                 .seed_start
@@ -19920,6 +19977,30 @@ mod tests {
                 .category,
             "none"
         );
+
+        let mut divergent_lines = opening_lines;
+        divergent_lines.pop();
+        divergent_lines.push(
+            json!({"type": "state", "step": 3, "message": {"game_state": {
+                "screen_type": "EVENT",
+                "ascension_level": 0,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck": deck,
+                "relics": relics,
+                "potions": [],
+                "choice_list": ["leave"]
+            }}}),
+        );
+        let divergent =
+            verify_seed_start_communication_mod_trace(&serialize_trace_test_lines(divergent_lines))
+                .expect("observation-independent divergent report");
+        assert!(divergent
+            .unexpected_diffs
+            .iter()
+            .any(|diff| { diff.action_step == 3 && diff.label == "Neow three potion reward" }));
     }
 
     #[test]

@@ -2385,15 +2385,8 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
             }
         }
         NeowRewardType::ThreeSmallPotions => {
-            let reward = generate_neow_three_potions(next.event_rng_seed as i64);
-            for potion in reward.potions {
-                if next.can_gain_potions() && next.open_potion_slots() > 0 {
-                    next.gain_potion(potion)
-                        .expect("open potion slot validated");
-                }
-            }
-            next.potion_rng_counter = reward.potion_rng_counter;
-            super::reward::consume_neow_three_potions_hidden_card_reward(next);
+            open_neow_three_potion_reward(next);
+            return Ok(());
         }
         NeowRewardType::RandomCommonRelic | NeowRewardType::OneRareRelic => {
             apply_neow_relic_reward(next, option.reward);
@@ -2426,6 +2419,30 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
 
     next.event = Some(make_event_screen(Event::Neow, neow_leave_choices(), 2));
     Ok(())
+}
+
+fn open_neow_three_potion_reward(run: &mut RunState) {
+    let generated = generate_neow_three_potions(run.event_rng_seed as i64);
+    run.potion_rng_counter = generated.potion_rng_counter;
+    // Target CombatRewardScreen setup constructs a normal card reward before
+    // Neow removes it, so these hidden card-RNG draws remain authoritative.
+    super::reward::consume_neow_three_potions_hidden_card_reward(run);
+    run.phase = RunPhase::Reward;
+    run.event = Some(make_event_screen(Event::Neow, neow_leave_choices(), 2));
+    run.reward = Some(RewardScreen {
+        continuation: crate::RewardContinuation::Neow,
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 0,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers: generated.potions,
+        relic_offer: None,
+        pending_relic_offer: None,
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: crate::run::CardRewardFlow::None,
+    });
 }
 
 fn open_neow_card_reward(run: &mut RunState, reward_type: NeowRewardType) {
@@ -4872,6 +4889,59 @@ mod tests {
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::BonfireElementals));
         run
+    }
+
+    #[test]
+    fn neow_three_potions_remain_reward_items_until_core_picks_and_proceed() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(neow_screen_for_stage(&run, 1));
+        let option_index = generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)
+            .iter()
+            .position(|option| option.reward == NeowRewardType::ThreeSmallPotions)
+            .expect("seed one offers three potions");
+        let generated = generate_neow_three_potions(run.event_rng_seed as i64);
+        let mut expected_rng = run.clone();
+        crate::run::reward::consume_neow_three_potions_hidden_card_reward(&mut expected_rng);
+
+        let mut next = apply_event_action(
+            &run,
+            EventAction::Choose {
+                choice_index: option_index,
+            },
+        )
+        .expect("three-potion option opens its reward screen");
+
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert!(next.potions.is_empty());
+        assert_eq!(next.potion_rng_counter, generated.potion_rng_counter);
+        assert_eq!(next.card_rng_counter, expected_rng.card_rng_counter);
+        assert_eq!(
+            next.reward.as_ref().expect("reward screen").potion_offers,
+            generated.potions
+        );
+        assert_eq!(
+            next.reward.as_ref().expect("reward screen").continuation,
+            crate::RewardContinuation::Neow
+        );
+
+        for expected in generated.potions {
+            next = apply_run_action(&next, RunAction::TakePotionReward { index: 0 })
+                .expect("offered potion can be taken");
+            assert_eq!(next.potions.last(), Some(&expected));
+        }
+        assert!(next
+            .reward
+            .as_ref()
+            .expect("empty reward awaits proceed")
+            .potion_offers
+            .is_empty());
+
+        next = apply_run_action(&next, RunAction::Proceed)
+            .expect("empty Neow reward proceeds to the map");
+        assert_eq!(next.phase, RunPhase::Idle);
+        assert!(next.event.is_none());
+        assert!(next.reward.is_none());
     }
 
     #[test]
