@@ -11,6 +11,7 @@ use crate::{
         RED_LOUSE_A0, RED_LOUSE_BITE_DAMAGE, SENTRY_A0,
     },
     ids::{card_instance_id_is_supported, CardId, MonsterId},
+    potion::FAIRY_HEAL_PERCENT,
     power::{MonsterPowers, PlayerPowers},
     relic::{Relic, RelicCounters},
     rng::{rng_counter_is_supported, StsRng},
@@ -821,6 +822,20 @@ impl CombatState {
                 "combat relic counter is outside its stable range",
             ));
         }
+        let fairy_heal_percent = self.relic_counters.fairy_heal_percent;
+        if fairy_heal_percent != 0
+            && fairy_heal_percent != FAIRY_HEAL_PERCENT
+            && fairy_heal_percent != FAIRY_HEAL_PERCENT * 2
+        {
+            return Err(SimError::InvalidState(
+                "combat fairy revival percentage is outside the target domain",
+            ));
+        }
+        if self.relic_counters.fairy_consumed && fairy_heal_percent != 0 {
+            return Err(SimError::InvalidState(
+                "consumed combat fairy retains a revival percentage",
+            ));
+        }
         if self.ascension > 20 {
             return Err(SimError::InvalidState("combat ascension exceeds 20"));
         }
@@ -1154,6 +1169,32 @@ mod tests {
             state.validate(),
             Err(SimError::InvalidState(
                 "combat relic counter is outside its stable range"
+            ))
+        );
+    }
+
+    #[test]
+    fn combat_validation_rejects_impossible_fairy_revival_state() {
+        let mut state = CombatState::initial_fixture();
+        state.relic_counters.fairy_heal_percent = FAIRY_HEAL_PERCENT;
+        state.validate().expect("ordinary Fairy is valid");
+        state.relic_counters.fairy_heal_percent = FAIRY_HEAL_PERCENT * 2;
+        state.validate().expect("Sacred Bark Fairy is valid");
+
+        state.relic_counters.fairy_heal_percent = FAIRY_HEAL_PERCENT + 1;
+        assert_eq!(
+            state.validate(),
+            Err(SimError::InvalidState(
+                "combat fairy revival percentage is outside the target domain"
+            ))
+        );
+
+        state.relic_counters.fairy_heal_percent = FAIRY_HEAL_PERCENT;
+        state.relic_counters.fairy_consumed = true;
+        assert_eq!(
+            state.validate(),
+            Err(SimError::InvalidState(
+                "consumed combat fairy retains a revival percentage"
             ))
         );
     }

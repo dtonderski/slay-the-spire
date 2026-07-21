@@ -16,5 +16,6 @@ that could silently clamp an out-of-range value.
 
 This boundary covers the generic single-monster intent executor. The surrounding
 dispatcher uses its own checked move counters, transactional group buffs, and
-fallible cleanup powers. Summons, pending-effect aggregation, and revival
-calculations remain separate follow-up audit surfaces.
+fallible cleanup powers. Combat and run-level revival share one checked
+percentage calculation. Summons and pending-effect aggregation remain separate
+follow-up audit surfaces.

@@ -1,5 +1,6 @@
 use crate::{
     card::{CardInstance, CardRarity},
+    combat::turn::{revival_hp, revival_hp_with_relics},
     combat::{
         apply_combat_action_with_events, finish_monster_turn_after_player_revival,
         start_player_turn, CombatPhase,
@@ -1642,7 +1643,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
         );
     }
     next_combat.rng.card_random_rng = next.card_random_rng();
-    let revived = apply_fairy_if_lethal(&mut next, &mut next_combat);
+    let revived = apply_fairy_if_lethal(&mut next, &mut next_combat)?;
     if revived
         && matches!(action, CombatAction::EndTurn)
         && next_combat.phase == CombatPhase::WaitingForPlayer
@@ -1841,21 +1842,24 @@ fn dead_branch_card_pool() -> Vec<ContentId> {
     ironclad_combat_discovery_pool().to_vec()
 }
 
-fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatState) -> bool {
+fn apply_fairy_if_lethal(
+    run: &mut RunState,
+    combat: &mut crate::combat::CombatState,
+) -> SimResult<bool> {
     if combat.player.hp > 0 && combat.phase != CombatPhase::Lost {
-        return false;
+        return Ok(false);
     }
 
     if run.has_mark_of_bloom() {
-        return false;
+        return Ok(false);
     }
 
     if run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used {
+        let hp = revival_hp(combat.player.max_hp, crate::relic::LIZARD_TAIL_HEAL_PERCENT)?;
         run.lizard_tail_used = true;
-        combat.player.hp =
-            (combat.player.max_hp * crate::relic::LIZARD_TAIL_HEAL_PERCENT / 100).max(1);
+        combat.player.hp = hp;
         combat.phase = CombatPhase::WaitingForPlayer;
-        return true;
+        return Ok(true);
     }
 
     let Some((slot, _)) = run
@@ -1863,19 +1867,23 @@ fn apply_fairy_if_lethal(run: &mut RunState, combat: &mut crate::combat::CombatS
         .into_iter()
         .find(|(_, potion)| *potion == Potion::Fairy)
     else {
-        return false;
+        return Ok(false);
     };
-
-    run.take_potion_slot(slot)
-        .expect("fairy potion slot was found before consuming");
     let multiplier = if run.relics.contains(&Relic::SacredBark) {
         2
     } else {
         1
     };
-    combat.player.hp = (combat.player.max_hp * FAIRY_HEAL_PERCENT * multiplier / 100).max(1);
+    let hp = revival_hp_with_relics(
+        combat.player.max_hp,
+        FAIRY_HEAL_PERCENT * multiplier,
+        &run.relics,
+    )?;
+    run.take_potion_slot(slot)
+        .expect("fairy potion slot was found before consuming");
+    combat.player.hp = hp;
     combat.phase = CombatPhase::WaitingForPlayer;
-    true
+    Ok(true)
 }
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {

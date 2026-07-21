@@ -208,7 +208,7 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
     }
     state.player.energy = checked_turn_add(state.player.energy, state.player.powers.berserk)?;
     crate::relic::apply_start_of_player_turn_relics(state)?;
-    apply_start_of_turn_brutality(state);
+    apply_start_of_turn_brutality(state)?;
     if state.player.hp <= 0 {
         state.player.hp = 0;
         state.player.block = 0;
@@ -312,16 +312,17 @@ fn finish_monster_turn_after_player_revival_inner(state: &mut CombatState) -> Si
     Ok(())
 }
 
-fn apply_start_of_turn_brutality(state: &mut CombatState) {
+fn apply_start_of_turn_brutality(state: &mut CombatState) -> SimResult<()> {
     for _ in 0..state.player.powers.brutality.max(0) {
         let hp_loss = crate::combat::hp_loss::lose_player_hp(state, 1);
         crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
-        revive_player_if_available(state);
+        revive_player_if_available(state)?;
         if state.player.hp <= 0 {
-            return;
+            return Ok(());
         }
         crate::combat::transition::player_draw_cards(state, 1);
     }
+    Ok(())
 }
 
 fn apply_start_of_turn_magnetism(state: &mut CombatState) {
@@ -542,7 +543,18 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     &mut state.rng.card_random_rng,
                 )?;
                 let painful_stabs = state.monsters[index].powers.painful_stabs;
-                apply_monster_pending_effects(state, damage, 1, painful_stabs, None, 0, 0, 0, 0, 0);
+                apply_monster_pending_effects(
+                    state,
+                    damage,
+                    1,
+                    painful_stabs,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                )?;
                 record_target_move(&mut state.monsters[index]);
                 state.monsters[index].intent = target_byrd_go_airborne_intent();
                 record_target_move(&mut state.monsters[index]);
@@ -775,7 +787,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 weak,
                 deferred_burn_to_discard,
                 deferred_upgrade_burns,
-            );
+            )?;
         }
         if state.player.hp > 0 {
             if let crate::MonsterIntent::AttackAddSlimedToDiscard { count, .. } = intent {
@@ -809,7 +821,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             prepare_next_intent_for_actor(state, actor_id)?;
             apply_transient_fading_after_turn(&mut state.monsters, actor_id);
         }
-        revive_with_lizard_tail_if_available(state);
+        revive_with_lizard_tail_if_available(state)?;
         if state.player.hp <= 0 {
             return Ok(());
         }
@@ -857,35 +869,66 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
     Ok(())
 }
 
-fn revive_with_lizard_tail_if_available(state: &mut CombatState) {
+pub(crate) fn revival_hp(max_hp: i32, percent: i32) -> SimResult<i32> {
+    if max_hp <= 0 || !(1..=100).contains(&percent) {
+        return Err(SimError::InvalidState(
+            "combat revival HP inputs are outside the target domain",
+        ));
+    }
+    let healed = (i64::from(max_hp) * i64::from(percent) / 100).max(1);
+    i32::try_from(healed).map_err(|_| SimError::InvalidState("combat revival HP overflows i32"))
+}
+
+pub(crate) fn revival_hp_with_relics(
+    max_hp: i32,
+    percent: i32,
+    relics: &[crate::Relic],
+) -> SimResult<i32> {
+    let base_heal = i64::from(revival_hp(max_hp, percent)?);
+    let heal = if relics.contains(&crate::Relic::MagicFlower) {
+        (base_heal * i64::from(crate::relic::MAGIC_FLOWER_HEAL_NUMERATOR)
+            + i64::from(crate::relic::MAGIC_FLOWER_HEAL_DENOMINATOR) / 2)
+            / i64::from(crate::relic::MAGIC_FLOWER_HEAL_DENOMINATOR)
+    } else {
+        base_heal
+    };
+    i32::try_from(heal.min(i64::from(max_hp)).max(1))
+        .map_err(|_| SimError::InvalidState("combat revival HP overflows i32"))
+}
+
+fn revive_with_lizard_tail_if_available(state: &mut CombatState) -> SimResult<()> {
     if state.player.hp > 0
         || state.mark_of_bloom
         || !state.relics.contains(&crate::Relic::LizardTail)
         || !state.relic_counters.lizard_tail_available
     {
-        return;
+        return Ok(());
     }
 
+    let hp = revival_hp(state.player.max_hp, crate::relic::LIZARD_TAIL_HEAL_PERCENT)?;
     state.relic_counters.lizard_tail_available = false;
-    state.player.hp = (state.player.max_hp * crate::relic::LIZARD_TAIL_HEAL_PERCENT / 100).max(1);
+    state.player.hp = hp;
+    Ok(())
 }
 
-fn revive_with_fairy_if_available(state: &mut CombatState) {
+fn revive_with_fairy_if_available(state: &mut CombatState) -> SimResult<()> {
     if state.player.hp > 0 || state.mark_of_bloom || state.relic_counters.fairy_heal_percent <= 0 {
-        return;
+        return Ok(());
     }
 
-    let base_heal = state.player.max_hp * state.relic_counters.fairy_heal_percent / 100;
-    state.player.hp = crate::relic::combat_healing_amount_with_relics(base_heal, &state.relics)
-        .max(1)
-        .min(state.player.max_hp);
+    state.player.hp = revival_hp_with_relics(
+        state.player.max_hp,
+        state.relic_counters.fairy_heal_percent,
+        &state.relics,
+    )?;
     state.relic_counters.fairy_heal_percent = 0;
     state.relic_counters.fairy_consumed = true;
+    Ok(())
 }
 
-pub(crate) fn revive_player_if_available(state: &mut CombatState) {
-    revive_with_lizard_tail_if_available(state);
-    revive_with_fairy_if_available(state);
+pub(crate) fn revive_player_if_available(state: &mut CombatState) -> SimResult<()> {
+    revive_with_lizard_tail_if_available(state)?;
+    revive_with_fairy_if_available(state)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -900,23 +943,23 @@ fn apply_monster_pending_effects(
     weak: i32,
     burn_to_discard: i32,
     upgrade_burns: i32,
-) {
+) -> SimResult<()> {
     let mut total_hp_damage = 0;
     let hit_count = hits.max(1);
     if damage > 0 && hit_count > 1 {
         let hit_damage = damage / hit_count;
         for _ in 0..hit_count {
-            let hp_damage = deal_damage_to_player(state, hit_damage);
+            let hp_damage = deal_damage_to_player(state, hit_damage)?;
             apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
             total_hp_damage += hp_damage;
         }
     } else if damage > 0 {
-        let hp_damage = deal_damage_to_player(state, damage);
+        let hp_damage = deal_damage_to_player(state, damage)?;
         apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage);
         total_hp_damage += hp_damage;
     }
     if state.player.hp <= 0 {
-        return;
+        return Ok(());
     }
     if weak > 0 {
         crate::relic::apply_player_weak_with_relics(&mut state.player.powers, &state.relics, weak);
@@ -938,6 +981,7 @@ fn apply_monster_pending_effects(
     if upgrade_burns > 0 {
         upgrade_burns_and_add_upgraded_to_discard(&mut state.piles, upgrade_burns);
     }
+    Ok(())
 }
 
 fn upgrade_burns_and_add_upgraded_to_discard(piles: &mut crate::combat::CardPiles, count: i32) {
@@ -1016,7 +1060,7 @@ fn apply_transient_fading_after_turn(monsters: &mut [crate::MonsterState], actor
     monster.intent = crate::MonsterIntent::Attack { damage: 0 };
 }
 
-fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> i32 {
+fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> SimResult<i32> {
     let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;
@@ -1025,11 +1069,11 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> i32 {
     let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp = (state.player.hp - hp_damage).max(0);
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_damage);
-    revive_player_if_available(state);
+    revive_player_if_available(state)?;
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
     }
-    hp_damage
+    Ok(hp_damage)
 }
 
 fn apply_painful_stabs_after_player_damage(
@@ -1936,6 +1980,39 @@ mod tests {
         assert_eq!(next.monsters[0].block, 12);
         assert!(next.relic_counters.fairy_consumed);
         assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+    }
+
+    #[test]
+    fn revival_hp_handles_the_target_hp_limit_without_overflow() {
+        assert_eq!(
+            revival_hp(i32::MAX, crate::relic::LIZARD_TAIL_HEAL_PERCENT),
+            Ok(1_073_741_823)
+        );
+        assert_eq!(revival_hp(i32::MAX, 100), Ok(i32::MAX));
+        assert_eq!(
+            revival_hp_with_relics(i32::MAX, 100, &[Relic::MagicFlower]),
+            Ok(i32::MAX)
+        );
+        assert_eq!(
+            revival_hp_with_relics(118, 30, &[Relic::MagicFlower]),
+            Ok(53)
+        );
+    }
+
+    #[test]
+    fn malformed_fairy_percentage_fails_without_consuming_revival() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 0;
+        state.relic_counters.fairy_heal_percent = 101;
+        let before = state.clone();
+
+        assert_eq!(
+            revive_player_if_available(&mut state),
+            Err(SimError::InvalidState(
+                "combat revival HP inputs are outside the target domain"
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     #[test]

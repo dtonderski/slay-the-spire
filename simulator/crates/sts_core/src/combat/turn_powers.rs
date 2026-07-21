@@ -8,11 +8,11 @@ use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId, SimErr
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()> {
     apply_player_end_of_turn_powers_for_combat_state(state)?;
-    apply_end_of_turn_constricted(state);
+    apply_end_of_turn_constricted(state)?;
     if state.player.hp <= 0 {
         return Ok(());
     }
-    apply_end_of_turn_combust(state);
+    apply_end_of_turn_combust(state)?;
     if state.player.hp <= 0 {
         return Ok(());
     }
@@ -59,13 +59,13 @@ fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) -> 
     Ok(())
 }
 
-fn apply_end_of_turn_constricted(state: &mut CombatState) {
+fn apply_end_of_turn_constricted(state: &mut CombatState) -> SimResult<()> {
     if state.player.powers.constricted <= 0 {
-        return;
+        return Ok(());
     }
     let hp_loss = lose_player_hp(state, state.player.powers.constricted);
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
-    crate::combat::turn::revive_player_if_available(state);
+    crate::combat::turn::revive_player_if_available(state)
 }
 
 pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {
@@ -105,7 +105,7 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
     }
 }
 
-fn apply_end_of_turn_combust(state: &mut CombatState) {
+fn apply_end_of_turn_combust(state: &mut CombatState) -> SimResult<()> {
     let combust_stacks = state.player.powers.combust.max(0);
     if combust_stacks > 0 {
         // Stacked Combust is one LoseHPAction whose hpLoss field is increased by
@@ -113,12 +113,13 @@ fn apply_end_of_turn_combust(state: &mut CombatState) {
         // not once for every point of HP lost.
         let hp_loss = lose_player_hp(state, combust_stacks * COMBUST_HP_LOSS);
         crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
-        crate::combat::turn::revive_player_if_available(state);
+        crate::combat::turn::revive_player_if_available(state)?;
         if state.player.hp <= 0 {
-            return;
+            return Ok(());
         }
     }
     deal_combust_damage_to_living_monsters(state);
+    Ok(())
 }
 
 fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
