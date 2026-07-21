@@ -39,8 +39,13 @@ the verifier's next semantic phase.
 Event obtain/transform grids can publish their deck append one stable frame
 late. Their action-frame projection retains that documented visibility delay,
 but now creates a deferred deck assertion. The originating action is verified
-only when a later stable observation contains the simulator-owned final deck;
-a divergent or missing reconciliation remains a failure.
+only when a later stable observation exactly equals the simulator-owned final
+deck. That observation may be a stable pre-command frame, an explicit poll
+result, or the post-frame of a command that makes the queued deck update
+visible. The latter must equal the pending deck exactly; that command's own
+core projection separately validates its result. Reconciliation never accepts
+an expected prefix with an unaccounted tail. A divergent or missing
+reconciliation remains a failure.
 
 ## Evidence and regression
 

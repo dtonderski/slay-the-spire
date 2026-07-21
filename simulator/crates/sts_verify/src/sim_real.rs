@@ -1022,6 +1022,7 @@ struct SeedStartVerification {
 struct PendingDeckAssertion {
     action: TraceAction,
     label: String,
+    transient_decks: Vec<Vec<String>>,
     expected_deck: Vec<String>,
 }
 
@@ -1170,23 +1171,97 @@ fn verify_seed_start_transitions(
     for (pre, action, post) in transitions {
         if let Some(pending) = pending_deck_assertion.take() {
             if is_trace_observation_poll(action) {
-                pending_deck_assertion = Some(pending);
-            } else {
                 let observed_deck = seed_start_observed_deck(&post.message);
-                if observed_deck.starts_with(&pending.expected_deck) {
-                    report.verified.push(VerifiedTransition {
-                        action_step: pending.action.step,
-                        command: pending.action.command,
-                        label: pending.label,
-                    });
-                    reconciled_deferred_action_steps.push(pending.action.step);
-                } else {
-                    report.unexpected_diffs.push(UnexpectedDiff {
-                        action_step: pending.action.step,
-                        command: pending.action.command,
-                        label: pending.label,
-                        diffs: subset_diffs(json!(observed_deck), json!(pending.expected_deck)),
-                    });
+                match classify_deferred_deck_reconciliation(
+                    &observed_deck,
+                    &pending.transient_decks,
+                    &pending.expected_deck,
+                ) {
+                    PendingDeckObservation::Settled => {
+                        report.verified.push(VerifiedTransition {
+                            action_step: pending.action.step,
+                            command: pending.action.command,
+                            label: pending.label,
+                        });
+                        reconciled_deferred_action_steps.push(pending.action.step);
+                    }
+                    PendingDeckObservation::Deferred => {
+                        pending_deck_assertion = Some(pending);
+                    }
+                    PendingDeckObservation::Diverged(diffs) => {
+                        report.unexpected_diffs.push(UnexpectedDiff {
+                            action_step: pending.action.step,
+                            command: pending.action.command,
+                            label: pending.label,
+                            diffs,
+                        });
+                    }
+                }
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "deferred deck observation poll".to_owned(),
+                });
+                continue;
+            } else {
+                let observed_deck = seed_start_observed_deck(&pre.message);
+                match classify_deferred_deck_reconciliation(
+                    &observed_deck,
+                    &pending.transient_decks,
+                    &pending.expected_deck,
+                ) {
+                    PendingDeckObservation::Settled => {
+                        report.verified.push(VerifiedTransition {
+                            action_step: pending.action.step,
+                            command: pending.action.command,
+                            label: pending.label,
+                        });
+                        reconciled_deferred_action_steps.push(pending.action.step);
+                    }
+                    PendingDeckObservation::Deferred => {
+                        let observed_post_deck = seed_start_observed_deck(&post.message);
+                        match classify_deferred_deck_reconciliation(
+                            &observed_post_deck,
+                            &pending.transient_decks,
+                            &pending.expected_deck,
+                        ) {
+                            PendingDeckObservation::Settled => {
+                                report.verified.push(VerifiedTransition {
+                                    action_step: pending.action.step,
+                                    command: pending.action.command,
+                                    label: pending.label,
+                                });
+                                reconciled_deferred_action_steps.push(pending.action.step);
+                            }
+                            PendingDeckObservation::Deferred => {
+                                report.unexpected_diffs.push(UnexpectedDiff {
+                                    action_step: pending.action.step,
+                                    command: pending.action.command,
+                                    label: pending.label,
+                                    diffs: subset_diffs(
+                                        json!(observed_post_deck),
+                                        json!(pending.expected_deck),
+                                    ),
+                                });
+                            }
+                            PendingDeckObservation::Diverged(diffs) => {
+                                report.unexpected_diffs.push(UnexpectedDiff {
+                                    action_step: pending.action.step,
+                                    command: pending.action.command,
+                                    label: pending.label,
+                                    diffs,
+                                });
+                            }
+                        }
+                    }
+                    PendingDeckObservation::Diverged(diffs) => {
+                        report.unexpected_diffs.push(UnexpectedDiff {
+                            action_step: pending.action.step,
+                            command: pending.action.command,
+                            label: pending.label,
+                            diffs,
+                        });
+                    }
                 }
             }
         }
@@ -2853,6 +2928,7 @@ fn verify_seed_start_transitions(
                         pending_deck_assertion = Some(PendingDeckAssertion {
                             action: action.clone(),
                             label: "Neow colorless pickup".to_owned(),
+                            transient_decks: vec![transient_deck],
                             expected_deck: simulated_deck,
                         });
                     }
@@ -3039,6 +3115,7 @@ fn verify_seed_start_transitions(
                         pending_deck_assertion = Some(PendingDeckAssertion {
                             action: action.clone(),
                             label: "Neow leave".to_owned(),
+                            transient_decks,
                             expected_deck: simulated_deck,
                         });
                     }
@@ -3847,6 +3924,7 @@ fn verify_seed_start_transitions(
                                 pending_deck_assertion = Some(PendingDeckAssertion {
                                     action: action.clone(),
                                     label: "event choice".to_owned(),
+                                    transient_decks: vec![simulated_deck],
                                     expected_deck,
                                 });
                             }
@@ -4757,6 +4835,7 @@ fn verify_seed_start_transitions(
                                     pending_deck_assertion = Some(PendingDeckAssertion {
                                         action: action.clone(),
                                         label: label.clone(),
+                                        transient_decks: vec![deck_before_reward_choice],
                                         expected_deck: simulated_deck,
                                     });
                                 }
@@ -5067,6 +5146,7 @@ fn verify_seed_start_transitions(
                             pending_deck_assertion = Some(PendingDeckAssertion {
                                 action: action.clone(),
                                 label: label.to_owned(),
+                                transient_decks: vec![simulated_deck],
                                 expected_deck,
                             });
                         }
@@ -5270,10 +5350,11 @@ fn verify_seed_start_transitions(
                                 fields.remove("deck_ids");
                             }
                             let mut diffs = subset_diffs(observed, simulated);
+                            let transient_deck = deck_content_keys(&sim.deck);
                             let expected_deck = deck_content_keys(&next.deck);
                             match classify_deferred_deck_observation(
                                 &observed_deck,
-                                &deck_content_keys(&sim.deck),
+                                &transient_deck,
                                 &expected_deck,
                             ) {
                                 PendingDeckObservation::Settled if diffs.is_empty() => {
@@ -5287,6 +5368,7 @@ fn verify_seed_start_transitions(
                                     pending_deck_assertion = Some(PendingDeckAssertion {
                                         action: action.clone(),
                                         label: label.to_owned(),
+                                        transient_decks: vec![transient_deck],
                                         expected_deck,
                                     });
                                 }
@@ -11892,6 +11974,20 @@ fn classify_deferred_deck_observation(
     }
 }
 
+fn classify_deferred_deck_reconciliation(
+    observed: &[String],
+    transient_decks: &[Vec<String>],
+    settled: &[String],
+) -> PendingDeckObservation {
+    if observed == settled {
+        PendingDeckObservation::Settled
+    } else if transient_decks.iter().any(|deck| deck == observed) {
+        PendingDeckObservation::Deferred
+    } else {
+        PendingDeckObservation::Diverged(subset_diffs(json!(observed), json!(settled)))
+    }
+}
+
 fn seed_start_observed_deck(message: &Value) -> Vec<String> {
     message
         .get("game_state")
@@ -17080,6 +17176,25 @@ mod tests {
                 &["Strike".to_owned(), "Pain".to_owned()],
                 &["Strike".to_owned()],
                 &["Strike".to_owned(), "Regret".to_owned()],
+            ),
+            PendingDeckObservation::Diverged(diffs) if !diffs.is_empty()
+        ));
+
+        let settled = ["Strike".to_owned(), "Regret".to_owned()];
+        let transient = vec![vec!["Strike".to_owned()]];
+        assert_eq!(
+            classify_deferred_deck_reconciliation(&settled, &transient, &settled),
+            PendingDeckObservation::Settled
+        );
+        assert_eq!(
+            classify_deferred_deck_reconciliation(&transient[0], &transient, &settled),
+            PendingDeckObservation::Deferred
+        );
+        assert!(matches!(
+            classify_deferred_deck_reconciliation(
+                &["Strike".to_owned(), "Regret".to_owned(), "Pain".to_owned()],
+                &transient,
+                &settled,
             ),
             PendingDeckObservation::Diverged(diffs) if !diffs.is_empty()
         ));
