@@ -763,7 +763,7 @@ impl RunState {
         }
 
         if let Some(screen) = &self.event {
-            super::event::validate_event_screen_authority(screen)?;
+            super::event::validate_event_screen_authority(self, screen)?;
         }
 
         match (&self.event, &self.match_and_keep) {

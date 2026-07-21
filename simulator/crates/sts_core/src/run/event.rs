@@ -436,34 +436,63 @@ fn dead_adventurer_pending_encounter(event_data: u32) -> bool {
     event_data & DEAD_ADVENTURER_PENDING_ENCOUNTER != 0
 }
 
-pub(super) fn validate_event_screen_authority(screen: &EventScreen) -> SimResult<()> {
-    if screen.event != Event::DeadAdventurer {
-        return Ok(());
-    }
-    if screen.event_data & !0x7ff != 0 {
-        return Err(SimError::InvalidState(
-            "Dead Adventurer event data has unknown bits",
-        ));
-    }
-    if screen.stage > 3 {
-        return Err(SimError::InvalidState("Dead Adventurer stage is invalid"));
-    }
-    dead_adventurer_order(screen.event_data)?;
-    if dead_adventurer_enemy(screen.event_data) > 2 {
-        return Err(SimError::InvalidState(
-            "Dead Adventurer enemy identity is invalid",
-        ));
-    }
-    let attempts = dead_adventurer_attempts(screen.event_data);
-    if screen.stage == 0 && attempts >= 3 {
-        return Err(SimError::InvalidState(
-            "Dead Adventurer search stage has no rewards remaining",
-        ));
-    }
-    if screen.stage == 2 && attempts == 0 {
-        return Err(SimError::InvalidState(
-            "Dead Adventurer continuation has no completed search",
-        ));
+pub(super) fn validate_event_screen_authority(
+    run: &RunState,
+    screen: &EventScreen,
+) -> SimResult<()> {
+    match screen.event {
+        Event::DeadAdventurer => {
+            if screen.event_data & !0x7ff != 0 {
+                return Err(SimError::InvalidState(
+                    "Dead Adventurer event data has unknown bits",
+                ));
+            }
+            if screen.stage > 3 {
+                return Err(SimError::InvalidState("Dead Adventurer stage is invalid"));
+            }
+            dead_adventurer_order(screen.event_data)?;
+            if dead_adventurer_enemy(screen.event_data) > 2 {
+                return Err(SimError::InvalidState(
+                    "Dead Adventurer enemy identity is invalid",
+                ));
+            }
+            let attempts = dead_adventurer_attempts(screen.event_data);
+            if screen.stage == 0 && attempts >= 3 {
+                return Err(SimError::InvalidState(
+                    "Dead Adventurer search stage has no rewards remaining",
+                ));
+            }
+            if screen.stage == 2 && attempts == 0 {
+                return Err(SimError::InvalidState(
+                    "Dead Adventurer continuation has no completed search",
+                ));
+            }
+        }
+        Event::Nloth => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("N'loth stage is invalid"));
+            }
+            if screen.stage == 0 {
+                if screen.event_data & !0xffff != 0 {
+                    return Err(SimError::InvalidState("N'loth event data has unknown bits"));
+                }
+                let first = nloth_choice_index(screen.event_data, 0);
+                let second = nloth_choice_index(screen.event_data, 1);
+                if first == second {
+                    return Err(SimError::InvalidState(
+                        "N'loth relic offers are not distinct",
+                    ));
+                }
+                if first >= run.relics.len() || second >= run.relics.len() {
+                    return Err(SimError::InvalidState("N'loth offered relic is missing"));
+                }
+            } else if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "completed N'loth event retains offer data",
+                ));
+            }
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -510,8 +539,17 @@ fn nloth_owned_relic_keys(run: &RunState) -> Vec<RelicKey> {
     run.relics.iter().map(|relic| relic.key()).collect()
 }
 
-fn nloth_event_data(choice_one: usize, choice_two: usize) -> u32 {
-    (choice_one as u32) | ((choice_two as u32) << 8)
+fn nloth_event_data(choice_one: usize, choice_two: usize) -> SimResult<u32> {
+    if choice_one == choice_two {
+        return Err(SimError::InvalidState(
+            "N'loth relic offers are not distinct",
+        ));
+    }
+    let choice_one = u8::try_from(choice_one)
+        .map_err(|_| SimError::InvalidState("N'loth relic offer exceeds event encoding"))?;
+    let choice_two = u8::try_from(choice_two)
+        .map_err(|_| SimError::InvalidState("N'loth relic offer exceeds event encoding"))?;
+    Ok(u32::from(choice_one) | (u32::from(choice_two) << 8))
 }
 
 fn nloth_choice_index(event_data: u32, choice: usize) -> usize {
@@ -538,8 +576,13 @@ fn nloth_choices(run: &RunState, stage: u32, event_data: u32) -> Vec<EventChoice
     labeled_choices(&[&first, &second, "Leave"])
 }
 
-fn roll_nloth_event_data(run: &mut RunState) -> u32 {
+fn roll_nloth_event_data(run: &mut RunState) -> SimResult<u32> {
     let owned = nloth_owned_relic_keys(run);
+    if owned.len() < 2 {
+        return Err(SimError::InvalidState(
+            "N'loth requires at least two owned relics",
+        ));
+    }
     let mut indices = (0..owned.len()).collect::<Vec<_>>();
     let mut rng = run.rng_for_stream(RunRngStream::Misc);
     let shuffle_seed = rng.random_long();
@@ -2392,7 +2435,7 @@ fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> SimResult<E
             dead_adventurer_screen(run, 0, event_data)
         }
         Event::Nloth => {
-            let event_data = roll_nloth_event_data(run);
+            let event_data = roll_nloth_event_data(run)?;
             EventScreen {
                 event,
                 choices: nloth_choices(run, 0, event_data),
@@ -6743,7 +6786,7 @@ mod tests {
         run.gain_relic(Relic::Vajra);
         run.gain_relic(Relic::Strawberry);
         run.phase = RunPhase::Event;
-        let event_data = nloth_event_data(0, 1);
+        let event_data = nloth_event_data(0, 1).expect("distinct relic offers fit encoding");
         run.event = Some(EventScreen {
             event: Event::Nloth,
             choices: nloth_choices(&run, 0, event_data),
@@ -6756,6 +6799,54 @@ mod tests {
         assert!(!after_trade.relics.contains(&Relic::BurningBlood));
         assert!(has_relic_key(&after_trade, RelicKey::NlothsGift));
         assert_eq!(after_trade.event.as_ref().expect("leave screen").stage, 1);
+    }
+
+    #[test]
+    fn nloth_entry_requires_two_relics_without_consuming_rng() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        let misc_rng_counter = run.misc_rng_counter;
+
+        assert_eq!(
+            entered_event_screen_for_run(&mut run, Event::Nloth),
+            Err(SimError::InvalidState(
+                "N'loth requires at least two owned relics"
+            ))
+        );
+        assert_eq!(run.misc_rng_counter, misc_rng_counter);
+    }
+
+    #[test]
+    fn nloth_offer_encoding_rejects_duplicate_and_oversized_indices() {
+        assert_eq!(
+            nloth_event_data(1, 1),
+            Err(SimError::InvalidState(
+                "N'loth relic offers are not distinct"
+            ))
+        );
+        assert_eq!(
+            nloth_event_data(0, 256),
+            Err(SimError::InvalidState(
+                "N'loth relic offer exceeds event encoding"
+            ))
+        );
+    }
+
+    #[test]
+    fn nloth_import_rejects_missing_offered_relic() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.gain_relic(Relic::Vajra);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::Nloth,
+            choices: labeled_choices(&["Trade", "Trade", "Leave"]),
+            stage: 0,
+            event_data: nloth_event_data(0, 2).expect("offer indices fit encoding"),
+        });
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState("N'loth offered relic is missing"))
+        );
     }
 
     #[test]
