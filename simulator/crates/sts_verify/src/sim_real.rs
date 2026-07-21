@@ -25,16 +25,14 @@ use sts_core::run::neow::{
 use sts_core::{
     affordable_shop_picks, apply_neow_boss_swap, apply_neow_relic_reward,
     apply_neow_simple_drawback, apply_neow_simple_reward, apply_run_decision_action,
-    consume_neow_three_potions_hidden_card_reward, generate_exordium_map_choices_after_path,
-    generate_exordium_map_topology, generate_neow_card_reward, generate_neow_colorless_reward,
-    generate_neow_options, generate_neow_three_potions, generate_neow_transform_reward,
-    generate_target_map_choices_after_path, generate_target_map_topology,
-    legal_run_decision_actions, open_neow_reward_grid, shop_action_for_choice_index,
-    target_room_kinds_on_path, CardGridScreen, CardId, CardInstance, CombatAction,
-    CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventAction,
+    consume_neow_three_potions_hidden_card_reward, generate_exordium_map_topology,
+    generate_neow_card_reward, generate_neow_colorless_reward, generate_neow_options,
+    generate_neow_three_potions, generate_neow_transform_reward, legal_run_decision_actions,
+    open_neow_reward_grid, shop_action_for_choice_index, CardGridScreen, CardId, CardInstance,
+    CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventAction,
     GeneratedNeowOption, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState,
     NeowDrawback, NeowRewardType, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
-    RunDecisionAction, RunPhase, RunState, ShopPick, TargetMapAct,
+    RunDecisionAction, RunPhase, RunState, ShopPick,
 };
 
 #[cfg(test)]
@@ -53,6 +51,8 @@ use sts_core::{
     exordium_room_kinds_on_path, initialize_combat_piles_with_relics, CardPiles, EventChoice,
     EventScreen, MonsterPowers, PlayerPowers, RelicCounters, StsRng,
 };
+#[cfg(test)]
+use sts_core::{target_room_kinds_on_path, TargetMapAct};
 
 fn apply_combat_action_on_run(
     run: &RunState,
@@ -1149,6 +1149,27 @@ fn verify_seed_start_transitions(
         }};
     }
 
+    macro_rules! require_map_projection {
+        ($run:expr, $action:expr, $category:expr) => {{
+            match seed_start_simulated_map_return($run, &relics) {
+                Ok(projection) => projection,
+                Err(reason) => {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", $action.step),
+                        category: $category.to_owned(),
+                        reason,
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: $action.step,
+                        command: $action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
+                }
+            }
+        }};
+    }
+
     for (pre, action, post) in transitions {
         if let Some(pending) = pending_deck_assertion.take() {
             if is_trace_observation_poll(action) {
@@ -1463,7 +1484,6 @@ fn verify_seed_start_transitions(
                         report,
                         action,
                         &post.message,
-                        start,
                         &mut phase,
                         &mut combat_index,
                         &mut _reward_step,
@@ -3118,25 +3138,29 @@ fn verify_seed_start_transitions(
                     };
                     if let Some(choice_index) = choose_index(&action.command) {
                         if let Some(map_action) = legal_actions.get(choice_index).copied() {
-                            let choice_x = transition_base
-                                .map
-                                .as_ref()
-                                .and_then(|map_state| {
-                                    let node_id = match map_action {
-                                        sts_core::MapAction::ChooseNode { node_id } => node_id,
-                                    };
-                                    map_state.map.node(node_id).map(|node| {
-                                        let (x, _) = seed_start_map_node_xy(node.id);
-                                        x
-                                    })
+                            let choice_x = transition_base.map.as_ref().and_then(|map_state| {
+                                let node_id = match map_action {
+                                    sts_core::MapAction::ChooseNode { node_id } => node_id,
+                                };
+                                map_state.map.node(node_id).map(|node| {
+                                    let (x, _) = seed_start_map_node_xy(node.id);
+                                    x
                                 })
-                                .unwrap_or_else(|| {
-                                    seed_start_map_pick_x(
-                                        &start.external_seed,
-                                        &map_path_xs,
-                                        &action.command,
-                                    )
+                            });
+                            let Some(choice_x) = choice_x else {
+                                let boundary = SeedStartBoundary {
+                                    path: format!("$.actions[step={}].command", action.step),
+                                    category: "invalid_map_state".to_owned(),
+                                    reason: "legal core map action references a missing node"
+                                        .to_owned(),
+                                };
+                                report.unsupported.push(UnsupportedTransition {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    reason: boundary.reason.clone(),
                                 });
+                                return finish_boundary!(boundary);
+                            };
                             map_path_xs.push(choice_x);
                             let Ok(next) = apply_map_action_on_run(&transition_base, map_action)
                             else {
@@ -3229,13 +3253,10 @@ fn verify_seed_start_transitions(
                                         report,
                                         action,
                                         &post.message,
-                                        seed_start_simulated_map_return(
-                                            start.numeric_seed,
-                                            &map_path_xs,
-                                            Some(&next),
-                                            &relics,
-                                            &deck_ids,
-                                            &deck_ids,
+                                        require_map_projection!(
+                                            &next,
+                                            action,
+                                            "invalid_map_projection"
                                         ),
                                     );
                                     seed_sim = Some(next);
@@ -3319,14 +3340,8 @@ fn verify_seed_start_transitions(
                         combat_index = 0;
                         normal_combat_index = 0;
                     }
-                    let mut simulated_return = seed_start_simulated_map_return(
-                        start.numeric_seed,
-                        &map_path_xs,
-                        Some(&next),
-                        &relics,
-                        &deck_ids,
-                        &deck_ids,
-                    );
+                    let mut simulated_return =
+                        require_map_projection!(&next, action, "invalid_treasure_map_projection");
                     if next.current_act != previous_act && previous_act != 1 {
                         seed_start_project_post_boss_transition_current_node(&mut simulated_return);
                     }
@@ -3544,14 +3559,7 @@ fn verify_seed_start_transitions(
                     action,
                     "rest proceed to map",
                     seed_start_map_return_observed_subset(&post.message),
-                    seed_start_simulated_map_return(
-                        start.numeric_seed,
-                        &map_path_xs,
-                        Some(&next),
-                        &relics,
-                        &deck_ids,
-                        &deck_ids,
-                    ),
+                    require_map_projection!(&next, action, "invalid_rest_map_projection"),
                 );
                 *sim = next;
                 phase = SeedStartPhase::Map;
@@ -3801,14 +3809,7 @@ fn verify_seed_start_transitions(
                     match next.phase {
                         RunPhase::Idle if next.event.is_none() => (
                             seed_start_map_return_observed_subset(&post.message),
-                            seed_start_simulated_map_return(
-                                start.numeric_seed,
-                                &map_path_xs,
-                                Some(&next),
-                                &relics,
-                                &deck_ids,
-                                &deck_ids,
-                            ),
+                            require_map_projection!(&next, action, "invalid_event_map_projection"),
                         ),
                         RunPhase::Reward if next.reward.is_some() => (
                             seed_start_reward_observed_subset(&post.message),
@@ -4354,7 +4355,6 @@ fn verify_seed_start_transitions(
                             report,
                             action,
                             &post.message,
-                            start,
                             &mut phase,
                             &mut combat_index,
                             &mut _reward_step,
@@ -4634,7 +4634,6 @@ fn verify_seed_start_transitions(
                         report,
                         action,
                         &post.message,
-                        start,
                         &mut phase,
                         &mut combat_index,
                         &mut _reward_step,
@@ -5218,14 +5217,7 @@ fn verify_seed_start_transitions(
                         action,
                         "leave shop room",
                         seed_start_map_return_observed_subset(&post.message),
-                        seed_start_simulated_map_return(
-                            start.numeric_seed,
-                            &map_path_xs,
-                            Some(&next),
-                            &relics,
-                            &deck_ids,
-                            &deck_ids,
-                        ),
+                        require_map_projection!(&next, action, "invalid_shop_map_projection"),
                     );
                     *sim = next;
                     phase = SeedStartPhase::Map;
@@ -5498,7 +5490,6 @@ fn verify_seed_start_transitions(
                         report,
                         action,
                         &post.message,
-                        start,
                         &mut phase,
                         &mut combat_index,
                         &mut _reward_step,
@@ -7323,7 +7314,6 @@ fn seed_start_handle_proceed_to_map(
     report: &mut SimRealReport,
     action: &TraceAction,
     post_message: &Value,
-    start: &StartRunCommand,
     phase: &mut SeedStartPhase,
     combat_index: &mut usize,
     reward_step: &mut usize,
@@ -7437,21 +7427,25 @@ fn seed_start_handle_proceed_to_map(
             seed_start_update_carry_from_run(sim, carried_relics, carried_deck_ids);
         }
         map_path_xs.clear();
-        let deck = seed_sim
-            .as_ref()
-            .map(|sim| deck_content_keys(&sim.deck))
-            .unwrap_or_else(|| carried_deck_ids.clone());
+        let simulated_map = match seed_start_simulated_map_return(
+            seed_sim
+                .as_ref()
+                .expect("proceed-to-map transition retained core run state"),
+            carried_relics,
+        ) {
+            Ok(projection) => projection,
+            Err(reason) => {
+                return Some(SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_boss_act_map_projection".to_owned(),
+                    reason,
+                });
+            }
+        };
         *pending_map_assertion = Some(PendingMapAssertion {
             action: action.clone(),
             label: label.to_owned(),
-            simulated_map: seed_start_simulated_map_return(
-                start.numeric_seed,
-                map_path_xs,
-                seed_sim.as_ref(),
-                carried_relics,
-                &deck,
-                &deck,
-            ),
+            simulated_map,
             transient_matches,
         });
         *combat_index = 0;
@@ -7460,19 +7454,22 @@ fn seed_start_handle_proceed_to_map(
         return None;
     }
     let label = format!("return to map after floor {}", *combat_index + 1);
-    let deck = seed_sim
-        .as_ref()
-        .map(|sim| deck_content_keys(&sim.deck))
-        .unwrap_or_else(|| carried_deck_ids.clone());
     let observed = seed_start_map_return_observed_subset(post_message);
-    let simulated = seed_start_simulated_map_return(
-        start.numeric_seed,
-        map_path_xs,
-        seed_sim.as_ref(),
+    let simulated = match seed_start_simulated_map_return(
+        seed_sim
+            .as_ref()
+            .expect("proceed-to-map transition retained core run state"),
         carried_relics,
-        &deck,
-        &deck,
-    );
+    ) {
+        Ok(projection) => projection,
+        Err(reason) => {
+            return Some(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_map_projection".to_owned(),
+                reason,
+            });
+        }
+    };
     compare_subset(report, action, &label, observed, simulated);
     if let Some(sim) = seed_sim.as_mut() {
         seed_start_update_carry_from_run(sim, carried_relics, carried_deck_ids);
@@ -7489,24 +7486,6 @@ fn seed_start_map_label(combat_index: usize) -> String {
         1 => "map floor 2 monster node".to_owned(),
         2 => "map floor 3 monster node".to_owned(),
         _ => format!("map floor {} monster node", combat_index + 1),
-    }
-}
-
-fn seed_start_map_pick_x(external_seed: &str, path_so_far: &[i32], command: &str) -> i32 {
-    let choice_index = choose_index(command).expect("map pick requires a valid CHOOSE command");
-    let seed = seed_text_to_long(external_seed).expect("start command seed already parsed");
-    if path_so_far.is_empty() {
-        generate_exordium_map_topology(seed)
-            .first_row_choices
-            .get(choice_index)
-            .copied()
-            .unwrap_or(choice_index as i32)
-    } else {
-        generate_exordium_map_choices_after_path(seed, path_so_far)
-            .last()
-            .and_then(|step| step.next_choices.get(choice_index))
-            .copied()
-            .unwrap_or(choice_index as i32)
     }
 }
 
@@ -7580,239 +7559,98 @@ fn seed_start_compare_map_return(
     );
 }
 
-fn seed_start_simulated_map_return(
-    numeric_seed: i64,
-    path_xs: &[i32],
-    run: Option<&RunState>,
-    relic_ids: &[String],
-    deck_ids: &[String],
-    deck_fallback: &[String],
-) -> Value {
-    let act = seed_start_target_act_from_run(run);
-    let gold = run.map(|sim| sim.gold).unwrap_or(99);
-    let current_hp = run.map(|sim| sim.player_hp).unwrap_or(80);
-    let max_hp = run.map(|sim| sim.player_max_hp).unwrap_or(80);
-    let deck = run
-        .map(|sim| deck_content_keys(&sim.deck))
-        .unwrap_or_else(|| {
-            if deck_ids.is_empty() {
-                deck_fallback.to_vec()
-            } else {
-                deck_ids.to_vec()
-            }
-        });
-    let relic_ids = run
-        .map(|sim| relic_ids_for_simulated_subset(sim, relic_ids))
-        .unwrap_or_else(|| relic_ids.to_vec());
-
-    if let Some(sim) = run {
-        if let Some(map_state) = sim.map.as_ref() {
-            let current = map_state.map.node(map_state.current_node);
-            let first_node_chosen = map_state.current_node.get() != 0;
-            let (current_x, current_y) = if first_node_chosen {
-                seed_start_map_node_xy(map_state.current_node)
-            } else {
-                (0, -1)
-            };
-            let current_symbol = if first_node_chosen {
-                current
-                    .map(|node| room_kind_symbol(node.room_kind))
-                    .unwrap_or("")
-            } else {
-                ""
-            };
-            let mut map_action_run = sim.clone();
-            map_action_run.phase = RunPhase::Idle;
-            // This is a deterministic completed-room projection, not authoritative replay state.
-            // Remove simulator-owned overlays from the temporary copy before asking the core for
-            // map decisions; no observed post-state participates in this normalization.
-            map_action_run.combat = None;
-            map_action_run.reward = None;
-            map_action_run.event = None;
-            map_action_run.shop = None;
-            map_action_run.shop_merchant_open = false;
-            map_action_run.card_grid = None;
-            let legal_actions = match legal_map_decisions(&map_action_run) {
-                Ok(actions) => actions,
-                Err(error) => {
-                    return json!({
-                        "simulator_error": format!(
-                            "core legal-action boundary rejected map state: {error}"
-                        )
-                    });
-                }
-            };
-            let legal_node_ids: Vec<_> = legal_actions
-                .into_iter()
-                .map(|action| match action {
-                    sts_core::MapAction::ChooseNode { node_id } => node_id,
-                })
-                .collect();
-            let next_node_ids = if legal_node_ids.is_empty() {
-                match sts_core::reachable_nodes(map_state) {
-                    Ok(nodes) => nodes,
-                    Err(error) => {
-                        return json!({
-                            "simulator_error": format!(
-                                "core map boundary rejected map state: {error}"
-                            )
-                        });
-                    }
-                }
-            } else {
-                legal_node_ids
-            };
-            if next_node_ids.is_empty() && !path_xs.is_empty() {
-                // Some reward-to-map verifier states carry a stale map cursor after the room has
-                // completed. The deterministic path projection below still derives the visible
-                // map choices from the seed and accepted path, without hydrating from observation.
-            } else {
-                let boss_available = next_node_ids.len() == 1
-                    && next_node_ids
-                        .first()
-                        .and_then(|id| map_state.map.node(*id))
-                        .is_some_and(|node| node.room_kind == RoomKind::Boss);
-                let choices = if boss_available {
-                    vec!["boss".to_owned()]
-                } else {
-                    next_node_ids
-                        .iter()
-                        .map(|id| {
-                            let (x, _) = seed_start_map_node_xy(*id);
-                            format!("x={x}")
-                        })
-                        .collect()
-                };
-                let next_nodes = if boss_available {
-                    Vec::new()
-                } else {
-                    next_node_ids
-                        .iter()
-                        .filter_map(|id| {
-                            let node = map_state.map.node(*id)?;
-                            let (x, y) = seed_start_map_node_xy(*id);
-                            Some(json!({
-                                "symbol": room_kind_symbol(node.room_kind),
-                                "x": x,
-                                "y": y,
-                            }))
-                        })
-                        .collect()
-                };
-                return json!({
-                    "screen_type": "MAP",
-                    "floor": sim.current_floor.max(0) as u64,
-                    "gold": gold,
-                    "current_hp": current_hp,
-                    "max_hp": max_hp,
-                    "deck_ids": deck,
-                    "relic_ids": relic_ids,
-                    "choices": choices,
-                    "first_node_chosen": first_node_chosen,
-                    "current_node": {
-                        "symbol": current_symbol,
-                        "x": current_x,
-                        "y": current_y,
-                    },
-                    "next_nodes": next_nodes,
-                });
-            }
-        }
-    }
-
-    if path_xs.is_empty() {
-        let topology = generate_target_map_topology(numeric_seed, act);
-        let choices: Vec<String> = topology
-            .first_row_choices
-            .iter()
-            .map(|x| format!("x={x}"))
-            .collect();
-        let next_nodes: Vec<Value> = topology
-            .first_row_choices
-            .iter()
-            .map(|&x| {
-                json!({
-                    "symbol": room_kind_symbol(topology.first_row_room_kind),
-                    "x": x,
-                    "y": 0,
-                })
-            })
-            .collect();
-        let floor = run.map(|sim| sim.current_floor as u64).unwrap_or(0);
-        return json!({
-            "screen_type": "MAP",
-            "floor": floor,
-            "gold": gold,
-            "current_hp": current_hp,
-            "max_hp": max_hp,
-            "deck_ids": deck,
-            "relic_ids": relic_ids,
-            "choices": choices,
-            "first_node_chosen": false,
-            "current_node": {
-                "symbol": "",
-                "x": 0,
-                "y": -1,
-            },
-            "next_nodes": next_nodes,
-        });
-    }
-
-    let steps = generate_target_map_choices_after_path(numeric_seed, act, path_xs);
-    let Some(step) = steps.last() else {
-        return json!({});
+fn seed_start_simulated_map_return(run: &RunState, relic_ids: &[String]) -> Result<Value, String> {
+    let map_state = run
+        .map
+        .as_ref()
+        .ok_or_else(|| "core run state has no authoritative map".to_owned())?;
+    let first_node_chosen = map_state.current_node.get() != 0;
+    let (current_x, current_y, current_symbol) = if first_node_chosen {
+        let current = map_state
+            .map
+            .node(map_state.current_node)
+            .ok_or_else(|| "core map current node is missing".to_owned())?;
+        let (x, y) = seed_start_map_node_xy(map_state.current_node);
+        (x, y, room_kind_symbol(current.room_kind))
+    } else {
+        (0, -1, "")
     };
-    let boss_available = step.floor >= 15 && step.next_choices == [3];
-    let choices: Vec<String> = if boss_available {
+
+    let mut map_action_run = run.clone();
+    map_action_run.phase = RunPhase::Idle;
+    // This is a deterministic completed-room projection, not authoritative replay state.
+    // Remove simulator-owned overlays from the temporary copy before asking the core for
+    // map decisions; no observed post-state participates in this normalization.
+    map_action_run.combat = None;
+    map_action_run.reward = None;
+    map_action_run.event = None;
+    map_action_run.shop = None;
+    map_action_run.shop_merchant_open = false;
+    map_action_run.card_grid = None;
+    let legal_actions = legal_map_decisions(&map_action_run)
+        .map_err(|error| format!("core legal-action boundary rejected map state: {error}"))?;
+    let next_node_ids = legal_actions
+        .into_iter()
+        .map(|action| match action {
+            sts_core::MapAction::ChooseNode { node_id } => node_id,
+        })
+        .collect::<Vec<_>>();
+    if next_node_ids.is_empty() {
+        return Err("core map state exposes no legal destination".to_owned());
+    }
+
+    let boss_available = next_node_ids.len() == 1
+        && next_node_ids
+            .first()
+            .and_then(|id| map_state.map.node(*id))
+            .is_some_and(|node| node.room_kind == RoomKind::Boss);
+    let choices = if boss_available {
         vec!["boss".to_owned()]
     } else {
-        step.next_choices.iter().map(|x| format!("x={x}")).collect()
-    };
-    let current_x = *path_xs.last().unwrap_or(&0);
-    let current_y = path_xs.len().saturating_sub(1) as i64;
-    let current_symbol = seed_start_room_kinds_on_path_for_act(numeric_seed, act, path_xs)
-        .last()
-        .copied()
-        .map(room_kind_symbol)
-        .unwrap_or("M");
-    let next_nodes: Vec<Value> = if boss_available {
-        Vec::new()
-    } else {
-        step.next_choices
+        next_node_ids
             .iter()
-            .map(|&x| {
-                let mut child_path = path_xs.to_vec();
-                child_path.push(x);
-                let symbol = seed_start_room_kinds_on_path_for_act(numeric_seed, act, &child_path)
-                    .last()
-                    .copied()
-                    .map(room_kind_symbol)
-                    .unwrap_or("M");
-                json!({
-                    "symbol": symbol,
-                    "x": x,
-                    "y": current_y + 1,
-                })
+            .map(|id| {
+                let (x, _) = seed_start_map_node_xy(*id);
+                format!("x={x}")
             })
             .collect()
     };
-    json!({
+    let next_nodes = if boss_available {
+        Vec::new()
+    } else {
+        next_node_ids
+            .iter()
+            .map(|id| {
+                let node = map_state
+                    .map
+                    .node(*id)
+                    .ok_or_else(|| format!("core map destination {} is missing", id.get()))?;
+                let (x, y) = seed_start_map_node_xy(*id);
+                Ok(json!({
+                    "symbol": room_kind_symbol(node.room_kind),
+                    "x": x,
+                    "y": y,
+                }))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
+    Ok(json!({
         "screen_type": "MAP",
-        "floor": path_xs.len() as u64,
-        "gold": gold,
-        "current_hp": current_hp,
-        "max_hp": max_hp,
-        "deck_ids": deck,
-        "relic_ids": relic_ids,
+        "floor": run.current_floor.max(0) as u64,
+        "gold": run.gold,
+        "current_hp": run.player_hp,
+        "max_hp": run.player_max_hp,
+        "deck_ids": deck_content_keys(&run.deck),
+        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
         "choices": choices,
-        "first_node_chosen": true,
+        "first_node_chosen": first_node_chosen,
         "current_node": {
             "symbol": current_symbol,
             "x": current_x,
             "y": current_y,
         },
         "next_nodes": next_nodes,
-    })
+    }))
 }
 
 fn seed_start_project_post_boss_transition_current_node(value: &mut Value) {
@@ -7835,27 +7673,6 @@ fn seed_start_map_node_xy(node_id: sts_core::MapNodeId) -> (i32, i64) {
     }
     let index = node_id.get() - 1;
     ((index % 7) as i32, (index / 7) as i64)
-}
-
-fn seed_start_target_act_from_run(run: Option<&RunState>) -> TargetMapAct {
-    match run.map(|sim| sim.current_act).unwrap_or(1) {
-        3 => TargetMapAct::Beyond,
-        2 => TargetMapAct::City,
-        _ => TargetMapAct::Exordium,
-    }
-}
-
-fn seed_start_room_kinds_on_path_for_act(
-    numeric_seed: i64,
-    act: TargetMapAct,
-    path_xs: &[i32],
-) -> Vec<RoomKind> {
-    let previous_panic_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {}));
-    let room_kinds =
-        std::panic::catch_unwind(|| target_room_kinds_on_path(numeric_seed, act, path_xs));
-    std::panic::set_hook(previous_panic_hook);
-    room_kinds.unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -15504,26 +15321,6 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_map_return_projects_final_row_as_boss_choice() {
-        let seed = sts_seed_string_to_long("TEST");
-        let mut path = vec![generate_exordium_map_topology(seed).first_row_choices[0]];
-        while path.len() < 15 {
-            let next = generate_exordium_map_choices_after_path(seed, &path)
-                .last()
-                .and_then(|step| step.next_choices.first())
-                .copied()
-                .expect("path reaches the next map row");
-            path.push(next);
-        }
-
-        let projected = seed_start_simulated_map_return(seed, &path, None, &[], &[], &[]);
-
-        assert_eq!(projected["choices"], json!(["boss"]));
-        assert_eq!(projected["next_nodes"], json!([]));
-        assert_eq!(projected["current_node"]["y"], json!(14));
-    }
-
-    #[test]
     fn observed_map_return_cannot_verify_itself() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Idle;
@@ -15555,7 +15352,7 @@ mod tests {
             &mut report,
             &action,
             &forged_post,
-            seed_start_simulated_map_return(1, &[], Some(&run), &[], &[], &[]),
+            seed_start_simulated_map_return(&run, &[]).expect("core map projection"),
         );
 
         assert!(report.verified.is_empty());
@@ -15571,7 +15368,29 @@ mod tests {
     }
 
     #[test]
-    fn seed_start_map_return_falls_back_when_carried_map_has_no_reachable_nodes() {
+    fn seed_start_map_return_rejects_missing_core_map_authority() {
+        let mut run = RunState::map_fixture();
+        run.map = None;
+
+        assert_eq!(
+            seed_start_simulated_map_return(&run, &[]),
+            Err("core run state has no authoritative map".to_owned())
+        );
+    }
+
+    #[test]
+    fn seed_start_map_return_rejects_missing_current_node() {
+        let mut run = RunState::map_fixture();
+        run.map.as_mut().expect("map fixture").current_node = sts_core::MapNodeId::new(999);
+
+        assert_eq!(
+            seed_start_simulated_map_return(&run, &[]),
+            Err("core map current node is missing".to_owned())
+        );
+    }
+
+    #[test]
+    fn seed_start_map_return_uses_core_wing_boots_destinations() {
         let seed = sts_seed_string_to_long("3WUU08ZMEVMV2");
         let mut run = seed_start_seeded_idle_run(seed, 0, &ironclad_starter_deck_keys());
         run.relics.push(Relic::WingBoots);
@@ -15588,7 +15407,8 @@ mod tests {
         run = apply_map_action_on_run(&run, first_node).expect("first map node is legal");
         run.phase = RunPhase::Reward;
 
-        let projected = seed_start_simulated_map_return(seed, &[2], Some(&run), &[], &[], &[]);
+        let projected =
+            seed_start_simulated_map_return(&run, &[]).expect("core Wing Boots projection");
 
         assert_eq!(
             projected["choices"],
@@ -20353,12 +20173,6 @@ mod tests {
     #[test]
     fn choose_index_parses_nonzero_reward_choice() {
         assert_eq!(choose_index("CHOOSE 2"), Some(2));
-    }
-
-    #[test]
-    fn seed_start_map_choice_resolves_nonzero_choice_index() {
-        assert_eq!(command_choose_index("CHOOSE 1"), Some(1));
-        assert_eq!(seed_start_map_pick_x("CODEX04", &[], "CHOOSE 1"), 2);
     }
 
     fn sword_boomerang_combat(living_monsters: usize) -> CombatState {
