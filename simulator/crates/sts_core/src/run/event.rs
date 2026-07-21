@@ -655,6 +655,7 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
         }
+        Event::WeMeetAgain => validate_we_meet_again_authority(run, screen)?,
         _ => {}
     }
     Ok(())
@@ -1490,31 +1491,46 @@ struct WeMeetAgainOptions {
     card_index: Option<usize>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WeMeetAgainChoice {
+    GivePotion,
+    GiveGold,
+    GiveCard,
+    Attack,
+}
+
+fn we_meet_again_available_choices(options: WeMeetAgainOptions) -> Vec<WeMeetAgainChoice> {
+    let mut choices = Vec::new();
+    if options.potion_slot.is_some() {
+        choices.push(WeMeetAgainChoice::GivePotion);
+    }
+    if options.gold_amount > 0 {
+        choices.push(WeMeetAgainChoice::GiveGold);
+    }
+    if options.card_index.is_some() {
+        choices.push(WeMeetAgainChoice::GiveCard);
+    }
+    choices.push(WeMeetAgainChoice::Attack);
+    choices
+}
+
 fn we_meet_again_choices(stage: u32, options: WeMeetAgainOptions) -> Vec<EventChoice> {
     if stage > 0 {
         return labeled_choices(&["Leave"]);
     }
 
-    let mut choices = Vec::new();
-    if options.potion_slot.is_some() {
-        choices.push(EventChoice {
-            label: "Give Potion".to_owned(),
-        });
-    }
-    if options.gold_amount > 0 {
-        choices.push(EventChoice {
-            label: "Give Gold".to_owned(),
-        });
-    }
-    if options.card_index.is_some() {
-        choices.push(EventChoice {
-            label: "Give Card".to_owned(),
-        });
-    }
-    choices.push(EventChoice {
-        label: "Attack".to_owned(),
-    });
-    choices
+    we_meet_again_available_choices(options)
+        .into_iter()
+        .map(|choice| EventChoice {
+            label: match choice {
+                WeMeetAgainChoice::GivePotion => "Give Potion",
+                WeMeetAgainChoice::GiveGold => "Give Gold",
+                WeMeetAgainChoice::GiveCard => "Give Card",
+                WeMeetAgainChoice::Attack => "Attack",
+            }
+            .to_owned(),
+        })
+        .collect()
 }
 
 fn we_meet_again_random_potion_slot(run: &mut RunState) -> Option<usize> {
@@ -1622,6 +1638,92 @@ fn we_meet_again_options_from_event_data(event_data: u32) -> WeMeetAgainOptions 
         gold_amount: i32::from(gold),
         card_index: (card != WE_MEET_AGAIN_NO_OPTION).then_some(usize::from(card)),
     }
+}
+
+fn validate_we_meet_again_authority(run: &RunState, screen: &EventScreen) -> SimResult<()> {
+    if screen.event_data & 0xff00_0000 != 0 {
+        return Err(SimError::InvalidState(
+            "We Meet Again event data has unknown bits",
+        ));
+    }
+    if screen.stage > 1 {
+        return Err(SimError::InvalidState("We Meet Again stage is invalid"));
+    }
+
+    let options = we_meet_again_options_from_event_data(screen.event_data);
+    if screen.choices != we_meet_again_choices(screen.stage, options) {
+        return Err(SimError::InvalidState(
+            "We Meet Again choices do not match encoded options",
+        ));
+    }
+
+    if screen.stage == 0 {
+        let occupied_slots = run.occupied_potion_slots();
+        let potion_is_valid = match options.potion_slot {
+            Some(slot) => occupied_slots.iter().any(|(occupied, _)| *occupied == slot),
+            None => occupied_slots.is_empty(),
+        };
+        if !potion_is_valid {
+            return Err(SimError::InvalidState(
+                "We Meet Again potion option does not match occupied slots",
+            ));
+        }
+
+        let gold_is_valid = if run.gold < 50 {
+            options.gold_amount == 0
+        } else {
+            (50..=run.gold.min(150)).contains(&options.gold_amount)
+        };
+        if !gold_is_valid {
+            return Err(SimError::InvalidState(
+                "We Meet Again gold option is not reachable from current gold",
+            ));
+        }
+
+        let eligible_card_indices = run
+            .deck
+            .iter()
+            .enumerate()
+            .filter(|(_, card)| {
+                !is_we_meet_again_basic_card(card.content_id)
+                    && !is_curse_content_id(card.content_id)
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let card_is_valid = match options.card_index {
+            Some(index) => eligible_card_indices.contains(&index),
+            None => eligible_card_indices.is_empty(),
+        };
+        if !card_is_valid {
+            return Err(SimError::InvalidState(
+                "We Meet Again card option does not match eligible deck cards",
+            ));
+        }
+    } else {
+        if options
+            .potion_slot
+            .is_some_and(|slot| slot >= run.potion_capacity())
+        {
+            return Err(SimError::InvalidState(
+                "We Meet Again retained potion slot is out of bounds",
+            ));
+        }
+        if options.gold_amount != 0 && !(50..=150).contains(&options.gold_amount) {
+            return Err(SimError::InvalidState(
+                "We Meet Again retained gold amount is outside its roll range",
+            ));
+        }
+        if options
+            .card_index
+            .is_some_and(|index| index > run.deck.len())
+        {
+            return Err(SimError::InvalidState(
+                "We Meet Again retained card index is out of bounds",
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn tomb_of_lord_red_mask_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
@@ -3250,19 +3352,17 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             match screen.stage {
                 0 => {
                     let options = we_meet_again_options_from_event_data(screen.event_data);
-                    let label = screen
-                        .choices
+                    let choice = we_meet_again_available_choices(options)
                         .get(choice_index)
+                        .copied()
                         .ok_or(SimError::IllegalAction(
                             "We Meet Again choice is unavailable",
-                        ))?
-                        .label
-                        .as_str();
-                    match label {
-                        "Give Potion" => {
+                        ))?;
+                    match choice {
+                        WeMeetAgainChoice::GivePotion => {
                             let Some(slot) = options.potion_slot else {
-                                return Err(SimError::IllegalAction(
-                                    "We Meet Again potion option is unavailable",
+                                return Err(SimError::InvalidState(
+                                    "We Meet Again potion choice has no encoded slot",
                                 ));
                             };
                             next.take_potion_slot(slot)?;
@@ -3270,10 +3370,10 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                             let key = roll_event_relic_reward(&mut next, act);
                             next.gain_relic_key(key);
                         }
-                        "Give Gold" => {
+                        WeMeetAgainChoice::GiveGold => {
                             if options.gold_amount <= 0 || next.gold < options.gold_amount {
-                                return Err(SimError::IllegalAction(
-                                    "We Meet Again gold option is unavailable",
+                                return Err(SimError::InvalidState(
+                                    "We Meet Again gold choice has no payable encoded amount",
                                 ));
                             }
                             next.gold -= options.gold_amount;
@@ -3281,10 +3381,10 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                             let key = roll_event_relic_reward(&mut next, act);
                             next.gain_relic_key(key);
                         }
-                        "Give Card" => {
+                        WeMeetAgainChoice::GiveCard => {
                             let Some(card_index) = options.card_index else {
-                                return Err(SimError::IllegalAction(
-                                    "We Meet Again card option is unavailable",
+                                return Err(SimError::InvalidState(
+                                    "We Meet Again card choice has no encoded index",
                                 ));
                             };
                             let card = next.deck.get(card_index).copied().ok_or(
@@ -3296,12 +3396,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                             let key = roll_event_relic_reward(&mut next, act);
                             next.gain_relic_key(key);
                         }
-                        "Attack" => {}
-                        _ => {
-                            return Err(SimError::IllegalAction(
-                                "event choice is not implemented for We Meet Again",
-                            ));
-                        }
+                        WeMeetAgainChoice::Attack => {}
                     }
                     next.event = Some(EventScreen {
                         event: Event::WeMeetAgain,
@@ -6669,6 +6764,213 @@ mod tests {
         assert_eq!(after_attack.gold, 132);
         assert_eq!(after_attack.potions, run.potions);
         assert_eq!(leave_choices, vec!["Leave"]);
+        after_attack
+            .validate()
+            .expect("retained We Meet Again options remain valid");
+    }
+
+    #[test]
+    fn we_meet_again_rejects_display_label_steering_and_unknown_bits() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.gold = 100;
+        run.gain_potion(Potion::Swift).expect("potion slot is open");
+        run.gain_deck_card(crate::content::cards::ANGER_ID);
+        run.phase = RunPhase::Event;
+        run.event = Some(
+            entered_event_screen_for_run(&mut run, Event::WeMeetAgain)
+                .expect("We Meet Again entry succeeds"),
+        );
+        run.validate().expect("generated options are valid");
+
+        let mut steered = run.clone();
+        steered.event.as_mut().expect("event screen").choices[0].label = "Attack".to_owned();
+        assert_eq!(
+            apply_event_action(&steered, EventAction::Choose { choice_index: 0 }),
+            Err(SimError::InvalidState(
+                "We Meet Again choices do not match encoded options"
+            ))
+        );
+
+        let mut unknown_bits = run;
+        unknown_bits
+            .event
+            .as_mut()
+            .expect("event screen")
+            .event_data |= 1 << 24;
+        assert_eq!(
+            unknown_bits.validate(),
+            Err(SimError::InvalidState(
+                "We Meet Again event data has unknown bits"
+            ))
+        );
+    }
+
+    #[test]
+    fn we_meet_again_all_typed_choices_produce_valid_retained_state() {
+        for expected_choice in [
+            WeMeetAgainChoice::GivePotion,
+            WeMeetAgainChoice::GiveGold,
+            WeMeetAgainChoice::GiveCard,
+            WeMeetAgainChoice::Attack,
+        ] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.gold = 100;
+            run.gain_potion(Potion::Swift).expect("potion slot is open");
+            run.gain_deck_card(crate::content::cards::ANGER_ID);
+            run.phase = RunPhase::Event;
+            run.event = Some(
+                entered_event_screen_for_run(&mut run, Event::WeMeetAgain)
+                    .expect("We Meet Again entry succeeds"),
+            );
+            let options = we_meet_again_options_from_event_data(
+                run.event.as_ref().expect("event screen").event_data,
+            );
+            let choice_index = we_meet_again_available_choices(options)
+                .iter()
+                .position(|choice| *choice == expected_choice)
+                .expect("requested typed choice is available");
+            let initial_gold = run.gold;
+            let initial_potions = run.potions.len();
+            let initial_deck = run.deck.len();
+
+            let next = apply_event_action(&run, EventAction::Choose { choice_index })
+                .expect("typed We Meet Again choice applies");
+            next.validate()
+                .expect("typed choice produces valid retained state");
+
+            match expected_choice {
+                WeMeetAgainChoice::GivePotion => {
+                    assert_eq!(next.potions.len(), initial_potions - 1);
+                }
+                WeMeetAgainChoice::GiveGold => assert!(next.gold < initial_gold),
+                WeMeetAgainChoice::GiveCard => assert_eq!(next.deck.len(), initial_deck - 1),
+                WeMeetAgainChoice::Attack => {
+                    assert_eq!(next.gold, initial_gold);
+                    assert_eq!(next.potions.len(), initial_potions);
+                    assert_eq!(next.deck.len(), initial_deck);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn we_meet_again_rejects_options_without_matching_resources() {
+        let state = |mut run: RunState, options: WeMeetAgainOptions| {
+            run.phase = RunPhase::Event;
+            run.event = Some(EventScreen {
+                event: Event::WeMeetAgain,
+                choices: we_meet_again_choices(0, options),
+                stage: 0,
+                event_data: we_meet_again_event_data(options).expect("options are encodable"),
+            });
+            run
+        };
+
+        let mut potion_run = RunState::seeded_ironclad(1, 0);
+        potion_run.gold = 0;
+        potion_run
+            .gain_potion(Potion::Swift)
+            .expect("potion slot is open");
+        assert_eq!(
+            state(
+                potion_run,
+                WeMeetAgainOptions {
+                    potion_slot: Some(1),
+                    gold_amount: 0,
+                    card_index: None,
+                },
+            )
+            .validate(),
+            Err(SimError::InvalidState(
+                "We Meet Again potion option does not match occupied slots"
+            ))
+        );
+
+        let mut gold_run = RunState::seeded_ironclad(1, 0);
+        gold_run.gold = 100;
+        assert_eq!(
+            state(
+                gold_run,
+                WeMeetAgainOptions {
+                    potion_slot: None,
+                    gold_amount: 49,
+                    card_index: None,
+                },
+            )
+            .validate(),
+            Err(SimError::InvalidState(
+                "We Meet Again gold option is not reachable from current gold"
+            ))
+        );
+
+        let mut card_run = RunState::seeded_ironclad(1, 0);
+        card_run.gold = 0;
+        assert_eq!(
+            state(
+                card_run,
+                WeMeetAgainOptions {
+                    potion_slot: None,
+                    gold_amount: 0,
+                    card_index: Some(0),
+                },
+            )
+            .validate(),
+            Err(SimError::InvalidState(
+                "We Meet Again card option does not match eligible deck cards"
+            ))
+        );
+    }
+
+    #[test]
+    fn we_meet_again_rejects_invalid_retained_option_references() {
+        let options = WeMeetAgainOptions {
+            potion_slot: Some(254),
+            gold_amount: 49,
+            card_index: Some(254),
+        };
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::WeMeetAgain,
+            choices: we_meet_again_choices(1, options),
+            stage: 1,
+            event_data: we_meet_again_event_data(options).expect("options are encodable"),
+        });
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "We Meet Again retained potion slot is out of bounds"
+            ))
+        );
+
+        let screen = run.event.as_mut().expect("event screen");
+        let options = WeMeetAgainOptions {
+            potion_slot: None,
+            gold_amount: 49,
+            card_index: Some(254),
+        };
+        screen.event_data = we_meet_again_event_data(options).expect("options are encodable");
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "We Meet Again retained gold amount is outside its roll range"
+            ))
+        );
+
+        let screen = run.event.as_mut().expect("event screen");
+        let options = WeMeetAgainOptions {
+            potion_slot: None,
+            gold_amount: 50,
+            card_index: Some(254),
+        };
+        screen.event_data = we_meet_again_event_data(options).expect("options are encodable");
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "We Meet Again retained card index is out of bounds"
+            ))
+        );
     }
 
     #[test]
