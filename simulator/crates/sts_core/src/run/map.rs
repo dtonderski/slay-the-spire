@@ -218,7 +218,7 @@ fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -
         &mut shuffle_rng,
         &mut card_random_rng,
         &run.relics,
-    );
+    )?;
     let mut combat = CombatState::new_run_entry(
         PlayerState::new_run_entry(run.player_hp, run.player_max_hp, run.energy_per_turn)?,
         monsters,

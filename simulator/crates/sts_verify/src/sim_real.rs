@@ -19975,7 +19975,8 @@ mod tests {
         let mut shuffle_rng = StsRng::new(start.numeric_seed + floor);
         let mut card_random_rng = StsRng::new(0);
         let simulated =
-            initialize_combat_piles_with_relics(&deck, &mut shuffle_rng, &mut card_random_rng, &[]);
+            initialize_combat_piles_with_relics(&deck, &mut shuffle_rng, &mut card_random_rng, &[])
+                .expect("trace deck contains known card content");
 
         assert!(
             seed_start_opening_piles_match(&simulated, &post.message),
