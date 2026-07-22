@@ -139,7 +139,12 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
     next.reinit_room_rngs_for_floor();
     next.current_room_override = None;
     if uses_wing_boots {
-        next.wing_boots_charges = next.wing_boots_charges.saturating_sub(1);
+        next.wing_boots_charges =
+            next.wing_boots_charges
+                .checked_sub(1)
+                .ok_or(SimError::InvalidState(
+                    "Wing Boots traversal has no remaining charge",
+                ))?;
     }
     next.apply_floor_entry_relics()?;
 
@@ -166,16 +171,24 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
 }
 
 fn enter_normal_combat(run: &mut RunState) -> SimResult<()> {
+    let next_combat_count = run
+        .normal_combat_count
+        .checked_add(1)
+        .ok_or(SimError::InvalidState("normal combat count overflows u32"))?;
     let monsters = normal_combat_monsters_for_run(run)?;
     enter_combat_with_monsters(run, monsters)?;
-    run.normal_combat_count = run.normal_combat_count.saturating_add(1);
+    run.normal_combat_count = next_combat_count;
     Ok(())
 }
 
 fn enter_elite_combat(run: &mut RunState) -> SimResult<()> {
+    let next_combat_count = run
+        .elite_combat_count
+        .checked_add(1)
+        .ok_or(SimError::InvalidState("elite combat count overflows u32"))?;
     let monsters = elite_combat_monsters_for_run(run)?;
     enter_combat_with_monsters(run, monsters)?;
-    run.elite_combat_count = run.elite_combat_count.saturating_add(1);
+    run.elite_combat_count = next_combat_count;
     Ok(())
 }
 
@@ -962,11 +975,18 @@ enum EventRoomOutcome {
 }
 
 fn apply_event_room_outcome(run: &mut RunState, last_room_was_shop: bool) -> SimResult<()> {
+    let mut next = run.clone();
+    apply_event_room_outcome_inner(&mut next, last_room_was_shop)?;
+    *run = next;
+    Ok(())
+}
+
+fn apply_event_room_outcome_inner(run: &mut RunState, last_room_was_shop: bool) -> SimResult<()> {
     let mut rng = StsRng::with_counter(run.event_rng_seed as i64, run.event_rng_counter);
     let roll_index = (rng.random_float() * 100.0) as u32;
     run.event_rng_counter = rng.counter();
 
-    let raw_outcome = if apply_tiny_chest(run) {
+    let raw_outcome = if apply_tiny_chest(run)? {
         EventRoomOutcome::Treasure
     } else {
         target_event_room_outcome(
@@ -982,7 +1002,7 @@ fn apply_event_room_outcome(run: &mut RunState, last_room_was_shop: bool) -> Sim
     if outcome == EventRoomOutcome::Monster && run.relics.contains(&Relic::JuzuBracelet) {
         outcome = EventRoomOutcome::Event;
     }
-    update_event_room_chances(run, raw_outcome, outcome);
+    update_event_room_chances(run, raw_outcome, outcome)?;
 
     match outcome {
         EventRoomOutcome::Monster => {
@@ -1013,9 +1033,15 @@ fn target_event_room_outcome(
     treasure_chance: u32,
     last_room_was_shop: bool,
 ) -> EventRoomOutcome {
-    let monster_size = monster_chance;
-    let shop_size = monster_size + if last_room_was_shop { 0 } else { shop_chance };
-    let treasure_size = shop_size + treasure_chance;
+    let roll_index = u64::from(roll_index);
+    let monster_size = u64::from(monster_chance);
+    let shop_size = monster_size
+        + if last_room_was_shop {
+            0
+        } else {
+            u64::from(shop_chance)
+        };
+    let treasure_size = shop_size + u64::from(treasure_chance);
 
     if roll_index < monster_size {
         EventRoomOutcome::Monster
@@ -1032,37 +1058,63 @@ fn update_event_room_chances(
     run: &mut RunState,
     raw_outcome: EventRoomOutcome,
     resolved_outcome: EventRoomOutcome,
-) {
-    if raw_outcome == EventRoomOutcome::Monster {
-        run.event_room_monster_chance = DEFAULT_EVENT_ROOM_MONSTER_CHANCE;
+) -> SimResult<()> {
+    let monster_chance = if raw_outcome == EventRoomOutcome::Monster {
+        DEFAULT_EVENT_ROOM_MONSTER_CHANCE
     } else {
-        run.event_room_monster_chance += DEFAULT_EVENT_ROOM_MONSTER_CHANCE;
-    }
+        run.event_room_monster_chance
+            .checked_add(DEFAULT_EVENT_ROOM_MONSTER_CHANCE)
+            .ok_or(SimError::InvalidState(
+                "event-room monster chance overflows u32",
+            ))?
+    };
 
-    if resolved_outcome == EventRoomOutcome::Shop {
-        run.event_room_shop_chance = DEFAULT_EVENT_ROOM_SHOP_CHANCE;
+    let shop_chance = if resolved_outcome == EventRoomOutcome::Shop {
+        DEFAULT_EVENT_ROOM_SHOP_CHANCE
     } else {
-        run.event_room_shop_chance += DEFAULT_EVENT_ROOM_SHOP_CHANCE;
-    }
+        run.event_room_shop_chance
+            .checked_add(DEFAULT_EVENT_ROOM_SHOP_CHANCE)
+            .ok_or(SimError::InvalidState(
+                "event-room shop chance overflows u32",
+            ))?
+    };
 
-    if resolved_outcome == EventRoomOutcome::Treasure {
-        run.event_room_treasure_chance = DEFAULT_EVENT_ROOM_TREASURE_CHANCE;
+    let treasure_chance = if resolved_outcome == EventRoomOutcome::Treasure {
+        DEFAULT_EVENT_ROOM_TREASURE_CHANCE
     } else {
-        run.event_room_treasure_chance += DEFAULT_EVENT_ROOM_TREASURE_CHANCE;
-    }
+        run.event_room_treasure_chance
+            .checked_add(DEFAULT_EVENT_ROOM_TREASURE_CHANCE)
+            .ok_or(SimError::InvalidState(
+                "event-room treasure chance overflows u32",
+            ))?
+    };
+
+    run.event_room_monster_chance = monster_chance;
+    run.event_room_shop_chance = shop_chance;
+    run.event_room_treasure_chance = treasure_chance;
+    Ok(())
 }
 
-fn apply_tiny_chest(run: &mut RunState) -> bool {
+fn apply_tiny_chest(run: &mut RunState) -> SimResult<bool> {
     if !run.relics.contains(&Relic::TinyChest) {
-        return false;
+        return Ok(false);
     }
 
-    run.tiny_chest_counter += 1;
     if run.tiny_chest_counter >= crate::relic::TINY_CHEST_THRESHOLD {
+        return Err(SimError::InvalidState(
+            "Tiny Chest counter is outside its stable range",
+        ));
+    }
+    let next_counter = run
+        .tiny_chest_counter
+        .checked_add(1)
+        .ok_or(SimError::InvalidState("Tiny Chest counter overflows u32"))?;
+    if next_counter >= crate::relic::TINY_CHEST_THRESHOLD {
         run.tiny_chest_counter = 0;
-        true
+        Ok(true)
     } else {
-        false
+        run.tiny_chest_counter = next_counter;
+        Ok(false)
     }
 }
 
@@ -1081,6 +1133,71 @@ mod tests {
         },
         ContentId, MonsterIntent,
     };
+
+    #[test]
+    fn map_counter_overflow_fails_before_mutation() {
+        let mut normal = RunState::map_fixture();
+        normal.normal_combat_count = u32::MAX;
+        let normal_before = normal.clone();
+        assert_eq!(
+            enter_normal_combat(&mut normal),
+            Err(SimError::InvalidState("normal combat count overflows u32"))
+        );
+        assert_eq!(normal, normal_before);
+
+        let mut elite = RunState::map_fixture();
+        elite.elite_combat_count = u32::MAX;
+        let elite_before = elite.clone();
+        assert_eq!(
+            enter_elite_combat(&mut elite),
+            Err(SimError::InvalidState("elite combat count overflows u32"))
+        );
+        assert_eq!(elite, elite_before);
+
+        let mut tiny_chest = RunState::map_fixture();
+        tiny_chest.relics.push(Relic::TinyChest);
+        tiny_chest.tiny_chest_counter = crate::relic::TINY_CHEST_THRESHOLD;
+        let tiny_chest_before = tiny_chest.clone();
+        assert_eq!(
+            apply_tiny_chest(&mut tiny_chest),
+            Err(SimError::InvalidState(
+                "Tiny Chest counter is outside its stable range"
+            ))
+        );
+        assert_eq!(tiny_chest, tiny_chest_before);
+
+        let mut chances = RunState::map_fixture();
+        chances.event_room_treasure_chance = u32::MAX;
+        let chances_before = chances.clone();
+        assert_eq!(
+            update_event_room_chances(
+                &mut chances,
+                EventRoomOutcome::Event,
+                EventRoomOutcome::Event,
+            ),
+            Err(SimError::InvalidState(
+                "event-room treasure chance overflows u32"
+            ))
+        );
+        assert_eq!(chances, chances_before);
+
+        let mut event_room = RunState::map_fixture();
+        event_room.event_room_monster_chance = u32::MAX;
+        event_room.event_room_shop_chance = u32::MAX;
+        let event_room_before = event_room.clone();
+        assert_eq!(
+            apply_event_room_outcome(&mut event_room, false),
+            Err(SimError::InvalidState(
+                "event-room shop chance overflows u32"
+            ))
+        );
+        assert_eq!(event_room, event_room_before);
+
+        assert_eq!(
+            target_event_room_outcome(99, u32::MAX, u32::MAX, u32::MAX, false),
+            EventRoomOutcome::Monster
+        );
+    }
 
     #[test]
     fn standalone_map_transition_rejects_floor_overflow() {
