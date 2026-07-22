@@ -1935,6 +1935,424 @@ fn seed_start_handle_map_phase(
     SeedStartPreDispatch::Boundary(boundary)
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_treasure_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    map_path_xs: &mut Vec<i32>,
+    combat_index: &mut usize,
+    normal_combat_index: &mut usize,
+    seed_sim: &mut Option<RunState>,
+    pending_map_assertion: &mut Option<PendingMapAssertion>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::Treasure {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    if action.command.trim().eq_ignore_ascii_case("PROCEED") {
+        let simulated_return = {
+            let Some(sim) = seed_sim.as_mut() else {
+                return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_treasure_path".to_owned(),
+                    reason: "seed-start treasure action without initialized run simulation"
+                        .to_owned(),
+                });
+            };
+            let previous_act = sim.current_act;
+            let next = apply_run_action(sim, RunAction::Proceed).map_err(|e| e.to_string());
+            let Ok(next) = next else {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_treasure_path".to_owned(),
+                    reason: next.err().unwrap_or_default(),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            };
+            if next.current_act != previous_act {
+                map_path_xs.clear();
+                *combat_index = 0;
+                *normal_combat_index = 0;
+            }
+            let mut simulated_return = match seed_start_simulated_map_return(&next) {
+                Ok(projection) => projection,
+                Err(reason) => {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_treasure_map_projection".to_owned(),
+                        reason,
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return SeedStartPreDispatch::Boundary(boundary);
+                }
+            };
+            if next.current_act != previous_act && previous_act != 1 {
+                seed_start_project_post_boss_transition_current_node(&mut simulated_return);
+            }
+            let act_changed = next.current_act != previous_act;
+            if next.phase != RunPhase::Idle || !act_changed {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_treasure_destination".to_owned(),
+                    reason: format!(
+                        "treasure proceed produced phase {:?} and act transition {} -> {}",
+                        next.phase, previous_act, next.current_act
+                    ),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+            *sim = next;
+            simulated_return
+        };
+        if seed_start_is_candidate_boss_act_transient_frame(&post.message) {
+            let label = "boss chest proceed to settled next-act map";
+            let transient_matches = seed_start_compare_deferred_subset(
+                report,
+                action,
+                label,
+                seed_start_boss_act_transient_observed_subset(&post.message),
+                seed_start_boss_act_transient_simulated_subset(),
+            );
+            *pending_map_assertion = Some(PendingMapAssertion {
+                action: action.clone(),
+                label: label.to_owned(),
+                simulated_map: simulated_return,
+                transient_matches,
+            });
+            *phase = SeedStartPhase::Proceed;
+            return SeedStartPreDispatch::Handled;
+        }
+        compare_subset(
+            report,
+            action,
+            "boss chest proceed to map",
+            seed_start_map_return_observed_subset(&post.message),
+            simulated_return,
+        );
+        *phase = SeedStartPhase::Map;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if command_head_eq(&action.command, "CHOOSE") {
+        let choose_index =
+            choose_index(&action.command).expect("malformed CHOOSE rejected before phase dispatch");
+        let Some(sim) = seed_sim.as_mut() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_treasure_path".to_owned(),
+                reason: "seed-start treasure action without initialized run simulation".to_owned(),
+            });
+        };
+        if choose_index != 0 {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_treasure_path".to_owned(),
+                reason: format!("treasure chest choice {choose_index} is not available"),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        let next = apply_run_action(sim, RunAction::OpenChest).map_err(|error| error.to_string());
+        let Ok(next) = next else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_treasure_path".to_owned(),
+                reason: next.err().unwrap_or_default(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        };
+        let reward = next.reward.as_ref();
+        let boss_reward = next.phase == RunPhase::Reward
+            && next.boss_chest_opened
+            && reward.is_some_and(|reward| !reward.boss_relic_choices.is_empty());
+        let ordinary_reward = next.phase == RunPhase::Reward
+            && !next.boss_chest_opened
+            && reward.is_some_and(|reward| reward.boss_relic_choices.is_empty());
+        if boss_reward {
+            compare_subset(
+                report,
+                action,
+                "open boss relic chest",
+                seed_start_boss_reward_observed_subset(&post.message),
+                seed_start_boss_reward_simulated_subset(&next),
+            );
+            *phase = SeedStartPhase::BossReward;
+        } else if ordinary_reward {
+            compare_subset(
+                report,
+                action,
+                "open treasure chest",
+                seed_start_reward_observed_subset(&post.message),
+                seed_start_reward_simulated_subset(&next),
+            );
+            *phase = SeedStartPhase::Reward;
+        } else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_treasure_destination".to_owned(),
+                reason: format!(
+                    "open chest produced inconsistent simulator destination: phase={:?}, boss_chest_opened={}, reward={}, boss_choices={}",
+                    next.phase,
+                    next.boss_chest_opened,
+                    reward.is_some(),
+                    reward.map_or(0, |reward| reward.boss_relic_choices.len()),
+                ),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    SeedStartPreDispatch::NotHandled
+}
+
+fn seed_start_handle_rest_phase(
+    pre: &TraceState,
+    action: &TraceAction,
+    post: &TraceState,
+    seed_sim: &mut Option<RunState>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::Rest {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    if action.command.trim().eq_ignore_ascii_case("SKIP") {
+        let Some(sim) = seed_sim.as_mut() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_rest_path".to_owned(),
+                reason: "seed-start rest skip without initialized run simulation".to_owned(),
+            });
+        };
+        let next =
+            apply_run_action(sim, RunAction::CloseCardReward).map_err(|error| error.to_string());
+        let Ok(next) = next else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_rest_path".to_owned(),
+                reason: next.err().unwrap_or_default(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        };
+        if next.phase != RunPhase::Rest || next.reward.is_some() {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_rest_reward_continuation".to_owned(),
+                reason: format!(
+                    "rest reward skip produced phase {:?} with reward_present={}",
+                    next.phase,
+                    next.reward.is_some()
+                ),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        compare_subset(
+            report,
+            action,
+            "rest skip card reward",
+            seed_start_rest_observed_subset(&post.message),
+            seed_start_rest_simulated_subset(&next),
+        );
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if action.command.trim().eq_ignore_ascii_case("PROCEED") {
+        let Some(sim) = seed_sim.as_mut() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_rest_path".to_owned(),
+                reason: "seed-start rest proceed without initialized run simulation".to_owned(),
+            });
+        };
+        let next = apply_rest_action(sim, RestAction::Proceed).map_err(|e| e.to_string());
+        let Ok(next) = next else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_rest_path".to_owned(),
+                reason: next.err().unwrap_or_default(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        };
+        let projection = match seed_start_simulated_map_return(&next) {
+            Ok(projection) => projection,
+            Err(reason) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_rest_map_projection".to_owned(),
+                    reason,
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        compare_subset(
+            report,
+            action,
+            "rest proceed to map",
+            seed_start_map_return_observed_subset(&post.message),
+            projection,
+        );
+        *sim = next;
+        *phase = SeedStartPhase::Map;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if command_head_eq(&action.command, "CHOOSE") {
+        let choose_index =
+            choose_index(&action.command).expect("malformed CHOOSE rejected before phase dispatch");
+        let Some(sim) = seed_sim.as_mut() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_rest_path".to_owned(),
+                reason: "seed-start rest action without initialized run simulation".to_owned(),
+            });
+        };
+        let next = if screen_type(&pre.message) == Some("REST") {
+            seed_start_rest_screen_actions(sim)
+                .map_err(|error| error.to_string())
+                .and_then(|actions| {
+                    actions
+                        .get(choose_index)
+                        .copied()
+                        .ok_or_else(|| "unsupported rest choice".to_owned())
+                })
+                .and_then(|action| apply_rest_action(sim, action).map_err(|e| e.to_string()))
+        } else if screen_type(&pre.message) == Some("CARD_REWARD") {
+            let card_id = reward_card_id_from_choose(sim, choose_index)
+                .ok_or_else(|| "bad rest card reward choose".to_owned());
+            match card_id {
+                Ok(card_id) => apply_run_action(sim, RunAction::TakeCardReward { card_id })
+                    .map_err(|e| e.to_string()),
+                Err(reason) => Err(reason),
+            }
+        } else {
+            Err("unsupported rest choice".to_owned())
+        };
+        let Ok(next) = next else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_rest_path".to_owned(),
+                reason: next.err().unwrap_or_default(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        };
+        let (observed, simulated, label) = if next.card_grid.is_some() {
+            (
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&next),
+                "rest grid",
+            )
+        } else {
+            match next.phase {
+                RunPhase::Reward
+                    if next
+                        .reward
+                        .as_ref()
+                        .is_some_and(RewardScreen::card_reward_is_active) =>
+                {
+                    (
+                        seed_start_reward_observed_subset(&post.message),
+                        seed_start_reward_simulated_subset(&next),
+                        "rest card reward",
+                    )
+                }
+                RunPhase::Rest if next.reward.is_none() => (
+                    seed_start_rest_observed_subset(&post.message),
+                    seed_start_rest_simulated_subset(&next),
+                    "rest choice",
+                ),
+                next_phase => {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_rest_destination".to_owned(),
+                        reason: format!(
+                            "rest choice produced unsupported simulator phase {next_phase:?}"
+                        ),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return SeedStartPreDispatch::Boundary(boundary);
+                }
+            }
+        };
+        compare_subset(report, action, label, observed, simulated);
+        *sim = next;
+        if sim.card_grid.is_some() {
+            *phase = SeedStartPhase::Grid;
+        } else if sim
+            .reward
+            .as_ref()
+            .is_some_and(RewardScreen::card_reward_is_active)
+        {
+            *phase = SeedStartPhase::Reward;
+        } else if sim.phase == RunPhase::Idle {
+            *phase = SeedStartPhase::Proceed;
+        }
+        return SeedStartPreDispatch::Handled;
+    }
+
+    SeedStartPreDispatch::NotHandled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -2641,362 +3059,27 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_treasure_phase(
+            action,
+            post,
+            &mut map_path_xs,
+            &mut combat_index,
+            &mut normal_combat_index,
+            &mut seed_sim,
+            &mut pending_map_assertion,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
+        match seed_start_handle_rest_phase(pre, action, post, &mut seed_sim, &mut phase, report) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
-            SeedStartPhase::Treasure if action.command.trim().eq_ignore_ascii_case("PROCEED") => {
-                let simulated_return = {
-                    let Some(sim) = seed_sim.as_mut() else {
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_treasure_path".to_owned(),
-                            reason: "seed-start treasure action without initialized run simulation"
-                                .to_owned(),
-                        });
-                    };
-                    let previous_act = sim.current_act;
-                    let next = apply_run_action(sim, RunAction::Proceed).map_err(|e| e.to_string());
-                    let Ok(next) = next else {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_treasure_path".to_owned(),
-                            reason: next.err().unwrap_or_default(),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    };
-                    if next.current_act != previous_act {
-                        map_path_xs.clear();
-                        combat_index = 0;
-                        normal_combat_index = 0;
-                    }
-                    let mut simulated_return =
-                        require_map_projection!(&next, action, "invalid_treasure_map_projection");
-                    if next.current_act != previous_act && previous_act != 1 {
-                        seed_start_project_post_boss_transition_current_node(&mut simulated_return);
-                    }
-                    let act_changed = next.current_act != previous_act;
-                    if next.phase != RunPhase::Idle || !act_changed {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_treasure_destination".to_owned(),
-                            reason: format!(
-                                "treasure proceed produced phase {:?} and act transition {} -> {}",
-                                next.phase, previous_act, next.current_act
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                    *sim = next;
-                    simulated_return
-                };
-                if seed_start_is_candidate_boss_act_transient_frame(&post.message) {
-                    let label = "boss chest proceed to settled next-act map";
-                    let transient_matches = seed_start_compare_deferred_subset(
-                        report,
-                        action,
-                        label,
-                        seed_start_boss_act_transient_observed_subset(&post.message),
-                        seed_start_boss_act_transient_simulated_subset(),
-                    );
-                    pending_map_assertion = Some(PendingMapAssertion {
-                        action: action.clone(),
-                        label: label.to_owned(),
-                        simulated_map: simulated_return,
-                        transient_matches,
-                    });
-                    phase = SeedStartPhase::Proceed;
-                    continue;
-                }
-                compare_subset(
-                    report,
-                    action,
-                    "boss chest proceed to map",
-                    seed_start_map_return_observed_subset(&post.message),
-                    simulated_return,
-                );
-                phase = SeedStartPhase::Map;
-                continue;
-            }
-            SeedStartPhase::Treasure if command_head_eq(&action.command, "CHOOSE") => {
-                let choose_index = choose_index(&action.command)
-                    .expect("malformed CHOOSE rejected before phase dispatch");
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_treasure_path".to_owned(),
-                        reason: "seed-start treasure action without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                if choose_index != 0 {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_treasure_path".to_owned(),
-                        reason: format!("treasure chest choice {choose_index} is not available"),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                }
-                let next =
-                    apply_run_action(sim, RunAction::OpenChest).map_err(|error| error.to_string());
-                let Ok(next) = next else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_treasure_path".to_owned(),
-                        reason: next.err().unwrap_or_default(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                let reward = next.reward.as_ref();
-                let boss_reward = next.phase == RunPhase::Reward
-                    && next.boss_chest_opened
-                    && reward.is_some_and(|reward| !reward.boss_relic_choices.is_empty());
-                let ordinary_reward = next.phase == RunPhase::Reward
-                    && !next.boss_chest_opened
-                    && reward.is_some_and(|reward| reward.boss_relic_choices.is_empty());
-                if boss_reward {
-                    compare_subset(
-                        report,
-                        action,
-                        "open boss relic chest",
-                        seed_start_boss_reward_observed_subset(&post.message),
-                        seed_start_boss_reward_simulated_subset(&next),
-                    );
-                    phase = SeedStartPhase::BossReward;
-                } else if ordinary_reward {
-                    compare_subset(
-                        report,
-                        action,
-                        "open treasure chest",
-                        seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(&next),
-                    );
-                    phase = SeedStartPhase::Reward;
-                } else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "invalid_treasure_destination".to_owned(),
-                        reason: format!(
-                            "open chest produced inconsistent simulator destination: phase={:?}, boss_chest_opened={}, reward={}, boss_choices={}",
-                            next.phase,
-                            next.boss_chest_opened,
-                            reward.is_some(),
-                            reward.map_or(0, |reward| reward.boss_relic_choices.len()),
-                        ),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                }
-                *sim = next;
-            }
-            SeedStartPhase::Rest if action.command.trim().eq_ignore_ascii_case("SKIP") => {
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_rest_path".to_owned(),
-                        reason: "seed-start rest skip without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                let next = apply_run_action(sim, RunAction::CloseCardReward)
-                    .map_err(|error| error.to_string());
-                let Ok(next) = next else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_rest_path".to_owned(),
-                        reason: next.err().unwrap_or_default(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                if next.phase != RunPhase::Rest || next.reward.is_some() {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "invalid_rest_reward_continuation".to_owned(),
-                        reason: format!(
-                            "rest reward skip produced phase {:?} with reward_present={}",
-                            next.phase,
-                            next.reward.is_some()
-                        ),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                }
-                compare_subset(
-                    report,
-                    action,
-                    "rest skip card reward",
-                    seed_start_rest_observed_subset(&post.message),
-                    seed_start_rest_simulated_subset(&next),
-                );
-                *sim = next;
-            }
-            SeedStartPhase::Rest if action.command.trim().eq_ignore_ascii_case("PROCEED") => {
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_rest_path".to_owned(),
-                        reason: "seed-start rest proceed without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                let next = apply_rest_action(sim, RestAction::Proceed).map_err(|e| e.to_string());
-                let Ok(next) = next else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_rest_path".to_owned(),
-                        reason: next.err().unwrap_or_default(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                compare_subset(
-                    report,
-                    action,
-                    "rest proceed to map",
-                    seed_start_map_return_observed_subset(&post.message),
-                    require_map_projection!(&next, action, "invalid_rest_map_projection"),
-                );
-                *sim = next;
-                phase = SeedStartPhase::Map;
-                continue;
-            }
-            SeedStartPhase::Rest if command_head_eq(&action.command, "CHOOSE") => {
-                let choose_index = choose_index(&action.command)
-                    .expect("malformed CHOOSE rejected before phase dispatch");
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_rest_path".to_owned(),
-                        reason: "seed-start rest action without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                let next = if screen_type(&pre.message) == Some("REST") {
-                    seed_start_rest_screen_actions(sim)
-                        .map_err(|error| error.to_string())
-                        .and_then(|actions| {
-                            actions
-                                .get(choose_index)
-                                .copied()
-                                .ok_or_else(|| "unsupported rest choice".to_owned())
-                        })
-                        .and_then(|action| {
-                            apply_rest_action(sim, action).map_err(|e| e.to_string())
-                        })
-                } else if screen_type(&pre.message) == Some("CARD_REWARD") {
-                    let card_id = reward_card_id_from_choose(sim, choose_index)
-                        .ok_or_else(|| "bad rest card reward choose".to_owned());
-                    match card_id {
-                        Ok(card_id) => apply_run_action(sim, RunAction::TakeCardReward { card_id })
-                            .map_err(|e| e.to_string()),
-                        Err(reason) => Err(reason),
-                    }
-                } else {
-                    Err("unsupported rest choice".to_owned())
-                };
-                let Ok(next) = next else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_rest_path".to_owned(),
-                        reason: next.err().unwrap_or_default(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                let (observed, simulated, label) = if next.card_grid.is_some() {
-                    (
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next),
-                        "rest grid",
-                    )
-                } else {
-                    match next.phase {
-                        RunPhase::Reward
-                            if next
-                                .reward
-                                .as_ref()
-                                .is_some_and(RewardScreen::card_reward_is_active) =>
-                        {
-                            (
-                                seed_start_reward_observed_subset(&post.message),
-                                seed_start_reward_simulated_subset(&next),
-                                "rest card reward",
-                            )
-                        }
-                        RunPhase::Rest if next.reward.is_none() => (
-                            seed_start_rest_observed_subset(&post.message),
-                            seed_start_rest_simulated_subset(&next),
-                            "rest choice",
-                        ),
-                        phase => {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "invalid_rest_destination".to_owned(),
-                                reason: format!(
-                                    "rest choice produced unsupported simulator phase {phase:?}"
-                                ),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                    }
-                };
-                compare_subset(report, action, label, observed, simulated);
-                *sim = next;
-                if sim.card_grid.is_some() {
-                    phase = SeedStartPhase::Grid;
-                } else if sim
-                    .reward
-                    .as_ref()
-                    .is_some_and(RewardScreen::card_reward_is_active)
-                {
-                    phase = SeedStartPhase::Reward;
-                } else if sim.phase == RunPhase::Idle {
-                    phase = SeedStartPhase::Proceed;
-                }
-            }
             SeedStartPhase::Event if command_head_eq(&action.command, "CHOOSE") => {
                 let choose_index = choose_index(&action.command)
                     .ok_or_else(|| format!("bad event choose {}", action.command));
