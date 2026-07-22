@@ -40,17 +40,17 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                     BURN_END_TURN_DAMAGE
                 };
                 let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, burn_damage);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
+                crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
                 state.piles.discard_pile.push(card);
             }
             DECAY_ID => {
                 let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, 2);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
+                crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
                 state.piles.discard_pile.push(card);
             }
             REGRET_ID => {
                 let hp_loss = crate::combat::hp_loss::lose_player_hp(state, hand_size);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
+                crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
                 state.piles.discard_pile.push(card);
             }
             DOUBT_ID => {
@@ -190,5 +190,19 @@ mod tests {
         );
         assert_eq!(state.player.powers.weak, 1);
         assert_eq!(state.player.powers.frail, 1);
+    }
+
+    #[test]
+    fn end_turn_card_damage_triggers_rupture() {
+        for content_id in [BURN_ID, DECAY_ID, REGRET_ID] {
+            let mut state = CombatState::initial_fixture();
+            state.player.powers.rupture = 2;
+            state.piles.hand = vec![CardInstance::new(CardId::new(1), content_id)];
+            state.piles.discard_pile.clear();
+
+            resolve_end_of_turn_hand(&mut state).expect("end-turn damage card resolves");
+
+            assert_eq!(state.player.powers.strength, 2, "{content_id:?}");
+        }
     }
 }
