@@ -2353,6 +2353,265 @@ fn seed_start_handle_rest_phase(
     SeedStartPreDispatch::NotHandled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_event_phase(
+    pre: &TraceState,
+    action: &TraceAction,
+    post: &TraceState,
+    seed_sim: &mut Option<RunState>,
+    pending_combat_assertion: &mut Option<PendingCombatAssertion>,
+    pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::Event || !command_head_eq(&action.command, "CHOOSE") {
+        return SeedStartPreDispatch::NotHandled;
+    }
+
+    let choose_index =
+        choose_index(&action.command).ok_or_else(|| format!("bad event choose {}", action.command));
+    let Ok(choose_index) = choose_index else {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_event_path".to_owned(),
+            reason: choose_index.err().unwrap(),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    };
+    let Some(sim) = seed_sim.as_mut() else {
+        return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_event_path".to_owned(),
+            reason: "seed-start event action without initialized run simulation".to_owned(),
+        });
+    };
+    let Some(sim_choice_index) =
+        seed_start_event_choice_index_for_communication_mod(sim, choose_index, &pre.message)
+    else {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_event_path".to_owned(),
+            reason: format!("event simulation could not map visible choice index {choose_index}"),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    };
+    let delayed_event_deck_append_count = sim.event.as_ref().and_then(|screen| {
+        (screen.event == Event::Vampires
+            && screen.stage == 0
+            && sim_choice_index < screen.choices.len().saturating_sub(1))
+        .then_some(VAMPIRES_BITE_COUNT)
+    });
+    let spire_heart_stage = sim
+        .event
+        .as_ref()
+        .filter(|screen| screen.event == Event::SpireHeart)
+        .map(|screen| screen.stage);
+    let Ok(next) = apply_event_action(
+        sim,
+        EventAction::Choose {
+            choice_index: sim_choice_index,
+        },
+    ) else {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_event_path".to_owned(),
+            reason: "event simulation rejected transition".to_owned(),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    };
+    if let Some(spire_heart_stage) = spire_heart_stage {
+        if spire_heart_stage == 3 {
+            compare_subset(
+                report,
+                action,
+                "Spire Heart completion",
+                seed_start_game_over_observed_subset(&post.message),
+                seed_start_game_over_simulated_subset(&next),
+            );
+        } else {
+            compare_subset(
+                report,
+                action,
+                "Spire Heart choice",
+                seed_start_event_observed_subset(&post.message),
+                seed_start_event_simulated_subset(&next),
+            );
+        }
+        *phase = if next.phase == RunPhase::Complete {
+            SeedStartPhase::Complete
+        } else {
+            SeedStartPhase::Event
+        };
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+    if next.phase == RunPhase::Combat {
+        if next.combat.is_none() {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_event_destination".to_owned(),
+                reason: "event choice entered combat phase without combat state".to_owned(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        let observed = seed_start_encounter_observed_subset(&post.message);
+        let simulated = seed_start_simulated_combat_subset(&next, false);
+        seed_start_compare_or_defer_combat_entry(
+            report,
+            action,
+            "event combat",
+            &post.message,
+            observed,
+            simulated,
+            pending_combat_assertion,
+        );
+        *sim = next;
+        *phase = SeedStartPhase::Combat;
+        return SeedStartPreDispatch::Handled;
+    }
+    let (mut observed, mut simulated) = if next.card_grid.is_some() {
+        (
+            seed_start_grid_observed_subset(&post.message),
+            seed_start_grid_simulated_subset(&next),
+        )
+    } else {
+        match next.phase {
+            RunPhase::Idle if next.event.is_none() => {
+                let projection = match seed_start_simulated_map_return(&next) {
+                    Ok(projection) => projection,
+                    Err(reason) => {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_event_map_projection".to_owned(),
+                            reason,
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return SeedStartPreDispatch::Boundary(boundary);
+                    }
+                };
+                (
+                    seed_start_map_return_observed_subset(&post.message),
+                    projection,
+                )
+            }
+            RunPhase::Reward if next.reward.is_some() => (
+                seed_start_reward_observed_subset(&post.message),
+                seed_start_reward_simulated_subset(&next),
+            ),
+            RunPhase::Event if next.event.is_some() => (
+                seed_start_event_observed_subset(&post.message),
+                seed_start_event_simulated_subset_with_delayed_deck_append(
+                    &next,
+                    delayed_event_deck_append_count,
+                ),
+            ),
+            _ => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_event_destination".to_owned(),
+                    reason: format!(
+                        "event choice produced unsupported simulator phase {:?}",
+                        next.phase
+                    ),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        }
+    };
+    if next.phase == RunPhase::Event && !next.pending_obtain_cards.is_empty() {
+        let observed_deck = observed
+            .as_object_mut()
+            .and_then(|object| object.remove("deck_ids"))
+            .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+            .unwrap_or_default();
+        let simulated_deck = simulated
+            .as_object_mut()
+            .and_then(|object| object.remove("deck_ids"))
+            .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+            .unwrap_or_default();
+        let non_deck_diffs = subset_diffs(observed, simulated);
+        if !non_deck_diffs.is_empty() {
+            report.unexpected_diffs.push(UnexpectedDiff {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "event choice".to_owned(),
+                diffs: non_deck_diffs,
+            });
+        } else {
+            let expected_deck = deck_content_keys_after_pending_obtain_cards_settle(&next);
+            match classify_deferred_deck_observation(
+                &observed_deck,
+                &simulated_deck,
+                &expected_deck,
+            ) {
+                PendingDeckObservation::Settled => {
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "event choice".to_owned(),
+                    });
+                }
+                PendingDeckObservation::Deferred => {
+                    *pending_deck_assertion = Some(PendingDeckAssertion {
+                        action: action.clone(),
+                        label: "event choice".to_owned(),
+                        transient_decks: vec![simulated_deck],
+                        expected_deck,
+                    });
+                }
+                PendingDeckObservation::Diverged(diffs) => {
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "event choice".to_owned(),
+                        diffs,
+                    });
+                }
+            }
+        }
+    } else {
+        compare_subset(report, action, "event choice", observed, simulated);
+    }
+    *sim = next.clone();
+    if next.card_grid.is_some() {
+        *phase = SeedStartPhase::Grid;
+    } else if next.phase == RunPhase::Idle {
+        *phase = SeedStartPhase::Map;
+    } else if next.phase == RunPhase::Reward {
+        *phase = SeedStartPhase::Reward;
+    }
+    SeedStartPreDispatch::Handled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -3079,240 +3338,21 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_event_phase(
+            pre,
+            action,
+            post,
+            &mut seed_sim,
+            &mut pending_combat_assertion,
+            &mut pending_deck_assertion,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
-            SeedStartPhase::Event if command_head_eq(&action.command, "CHOOSE") => {
-                let choose_index = choose_index(&action.command)
-                    .ok_or_else(|| format!("bad event choose {}", action.command));
-                let Ok(choose_index) = choose_index else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_event_path".to_owned(),
-                        reason: choose_index.err().unwrap(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_event_path".to_owned(),
-                        reason: "seed-start event action without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                let Some(sim_choice_index) = seed_start_event_choice_index_for_communication_mod(
-                    sim,
-                    choose_index,
-                    &pre.message,
-                ) else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_event_path".to_owned(),
-                        reason: format!(
-                            "event simulation could not map visible choice index {choose_index}"
-                        ),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                let delayed_event_deck_append_count = sim.event.as_ref().and_then(|screen| {
-                    (screen.event == Event::Vampires
-                        && screen.stage == 0
-                        && sim_choice_index < screen.choices.len().saturating_sub(1))
-                    .then_some(VAMPIRES_BITE_COUNT)
-                });
-                let spire_heart_stage = sim
-                    .event
-                    .as_ref()
-                    .filter(|screen| screen.event == Event::SpireHeart)
-                    .map(|screen| screen.stage);
-                let Ok(next) = apply_event_action(
-                    sim,
-                    EventAction::Choose {
-                        choice_index: sim_choice_index,
-                    },
-                ) else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_event_path".to_owned(),
-                        reason: "event simulation rejected transition".to_owned(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                if let Some(spire_heart_stage) = spire_heart_stage {
-                    if spire_heart_stage == 3 {
-                        compare_subset(
-                            report,
-                            action,
-                            "Spire Heart completion",
-                            seed_start_game_over_observed_subset(&post.message),
-                            seed_start_game_over_simulated_subset(&next),
-                        );
-                    } else {
-                        compare_subset(
-                            report,
-                            action,
-                            "Spire Heart choice",
-                            seed_start_event_observed_subset(&post.message),
-                            seed_start_event_simulated_subset(&next),
-                        );
-                    }
-                    phase = if next.phase == RunPhase::Complete {
-                        SeedStartPhase::Complete
-                    } else {
-                        SeedStartPhase::Event
-                    };
-                    *sim = next;
-                    continue;
-                }
-                if next.phase == RunPhase::Combat {
-                    if next.combat.is_none() {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_event_destination".to_owned(),
-                            reason: "event choice entered combat phase without combat state"
-                                .to_owned(),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                    let label = "event combat";
-                    let observed = seed_start_encounter_observed_subset(&post.message);
-                    let simulated = seed_start_simulated_combat_subset(&next, false);
-                    seed_start_compare_or_defer_combat_entry(
-                        report,
-                        action,
-                        label,
-                        &post.message,
-                        observed,
-                        simulated,
-                        &mut pending_combat_assertion,
-                    );
-                    *sim = next;
-                    phase = SeedStartPhase::Combat;
-                    continue;
-                }
-                let (mut observed, mut simulated) = if next.card_grid.is_some() {
-                    (
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next),
-                    )
-                } else {
-                    match next.phase {
-                        RunPhase::Idle if next.event.is_none() => (
-                            seed_start_map_return_observed_subset(&post.message),
-                            require_map_projection!(&next, action, "invalid_event_map_projection"),
-                        ),
-                        RunPhase::Reward if next.reward.is_some() => (
-                            seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next),
-                        ),
-                        RunPhase::Event if next.event.is_some() => (
-                            seed_start_event_observed_subset(&post.message),
-                            seed_start_event_simulated_subset_with_delayed_deck_append(
-                                &next,
-                                delayed_event_deck_append_count,
-                            ),
-                        ),
-                        _ => {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "invalid_event_destination".to_owned(),
-                                reason: format!(
-                                    "event choice produced unsupported simulator phase {:?}",
-                                    next.phase
-                                ),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                    }
-                };
-                if next.phase == RunPhase::Event && !next.pending_obtain_cards.is_empty() {
-                    let observed_deck = observed
-                        .as_object_mut()
-                        .and_then(|object| object.remove("deck_ids"))
-                        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
-                        .unwrap_or_default();
-                    let simulated_deck = simulated
-                        .as_object_mut()
-                        .and_then(|object| object.remove("deck_ids"))
-                        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
-                        .unwrap_or_default();
-                    let non_deck_diffs = subset_diffs(observed, simulated);
-                    if !non_deck_diffs.is_empty() {
-                        report.unexpected_diffs.push(UnexpectedDiff {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "event choice".to_owned(),
-                            diffs: non_deck_diffs,
-                        });
-                    } else {
-                        let expected_deck =
-                            deck_content_keys_after_pending_obtain_cards_settle(&next);
-                        match classify_deferred_deck_observation(
-                            &observed_deck,
-                            &simulated_deck,
-                            &expected_deck,
-                        ) {
-                            PendingDeckObservation::Settled => {
-                                report.verified.push(VerifiedTransition {
-                                    action_step: action.step,
-                                    command: action.command.clone(),
-                                    label: "event choice".to_owned(),
-                                });
-                            }
-                            PendingDeckObservation::Deferred => {
-                                pending_deck_assertion = Some(PendingDeckAssertion {
-                                    action: action.clone(),
-                                    label: "event choice".to_owned(),
-                                    transient_decks: vec![simulated_deck],
-                                    expected_deck,
-                                });
-                            }
-                            PendingDeckObservation::Diverged(diffs) => {
-                                report.unexpected_diffs.push(UnexpectedDiff {
-                                    action_step: action.step,
-                                    command: action.command.clone(),
-                                    label: "event choice".to_owned(),
-                                    diffs,
-                                });
-                            }
-                        }
-                    }
-                } else {
-                    compare_subset(report, action, "event choice", observed, simulated);
-                }
-                *sim = next.clone();
-                if next.card_grid.is_some() {
-                    phase = SeedStartPhase::Grid;
-                } else if next.phase == RunPhase::Idle {
-                    phase = SeedStartPhase::Map;
-                } else if next.phase == RunPhase::Reward {
-                    phase = SeedStartPhase::Reward;
-                }
-            }
             SeedStartPhase::Combat => {
                 let command = action.command.trim();
                 let command_head = command.split_whitespace().next().unwrap_or("");
