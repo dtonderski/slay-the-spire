@@ -829,6 +829,14 @@ pub(crate) fn validate_grid_select(run: &RunState, index: usize) -> SimResult<()
         .card_grid
         .as_ref()
         .ok_or(SimError::IllegalAction("no card grid is open"))?;
+    if matches!(
+        grid.purpose,
+        GridPurpose::CallingBellCurse | GridPurpose::PandorasBox
+    ) {
+        return Err(SimError::IllegalAction(
+            "confirmation-only grid does not accept card selection",
+        ));
+    }
     if index >= grid.cards.len() {
         return Err(SimError::IllegalAction("grid index out of range"));
     }
@@ -864,8 +872,15 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
 
 pub(crate) fn validate_grid_cancel(run: &RunState) -> SimResult<()> {
     run.validate()?;
-    if run.card_grid.is_none() {
-        return Err(SimError::IllegalAction("no card grid is open"));
+    let grid = run
+        .card_grid
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no card grid is open"))?;
+    if !matches!(
+        grid.purpose,
+        GridPurpose::RestSmith | GridPurpose::RestRemove | GridPurpose::ShopRemove
+    ) {
+        return Err(SimError::IllegalAction("card grid cannot be cancelled"));
     }
     Ok(())
 }
@@ -1833,6 +1848,47 @@ mod tests {
                 "Pandora's Box grid has no preceding card RNG draws"
             ))
         );
+    }
+
+    #[test]
+    fn mandatory_relic_grids_reject_select_and_cancel() {
+        let mut calling_bell = RunState::seeded_ironclad(1, 0);
+        calling_bell.phase = RunPhase::Event;
+        calling_bell.event = Some(crate::run::event::event_screen_for_run(
+            &calling_bell,
+            Event::Neow,
+        ));
+        calling_bell
+            .gain_relic(crate::Relic::CallingBell)
+            .expect("Calling Bell opens its curse grid");
+
+        assert_eq!(
+            select_grid_card(&calling_bell, 0),
+            Err(SimError::IllegalAction(
+                "confirmation-only grid does not accept card selection"
+            ))
+        );
+        assert_eq!(
+            cancel_grid(&calling_bell),
+            Err(SimError::IllegalAction("card grid cannot be cancelled"))
+        );
+
+        let mut empty_cage = RunState::map_fixture();
+        empty_cage.phase = RunPhase::Treasure;
+        empty_cage.current_room_override = Some(crate::RoomKind::Boss);
+        empty_cage.boss_chest_opened = true;
+        empty_cage.relics.push(crate::Relic::EmptyCage);
+        open_empty_cage_grid(&mut empty_cage);
+        assert_eq!(
+            cancel_grid(&empty_cage),
+            Err(SimError::IllegalAction("card grid cannot be cancelled"))
+        );
+
+        let mut rest = RunState::map_fixture();
+        rest.phase = RunPhase::Rest;
+        rest.current_room_override = Some(crate::RoomKind::Rest);
+        open_rest_smith_grid(&mut rest);
+        cancel_grid(&rest).expect("campfire grid preserves the target cancel affordance");
     }
 
     #[test]

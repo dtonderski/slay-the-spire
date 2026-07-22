@@ -1722,6 +1722,22 @@ impl RunState {
         if let Some(grid) = &self.card_grid {
             use super::grid::GridPurpose;
 
+            match grid.purpose {
+                GridPurpose::EmptyCage { remaining } | GridPurpose::NeowRemove { remaining }
+                    if !(1..=2).contains(&remaining) =>
+                {
+                    return Err(SimError::InvalidState(
+                        "card grid removal count is outside its authoritative range",
+                    ));
+                }
+                GridPurpose::NeowTransform { count } if !(1..=2).contains(&count) => {
+                    return Err(SimError::InvalidState(
+                        "Neow transform count is outside its authoritative range",
+                    ));
+                }
+                _ => {}
+            }
+
             let has_phase_owner = match grid.purpose {
                 GridPurpose::RestSmith => self.phase == RunPhase::Rest && !self.rest_room_complete,
                 GridPurpose::RestRemove => {

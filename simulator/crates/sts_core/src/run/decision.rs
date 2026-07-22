@@ -438,6 +438,45 @@ mod tests {
     }
 
     #[test]
+    fn top_level_legal_actions_respect_mandatory_confirmation_grids() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            crate::Event::Neow,
+        ));
+        run.gain_relic(crate::Relic::CallingBell)
+            .expect("Calling Bell opens its confirmation grid");
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Ok(vec![RunDecisionAction::GridConfirm])
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_reject_fabricated_grid_counts() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::EmptyCage);
+        run.card_grid = Some(CardGridScreen {
+            cards: run.deck.clone(),
+            purpose: GridPurpose::EmptyCage { remaining: 3 },
+            selected: None,
+            selected_indices: Vec::new(),
+        });
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Err(SimError::InvalidState(
+                "card grid removal count is outside its authoritative range"
+            ))
+        );
+    }
+
+    #[test]
     fn top_level_legal_actions_omit_single_select_noops() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
