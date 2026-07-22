@@ -137,19 +137,35 @@ pub fn assess_verification(
         });
     }
 
-    let actual_boundary = if let Some(seed_start) = &report.seed_start {
+    let (actual_boundary, boundary_status_consistent) = if let Some(seed_start) = &report.seed_start
+    {
         let boundary_failed = seed_start.first_boundary.category != "none";
-        if seed_start.failed != boundary_failed {
+        let boundary_status_consistent = seed_start.failed == boundary_failed;
+        if !boundary_status_consistent {
             failures.push(VerificationFailure::InconsistentBoundaryStatus {
                 failed: seed_start.failed,
                 boundary: seed_start.first_boundary.clone(),
             });
         }
-        Some(seed_start.first_boundary.clone())
+        (
+            Some(seed_start.first_boundary.clone()),
+            boundary_status_consistent,
+        )
     } else {
         failures.push(VerificationFailure::MissingSeedStartReport);
-        None
+        (None, false)
     };
+
+    if boundary_status_consistent {
+        if let Some(boundary) = actual_boundary
+            .as_ref()
+            .filter(|boundary| boundary.category == "invalid_input")
+        {
+            return VerificationOutcome::InvalidInput {
+                reason: format!("{}: {}", boundary.path, boundary.reason),
+            };
+        }
+    }
 
     let unsupported_is_exact_boundary_cause = matches!(
         (
@@ -499,6 +515,92 @@ mod tests {
             VerificationOutcome::InvalidInput {
                 reason: "trace does not contain START command".to_owned(),
             }
+        );
+    }
+
+    #[test]
+    fn in_report_invalid_input_boundary_is_decisive() {
+        let mut report = report();
+        let boundary = SeedStartBoundary {
+            path: "$.actions[step=12].sent_at".to_owned(),
+            category: "invalid_input".to_owned(),
+            reason: "command timing is missing".to_owned(),
+        };
+        let seed_start = report.seed_start.as_mut().expect("seed-start report");
+        seed_start.failed = true;
+        seed_start.first_boundary = boundary.clone();
+        report.unexpected_diffs.push(UnexpectedDiff {
+            action_step: 11,
+            command: "CHOOSE 0".to_owned(),
+            label: "partial evidence remains in the report".to_owned(),
+            diffs: vec!["gold: 10 != 20".to_owned()],
+        });
+
+        assert_eq!(
+            assess_verification(
+                Ok(&report),
+                &VerificationExpectation::Complete,
+                Some(&complete_integrity()),
+            ),
+            VerificationOutcome::InvalidInput {
+                reason: format!("{}: {}", boundary.path, boundary.reason),
+            }
+        );
+    }
+
+    #[test]
+    fn invalid_input_boundary_cannot_be_an_expected_boundary() {
+        let mut report = report();
+        let boundary = SeedStartBoundary {
+            path: "$.actions[step=12].sent_at".to_owned(),
+            category: "invalid_input".to_owned(),
+            reason: "command timing is malformed".to_owned(),
+        };
+        let seed_start = report.seed_start.as_mut().expect("seed-start report");
+        seed_start.failed = true;
+        seed_start.first_boundary = boundary.clone();
+        let expectation = VerificationExpectation::ExpectedBoundary {
+            boundary: ExpectedBoundary {
+                path: boundary.path.clone(),
+                category: boundary.category.clone(),
+            },
+        };
+
+        assert_eq!(
+            assess_verification(Ok(&report), &expectation, Some(&complete_integrity()),),
+            VerificationOutcome::InvalidInput {
+                reason: format!("{}: {}", boundary.path, boundary.reason),
+            }
+        );
+    }
+
+    #[test]
+    fn inconsistent_invalid_input_boundary_is_a_verifier_failure() {
+        let mut report = report();
+        let boundary = SeedStartBoundary {
+            path: "$.actions[step=12].sent_at".to_owned(),
+            category: "invalid_input".to_owned(),
+            reason: "command timing is missing".to_owned(),
+        };
+        report
+            .seed_start
+            .as_mut()
+            .expect("seed-start report")
+            .first_boundary = boundary.clone();
+
+        let outcome = assess_verification(
+            Ok(&report),
+            &VerificationExpectation::Complete,
+            Some(&complete_integrity()),
+        );
+        let VerificationOutcome::Failed { failures } = outcome else {
+            panic!("inconsistent boundary was not a verifier failure: {outcome:?}");
+        };
+        assert!(
+            failures.contains(&VerificationFailure::InconsistentBoundaryStatus {
+                failed: false,
+                boundary,
+            })
         );
     }
 
