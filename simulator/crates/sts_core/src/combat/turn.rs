@@ -465,276 +465,11 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             continue;
         }
         clear_lagavulin_metallicize_if_awake(&mut state.monsters[index]);
-        match state.monsters[index].intent {
-            crate::MonsterIntent::Attack { damage }
-                if is_half_dead_darkling(&state.monsters[index]) && damage == 0 =>
-            {
-                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::Stun if is_half_dead_darkling(&state.monsters[index]) => {
-                state.monsters[index].alive = true;
-                state.monsters[index].escaped = false;
-                state.monsters[index].hp = state.monsters[index].max_hp / 2;
-                if state.relics.contains(&crate::Relic::PhilosophersStone) {
-                    state.monsters[index].powers.strength = checked_turn_add(
-                        state.monsters[index].powers.strength,
-                        crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH,
-                    )?;
-                }
-                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::HealAllMonsters { amount } => {
-                apply_heal_all_monsters(&mut state.monsters, amount)?;
-                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::StrengthAllMonsters { amount } => {
-                apply_strength_all_monsters(&mut state.monsters, amount)?;
-                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::StrengthSelf { amount }
-                if state.monsters[index].content_id == CHAMP_ID
-                    && amount >= champ_strength_amount(ascension) * 3 =>
-            {
-                state.monsters[index].powers.vulnerable = 0;
-                state.monsters[index].powers.weak = 0;
-                state.monsters[index].temp_strength_down = 0;
-                state.monsters[index].powers.strength =
-                    checked_turn_add(state.monsters[index].powers.strength, amount)?;
-                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::StrengthAndBlock { strength, block }
-                if state.monsters[index].content_id == THE_COLLECTOR_ID =>
-            {
-                apply_strength_all_monsters(&mut state.monsters, strength)?;
-                if let Some(monster) = state
-                    .monsters
-                    .iter_mut()
-                    .find(|monster| monster.id == actor_id)
-                {
-                    monster.block = checked_turn_add(monster.block, block)?;
-                    checked_turn_increment(&mut monster.moves_executed)?;
-                }
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::StrengthAndBlock { strength, block }
-                if state.monsters[index].content_id == CHAMP_ID =>
-            {
-                state.monsters[index].block = checked_turn_add(state.monsters[index].block, block)?;
-                state.monsters[index].powers.metallicize =
-                    checked_turn_add(state.monsters[index].powers.metallicize, strength)?;
-                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::EncourageGremlins { strength, block } => {
-                let leader_id = state.monsters[index].id;
-                if state.monsters[index].content_id == GREMLIN_LEADER_ID {
-                    let _ = state.rng.monster_rng.random_int(2);
-                }
-                apply_gremlin_leader_encourage(&mut state.monsters, leader_id, strength, block)?;
-                checked_turn_increment(&mut state.monsters[index].moves_executed)?;
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::Attack { damage }
-                if state.monsters[index].content_id == BYRD_ID && damage == 3 =>
-            {
-                let player_snapshot = state.player.clone();
-                let allocated_card_id_through = state.max_authoritative_card_instance_id();
-                let damage = apply_monster_intent_with_card_rng(
-                    &mut state.monsters[index],
-                    &mut state.player,
-                    &mut state.piles,
-                    allocated_card_id_through,
-                    ascension,
-                    &player_snapshot,
-                    &state.relics,
-                    &mut state.rng.card_random_rng,
-                )?;
-                let painful_stabs = state.monsters[index].powers.painful_stabs;
-                apply_monster_pending_effects(
-                    state,
-                    damage,
-                    1,
-                    painful_stabs,
-                    None,
-                    0,
-                    0,
-                    0,
-                    0,
-                    false,
-                    0,
-                )?;
-                record_target_move(&mut state.monsters[index]);
-                state.monsters[index].intent = target_byrd_go_airborne_intent();
-                record_target_move(&mut state.monsters[index]);
-                continue;
-            }
-            crate::MonsterIntent::SummonGremlins { count } => {
-                let summoner_id = state.monsters[index].id;
-                if state.monsters[index].content_id == BRONZE_AUTOMATON_ID {
-                    apply_bronze_automaton_orb_spawn(
-                        &mut state.monsters,
-                        summoner_id,
-                        count,
-                        &mut state.rng.monster_rng,
-                        &mut state.rng.monster_hp_rng,
-                        ascension,
-                    )?;
-                } else if state.monsters[index].content_id == THE_COLLECTOR_ID {
-                    apply_collector_spawn_torch_heads(
-                        &mut state.monsters,
-                        count,
-                        &mut state.rng.monster_rng,
-                        &mut state.rng.monster_hp_rng,
-                        ascension,
-                    )?;
-                } else if state.monsters[index].content_id == ACID_SLIME_ID {
-                    apply_large_acid_slime_split(
-                        &mut state.monsters,
-                        summoner_id,
-                        count,
-                        &mut state.rng.monster_rng,
-                        ascension,
-                    )?;
-                } else if state.monsters[index].content_id == SPIKE_SLIME_ID {
-                    apply_large_spike_slime_split(
-                        &mut state.monsters,
-                        summoner_id,
-                        count,
-                        &mut state.rng.monster_rng,
-                        ascension,
-                    )?;
-                } else if state.monsters[index].content_id == SLIME_BOSS_ID {
-                    apply_slime_boss_split(
-                        &mut state.monsters,
-                        summoner_id,
-                        count,
-                        &mut state.rng.monster_rng,
-                        ascension,
-                    )?;
-                } else if state.monsters[index].content_id == REPTOMANCER_ID {
-                    apply_reptomancer_dagger_spawn(
-                        &mut state.monsters,
-                        summoner_id,
-                        count,
-                        &mut state.rng.monster_rng,
-                        &mut state.rng.monster_hp_rng,
-                    )?;
-                } else if state.monsters[index].content_id == GREMLIN_LEADER_ID {
-                    apply_gremlin_leader_rally_target(
-                        &mut state.monsters,
-                        count,
-                        &mut state.rng.monster_rng,
-                        &mut state.rng.monster_hp_rng,
-                        ascension,
-                    )?;
-                } else {
-                    return Err(SimError::InvalidState(
-                        "summon intent is incompatible with monster content",
-                    ));
-                }
-                let mut summoner_alive = false;
-                if let Some(monster) = state
-                    .monsters
-                    .iter_mut()
-                    .find(|monster| monster.id == summoner_id)
-                {
-                    checked_turn_increment(&mut monster.moves_executed)?;
-                    summoner_alive = monster.alive;
-                }
-                if summoner_alive {
-                    prepare_next_intent_for_actor(state, actor_id)?;
-                }
-                continue;
-            }
-            crate::MonsterIntent::SummonCollectorTorchHeads { count } => {
-                let summoner_id = state.monsters[index].id;
-                apply_collector_spawn_torch_heads(
-                    &mut state.monsters,
-                    count,
-                    &mut state.rng.monster_rng,
-                    &mut state.rng.monster_hp_rng,
-                    ascension,
-                )?;
-                if let Some(monster) = state
-                    .monsters
-                    .iter_mut()
-                    .find(|monster| monster.id == summoner_id)
-                {
-                    checked_turn_increment(&mut monster.moves_executed)?;
-                }
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::Block { block }
-                if state.monsters[index].content_id == BRONZE_ORB_ID =>
-            {
-                if let Some(automaton) = state
-                    .monsters
-                    .iter_mut()
-                    .find(|monster| monster.alive && monster.content_id == BRONZE_AUTOMATON_ID)
-                {
-                    automaton.block = checked_turn_add(automaton.block, block)?;
-                }
-                if let Some(monster) = state
-                    .monsters
-                    .iter_mut()
-                    .find(|monster| monster.id == actor_id)
-                {
-                    checked_turn_increment(&mut monster.moves_executed)?;
-                }
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::Block { block }
-                if state.monsters[index].content_id == DECA_ID =>
-            {
-                apply_deca_square(&mut state.monsters, block, ascension)?;
-                if let Some(monster) = state
-                    .monsters
-                    .iter_mut()
-                    .find(|monster| monster.id == actor_id)
-                {
-                    checked_turn_increment(&mut monster.moves_executed)?;
-                }
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            crate::MonsterIntent::Block { block }
-                if matches!(
-                    state.monsters[index].content_id,
-                    CENTURION_ID | GREMLIN_TSUNDERE_ID
-                ) =>
-            {
-                apply_shield_gremlin_random_block(
-                    &mut state.monsters,
-                    actor_id,
-                    block,
-                    &mut state.rng.monster_rng,
-                )?;
-                if let Some(monster) = state
-                    .monsters
-                    .iter_mut()
-                    .find(|monster| monster.id == actor_id)
-                {
-                    checked_turn_increment(&mut monster.moves_executed)?;
-                }
-                prepare_next_intent_for_actor(state, actor_id)?;
-                continue;
-            }
-            _ => {}
+        if execute_state_oriented_special_intent(state, actor_id, index, ascension)? {
+            continue;
+        }
+        if execute_spawning_or_targeted_special_intent(state, actor_id, index, ascension)? {
+            continue;
         }
         let player_snapshot = state.player.clone();
         let intent = state.monsters[index].intent;
@@ -890,6 +625,294 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
     }
 
     finish_monster_turn_cleanup(state, &skip_ritual_tick)
+}
+
+fn execute_state_oriented_special_intent(
+    state: &mut CombatState,
+    actor_id: MonsterId,
+    index: usize,
+    ascension: u8,
+) -> SimResult<bool> {
+    match state.monsters[index].intent {
+        crate::MonsterIntent::Attack { damage }
+            if is_half_dead_darkling(&state.monsters[index]) && damage == 0 =>
+        {
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::Stun if is_half_dead_darkling(&state.monsters[index]) => {
+            state.monsters[index].alive = true;
+            state.monsters[index].escaped = false;
+            state.monsters[index].hp = state.monsters[index].max_hp / 2;
+            if state.relics.contains(&crate::Relic::PhilosophersStone) {
+                state.monsters[index].powers.strength = checked_turn_add(
+                    state.monsters[index].powers.strength,
+                    crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH,
+                )?;
+            }
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::HealAllMonsters { amount } => {
+            apply_heal_all_monsters(&mut state.monsters, amount)?;
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::StrengthAllMonsters { amount } => {
+            apply_strength_all_monsters(&mut state.monsters, amount)?;
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::StrengthSelf { amount }
+            if state.monsters[index].content_id == CHAMP_ID
+                && amount >= champ_strength_amount(ascension) * 3 =>
+        {
+            state.monsters[index].powers.vulnerable = 0;
+            state.monsters[index].powers.weak = 0;
+            state.monsters[index].temp_strength_down = 0;
+            state.monsters[index].powers.strength =
+                checked_turn_add(state.monsters[index].powers.strength, amount)?;
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::StrengthAndBlock { strength, block }
+            if state.monsters[index].content_id == THE_COLLECTOR_ID =>
+        {
+            apply_strength_all_monsters(&mut state.monsters, strength)?;
+            if let Some(monster) = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == actor_id)
+            {
+                monster.block = checked_turn_add(monster.block, block)?;
+                checked_turn_increment(&mut monster.moves_executed)?;
+            }
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::StrengthAndBlock { strength, block }
+            if state.monsters[index].content_id == CHAMP_ID =>
+        {
+            state.monsters[index].block = checked_turn_add(state.monsters[index].block, block)?;
+            state.monsters[index].powers.metallicize =
+                checked_turn_add(state.monsters[index].powers.metallicize, strength)?;
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::EncourageGremlins { strength, block } => {
+            let leader_id = state.monsters[index].id;
+            if state.monsters[index].content_id == GREMLIN_LEADER_ID {
+                let _ = state.rng.monster_rng.random_int(2);
+            }
+            apply_gremlin_leader_encourage(&mut state.monsters, leader_id, strength, block)?;
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+fn execute_spawning_or_targeted_special_intent(
+    state: &mut CombatState,
+    actor_id: MonsterId,
+    index: usize,
+    ascension: u8,
+) -> SimResult<bool> {
+    match state.monsters[index].intent {
+        crate::MonsterIntent::Attack { damage }
+            if state.monsters[index].content_id == BYRD_ID && damage == 3 =>
+        {
+            let player_snapshot = state.player.clone();
+            let allocated_card_id_through = state.max_authoritative_card_instance_id();
+            let damage = apply_monster_intent_with_card_rng(
+                &mut state.monsters[index],
+                &mut state.player,
+                &mut state.piles,
+                allocated_card_id_through,
+                ascension,
+                &player_snapshot,
+                &state.relics,
+                &mut state.rng.card_random_rng,
+            )?;
+            let painful_stabs = state.monsters[index].powers.painful_stabs;
+            apply_monster_pending_effects(
+                state,
+                damage,
+                1,
+                painful_stabs,
+                None,
+                0,
+                0,
+                0,
+                0,
+                false,
+                0,
+            )?;
+            record_target_move(&mut state.monsters[index]);
+            state.monsters[index].intent = target_byrd_go_airborne_intent();
+            record_target_move(&mut state.monsters[index]);
+            Ok(true)
+        }
+        crate::MonsterIntent::SummonGremlins { count } => {
+            let summoner_id = state.monsters[index].id;
+            if state.monsters[index].content_id == BRONZE_AUTOMATON_ID {
+                apply_bronze_automaton_orb_spawn(
+                    &mut state.monsters,
+                    summoner_id,
+                    count,
+                    &mut state.rng.monster_rng,
+                    &mut state.rng.monster_hp_rng,
+                    ascension,
+                )?;
+            } else if state.monsters[index].content_id == THE_COLLECTOR_ID {
+                apply_collector_spawn_torch_heads(
+                    &mut state.monsters,
+                    count,
+                    &mut state.rng.monster_rng,
+                    &mut state.rng.monster_hp_rng,
+                    ascension,
+                )?;
+            } else if state.monsters[index].content_id == ACID_SLIME_ID {
+                apply_large_acid_slime_split(
+                    &mut state.monsters,
+                    summoner_id,
+                    count,
+                    &mut state.rng.monster_rng,
+                    ascension,
+                )?;
+            } else if state.monsters[index].content_id == SPIKE_SLIME_ID {
+                apply_large_spike_slime_split(
+                    &mut state.monsters,
+                    summoner_id,
+                    count,
+                    &mut state.rng.monster_rng,
+                    ascension,
+                )?;
+            } else if state.monsters[index].content_id == SLIME_BOSS_ID {
+                apply_slime_boss_split(
+                    &mut state.monsters,
+                    summoner_id,
+                    count,
+                    &mut state.rng.monster_rng,
+                    ascension,
+                )?;
+            } else if state.monsters[index].content_id == REPTOMANCER_ID {
+                apply_reptomancer_dagger_spawn(
+                    &mut state.monsters,
+                    summoner_id,
+                    count,
+                    &mut state.rng.monster_rng,
+                    &mut state.rng.monster_hp_rng,
+                )?;
+            } else if state.monsters[index].content_id == GREMLIN_LEADER_ID {
+                apply_gremlin_leader_rally_target(
+                    &mut state.monsters,
+                    count,
+                    &mut state.rng.monster_rng,
+                    &mut state.rng.monster_hp_rng,
+                    ascension,
+                )?;
+            } else {
+                return Err(SimError::InvalidState(
+                    "summon intent is incompatible with monster content",
+                ));
+            }
+            let mut summoner_alive = false;
+            if let Some(monster) = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == summoner_id)
+            {
+                checked_turn_increment(&mut monster.moves_executed)?;
+                summoner_alive = monster.alive;
+            }
+            if summoner_alive {
+                prepare_next_intent_for_actor(state, actor_id)?;
+            }
+            Ok(true)
+        }
+        crate::MonsterIntent::SummonCollectorTorchHeads { count } => {
+            let summoner_id = state.monsters[index].id;
+            apply_collector_spawn_torch_heads(
+                &mut state.monsters,
+                count,
+                &mut state.rng.monster_rng,
+                &mut state.rng.monster_hp_rng,
+                ascension,
+            )?;
+            if let Some(monster) = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == summoner_id)
+            {
+                checked_turn_increment(&mut monster.moves_executed)?;
+            }
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::Block { block }
+            if state.monsters[index].content_id == BRONZE_ORB_ID =>
+        {
+            if let Some(automaton) = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.alive && monster.content_id == BRONZE_AUTOMATON_ID)
+            {
+                automaton.block = checked_turn_add(automaton.block, block)?;
+            }
+            if let Some(monster) = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == actor_id)
+            {
+                checked_turn_increment(&mut monster.moves_executed)?;
+            }
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::Block { block } if state.monsters[index].content_id == DECA_ID => {
+            apply_deca_square(&mut state.monsters, block, ascension)?;
+            if let Some(monster) = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == actor_id)
+            {
+                checked_turn_increment(&mut monster.moves_executed)?;
+            }
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::Block { block }
+            if matches!(
+                state.monsters[index].content_id,
+                CENTURION_ID | GREMLIN_TSUNDERE_ID
+            ) =>
+        {
+            apply_shield_gremlin_random_block(
+                &mut state.monsters,
+                actor_id,
+                block,
+                &mut state.rng.monster_rng,
+            )?;
+            if let Some(monster) = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == actor_id)
+            {
+                checked_turn_increment(&mut monster.moves_executed)?;
+            }
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
 }
 
 fn finish_monster_turn_cleanup(
