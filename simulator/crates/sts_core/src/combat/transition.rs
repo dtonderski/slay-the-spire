@@ -419,129 +419,13 @@ fn apply_internal_action(
         }
         InternalAction::DealDamage { info } => damage_actions::deal_damage(state, info),
         InternalAction::DealHandOfGreedDamage { info, gold } => {
-            if living_monster_mut_opt(state, info.target).is_none() {
-                return Ok(Vec::new());
-            }
-            let player_powers = state.player.powers;
-            let temp_strength = state.player.temp_strength;
-            let relics = state.relics.clone();
-            let (
-                spikes,
-                monster_content_id,
-                still_alive,
-                minion,
-                hand_drill_applies,
-                malleable_block,
-            ) = {
-                let monster = living_monster_mut(state, info.target)?;
-                let spikes = monster.powers.spikes;
-                let monster_content_id = monster.content_id;
-                let damage = deal_damage_info_to_monster_with_result(
-                    monster,
-                    info,
-                    player_powers,
-                    temp_strength,
-                    &relics,
-                );
-                wake_lagavulin_on_damage(monster, damage.hp_damage);
-                guardian_accumulate_hp_damage(monster, damage.hp_damage);
-                (
-                    spikes,
-                    monster_content_id,
-                    monster.alive,
-                    monster.powers.minion > 0,
-                    relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
-                    damage.malleable_block,
-                )
-            };
-            let mut follow_ups = Vec::new();
-            push_malleable_block_follow_up(
-                state,
-                &mut follow_ups,
-                info.target,
-                monster_content_id,
-                still_alive,
-                malleable_block,
-            );
-            if still_alive && hand_drill_applies {
-                apply_player_vulnerable_debuff(
-                    state,
-                    info.target,
-                    crate::relic::HAND_DRILL_VULNERABLE,
-                )?;
-            }
-            check_slime_boss_split(state, info.target);
-            if !still_alive {
-                if !minion {
-                    checked_add_combat_value(&mut state.combat_gold_gained, gold.max(0))?;
-                }
-                apply_monster_death_hooks(state, info.target)?;
-            }
-            apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
-            Ok(follow_ups)
+            damage_actions::deal_hand_of_greed_damage(state, info, gold)
         }
         InternalAction::DealDamageRandomEnemy { source, amount } => {
             damage_actions::deal_damage_random_enemy(state, source, amount)
         }
         InternalAction::DealDamageAndHealUnblocked { info } => {
-            if living_monster_mut_opt(state, info.target).is_none() {
-                return Ok(Vec::new());
-            }
-            let player_powers = state.player.powers;
-            let temp_strength = state.player.temp_strength;
-            let relics = state.relics.clone();
-            let (
-                hp_damage,
-                spikes,
-                monster_content_id,
-                still_alive,
-                hand_drill_applies,
-                malleable_block,
-            ) = {
-                let monster = living_monster_mut(state, info.target)?;
-                let spikes = monster.powers.spikes;
-                let monster_content_id = monster.content_id;
-                let damage = deal_damage_info_to_monster_with_result(
-                    monster,
-                    info,
-                    player_powers,
-                    temp_strength,
-                    &relics,
-                );
-                wake_lagavulin_on_damage(monster, damage.hp_damage);
-                guardian_accumulate_hp_damage(monster, damage.hp_damage);
-                (
-                    damage.hp_damage,
-                    spikes,
-                    monster_content_id,
-                    monster.alive,
-                    relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
-                    damage.malleable_block,
-                )
-            };
-            let mut follow_ups = Vec::new();
-            push_malleable_block_follow_up(
-                state,
-                &mut follow_ups,
-                info.target,
-                monster_content_id,
-                still_alive,
-                malleable_block,
-            );
-            crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
-            if still_alive && hand_drill_applies {
-                apply_player_vulnerable_debuff(
-                    state,
-                    info.target,
-                    crate::relic::HAND_DRILL_VULNERABLE,
-                )?;
-            }
-            check_slime_boss_split(state, info.target);
-            if !still_alive {
-                apply_monster_death_hooks(state, info.target)?;
-            }
-            apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
-            Ok(follow_ups)
+            damage_actions::deal_damage_and_heal_unblocked(state, info)
         }
         InternalAction::DealFeedDamage { info, max_hp_gain } => {
             if living_monster_mut_opt(state, info.target).is_none() {
