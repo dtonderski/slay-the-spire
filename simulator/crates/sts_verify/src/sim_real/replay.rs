@@ -108,6 +108,57 @@ pub(super) fn seed_start_handle_overlay_command(
     SeedStartPreDispatch::NotHandled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_bootstrap_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    boss_unlocks: BossUnlockState,
+    deck_ids: &[String],
+    seed_sim: Option<&RunState>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase == SeedStartPhase::BeforeStart
+        && action.command.eq_ignore_ascii_case(&format!(
+            "START {} {} {}",
+            start.character, start.ascension, start.external_seed
+        ))
+    {
+        compare_subset(
+            report,
+            action,
+            "seed-start bootstrap",
+            seed_start_bootstrap_observed_subset(&post.message),
+            seed_start_bootstrap_simulated_subset(start, boss_unlocks, deck_ids),
+        );
+        *phase = SeedStartPhase::NeowTalk;
+        return SeedStartPreDispatch::Handled;
+    }
+    if *phase == SeedStartPhase::NeowTalk && command_is_choose(&action.command, 0) {
+        compare_subset(
+            report,
+            action,
+            "Neow talk",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
+                "choices": seed_start_neow_choices(start.numeric_seed),
+            }),
+        );
+        *phase = SeedStartPhase::NeowOptions;
+        return SeedStartPreDispatch::Handled;
+    }
+    SeedStartPreDispatch::NotHandled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -652,42 +703,21 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_bootstrap_phase(
+            action,
+            post,
+            start,
+            boss_unlocks,
+            &deck_ids,
+            seed_sim.as_ref(),
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
-            SeedStartPhase::BeforeStart
-                if action.command.eq_ignore_ascii_case(&format!(
-                    "START {} {} {}",
-                    start.character, start.ascension, start.external_seed
-                )) =>
-            {
-                compare_subset(
-                    report,
-                    action,
-                    "seed-start bootstrap",
-                    seed_start_bootstrap_observed_subset(&post.message),
-                    seed_start_bootstrap_simulated_subset(start, boss_unlocks, &deck_ids),
-                );
-                phase = SeedStartPhase::NeowTalk;
-            }
-            SeedStartPhase::NeowTalk if command_is_choose(&action.command, 0) => {
-                compare_subset(
-                    report,
-                    action,
-                    "Neow talk",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": seed_start_neow_choices(start.numeric_seed),
-                    }),
-                );
-                phase = SeedStartPhase::NeowOptions;
-            }
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .and_then(seed_start_apply_neow_simple_option)
