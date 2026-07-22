@@ -2254,25 +2254,12 @@ fn bind_dynamic_guided_step_to_live_action<'a>(
     state: &'a LiveState,
     step: &SlayTheDataPreflightStep,
 ) -> Result<&'a LegalAction, String> {
-    #[cfg(test)]
-    let legacy_intent;
-    let intent = match step.intent.as_ref() {
-        Some(intent) => intent,
-        None => {
-            #[cfg(test)]
-            {
-                legacy_intent = legacy_test_intent(step)?;
-                &legacy_intent
-            }
-            #[cfg(not(test))]
-            {
-                return Err(format!(
-                    "SlayTheData step {} is missing its typed replay intent",
-                    step.code
-                ));
-            }
-        }
-    };
+    let intent = step.intent.as_ref().ok_or_else(|| {
+        format!(
+            "SlayTheData step {} is missing its typed replay intent",
+            step.code
+        )
+    })?;
     if step.code == "pending_room_resolution"
         && state
             .raw
@@ -3306,51 +3293,21 @@ fn remaining_route_symbols(steps: &[SlayTheDataPreflightStep], index: usize) -> 
 fn route_symbol_from_step(step: &SlayTheDataPreflightStep) -> Option<&str> {
     match step.intent.as_ref() {
         Some(SlayTheDataReplayStepKind::MapRoom { symbol }) => Some(symbol),
-        Some(_) => None,
-        None => {
-            #[cfg(test)]
-            {
-                legacy_quoted_after(&step.message, "route symbol \"")
-            }
-            #[cfg(not(test))]
-            {
-                None
-            }
-        }
+        Some(_) | None => None,
     }
 }
 
 fn shop_purchase_from_step(step: &SlayTheDataPreflightStep) -> Option<&str> {
     match step.intent.as_ref() {
         Some(SlayTheDataReplayStepKind::ShopPurchase { item, .. }) => Some(item),
-        Some(_) => None,
-        None => {
-            #[cfg(test)]
-            {
-                legacy_quoted_after(&step.message, "shop purchase \"")
-            }
-            #[cfg(not(test))]
-            {
-                None
-            }
-        }
+        Some(_) | None => None,
     }
 }
 
 fn shop_purge_target_from_step(step: &SlayTheDataPreflightStep) -> Option<&str> {
     match step.intent.as_ref() {
         Some(SlayTheDataReplayStepKind::ShopPurge { card }) => Some(&card.raw),
-        Some(_) => None,
-        None => {
-            #[cfg(test)]
-            {
-                legacy_quoted_after(&step.message, "shop purge target \"")
-            }
-            #[cfg(not(test))]
-            {
-                None
-            }
-        }
+        Some(_) | None => None,
     }
 }
 
@@ -4152,19 +4109,13 @@ impl AttachedSlayTheDataRun {
         let Some(step) = self.report.steps.get(index) else {
             return;
         };
-        let typed_target_card = matches!(
+        let has_target_card = matches!(
             step.intent.as_ref(),
             Some(SlayTheDataReplayStepKind::Campfire {
                 target_card: Some(_),
                 ..
             })
         );
-        #[cfg(test)]
-        let has_target_card = typed_target_card
-            || (step.intent.is_none()
-                && legacy_quoted_value(&step.message, "target Some(\"").is_some());
-        #[cfg(not(test))]
-        let has_target_card = typed_target_card;
         if step.code == "guided_campfire"
             && action.kind == LegalActionKind::RestSite
             && has_target_card
@@ -4203,132 +4154,6 @@ fn recorded_action_advances_step(step_code: &str, action: &LegalAction) -> bool 
         return !action.label.eq_ignore_ascii_case("card");
     }
     true
-}
-
-#[cfg(test)]
-fn legacy_test_intent(
-    step: &SlayTheDataPreflightStep,
-) -> Result<SlayTheDataReplayStepKind, String> {
-    let card = |raw: &str| SlayTheDataCardName {
-        raw: raw.to_owned(),
-        base: raw.trim_end_matches("+1").to_owned(),
-        upgraded: raw.ends_with("+1"),
-    };
-    let intent = match step.code.as_str() {
-        "legal_neow_talk" | "illegal_neow_talk" | "neow_talk_apply_failed" => {
-            SlayTheDataReplayStepKind::NeowTalk
-        }
-        "legal_neow_bonus"
-        | "neow_option_not_available"
-        | "illegal_neow_bonus_slot"
-        | "neow_bonus_apply_failed" => SlayTheDataReplayStepKind::NeowBonus {
-            bonus: None,
-            cost: None,
-        },
-        "legal_neow_leave"
-        | "pending_neow_followup"
-        | "illegal_neow_leave"
-        | "neow_leave_apply_failed" => SlayTheDataReplayStepKind::NeowLeave,
-        "legal_map_room"
-        | "pending_room_resolution"
-        | "map_symbol_unmatched"
-        | "map_action_apply_failed" => SlayTheDataReplayStepKind::MapRoom {
-            symbol: legacy_quoted_after(&step.message, "route symbol \"")
-                .unwrap_or_default()
-                .to_owned(),
-        },
-        "legal_card_reward" | "pending_card_reward" | "guided_card_reward" => {
-            let picked = legacy_quoted_value(&step.message, "picked=Some(\"")
-                .or_else(|| legacy_quoted_after(&step.message, "card reward picked \""))
-                .map(card);
-            SlayTheDataReplayStepKind::CardReward {
-                picked,
-                skipped: step.message.contains("skipped=true"),
-            }
-        }
-        "guided_event_choice" | "guided_event_sequence" => {
-            let cards = |prefix| {
-                legacy_quoted_list(&step.message, prefix)
-                    .into_iter()
-                    .map(card)
-                    .collect::<Vec<_>>()
-            };
-            SlayTheDataReplayStepKind::EventChoice {
-                event_name: legacy_quoted_value(&step.message, "event Some(\"").map(str::to_owned),
-                player_choice: legacy_quoted_value(&step.message, "choice Some(\"")
-                    .map(str::to_owned),
-                cards_obtained: cards("obtained "),
-                cards_removed: cards("removed "),
-                cards_transformed: cards("transformed "),
-                cards_upgraded: cards("upgraded "),
-                relics_obtained: legacy_quoted_list(&step.message, "relics obtained ")
-                    .into_iter()
-                    .map(str::to_owned)
-                    .collect(),
-                relics_lost: legacy_quoted_list(&step.message, "lost ")
-                    .into_iter()
-                    .map(str::to_owned)
-                    .collect(),
-            }
-        }
-        "guided_shop_purchase" => SlayTheDataReplayStepKind::ShopPurchase {
-            item: legacy_quoted_after(&step.message, "shop purchase \"")
-                .unwrap_or_default()
-                .to_owned(),
-            base_item: String::new(),
-        },
-        "guided_shop_purge" => SlayTheDataReplayStepKind::ShopPurge {
-            card: card(
-                legacy_quoted_after(&step.message, "shop purge target \"").unwrap_or_default(),
-            ),
-        },
-        "guided_campfire" => SlayTheDataReplayStepKind::Campfire {
-            key: legacy_quoted_value(&step.message, "campfire key Some(\"").map(str::to_owned),
-            target_card: legacy_quoted_value(&step.message, "target Some(\"").map(card),
-        },
-        "guided_boss_relic" => SlayTheDataReplayStepKind::BossRelic {
-            act: step.floor.saturating_sub(1) / 17 + 1,
-            picked: None,
-        },
-        "guided_potion_budget" => SlayTheDataReplayStepKind::PotionBudget { uses_allowed: 0 },
-        "combat_encounter_evidence" => SlayTheDataReplayStepKind::CombatEncounter { enemies: None },
-        code => {
-            return Err(format!(
-                "test fixture has no typed intent mapping for {code}"
-            ))
-        }
-    };
-    Ok(intent)
-}
-
-#[cfg(test)]
-fn legacy_quoted_value<'a>(message: &'a str, prefix: &str) -> Option<&'a str> {
-    let start = message.find(prefix)? + prefix.len();
-    let rest = &message[start..];
-    Some(&rest[..rest.find("\")")?])
-}
-
-#[cfg(test)]
-fn legacy_quoted_after<'a>(message: &'a str, prefix: &str) -> Option<&'a str> {
-    let start = message.find(prefix)? + prefix.len();
-    let rest = &message[start..];
-    Some(&rest[..rest.find('"')?])
-}
-
-#[cfg(test)]
-fn legacy_quoted_list<'a>(message: &'a str, prefix: &str) -> Vec<&'a str> {
-    let Some((_, suffix)) = message.split_once(prefix) else {
-        return Vec::new();
-    };
-    let Some((list, _)) = suffix
-        .strip_prefix('[')
-        .and_then(|value| value.split_once(']'))
-    else {
-        return Vec::new();
-    };
-    list.split(',')
-        .filter_map(|value| value.trim().strip_prefix('"')?.strip_suffix('"'))
-        .collect()
 }
 
 fn bind_matching_live_action<'a>(
@@ -4647,6 +4472,80 @@ mod tests {
     };
     use sts_core::{FixedMap, MapNode, MapNodeId, MapRunState};
 
+    fn test_card(raw: &str) -> SlayTheDataCardName {
+        SlayTheDataCardName {
+            raw: raw.to_owned(),
+            base: raw.trim_end_matches("+1").to_owned(),
+            upgraded: raw.ends_with("+1"),
+        }
+    }
+
+    fn test_card_reward_intent(picked: Option<&str>, skipped: bool) -> SlayTheDataReplayStepKind {
+        SlayTheDataReplayStepKind::CardReward {
+            picked: picked.map(test_card),
+            skipped,
+        }
+    }
+
+    fn test_event_intent(
+        (event_name, player_choice): (&str, &str),
+        cards_obtained: &[&str],
+        cards_removed: &[&str],
+        cards_transformed: &[&str],
+        cards_upgraded: &[&str],
+        relics_obtained: &[&str],
+        relics_lost: &[&str],
+    ) -> SlayTheDataReplayStepKind {
+        SlayTheDataReplayStepKind::EventChoice {
+            event_name: Some(event_name.to_owned()),
+            player_choice: Some(player_choice.to_owned()),
+            cards_obtained: cards_obtained.iter().map(|card| test_card(card)).collect(),
+            cards_removed: cards_removed.iter().map(|card| test_card(card)).collect(),
+            cards_transformed: cards_transformed
+                .iter()
+                .map(|card| test_card(card))
+                .collect(),
+            cards_upgraded: cards_upgraded.iter().map(|card| test_card(card)).collect(),
+            relics_obtained: relics_obtained
+                .iter()
+                .map(|relic| (*relic).to_owned())
+                .collect(),
+            relics_lost: relics_lost
+                .iter()
+                .map(|relic| (*relic).to_owned())
+                .collect(),
+        }
+    }
+
+    fn test_map_room_intent(symbol: &str) -> SlayTheDataReplayStepKind {
+        SlayTheDataReplayStepKind::MapRoom {
+            symbol: symbol.to_owned(),
+        }
+    }
+
+    fn test_shop_purchase_intent(item: &str) -> SlayTheDataReplayStepKind {
+        SlayTheDataReplayStepKind::ShopPurchase {
+            item: item.to_owned(),
+            base_item: String::new(),
+        }
+    }
+
+    fn test_shop_purge_intent(card: &str) -> SlayTheDataReplayStepKind {
+        SlayTheDataReplayStepKind::ShopPurge {
+            card: test_card(card),
+        }
+    }
+
+    fn test_campfire_intent(
+        key: Option<&str>,
+        target_card: Option<&str>,
+    ) -> SlayTheDataReplayStepKind {
+        SlayTheDataReplayStepKind::Campfire {
+            key: key.map(str::to_owned),
+            target_card: target_card.map(test_card),
+        }
+    }
+
     #[test]
     fn route_lookahead_propagates_invalid_core_state() {
         let mut run = RunState::map_fixture();
@@ -4841,7 +4740,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 11,
             ordinal: 32,
-            intent: None,
+            intent: Some(test_event_intent(("Shining Light", "Entered Light"),&[],&[],&[],&["Bludgeon", "Anger"],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Shining Light\") choice Some(\"Entered Light\") obtained [] removed [] upgraded [\"Bludgeon\", \"Anger\"] relics obtained [] lost [] is high-level guidance until event choice label/grid mapping is connected".to_owned(),
@@ -4923,7 +4822,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 19,
             ordinal: 46,
-            intent: None,
+            intent: Some(test_event_intent(("Addict", "Obtained Relic"),&[],&[],&[],&[],&["Self Forming Clay"],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Addict\") choice Some(\"Obtained Relic\") obtained [] removed [] upgraded [] relics obtained [\"Self Forming Clay\"] lost []".to_owned(),
@@ -4966,7 +4865,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 19,
             ordinal: 46,
-            intent: None,
+            intent: Some(test_event_intent(("Addict", "Obtained Relic"),&[],&[],&[],&[],&["Self Forming Clay"],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Addict\") choice Some(\"Obtained Relic\") obtained [] removed [] upgraded [] relics obtained [\"Self Forming Clay\"] lost []".to_owned(),
@@ -4996,7 +4895,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 11,
             ordinal: 32,
-            intent: None,
+            intent: Some(test_event_intent(("Shining Light", "Entered Light"),&[],&[],&[],&["Bludgeon", "Anger"],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Shining Light\") choice Some(\"Entered Light\") obtained [] removed [] upgraded [\"Bludgeon\", \"Anger\"] relics obtained [] lost [] is high-level guidance until event choice label/grid mapping is connected".to_owned(),
@@ -5038,7 +4937,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 12,
             ordinal: 4,
-            intent: None,
+            intent: Some(test_event_intent(("N'loth", "Traded Relic"),&[],&[],&[],&[],&["N'loth's Gift"],&["Vajra"])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"N'loth\") choice Some(\"Traded Relic\") obtained [] removed [] upgraded [] relics obtained [\"N'loth's Gift\"] lost [\"Vajra\"]".to_owned(),
@@ -5068,7 +4967,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 9,
             ordinal: 3,
-            intent: None,
+            intent: Some(test_event_intent(("The Cleric", "Card Removal"),&[],&["Strike"],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"The Cleric\") choice Some(\"Card Removal\") obtained [] removed [\"Strike\"] upgraded []".to_owned(),
@@ -5539,7 +5438,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_skipped_card_reward_binds_to_proceed() {
+    fn dynamic_binding_rejects_missing_typed_intent_even_when_message_looks_bindable() {
         let state = LiveState {
             sequence: 7,
             phase: LivePhase::Reward,
@@ -5557,6 +5456,39 @@ mod tests {
             floor: 1,
             ordinal: 5,
             intent: None,
+            status: SlayTheDataPreflightStatus::Guided,
+            code: "pending_card_reward".to_owned(),
+            message: "card reward choice picked=Some(\"SKIP\") skipped=true".to_owned(),
+            bridge_command: None,
+        };
+
+        let error = bind_dynamic_guided_step_to_live_action(&state, &step).unwrap_err();
+
+        assert_eq!(
+            error,
+            "SlayTheData step pending_card_reward is missing its typed replay intent"
+        );
+    }
+
+    #[test]
+    fn pending_skipped_card_reward_binds_to_proceed() {
+        let state = LiveState {
+            sequence: 7,
+            phase: LivePhase::Reward,
+            legal_actions: vec![LegalAction {
+                id: ActionId("proceed".to_owned()),
+                kind: LegalActionKind::SkipReward,
+                label: "Proceed".to_owned(),
+                enabled: true,
+                command: json!({"transport": "communication_mod", "command": "PROCEED"}),
+                disabled_reason: None,
+            }],
+            raw: json!({}),
+        };
+        let step = SlayTheDataPreflightStep {
+            floor: 1,
+            ordinal: 5,
+            intent: Some(test_card_reward_intent(Some(""),true)),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_card_reward".to_owned(),
             message:
@@ -5588,7 +5520,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 11,
             ordinal: 33,
-            intent: None,
+            intent: Some(test_card_reward_intent(Some(""), true)),
             status: SlayTheDataPreflightStatus::Checked,
             code: "legal_card_reward".to_owned(),
             message:
@@ -5625,7 +5557,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 1,
             ordinal: 5,
-            intent: None,
+            intent: Some(test_card_reward_intent(Some("Clothesline"),false)),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_card_reward".to_owned(),
             message:
@@ -5704,7 +5636,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 1,
             ordinal: 5,
-            intent: None,
+            intent: Some(test_card_reward_intent(Some("Clothesline"),false)),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_card_reward".to_owned(),
             message:
@@ -5746,7 +5678,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 1,
             ordinal: 5,
-            intent: None,
+            intent: Some(test_card_reward_intent(Some("Flex"), false)),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_card_reward".to_owned(),
             message: "card reward picked \"Flex\" is not among the current core reward choices"
@@ -5772,12 +5704,18 @@ mod tests {
                 command: json!({"transport": "communication_mod", "command": "CHOOSE 0"}),
                 disabled_reason: None,
             }],
-            raw: json!({}),
+            raw: json!({
+                "summary": {
+                    "screen_state": {
+                        "next_nodes": [{"x": 0, "symbol": "M"}]
+                    }
+                }
+            }),
         };
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 6,
-            intent: None,
+            intent: Some(test_map_room_intent("M")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message: "next SlayTheData room is pending until live map choices appear".to_owned(),
@@ -5807,7 +5745,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 18,
             ordinal: 42,
-            intent: None,
+            intent: Some(test_map_room_intent("M")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message: "route symbol \"M\" cannot be checked until the map appears".to_owned(),
@@ -5841,7 +5779,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 6,
             ordinal: 16,
-            intent: None,
+            intent: Some(test_map_room_intent("R")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -5873,7 +5811,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 11,
-            intent: None,
+            intent: Some(test_map_room_intent("$")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -5905,7 +5843,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 11,
-            intent: None,
+            intent: Some(test_map_room_intent("$")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -5937,7 +5875,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 27,
             ordinal: 72,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -5969,7 +5907,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 27,
             ordinal: 72,
-            intent: None,
+            intent: Some(test_map_room_intent("M")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -6001,7 +5939,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 27,
             ordinal: 72,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message: "next room waits for the event".to_owned(),
@@ -6031,7 +5969,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 5,
             ordinal: 13,
-            intent: None,
+            intent: Some(test_map_room_intent("$")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -6087,7 +6025,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 10,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -6129,7 +6067,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 5,
             ordinal: 70,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -6171,7 +6109,7 @@ mod tests {
         let pending = SlayTheDataPreflightStep {
             floor: 21,
             ordinal: 50,
-            intent: None,
+            intent: Some(test_map_room_intent("M")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message: "route symbol \"M\" is pending".to_owned(),
@@ -6198,7 +6136,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 20,
                         ordinal: 51,
-                        intent: None,
+                        intent: Some(test_shop_purchase_intent("Membership Card")),
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "guided_shop_purchase".to_owned(),
                         message: "shop purchase \"Membership Card\"".to_owned(),
@@ -6237,7 +6175,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 7,
             ordinal: 70,
-            intent: None,
+            intent: Some(test_map_room_intent("M")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -6269,7 +6207,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 8,
             ordinal: 21,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -6301,7 +6239,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 10,
             ordinal: 25,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -6343,7 +6281,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 0,
             ordinal: 2,
-            intent: None,
+            intent: Some(SlayTheDataReplayStepKind::NeowLeave),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_neow_followup".to_owned(),
             message: "Neow leave is pending because the selected option moved the simulator to phase Reward"
@@ -6374,7 +6312,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 0,
             ordinal: 2,
-            intent: None,
+            intent: Some(SlayTheDataReplayStepKind::NeowLeave),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_neow_followup".to_owned(),
             message: "Neow leave is pending because the selected option moved the simulator to phase Reward"
@@ -6405,7 +6343,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 0,
             ordinal: 2,
-            intent: None,
+            intent: Some(SlayTheDataReplayStepKind::NeowLeave),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_neow_followup".to_owned(),
             message: "Neow leave is pending because the selected option moved the simulator to phase Reward"
@@ -6454,7 +6392,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 0,
             ordinal: 3,
-            intent: None,
+            intent: Some(SlayTheDataReplayStepKind::NeowLeave),
             status: SlayTheDataPreflightStatus::Checked,
             code: "legal_neow_leave".to_owned(),
             message: "Neow leave is legal after the selected immediate Neow option".to_owned(),
@@ -6516,7 +6454,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 0,
                         ordinal: 2,
-                        intent: None,
+                        intent: Some(SlayTheDataReplayStepKind::NeowLeave),
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "pending_neow_followup".to_owned(),
                         message: "Neow leave is pending because the selected option moved the simulator to phase Reward"
@@ -6526,7 +6464,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 0,
                         ordinal: 3,
-                        intent: None,
+                        intent: Some(SlayTheDataReplayStepKind::NeowLeave),
                         status: SlayTheDataPreflightStatus::Checked,
                         code: "legal_neow_leave".to_owned(),
                         message: "Neow leave is legal after the selected immediate Neow option"
@@ -6597,7 +6535,7 @@ mod tests {
                 steps: vec![SlayTheDataPreflightStep {
                     floor: 0,
                     ordinal: 2,
-                    intent: None,
+                    intent: Some(SlayTheDataReplayStepKind::NeowLeave),
                     status: SlayTheDataPreflightStatus::Checked,
                     code: "legal_neow_leave".to_owned(),
                     message: "Neow leave is legal after the selected immediate Neow option"
@@ -6737,7 +6675,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 27,
             ordinal: 72,
-            intent: None,
+            intent: Some(test_event_intent(("Drug Dealer", "Became Test Subject"),&["Combust", "Dual Wield"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Drug Dealer\") choice Some(\"Became Test Subject\") obtained [\"Combust\", \"Dual Wield\"] removed [] upgraded [] relics obtained [] lost [] is high-level guidance until event choice label/grid mapping is connected".to_owned(),
@@ -6769,7 +6707,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 7,
-            intent: None,
+            intent: Some(test_event_intent(("Wheel of Change", "Gold"),&[],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Wheel of Change\") choice Some(\"Gold\") obtained [] removed [] upgraded [] relics obtained [] lost [] is high-level guidance until event choice label/grid mapping is connected".to_owned(),
@@ -6809,7 +6747,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 10,
-            intent: None,
+            intent: Some(test_event_intent(("The Cleric", "Card Removal"),&[],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -6851,7 +6789,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 16,
-            intent: None,
+            intent: Some(test_event_intent(("Golden Wing", "Card Removal"),&[],&["Defend_R"],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -6893,7 +6831,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 10,
-            intent: None,
+            intent: Some(test_event_intent(("Upgrade Shrine", "Upgraded"),&[],&[],&[],&["Bash"],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -6935,7 +6873,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 10,
-            intent: None,
+            intent: Some(test_event_intent(("Scrap Ooze", "Success"),&[],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -6977,7 +6915,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 9,
-            intent: None,
+            intent: Some(test_event_intent(("Golden Idol", "Take Wound"),&["Injury"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7015,7 +6953,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 7,
             ordinal: 20,
-            intent: None,
+            intent: Some(test_event_intent(("Lab", "Got Potions"),&[],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7052,7 +6990,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 12,
-            intent: None,
+            intent: Some(test_event_intent(("Golden Shrine", "Pray"),&[],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7089,7 +7027,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 13,
-            intent: None,
+            intent: Some(test_event_intent(("Big Fish", "Box"),&[],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7132,7 +7070,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 9,
-            intent: None,
+            intent: Some(test_event_intent(("Golden Idol", "Take Wound"),&["Injury"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7151,7 +7089,7 @@ mod tests {
         let damage_step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 9,
-            intent: None,
+            intent: Some(test_event_intent(("Golden Idol", "Take Damage"),&[],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7162,7 +7100,7 @@ mod tests {
         let max_hp_step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 9,
-            intent: None,
+            intent: Some(test_event_intent(("Golden Idol", "Lose Max HP"),&[],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7210,7 +7148,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 9,
-            intent: None,
+            intent: Some(test_event_intent(("Golden Idol", "Take Damage"),&[],&[],&[],&[],&["Golden Idol"],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Golden Idol\") choice Some(\"Take Damage\") obtained [] removed [] upgraded [] relics obtained [\"Golden Idol\"] lost [] is high-level guidance".to_owned(),
@@ -7240,7 +7178,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 17,
             ordinal: 44,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message: "Act route is waiting behind the opened boss chest".to_owned(),
@@ -7280,7 +7218,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 11,
-            intent: None,
+            intent: Some(test_event_intent(("Fountain of Cleansing", "Removed Curses"),&[],&["Injury"],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7312,7 +7250,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 10,
-            intent: None,
+            intent: Some(test_event_intent(("Golden Wing", "Card Removal"),&[],&["Defend_R"],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7344,7 +7282,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 7,
-            intent: None,
+            intent: Some(test_event_intent(("Match and Keep!", "1 cards matched"),&["Limit Break"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7390,7 +7328,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 7,
-            intent: None,
+            intent: Some(test_event_intent(("Match and Keep!", "1 cards matched"),&["Limit Break"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7436,7 +7374,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 7,
-            intent: None,
+            intent: Some(test_event_intent(("Match and Keep!", "1 cards matched"),&["Limit Break"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7481,7 +7419,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 12,
             ordinal: 33,
-            intent: None,
+            intent: Some(test_event_intent(("Match and Keep!", "2 cards matched"),&["Metallicize", "Cleave"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Match and Keep!\") choice Some(\"2 cards matched\") obtained [\"Metallicize\", \"Cleave\"] removed [] upgraded [] relics obtained [] lost []".to_owned(),
@@ -7526,7 +7464,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 12,
             ordinal: 33,
-            intent: None,
+            intent: Some(test_event_intent(("Match and Keep!", "2 cards matched"),&["Metallicize", "Cleave"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Match and Keep!\") choice Some(\"2 cards matched\") obtained [\"Metallicize\", \"Cleave\"] removed [] upgraded [] relics obtained [] lost []".to_owned(),
@@ -7581,7 +7519,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 7,
-            intent: None,
+            intent: Some(test_event_intent(("Match and Keep!", "1 cards matched"),&["Limit Break"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7649,7 +7587,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 7,
-            intent: None,
+            intent: Some(test_event_intent(("Match and Keep!", "1 cards matched"),&["Limit Break"],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7691,7 +7629,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 10,
-            intent: None,
+            intent: Some(test_event_intent(("The Cleric", "Card Removal"),&[],&["Strike_R"],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7733,7 +7671,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 13,
-            intent: None,
+            intent: Some(test_event_intent(("Transmorgrifier", "Transformed"),&["Perfected Strike"],&[],&["Strike_R"],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Transmorgrifier\") choice Some(\"Transformed\") obtained [\"Perfected Strike\"] removed [] transformed [\"Strike_R\"] upgraded [] relics obtained [] lost [] is high-level guidance until event choice label/grid mapping is connected".to_owned(),
@@ -7763,7 +7701,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 3,
             ordinal: 10,
-            intent: None,
+            intent: Some(test_event_intent(("The Cleric", "Card Removal"),&[],&["Strike_R"],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message:
@@ -7805,7 +7743,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 7,
             ordinal: 20,
-            intent: None,
+            intent: Some(test_event_intent(("Designer", "Transformed Cards"),&["Bash", "Shrug It Off"],&["Strike_R", "Defend_R"],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Designer\") choice Some(\"Transformed Cards\") obtained [\"Bash\", \"Shrug It Off\"] removed [\"Strike_R\", \"Defend_R\"] upgraded [] relics obtained [] lost [] is high-level guidance until event choice label/grid mapping is connected".to_owned(),
@@ -7835,7 +7773,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 12,
-            intent: None,
+            intent: Some(test_shop_purchase_intent("Whirlwind")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_shop_purchase".to_owned(),
             message:
@@ -7869,7 +7807,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 2,
             ordinal: 8,
-            intent: None,
+            intent: Some(test_shop_purchase_intent("Peace Pipe")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_shop_purchase".to_owned(),
             message: "shop purchase \"Peace Pipe\" is high-level guidance until shop slot mapping is connected".to_owned(),
@@ -7917,7 +7855,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 12,
-            intent: None,
+            intent: Some(test_shop_purchase_intent("Molten Egg 2")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_shop_purchase".to_owned(),
             message:
@@ -7959,7 +7897,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 12,
-            intent: None,
+            intent: Some(test_shop_purchase_intent("Molten Egg 2")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_shop_purchase".to_owned(),
             message:
@@ -7991,7 +7929,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 12,
-            intent: None,
+            intent: Some(test_shop_purchase_intent("Molten Egg 2")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_shop_purchase".to_owned(),
             message:
@@ -8041,7 +7979,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 1,
             ordinal: 4,
-            intent: None,
+            intent: Some(test_card_reward_intent(Some(""),true)),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_card_reward".to_owned(),
             message:
@@ -8083,7 +8021,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 1,
             ordinal: 4,
-            intent: None,
+            intent: Some(test_card_reward_intent(Some(""),true)),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_card_reward".to_owned(),
             message:
@@ -8115,7 +8053,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 12,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message: "next SlayTheData room is pending until live map choices appear".to_owned(),
@@ -8163,7 +8101,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 18,
             ordinal: 42,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message: "route waits for the map".to_owned(),
@@ -8198,7 +8136,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 18,
             ordinal: 42,
-            intent: None,
+            intent: Some(test_map_room_intent("M")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message:
@@ -8265,7 +8203,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 17,
             ordinal: 44,
-            intent: None,
+            intent: Some(test_map_room_intent("?")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "pending_room_resolution".to_owned(),
             message: "next Act route is waiting behind the boss reward".to_owned(),
@@ -8552,7 +8490,7 @@ mod tests {
         SlayTheDataPreflightStep {
             floor,
             ordinal,
-            intent: None,
+            intent: Some(test_map_room_intent(symbol)),
             status: SlayTheDataPreflightStatus::Checked,
             code: "legal_map_room".to_owned(),
             message: format!(
@@ -8860,7 +8798,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 16,
                         ordinal: 40,
-                        intent: None,
+                        intent: Some(test_card_reward_intent(Some("Double Tap"), false)),
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "pending_card_reward".to_owned(),
                         message: "card reward choice picked=Some(\"Double Tap\") skipped=false"
@@ -9108,7 +9046,7 @@ mod tests {
                 steps: vec![SlayTheDataPreflightStep {
                     floor: 5,
                     ordinal: 16,
-                    intent: None,
+                    intent: Some(test_card_reward_intent(Some("Double Tap"),false)),
                     status: SlayTheDataPreflightStatus::Guided,
                     code: "pending_card_reward".to_owned(),
                     message: "card reward choice picked=Some(\"Double Tap\") skipped=false is pending because simulator phase is Combat".to_owned(),
@@ -9216,7 +9154,7 @@ mod tests {
             SlayTheDataPreflightStep {
                 floor: 6,
                 ordinal: 15,
-                intent: None,
+                intent: Some(test_map_room_intent("M")),
                 status: SlayTheDataPreflightStatus::Guided,
                 code: "pending_room_resolution".to_owned(),
                 message: "route symbol \"M\"".to_owned(),
@@ -9232,6 +9170,7 @@ mod tests {
         assert_eq!(session.next_step_index, 0);
 
         session.report.steps[1].code = "pending_room_resolution".to_owned();
+        session.report.steps[1].intent = Some(test_map_room_intent("?"));
         session.report.steps[1].message = "route symbol \"?\"".to_owned();
         session.next_step_index = 1;
         assert_eq!(
@@ -9298,7 +9237,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 11,
                         ordinal: 30,
-                        intent: None,
+                        intent: Some(SlayTheDataReplayStepKind::CombatEncounter { enemies: None }),
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "combat_encounter_evidence".to_owned(),
                         message: "combat bookkeeping".to_owned(),
@@ -9308,7 +9247,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 11,
                         ordinal: 32,
-                        intent: None,
+                        intent: Some(test_campfire_intent(Some("REST"), Some(""))),
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "guided_campfire".to_owned(),
                         message: "campfire key Some(\"REST\") target None".to_owned(),
@@ -9438,7 +9377,7 @@ mod tests {
                 steps: vec![SlayTheDataPreflightStep {
                     floor: 8,
                     ordinal: 24,
-                    intent: None,
+                    intent: Some(test_card_reward_intent(Some(""), false)),
                     status: SlayTheDataPreflightStatus::Guided,
                     code: "pending_card_reward".to_owned(),
                     message: "pending Dead Adventurer combat reward".to_owned(),
@@ -9479,7 +9418,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 12,
-            intent: None,
+            intent: Some(test_event_intent(("Golden Shrine", "Pray"),&[],&[],&[],&[],&[],&[])),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_event_choice".to_owned(),
             message: "event Some(\"Golden Shrine\") choice Some(\"Pray\") is high-level guidance until event choice label mapping is connected".to_owned(),
@@ -9509,7 +9448,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 6,
             ordinal: 16,
-            intent: None,
+            intent: Some(test_campfire_intent(Some("SMITH"),Some("Whirlwind"))),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_campfire".to_owned(),
             message: "campfire key Some(\"SMITH\") target Some(\"Whirlwind\") is high-level guidance until rest/grid mapping is connected".to_owned(),
@@ -9549,7 +9488,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 6,
             ordinal: 16,
-            intent: None,
+            intent: Some(test_campfire_intent(Some("SMITH"),Some("Whirlwind"))),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_campfire".to_owned(),
             message: "campfire key Some(\"SMITH\") target Some(\"Whirlwind\") is high-level guidance until rest/grid mapping is connected".to_owned(),
@@ -9800,7 +9739,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 6,
             ordinal: 16,
-            intent: None,
+            intent: Some(test_campfire_intent(Some("SMITH"),Some("Whirlwind"))),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_campfire".to_owned(),
             message: "campfire key Some(\"SMITH\") target Some(\"Whirlwind\") is high-level guidance until rest/grid mapping is connected".to_owned(),
@@ -9830,7 +9769,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 6,
             ordinal: 20,
-            intent: None,
+            intent: Some(test_campfire_intent(Some("SMITH"),Some("HandOfGreed"))),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_campfire".to_owned(),
             message: "campfire key Some(\"SMITH\") target Some(\"HandOfGreed\") is high-level guidance until rest/grid mapping is connected".to_owned(),
@@ -9860,7 +9799,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 6,
             ordinal: 16,
-            intent: None,
+            intent: Some(test_campfire_intent(Some("SMITH"),Some("Flame Barrier"))),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_campfire".to_owned(),
             message: "campfire key Some(\"SMITH\") target Some(\"Flame Barrier\") is high-level guidance until rest/grid mapping is connected".to_owned(),
@@ -9961,7 +9900,7 @@ mod tests {
         let step = SlayTheDataPreflightStep {
             floor: 4,
             ordinal: 13,
-            intent: None,
+            intent: Some(test_shop_purchase_intent("PreservedInsect")),
             status: SlayTheDataPreflightStatus::Guided,
             code: "guided_shop_purchase".to_owned(),
             message:
@@ -10118,7 +10057,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 4,
                         ordinal: 12,
-                        intent: None,
+                        intent: Some(test_shop_purchase_intent("PreservedInsect")),
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "guided_shop_purchase".to_owned(),
                         message: "shop purchase \"PreservedInsect\"".to_owned(),
@@ -10127,7 +10066,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 4,
                         ordinal: 13,
-                        intent: None,
+                        intent: Some(test_shop_purchase_intent("FlameBarrier")),
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "guided_shop_purchase".to_owned(),
                         message: "shop purchase \"FlameBarrier\"".to_owned(),
@@ -10136,7 +10075,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 4,
                         ordinal: 14,
-                        intent: None,
+                        intent: Some(test_shop_purge_intent("Defend_R")),
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "guided_shop_purge".to_owned(),
                         message: "shop purge target \"Defend_R\"".to_owned(),
@@ -10145,7 +10084,7 @@ mod tests {
                     SlayTheDataPreflightStep {
                         floor: 5,
                         ordinal: 15,
-                        intent: None,
+                        intent: Some(test_map_room_intent("?")),
                         status: SlayTheDataPreflightStatus::Guided,
                         code: "pending_room_resolution".to_owned(),
                         message: "next room".to_owned(),
@@ -10434,7 +10373,7 @@ fn legal_neow_leave_is_already_satisfied_on_the_map() {
     let step = SlayTheDataPreflightStep {
         floor: 0,
         ordinal: 2,
-        intent: None,
+        intent: Some(SlayTheDataReplayStepKind::NeowLeave),
         status: SlayTheDataPreflightStatus::Checked,
         code: "legal_neow_leave".to_owned(),
         message: "Neow leave is legal".to_owned(),
