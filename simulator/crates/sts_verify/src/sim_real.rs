@@ -1679,40 +1679,13 @@ fn verify_seed_start_transitions(
                     start.character, start.ascension, start.external_seed
                 )) =>
             {
-                let mut observed = seed_start_observed_subset(&post.message);
-                let mut simulated = json!({
-                    "screen_type": "EVENT",
-                    "ascension": start.ascension,
-                    "floor": 0,
-                    "gold": 99,
-                    "current_hp": 80,
-                    "max_hp": 80,
-                    "deck_ids": deck_ids,
-                    "relic_ids": relics,
-                    "choices": ["talk"],
-                });
-                if let Some(observed_boss) = post
-                    .message
-                    .get("game_state")
-                    .and_then(|game| game.get("act_boss"))
-                    .and_then(Value::as_str)
-                {
-                    observed
-                        .as_object_mut()
-                        .expect("observed bootstrap subset is an object")
-                        .insert("act_boss".to_owned(), json!(observed_boss));
-                    simulated
-                        .as_object_mut()
-                        .expect("simulated bootstrap subset is an object")
-                        .insert(
-                            "act_boss".to_owned(),
-                            json!(target_exordium_act_one_boss_with_unlocks(
-                                start.numeric_seed,
-                                boss_unlocks,
-                            )),
-                        );
-                }
-                compare_subset(report, action, "seed-start bootstrap", observed, simulated);
+                compare_subset(
+                    report,
+                    action,
+                    "seed-start bootstrap",
+                    seed_start_bootstrap_observed_subset(&post.message),
+                    seed_start_bootstrap_simulated_subset(start, boss_unlocks, &deck_ids, &relics),
+                );
                 phase = SeedStartPhase::NeowTalk;
             }
             SeedStartPhase::NeowTalk if command_is_choose(&action.command, 0) => {
@@ -5901,6 +5874,43 @@ fn seed_start_observed_subset(message: &Value) -> Value {
         "deck_ids": deck_keys_from_value(game.get("deck")),
         "relic_ids": relic_keys_from_value(game.get("relics")),
         "choices": choice_list_from_value(game.get("choice_list")),
+    })
+}
+
+fn seed_start_bootstrap_observed_subset(message: &Value) -> Value {
+    let mut observed = seed_start_observed_subset(message);
+    let act_boss = message
+        .get("game_state")
+        .and_then(|game| game.get("act_boss"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    observed
+        .as_object_mut()
+        .expect("seed-start observed subset is an object")
+        .insert("act_boss".to_owned(), act_boss);
+    observed
+}
+
+fn seed_start_bootstrap_simulated_subset(
+    start: &StartRunCommand,
+    boss_unlocks: BossUnlockState,
+    deck_ids: &[String],
+    relic_ids: &[String],
+) -> Value {
+    json!({
+        "screen_type": "EVENT",
+        "ascension": start.ascension,
+        "floor": 0,
+        "gold": 99,
+        "current_hp": 80,
+        "max_hp": 80,
+        "deck_ids": deck_ids,
+        "relic_ids": relic_ids,
+        "choices": ["talk"],
+        "act_boss": target_exordium_act_one_boss_with_unlocks(
+            start.numeric_seed,
+            boss_unlocks,
+        ),
     })
 }
 
@@ -11529,6 +11539,26 @@ mod tests {
     use sts_core::relic::IRONCLAD_BOSS_RELIC_POOL;
 
     fn serialize_trace_test_lines(mut lines: Vec<Value>) -> String {
+        let act_boss = lines
+            .iter()
+            .find_map(|line| {
+                let command = line.get("command")?.as_str()?;
+                let step = u32::try_from(line.get("step")?.as_u64()?).ok()?;
+                parse_start_command(&TraceAction {
+                    step,
+                    command: command.to_owned(),
+                    sent_at: None,
+                    playtime_seconds: None,
+                })?
+                .ok()
+            })
+            .map(|start| {
+                target_exordium_act_one_boss_with_unlocks(
+                    start.numeric_seed,
+                    BossUnlockState::default(),
+                )
+                .to_owned()
+            });
         for line in &mut lines {
             let Some(game) = line
                 .get_mut("message")
@@ -11538,6 +11568,9 @@ mod tests {
                 continue;
             };
             game.entry("potions").or_insert_with(|| json!([]));
+            if let Some(act_boss) = &act_boss {
+                game.entry("act_boss").or_insert_with(|| json!(act_boss));
+            }
             let screen_type = game
                 .get("screen_type")
                 .and_then(Value::as_str)
@@ -13284,6 +13317,51 @@ mod tests {
             .expect("forged observed boss must differ from seed-derived boss");
         assert!(boss_diff.contains(forged_boss), "{boss_diff}");
         assert!(boss_diff.contains(expected_boss_name), "{boss_diff}");
+    }
+
+    #[test]
+    fn missing_observed_boss_identity_is_reported_at_bootstrap() {
+        let path = crate::corpus_path("permanent_traces/trace-2026-07-03T20-12-12-408Z.jsonl");
+        let content = std::fs::read_to_string(path).expect("retained trace");
+        let imported = import_communication_mod_trace(&content).expect("trace imports");
+        let start_step = imported
+            .lines
+            .iter()
+            .find_map(|line| match line {
+                TraceLine::Action(action) => parse_start_command(action)
+                    .and_then(Result::ok)
+                    .map(|_| action.step),
+                _ => None,
+            })
+            .expect("trace start command");
+
+        let mut removed_states = 0;
+        let missing = content
+            .lines()
+            .map(|line| {
+                let mut value: Value = serde_json::from_str(line).expect("trace line JSON");
+                if value.get("type").and_then(Value::as_str) == Some("state")
+                    && value
+                        .get_mut("message")
+                        .and_then(|message| message.get_mut("game_state"))
+                        .and_then(Value::as_object_mut)
+                        .and_then(|game| game.remove("act_boss"))
+                        .is_some()
+                {
+                    removed_states += 1;
+                }
+                serde_json::to_string(&value).expect("mutated trace line serializes")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(removed_states > 0, "fixture must expose boss identity");
+
+        let report = verify_communication_mod_trace(&missing).expect("mutated trace parses");
+        assert!(report.unexpected_diffs.iter().any(|diff| {
+            diff.action_step == start_step
+                && diff.label == "seed-start bootstrap"
+                && diff.diffs.iter().any(|line| line.starts_with("act_boss:"))
+        }));
     }
 
     #[test]

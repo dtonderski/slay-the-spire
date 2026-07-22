@@ -249,6 +249,7 @@ mod tests {
                         "screen_type": "EVENT",
                         "ascension_level": 0,
                         "floor": 0,
+                        "act_boss": "Slime Boss",
                         "gold": 99,
                         "current_hp": 80,
                         "max_hp": 80,
