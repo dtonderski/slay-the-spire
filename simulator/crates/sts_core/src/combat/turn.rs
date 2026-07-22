@@ -25,6 +25,7 @@ use crate::{
         apply_strength_all_monsters, champ_strength_amount, clear_lagavulin_metallicize_if_awake,
         heal_monster_to_stored_cap, living_monster_missing_hp,
         prepare_monster_intent_for_ascension, record_target_move,
+        source_backed_gremlin_leader_minion_intent,
         target_book_of_stabbing_next_intent_from_roll_with_stab_count,
         target_bronze_automaton_next_intent, target_bronze_orb_next_intent_from_roll,
         target_byrd_flight_amount, target_byrd_go_airborne_intent,
@@ -1683,14 +1684,24 @@ fn prepare_direct_next_intent(
         return Ok(true);
     }
     if matches!(monster.content_id, GREMLIN_WARRIOR_ID | GREMLIN_THIEF_ID) {
-        monster.intent = prepare_monster_intent_for_ascension(monster, ascension)?;
+        monster.intent = source_backed_gremlin_leader_minion_intent(
+            monster.content_id,
+            monster.moves_executed,
+            ascension,
+        )
+        .ok_or(SimError::UnsupportedMechanic(monster.content_id))?;
         record_target_move(monster);
         return Ok(true);
     }
     if monster.content_id == GREMLIN_TSUNDERE_ID {
         let mut source_branch = monster.clone();
         source_branch.moves_executed = if living_monster_count > 1 { 0 } else { 1 };
-        monster.intent = prepare_monster_intent_for_ascension(&source_branch, ascension)?;
+        monster.intent = source_backed_gremlin_leader_minion_intent(
+            source_branch.content_id,
+            source_branch.moves_executed,
+            ascension,
+        )
+        .ok_or(SimError::UnsupportedMechanic(source_branch.content_id))?;
         record_target_move(monster);
         return Ok(true);
     }

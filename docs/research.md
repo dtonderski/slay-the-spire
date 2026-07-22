@@ -380,6 +380,26 @@ The simulator now keeps this distinction explicit: target map/list shuffles that
 - rejected relics are removed from their pool before retrying from the back of the same tier
 - spawn filters cover the target floor/shop gates, bottled-card availability gates, starter-relic upgrade gates, and the less-than-two campfire relic rule
 
+## Gremlin Leader summon and minion intent evidence
+
+Source inspected: target 12-18-2022 desktop-jar bytecode for
+`SummonGremlinAction`, `AbstractMonster`, and the five Exordium Gremlin minion
+classes.
+
+- `SummonGremlinAction.getRandomGremlin` builds the weighted identity list as
+  Warrior, Warrior, Thief, Thief, Fat, Fat, Shield, Wizard and consumes one
+  inclusive `aiRng.random(0, 7)` draw.
+- A summoned monster is initialized through `AbstractMonster.init`, which calls
+  `rollMove`; `rollMove` always consumes `aiRng.random(99)` before invoking the
+  monster's `getMove(int)` method.
+- Warrior, Thief, Fat, Shield, and Wizard opening `getMove` implementations do
+  not branch on that integer. They select their fixed attack, attack-debuff,
+  defend, or charge move. Consuming and otherwise ignoring the opening roll is
+  therefore required target RNG behavior, not a missing-RNG fallback.
+- The simulator retains that draw while binding only registered Gremlin
+  identities. Its source-backed minion helper returns `None` for every other
+  content identity; it does not substitute a default `Stun` intent.
+
 ## Writhing Mass intent and Compulsive evidence
 
 Source inspected: target 12-18-2022 desktop-jar bytecode for

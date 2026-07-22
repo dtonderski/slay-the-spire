@@ -4156,8 +4156,10 @@ fn prepare_monster_intent_for_monster(
     {
         return intent;
     }
-    if is_gremlin_leader_minion_content_id(definition.content_id) {
-        return gremlin_leader_minion_intent(definition.content_id, moves_executed, ascension);
+    if let Some(intent) =
+        source_backed_gremlin_leader_minion_intent(definition.content_id, moves_executed, ascension)
+    {
+        return intent;
     }
     let _ = mode_shift;
     prepare_monster_intent_for(definition, moves_executed, rolled_attack_damage)
@@ -4171,6 +4173,8 @@ fn prepare_monster_intent_for(
 ) -> MonsterIntent {
     let complex_intent =
         source_backed_complex_monster_intent(definition.content_id, moves_executed, 0);
+    let source_backed_minion_intent =
+        source_backed_gremlin_leader_minion_intent(definition.content_id, moves_executed, 0);
     match definition.content_id {
         CULTIST_ID if moves_executed == 0 => MonsterIntent::Ritual {
             amount: definition.ritual_amount,
@@ -4211,9 +4215,8 @@ fn prepare_monster_intent_for(
         FUNGI_BEAST_ID => fungi_beast_intent(moves_executed, 0),
         SLAVER_BLUE_ID => slaver_blue_intent(moves_executed, 0),
         SLAVER_RED_ID => slaver_red_intent(moves_executed, 0),
-        _ if is_gremlin_leader_minion_content_id(definition.content_id) => {
-            gremlin_leader_minion_intent(definition.content_id, moves_executed, 0)
-        }
+        _ if source_backed_minion_intent.is_some() => source_backed_minion_intent
+            .expect("guard established a source-backed Gremlin Leader minion intent"),
         SPIKE_SLIME_ID => spike_slime_s_intent(moves_executed),
         ACID_SLIME_ID => acid_slime_intent(moves_executed),
         SENTRY_ID => sentry_intent(moves_executed, 0),
@@ -6822,12 +6825,12 @@ fn gremlin_wizard_damage(ascension: u8) -> i32 {
 }
 
 #[must_use]
-fn gremlin_leader_minion_intent(
+pub(crate) fn source_backed_gremlin_leader_minion_intent(
     content_id: ContentId,
     moves_executed: u32,
     ascension: u8,
-) -> MonsterIntent {
-    match content_id {
+) -> Option<MonsterIntent> {
+    Some(match content_id {
         GREMLIN_WARRIOR_ID => MonsterIntent::Attack {
             damage: gremlin_warrior_damage(ascension),
         },
@@ -6852,8 +6855,8 @@ fn gremlin_leader_minion_intent(
         GREMLIN_WIZARD_ID => {
             target_gremlin_wizard_direct_next_intent_after_turn(moves_executed, ascension)
         }
-        _ => MonsterIntent::Stun,
-    }
+        _ => return None,
+    })
 }
 
 #[must_use]
@@ -7776,7 +7779,9 @@ fn apply_gremlin_leader_rally_target_inner(
 
     for (_, monster) in &mut spawned {
         let roll = ai_rng.random_int(99);
-        monster.intent = gremlin_leader_minion_intent(monster.content_id, 0, ascension);
+        monster.intent =
+            source_backed_gremlin_leader_minion_intent(monster.content_id, 0, ascension)
+                .ok_or(SimError::UnsupportedMechanic(monster.content_id))?;
         let _ = roll;
         record_target_move(monster);
     }
@@ -12029,6 +12034,11 @@ mod tests {
         assert_eq!(
             prepare_monster_intent_for_ascension(&unknown, 0),
             Err(SimError::UnknownContent(ContentId::new(u64::MAX)))
+        );
+        assert_eq!(
+            source_backed_gremlin_leader_minion_intent(ContentId::new(u64::MAX), 0, 0),
+            None,
+            "unknown minion identity must not become a plausible Stun intent"
         );
 
         for (definition, content_id) in [
