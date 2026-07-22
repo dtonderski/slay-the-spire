@@ -459,6 +459,162 @@ pub(super) fn validate_event_screen_authority(
     screen: &EventScreen,
 ) -> SimResult<()> {
     match screen.event {
+        Event::BigFish => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Big Fish stage is invalid"));
+            }
+            let valid_data = match screen.stage {
+                0 => screen.event_data == 0,
+                1 => {
+                    (screen.event_data == 0 || screen.event_data == BIG_FISH_MAX_HP_GAIN as u32)
+                        || screen.event_data == (run.player_max_hp / 3) as u32
+                }
+                _ => unreachable!("Big Fish stage was validated above"),
+            };
+            if !valid_data {
+                return Err(SimError::InvalidState(
+                    "Big Fish result does not match its stage",
+                ));
+            }
+            if screen.choices != big_fish_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Big Fish choices do not match its stage",
+                ));
+            }
+        }
+        Event::TheSsssserpent => {
+            if screen.stage > 3 {
+                return Err(SimError::InvalidState("The Ssssserpent stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "The Ssssserpent retains unexpected event data",
+                ));
+            }
+            if screen.choices != sssssserpent_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "The Ssssserpent choices do not match its stage",
+                ));
+            }
+        }
+        Event::GoldenIdol => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Golden Idol stage is invalid"));
+            }
+            if screen.stage < 2 && screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Golden Idol result does not match its stage",
+                ));
+            }
+            if screen.choices != golden_idol_choices(screen.stage, run.player_max_hp, run.ascension)
+            {
+                return Err(SimError::InvalidState(
+                    "Golden Idol choices do not match its stage",
+                ));
+            }
+        }
+        Event::WingStatue => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Wing Statue stage is invalid"));
+            }
+            let valid_data = match screen.stage {
+                0 | 1 => screen.event_data == 0,
+                2 => {
+                    screen.event_data == 0
+                        || (WING_STATUE_MIN_GOLD as u32..=WING_STATUE_MAX_GOLD as u32)
+                            .contains(&screen.event_data)
+                }
+                _ => unreachable!("Wing Statue stage was validated above"),
+            };
+            if !valid_data {
+                return Err(SimError::InvalidState(
+                    "Wing Statue result does not match its stage",
+                ));
+            }
+            if screen.choices != wing_statue_choices(screen.stage, has_wing_statue_attack_card(run))
+            {
+                return Err(SimError::InvalidState(
+                    "Wing Statue choices do not match its stage",
+                ));
+            }
+        }
+        Event::HypnotizingColoredMushrooms => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState(
+                    "Hypnotizing Colored Mushrooms stage is invalid",
+                ));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Hypnotizing Colored Mushrooms retains unexpected event data",
+                ));
+            }
+            if screen.choices != hypnotizing_colored_mushrooms_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Hypnotizing Colored Mushrooms choices do not match its stage",
+                ));
+            }
+        }
+        Event::TheCleric => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("The Cleric stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "The Cleric retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Heal", "Purify", "Leave"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "The Cleric choices do not match its stage",
+                ));
+            }
+        }
+        Event::ShiningLight => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Shining Light stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Shining Light retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Enter the light", "Leave"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Shining Light choices do not match its stage",
+                ));
+            }
+        }
+        Event::LivingWall => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Living Wall stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Living Wall retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Forget", "Change", "Grow"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Living Wall choices do not match its stage",
+                ));
+            }
+        }
         Event::DeadAdventurer => {
             if screen.event_data & !0x7ff != 0 {
                 return Err(SimError::InvalidState(
@@ -5226,6 +5382,181 @@ mod tests {
             apply_event_action(&run, EventAction::Choose { choice_index: 1 }),
             Err(SimError::InvalidState("run integer addition overflows i32"))
         );
+    }
+
+    #[test]
+    fn big_fish_import_rejects_unreachable_screen_state() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::BigFish,
+            choices: big_fish_choices(2),
+            stage: 2,
+            event_data: 0,
+        });
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState("Big Fish stage is invalid"))
+        );
+
+        run.event = Some(EventScreen {
+            event: Event::BigFish,
+            choices: big_fish_choices(0),
+            stage: 0,
+            event_data: 1,
+        });
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "Big Fish result does not match its stage"
+            ))
+        );
+
+        run.event = Some(EventScreen {
+            event: Event::BigFish,
+            choices: labeled_choices(&["Leave"]),
+            stage: 0,
+            event_data: 0,
+        });
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "Big Fish choices do not match its stage"
+            ))
+        );
+    }
+
+    #[test]
+    fn ssssserpent_import_rejects_unreachable_screen_state() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::TheSsssserpent,
+            choices: sssssserpent_choices(4),
+            stage: 4,
+            event_data: 0,
+        });
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState("The Ssssserpent stage is invalid"))
+        );
+
+        run.event = Some(EventScreen {
+            event: Event::TheSsssserpent,
+            choices: sssssserpent_choices(0),
+            stage: 0,
+            event_data: 1,
+        });
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "The Ssssserpent retains unexpected event data"
+            ))
+        );
+
+        run.event = Some(EventScreen {
+            event: Event::TheSsssserpent,
+            choices: labeled_choices(&["Leave"]),
+            stage: 1,
+            event_data: 0,
+        });
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "The Ssssserpent choices do not match its stage"
+            ))
+        );
+    }
+
+    #[test]
+    fn act_one_import_rejects_unreachable_event_screen_shapes() {
+        for (event, invalid_stage, stage_error, data_error, choices_error) in [
+            (
+                Event::GoldenIdol,
+                3,
+                "Golden Idol stage is invalid",
+                "Golden Idol result does not match its stage",
+                "Golden Idol choices do not match its stage",
+            ),
+            (
+                Event::WingStatue,
+                3,
+                "Wing Statue stage is invalid",
+                "Wing Statue result does not match its stage",
+                "Wing Statue choices do not match its stage",
+            ),
+            (
+                Event::HypnotizingColoredMushrooms,
+                2,
+                "Hypnotizing Colored Mushrooms stage is invalid",
+                "Hypnotizing Colored Mushrooms retains unexpected event data",
+                "Hypnotizing Colored Mushrooms choices do not match its stage",
+            ),
+            (
+                Event::TheCleric,
+                3,
+                "The Cleric stage is invalid",
+                "The Cleric retains unexpected event data",
+                "The Cleric choices do not match its stage",
+            ),
+            (
+                Event::ShiningLight,
+                2,
+                "Shining Light stage is invalid",
+                "Shining Light retains unexpected event data",
+                "Shining Light choices do not match its stage",
+            ),
+            (
+                Event::LivingWall,
+                3,
+                "Living Wall stage is invalid",
+                "Living Wall retains unexpected event data",
+                "Living Wall choices do not match its stage",
+            ),
+        ] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.phase = RunPhase::Event;
+            run.event = Some(event_screen_for_run(&run, event));
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").stage = invalid_stage;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(stage_error)),
+                "{event:?} accepts an unreachable stage"
+            );
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").event_data = 1;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(data_error)),
+                "{event:?} accepts unreachable event data"
+            );
+
+            run.event.as_mut().expect("event screen").choices.clear();
+            assert_eq!(
+                run.validate(),
+                Err(SimError::InvalidState(choices_error)),
+                "{event:?} accepts a noncanonical choice list"
+            );
+        }
+    }
+
+    #[test]
+    fn grid_return_stages_are_valid_for_cleric_and_living_wall() {
+        for event in [Event::TheCleric, Event::LivingWall] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.phase = RunPhase::Event;
+            run.event = Some(EventScreen {
+                event,
+                choices: labeled_choices(&["Leave"]),
+                stage: 2,
+                event_data: 0,
+            });
+            run.validate()
+                .expect("removal-grid return stage is authoritative");
+        }
     }
 
     #[test]
