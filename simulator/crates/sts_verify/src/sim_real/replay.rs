@@ -3648,7 +3648,6 @@ fn seed_start_handle_boss_reward_phase(
             });
             return SeedStartPreDispatch::Boundary(boundary);
         };
-        let visible_relics_before_pick = relic_ids_for_simulated_subset(sim);
         let opened_master_deck_overlay =
             seed_start_is_boss_relic_master_deck_overlay(&post.message);
         if next.card_grid.is_some() {
@@ -3660,10 +3659,7 @@ fn seed_start_handle_boss_reward_phase(
                 seed_start_grid_simulated_subset(&next),
             );
         } else if opened_master_deck_overlay {
-            let simulated_overlay = seed_start_boss_relic_deck_overlay_simulated_subset(
-                &next,
-                &visible_relics_before_pick,
-            );
+            let simulated_overlay = seed_start_boss_relic_deck_overlay_simulated_subset(sim);
             let transient_matches = seed_start_compare_deferred_subset(
                 report,
                 action,

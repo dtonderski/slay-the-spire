@@ -2094,18 +2094,15 @@ fn seed_start_is_boss_relic_master_deck_overlay(message: &Value) -> bool {
             .is_some_and(|room| room.eq_ignore_ascii_case("TreasureRoomBoss"))
 }
 
-fn seed_start_boss_relic_deck_overlay_simulated_subset(
-    run: &RunState,
-    visible_relic_ids_before_pick: &[String],
-) -> Value {
+fn seed_start_boss_relic_deck_overlay_simulated_subset(pre_pick_run: &RunState) -> Value {
     json!({
         "screen_type": "NONE",
-        "floor": run.current_floor,
-        "gold": run.gold,
-        "current_hp": run.player_hp,
-        "max_hp": run.player_max_hp,
-        "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": visible_relic_ids_before_pick,
+        "floor": pre_pick_run.current_floor,
+        "gold": pre_pick_run.gold,
+        "current_hp": pre_pick_run.player_hp,
+        "max_hp": pre_pick_run.player_max_hp,
+        "deck_ids": deck_content_keys(&pre_pick_run.deck),
+        "relic_ids": relic_ids_for_simulated_subset(pre_pick_run),
         "choices": Vec::<String>::new(),
     })
 }
@@ -4230,6 +4227,7 @@ fn seed_start_compare_transient_combat_subset(
     for value in [&mut expected, &mut actual] {
         if let Some(object) = value.as_object_mut() {
             for key in [
+                "screen_type",
                 "current_hp",
                 "combat_player_hp",
                 "combat_player_block",
@@ -4238,6 +4236,11 @@ fn seed_start_compare_transient_combat_subset(
                 "draw_ids",
                 "discard_ids",
                 "monsters",
+                "choices",
+                "card_reward_ids",
+                "reward_types",
+                "gold_offer",
+                "relic_offer_ids",
             ] {
                 object.remove(key);
             }

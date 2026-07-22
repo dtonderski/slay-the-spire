@@ -468,6 +468,35 @@ fn combat_selection_endpoint_names_its_unreconciled_frame() {
 }
 
 #[test]
+fn queued_potion_reward_endpoint_names_its_unreconciled_combat_frame() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-733fa5c1c94c6af0.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("queued potion reward regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    let boundary = &report
+        .seed_start
+        .as_ref()
+        .expect("seed-start report")
+        .first_boundary;
+    assert_eq!(boundary.path, "$.actions[step=629].command");
+    assert_eq!(boundary.category, "unreconciled_combat_frame");
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        3
+    );
+}
+
+#[test]
 fn stable_combat_mismatch_preserves_compound_transient_evidence() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-c2aa19ad6556e10e.jsonl")
@@ -2964,6 +2993,35 @@ fn boss_relic_deck_overlay_requires_stable_reconciliation() {
         ActionDispositionKind::PendingTransient
     );
     assert!(!unresolved_pick.deferred_assertion_reconciled);
+}
+
+#[test]
+fn tiny_house_overlay_uses_authoritative_pre_pick_state() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-43601d9614827319.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Tiny House overlay regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    let boundary = &report
+        .seed_start
+        .as_ref()
+        .expect("seed-start report")
+        .first_boundary;
+    assert_eq!(boundary.path, "$.actions[step=418].command");
+    assert_eq!(boundary.category, "unreconciled_boss_relic_overlay_frame");
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        1
+    );
 }
 
 #[test]
