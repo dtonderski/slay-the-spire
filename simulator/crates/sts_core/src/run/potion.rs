@@ -480,7 +480,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                 },
             );
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-            crate::relic::settle_pending_start_of_turn_relic_actions(combat);
+            crate::relic::settle_pending_start_of_turn_relic_actions(combat)?;
         }
         other => {
             combat.decision = Some(other);
@@ -1661,6 +1661,37 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(combat.player.energy, 4);
         assert_eq!(combat.pending_start_of_turn_relic_energy, 0);
+    }
+
+    #[test]
+    fn pending_relic_energy_overflow_is_atomic_and_rejected_by_toolbox() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let choice_content = combat.piles.hand[0].content_id;
+        combat.player.energy = i32::MAX;
+        combat.pending_start_of_turn_relic_energy = 1;
+        combat.decision = Some(CombatDecisionState::ToolboxCardReward {
+            choices: vec![CardInstance::new(CardId::new(10_000), choice_content)],
+        });
+        let combat_before = combat.clone();
+
+        assert_eq!(
+            crate::relic::settle_pending_start_of_turn_relic_actions(combat),
+            Err(SimError::InvalidState(
+                "pending start-of-turn relic energy overflows i32"
+            ))
+        );
+        assert_eq!(*combat, combat_before);
+
+        let before = run.clone();
+
+        assert_eq!(
+            apply_combat_card_reward_choice(&run, 0),
+            Err(SimError::InvalidState(
+                "pending start-of-turn relic energy overflows i32"
+            ))
+        );
+        assert_eq!(run, before);
     }
 
     #[test]

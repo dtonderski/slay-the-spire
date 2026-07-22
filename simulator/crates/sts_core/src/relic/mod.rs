@@ -2464,8 +2464,17 @@ pub fn apply_orichalcum_end_of_player_turn(state: &mut CombatState) -> SimResult
     Ok(())
 }
 
-pub fn settle_pending_start_of_turn_relic_actions(state: &mut CombatState) {
-    state.player.energy += std::mem::take(&mut state.pending_start_of_turn_relic_energy);
+pub fn settle_pending_start_of_turn_relic_actions(state: &mut CombatState) -> SimResult<()> {
+    let energy = state
+        .player
+        .energy
+        .checked_add(state.pending_start_of_turn_relic_energy)
+        .ok_or(SimError::InvalidState(
+            "pending start-of-turn relic energy overflows i32",
+        ))?;
+    state.player.energy = energy;
+    state.pending_start_of_turn_relic_energy = 0;
+    Ok(())
 }
 
 pub fn apply_end_of_player_turn_relics(state: &mut CombatState) -> SimResult<()> {
