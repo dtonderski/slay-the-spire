@@ -1276,33 +1276,27 @@ fn enter_normal_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> 
         run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
         gold_offer
     };
-    let potion_offer = if run.can_gain_potions() {
-        let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
-        let potion_capacity = run.potion_capacity();
-        let potion_offer = if all_monsters_escaped && !run.relics.contains(&Relic::WhiteBeastStatue)
-        {
-            let next_potion_chance = run
-                .potion_chance
-                .checked_add(10)
-                .ok_or(SimError::InvalidState("potion reward chance overflows i32"))?;
-            let _ = potion_rng.random_int(99);
-            run.potion_chance = next_potion_chance;
-            None
-        } else {
-            target_potion_reward_offer(
-                &mut potion_rng,
-                &mut run.potion_chance,
-                1,
-                run.potions.len(),
-                potion_capacity,
-                run.relics.contains(&Relic::WhiteBeastStatue),
-            )?
-        };
-        run.store_rng_counter(RunRngStream::Potion, &potion_rng);
-        potion_offer
-    } else {
+    let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
+    let potion_capacity = run.potion_capacity();
+    let potion_offer = if all_monsters_escaped && !run.relics.contains(&Relic::WhiteBeastStatue) {
+        let next_potion_chance = run
+            .potion_chance
+            .checked_add(10)
+            .ok_or(SimError::InvalidState("potion reward chance overflows i32"))?;
+        let _ = potion_rng.random_int(99);
+        run.potion_chance = next_potion_chance;
         None
+    } else {
+        target_potion_reward_offer(
+            &mut potion_rng,
+            &mut run.potion_chance,
+            1,
+            run.potions.len(),
+            potion_capacity,
+            run.relics.contains(&Relic::WhiteBeastStatue),
+        )?
     };
+    run.store_rng_counter(RunRngStream::Potion, &potion_rng);
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -1386,22 +1380,17 @@ fn enter_elite_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
         .contains(&Relic::BlackStar)
         .then(|| roll_bonus_relic_offer(run));
 
-    let potion_offer = if run.can_gain_potions() {
-        let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
-        let potion_capacity = run.potion_capacity();
-        let potion_offer = target_potion_reward_offer(
-            &mut potion_rng,
-            &mut run.potion_chance,
-            2,
-            run.potions.len(),
-            potion_capacity,
-            run.relics.contains(&Relic::WhiteBeastStatue),
-        )?;
-        run.store_rng_counter(RunRngStream::Potion, &potion_rng);
-        potion_offer
-    } else {
-        None
-    };
+    let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
+    let potion_capacity = run.potion_capacity();
+    let potion_offer = target_potion_reward_offer(
+        &mut potion_rng,
+        &mut run.potion_chance,
+        2,
+        run.potions.len(),
+        potion_capacity,
+        run.relics.contains(&Relic::WhiteBeastStatue),
+    )?;
+    run.store_rng_counter(RunRngStream::Potion, &potion_rng);
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -1438,22 +1427,17 @@ fn enter_boss_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     let gold_offer = combat_gold_offer_with_relics(run, target_boss_combat_gold(&mut misc_rng));
     run.store_rng_counter(RunRngStream::Misc, &misc_rng);
 
-    let potion_offer = if run.can_gain_potions() {
-        let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
-        let potion_capacity = run.potion_capacity();
-        let potion_offer = target_potion_reward_offer(
-            &mut potion_rng,
-            &mut run.potion_chance,
-            1,
-            run.potions.len(),
-            potion_capacity,
-            run.relics.contains(&Relic::WhiteBeastStatue),
-        )?;
-        run.store_rng_counter(RunRngStream::Potion, &potion_rng);
-        potion_offer
-    } else {
-        None
-    };
+    let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
+    let potion_capacity = run.potion_capacity();
+    let potion_offer = target_potion_reward_offer(
+        &mut potion_rng,
+        &mut run.potion_chance,
+        1,
+        run.potions.len(),
+        potion_capacity,
+        run.relics.contains(&Relic::WhiteBeastStatue),
+    )?;
+    run.store_rng_counter(RunRngStream::Potion, &potion_rng);
 
     run.phase = RunPhase::Reward;
     run.combat = None;
@@ -3140,6 +3124,33 @@ mod tests {
         assert_eq!(actual, expected);
         assert_eq!(actual_rng.counter(), expected_rng.counter());
         assert_eq!(potion_chance, -10);
+    }
+
+    #[test]
+    fn combat_rewards_generate_potions_before_acquisition_is_checked() {
+        for potions in [
+            Vec::new(),
+            vec![Potion::Dexterity, Potion::Strength, Potion::Fire],
+        ] {
+            let mut run = RunState::map_fixture();
+            run.phase = RunPhase::Combat;
+            run.current_room_override = Some(RoomKind::Combat);
+            run.relics = vec![Relic::Sozu, Relic::WhiteBeastStatue];
+            run.potions = potions;
+            run.combat = Some(CombatState::initial_fixture());
+            prepare_won_combat_reward_fixture(&mut run);
+
+            enter_normal_combat_reward_screen(&mut run).expect("combat reward generation succeeds");
+
+            assert!(
+                run.reward
+                    .as_ref()
+                    .expect("reward screen")
+                    .potion_offer
+                    .is_some(),
+                "Sozu and a full belt affect claiming, not reward generation"
+            );
+        }
     }
 
     #[test]

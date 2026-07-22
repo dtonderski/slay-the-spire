@@ -1124,6 +1124,66 @@ fn victory_projection_uses_only_simulator_state() {
 }
 
 #[test]
+fn ordinary_combat_victory_compares_generated_reward_contents() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-e85eaa294d635e48.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Sozu reward regression trace replays");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert!(
+        !report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .failed
+    );
+
+    let tampered = content
+        .lines()
+        .map(|line| {
+            let mut value: Value = serde_json::from_str(line).expect("trace line parses");
+            if value.get("type").and_then(Value::as_str) == Some("state")
+                && value.get("step").and_then(Value::as_u64) == Some(19)
+            {
+                value
+                    .pointer_mut("/message/game_state/screen_state/rewards")
+                    .and_then(Value::as_array_mut)
+                    .expect("combat reward list")
+                    .retain(|reward| {
+                        reward.get("reward_type").and_then(Value::as_str) != Some("POTION")
+                    });
+                value
+                    .pointer_mut("/message/game_state/choice_list")
+                    .and_then(Value::as_array_mut)
+                    .expect("combat reward choices")
+                    .retain(|choice| choice.as_str() != Some("potion"));
+            }
+            serde_json::to_string(&value).expect("trace line serializes")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let report = verify_seed_start_communication_mod_trace(&tampered)
+        .expect("tampered reward trace replays to a fidelity failure");
+
+    let boundary = &report
+        .seed_start
+        .as_ref()
+        .expect("seed-start report")
+        .first_boundary;
+    assert_eq!(boundary.path, "$.actions[step=19].command");
+    assert_eq!(boundary.category, "unexpected_sim_real_diff");
+    assert!(
+        boundary.reason.contains("reward_types["),
+        "unexpected killing-blow boundary: {boundary:?}"
+    );
+}
+
+#[test]
 fn dual_wield_hand_select_projects_only_attack_and_power_candidates() {
     let mut run = RunState::seeded_ironclad(1, 0);
     let mut combat = CombatState::initial_fixture();

@@ -3005,14 +3005,24 @@ fn seed_start_handle_combat_phase(
             });
         };
         let label = combat_label(command, sim);
-        compare_subset(
-            report,
-            action,
-            &label,
-            seed_start_victory_observed_subset(&post.message),
-            seed_start_victory_simulated_subset(&next),
-        );
         let final_boss_complete = seed_start_is_final_boss_victory(&next);
+        if final_boss_complete {
+            compare_subset(
+                report,
+                action,
+                &label,
+                seed_start_victory_observed_subset(&post.message),
+                seed_start_victory_simulated_subset(&next),
+            );
+        } else {
+            compare_subset(
+                report,
+                action,
+                &label,
+                seed_start_reward_observed_subset(&post.message),
+                seed_start_reward_simulated_subset(&next),
+            );
+        }
         *seed_sim = Some(next);
         *phase = if final_boss_complete {
             SeedStartPhase::Proceed

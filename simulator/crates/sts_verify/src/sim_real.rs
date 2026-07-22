@@ -3869,7 +3869,11 @@ fn seed_start_apply_reward_choose(sim: &mut RunState, command: &str) -> Result<S
     let choice = simulated_choices
         .get(choose_index)
         .cloned()
-        .ok_or_else(|| format!("reward choice index {choose_index} is not available"))?;
+        .ok_or_else(|| {
+            format!(
+                "reward choice index {choose_index} is not available; simulated choices: {simulated_choices:?}"
+            )
+        })?;
 
     let potion_index = simulated_choices[..choose_index]
         .iter()
