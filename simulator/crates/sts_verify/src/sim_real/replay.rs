@@ -332,6 +332,399 @@ fn seed_start_handle_neow_immediate_phase(
     SeedStartPreDispatch::NotHandled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_neow_card_reward_phase(
+    pre: &TraceState,
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    deck_ids: &mut Vec<String>,
+    neow_gold: &mut i32,
+    neow_current_hp: &mut i32,
+    neow_max_hp: &mut i32,
+    neow_card_reward_option: &mut Option<GeneratedNeowOption>,
+    neow_card_reward_choices: &mut Option<Vec<String>>,
+    neow_card_reward_card_rng_counter: &mut Option<u32>,
+    neow_leave_visible_deck_ids: &mut Option<Vec<String>>,
+    delayed_neow_curse: &mut Option<String>,
+    seed_sim: &mut Option<RunState>,
+    pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase == SeedStartPhase::NeowOptions {
+        let Some(option) = seed_start_selected_neow_option(start.numeric_seed, &action.command)
+        else {
+            return SeedStartPreDispatch::NotHandled;
+        };
+
+        if option.reward == NeowRewardType::OneRandomRareCard {
+            let mut run = seed_start_apply_neow_reward_drawback_for_ascension(
+                start.numeric_seed,
+                start.ascension,
+                deck_ids,
+                &option,
+            );
+            *deck_ids = deck_content_keys(&run.deck);
+            *neow_gold = run.gold;
+            *neow_current_hp = run.player_hp;
+            *neow_max_hp = run.player_max_hp;
+            compare_subset(
+                report,
+                action,
+                seed_start_neow_card_reward_label(option.reward),
+                seed_start_observed_subset(&post.message),
+                json!({
+                    "screen_type": "EVENT",
+                    "ascension": start.ascension,
+                    "floor": 0,
+                    "gold": neow_gold,
+                    "current_hp": neow_current_hp,
+                    "max_hp": neow_max_hp,
+                    "deck_ids": deck_ids,
+                    "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                    "choices": ["leave"],
+                }),
+            );
+            let reward = generate_neow_card_reward(start.numeric_seed, option.reward)
+                .expect("matched generated Neow card reward option");
+            *neow_leave_visible_deck_ids = Some(deck_ids.clone());
+            for content_id in reward.cards {
+                run.gain_deck_card(content_id)
+                    .expect("canonical seed-start deck has card ID allocation headroom");
+            }
+            *deck_ids = deck_content_keys(&run.deck);
+            *seed_sim = Some(run);
+            *phase = SeedStartPhase::NeowLeave;
+            return SeedStartPreDispatch::Handled;
+        }
+
+        if seed_start_neow_option_is_supported_card_reward(option.clone()) {
+            let run = seed_start_apply_neow_reward_drawback_for_ascension(
+                start.numeric_seed,
+                start.ascension,
+                deck_ids,
+                &option,
+            );
+            *deck_ids = deck_content_keys(&run.deck);
+            *neow_gold = run.gold;
+            *neow_current_hp = run.player_hp;
+            *neow_max_hp = run.player_max_hp;
+            *neow_card_reward_choices = Some(seed_start_neow_card_reward_ids(
+                start.numeric_seed,
+                &option,
+                Some(&run),
+            ));
+            *neow_card_reward_card_rng_counter = seed_start_neow_card_reward_card_rng_counter(
+                start.numeric_seed,
+                &option,
+                Some(&run),
+            );
+            *neow_card_reward_option = Some(option.clone());
+            if option.drawback == NeowDrawback::Curse {
+                let card_rng_counter = match option.reward {
+                    NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
+                        generate_neow_colorless_reward(start.numeric_seed, option.reward)
+                            .expect("matched generated Neow colorless reward option")
+                            .card_rng_counter
+                    }
+                    _ => 0,
+                };
+                *delayed_neow_curse =
+                    seed_start_neow_curse_deck_key(start.numeric_seed, card_rng_counter);
+            }
+            compare_subset(
+                report,
+                action,
+                seed_start_neow_card_reward_label(option.reward),
+                seed_start_reward_observed_subset(&post.message),
+                json!({
+                    "screen_type": "CARD_REWARD",
+                    "floor": 0,
+                    "gold": neow_gold,
+                    "current_hp": neow_current_hp,
+                    "max_hp": neow_max_hp,
+                    "deck_ids": deck_ids,
+                    "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                    "choices": seed_start_neow_card_reward_choice_names(start.numeric_seed, &option, Some(&run)),
+                    "card_reward_ids": seed_start_neow_card_reward_id_values(start.numeric_seed, &option, Some(&run)),
+                    "unobservable": {
+                        "card_reward_rng_draws": true,
+                        "card_reward_uuids": true,
+                    },
+                }),
+            );
+            *phase = SeedStartPhase::NeowCardReward;
+            return SeedStartPreDispatch::Handled;
+        }
+
+        return SeedStartPreDispatch::NotHandled;
+    }
+
+    if *phase != SeedStartPhase::NeowCardReward {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    let Some(picked_card) =
+        seed_start_pick_neow_card_reward(neow_card_reward_choices, &action.command)
+    else {
+        return SeedStartPreDispatch::NotHandled;
+    };
+    let option = neow_card_reward_option
+        .as_ref()
+        .expect("Neow card reward option is carried");
+    let pre_pick_deck_ids = deck_ids.clone();
+    deck_ids.push(picked_card.clone());
+    let mut run = seed_start_apply_neow_reward_drawback_for_ascension(
+        start.numeric_seed,
+        start.ascension,
+        deck_ids,
+        option,
+    );
+    if let Some(card_rng_counter) = *neow_card_reward_card_rng_counter {
+        run.card_rng_counter = card_rng_counter;
+    }
+    let mut transient_deck = deck_ids.clone();
+    if let Some(curse) = delayed_neow_curse.take() {
+        let curse_order = match pending_neow_curse_order(pre, action) {
+            Ok(order) => order,
+            Err(reason) => {
+                return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                    path: format!("$.actions[step={}].sent_at", action.step),
+                    category: "invalid_input".to_owned(),
+                    reason: reason.to_owned(),
+                });
+            }
+        };
+        // NeowReward.activate marks the curse pending before opening the reward. A target update can
+        // obtain it while that screen remains open; otherwise CardRewardScreen obtains the selected
+        // card first. The order is bound from pre-state/action timing, never post-state.
+        *deck_ids = pre_pick_deck_ids;
+        if curse_order == PendingNeowCurseOrder::BeforePickedCard {
+            deck_ids.push(curse);
+            deck_ids.push(picked_card);
+        } else {
+            deck_ids.push(picked_card);
+            deck_ids.push(curse);
+        }
+        if curse_order == PendingNeowCurseOrder::BeforePickedCard {
+            transient_deck = deck_ids.clone();
+        }
+        run.deck = deck_instances_from_keys(deck_ids);
+        run.card_rng_counter = run.card_rng_counter.saturating_add(1);
+    }
+    *seed_sim = Some(run);
+    let mut observed = seed_start_observed_subset(&post.message);
+    let observed_deck = observed
+        .as_object_mut()
+        .and_then(|object| object.remove("deck_ids"))
+        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+        .unwrap_or_default();
+    let mut simulated = json!({
+        "screen_type": "EVENT",
+        "ascension": start.ascension,
+        "floor": 0,
+        "gold": neow_gold,
+        "current_hp": neow_current_hp,
+        "max_hp": neow_max_hp,
+        "deck_ids": deck_ids,
+        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+        "choices": ["leave"],
+    });
+    let simulated_deck = simulated
+        .as_object_mut()
+        .and_then(|object| object.remove("deck_ids"))
+        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+        .expect("Neow card pickup projection contains a deck");
+    let mut diffs = subset_diffs(observed, simulated);
+    match classify_deferred_deck_observation(&observed_deck, &transient_deck, &simulated_deck) {
+        PendingDeckObservation::Settled if diffs.is_empty() => {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Neow colorless pickup".to_owned(),
+            });
+        }
+        PendingDeckObservation::Deferred if diffs.is_empty() => {
+            *pending_deck_assertion = Some(PendingDeckAssertion {
+                action: action.clone(),
+                label: "Neow colorless pickup".to_owned(),
+                transient_decks: vec![transient_deck],
+                expected_deck: simulated_deck,
+            });
+        }
+        PendingDeckObservation::Diverged(deck_diffs) => {
+            diffs.extend(deck_diffs);
+            report.unexpected_diffs.push(UnexpectedDiff {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Neow colorless pickup".to_owned(),
+                diffs,
+            });
+        }
+        PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+            report.unexpected_diffs.push(UnexpectedDiff {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Neow colorless pickup".to_owned(),
+                diffs,
+            });
+        }
+    }
+    *phase = SeedStartPhase::NeowLeave;
+    SeedStartPreDispatch::Handled
+}
+
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_neow_potion_reward_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    deck_ids: &mut Vec<String>,
+    neow_gold: i32,
+    neow_current_hp: i32,
+    neow_max_hp: i32,
+    neow_potions_taken: &mut usize,
+    seed_sim: &mut Option<RunState>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase == SeedStartPhase::NeowOptions
+        && seed_start_selected_neow_option(start.numeric_seed, &action.command)
+            .is_some_and(|option| option.reward == NeowRewardType::ThreeSmallPotions)
+    {
+        let option_index =
+            command_choose_index(&action.command).expect("matched generated three-potion option");
+        *neow_potions_taken = 0;
+        let mut run = seed_start_carried_run(
+            seed_sim.as_ref(),
+            start.numeric_seed,
+            start.ascension,
+            &start.external_seed,
+            deck_ids,
+        );
+        run.gold = neow_gold;
+        run.player_hp = neow_current_hp;
+        run.player_max_hp = neow_max_hp;
+        run.phase = RunPhase::Event;
+        run.event = Some(neow_screen_for_stage(&run, 1));
+        let next = match apply_event_action(
+            &run,
+            EventAction::Choose {
+                choice_index: option_index,
+            },
+        ) {
+            Ok(next) => next,
+            Err(err) => {
+                return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_neow_potion_reward".to_owned(),
+                    reason: format!("core rejected generated Neow three-potion option: {err}"),
+                });
+            }
+        };
+        if next.phase != RunPhase::Reward
+            || next
+                .reward
+                .as_ref()
+                .is_none_or(|reward| reward.potion_offers.len() != 3)
+        {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_neow_potion_reward".to_owned(),
+                reason: "core Neow three-potion option did not open three potion rewards"
+                    .to_owned(),
+            });
+        }
+        compare_subset(
+            report,
+            action,
+            "Neow three potion reward",
+            seed_start_neow_potion_reward_observed_subset(&post.message),
+            seed_start_neow_potion_reward_simulated_subset(&next),
+        );
+        *seed_sim = Some(next);
+        *phase = SeedStartPhase::NeowPotionReward;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowPotionReward && command_is_choose(&action.command, 0) {
+        let Some(sim) = seed_sim.as_ref() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_neow_potion_reward".to_owned(),
+                reason: "Neow potion pick has no authoritative core reward state".to_owned(),
+            });
+        };
+        let next = match apply_run_action(sim, RunAction::TakePotionReward { index: 0 }) {
+            Ok(next) => next,
+            Err(err) => {
+                return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_neow_potion_reward".to_owned(),
+                    reason: format!("core rejected Neow potion pick: {err}"),
+                });
+            }
+        };
+        *neow_potions_taken += 1;
+        compare_subset(
+            report,
+            action,
+            &format!("Neow potion reward pick {neow_potions_taken}"),
+            seed_start_neow_potion_reward_observed_subset(&post.message),
+            seed_start_neow_potion_reward_simulated_subset(&next),
+        );
+        *seed_sim = Some(next);
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowPotionReward && action.command.eq_ignore_ascii_case("PROCEED")
+    {
+        let Some(sim) = seed_sim.as_ref() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_neow_potion_reward".to_owned(),
+                reason: "Neow potion proceed has no authoritative core reward state".to_owned(),
+            });
+        };
+        let next = match apply_run_action(sim, RunAction::Proceed) {
+            Ok(next) => next,
+            Err(err) => {
+                return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_neow_potion_reward".to_owned(),
+                    reason: format!("core rejected Neow potion reward proceed: {err}"),
+                });
+            }
+        };
+        let mut observed = seed_start_map_return_observed_subset(&post.message);
+        seed_start_insert_observed_potion_ids(&mut observed, &post.message);
+        let mut simulated = match seed_start_simulated_map_return(&next) {
+            Ok(simulated) => simulated,
+            Err(reason) => {
+                return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_neow_potion_map_projection".to_owned(),
+                    reason,
+                });
+            }
+        };
+        seed_start_insert_simulated_potion_ids(&mut simulated, &next);
+        compare_subset(
+            report,
+            action,
+            "Neow potion reward proceed",
+            observed,
+            simulated,
+        );
+        *deck_ids = deck_content_keys(&next.deck);
+        *seed_sim = Some(next);
+        *phase = SeedStartPhase::Map;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    SeedStartPreDispatch::NotHandled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -920,6 +1313,46 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_neow_card_reward_phase(
+            pre,
+            action,
+            post,
+            start,
+            &mut deck_ids,
+            &mut neow_gold,
+            &mut neow_current_hp,
+            &mut neow_max_hp,
+            &mut neow_card_reward_option,
+            &mut neow_card_reward_choices,
+            &mut neow_card_reward_card_rng_counter,
+            &mut neow_leave_visible_deck_ids,
+            &mut delayed_neow_curse,
+            &mut seed_sim,
+            &mut pending_deck_assertion,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
+        match seed_start_handle_neow_potion_reward_phase(
+            action,
+            post,
+            start,
+            &mut deck_ids,
+            neow_gold,
+            neow_current_hp,
+            neow_max_hp,
+            &mut neow_potions_taken,
+            &mut seed_sim,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
@@ -981,112 +1414,6 @@ pub(super) fn verify_seed_start_transitions(
             }
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(|option| option.reward == NeowRewardType::OneRandomRareCard) =>
-            {
-                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .expect("matched generated Neow random rare card option");
-                let mut run = seed_start_apply_neow_reward_drawback_for_ascension(
-                    start.numeric_seed,
-                    start.ascension,
-                    &deck_ids,
-                    &option,
-                );
-                deck_ids = deck_content_keys(&run.deck);
-                neow_gold = run.gold;
-                neow_current_hp = run.player_hp;
-                neow_max_hp = run.player_max_hp;
-                compare_subset(
-                    report,
-                    action,
-                    seed_start_neow_card_reward_label(option.reward),
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": neow_gold,
-                        "current_hp": neow_current_hp,
-                        "max_hp": neow_max_hp,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                let reward = generate_neow_card_reward(start.numeric_seed, option.reward)
-                    .expect("matched generated Neow card reward option");
-                neow_leave_visible_deck_ids = Some(deck_ids.clone());
-                for content_id in reward.cards {
-                    run.gain_deck_card(content_id)
-                        .expect("canonical seed-start deck has card ID allocation headroom");
-                }
-                deck_ids = deck_content_keys(&run.deck);
-                seed_sim = Some(run);
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(seed_start_neow_option_is_supported_card_reward) =>
-            {
-                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .expect("matched generated Neow card reward option");
-                let run = seed_start_apply_neow_reward_drawback_for_ascension(
-                    start.numeric_seed,
-                    start.ascension,
-                    &deck_ids,
-                    &option,
-                );
-                deck_ids = deck_content_keys(&run.deck);
-                neow_gold = run.gold;
-                neow_current_hp = run.player_hp;
-                neow_max_hp = run.player_max_hp;
-                neow_card_reward_choices = Some(seed_start_neow_card_reward_ids(
-                    start.numeric_seed,
-                    &option,
-                    Some(&run),
-                ));
-                neow_card_reward_card_rng_counter = seed_start_neow_card_reward_card_rng_counter(
-                    start.numeric_seed,
-                    &option,
-                    Some(&run),
-                );
-                neow_card_reward_option = Some(option.clone());
-                if option.drawback == NeowDrawback::Curse {
-                    let card_rng_counter = match option.reward {
-                        NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
-                            generate_neow_colorless_reward(start.numeric_seed, option.reward)
-                                .expect("matched generated Neow colorless reward option")
-                                .card_rng_counter
-                        }
-                        _ => 0,
-                    };
-                    delayed_neow_curse =
-                        seed_start_neow_curse_deck_key(start.numeric_seed, card_rng_counter);
-                }
-                compare_subset(
-                    report,
-                    action,
-                    seed_start_neow_card_reward_label(option.reward),
-                    seed_start_reward_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "CARD_REWARD",
-                        "floor": 0,
-                        "gold": neow_gold,
-                        "current_hp": neow_current_hp,
-                        "max_hp": neow_max_hp,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": seed_start_neow_card_reward_choice_names(start.numeric_seed, &option, Some(&run)),
-                        "card_reward_ids": seed_start_neow_card_reward_id_values(start.numeric_seed, &option, Some(&run)),
-                        "unobservable": {
-                            "card_reward_rng_draws": true,
-                            "card_reward_uuids": true,
-                        },
-                    }),
-                );
-                phase = SeedStartPhase::NeowCardReward;
-            }
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(seed_start_neow_option_is_supported_relic_reward) =>
             {
                 let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
@@ -1136,65 +1463,6 @@ pub(super) fn verify_seed_start_transitions(
                 }
                 seed_sim = Some(run);
                 phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(|option| option.reward == NeowRewardType::ThreeSmallPotions) =>
-            {
-                let option_index = command_choose_index(&action.command)
-                    .expect("matched generated three-potion option");
-                neow_potions_taken = 0;
-                let mut run = seed_start_carried_run(
-                    seed_sim.as_ref(),
-                    start.numeric_seed,
-                    start.ascension,
-                    &start.external_seed,
-                    &deck_ids,
-                );
-                run.gold = neow_gold;
-                run.player_hp = neow_current_hp;
-                run.player_max_hp = neow_max_hp;
-                run.phase = RunPhase::Event;
-                run.event = Some(neow_screen_for_stage(&run, 1));
-                let next = match apply_event_action(
-                    &run,
-                    EventAction::Choose {
-                        choice_index: option_index,
-                    },
-                ) {
-                    Ok(next) => next,
-                    Err(err) => {
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_neow_potion_reward".to_owned(),
-                            reason: format!(
-                                "core rejected generated Neow three-potion option: {err}"
-                            ),
-                        });
-                    }
-                };
-                if next.phase != RunPhase::Reward
-                    || next
-                        .reward
-                        .as_ref()
-                        .is_none_or(|reward| reward.potion_offers.len() != 3)
-                {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "invalid_neow_potion_reward".to_owned(),
-                        reason: "core Neow three-potion option did not open three potion rewards"
-                            .to_owned(),
-                    });
-                }
-                compare_subset(
-                    report,
-                    action,
-                    "Neow three potion reward",
-                    seed_start_neow_potion_reward_observed_subset(&post.message),
-                    seed_start_neow_potion_reward_simulated_subset(&next),
-                );
-                seed_sim = Some(next);
-                phase = SeedStartPhase::NeowPotionReward;
             }
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
@@ -1887,193 +2155,6 @@ pub(super) fn verify_seed_start_transitions(
                 );
                 seed_sim = Some(next);
                 phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowCardReward
-                if seed_start_pick_neow_card_reward(&neow_card_reward_choices, &action.command)
-                    .is_some() =>
-            {
-                let picked_card =
-                    seed_start_pick_neow_card_reward(&neow_card_reward_choices, &action.command)
-                        .expect("matched generated Neow card reward pick");
-                let option = neow_card_reward_option
-                    .as_ref()
-                    .expect("Neow card reward option is carried");
-                let pre_pick_deck_ids = deck_ids.clone();
-                deck_ids.push(picked_card.clone());
-                let mut run = seed_start_apply_neow_reward_drawback_for_ascension(
-                    start.numeric_seed,
-                    start.ascension,
-                    &deck_ids,
-                    option,
-                );
-                if let Some(card_rng_counter) = neow_card_reward_card_rng_counter {
-                    run.card_rng_counter = card_rng_counter;
-                }
-                let mut transient_deck = deck_ids.clone();
-                if let Some(curse) = delayed_neow_curse.take() {
-                    let curse_order = match pending_neow_curse_order(pre, action) {
-                        Ok(order) => order,
-                        Err(reason) => {
-                            return finish_boundary!(SeedStartBoundary {
-                                path: format!("$.actions[step={}].sent_at", action.step),
-                                category: "invalid_input".to_owned(),
-                                reason: reason.to_owned(),
-                            });
-                        }
-                    };
-                    // NeowReward.activate marks the curse pending before opening the
-                    // reward. A target update can obtain it while that screen remains
-                    // open; otherwise CardRewardScreen obtains the selected card first.
-                    // The order is bound from pre-state/action timing, never post-state.
-                    deck_ids = pre_pick_deck_ids;
-                    if curse_order == PendingNeowCurseOrder::BeforePickedCard {
-                        deck_ids.push(curse);
-                        deck_ids.push(picked_card);
-                    } else {
-                        deck_ids.push(picked_card);
-                        deck_ids.push(curse);
-                    }
-                    if curse_order == PendingNeowCurseOrder::BeforePickedCard {
-                        transient_deck = deck_ids.clone();
-                    }
-                    run.deck = deck_instances_from_keys(&deck_ids);
-                    run.card_rng_counter = run.card_rng_counter.saturating_add(1);
-                }
-                seed_sim = Some(run);
-                let mut observed = seed_start_observed_subset(&post.message);
-                let observed_deck = observed
-                    .as_object_mut()
-                    .and_then(|object| object.remove("deck_ids"))
-                    .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
-                    .unwrap_or_default();
-                let mut simulated = json!({
-                    "screen_type": "EVENT",
-                    "ascension": start.ascension,
-                    "floor": 0,
-                    "gold": neow_gold,
-                    "current_hp": neow_current_hp,
-                    "max_hp": neow_max_hp,
-                    "deck_ids": deck_ids,
-                    "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                    "choices": ["leave"],
-                });
-                let simulated_deck = simulated
-                    .as_object_mut()
-                    .and_then(|object| object.remove("deck_ids"))
-                    .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
-                    .expect("Neow card pickup projection contains a deck");
-                let mut diffs = subset_diffs(observed, simulated);
-                match classify_deferred_deck_observation(
-                    &observed_deck,
-                    &transient_deck,
-                    &simulated_deck,
-                ) {
-                    PendingDeckObservation::Settled if diffs.is_empty() => {
-                        report.verified.push(VerifiedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "Neow colorless pickup".to_owned(),
-                        });
-                    }
-                    PendingDeckObservation::Deferred if diffs.is_empty() => {
-                        pending_deck_assertion = Some(PendingDeckAssertion {
-                            action: action.clone(),
-                            label: "Neow colorless pickup".to_owned(),
-                            transient_decks: vec![transient_deck],
-                            expected_deck: simulated_deck,
-                        });
-                    }
-                    PendingDeckObservation::Diverged(deck_diffs) => {
-                        diffs.extend(deck_diffs);
-                        report.unexpected_diffs.push(UnexpectedDiff {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "Neow colorless pickup".to_owned(),
-                            diffs,
-                        });
-                    }
-                    PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
-                        report.unexpected_diffs.push(UnexpectedDiff {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "Neow colorless pickup".to_owned(),
-                            diffs,
-                        });
-                    }
-                }
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowPotionReward if command_is_choose(&action.command, 0) => {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "invalid_neow_potion_reward".to_owned(),
-                        reason: "Neow potion pick has no authoritative core reward state"
-                            .to_owned(),
-                    });
-                };
-                let next = match apply_run_action(sim, RunAction::TakePotionReward { index: 0 }) {
-                    Ok(next) => next,
-                    Err(err) => {
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_neow_potion_reward".to_owned(),
-                            reason: format!("core rejected Neow potion pick: {err}"),
-                        });
-                    }
-                };
-                neow_potions_taken += 1;
-                compare_subset(
-                    report,
-                    action,
-                    &format!("Neow potion reward pick {neow_potions_taken}"),
-                    seed_start_neow_potion_reward_observed_subset(&post.message),
-                    seed_start_neow_potion_reward_simulated_subset(&next),
-                );
-                seed_sim = Some(next);
-            }
-            SeedStartPhase::NeowPotionReward if action.command.eq_ignore_ascii_case("PROCEED") => {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "invalid_neow_potion_reward".to_owned(),
-                        reason: "Neow potion proceed has no authoritative core reward state"
-                            .to_owned(),
-                    });
-                };
-                let next = match apply_run_action(sim, RunAction::Proceed) {
-                    Ok(next) => next,
-                    Err(err) => {
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_neow_potion_reward".to_owned(),
-                            reason: format!("core rejected Neow potion reward proceed: {err}"),
-                        });
-                    }
-                };
-                let mut observed = seed_start_map_return_observed_subset(&post.message);
-                seed_start_insert_observed_potion_ids(&mut observed, &post.message);
-                let mut simulated = match seed_start_simulated_map_return(&next) {
-                    Ok(simulated) => simulated,
-                    Err(reason) => {
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_neow_potion_map_projection".to_owned(),
-                            reason,
-                        });
-                    }
-                };
-                seed_start_insert_simulated_potion_ids(&mut simulated, &next);
-                compare_subset(
-                    report,
-                    action,
-                    "Neow potion reward proceed",
-                    observed,
-                    simulated,
-                );
-                deck_ids = deck_content_keys(&next.deck);
-                seed_sim = Some(next);
-                phase = SeedStartPhase::Map;
             }
             SeedStartPhase::NeowLeave if command_is_choose(&action.command, 0) => {
                 if let Some(curse) = delayed_neow_curse.take() {
