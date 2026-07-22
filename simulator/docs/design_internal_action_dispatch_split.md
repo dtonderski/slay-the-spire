@@ -68,3 +68,11 @@ Move the three all-enemy damage variants into a private `damage_actions`
 module before moving the larger single-target variants. Preserve per-hit death
 effects, filtering and deferred aggregation of Malleable block, monster order,
 and post-damage healing order.
+
+## Sixth slice: ordinary and random-target damage
+
+Move ordinary single-target damage and random-enemy damage before the
+kill-reward variants. Preserve target-existence no-ops, RNG consumption,
+Lagavulin/Guardian bookkeeping, Malleable and Hand Drill ordering, slime split,
+the ordinary arm's queued death hooks, the random arm's immediate death hooks,
+and final spike reflection.

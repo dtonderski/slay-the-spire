@@ -1,5 +1,127 @@
-use super::{deal_attack_damage_to_all_living, living_monster_mut_opt};
-use crate::{action::InternalAction, combat::CombatState, ids::CardId, SimResult};
+use super::{
+    apply_monster_death_hooks, apply_or_queue_spikes_to_player, apply_player_vulnerable_debuff,
+    deal_attack_damage_to_all_living, living_monster_mut, living_monster_mut_opt,
+    push_malleable_block_follow_up, queue_monster_death_hooks, random_living_monster_id,
+};
+use crate::{
+    action::InternalAction,
+    combat::{
+        damage::{deal_damage_info_to_monster_with_result, DamageInfo, DamageSource},
+        CombatState,
+    },
+    content::monsters::{
+        check_slime_boss_split, guardian_accumulate_hp_damage, wake_lagavulin_on_damage,
+    },
+    ids::CardId,
+    SimResult,
+};
+
+pub(super) fn deal_damage(
+    state: &mut CombatState,
+    info: DamageInfo,
+) -> SimResult<Vec<InternalAction>> {
+    if living_monster_mut_opt(state, info.target).is_none() {
+        return Ok(Vec::new());
+    }
+    let player_powers = state.player.powers;
+    let temp_strength = state.player.temp_strength;
+    let relics = state.relics.clone();
+    let (spikes, monster_content_id, still_alive, hand_drill_applies, malleable_block) = {
+        let monster = living_monster_mut(state, info.target)?;
+        let spikes = monster.powers.spikes;
+        let monster_content_id = monster.content_id;
+        let damage = deal_damage_info_to_monster_with_result(
+            monster,
+            info,
+            player_powers,
+            temp_strength,
+            &relics,
+        );
+        wake_lagavulin_on_damage(monster, damage.hp_damage);
+        guardian_accumulate_hp_damage(monster, damage.hp_damage);
+        (
+            spikes,
+            monster_content_id,
+            monster.alive,
+            relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+            damage.malleable_block,
+        )
+    };
+    let mut follow_ups = Vec::new();
+    push_malleable_block_follow_up(
+        state,
+        &mut follow_ups,
+        info.target,
+        monster_content_id,
+        still_alive,
+        malleable_block,
+    );
+    if still_alive && hand_drill_applies {
+        apply_player_vulnerable_debuff(state, info.target, crate::relic::HAND_DRILL_VULNERABLE)?;
+    }
+    check_slime_boss_split(state, info.target);
+    if !still_alive {
+        queue_monster_death_hooks(state, info.target)?;
+    }
+    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    Ok(follow_ups)
+}
+
+pub(super) fn deal_damage_random_enemy(
+    state: &mut CombatState,
+    source: CardId,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    if let Some(target) = random_living_monster_id(state) {
+        let player_powers = state.player.powers;
+        let temp_strength = state.player.temp_strength;
+        let relics = state.relics.clone();
+        let (spikes, monster_content_id, still_alive, hand_drill_applies, malleable_block) = {
+            let monster = living_monster_mut(state, target)?;
+            let spikes = monster.powers.spikes;
+            let monster_content_id = monster.content_id;
+            let damage = deal_damage_info_to_monster_with_result(
+                monster,
+                DamageInfo {
+                    source: DamageSource::Card(source),
+                    target,
+                    amount,
+                },
+                player_powers,
+                temp_strength,
+                &relics,
+            );
+            wake_lagavulin_on_damage(monster, damage.hp_damage);
+            guardian_accumulate_hp_damage(monster, damage.hp_damage);
+            (
+                spikes,
+                monster_content_id,
+                monster.alive,
+                relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+                damage.malleable_block,
+            )
+        };
+        let mut follow_ups = Vec::new();
+        push_malleable_block_follow_up(
+            state,
+            &mut follow_ups,
+            target,
+            monster_content_id,
+            still_alive,
+            malleable_block,
+        );
+        if still_alive && hand_drill_applies {
+            apply_player_vulnerable_debuff(state, target, crate::relic::HAND_DRILL_VULNERABLE)?;
+        }
+        check_slime_boss_split(state, target);
+        if !still_alive {
+            apply_monster_death_hooks(state, target)?;
+        }
+        apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+        return Ok(follow_ups);
+    }
+    Ok(Vec::new())
+}
 
 pub(super) fn deal_damage_all(
     state: &mut CombatState,
