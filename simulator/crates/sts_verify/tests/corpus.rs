@@ -1180,6 +1180,12 @@ fn permanent_trace_entries_pass_seed_start() {
             .unwrap_or_else(|err| panic!("permanent trace is readable: {display_path}: {err}"));
         let report = verify_seed_start_communication_mod_trace(&content)
             .unwrap_or_else(|err| panic!("seed-start report for {display_path}: {err}"));
+        let repeated_report = verify_seed_start_communication_mod_trace(&content)
+            .unwrap_or_else(|err| panic!("repeated seed-start report for {display_path}: {err}"));
+        assert_eq!(
+            repeated_report, report,
+            "{display_path} must produce an identical report on repeated deterministic replay"
+        );
         assert!(
             report.unexpected_diffs.is_empty(),
             "{display_path} unexpected diffs: {:?}",
