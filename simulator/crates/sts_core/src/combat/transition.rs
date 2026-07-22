@@ -1,5 +1,6 @@
 use super::card_effects;
 mod decision_actions;
+mod pile_actions;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
     card::{CardType, TargetRequirement},
@@ -886,60 +887,23 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::MoveCard { card_id, from, to } => {
-            let hand_exhaust_is_attack = if from == CardPile::Hand && to == CardPile::ExhaustPile {
-                find_hand_card(state, card_id)
-                    .ok()
-                    .and_then(|card| get_card_definition(card.content_id))
-                    .is_some_and(|definition| definition.card_type == CardType::Attack)
-            } else {
-                false
-            };
-            move_card(state, card_id, from, to)?;
-            let mut follow_ups = Vec::new();
-            if from == CardPile::Hand && state.piles.hand.is_empty() {
-                apply_unceasing_top_after_hand_emptied(state)?;
-            }
-            if to == CardPile::ExhaustPile {
-                if hand_exhaust_is_attack {
-                    follow_ups.push(InternalAction::HandCardExhausted { card_id });
-                } else {
-                    follow_ups.push(InternalAction::CardExhausted { card_id });
-                }
-            }
-            Ok(follow_ups)
+            pile_actions::move_card_between_piles(state, card_id, from, to)
         }
         InternalAction::ReturnExhaustCardToHand { card_id } => {
-            let card = remove_card_from_pile(state, card_id, CardPile::ExhaustPile)?;
-            state.piles.hand.push(card);
-            Ok(Vec::new())
+            pile_actions::return_exhaust_card_to_hand(state, card_id)
         }
         InternalAction::ForethoughtAutoMove {
             source_card_id,
             card_id,
-        } => {
-            move_forethought_card_to_draw_bottom(state, source_card_id, card_id)?;
-            Ok(Vec::new())
-        }
+        } => pile_actions::forethought_auto_move(state, source_card_id, card_id),
         InternalAction::ExhaustRandomHandCardExcept { excluded_card_id } => {
-            let Some(card_id) = random_hand_card_id_except(state, excluded_card_id) else {
-                return Ok(Vec::new());
-            };
-            move_card(state, card_id, CardPile::Hand, CardPile::ExhaustPile)?;
-            if state.piles.hand.is_empty() {
-                apply_unceasing_top_after_hand_emptied(state)?;
-            }
-            Ok(vec![InternalAction::CardExhausted { card_id }])
+            pile_actions::exhaust_random_hand_card_except(state, excluded_card_id)
         }
         InternalAction::RemoveCard { card_id, from } => {
-            remove_card_from_pile(state, card_id, from)?;
-            if from == CardPile::Hand && state.piles.hand.is_empty() {
-                apply_unceasing_top_after_hand_emptied(state)?;
-            }
-            Ok(Vec::new())
+            pile_actions::remove_card(state, card_id, from)
         }
         InternalAction::AddCardToPile { content_id, to } => {
-            add_card_to_pile(state, content_id, to)?;
-            Ok(Vec::new())
+            pile_actions::add_card(state, content_id, to)
         }
         InternalAction::AddGeneratedCardToPile {
             content_id,
@@ -947,87 +911,51 @@ fn apply_internal_action(
             temp_cost,
             temp_cost_turn_only,
         } => {
-            add_generated_card_to_pile(state, content_id, to, temp_cost, temp_cost_turn_only)?;
-            Ok(Vec::new())
+            pile_actions::add_generated_card(state, content_id, to, temp_cost, temp_cost_turn_only)
         }
         InternalAction::AddGeneratedHandCardBeforePendingDraw {
             content_id,
             temp_cost,
             temp_cost_turn_only,
-        } => {
-            add_generated_card_to_pile(
-                state,
-                content_id,
-                CardPile::Hand,
-                temp_cost,
-                temp_cost_turn_only,
-            )?;
-            Ok(Vec::new())
-        }
+        } => pile_actions::add_generated_hand_card_before_pending_draw(
+            state,
+            content_id,
+            temp_cost,
+            temp_cost_turn_only,
+        ),
         InternalAction::AddStatEquivalentCopyToPile { card, to } => {
-            add_stat_equivalent_copy_to_pile(state, card, to)?;
-            Ok(Vec::new())
+            pile_actions::add_stat_equivalent_copy(state, card, to)
         }
         InternalAction::AddGeneratedCardToDrawPileRandomSpot { content_id } => {
-            add_generated_card_to_draw_pile_random_spot(state, content_id, None, false)?;
-            Ok(Vec::new())
+            pile_actions::add_generated_card_to_random_draw_spot(state, content_id, None, false)
         }
         InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost {
             content_id,
             temp_cost,
             temp_cost_turn_only,
-        } => {
-            add_generated_card_to_draw_pile_random_spot(
-                state,
-                content_id,
-                temp_cost,
-                temp_cost_turn_only,
-            )?;
-            Ok(Vec::new())
-        }
+        } => pile_actions::add_generated_card_to_random_draw_spot(
+            state,
+            content_id,
+            temp_cost,
+            temp_cost_turn_only,
+        ),
         InternalAction::AddRandomColorlessCardToHand { temp_cost, upgrade } => {
-            state.reserve_card_instance_ids(1)?;
-            let content_id = random_colorless_card(state, upgrade)?;
-            add_generated_card_to_pile(state, content_id, CardPile::Hand, temp_cost, false)?;
-            Ok(Vec::new())
+            pile_actions::add_random_colorless_card_to_hand(state, temp_cost, upgrade)
         }
-        InternalAction::DrawCards { count } => {
-            player_draw_cards(state, count)?;
-            Ok(Vec::new())
-        }
+        InternalAction::DrawCards { count } => pile_actions::draw_cards(state, count),
         InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count } => {
-            let hand_index = state
-                .piles
-                .hand
-                .iter()
-                .position(|card| card.id == card_id)
-                .ok_or(SimError::IllegalAction("played card is not in hand"))?;
-            let played_card = state.piles.hand.remove(hand_index);
-            player_draw_cards(state, count)?;
-            state.piles.discard_pile.push(played_card);
-            Ok(Vec::new())
+            pile_actions::draw_cards_while_played_card_is_in_limbo(state, card_id, count)
         }
-        InternalAction::DrawCardsFromInkBottle { count } => {
-            player_draw_cards(state, count)?;
-            Ok(Vec::new())
-        }
-        InternalAction::ShuffleDiscardIntoDraw => {
-            player_shuffle_discard_into_draw(state)?;
-            Ok(Vec::new())
-        }
+        InternalAction::DrawCardsFromInkBottle { count } => pile_actions::draw_cards(state, count),
+        InternalAction::ShuffleDiscardIntoDraw => pile_actions::shuffle_discard_into_draw(state),
         InternalAction::DeepBreathShuffleDiscardIntoDraw => {
-            player_deep_breath_shuffle_discard_into_draw(state)?;
-            Ok(Vec::new())
+            pile_actions::deep_breath_shuffle_discard_into_draw(state)
         }
         InternalAction::DrawCardsIfNoAttacksInHand { count } => {
-            if !hand_contains_attack(state) {
-                player_draw_cards(state, count)?;
-            }
-            Ok(Vec::new())
+            pile_actions::draw_cards_if_no_attacks_in_hand(state, count)
         }
         InternalAction::DrawRandomAttacksFromDrawPile { count } => {
-            draw_random_attacks_from_draw_pile(state, count);
-            Ok(Vec::new())
+            pile_actions::draw_random_attacks(state, count)
         }
         InternalAction::GainEnergy { amount } => {
             checked_add_combat_value(&mut state.player.energy, amount)?;

@@ -38,3 +38,11 @@ Review the moved bodies against the pre-extraction diff, run focused `sts_core`
 tests, then run formatting, strict workspace Clippy, snapshot round trips,
 workspace tests, and repeated permanent-corpus replay at the clean commit
 boundary.
+
+## Second slice: pile and draw actions
+
+Move the implementations that mutate card piles, generate cards, shuffle, or
+draw into a private `pile_actions` module. The parent match continues to name
+and route every `InternalAction` variant explicitly. Helpers retain the exact
+source-card removal, relic trigger, RNG-consumption, and follow-up ordering from
+the inline arms.
