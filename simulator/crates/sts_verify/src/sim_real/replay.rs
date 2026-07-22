@@ -3535,6 +3535,318 @@ fn seed_start_handle_reward_phase(
     SeedStartPreDispatch::Handled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_boss_reward_phase(
+    pre: &TraceState,
+    action: &TraceAction,
+    post: &TraceState,
+    seed_sim: &mut Option<RunState>,
+    pending_boss_relic_overlay: &mut Option<PendingBossRelicOverlayAssertion>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::BossReward {
+        return SeedStartPreDispatch::NotHandled;
+    }
+
+    if command_head_eq(&action.command, "CHOOSE") {
+        let choose_index =
+            choose_index(&action.command).expect("malformed CHOOSE rejected before phase dispatch");
+        let Some(sim) = seed_sim.as_mut() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_boss_reward_path".to_owned(),
+                reason: "seed-start boss reward without initialized run simulation".to_owned(),
+            });
+        };
+        if screen_type(&pre.message) != Some("BOSS_REWARD") {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_boss_reward_path".to_owned(),
+                reason: "unsupported boss relic reward choice".to_owned(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        let next = apply_run_action(
+            sim,
+            RunAction::ChooseBossRelicReward {
+                index: choose_index,
+            },
+        )
+        .map_err(|error| error.to_string());
+        let Ok(next) = next else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_boss_reward_path".to_owned(),
+                reason: next.err().unwrap_or_default(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        };
+        let visible_relics_before_pick = relic_ids_for_simulated_subset(sim);
+        let opened_master_deck_overlay =
+            seed_start_is_boss_relic_master_deck_overlay(&post.message);
+        if next.card_grid.is_some() {
+            compare_subset(
+                report,
+                action,
+                "boss relic reward grid",
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&next),
+            );
+        } else if opened_master_deck_overlay {
+            let simulated_overlay = seed_start_boss_relic_deck_overlay_simulated_subset(
+                &next,
+                &visible_relics_before_pick,
+            );
+            let transient_matches = seed_start_compare_deferred_subset(
+                report,
+                action,
+                "boss relic reward deck overlay",
+                seed_start_treasure_observed_subset(&post.message),
+                simulated_overlay.clone(),
+            );
+            *pending_boss_relic_overlay = Some(PendingBossRelicOverlayAssertion {
+                action: action.clone(),
+                simulated_overlay,
+                transient_matches,
+            });
+        } else {
+            compare_subset(
+                report,
+                action,
+                "boss relic reward",
+                seed_start_treasure_observed_subset(&post.message),
+                seed_start_treasure_simulated_subset(&next),
+            );
+        }
+        *sim = next;
+        *phase = if sim.card_grid.is_some() {
+            SeedStartPhase::Grid
+        } else {
+            SeedStartPhase::Treasure
+        };
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if action.command.trim().eq_ignore_ascii_case("SKIP") {
+        let Some(sim) = seed_sim.as_mut() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_boss_reward_path".to_owned(),
+                reason: "seed-start boss reward without initialized run simulation".to_owned(),
+            });
+        };
+        let next = apply_run_action(sim, RunAction::SkipReward).map_err(|error| error.to_string());
+        let Ok(next) = next else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_boss_reward_path".to_owned(),
+                reason: next.err().unwrap_or_default(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        };
+        compare_subset(
+            report,
+            action,
+            "boss relic reward skip",
+            seed_start_treasure_observed_subset(&post.message),
+            seed_start_treasure_simulated_subset(&next),
+        );
+        *sim = next;
+        *phase = SeedStartPhase::Treasure;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    SeedStartPreDispatch::NotHandled
+}
+
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_grid_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    seed_sim: &mut Option<RunState>,
+    pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::Grid {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    let Some(sim) = seed_sim.as_mut() else {
+        return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_grid_path".to_owned(),
+            reason: "seed-start grid action without initialized run simulation".to_owned(),
+        });
+    };
+    let command = action.command.trim();
+    let delayed_event_deck_append_count = (command_head_eq(command, "CHOOSE")
+        || command.eq_ignore_ascii_case("CONFIRM"))
+    .then(|| {
+        sim.card_grid.as_ref().and_then(|grid| match grid.purpose {
+            GridPurpose::EventTransform { count }
+            | GridPurpose::EventTransformReturnToEvent { count, .. } => Some(usize::from(count)),
+            GridPurpose::EventObtainCard | GridPurpose::EventObtainCardReturnToEvent { .. } => {
+                Some(1)
+            }
+            _ => None,
+        })
+    })
+    .flatten();
+    let next = seed_start_apply_grid_command(sim, command);
+    let Ok(next) = next else {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_grid_path".to_owned(),
+            reason: next.err().unwrap_or_default(),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    };
+    let destination = match seed_start_grid_destination(&next) {
+        Ok(destination) => destination,
+        Err(reason) => {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_grid_destination".to_owned(),
+                reason,
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+    };
+    let (label, mut observed, mut simulated, next_phase) = match destination {
+        SeedStartGridDestination::Grid => (
+            "grid",
+            seed_start_grid_observed_subset(&post.message),
+            seed_start_grid_simulated_subset(&next),
+            SeedStartPhase::Grid,
+        ),
+        SeedStartGridDestination::Shop => (
+            "shop grid",
+            seed_start_shop_observed_subset(&post.message),
+            seed_start_shop_screen_simulated_subset(&next),
+            SeedStartPhase::Shop,
+        ),
+        SeedStartGridDestination::Event => (
+            "event grid",
+            seed_start_event_observed_subset(&post.message),
+            seed_start_event_simulated_subset_with_delayed_deck_append(
+                &next,
+                delayed_event_deck_append_count,
+            ),
+            SeedStartPhase::Event,
+        ),
+        SeedStartGridDestination::Rest => (
+            "rest grid",
+            seed_start_rest_observed_subset(&post.message),
+            seed_start_rest_simulated_subset(&next),
+            SeedStartPhase::Rest,
+        ),
+        SeedStartGridDestination::Reward => (
+            "grid",
+            seed_start_reward_observed_subset(&post.message),
+            seed_start_reward_simulated_subset(&next),
+            if seed_start_reward_sequence_complete(&next) {
+                seed_start_phase_after_reward_completion(&next)
+            } else {
+                SeedStartPhase::Reward
+            },
+        ),
+        SeedStartGridDestination::Treasure => (
+            "boss relic grid confirm",
+            seed_start_treasure_observed_subset(&post.message),
+            seed_start_treasure_simulated_subset(&next),
+            SeedStartPhase::Treasure,
+        ),
+        SeedStartGridDestination::Proceed => (
+            "grid proceed",
+            seed_start_observed_subset(&post.message),
+            seed_start_proceed_simulated_subset(&next),
+            SeedStartPhase::Proceed,
+        ),
+    };
+    if destination == SeedStartGridDestination::Event
+        && delayed_event_deck_append_count.is_some()
+        && next.card_grid.is_none()
+    {
+        let observed_deck = observed
+            .as_object_mut()
+            .and_then(|object| object.remove("deck_ids"))
+            .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+            .unwrap_or_default();
+        let simulated_deck = simulated
+            .as_object_mut()
+            .and_then(|object| object.remove("deck_ids"))
+            .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+            .unwrap_or_default();
+        let mut diffs = subset_diffs(observed, simulated);
+        let expected_deck = deck_content_keys(&next.deck);
+        match classify_deferred_deck_observation(&observed_deck, &simulated_deck, &expected_deck) {
+            PendingDeckObservation::Settled if diffs.is_empty() => {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: label.to_owned(),
+                });
+            }
+            PendingDeckObservation::Deferred if diffs.is_empty() => {
+                *pending_deck_assertion = Some(PendingDeckAssertion {
+                    action: action.clone(),
+                    label: label.to_owned(),
+                    transient_decks: vec![simulated_deck],
+                    expected_deck,
+                });
+            }
+            PendingDeckObservation::Diverged(deck_diffs) => {
+                diffs.extend(deck_diffs);
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: label.to_owned(),
+                    diffs,
+                });
+            }
+            PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: label.to_owned(),
+                    diffs,
+                });
+            }
+        }
+    } else {
+        compare_subset(report, action, label, observed, simulated);
+    }
+    *sim = next;
+    *phase = next_phase;
+    SeedStartPreDispatch::Handled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -4308,294 +4620,32 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_boss_reward_phase(
+            pre,
+            action,
+            post,
+            &mut seed_sim,
+            &mut pending_boss_relic_overlay,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
+        match seed_start_handle_grid_phase(
+            action,
+            post,
+            &mut seed_sim,
+            &mut pending_deck_assertion,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
-            SeedStartPhase::BossReward if command_head_eq(&action.command, "CHOOSE") => {
-                let choose_index = choose_index(&action.command)
-                    .expect("malformed CHOOSE rejected before phase dispatch");
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_boss_reward_path".to_owned(),
-                        reason: "seed-start boss reward without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                if screen_type(&pre.message) == Some("BOSS_REWARD") {
-                    let next = apply_run_action(
-                        sim,
-                        RunAction::ChooseBossRelicReward {
-                            index: choose_index,
-                        },
-                    )
-                    .map_err(|e| e.to_string());
-                    let Ok(next) = next else {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_boss_reward_path".to_owned(),
-                            reason: next.err().unwrap_or_default(),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    };
-                    let visible_relics_before_pick = relic_ids_for_simulated_subset(sim);
-                    let opened_master_deck_overlay =
-                        seed_start_is_boss_relic_master_deck_overlay(&post.message);
-                    if next.card_grid.is_some() {
-                        compare_subset(
-                            report,
-                            action,
-                            "boss relic reward grid",
-                            seed_start_grid_observed_subset(&post.message),
-                            seed_start_grid_simulated_subset(&next),
-                        );
-                    } else if opened_master_deck_overlay {
-                        let simulated_overlay = seed_start_boss_relic_deck_overlay_simulated_subset(
-                            &next,
-                            &visible_relics_before_pick,
-                        );
-                        let transient_matches = seed_start_compare_deferred_subset(
-                            report,
-                            action,
-                            "boss relic reward deck overlay",
-                            seed_start_treasure_observed_subset(&post.message),
-                            simulated_overlay.clone(),
-                        );
-                        pending_boss_relic_overlay = Some(PendingBossRelicOverlayAssertion {
-                            action: action.clone(),
-                            simulated_overlay,
-                            transient_matches,
-                        });
-                    } else {
-                        compare_subset(
-                            report,
-                            action,
-                            "boss relic reward",
-                            seed_start_treasure_observed_subset(&post.message),
-                            seed_start_treasure_simulated_subset(&next),
-                        );
-                    }
-                    *sim = next;
-                    phase = if sim.card_grid.is_some() {
-                        SeedStartPhase::Grid
-                    } else {
-                        SeedStartPhase::Treasure
-                    };
-                } else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_boss_reward_path".to_owned(),
-                        reason: "unsupported boss relic reward choice".to_owned(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                }
-            }
-            SeedStartPhase::BossReward if action.command.trim().eq_ignore_ascii_case("SKIP") => {
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_boss_reward_path".to_owned(),
-                        reason: "seed-start boss reward without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                let next = apply_run_action(sim, RunAction::SkipReward).map_err(|e| e.to_string());
-                let Ok(next) = next else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_boss_reward_path".to_owned(),
-                        reason: next.err().unwrap_or_default(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                compare_subset(
-                    report,
-                    action,
-                    "boss relic reward skip",
-                    seed_start_treasure_observed_subset(&post.message),
-                    seed_start_treasure_simulated_subset(&next),
-                );
-                *sim = next;
-                phase = SeedStartPhase::Treasure;
-            }
-            SeedStartPhase::Grid => {
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_grid_path".to_owned(),
-                        reason: "seed-start grid action without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                let command = action.command.trim();
-                let delayed_event_deck_append_count = (command_head_eq(command, "CHOOSE")
-                    || command.eq_ignore_ascii_case("CONFIRM"))
-                .then(|| {
-                    sim.card_grid.as_ref().and_then(|grid| match grid.purpose {
-                        GridPurpose::EventTransform { count }
-                        | GridPurpose::EventTransformReturnToEvent { count, .. } => {
-                            Some(usize::from(count))
-                        }
-                        GridPurpose::EventObtainCard
-                        | GridPurpose::EventObtainCardReturnToEvent { .. } => Some(1),
-                        _ => None,
-                    })
-                })
-                .flatten();
-                let next = seed_start_apply_grid_command(sim, command);
-                let Ok(next) = next else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_grid_path".to_owned(),
-                        reason: next.err().unwrap_or_default(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                let destination = match seed_start_grid_destination(&next) {
-                    Ok(destination) => destination,
-                    Err(reason) => {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_grid_destination".to_owned(),
-                            reason,
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                };
-                let (label, mut observed, mut simulated, next_phase) = match destination {
-                    SeedStartGridDestination::Grid => (
-                        "grid",
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next),
-                        SeedStartPhase::Grid,
-                    ),
-                    SeedStartGridDestination::Shop => (
-                        "shop grid",
-                        seed_start_shop_observed_subset(&post.message),
-                        seed_start_shop_screen_simulated_subset(&next),
-                        SeedStartPhase::Shop,
-                    ),
-                    SeedStartGridDestination::Event => (
-                        "event grid",
-                        seed_start_event_observed_subset(&post.message),
-                        seed_start_event_simulated_subset_with_delayed_deck_append(
-                            &next,
-                            delayed_event_deck_append_count,
-                        ),
-                        SeedStartPhase::Event,
-                    ),
-                    SeedStartGridDestination::Rest => (
-                        "rest grid",
-                        seed_start_rest_observed_subset(&post.message),
-                        seed_start_rest_simulated_subset(&next),
-                        SeedStartPhase::Rest,
-                    ),
-                    SeedStartGridDestination::Reward => (
-                        "grid",
-                        seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(&next),
-                        if seed_start_reward_sequence_complete(&next) {
-                            seed_start_phase_after_reward_completion(&next)
-                        } else {
-                            SeedStartPhase::Reward
-                        },
-                    ),
-                    SeedStartGridDestination::Treasure => (
-                        "boss relic grid confirm",
-                        seed_start_treasure_observed_subset(&post.message),
-                        seed_start_treasure_simulated_subset(&next),
-                        SeedStartPhase::Treasure,
-                    ),
-                    SeedStartGridDestination::Proceed => (
-                        "grid proceed",
-                        seed_start_observed_subset(&post.message),
-                        seed_start_proceed_simulated_subset(&next),
-                        SeedStartPhase::Proceed,
-                    ),
-                };
-                if destination == SeedStartGridDestination::Event
-                    && delayed_event_deck_append_count.is_some()
-                    && next.card_grid.is_none()
-                {
-                    let observed_deck = observed
-                        .as_object_mut()
-                        .and_then(|object| object.remove("deck_ids"))
-                        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
-                        .unwrap_or_default();
-                    let simulated_deck = simulated
-                        .as_object_mut()
-                        .and_then(|object| object.remove("deck_ids"))
-                        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
-                        .unwrap_or_default();
-                    let mut diffs = subset_diffs(observed, simulated);
-                    let expected_deck = deck_content_keys(&next.deck);
-                    match classify_deferred_deck_observation(
-                        &observed_deck,
-                        &simulated_deck,
-                        &expected_deck,
-                    ) {
-                        PendingDeckObservation::Settled if diffs.is_empty() => {
-                            report.verified.push(VerifiedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                label: label.to_owned(),
-                            });
-                        }
-                        PendingDeckObservation::Deferred if diffs.is_empty() => {
-                            pending_deck_assertion = Some(PendingDeckAssertion {
-                                action: action.clone(),
-                                label: label.to_owned(),
-                                transient_decks: vec![simulated_deck],
-                                expected_deck,
-                            });
-                        }
-                        PendingDeckObservation::Diverged(deck_diffs) => {
-                            diffs.extend(deck_diffs);
-                            report.unexpected_diffs.push(UnexpectedDiff {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                label: label.to_owned(),
-                                diffs,
-                            });
-                        }
-                        PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
-                            report.unexpected_diffs.push(UnexpectedDiff {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                label: label.to_owned(),
-                                diffs,
-                            });
-                        }
-                    }
-                } else {
-                    compare_subset(report, action, label, observed, simulated);
-                }
-                *sim = next;
-                phase = next_phase;
-            }
             SeedStartPhase::Shop => {
                 let Some(sim) = seed_sim.as_mut() else {
                     return finish_boundary!(SeedStartBoundary {
