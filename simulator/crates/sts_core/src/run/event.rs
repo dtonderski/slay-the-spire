@@ -2715,13 +2715,14 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
     }
 }
 
-pub(crate) fn enter_spire_heart_event(run: &mut RunState) {
-    run.current_floor = run.current_floor.wrapping_add(1);
+pub(crate) fn enter_spire_heart_event(run: &mut RunState) -> SimResult<()> {
+    run.advance_floor()?;
     run.current_room_override = Some(crate::map::RoomKind::Victory);
     run.phase = RunPhase::Event;
     run.combat = None;
     run.reward = None;
     run.event = Some(event_screen(Event::SpireHeart));
+    Ok(())
 }
 
 fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> SimResult<EventScreen> {
@@ -4224,8 +4225,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             0 if choice_index == 1 => {
-                next.player_max_hp = next.player_max_hp.wrapping_add(BIG_FISH_MAX_HP_GAIN);
-                next.player_hp = next.player_hp.wrapping_add(BIG_FISH_MAX_HP_GAIN);
+                next.gain_max_hp(BIG_FISH_MAX_HP_GAIN)?;
                 next.event = Some(EventScreen {
                     event: Event::BigFish,
                     choices: big_fish_choices(1),
@@ -4626,8 +4626,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             0 if choice_index == usize::from(next.relics.contains(&Relic::GoldenIdol)) => {
                 let hp_loss = forgotten_altar_hp_loss(next.player_max_hp, next.ascension);
-                next.player_max_hp = next.player_max_hp.wrapping_add(FORGOTTEN_ALTAR_MAX_HP_GAIN);
-                next.player_hp = next.player_hp.wrapping_add(FORGOTTEN_ALTAR_MAX_HP_GAIN);
+                next.gain_max_hp(FORGOTTEN_ALTAR_MAX_HP_GAIN)?;
                 lose_event_hp(&mut next, hp_loss);
                 next.event = Some(EventScreen {
                     event: Event::ForgottenAltar,
@@ -7338,6 +7337,26 @@ mod tests {
             .count();
         assert_eq!(final_regret_count, 1);
         assert!(after_leave.pending_obtain_cards.is_empty());
+    }
+
+    #[test]
+    fn big_fish_max_hp_overflow_fails_at_the_event_action_boundary() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.current_act = 1;
+        run.current_floor = 5;
+        run.player_max_hp = i32::MAX;
+        run.event = Some(EventScreen {
+            event: Event::BigFish,
+            choices: big_fish_choices(0),
+            stage: 0,
+            event_data: 0,
+        });
+
+        assert_eq!(
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }),
+            Err(SimError::InvalidState("run integer addition overflows i32"))
+        );
     }
 
     #[test]

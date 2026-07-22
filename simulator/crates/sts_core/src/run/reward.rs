@@ -1422,15 +1422,16 @@ pub fn enter_boss_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
     Ok(())
 }
 
-fn enter_boss_reward_chest(run: &mut RunState) {
+fn enter_boss_reward_chest(run: &mut RunState) -> SimResult<()> {
+    run.advance_floor()?;
     run.phase = RunPhase::Treasure;
     run.combat = None;
     run.reward = None;
     run.treasure_room = None;
     run.boss_chest_opened = false;
     run.pending_boss_relic_choices.clear();
-    run.current_floor = run.current_floor.wrapping_add(1);
     run.reinit_room_rngs_for_floor();
+    Ok(())
 }
 
 fn enter_next_act_map(run: &mut RunState) -> SimResult<()> {
@@ -2040,7 +2041,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 && reward.pending_relic_offer.is_none()
                 && reward.queued_relic_offers.is_empty()
             {
-                enter_boss_reward_chest(&mut next);
+                enter_boss_reward_chest(&mut next)?;
             } else {
                 close_reward_overlay(&mut next, RewardCloseReason::Automatic);
             }
@@ -2076,14 +2077,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             let reward = next.reward.as_mut().expect("validated reward screen");
             reward.choices.clear();
             reward.consume_active_card_reward()?;
-            next.player_max_hp = next
-                .player_max_hp
-                .checked_add(SINGING_BOWL_MAX_HP)
-                .ok_or(SimError::InvalidState("run max HP gain overflows i32"))?;
-            next.player_hp = next
-                .player_hp
-                .checked_add(SINGING_BOWL_MAX_HP)
-                .ok_or(SimError::InvalidState("run HP gain overflows i32"))?;
+            next.gain_max_hp(SINGING_BOWL_MAX_HP)?;
             return_to_reward_continuation_if_empty(&mut next);
         }
         RunAction::TakeGoldReward => {
@@ -2147,7 +2141,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
         }
         RunAction::Proceed => {
             if next.current_act == 3 && next.current_room_kind() == Some(RoomKind::Boss) {
-                enter_spire_heart_event(&mut next);
+                enter_spire_heart_event(&mut next)?;
                 return Ok(next);
             }
             close_reward_overlay(&mut next, RewardCloseReason::Proceed);
@@ -2465,6 +2459,27 @@ mod tests {
             apply_run_action(&run, RunAction::TakeGoldReward),
             Err(SimError::InvalidState("run integer addition overflows i32"))
         );
+    }
+
+    #[test]
+    fn terminal_floor_advancement_overflow_leaves_run_unchanged() {
+        let mut boss_chest = RunState::map_fixture();
+        boss_chest.current_floor = i32::MAX;
+        let boss_before = boss_chest.clone();
+        assert_eq!(
+            enter_boss_reward_chest(&mut boss_chest),
+            Err(SimError::InvalidState("run integer addition overflows i32"))
+        );
+        assert_eq!(boss_chest, boss_before);
+
+        let mut heart = RunState::map_fixture();
+        heart.current_floor = i32::MAX;
+        let heart_before = heart.clone();
+        assert_eq!(
+            enter_spire_heart_event(&mut heart),
+            Err(SimError::InvalidState("run integer addition overflows i32"))
+        );
+        assert_eq!(heart, heart_before);
     }
 
     #[test]

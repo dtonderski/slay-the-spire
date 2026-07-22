@@ -243,7 +243,7 @@ mod tests {
                 &mut run,
                 crate::run::neow::NeowRewardType::TenPercentHpBonus,
             ),
-            Err(SimError::InvalidState("Neow max HP gain overflows i32"))
+            Err(SimError::InvalidState("run integer addition overflows i32"))
         );
         assert_eq!(run, before);
 
@@ -257,6 +257,42 @@ mod tests {
             ))
         );
         assert_eq!(run, before);
+    }
+
+    #[test]
+    fn max_hp_gain_and_floor_advance_reject_overflow_atomically() {
+        let mut max_hp = RunState::map_fixture();
+        max_hp.player_max_hp = i32::MAX;
+        let max_hp_before = max_hp.clone();
+        assert_eq!(
+            max_hp.gain_max_hp(1),
+            Err(SimError::InvalidState("run integer addition overflows i32"))
+        );
+        assert_eq!(max_hp, max_hp_before);
+
+        let mut current_hp = RunState::map_fixture();
+        current_hp.player_hp = i32::MAX;
+        let current_hp_before = current_hp.clone();
+        assert_eq!(
+            current_hp.gain_max_hp(1),
+            Err(SimError::InvalidState("run integer addition overflows i32"))
+        );
+        assert_eq!(current_hp, current_hp_before);
+
+        assert_eq!(
+            current_hp.gain_max_hp(-1),
+            Err(SimError::IllegalAction("max HP gain cannot be negative"))
+        );
+        assert_eq!(current_hp, current_hp_before);
+
+        let mut floor = RunState::map_fixture();
+        floor.current_floor = i32::MAX;
+        let floor_before = floor.clone();
+        assert_eq!(
+            floor.advance_floor(),
+            Err(SimError::InvalidState("run integer addition overflows i32"))
+        );
+        assert_eq!(floor, floor_before);
     }
 
     #[test]
@@ -2159,6 +2195,22 @@ impl RunState {
                 self.player_hp = checked_run_add(self.player_hp, amount.min(missing_hp))?;
             }
         }
+        Ok(())
+    }
+
+    pub fn gain_max_hp(&mut self, amount: i32) -> SimResult<()> {
+        if amount < 0 {
+            return Err(SimError::IllegalAction("max HP gain cannot be negative"));
+        }
+        let player_max_hp = checked_run_add(self.player_max_hp, amount)?;
+        let player_hp = checked_run_add(self.player_hp, amount)?;
+        self.player_max_hp = player_max_hp;
+        self.player_hp = player_hp;
+        Ok(())
+    }
+
+    pub(crate) fn advance_floor(&mut self) -> SimResult<()> {
+        self.current_floor = checked_run_add(self.current_floor, 1)?;
         Ok(())
     }
 

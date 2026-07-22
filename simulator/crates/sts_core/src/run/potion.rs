@@ -676,7 +676,10 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     combat.player.energy = combat
                         .player
                         .energy
-                        .wrapping_add(ENERGY_POTION_ENERGY * multiplier);
+                        .checked_add(ENERGY_POTION_ENERGY * multiplier)
+                        .ok_or(SimError::InvalidState(
+                            "Energy Potion energy gain overflows i32",
+                        ))?;
                 }
                 Potion::EssenceOfSteel => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -830,11 +833,21 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::FruitJuice => {
                     let max_hp = FRUIT_JUICE_MAX_HP * multiplier;
-                    next.player_max_hp = next.player_max_hp.wrapping_add(max_hp);
-                    next.player_hp = next.player_hp.wrapping_add(max_hp);
+                    next.gain_max_hp(max_hp)?;
                     if let Some(combat) = next.combat.as_mut() {
-                        combat.player.max_hp = combat.player.max_hp.wrapping_add(max_hp);
-                        combat.player.hp = combat.player.hp.wrapping_add(max_hp);
+                        let combat_max_hp = combat.player.max_hp.checked_add(max_hp).ok_or(
+                            SimError::InvalidState("Fruit Juice combat max HP gain overflows i32"),
+                        )?;
+                        let combat_hp =
+                            combat
+                                .player
+                                .hp
+                                .checked_add(max_hp)
+                                .ok_or(SimError::InvalidState(
+                                    "Fruit Juice combat HP gain overflows i32",
+                                ))?;
+                        combat.player.max_hp = combat_max_hp;
+                        combat.player.hp = combat_hp;
                     }
                 }
                 Potion::GamblersBrew => {
@@ -955,6 +968,71 @@ fn enter_combat_reward_for_current_room(run: &mut RunState) -> SimResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resource_potion_overflow_fails_before_returning_partial_state() {
+        let mut energy = RunState::combat_fixture();
+        energy.potions = vec![Potion::Energy];
+        energy.empty_potion_slots = vec![1, 2];
+        energy
+            .combat
+            .as_mut()
+            .expect("combat fixture")
+            .player
+            .energy = i32::MAX;
+        assert_eq!(
+            apply_potion_action(
+                &energy,
+                RunAction::UsePotion {
+                    slot: 0,
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState(
+                "Energy Potion energy gain overflows i32"
+            ))
+        );
+        assert_eq!(energy.potion_at_slot(0), Some(Potion::Energy));
+
+        let mut fruit_juice = RunState::combat_fixture();
+        fruit_juice.potions = vec![Potion::FruitJuice];
+        fruit_juice.empty_potion_slots = vec![1, 2];
+        fruit_juice.player_max_hp = i32::MAX;
+        assert_eq!(
+            apply_potion_action(
+                &fruit_juice,
+                RunAction::UsePotion {
+                    slot: 0,
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState("run integer addition overflows i32"))
+        );
+        assert_eq!(fruit_juice.potion_at_slot(0), Some(Potion::FruitJuice));
+
+        let mut mirrored = RunState::combat_fixture();
+        mirrored.potions = vec![Potion::FruitJuice];
+        mirrored.empty_potion_slots = vec![1, 2];
+        mirrored
+            .combat
+            .as_mut()
+            .expect("combat fixture")
+            .player
+            .max_hp = i32::MAX;
+        assert_eq!(
+            apply_potion_action(
+                &mirrored,
+                RunAction::UsePotion {
+                    slot: 0,
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState(
+                "Fruit Juice combat max HP gain overflows i32"
+            ))
+        );
+        assert_eq!(mirrored.potion_at_slot(0), Some(Potion::FruitJuice));
+    }
 
     #[test]
     fn distilled_chaos_top_deck_combust_applies_its_end_turn_power() {
