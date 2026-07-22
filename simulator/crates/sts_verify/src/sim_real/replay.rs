@@ -1565,6 +1565,136 @@ fn seed_start_handle_neow_boss_swap_phase(
     SeedStartPreDispatch::NotHandled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_neow_leave_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    deck_ids: &[String],
+    neow_gold: i32,
+    neow_current_hp: i32,
+    neow_max_hp: i32,
+    neow_leave_visible_deck_ids: &mut Option<Vec<String>>,
+    delayed_neow_curse: &mut Option<String>,
+    pending_neow_room_entry_curse: &mut Option<String>,
+    pending_neow_room_entry_curse_advances_card_rng: &mut bool,
+    seed_sim: &mut Option<RunState>,
+    pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::NeowLeave || !command_is_choose(&action.command, 0) {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    if let Some(curse) = delayed_neow_curse.take() {
+        *pending_neow_room_entry_curse = Some(curse);
+        *pending_neow_room_entry_curse_advances_card_rng = true;
+    }
+    let initialized_seed_sim = seed_sim.is_none();
+    if seed_sim.is_none() {
+        let mut run = seed_start_seeded_idle_run(start.numeric_seed, start.ascension, deck_ids);
+        run.gold = neow_gold;
+        run.player_hp = neow_current_hp;
+        run.player_max_hp = neow_max_hp;
+        *seed_sim = Some(run);
+    }
+    if let Some(sim) = seed_sim.as_mut() {
+        sim.phase = RunPhase::Idle;
+        sim.event = None;
+        sim.reward = None;
+        sim.card_grid = None;
+        if initialized_seed_sim {
+            sim.deck = deck_instances_from_keys(deck_ids);
+        }
+    }
+    let lagged_visible_deck = neow_leave_visible_deck_ids.take();
+    let pre_room_entry_deck = deck_ids.to_vec();
+    let settled_deck = pending_neow_room_entry_curse
+        .as_ref()
+        .map(|curse| seed_start_deck_with_pending_neow_curse(&pre_room_entry_deck, curse))
+        .unwrap_or_else(|| pre_room_entry_deck.clone());
+    let mut transient_decks = Vec::new();
+    if pending_neow_room_entry_curse.is_some() {
+        transient_decks.push(pre_room_entry_deck.clone());
+    }
+    if let Some(lagged) = lagged_visible_deck {
+        transient_decks.push(lagged.clone());
+        if let Some(curse) = pending_neow_room_entry_curse.as_ref() {
+            transient_decks.push(seed_start_deck_with_pending_neow_curse(&lagged, curse));
+        }
+    }
+    transient_decks.retain(|deck| deck != &settled_deck);
+    transient_decks.sort();
+    transient_decks.dedup();
+
+    let mut observed = seed_start_observed_subset(&post.message);
+    let observed_deck = observed
+        .as_object_mut()
+        .and_then(|object| object.remove("deck_ids"))
+        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+        .unwrap_or_default();
+    let mut simulated = json!({
+        "screen_type": "MAP",
+        "ascension": start.ascension,
+        "floor": 0,
+        "gold": neow_gold,
+        "current_hp": neow_current_hp,
+        "max_hp": neow_max_hp,
+        "deck_ids": settled_deck,
+        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+        "choices": seed_start_first_map_choices(&start.external_seed),
+    });
+    let simulated_deck = simulated
+        .as_object_mut()
+        .and_then(|object| object.remove("deck_ids"))
+        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+        .expect("Neow leave projection contains a deck");
+    let mut diffs = subset_diffs(observed, simulated);
+    let deck_observation = if observed_deck == simulated_deck {
+        PendingDeckObservation::Settled
+    } else if transient_decks.iter().any(|deck| deck == &observed_deck) {
+        PendingDeckObservation::Deferred
+    } else {
+        PendingDeckObservation::Diverged(subset_diffs(json!(observed_deck), json!(simulated_deck)))
+    };
+    match deck_observation {
+        PendingDeckObservation::Settled if diffs.is_empty() => {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Neow leave".to_owned(),
+            });
+        }
+        PendingDeckObservation::Deferred if diffs.is_empty() => {
+            *pending_deck_assertion = Some(PendingDeckAssertion {
+                action: action.clone(),
+                label: "Neow leave".to_owned(),
+                transient_decks,
+                expected_deck: simulated_deck,
+            });
+        }
+        PendingDeckObservation::Diverged(deck_diffs) => {
+            diffs.extend(deck_diffs);
+            report.unexpected_diffs.push(UnexpectedDiff {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Neow leave".to_owned(),
+                diffs,
+            });
+        }
+        PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+            report.unexpected_diffs.push(UnexpectedDiff {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Neow leave".to_owned(),
+                diffs,
+            });
+        }
+    }
+    *phase = SeedStartPhase::Map;
+    SeedStartPreDispatch::Handled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -2230,122 +2360,28 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_neow_leave_phase(
+            action,
+            post,
+            start,
+            &deck_ids,
+            neow_gold,
+            neow_current_hp,
+            neow_max_hp,
+            &mut neow_leave_visible_deck_ids,
+            &mut delayed_neow_curse,
+            &mut pending_neow_room_entry_curse,
+            &mut pending_neow_room_entry_curse_advances_card_rng,
+            &mut seed_sim,
+            &mut pending_deck_assertion,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
-            SeedStartPhase::NeowLeave if command_is_choose(&action.command, 0) => {
-                if let Some(curse) = delayed_neow_curse.take() {
-                    pending_neow_room_entry_curse = Some(curse);
-                    pending_neow_room_entry_curse_advances_card_rng = true;
-                }
-                let initialized_seed_sim = seed_sim.is_none();
-                if seed_sim.is_none() {
-                    let mut run =
-                        seed_start_seeded_idle_run(start.numeric_seed, start.ascension, &deck_ids);
-                    run.gold = neow_gold;
-                    run.player_hp = neow_current_hp;
-                    run.player_max_hp = neow_max_hp;
-                    seed_sim = Some(run);
-                }
-                if let Some(sim) = seed_sim.as_mut() {
-                    sim.phase = RunPhase::Idle;
-                    sim.event = None;
-                    sim.reward = None;
-                    sim.card_grid = None;
-                    if initialized_seed_sim {
-                        sim.deck = deck_instances_from_keys(&deck_ids);
-                    }
-                }
-                let lagged_visible_deck = neow_leave_visible_deck_ids.take();
-                let pre_room_entry_deck = deck_ids.clone();
-                let settled_deck = pending_neow_room_entry_curse
-                    .as_ref()
-                    .map(|curse| {
-                        seed_start_deck_with_pending_neow_curse(&pre_room_entry_deck, curse)
-                    })
-                    .unwrap_or_else(|| pre_room_entry_deck.clone());
-                let mut transient_decks = Vec::new();
-                if pending_neow_room_entry_curse.is_some() {
-                    transient_decks.push(pre_room_entry_deck.clone());
-                }
-                if let Some(lagged) = lagged_visible_deck {
-                    transient_decks.push(lagged.clone());
-                    if let Some(curse) = pending_neow_room_entry_curse.as_ref() {
-                        transient_decks
-                            .push(seed_start_deck_with_pending_neow_curse(&lagged, curse));
-                    }
-                }
-                transient_decks.retain(|deck| deck != &settled_deck);
-                transient_decks.sort();
-                transient_decks.dedup();
-
-                let mut observed = seed_start_observed_subset(&post.message);
-                let observed_deck = observed
-                    .as_object_mut()
-                    .and_then(|object| object.remove("deck_ids"))
-                    .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
-                    .unwrap_or_default();
-                let mut simulated = json!({
-                    "screen_type": "MAP",
-                    "ascension": start.ascension,
-                    "floor": 0,
-                    "gold": neow_gold,
-                    "current_hp": neow_current_hp,
-                    "max_hp": neow_max_hp,
-                    "deck_ids": settled_deck,
-                    "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                    "choices": seed_start_first_map_choices(&start.external_seed),
-                });
-                let simulated_deck = simulated
-                    .as_object_mut()
-                    .and_then(|object| object.remove("deck_ids"))
-                    .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
-                    .expect("Neow leave projection contains a deck");
-                let mut diffs = subset_diffs(observed, simulated);
-                let deck_observation = if observed_deck == simulated_deck {
-                    PendingDeckObservation::Settled
-                } else if transient_decks.iter().any(|deck| deck == &observed_deck) {
-                    PendingDeckObservation::Deferred
-                } else {
-                    PendingDeckObservation::Diverged(subset_diffs(
-                        json!(observed_deck),
-                        json!(simulated_deck),
-                    ))
-                };
-                match deck_observation {
-                    PendingDeckObservation::Settled if diffs.is_empty() => {
-                        report.verified.push(VerifiedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "Neow leave".to_owned(),
-                        });
-                    }
-                    PendingDeckObservation::Deferred if diffs.is_empty() => {
-                        pending_deck_assertion = Some(PendingDeckAssertion {
-                            action: action.clone(),
-                            label: "Neow leave".to_owned(),
-                            transient_decks,
-                            expected_deck: simulated_deck,
-                        });
-                    }
-                    PendingDeckObservation::Diverged(deck_diffs) => {
-                        diffs.extend(deck_diffs);
-                        report.unexpected_diffs.push(UnexpectedDiff {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "Neow leave".to_owned(),
-                            diffs,
-                        });
-                    }
-                    PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
-                        report.unexpected_diffs.push(UnexpectedDiff {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            label: "Neow leave".to_owned(),
-                            diffs,
-                        });
-                    }
-                }
-                phase = SeedStartPhase::Map;
-            }
             SeedStartPhase::Map
                 if screen_type(&pre.message) == Some("MAP")
                     && command_choose_index(&action.command).is_some() =>
