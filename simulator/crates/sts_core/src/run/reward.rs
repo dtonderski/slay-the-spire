@@ -2073,10 +2073,8 @@ pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<
             }
         }
         RunAction::Proceed => {
-            if run.current_room_kind() == Some(RoomKind::Boss)
-                && run.reward.is_none()
-                && run.boss_chest_opened
-            {
+            let boss_room = run.current_room_kind() == Some(RoomKind::Boss);
+            if (boss_room && run.reward.is_none()) || (!boss_room && run.treasure_room.is_some()) {
                 Ok(())
             } else {
                 Err(SimError::IllegalAction("cannot proceed from treasure"))
@@ -2099,7 +2097,12 @@ pub fn apply_treasure_action(run: &RunState, action: RunAction) -> SimResult<Run
             Ok(next)
         }
         RunAction::Proceed => {
-            enter_next_act_map(&mut next)?;
+            if next.current_room_kind() == Some(RoomKind::Boss) {
+                enter_next_act_map(&mut next)?;
+            } else {
+                next.phase = RunPhase::Idle;
+                next.treasure_room = None;
+            }
             Ok(next)
         }
         _ => unreachable!("validated treasure action"),
@@ -2950,7 +2953,12 @@ mod tests {
         run.relics = vec![Relic::BurningBlood];
 
         assert!(validate_treasure_action(&run, RunAction::OpenChest).is_ok());
-        assert!(validate_treasure_action(&run, RunAction::Proceed).is_err());
+        assert!(validate_treasure_action(&run, RunAction::Proceed).is_ok());
+
+        let skipped_unopened =
+            apply_run_action(&run, RunAction::Proceed).expect("unopened boss chest can be skipped");
+        assert_eq!(skipped_unopened.phase, RunPhase::Idle);
+        assert_eq!(skipped_unopened.current_act, 2);
 
         let opened = apply_run_action(&run, RunAction::OpenChest).expect("boss chest opens");
         assert!(opened.boss_chest_opened);
@@ -3008,6 +3016,22 @@ mod tests {
         assert!(picked.pending_boss_relic_choices.is_empty());
         assert!(validate_treasure_action(&picked, RunAction::OpenChest).is_err());
         assert!(validate_treasure_action(&picked, RunAction::Proceed).is_ok());
+    }
+
+    #[test]
+    fn normal_treasure_chest_can_be_skipped_to_map() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(RoomKind::Treasure);
+        setup_treasure_room(&mut run);
+
+        let next =
+            apply_run_action(&run, RunAction::Proceed).expect("unopened chest can be skipped");
+
+        assert_eq!(next.phase, RunPhase::Idle);
+        assert!(next.treasure_room.is_none());
+        assert_eq!(next.current_act, run.current_act);
+        assert_eq!(next.current_floor, run.current_floor);
     }
 
     #[test]

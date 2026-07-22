@@ -2001,7 +2001,7 @@ fn seed_start_handle_treasure_phase(
         return SeedStartPreDispatch::NotHandled;
     }
     if action.command.trim().eq_ignore_ascii_case("PROCEED") {
-        let simulated_return = {
+        let (simulated_return, act_changed) = {
             let Some(sim) = seed_sim.as_mut() else {
                 return SeedStartPreDispatch::Boundary(SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
@@ -2011,6 +2011,7 @@ fn seed_start_handle_treasure_phase(
                 });
             };
             let previous_act = sim.current_act;
+            let boss_treasure = sim.current_room_kind() == Some(RoomKind::Boss);
             let next = apply_run_action(sim, RunAction::Proceed).map_err(|e| e.to_string());
             let Ok(next) = next else {
                 let boundary = SeedStartBoundary {
@@ -2050,7 +2051,7 @@ fn seed_start_handle_treasure_phase(
                 seed_start_project_post_boss_transition_current_node(&mut simulated_return);
             }
             let act_changed = next.current_act != previous_act;
-            if next.phase != RunPhase::Idle || !act_changed {
+            if next.phase != RunPhase::Idle || boss_treasure != act_changed {
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
                     category: "invalid_treasure_destination".to_owned(),
@@ -2067,7 +2068,7 @@ fn seed_start_handle_treasure_phase(
                 return SeedStartPreDispatch::Boundary(boundary);
             }
             *sim = next;
-            simulated_return
+            (simulated_return, act_changed)
         };
         if seed_start_is_candidate_boss_act_transient_frame(&post.message) {
             let label = "boss chest proceed to settled next-act map";
@@ -2090,7 +2091,11 @@ fn seed_start_handle_treasure_phase(
         compare_subset(
             report,
             action,
-            "boss chest proceed to map",
+            if act_changed {
+                "boss chest proceed to map"
+            } else {
+                "unopened chest proceed to map"
+            },
             seed_start_map_return_observed_subset(&post.message),
             simulated_return,
         );
