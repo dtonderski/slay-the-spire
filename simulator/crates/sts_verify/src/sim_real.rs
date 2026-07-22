@@ -1056,6 +1056,7 @@ struct PendingCombatTransition {
 struct PendingCombatAssertion {
     transitions: Vec<PendingCombatTransition>,
     requires_stable_frame_before_next_command: bool,
+    cancelled_state: Option<RunState>,
     failed_reconciliation: Option<SeedStartBoundary>,
 }
 

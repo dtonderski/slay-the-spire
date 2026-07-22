@@ -646,6 +646,37 @@ fn queued_potion_reward_endpoint_reconciles_final_decision_frame() {
 }
 
 #[test]
+fn delayed_double_tap_copy_is_canceled_by_end_turn_command() {
+    let Some(content) = crate::load_corpus_file(
+        "permanent_traces/trace-2026-07-07-session-16-codex10-complete.jsonl",
+    ) else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("delayed copied attack regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+}
+
+#[test]
 fn rejected_core_combat_transitions_are_visible_boundaries_not_diffs() {
     let trace = "random-fidelity-acaabd41a504598f.jsonl";
     let Some(content) = crate::load_corpus_file(format!("permanent_traces/{trace}")) else {

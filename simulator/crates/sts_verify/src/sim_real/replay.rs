@@ -3228,6 +3228,7 @@ fn seed_start_handle_combat_phase(
         return SeedStartPreDispatch::Handled;
     }
 
+    let pre_action_run = sim.clone();
     let next = apply_combat_action_on_run(sim, combat_action);
     let Ok(next) = next else {
         let reason = push_sim_unsupported(
@@ -3258,6 +3259,14 @@ fn seed_start_handle_combat_phase(
             seed_start_compare_transient_combat_subset(report, action, &label, observed, simulated);
         let pending = pending_combat_assertion.get_or_insert_default();
         pending.requires_stable_frame_before_next_command = true;
+        if pending.cancelled_state.is_none() {
+            let mut cancelled_run = pre_action_run;
+            if let Some(combat) = cancelled_run.combat.as_mut() {
+                combat.double_tap_pending = 0;
+            }
+            pending.cancelled_state =
+                apply_combat_action_on_run(&cancelled_run, combat_action).ok();
+        }
         pending.transitions.push(PendingCombatTransition {
             action: action.clone(),
             label,
@@ -4925,6 +4934,17 @@ pub(super) fn verify_seed_start_transitions(
                         });
                         reconciled_deferred_action_steps.push(transition.action.step);
                     }
+                }
+            } else if action.command.trim().eq_ignore_ascii_case("END") {
+                // The target accepts END while a copied attack is still
+                // settling. Its action queue keeps the original hit but drops
+                // the not-yet-started copy; restore that deterministic core
+                // projection before dispatching END below.
+                if let Some(cancelled_state) = pending_combat_assertion
+                    .as_mut()
+                    .and_then(|pending| pending.cancelled_state.take())
+                {
+                    *seed_sim.as_mut().expect("combat simulation exists") = cancelled_state;
                 }
             } else {
                 let boundary = SeedStartBoundary {
