@@ -1540,7 +1540,6 @@ fn verify_seed_start_transitions(
                         &mut map_path_xs,
                         &mut seed_sim,
                         &mut pending_map_assertion,
-                        &mut deck_ids,
                     ) {
                         return finish_boundary!(boundary);
                     }
@@ -2590,7 +2589,7 @@ fn verify_seed_start_transitions(
                         return finish_boundary!(boundary);
                     }
                 };
-                seed_start_update_deck_from_run(sim, &mut deck_ids);
+                deck_ids = deck_content_keys(&sim.deck);
                 if seed_start_reward_sequence_complete(sim) {
                     compare_subset(
                         report,
@@ -2991,7 +2990,7 @@ fn verify_seed_start_transitions(
                     observed,
                     simulated,
                 );
-                seed_start_update_deck_from_run(&next, &mut deck_ids);
+                deck_ids = deck_content_keys(&next.deck);
                 seed_sim = Some(next);
                 phase = SeedStartPhase::Map;
             }
@@ -3132,7 +3131,6 @@ fn verify_seed_start_transitions(
                         }
                         pending_neow_room_entry_curse_advances_card_rng = false;
                         transition_base.deck = deck_instances_from_keys(&next_deck_ids);
-                        deck_ids = next_deck_ids;
                     }
                     let legal_actions = match legal_map_decisions(&transition_base) {
                         Ok(actions) => actions,
@@ -3303,10 +3301,6 @@ fn verify_seed_start_transitions(
                                     return finish_boundary!(boundary);
                                 }
                             }
-                            seed_start_update_deck_from_run(
-                                seed_sim.as_ref().expect("map transition stored run"),
-                                &mut deck_ids,
-                            );
                             continue;
                         }
                     }
@@ -3348,7 +3342,6 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     };
-                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     if next.current_act != previous_act {
                         map_path_xs.clear();
                         combat_index = 0;
@@ -3490,7 +3483,6 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 }
-                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 *sim = next;
             }
             SeedStartPhase::Rest if action.command.trim().eq_ignore_ascii_case("SKIP") => {
@@ -3534,7 +3526,6 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 }
-                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 compare_subset(
                     report,
                     action,
@@ -3567,7 +3558,6 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
-                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 compare_subset(
                     report,
                     action,
@@ -3669,7 +3659,6 @@ fn verify_seed_start_transitions(
                     }
                 };
                 compare_subset(report, action, label, observed, simulated);
-                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 *sim = next;
                 if sim.card_grid.is_some() {
                     phase = SeedStartPhase::Grid;
@@ -3773,7 +3762,6 @@ fn verify_seed_start_transitions(
                             seed_start_event_simulated_subset(&next),
                         );
                     }
-                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     phase = if next.phase == RunPhase::Complete {
                         SeedStartPhase::Complete
                     } else {
@@ -3809,7 +3797,6 @@ fn verify_seed_start_transitions(
                         simulated,
                         &mut pending_combat_assertion,
                     );
-                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     *sim = next;
                     phase = SeedStartPhase::Combat;
                     continue;
@@ -3909,7 +3896,6 @@ fn verify_seed_start_transitions(
                 } else {
                     compare_subset(report, action, "event choice", observed, simulated);
                 }
-                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 *sim = next.clone();
                 if next.card_grid.is_some() {
                     phase = SeedStartPhase::Grid;
@@ -4078,7 +4064,6 @@ fn verify_seed_start_transitions(
                                 seed_start_smoke_bomb_transient_observed_subset(&post.message),
                                 seed_start_smoke_bomb_transient_simulated_subset(&source, &next),
                             );
-                            seed_start_update_deck_from_run(&next, &mut deck_ids);
                             *sim = next;
                             smoke_bomb_ui = Some(SmokeBombUiState::Escaping {
                                 source: Box::new(source),
@@ -4088,7 +4073,6 @@ fn verify_seed_start_transitions(
                             continue;
                         }
                         if screen_type(&post.message) == Some("COMBAT_REWARD") {
-                            seed_start_update_deck_from_run(&next, &mut deck_ids);
                             compare_subset(
                                 report,
                                 action,
@@ -4133,7 +4117,6 @@ fn verify_seed_start_transitions(
                         continue;
                     }
                     if next.phase == RunPhase::Reward && next.reward.is_some() {
-                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         compare_subset(
                             report,
                             action,
@@ -4377,7 +4360,6 @@ fn verify_seed_start_transitions(
                             &mut map_path_xs,
                             &mut seed_sim,
                             &mut pending_map_assertion,
-                            &mut deck_ids,
                         ) {
                             return finish_boundary!(boundary);
                         }
@@ -4479,7 +4461,6 @@ fn verify_seed_start_transitions(
                         }
                     };
                     compare_subset(report, action, label, observed, simulated);
-                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     *sim = next;
                     if seed_start_reward_sequence_complete(sim) {
                         phase = seed_start_phase_after_reward_completion(sim);
@@ -4515,7 +4496,6 @@ fn verify_seed_start_transitions(
                             seed_start_spire_heart_observed_subset(&post.message),
                             seed_start_spire_heart_simulated_subset(&next),
                         );
-                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         *sim = next;
                         phase = SeedStartPhase::Event;
                         continue;
@@ -4563,7 +4543,6 @@ fn verify_seed_start_transitions(
                             });
                             return finish_boundary!(boundary);
                         }
-                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         compare_subset(
                             report,
                             action,
@@ -4600,7 +4579,6 @@ fn verify_seed_start_transitions(
                             });
                             return finish_boundary!(boundary);
                         };
-                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         let (label, expected, next_phase) = if next.phase == RunPhase::Idle {
                             (
                                 "empty Neow reward proceed to map",
@@ -4655,7 +4633,6 @@ fn verify_seed_start_transitions(
                         &mut map_path_xs,
                         &mut seed_sim,
                         &mut pending_map_assertion,
-                        &mut deck_ids,
                     ) {
                         return finish_boundary!(boundary);
                     }
@@ -4698,7 +4675,6 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     };
-                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     *sim = next;
                     compare_subset(
                         report,
@@ -4713,7 +4689,6 @@ fn verify_seed_start_transitions(
                 let deck_before_reward_choice = deck_content_keys(&sim.deck);
                 match seed_start_apply_reward_choose(sim, &action.command) {
                     Ok(label) => {
-                        seed_start_update_deck_from_run(sim, &mut deck_ids);
                         let (mut observed, mut simulated) = if sim.card_grid.is_some() {
                             (
                                 seed_start_grid_observed_subset(&post.message),
@@ -4829,7 +4804,6 @@ fn verify_seed_start_transitions(
                         } else {
                             compare_subset(report, action, &label, observed, simulated);
                         }
-                        deck_ids = deck_content_keys(&sim.deck);
                         _reward_step += 1;
                         if sim.card_grid.is_some() {
                             phase = SeedStartPhase::Grid;
@@ -4887,7 +4861,6 @@ fn verify_seed_start_transitions(
                     let visible_relics_before_pick = relic_ids_for_simulated_subset(sim);
                     let opened_master_deck_overlay =
                         seed_start_is_boss_relic_master_deck_overlay(&post.message);
-                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     if next.card_grid.is_some() {
                         compare_subset(
                             report,
@@ -4965,7 +4938,6 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
-                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 compare_subset(
                     report,
                     action,
@@ -5138,7 +5110,6 @@ fn verify_seed_start_transitions(
                 } else {
                     compare_subset(report, action, label, observed, simulated);
                 }
-                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 *sim = next;
                 phase = next_phase;
             }
@@ -5226,7 +5197,6 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     }
-                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     compare_subset(
                         report,
                         action,
@@ -5388,7 +5358,6 @@ fn verify_seed_start_transitions(
                             return finish_boundary!(boundary);
                         }
                     }
-                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     *sim = next;
                     phase = match destination {
                         SeedStartShopDestination::Grid => SeedStartPhase::Grid,
@@ -5442,7 +5411,6 @@ fn verify_seed_start_transitions(
                             seed_start_spire_heart_observed_subset(&post.message),
                             seed_start_spire_heart_simulated_subset(&next),
                         );
-                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         *sim = next;
                         phase = SeedStartPhase::Event;
                         continue;
@@ -5490,7 +5458,6 @@ fn verify_seed_start_transitions(
                             });
                             return finish_boundary!(boundary);
                         }
-                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         compare_subset(
                             report,
                             action,
@@ -5512,7 +5479,6 @@ fn verify_seed_start_transitions(
                         &mut map_path_xs,
                         &mut seed_sim,
                         &mut pending_map_assertion,
-                        &mut deck_ids,
                     ) {
                         return finish_boundary!(boundary);
                     }
@@ -7460,7 +7426,6 @@ fn seed_start_handle_proceed_to_map(
     map_path_xs: &mut Vec<i32>,
     seed_sim: &mut Option<RunState>,
     pending_map_assertion: &mut Option<PendingMapAssertion>,
-    carried_deck_ids: &mut Vec<String>,
 ) -> Option<SeedStartBoundary> {
     let Some(sim) = seed_sim.as_ref() else {
         return Some(SeedStartBoundary {
@@ -7562,9 +7527,6 @@ fn seed_start_handle_proceed_to_map(
             seed_start_boss_act_transient_observed_subset(post_message),
             seed_start_boss_act_transient_simulated_subset(),
         );
-        if let Some(sim) = seed_sim.as_mut() {
-            seed_start_update_deck_from_run(sim, carried_deck_ids);
-        }
         map_path_xs.clear();
         let simulated_map = match seed_start_simulated_map_return(
             seed_sim
@@ -7608,9 +7570,6 @@ fn seed_start_handle_proceed_to_map(
         }
     };
     compare_subset(report, action, &label, observed, simulated);
-    if let Some(sim) = seed_sim.as_mut() {
-        seed_start_update_deck_from_run(sim, carried_deck_ids);
-    }
     *combat_index += 1;
     *reward_step = 0;
     *phase = SeedStartPhase::Map;
@@ -8202,10 +8161,6 @@ fn seed_start_relic_ids_for_inline_projection(run: Option<&RunState>) -> Vec<Str
 
 fn run_has_relic_key(run: &RunState, key: RelicKey) -> bool {
     run.relics.iter().any(|relic| relic.key() == key)
-}
-
-fn seed_start_update_deck_from_run(run: &RunState, deck_ids: &mut Vec<String>) {
-    *deck_ids = deck_content_keys(&run.deck);
 }
 
 fn seed_start_carried_run(
