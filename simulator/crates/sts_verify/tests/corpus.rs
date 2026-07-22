@@ -1,4 +1,13 @@
-use std::{fmt::Debug, fs};
+use std::{
+    fmt::Debug,
+    fs,
+    path::Path,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    },
+    thread,
+};
 use sts_core::content::encounters::generate_exordium_normal_encounters;
 use sts_core::content::monsters::{
     target_cultist_hp_roll, target_jaw_worm_hp_roll, target_small_slimes_hp_rolls,
@@ -11,7 +20,7 @@ use sts_core::{
 use sts_verify::{
     assess_verification, corpus_path, load_corpus_file, verify_communication_mod_trace,
     verify_seed_start_communication_mod_trace, ActionDispositionKind, ManualFixture,
-    VerificationCorpusManifest, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
+    VerificationCorpusEntry, VerificationCorpusManifest, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1173,66 +1182,149 @@ fn permanent_trace_entries_pass_seed_start() {
         "permanent trace manifest must exactly match the corpus directory"
     );
 
-    for entry in manifest.entries {
-        let path = dir.join(&entry.trace);
-        let display_path = path.display().to_string();
-        let content = fs::read_to_string(&path)
-            .unwrap_or_else(|err| panic!("permanent trace is readable: {display_path}: {err}"));
-        let report = verify_seed_start_communication_mod_trace(&content)
-            .unwrap_or_else(|err| panic!("seed-start report for {display_path}: {err}"));
-        let repeated_report = verify_seed_start_communication_mod_trace(&content)
-            .unwrap_or_else(|err| panic!("repeated seed-start report for {display_path}: {err}"));
-        assert_eq!(
-            repeated_report, report,
-            "{display_path} must produce an identical report on repeated deterministic replay"
-        );
-        assert!(
-            report.unexpected_diffs.is_empty(),
-            "{display_path} unexpected diffs: {:?}",
-            report.unexpected_diffs
-        );
-        assert_eq!(
-            report.action_dispositions.len(),
-            report.total_actions,
-            "{display_path} must assign one ledger entry to every trace action"
-        );
-        let integrity = report
-            .action_integrity
-            .as_ref()
-            .unwrap_or_else(|| panic!("{display_path} action-integrity evidence"));
-        assert_eq!(
-            integrity.applicable_actions + integrity.rejected_actions,
-            report.total_actions,
-            "{display_path} action-integrity scope must classify rejected commands explicitly"
-        );
-        assert_eq!(
-            integrity.disposed_actions, integrity.applicable_actions,
-            "{display_path} has unclassified trace actions: {:?}",
-            report
-                .action_dispositions
-                .iter()
-                .filter(|entry| entry.disposition == sts_verify::ActionDispositionKind::Unclassified)
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(
-            integrity.duplicate_dispositions, 0,
-            "{display_path} has duplicate or orphan verifier dispositions"
-        );
-        assert_eq!(
-            integrity.unresolved_transient_assertions, 0,
-            "{display_path} has unresolved transient assertions"
-        );
-        let outcome = assess_verification(Ok(&report), &entry.expectation, Some(integrity));
-        assert!(
-            outcome.is_success(),
-            "{display_path} typed outcome: {outcome:#?}; ignored actions: {:?}",
-            report
-                .action_dispositions
-                .iter()
-                .filter(|entry| entry.disposition == sts_verify::ActionDispositionKind::IgnoredTail)
-                .collect::<Vec<_>>()
-        );
+    let entries = manifest.entries;
+    let worker_count = thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(entries.len());
+    eprintln!(
+        "permanent corpus: {} traces across {worker_count} workers",
+        entries.len()
+    );
+    let next_entry = AtomicUsize::new(0);
+    let results = Mutex::new(vec![None; entries.len()]);
+    thread::scope(|scope| {
+        for _ in 0..worker_count {
+            let entries = &entries;
+            let dir = &dir;
+            let next_entry = &next_entry;
+            let results = &results;
+            scope.spawn(move || loop {
+                let index = next_entry.fetch_add(1, Ordering::Relaxed);
+                let Some(entry) = entries.get(index) else {
+                    break;
+                };
+                let result = verify_permanent_trace_entry(dir, entry);
+                results.lock().expect("result mutex")[index] = Some(result);
+            });
+        }
+    });
+
+    let failures = results
+        .into_inner()
+        .expect("result mutex")
+        .into_iter()
+        .enumerate()
+        .filter_map(
+            |(index, result)| match result.expect("worker produced one result per trace") {
+                Ok(()) => None,
+                Err(reason) => Some(format!("{}: {reason}", entries[index].trace)),
+            },
+        )
+        .collect::<Vec<_>>();
+    assert!(
+        failures.is_empty(),
+        "{} permanent traces failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+fn verify_permanent_trace_entry(dir: &Path, entry: &VerificationCorpusEntry) -> Result<(), String> {
+    let path = dir.join(&entry.trace);
+    let display_path = path.display();
+    let content = fs::read_to_string(&path)
+        .map_err(|error| format!("permanent trace is not readable at {display_path}: {error}"))?;
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .map_err(|error| format!("seed-start replay failed to parse: {error}"))?;
+    let repeated_report = verify_seed_start_communication_mod_trace(&content)
+        .map_err(|error| format!("repeated seed-start replay failed to parse: {error}"))?;
+    if repeated_report != report {
+        return Err("repeated deterministic replay produced a different report".to_owned());
     }
+    if !report.unexpected_diffs.is_empty() {
+        let first = &report.unexpected_diffs[0];
+        let mut details = first.diffs.iter().take(3).cloned().collect::<Vec<_>>();
+        if first.diffs.len() > details.len() {
+            details.push(format!(
+                "... and {} more differences",
+                first.diffs.len() - details.len()
+            ));
+        }
+        return Err(format!(
+            "unexpected diff at step {} `{}` ({}): {}",
+            first.action_step,
+            first.command,
+            first.label,
+            details.join("; ")
+        ));
+    }
+    if report.action_dispositions.len() != report.total_actions {
+        return Err(format!(
+            "action ledger has {} entries for {} trace actions",
+            report.action_dispositions.len(),
+            report.total_actions
+        ));
+    }
+    let integrity = report
+        .action_integrity
+        .as_ref()
+        .ok_or_else(|| "missing action-integrity evidence".to_owned())?;
+    if integrity.applicable_actions + integrity.rejected_actions != report.total_actions {
+        return Err(format!(
+            "action-integrity scope classified {} applicable and {} rejected actions for {} trace actions",
+            integrity.applicable_actions, integrity.rejected_actions, report.total_actions
+        ));
+    }
+    if integrity.disposed_actions != integrity.applicable_actions {
+        let unclassified = report
+            .action_dispositions
+            .iter()
+            .filter(|entry| entry.disposition == ActionDispositionKind::Unclassified)
+            .collect::<Vec<_>>();
+        return Err(format!("unclassified trace actions: {unclassified:#?}"));
+    }
+    if integrity.duplicate_dispositions != 0 {
+        return Err(format!(
+            "{} duplicate or orphan dispositions",
+            integrity.duplicate_dispositions
+        ));
+    }
+    if integrity.unresolved_transient_assertions != 0 {
+        return Err(format!(
+            "{} unresolved transient assertions",
+            integrity.unresolved_transient_assertions
+        ));
+    }
+    let outcome = assess_verification(Ok(&report), &entry.expectation, Some(integrity));
+    if !outcome.is_success() {
+        if let Some(boundary) = report
+            .seed_start
+            .as_ref()
+            .map(|seed_start| &seed_start.first_boundary)
+            .filter(|boundary| boundary.category != "none")
+        {
+            return Err(format!(
+                "{} at {}: {}",
+                boundary.category,
+                boundary.path,
+                summarize_diagnostic(&boundary.reason)
+            ));
+        }
+        return Err(format!("typed outcome: {outcome:?}"));
+    }
+    Ok(())
+}
+
+fn summarize_diagnostic(reason: &str) -> String {
+    let details = reason.split("; ").collect::<Vec<_>>();
+    if details.len() <= 3 {
+        return reason.to_owned();
+    }
+    format!(
+        "{}; ... and {} more details",
+        details[..3].join("; "),
+        details.len() - 3
+    )
 }
 
 #[test]
