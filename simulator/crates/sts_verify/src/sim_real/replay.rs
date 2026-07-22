@@ -258,7 +258,9 @@ fn seed_start_handle_neow_immediate_phase(
     action: &TraceAction,
     post: &TraceState,
     start: &StartRunCommand,
-    deck_ids: &[String],
+    deck_ids: &mut Vec<String>,
+    pending_neow_room_entry_curse: &mut Option<String>,
+    pending_neow_room_entry_curse_advances_card_rng: &mut bool,
     neow_gold: &mut i32,
     neow_current_hp: &mut i32,
     neow_max_hp: &mut i32,
@@ -325,6 +327,108 @@ fn seed_start_handle_neow_immediate_phase(
                 "choices": ["leave"],
             }),
         );
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if seed_start_neow_option_is_supported_curse_simple(option.clone()) {
+        let mut run = seed_start_apply_neow_curse_simple_visible_option(
+            start.numeric_seed,
+            start.ascension,
+            deck_ids,
+            option.clone(),
+        );
+        let mut curse_run = run.clone();
+        let curse = match apply_neow_curse_drawback(&mut curse_run) {
+            Ok(curse) => curse,
+            Err(error) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_neow_state".to_owned(),
+                    reason: format!("core Neow curse drawback rejected simulator state: {error}"),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        *pending_neow_room_entry_curse = Some(deck_content_key(curse.curse).to_owned());
+        *pending_neow_room_entry_curse_advances_card_rng = false;
+        run.card_rng_counter = curse.card_rng_counter;
+        *deck_ids = deck_content_keys(&run.deck);
+        *neow_gold = run.gold;
+        *neow_current_hp = run.player_hp;
+        *neow_max_hp = run.player_max_hp;
+        *seed_sim = Some(run);
+        compare_subset(
+            report,
+            action,
+            "Neow curse immediate reward",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": neow_gold,
+                "current_hp": neow_current_hp,
+                "max_hp": neow_max_hp,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            }),
+        );
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if seed_start_neow_option_is_supported_relic_reward(option.clone()) {
+        let mut run = seed_start_apply_neow_relic_reward_for_ascension(
+            start.numeric_seed,
+            start.ascension,
+            deck_ids,
+            &option,
+        );
+        let mut visible_deck_ids = deck_content_keys(&run.deck);
+        if option.drawback == NeowDrawback::Curse {
+            if let Some(curse) = visible_deck_ids.pop() {
+                *pending_neow_room_entry_curse = Some(curse);
+                *pending_neow_room_entry_curse_advances_card_rng = false;
+                run.deck = deck_instances_from_keys(&visible_deck_ids);
+            }
+        }
+        *deck_ids = visible_deck_ids;
+        *neow_gold = run.gold;
+        *neow_current_hp = run.player_hp;
+        *neow_max_hp = run.player_max_hp;
+        let relic = seed_start_newest_trace_relic_name(&run);
+        compare_subset(
+            report,
+            action,
+            seed_start_neow_relic_reward_label(option.reward),
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": neow_gold,
+                "current_hp": neow_current_hp,
+                "max_hp": neow_max_hp,
+                "deck_ids": deck_ids,
+                "relic_ids": relic_ids_for_simulated_subset(&run),
+                "choices": ["leave"],
+            }),
+        );
+        if relic == "Toy Ornithopter" {
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: "Toy Ornithopter is only carried as a captured Neow relic in this trace; no potion-use transition is observed here, so potion-triggered healing remains covered by sts_core unit tests rather than seed-start trace parity".to_owned(),
+            });
+        }
+        *seed_sim = Some(run);
         *phase = SeedStartPhase::NeowLeave;
         return SeedStartPreDispatch::Handled;
     }
@@ -1639,7 +1743,9 @@ pub(super) fn verify_seed_start_transitions(
             action,
             post,
             start,
-            &deck_ids,
+            &mut deck_ids,
+            &mut pending_neow_room_entry_curse,
+            &mut pending_neow_room_entry_curse_advances_card_rng,
             &mut neow_gold,
             &mut neow_current_hp,
             &mut neow_max_hp,
@@ -1711,116 +1817,6 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
         match phase {
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(seed_start_neow_option_is_supported_curse_simple) =>
-            {
-                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .expect("matched generated curse/simple Neow option");
-                let mut run = seed_start_apply_neow_curse_simple_visible_option(
-                    start.numeric_seed,
-                    start.ascension,
-                    &deck_ids,
-                    option,
-                );
-                let mut curse_run = run.clone();
-                let curse = match apply_neow_curse_drawback(&mut curse_run) {
-                    Ok(curse) => curse,
-                    Err(error) => {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_neow_state".to_owned(),
-                            reason: format!(
-                                "core Neow curse drawback rejected simulator state: {error}"
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                };
-                pending_neow_room_entry_curse = Some(deck_content_key(curse.curse).to_owned());
-                pending_neow_room_entry_curse_advances_card_rng = false;
-                run.card_rng_counter = curse.card_rng_counter;
-                deck_ids = deck_content_keys(&run.deck);
-                neow_gold = run.gold;
-                neow_current_hp = run.player_hp;
-                neow_max_hp = run.player_max_hp;
-                seed_sim = Some(run);
-                compare_subset(
-                    report,
-                    action,
-                    "Neow curse immediate reward",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": neow_gold,
-                        "current_hp": neow_current_hp,
-                        "max_hp": neow_max_hp,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(seed_start_neow_option_is_supported_relic_reward) =>
-            {
-                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .expect("matched generated Neow relic reward option");
-                let mut run = seed_start_apply_neow_relic_reward_for_ascension(
-                    start.numeric_seed,
-                    start.ascension,
-                    &deck_ids,
-                    &option,
-                );
-                let mut visible_deck_ids = deck_content_keys(&run.deck);
-                if option.drawback == NeowDrawback::Curse {
-                    if let Some(curse) = visible_deck_ids.pop() {
-                        pending_neow_room_entry_curse = Some(curse);
-                        pending_neow_room_entry_curse_advances_card_rng = false;
-                        run.deck = deck_instances_from_keys(&visible_deck_ids);
-                    }
-                }
-                deck_ids = visible_deck_ids;
-                neow_gold = run.gold;
-                neow_current_hp = run.player_hp;
-                neow_max_hp = run.player_max_hp;
-                let relic = seed_start_newest_trace_relic_name(&run);
-                compare_subset(
-                    report,
-                    action,
-                    seed_start_neow_relic_reward_label(option.reward),
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": neow_gold,
-                        "current_hp": neow_current_hp,
-                        "max_hp": neow_max_hp,
-                        "deck_ids": deck_ids,
-                        "relic_ids": relic_ids_for_simulated_subset(&run),
-                        "choices": ["leave"],
-                    }),
-                );
-                if relic == "Toy Ornithopter" {
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: "Toy Ornithopter is only carried as a captured Neow relic in this trace; no potion-use transition is observed here, so potion-triggered healing remains covered by sts_core unit tests rather than seed-start trace parity".to_owned(),
-                    });
-                }
-                seed_sim = Some(run);
-                phase = SeedStartPhase::NeowLeave;
-            }
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(seed_start_neow_option_is_supported_boss_swap) =>
