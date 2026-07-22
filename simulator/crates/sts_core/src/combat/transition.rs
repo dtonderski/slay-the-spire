@@ -843,7 +843,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::ApplyPlayerVulnerable { amount } => {
-            crate::power::apply_player_vulnerable(&mut state.player.powers, amount);
+            crate::power::apply_player_vulnerable(&mut state.player.powers, amount)?;
             Ok(Vec::new())
         }
         InternalAction::ApplyWeak { target, amount } => {
@@ -1690,7 +1690,7 @@ fn apply_spore_cloud_on_monster_death(
         return Ok(());
     }
 
-    apply_player_vulnerable(&mut state.player.powers, amount);
+    apply_player_vulnerable(&mut state.player.powers, amount)?;
     Ok(())
 }
 
@@ -3887,6 +3887,28 @@ mod tests {
             apply_monster_death_hooks(&mut state, fungi_id),
             Err(SimError::InvalidState(
                 "combat integer addition overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn spore_cloud_vulnerable_overflow_rolls_back_death_hooks() {
+        let fungi_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.vulnerable = i32::MAX;
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, fungi_id),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].alive = false;
+        state.monsters[0].hp = 0;
+        let before = state.clone();
+
+        assert_eq!(
+            apply_monster_death_hooks(&mut state, fungi_id),
+            Err(SimError::InvalidState(
+                "player Vulnerable application overflows i32"
             ))
         );
         assert_eq!(state, before);

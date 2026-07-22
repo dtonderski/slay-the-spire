@@ -2482,9 +2482,11 @@ pub fn apply_player_weak_with_relics(
     powers: &mut crate::power::PlayerPowers,
     relics: &[Relic],
     amount: i32,
-) {
+) -> SimResult<bool> {
     if !relics.contains(&Relic::Ginger) {
-        crate::power::apply_player_weak(powers, amount);
+        crate::power::apply_player_weak(powers, amount)
+    } else {
+        Ok(false)
     }
 }
 
@@ -2492,9 +2494,11 @@ pub fn apply_player_frail_with_relics(
     powers: &mut crate::power::PlayerPowers,
     relics: &[Relic],
     amount: i32,
-) {
+) -> SimResult<bool> {
     if !relics.contains(&Relic::Turnip) {
-        crate::power::apply_player_frail(powers, amount);
+        crate::power::apply_player_frail(powers, amount)
+    } else {
+        Ok(false)
     }
 }
 
@@ -2730,7 +2734,27 @@ fn deal_unmodified_damage_to_living_monsters(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::power::MonsterPowers;
+    use crate::power::{MonsterPowers, PlayerPowers};
+
+    #[test]
+    fn player_debuff_immunity_relics_do_not_consume_artifact() {
+        let mut powers = PlayerPowers {
+            artifact: 1,
+            ..PlayerPowers::default()
+        };
+
+        assert_eq!(
+            apply_player_weak_with_relics(&mut powers, &[Relic::Ginger], 1),
+            Ok(false)
+        );
+        assert_eq!(
+            apply_player_frail_with_relics(&mut powers, &[Relic::Turnip], 1),
+            Ok(false)
+        );
+        assert_eq!(powers.artifact, 1);
+        assert_eq!(powers.weak, 0);
+        assert_eq!(powers.frail, 0);
+    }
 
     #[test]
     fn relic_vulnerable_respects_artifact() {

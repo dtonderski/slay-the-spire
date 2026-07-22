@@ -166,42 +166,102 @@ pub fn calculate_block(base: i32, player: PlayerPowers) -> i32 {
     }
 }
 
-pub fn apply_player_weak(powers: &mut PlayerPowers, amount: i32) {
-    apply_player_debuff(powers, |powers| powers.weak += amount);
+pub fn apply_player_weak(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
+        powers.weak = powers
+            .weak
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "player Weak application overflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
-pub fn apply_player_vulnerable(powers: &mut PlayerPowers, amount: i32) {
-    apply_player_debuff(powers, |powers| powers.vulnerable += amount);
+pub fn apply_player_vulnerable(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
+        powers.vulnerable = powers
+            .vulnerable
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "player Vulnerable application overflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
-pub fn apply_player_frail(powers: &mut PlayerPowers, amount: i32) {
-    apply_player_debuff(powers, |powers| powers.frail += amount);
+pub fn apply_player_frail(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
+        powers.frail = powers
+            .frail
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "player Frail application overflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
-pub fn apply_player_hex(powers: &mut PlayerPowers, amount: i32) {
-    apply_player_debuff(powers, |powers| powers.hex += amount);
+pub fn apply_player_hex(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
+        powers.hex = powers
+            .hex
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "player Hex application overflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
-pub fn apply_player_confusion(powers: &mut PlayerPowers) {
-    apply_player_debuff(powers, |powers| powers.confusion = powers.confusion.max(1));
+pub fn apply_player_confusion(powers: &mut PlayerPowers) -> SimResult<bool> {
+    apply_player_debuff(powers, 1, |powers, _| {
+        powers.confusion = powers.confusion.max(1);
+        Ok(())
+    })
 }
 
-pub fn apply_player_entangled(powers: &mut PlayerPowers, amount: i32) {
-    apply_player_debuff(powers, |powers| powers.entangled += amount);
+pub fn apply_player_entangled(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
+        powers.entangled = powers
+            .entangled
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "player Entangled application overflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
-pub fn apply_player_constricted(powers: &mut PlayerPowers, amount: i32) {
-    apply_player_debuff(powers, |powers| {
+pub fn apply_player_constricted(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
         powers.constricted = powers.constricted.max(amount);
-    });
+        Ok(())
+    })
 }
 
-pub fn reduce_player_strength(powers: &mut PlayerPowers, amount: i32) {
-    apply_player_debuff(powers, |powers| powers.strength -= amount);
+pub fn reduce_player_strength(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
+        powers.strength = powers
+            .strength
+            .checked_sub(amount)
+            .ok_or(SimError::InvalidState(
+                "player Strength reduction underflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
-pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) {
-    apply_player_debuff(powers, |powers| powers.dexterity -= amount);
+pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
+        powers.dexterity = powers
+            .dexterity
+            .checked_sub(amount)
+            .ok_or(SimError::InvalidState(
+                "player Dexterity reduction underflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
 pub fn apply_monster_weak(powers: &mut MonsterPowers, amount: i32) -> SimResult<bool> {
@@ -256,11 +316,24 @@ pub fn clear_player_debuffs(powers: &mut PlayerPowers) {
     powers.constricted = 0;
 }
 
-fn apply_player_debuff(powers: &mut PlayerPowers, apply: impl FnOnce(&mut PlayerPowers)) {
-    if powers.artifact > 0 {
-        powers.artifact -= 1;
+fn apply_player_debuff(
+    powers: &mut PlayerPowers,
+    amount: i32,
+    apply: impl FnOnce(&mut PlayerPowers, i32) -> SimResult<()>,
+) -> SimResult<bool> {
+    if amount <= 0 {
+        return Ok(false);
+    }
+
+    let mut next = *powers;
+    if next.artifact > 0 {
+        next.artifact -= 1;
+        *powers = next;
+        Ok(false)
     } else {
-        apply(powers);
+        apply(&mut next, amount)?;
+        *powers = next;
+        Ok(true)
     }
 }
 
@@ -285,6 +358,120 @@ fn apply_monster_debuff(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn player_debuff_arithmetic_fails_closed() {
+        let cases = [
+            (
+                PlayerPowers {
+                    weak: i32::MAX,
+                    ..PlayerPowers::default()
+                },
+                apply_player_weak as fn(&mut PlayerPowers, i32) -> SimResult<bool>,
+                SimError::InvalidState("player Weak application overflows i32"),
+            ),
+            (
+                PlayerPowers {
+                    vulnerable: i32::MAX,
+                    ..PlayerPowers::default()
+                },
+                apply_player_vulnerable,
+                SimError::InvalidState("player Vulnerable application overflows i32"),
+            ),
+            (
+                PlayerPowers {
+                    frail: i32::MAX,
+                    ..PlayerPowers::default()
+                },
+                apply_player_frail,
+                SimError::InvalidState("player Frail application overflows i32"),
+            ),
+            (
+                PlayerPowers {
+                    hex: i32::MAX,
+                    ..PlayerPowers::default()
+                },
+                apply_player_hex,
+                SimError::InvalidState("player Hex application overflows i32"),
+            ),
+            (
+                PlayerPowers {
+                    entangled: i32::MAX,
+                    ..PlayerPowers::default()
+                },
+                apply_player_entangled,
+                SimError::InvalidState("player Entangled application overflows i32"),
+            ),
+            (
+                PlayerPowers {
+                    strength: i32::MIN,
+                    ..PlayerPowers::default()
+                },
+                reduce_player_strength,
+                SimError::InvalidState("player Strength reduction underflows i32"),
+            ),
+            (
+                PlayerPowers {
+                    dexterity: i32::MIN,
+                    ..PlayerPowers::default()
+                },
+                reduce_player_dexterity,
+                SimError::InvalidState("player Dexterity reduction underflows i32"),
+            ),
+        ];
+
+        for (mut powers, apply, expected_error) in cases {
+            let before = powers;
+            assert_eq!(apply(&mut powers, 1), Err(expected_error));
+            assert_eq!(powers, before);
+        }
+    }
+
+    #[test]
+    fn player_debuff_artifact_and_non_positive_amounts_preserve_semantics() {
+        let mut artifact = PlayerPowers {
+            weak: i32::MAX,
+            artifact: 1,
+            ..PlayerPowers::default()
+        };
+        assert_eq!(apply_player_weak(&mut artifact, 1), Ok(false));
+        assert_eq!(artifact.weak, i32::MAX);
+        assert_eq!(artifact.artifact, 0);
+
+        let mut non_positive = PlayerPowers {
+            artifact: 1,
+            ..PlayerPowers::default()
+        };
+        assert_eq!(apply_player_vulnerable(&mut non_positive, 0), Ok(false));
+        assert_eq!(reduce_player_strength(&mut non_positive, -1), Ok(false));
+        assert_eq!(non_positive.artifact, 1);
+    }
+
+    #[test]
+    fn valid_player_debuffs_report_that_they_landed() {
+        let mut powers = PlayerPowers {
+            strength: 3,
+            dexterity: 2,
+            ..PlayerPowers::default()
+        };
+
+        assert_eq!(apply_player_weak(&mut powers, 2), Ok(true));
+        assert_eq!(apply_player_vulnerable(&mut powers, 3), Ok(true));
+        assert_eq!(apply_player_frail(&mut powers, 4), Ok(true));
+        assert_eq!(apply_player_hex(&mut powers, 1), Ok(true));
+        assert_eq!(apply_player_entangled(&mut powers, 1), Ok(true));
+        assert_eq!(apply_player_constricted(&mut powers, 5), Ok(true));
+        assert_eq!(reduce_player_strength(&mut powers, 4), Ok(true));
+        assert_eq!(reduce_player_dexterity(&mut powers, 3), Ok(true));
+        assert_eq!(powers.weak, 2);
+        assert_eq!(powers.vulnerable, 3);
+        assert_eq!(powers.frail, 4);
+        assert_eq!(powers.hex, 1);
+        assert_eq!(powers.entangled, 1);
+        assert_eq!(powers.constricted, 5);
+        assert_eq!(powers.strength, -1);
+        assert_eq!(powers.dexterity, -1);
+    }
 
     #[test]
     fn monster_debuff_arithmetic_fails_closed() {

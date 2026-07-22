@@ -9704,40 +9704,27 @@ fn checked_monster_intent_mul(value: i32, amount: i32) -> SimResult<i32> {
         .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))
 }
 
-fn checked_player_debuff_add(current: i32, artifact: i32, amount: i32) -> SimResult<()> {
-    if artifact == 0 {
-        checked_monster_intent_add(current, amount)?;
-    }
-    Ok(())
-}
-
 fn apply_player_weak_from_monster(
     powers: &mut crate::power::PlayerPowers,
     relics: &[crate::Relic],
     amount: i32,
 ) -> SimResult<()> {
-    if !relics.contains(&crate::Relic::Ginger) {
-        checked_player_debuff_add(powers.weak, powers.artifact, amount)?;
-    }
-    crate::relic::apply_player_weak_with_relics(powers, relics, amount);
+    crate::relic::apply_player_weak_with_relics(powers, relics, amount)?;
     Ok(())
 }
 
 fn apply_player_vulnerable_from_monster(
     powers: &mut crate::power::PlayerPowers,
     amount: i32,
-) -> SimResult<()> {
-    checked_player_debuff_add(powers.vulnerable, powers.artifact, amount)?;
-    crate::power::apply_player_vulnerable(powers, amount);
-    Ok(())
+) -> SimResult<bool> {
+    crate::power::apply_player_vulnerable(powers, amount)
 }
 
 fn apply_player_frail_from_monster(
     powers: &mut crate::power::PlayerPowers,
     amount: i32,
 ) -> SimResult<()> {
-    checked_player_debuff_add(powers.frail, powers.artifact, amount)?;
-    crate::power::apply_player_frail(powers, amount);
+    crate::power::apply_player_frail(powers, amount)?;
     Ok(())
 }
 
@@ -9745,8 +9732,7 @@ fn apply_player_hex_from_monster(
     powers: &mut crate::power::PlayerPowers,
     amount: i32,
 ) -> SimResult<()> {
-    checked_player_debuff_add(powers.hex, powers.artifact, amount)?;
-    crate::power::apply_player_hex(powers, amount);
+    crate::power::apply_player_hex(powers, amount)?;
     Ok(())
 }
 
@@ -9754,17 +9740,7 @@ fn apply_player_entangled_from_monster(
     powers: &mut crate::power::PlayerPowers,
     amount: i32,
 ) -> SimResult<()> {
-    checked_player_debuff_add(powers.entangled, powers.artifact, amount)?;
-    crate::power::apply_player_entangled(powers, amount);
-    Ok(())
-}
-
-fn reduce_player_power_from_monster(current: i32, artifact: i32, amount: i32) -> SimResult<()> {
-    if artifact == 0 {
-        current
-            .checked_sub(amount)
-            .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))?;
-    }
+    crate::power::apply_player_entangled(powers, amount)?;
     Ok(())
 }
 
@@ -9900,10 +9876,9 @@ fn apply_monster_intent_with_card_rng_inner(
             )
         }
         MonsterIntent::AttackApplyPlayerVulnerable { damage, vulnerable } => {
-            let starts_new_vulnerable =
-                vulnerable > 0 && player.powers.vulnerable == 0 && player.powers.artifact == 0;
-            apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
-            if starts_new_vulnerable {
+            let had_no_vulnerable = player.powers.vulnerable == 0;
+            let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
+            if had_no_vulnerable && applied {
                 player.vulnerable_just_applied = true;
             }
             (
@@ -9917,10 +9892,9 @@ fn apply_monster_intent_with_card_rng_inner(
             vulnerable,
         } => {
             apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
-            let starts_new_vulnerable =
-                vulnerable > 0 && player.powers.vulnerable == 0 && player.powers.artifact == 0;
-            apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
-            if starts_new_vulnerable {
+            let had_no_vulnerable = player.powers.vulnerable == 0;
+            let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
+            if had_no_vulnerable && applied {
                 player.vulnerable_just_applied = true;
             }
             (
@@ -9980,10 +9954,9 @@ fn apply_monster_intent_with_card_rng_inner(
         } => {
             apply_player_frail_from_monster(&mut player.powers, frail)?;
             apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
-            let starts_new_vulnerable =
-                vulnerable > 0 && player.powers.vulnerable == 0 && player.powers.artifact == 0;
-            apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
-            if starts_new_vulnerable {
+            let had_no_vulnerable = player.powers.vulnerable == 0;
+            let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
+            if had_no_vulnerable && applied {
                 player.vulnerable_just_applied = true;
             }
             (0, 0)
@@ -9994,7 +9967,7 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
         MonsterIntent::ApplyPlayerConfusion => {
-            apply_player_confusion(&mut player.powers);
+            apply_player_confusion(&mut player.powers)?;
             (0, 0)
         }
         MonsterIntent::ApplyPlayerEntangled { amount } => {
@@ -10002,7 +9975,7 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
         MonsterIntent::ApplyPlayerConstricted { amount } => {
-            apply_player_constricted(&mut player.powers, amount);
+            apply_player_constricted(&mut player.powers, amount)?;
             (0, 0)
         }
         MonsterIntent::HealAllMonsters { .. }
@@ -10068,18 +10041,8 @@ fn apply_monster_intent_with_card_rng_inner(
             strength,
             dexterity,
         } => {
-            reduce_player_power_from_monster(
-                player.powers.strength,
-                player.powers.artifact,
-                strength,
-            )?;
-            reduce_player_strength(&mut player.powers, strength);
-            reduce_player_power_from_monster(
-                player.powers.dexterity,
-                player.powers.artifact,
-                dexterity,
-            )?;
-            reduce_player_dexterity(&mut player.powers, dexterity);
+            reduce_player_strength(&mut player.powers, strength)?;
+            reduce_player_dexterity(&mut player.powers, dexterity)?;
             bronze_orb_apply_stasis(monster, piles, card_random_rng);
             monster.has_siphoned = true;
             (0, 0)
@@ -10518,7 +10481,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(SimError::InvalidState("monster intent arithmetic overflow"))
+            Err(SimError::InvalidState(
+                "player Weak application overflows i32"
+            ))
         );
         assert_eq!(monster, monster_before);
         assert_eq!(player, player_before);

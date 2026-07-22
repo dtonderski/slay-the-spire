@@ -1010,10 +1010,7 @@ fn apply_monster_pending_effects(
         return Ok(());
     }
     if weak > 0 {
-        if !state.relics.contains(&crate::Relic::Ginger) && state.player.powers.artifact == 0 {
-            checked_turn_add(state.player.powers.weak, weak)?;
-        }
-        crate::relic::apply_player_weak_with_relics(&mut state.player.powers, &state.relics, weak);
+        crate::relic::apply_player_weak_with_relics(&mut state.player.powers, &state.relics, weak)?;
     }
     apply_attack_heal_self_after_player_damage(state, heal_self, total_hp_damage)?;
     apply_attack_heal_self_thorns_after_heal(state, heal_self, heal_self_thorns);
@@ -1825,6 +1822,25 @@ mod tests {
     }
 
     #[test]
+    fn end_turn_doubt_weak_overflow_fails_without_mutating_input() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.weak = i32::MAX;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(100), DOUBT_ID),
+            CardInstance::new(CardId::new(101), DOUBT_ID),
+        ];
+        let before = state.clone();
+
+        assert_eq!(
+            end_player_turn(&state),
+            Err(SimError::InvalidState(
+                "player Weak application overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
     fn end_player_turn_rejects_temporary_strength_restore_overflow() {
         let mut state = CombatState::initial_fixture();
         state.player.powers.strength = i32::MAX;
@@ -1849,7 +1865,7 @@ mod tests {
         assert_eq!(
             apply_monster_pending_effects(&mut state, 0, 1, 0, None, 0, 0, 1, 0, 0),
             Err(SimError::InvalidState(
-                "combat integer addition overflows i32"
+                "player Weak application overflows i32"
             ))
         );
         assert_eq!(state, before);

@@ -59,14 +59,14 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                         &mut state.player.powers,
                         &state.relics,
                         1,
-                    );
+                    )?;
                     remaining.push(card);
                 } else {
                     crate::relic::apply_player_weak_with_relics(
                         &mut state.player.powers,
                         &state.relics,
                         1,
-                    );
+                    )?;
                     state.piles.discard_pile.push(card);
                 }
             }
@@ -75,7 +75,7 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                     &mut state.player.powers,
                     &state.relics,
                     1,
-                );
+                )?;
                 state.piles.discard_pile.push(card);
             }
             _ => remaining.push(card),
