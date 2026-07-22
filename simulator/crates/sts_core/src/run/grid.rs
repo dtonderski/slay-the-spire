@@ -447,15 +447,15 @@ fn open_pandoras_box_grid_inner(run: &mut RunState) -> SimResult<()> {
     let next_card_id = run.reserve_card_instance_ids(starter_count)?;
     let mut rng = run.card_random_rng();
     let cards = (0..starter_count)
-        .map(|index| {
+        .map(|index| -> SimResult<CardInstance> {
             let pick = rng.random_int((pool.len() - 1) as i32) as usize;
-            let content_id = run.content_id_after_card_add_relics(pool[pick]);
-            CardInstance::new(
+            let content_id = run.content_id_after_card_add_relics(pool[pick])?;
+            Ok(CardInstance::new(
                 crate::ids::CardId::new(next_card_id + index as u64),
                 content_id,
-            )
+            ))
         })
-        .collect();
+        .collect::<SimResult<Vec<_>>>()?;
     run.card_random_rng_counter = rng.counter();
     run.card_grid = Some(CardGridScreen {
         cards,
@@ -1025,13 +1025,13 @@ fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResult
         .cards
         .into_iter()
         .enumerate()
-        .map(|(index, content_id)| {
-            CardInstance::new(
+        .map(|(index, content_id)| -> SimResult<CardInstance> {
+            Ok(CardInstance::new(
                 crate::ids::CardId::new(next_card_id + index as u64),
-                run.content_id_after_card_add_relics(content_id),
-            )
+                run.content_id_after_card_add_relics(content_id)?,
+            ))
         })
-        .collect::<Vec<_>>();
+        .collect::<SimResult<Vec<_>>>()?;
 
     for card in cards {
         run.remove_deck_card(card.id)
@@ -1076,14 +1076,14 @@ fn transform_event_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResul
     let transformed = cards
         .iter()
         .enumerate()
-        .map(|(index, card)| {
+        .map(|(index, card)| -> SimResult<CardInstance> {
             let content_id = transform_card_content_id(card.content_id, &mut rng);
-            CardInstance::new(
+            Ok(CardInstance::new(
                 crate::ids::CardId::new(next_card_id + index as u64),
-                run.content_id_after_card_add_relics(content_id),
-            )
+                run.content_id_after_card_add_relics(content_id)?,
+            ))
         })
-        .collect::<Vec<_>>();
+        .collect::<SimResult<Vec<_>>>()?;
     run.misc_rng_counter = rng.counter();
 
     for card in cards {

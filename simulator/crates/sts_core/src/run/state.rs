@@ -5,7 +5,7 @@ use crate::{
     content::cards::{
         card_instance_after_upgrades, card_instance_is_upgradeable, card_type_and_rarity,
         get_card_definition, is_basic_starter_card, is_curse_content_id, upgrade_card_instance,
-        upgrade_content_id, validate_searing_blow_metadata,
+        validate_searing_blow_metadata,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::reward_pool::ironclad_reward_card_rarity,
@@ -440,6 +440,53 @@ mod tests {
             ))
         );
         assert_eq!(run, before);
+    }
+
+    #[test]
+    fn deck_card_gain_rejects_unknown_content_without_relic_side_effects() {
+        let mut run = RunState::map_fixture();
+        run.relics.extend([Relic::CeramicFish, Relic::MoltenEgg]);
+        let before = run.clone();
+        let unknown = ContentId::new(999_999);
+
+        assert_eq!(
+            run.gain_deck_card(unknown),
+            Err(SimError::UnknownContent(unknown))
+        );
+        assert_eq!(run, before);
+        assert_eq!(
+            run.content_id_after_card_add_relics(crate::content::cards::STRIKE_R_ID),
+            Ok(crate::content::cards::STRIKE_R_PLUS_ID)
+        );
+        assert_eq!(
+            run.content_id_after_card_add_relics(crate::content::cards::STRIKE_R_PLUS_ID),
+            Ok(crate::content::cards::STRIKE_R_PLUS_ID)
+        );
+    }
+
+    #[test]
+    fn deck_card_add_rejects_duplicate_ids_and_combat_metadata_atomically() {
+        let mut duplicate = RunState::map_fixture();
+        let duplicate_before = duplicate.clone();
+        assert_eq!(
+            duplicate.add_deck_card(duplicate.deck[0]),
+            Err(SimError::InvalidState(
+                "duplicate run deck card instance ID"
+            ))
+        );
+        assert_eq!(duplicate, duplicate_before);
+
+        let mut combat_metadata = RunState::map_fixture();
+        let mut card = CardInstance::new(CardId::new(100), crate::content::cards::ANGER_ID);
+        card.temp_cost = Some(0);
+        let metadata_before = combat_metadata.clone();
+        assert_eq!(
+            combat_metadata.add_deck_card(card),
+            Err(SimError::InvalidState(
+                "run card retains combat-local temporary cost metadata"
+            ))
+        );
+        assert_eq!(combat_metadata, metadata_before);
     }
 
     #[test]
@@ -2135,6 +2182,12 @@ impl RunState {
     }
 
     fn add_deck_card_inner(&mut self, mut card: CardInstance) -> SimResult<()> {
+        validate_run_card_content(&card)?;
+        if self.deck.iter().any(|existing| existing.id == card.id) {
+            return Err(SimError::InvalidState(
+                "duplicate run deck card instance ID",
+            ));
+        }
         if self.should_omamori_prevent_card(card.content_id) {
             self.omamori_charges_used = self
                 .omamori_charges_used
@@ -2142,7 +2195,7 @@ impl RunState {
                 .ok_or(SimError::InvalidState("Omamori charge usage overflows u32"))?;
             return Ok(());
         }
-        card.content_id = self.content_id_after_card_add_relics(card.content_id);
+        card.content_id = self.content_id_after_card_add_relics(card.content_id)?;
         let content_id = card.content_id;
         self.deck.push(card);
         self.apply_card_added_relics(content_id)
@@ -2161,25 +2214,35 @@ impl RunState {
             && self.omamori_charges_used < OMAMORI_CHARGES
     }
 
-    #[must_use]
-    pub(crate) fn content_id_after_card_add_relics(&self, content_id: ContentId) -> ContentId {
-        let Some(upgraded) = upgrade_content_id(content_id) else {
-            return content_id;
-        };
-        let Some(definition) = get_card_definition(content_id) else {
-            return content_id;
-        };
+    pub(crate) fn content_id_after_card_add_relics(
+        &self,
+        content_id: ContentId,
+    ) -> SimResult<ContentId> {
+        if !self
+            .relics
+            .iter()
+            .any(|relic| matches!(relic, Relic::MoltenEgg | Relic::ToxicEgg | Relic::FrozenEgg))
+        {
+            return Ok(content_id);
+        }
+        let definition = get_card_definition(content_id).ok_or_else(|| {
+            if super::reward::any_color_reward_card_key(content_id).is_some() {
+                SimError::UnsupportedMechanic(content_id)
+            } else {
+                SimError::UnknownContent(content_id)
+            }
+        })?;
         let has_matching_egg = match definition.card_type {
             CardType::Attack => self.relics.contains(&Relic::MoltenEgg),
             CardType::Skill => self.relics.contains(&Relic::ToxicEgg),
             CardType::Power => self.relics.contains(&Relic::FrozenEgg),
             CardType::Status => false,
         };
-        if has_matching_egg {
-            upgraded
+        Ok(if has_matching_egg {
+            definition.upgrade.unwrap_or(content_id)
         } else {
             content_id
-        }
+        })
     }
 
     fn apply_card_added_relics(&mut self, content_id: ContentId) -> SimResult<()> {

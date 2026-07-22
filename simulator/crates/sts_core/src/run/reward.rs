@@ -1133,20 +1133,21 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) -> SimResult<
     consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run))?;
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
     for choice in &mut choices {
-        choice.content_id = run.content_id_after_card_add_relics(choice.content_id);
+        choice.content_id = run.content_id_after_card_add_relics(choice.content_id)?;
     }
     run.reward.as_mut().expect("reward screen present").choices = choices;
     Ok(())
 }
 
-fn preview_obtain_card_reward_choices(run: &mut RunState) {
+fn preview_obtain_card_reward_choices(run: &mut RunState) -> SimResult<()> {
     let Some(mut choices) = run.reward.as_ref().map(|reward| reward.choices.clone()) else {
-        return;
+        return Ok(());
     };
     for choice in &mut choices {
-        choice.content_id = run.content_id_after_card_add_relics(choice.content_id);
+        choice.content_id = run.content_id_after_card_add_relics(choice.content_id)?;
     }
     run.reward.as_mut().expect("reward screen present").choices = choices;
+    Ok(())
 }
 
 fn card_upgraded_chance(run: &RunState) -> f32 {
@@ -2211,7 +2212,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                     roll_pending_card_reward_choices(&mut next)?;
                 }
             }
-            preview_obtain_card_reward_choices(&mut next);
+            preview_obtain_card_reward_choices(&mut next)?;
             next.reward
                 .as_mut()
                 .expect("validated reward screen")
