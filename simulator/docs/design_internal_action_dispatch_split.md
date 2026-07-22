@@ -46,3 +46,11 @@ draw into a private `pile_actions` module. The parent match continues to name
 and route every `InternalAction` variant explicitly. Helpers retain the exact
 source-card removal, relic trigger, RNG-consumption, and follow-up ordering from
 the inline arms.
+
+## Third slice: player-local actions
+
+Move player resource changes, hand-card metadata changes, and player power
+mutations into a private `player_actions` module. Keep damage, exhaust hooks,
+and top-draw execution outside this family so their queue-sensitive sequencing
+remains independently reviewable. The parent match continues to route every
+variant explicitly.

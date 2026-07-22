@@ -1,6 +1,7 @@
 use super::card_effects;
 mod decision_actions;
 mod pile_actions;
+mod player_actions;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
     card::{CardType, TargetRequirement},
@@ -11,7 +12,6 @@ use crate::{
             deal_damage_info_to_monster_with_result, deal_unmodified_damage_to_monster,
             reflect_spikes_to_player, DamageInfo, DamageSource,
         },
-        state::BombTimer,
         validate_combat_action, CombatDecisionState, CombatPhase, DiscardSelectPurpose,
         DrawSelectPurpose, HandSelectPurpose,
     },
@@ -957,162 +957,65 @@ fn apply_internal_action(
         InternalAction::DrawRandomAttacksFromDrawPile { count } => {
             pile_actions::draw_random_attacks(state, count)
         }
-        InternalAction::GainEnergy { amount } => {
-            checked_add_combat_value(&mut state.player.energy, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::LoseHp { amount, source } => {
-            let hp_loss = crate::combat::hp_loss::lose_player_hp(state, amount);
-            if matches!(source, HpLossSource::Card(_)) {
-                crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
-            } else {
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
-            }
-            Ok(Vec::new())
-        }
-        InternalAction::SetCannotDraw => {
-            state.player.cannot_draw = true;
-            Ok(Vec::new())
-        }
-        InternalAction::GainRage { amount } => {
-            checked_add_combat_value(&mut state.player.temp_rage_block, amount)?;
-            Ok(Vec::new())
-        }
+        InternalAction::GainEnergy { amount } => player_actions::gain_energy(state, amount),
+        InternalAction::LoseHp { amount, source } => player_actions::lose_hp(state, amount, source),
+        InternalAction::SetCannotDraw => player_actions::set_cannot_draw(state),
+        InternalAction::GainRage { amount } => player_actions::gain_rage(state, amount),
         InternalAction::SetRandomHandCardCostForCombat { amount } => {
-            set_random_hand_card_cost_for_combat(state, amount)?;
-            Ok(Vec::new())
+            player_actions::set_random_hand_card_cost(state, amount)
         }
         InternalAction::UpgradeHandCardsExcept { card_id } => {
-            upgrade_hand_cards_except(state, card_id)?;
-            Ok(Vec::new())
+            player_actions::upgrade_hand_cards_other_than(state, card_id)
         }
         InternalAction::UpgradeHandCard { card_id } => {
-            upgrade_hand_card(state, card_id)?;
-            Ok(Vec::new())
+            player_actions::upgrade_one_hand_card(state, card_id)
         }
         InternalAction::IncreaseRampageDamage { card_id, amount } => {
-            add_rampage_damage_bonus(state, card_id, amount)?;
-            Ok(Vec::new())
+            player_actions::increase_rampage_damage(state, card_id, amount)
         }
         InternalAction::GainFeelNoPain { amount } => {
-            checked_add_combat_value(&mut state.player.powers.feel_no_pain, amount)?;
-            Ok(Vec::new())
+            player_actions::gain_feel_no_pain(state, amount)
         }
         InternalAction::GainDarkEmbrace { amount } => {
-            checked_add_combat_value(&mut state.player.powers.dark_embrace, amount)?;
-            Ok(Vec::new())
+            player_actions::gain_dark_embrace(state, amount)
         }
-        InternalAction::GainBarricade { amount } => {
-            state.player.powers.barricade = state.player.powers.barricade.max(amount);
-            Ok(Vec::new())
-        }
-        InternalAction::GainEvolve { amount } => {
-            checked_add_combat_value(&mut state.player.powers.evolve, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainBerserk { amount } => {
-            checked_add_combat_value(&mut state.player.powers.berserk, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainRupture { amount } => {
-            checked_add_combat_value(&mut state.player.powers.rupture, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainJuggernaut { amount } => {
-            checked_add_combat_value(&mut state.player.powers.juggernaut, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainBrutality { amount } => {
-            checked_add_combat_value(&mut state.player.powers.brutality, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainMayhem { amount } => {
-            checked_add_combat_value(&mut state.player.powers.mayhem, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainPanache { amount } => {
-            checked_add_combat_value(&mut state.player.powers.panache, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainCombust { amount } => {
-            let combust = checked_combat_sum(state.player.powers.combust, 1)?;
-            let combust_damage = checked_combat_sum(state.player.powers.combust_damage, amount)?;
-            state.player.powers.combust = combust;
-            state.player.powers.combust_damage = combust_damage;
-            Ok(Vec::new())
-        }
-        InternalAction::GainDoubleTap { amount } => {
-            checked_add_combat_value(&mut state.double_tap_pending, amount)?;
-            Ok(Vec::new())
-        }
+        InternalAction::GainBarricade { amount } => player_actions::gain_barricade(state, amount),
+        InternalAction::GainEvolve { amount } => player_actions::gain_evolve(state, amount),
+        InternalAction::GainBerserk { amount } => player_actions::gain_berserk(state, amount),
+        InternalAction::GainRupture { amount } => player_actions::gain_rupture(state, amount),
+        InternalAction::GainJuggernaut { amount } => player_actions::gain_juggernaut(state, amount),
+        InternalAction::GainBrutality { amount } => player_actions::gain_brutality(state, amount),
+        InternalAction::GainMayhem { amount } => player_actions::gain_mayhem(state, amount),
+        InternalAction::GainPanache { amount } => player_actions::gain_panache(state, amount),
+        InternalAction::GainCombust { amount } => player_actions::gain_combust(state, amount),
+        InternalAction::GainDoubleTap { amount } => player_actions::gain_double_tap(state, amount),
         InternalAction::GainFireBreathing { amount } => {
-            checked_add_combat_value(&mut state.player.powers.fire_breathing, amount)?;
-            Ok(Vec::new())
+            player_actions::gain_fire_breathing(state, amount)
         }
-        InternalAction::GainCorruption { amount } => {
-            state.player.powers.corruption = state.player.powers.corruption.max(amount);
-            Ok(Vec::new())
-        }
+        InternalAction::GainCorruption { amount } => player_actions::gain_corruption(state, amount),
         InternalAction::GainSadisticNature { amount } => {
-            checked_add_combat_value(&mut state.player.powers.sadistic_nature, amount)?;
-            Ok(Vec::new())
+            player_actions::gain_sadistic_nature(state, amount)
         }
-        InternalAction::GainMagnetism { amount } => {
-            checked_add_combat_value(&mut state.player.powers.magnetism, amount)?;
-            Ok(Vec::new())
-        }
+        InternalAction::GainMagnetism { amount } => player_actions::gain_magnetism(state, amount),
         InternalAction::ArmTheBomb { turns, damage } => {
-            state.bomb_timers.push(BombTimer {
-                turns_remaining: turns,
-                damage,
-            });
-            Ok(Vec::new())
+            player_actions::arm_the_bomb(state, turns, damage)
         }
         InternalAction::DealUnmodifiedDamage { target, amount } => {
             deal_unmodified_damage_to_living_monster(state, target, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainMetallicize { amount } => {
-            checked_add_combat_value(&mut state.player.powers.metallicize, amount)?;
-            Ok(Vec::new())
+            player_actions::gain_metallicize(state, amount)
         }
-        InternalAction::GainStrength { amount } => {
-            checked_add_combat_value(&mut state.player.powers.strength, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainDexterity { amount } => {
-            checked_add_combat_value(&mut state.player.powers.dexterity, amount)?;
-            Ok(Vec::new())
-        }
+        InternalAction::GainStrength { amount } => player_actions::gain_strength(state, amount),
+        InternalAction::GainDexterity { amount } => player_actions::gain_dexterity(state, amount),
         InternalAction::GainTempStrength { amount } => {
-            // Flex applies Strength and a debuff that removes it at end of
-            // turn. Artifact blocks that debuff when it is created, consuming
-            // one Artifact and leaving the gained Strength permanent.
-            if state.player.powers.artifact > 0 {
-                let strength = checked_combat_sum(state.player.powers.strength, amount)?;
-                state.player.powers.artifact -= 1;
-                state.player.powers.strength = strength;
-            } else {
-                checked_add_combat_value(&mut state.player.temp_strength, amount)?;
-            }
-            Ok(Vec::new())
+            player_actions::gain_temp_strength(state, amount)
         }
-        InternalAction::GainIntangible { amount } => {
-            checked_add_combat_value(&mut state.player.powers.intangible, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainRitual { amount } => {
-            checked_add_combat_value(&mut state.player.powers.ritual, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainArtifact { amount } => {
-            checked_add_combat_value(&mut state.player.powers.artifact, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::UpgradeCombatCards => {
-            upgrade_combat_cards(state)?;
-            Ok(Vec::new())
-        }
+        InternalAction::GainIntangible { amount } => player_actions::gain_intangible(state, amount),
+        InternalAction::GainRitual { amount } => player_actions::gain_ritual(state, amount),
+        InternalAction::GainArtifact { amount } => player_actions::gain_artifact(state, amount),
+        InternalAction::UpgradeCombatCards => player_actions::upgrade_all_combat_cards(state),
         InternalAction::CardExhausted { card_id } => {
             apply_on_exhaust_effects(state, card_id)?;
             Ok(dead_branch_follow_up(state).into_iter().collect())
