@@ -344,6 +344,8 @@ pub struct CardPiles {
     pub draw_pile: Vec<CardInstance>,
     pub discard_pile: Vec<CardInstance>,
     pub exhaust_pile: Vec<CardInstance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub limbo: Vec<CardInstance>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -713,6 +715,7 @@ impl CombatState {
                 draw_pile: vec![CardInstance::new(CardId::new(4), STRIKE_R_ID)],
                 discard_pile: Vec::new(),
                 exhaust_pile: Vec::new(),
+                limbo: Vec::new(),
             },
             Vec::new(),
             0,
@@ -1081,6 +1084,7 @@ impl CardPiles {
             .chain(self.draw_pile.iter())
             .chain(self.discard_pile.iter())
             .chain(self.exhaust_pile.iter())
+            .chain(self.limbo.iter())
     }
 }
 
@@ -1095,6 +1099,7 @@ mod tests {
             draw_pile: Vec::new(),
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
+            limbo: Vec::new(),
         }
     }
 

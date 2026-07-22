@@ -547,6 +547,40 @@ fn shovel_dig_enters_and_resolves_its_relic_reward() {
 }
 
 #[test]
+fn distilled_chaos_hand_select_is_a_stable_verified_endpoint() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-29265014fff604b3.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Distilled Chaos regression trace replays");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert!(
+        !report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .failed
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 106
+            && transition.label == "combat potion use"
+            && transition.command == "POTION USE 0"
+    }));
+}
+
+#[test]
 fn combat_selection_endpoint_names_its_unreconciled_frame() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-b9c0db157d03167f.jsonl")

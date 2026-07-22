@@ -75,6 +75,7 @@ pub fn initialize_combat_piles_with_relics(
         draw_pile: draw_pile.into_iter().map(|(card, _)| card).collect(),
         discard_pile: Vec::new(),
         exhaust_pile: Vec::new(),
+        limbo: Vec::new(),
     })
 }
 

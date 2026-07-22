@@ -193,6 +193,7 @@ mod tests {
             ],
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
+            limbo: Vec::new(),
         };
         let mut rng = StsRng::new(17);
 
@@ -217,6 +218,7 @@ mod tests {
             draw_pile: Vec::new(),
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
+            limbo: Vec::new(),
         };
 
         add_cards_to_discard(&mut piles, BURN_ID, 2, 100)
@@ -239,6 +241,7 @@ mod tests {
             draw_pile: vec![CardInstance::new(CardId::new(1), BURN_ID)],
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
+            limbo: Vec::new(),
         };
         let piles_before = piles.clone();
         let mut rng = StsRng::new(17);
@@ -266,6 +269,7 @@ mod tests {
             draw_pile: vec![burn],
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
+            limbo: Vec::new(),
         };
         let piles_before = piles.clone();
 

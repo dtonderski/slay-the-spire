@@ -460,6 +460,14 @@ pub(super) fn play_top_draw_card_queue(
         from: CardPile::Hand,
         to: destination,
     };
+    let delayed_hand_select_moves_source = !force_exhaust
+        && queue.iter().any(|action| {
+            matches!(
+                action,
+                InternalAction::AwaitHandSelect { source_card_id, .. }
+                    if *source_card_id == card.id
+            )
+        });
     let played_index = queue
         .iter()
         .position(
@@ -468,7 +476,9 @@ pub(super) fn play_top_draw_card_queue(
         .ok_or(SimError::InvalidState(
             "top-draw card queue has no play action",
         ))?;
-    queue.insert(played_index + 1, movement);
+    if !delayed_hand_select_moves_source {
+        queue.insert(played_index + 1, movement);
+    }
 
     Ok((queued_state, queue))
 }

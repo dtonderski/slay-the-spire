@@ -4290,9 +4290,10 @@ fn seed_start_compare_or_defer_combat_transition(
     pending_combat_assertion: &mut Option<PendingCombatAssertion>,
     reconciled_deferred_action_steps: &mut Vec<u32>,
 ) {
-    if seed_start_is_transient_combat_post_state(post_message)
+    let candidate_transient = seed_start_is_transient_combat_post_state(post_message)
         || pending_combat_assertion.is_some()
-            && seed_start_is_transient_combat_entry_post_state(post_message)
+            && seed_start_is_transient_combat_entry_post_state(post_message);
+    if candidate_transient && !seed_start_combat_subsets_match(observed.clone(), simulated.clone())
     {
         let transient_matches =
             seed_start_compare_transient_combat_subset(report, action, label, observed, simulated);

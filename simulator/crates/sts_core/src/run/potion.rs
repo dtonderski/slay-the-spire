@@ -862,12 +862,38 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         let Some(card) = combat.piles.draw_pile.pop() else {
                             break;
                         };
+                        combat.piles.limbo.push(card);
                         queued_cards.push(card);
                     }
-                    for (card, queued_target) in queued_cards.into_iter().zip(queued_targets) {
+                    let mut queued_plays = queued_cards
+                        .into_iter()
+                        .zip(queued_targets)
+                        .collect::<std::collections::VecDeque<_>>();
+                    while let Some((card, queued_target)) = queued_plays.pop_front() {
                         if combat.phase != CombatPhase::WaitingForPlayer {
+                            for (held_card, _) in queued_plays.iter().rev() {
+                                let index = combat
+                                    .piles
+                                    .limbo
+                                    .iter()
+                                    .position(|candidate| candidate.id == held_card.id)
+                                    .ok_or(SimError::InvalidState(
+                                        "Distilled Chaos held card is missing from limbo",
+                                    ))?;
+                                combat.piles.limbo.remove(index);
+                                combat.piles.draw_pile.push(*held_card);
+                            }
                             break;
                         }
+                        let limbo_index = combat
+                            .piles
+                            .limbo
+                            .iter()
+                            .position(|candidate| candidate.id == card.id)
+                            .ok_or(SimError::InvalidState(
+                                "Distilled Chaos queued card is missing from limbo",
+                            ))?;
+                        combat.piles.limbo.remove(limbo_index);
                         combat.piles.draw_pile.push(card);
                         let top_definition = top_draw_card_definition(&combat)
                             .ok_or(SimError::IllegalAction("draw pile is empty"))?;
@@ -877,6 +903,31 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                             None
                         };
                         combat = apply_play_top_draw_card_action(&combat, target)?;
+                        if let Some(CombatDecisionState::HandSelect {
+                            pending_actions, ..
+                        }) = combat.decision.as_mut()
+                        {
+                            for (held_card, _) in queued_plays.iter().rev() {
+                                let index = combat
+                                    .piles
+                                    .limbo
+                                    .iter()
+                                    .position(|candidate| candidate.id == held_card.id)
+                                    .ok_or(SimError::InvalidState(
+                                        "Distilled Chaos held card is missing from limbo",
+                                    ))?;
+                                combat.piles.limbo.remove(index);
+                                combat.piles.draw_pile.push(*held_card);
+                            }
+                            pending_actions.extend(queued_plays.drain(..).map(|(_, target)| {
+                                crate::InternalAction::PlayTopDrawCard {
+                                    target,
+                                    exhaust_played_card: false,
+                                    random_living_target: false,
+                                }
+                            }));
+                            break;
+                        }
                     }
                     next.card_random_rng_counter = combat.rng.card_random_rng.counter();
                     next.combat = Some(combat);
@@ -1348,6 +1399,54 @@ mod tests {
             .expect("end-turn powers resolve");
         assert_eq!(combat.player.hp, player_hp - 1);
         assert_eq!(combat.monsters[0].hp, monster_hp - 5);
+    }
+
+    #[test]
+    fn distilled_chaos_holds_queued_cards_authoritatively_until_hand_select() {
+        use crate::content::cards::{ANGER_ID, DUAL_WIELD_ID, STRIKE_R_ID, WILD_STRIKE_ID};
+
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::DistilledChaos];
+        run.empty_potion_slots = vec![1, 2];
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(101), WILD_STRIKE_ID),
+            CardInstance::new(CardId::new(102), DUAL_WIELD_ID),
+            CardInstance::new(CardId::new(103), ANGER_ID),
+            CardInstance::new(CardId::new(104), STRIKE_R_ID),
+        ];
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Distilled Chaos pauses at Dual Wield selection");
+        let combat = next.combat.as_ref().expect("combat remains open");
+
+        combat
+            .validate()
+            .expect("queued and generated card IDs remain unique");
+        assert!(combat.piles.limbo.is_empty());
+        assert!(matches!(
+            &combat.decision,
+            Some(CombatDecisionState::HandSelect {
+                state: crate::combat::HandSelectState {
+                    purpose: HandSelectPurpose::DualWieldCopy,
+                    ..
+                },
+                ..
+            })
+        ));
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DUAL_WIELD_ID));
+        assert_eq!(combat.piles.draw_pile.len(), 1);
+        assert_eq!(combat.piles.draw_pile[0].content_id, WILD_STRIKE_ID);
     }
 
     #[test]
