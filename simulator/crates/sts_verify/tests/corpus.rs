@@ -1225,11 +1225,20 @@ fn permanent_trace_entries_pass_seed_start() {
             _ => None,
         };
         match expected_boundary_category {
-            Some("unreconciled_copied_attack_frame") => assert_eq!(
+            Some(
+                "unreconciled_copied_attack_frame"
+                | "unreconciled_deck_frame"
+                | "unreconciled_map_frame"
+                | "unreconciled_boss_relic_overlay_frame",
+            ) => assert_eq!(
                 integrity.unresolved_transient_assertions, 1,
                 "{display_path} copied-attack boundary must retain exactly its one causal unresolved assertion"
             ),
-            Some("unreconciled_smoke_bomb_frame" | "unsupported_smoke_bomb_queued_combat") => {
+            Some(
+                "unreconciled_combat_frame"
+                | "unreconciled_smoke_bomb_frame"
+                | "unsupported_smoke_bomb_queued_combat",
+            ) => {
                 assert!(
                     integrity.unresolved_transient_assertions > 0,
                     "{display_path} Smoke Bomb boundary must retain its causal unresolved assertion"

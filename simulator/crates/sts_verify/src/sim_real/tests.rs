@@ -398,6 +398,106 @@ fn smoke_bomb_trace_names_an_unreconciled_queued_command_endpoint() {
 }
 
 #[test]
+fn smith_trace_names_an_unreconciled_deck_frame_before_proceed() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-619700a8aef6dadc.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("unreconciled Smith deck regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary,
+        SeedStartBoundary {
+            path: "$.actions[step=107].command".to_owned(),
+            category: "unreconciled_deck_frame".to_owned(),
+            reason:
+                "command 'PROCEED' arrived before deferred deck mutation from step 106 reconciled"
+                    .to_owned(),
+        }
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        1
+    );
+}
+
+#[test]
+fn combat_selection_endpoint_names_its_unreconciled_frame() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-b9c0db157d03167f.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("unreconciled combat selection regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary,
+        SeedStartBoundary {
+            path: "$.actions[step=745].command".to_owned(),
+            category: "unreconciled_combat_frame".to_owned(),
+            reason: "deferred combat transition did not reach a captured stable frame".to_owned(),
+        }
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        1
+    );
+}
+
+#[test]
+fn stable_combat_mismatch_preserves_compound_transient_evidence() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-c2aa19ad6556e10e.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("compound deferred combat regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    let boundary = &report
+        .seed_start
+        .as_ref()
+        .expect("seed-start report")
+        .first_boundary;
+    assert_eq!(boundary.path, "$.actions[step=270].command");
+    assert_eq!(boundary.category, "unreconciled_combat_frame");
+    assert!(boundary.reason.contains("exhaust select confirm"));
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        4
+    );
+}
+
+#[test]
 fn smoke_bomb_trace_names_a_queued_command_that_mutates_transient_combat() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-617b5319ca2c85b4.jsonl")

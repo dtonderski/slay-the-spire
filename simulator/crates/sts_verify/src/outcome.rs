@@ -227,8 +227,13 @@ pub fn assess_verification(
                     Some(actual),
                 ) if actual.path == expected.path
                     && actual.category == expected.category
-                    && (expected.category == "unreconciled_copied_attack_frame"
+                    && ((expected.category == "unreconciled_copied_attack_frame"
+                        || expected.category == "unreconciled_deck_frame"
+                        || expected.category == "unreconciled_map_frame"
+                        || expected.category == "unreconciled_boss_relic_overlay_frame")
                         && integrity.unresolved_transient_assertions == 1
+                        || expected.category == "unreconciled_combat_frame"
+                            && integrity.unresolved_transient_assertions > 0
                         || expected.category == "unreconciled_smoke_bomb_frame"
                             && integrity.unresolved_transient_assertions > 0
                         || expected.category == "unsupported_smoke_bomb_queued_combat"
@@ -488,6 +493,36 @@ mod tests {
         };
         let integrity = VerificationIntegrity {
             unresolved_transient_assertions: 2,
+            ..complete_integrity()
+        };
+
+        assert_eq!(
+            assess_verification(
+                Ok(&report),
+                &VerificationExpectation::ExpectedBoundary { boundary: expected },
+                Some(&integrity),
+            ),
+            VerificationOutcome::ExpectedBoundary { boundary: actual }
+        );
+    }
+
+    #[test]
+    fn deck_boundary_preserves_its_unresolved_assertion() {
+        let mut report = report();
+        let actual = SeedStartBoundary {
+            path: "$.actions[step=107].command".to_owned(),
+            category: "unreconciled_deck_frame".to_owned(),
+            reason: "command arrived before deferred deck mutation reconciled".to_owned(),
+        };
+        let seed_start = report.seed_start.as_mut().expect("seed-start report");
+        seed_start.failed = true;
+        seed_start.first_boundary = actual.clone();
+        let expected = ExpectedBoundary {
+            path: actual.path.clone(),
+            category: actual.category.clone(),
+        };
+        let integrity = VerificationIntegrity {
+            unresolved_transient_assertions: 1,
             ..complete_integrity()
         };
 

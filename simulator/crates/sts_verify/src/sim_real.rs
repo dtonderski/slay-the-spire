@@ -1055,6 +1055,7 @@ struct PendingCombatTransition {
 struct PendingCombatAssertion {
     transitions: Vec<PendingCombatTransition>,
     requires_stable_frame_before_next_command: bool,
+    failed_reconciliation: Option<SeedStartBoundary>,
 }
 
 enum SmokeBombUiState {
@@ -4301,31 +4302,40 @@ fn seed_start_compare_or_defer_combat_transition(
     let diff_count = report.unexpected_diffs.len();
     seed_start_compare_combat_subset(report, action, label, observed, simulated);
     let stable_matches = report.unexpected_diffs.len() == diff_count;
-    let Some(pending) = pending_combat_assertion.take() else {
+    let Some(mut pending) = pending_combat_assertion.take() else {
         return;
     };
-    for transition in pending.transitions {
-        if !transition.transient_matches {
-            continue;
-        }
-        if stable_matches {
+    if stable_matches {
+        for transition in pending.transitions {
+            if !transition.transient_matches {
+                continue;
+            }
             report.verified.push(VerifiedTransition {
                 action_step: transition.action.step,
                 command: transition.action.command,
                 label: transition.label,
             });
             reconciled_deferred_action_steps.push(transition.action.step);
-        } else {
-            report.unsupported.push(UnsupportedTransition {
-                action_step: transition.action.step,
-                command: transition.action.command,
-                reason: format!(
-                    "deferred combat assertion did not reconcile at stable action step {}",
-                    action.step
-                ),
-            });
         }
+        return;
     }
+
+    let stable_diffs = report.unexpected_diffs.split_off(diff_count);
+    let reason = stable_diffs
+        .iter()
+        .flat_map(|diff| {
+            diff.diffs
+                .iter()
+                .map(move |detail| format!("{}: {detail}", diff.label))
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    pending.failed_reconciliation = Some(SeedStartBoundary {
+        path: format!("$.actions[step={}].command", action.step),
+        category: "unreconciled_combat_frame".to_owned(),
+        reason,
+    });
+    *pending_combat_assertion = Some(pending);
 }
 
 fn seed_start_normalize_combat_compare(mut value: Value) -> Value {

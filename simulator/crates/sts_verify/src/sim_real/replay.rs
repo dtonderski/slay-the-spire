@@ -3751,6 +3751,7 @@ fn seed_start_handle_grid_phase(
         });
     };
     let command = action.command.trim();
+    let pre_command_deck = deck_content_keys(&sim.deck);
     let delayed_event_deck_append_count = (command_head_eq(command, "CHOOSE")
         || command.eq_ignore_ascii_case("CONFIRM"))
     .then(|| {
@@ -3875,6 +3876,56 @@ fn seed_start_handle_grid_phase(
                     label: label.to_owned(),
                     transient_decks: vec![simulated_deck],
                     expected_deck,
+                });
+            }
+            PendingDeckObservation::Diverged(deck_diffs) => {
+                diffs.extend(deck_diffs);
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: label.to_owned(),
+                    diffs,
+                });
+            }
+            PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: label.to_owned(),
+                    diffs,
+                });
+            }
+        }
+    } else if destination == SeedStartGridDestination::Rest
+        && next.card_grid.is_none()
+        && pre_command_deck != deck_content_keys(&next.deck)
+    {
+        let observed_deck = observed
+            .as_object_mut()
+            .and_then(|object| object.remove("deck_ids"))
+            .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+            .unwrap_or_default();
+        let simulated_deck = simulated
+            .as_object_mut()
+            .and_then(|object| object.remove("deck_ids"))
+            .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+            .unwrap_or_default();
+        let mut diffs = subset_diffs(observed, simulated);
+        match classify_deferred_deck_observation(&observed_deck, &pre_command_deck, &simulated_deck)
+        {
+            PendingDeckObservation::Settled if diffs.is_empty() => {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: label.to_owned(),
+                });
+            }
+            PendingDeckObservation::Deferred if diffs.is_empty() => {
+                *pending_deck_assertion = Some(PendingDeckAssertion {
+                    action: action.clone(),
+                    label: label.to_owned(),
+                    transient_decks: vec![pre_command_deck],
+                    expected_deck: simulated_deck,
                 });
             }
             PendingDeckObservation::Diverged(deck_diffs) => {
@@ -4455,6 +4506,12 @@ pub(super) fn verify_seed_start_transitions(
     }
 
     for (pre, action, post) in transitions {
+        if let Some(boundary) = pending_combat_assertion
+            .as_ref()
+            .and_then(|pending| pending.failed_reconciliation.clone())
+        {
+            return finish_boundary!(boundary);
+        }
         if start.verification_starting_hp.is_some() {
             if let Some(boundary) = seed_start_take_first_diff_boundary(report) {
                 return finish_boundary!(boundary);
@@ -4525,15 +4582,16 @@ pub(super) fn verify_seed_start_transitions(
                                 reconciled_deferred_action_steps.push(pending.action.step);
                             }
                             PendingDeckObservation::Deferred => {
-                                report.unexpected_diffs.push(UnexpectedDiff {
-                                    action_step: pending.action.step,
-                                    command: pending.action.command,
-                                    label: pending.label,
-                                    diffs: subset_diffs(
-                                        json!(observed_post_deck),
-                                        json!(pending.expected_deck),
+                                let boundary = SeedStartBoundary {
+                                    path: format!("$.actions[step={}].command", action.step),
+                                    category: "unreconciled_deck_frame".to_owned(),
+                                    reason: format!(
+                                        "command '{}' arrived before deferred deck mutation from step {} reconciled",
+                                        action.command, pending.action.step
                                     ),
-                                });
+                                };
+                                pending_deck_assertion = Some(pending);
+                                return finish_boundary!(boundary);
                             }
                             PendingDeckObservation::Diverged(diffs) => {
                                 report.unexpected_diffs.push(UnexpectedDiff {
@@ -5350,6 +5408,38 @@ pub(super) fn verify_seed_start_transitions(
             path: format!("$.actions[step={}].command", endpoint.step),
             category: "unreconciled_smoke_bomb_frame".to_owned(),
             reason: "Smoke Bomb escape did not reach a captured stable reward frame".to_owned(),
+        }
+    } else if let Some(pending) = pending_deck_assertion.as_ref() {
+        SeedStartBoundary {
+            path: format!("$.actions[step={}].command", pending.action.step),
+            category: "unreconciled_deck_frame".to_owned(),
+            reason: "deferred deck mutation did not reach a captured settled frame".to_owned(),
+        }
+    } else if let Some(boundary) = pending_combat_assertion
+        .as_ref()
+        .and_then(|pending| pending.failed_reconciliation.clone())
+    {
+        boundary
+    } else if let Some(pending) = pending_combat_assertion
+        .as_ref()
+        .and_then(|pending| pending.transitions.last())
+    {
+        SeedStartBoundary {
+            path: format!("$.actions[step={}].command", pending.action.step),
+            category: "unreconciled_combat_frame".to_owned(),
+            reason: "deferred combat transition did not reach a captured stable frame".to_owned(),
+        }
+    } else if let Some(pending) = pending_map_assertion.as_ref() {
+        SeedStartBoundary {
+            path: format!("$.actions[step={}].command", pending.action.step),
+            category: "unreconciled_map_frame".to_owned(),
+            reason: "deferred map transition did not reach a captured stable frame".to_owned(),
+        }
+    } else if let Some(pending) = pending_boss_relic_overlay.as_ref() {
+        SeedStartBoundary {
+            path: format!("$.actions[step={}].command", pending.action.step),
+            category: "unreconciled_boss_relic_overlay_frame".to_owned(),
+            reason: "deferred boss-relic overlay did not reach a captured stable frame".to_owned(),
         }
     } else {
         SeedStartBoundary {
