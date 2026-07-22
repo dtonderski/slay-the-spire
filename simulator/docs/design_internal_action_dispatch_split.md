@@ -54,3 +54,10 @@ mutations into a private `player_actions` module. Keep damage, exhaust hooks,
 and top-draw execution outside this family so their queue-sensitive sequencing
 remains independently reviewable. The parent match continues to route every
 variant explicitly.
+
+## Fourth slice: defense and debuff actions
+
+Move healing, block, temporary defense, vulnerable/weak, and monster-strength
+reduction into a private `defense_actions` module. Preserve dead-target no-op
+behavior, checked arithmetic, Artifact handling, Sadistic Nature follow-ups,
+and the order in which temporary strength reduction is recorded.

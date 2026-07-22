@@ -1,5 +1,6 @@
 use super::card_effects;
 mod decision_actions;
+mod defense_actions;
 mod pile_actions;
 mod player_actions;
 use crate::{
@@ -30,7 +31,6 @@ use crate::{
     ids::{CardId, ContentId, MonsterId},
     power::{
         apply_monster_vulnerable, apply_monster_weak, apply_player_vulnerable, calculate_block,
-        reduce_monster_strength,
     },
     relic::Relic,
     rng::JavaRng,
@@ -821,70 +821,32 @@ fn apply_internal_action(
             crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
             Ok(follow_ups)
         }
-        InternalAction::HealPlayer { amount } => {
-            crate::relic::heal_combat_player_with_relics(state, amount)?;
-            Ok(Vec::new())
-        }
-        InternalAction::GainBlock { amount } => apply_player_card_block_gain(state, amount),
+        InternalAction::HealPlayer { amount } => defense_actions::heal_player(state, amount),
+        InternalAction::GainBlock { amount } => defense_actions::gain_player_block(state, amount),
         InternalAction::GainMonsterBlock { target, amount } => {
-            if let Some(monster) = living_monster_mut_opt(state, target) {
-                checked_add_combat_value(&mut monster.block, amount)?;
-            }
-            Ok(Vec::new())
+            defense_actions::gain_monster_block(state, target, amount)
         }
         InternalAction::PreventBlockGain { turns } => {
-            state.player.no_block_turns = state.player.no_block_turns.max(turns);
-            Ok(Vec::new())
+            defense_actions::prevent_block_gain(state, turns)
         }
         InternalAction::GainTemporaryThorns { amount } => {
-            checked_add_combat_value(&mut state.player.temp_thorns, amount)?;
-            Ok(Vec::new())
+            defense_actions::gain_temporary_thorns(state, amount)
         }
-        InternalAction::DoublePlayerBlock => {
-            state.player.block =
-                state
-                    .player
-                    .block
-                    .checked_mul(2)
-                    .ok_or(SimError::InvalidState(
-                        "combat integer multiplication overflows i32",
-                    ))?;
-            Ok(Vec::new())
-        }
+        InternalAction::DoublePlayerBlock => defense_actions::double_player_block(state),
         InternalAction::ApplyVulnerable { target, amount } => {
-            apply_player_vulnerable_debuff(state, target, amount)?;
-            Ok(Vec::new())
+            defense_actions::apply_monster_vulnerable(state, target, amount)
         }
         InternalAction::ApplyPlayerVulnerable { amount } => {
-            crate::power::apply_player_vulnerable(&mut state.player.powers, amount)?;
-            Ok(Vec::new())
+            defense_actions::apply_player_vulnerable(state, amount)
         }
         InternalAction::ApplyWeak { target, amount } => {
-            let mut applied = false;
-            if let Some(monster) = living_monster_mut_opt(state, target) {
-                applied = apply_monster_weak(&mut monster.powers, amount)?;
-            }
-            apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
-            Ok(Vec::new())
+            defense_actions::apply_weak(state, target, amount)
         }
         InternalAction::ReduceMonsterStrength { target, amount } => {
-            let mut applied = false;
-            if let Some(monster) = living_monster_mut_opt(state, target) {
-                applied = reduce_monster_strength(&mut monster.powers, amount)?;
-            }
-            apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
-            Ok(Vec::new())
+            defense_actions::reduce_strength(state, target, amount)
         }
         InternalAction::ReduceMonsterStrengthThisTurn { target, amount } => {
-            let mut applied = false;
-            if let Some(monster) = living_monster_mut_opt(state, target) {
-                applied = reduce_monster_strength(&mut monster.powers, amount)?;
-                if applied {
-                    checked_add_combat_value(&mut monster.temp_strength_down, amount)?;
-                }
-            }
-            apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
-            Ok(Vec::new())
+            defense_actions::reduce_strength_this_turn(state, target, amount)
         }
         InternalAction::MoveCard { card_id, from, to } => {
             pile_actions::move_card_between_piles(state, card_id, from, to)
