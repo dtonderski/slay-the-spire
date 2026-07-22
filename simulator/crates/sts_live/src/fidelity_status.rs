@@ -139,6 +139,7 @@ mod tests {
                     ascension: 0,
                     external_seed: "CODEX04".to_owned(),
                     numeric_seed: 22_079_335_079,
+                    verification_starting_hp: None,
                 },
                 failed: true,
                 first_boundary: SeedStartBoundary {
