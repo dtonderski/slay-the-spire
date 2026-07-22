@@ -874,25 +874,39 @@ pub fn target_potion_reward_offer(
     potion_belt_count: usize,
     potion_capacity: usize,
     guaranteed_potion: bool,
-) -> Option<Potion> {
+) -> SimResult<Option<Potion>> {
     let _ = (potion_belt_count, potion_capacity);
 
-    let mut chance = if guaranteed_potion {
+    let chance = if reward_count >= 4 {
+        0
+    } else if guaranteed_potion {
         100
     } else {
-        BASE_POTION_DROP_CHANCE + *potion_chance
+        BASE_POTION_DROP_CHANCE
+            .checked_add(*potion_chance)
+            .ok_or(SimError::InvalidState(
+                "potion reward drop chance overflows i32",
+            ))?
     };
-    if reward_count >= 4 {
-        chance = 0;
-    }
 
-    if rng.random_int(99) >= chance {
-        *potion_chance += 10;
-        None
+    let mut next_rng = rng.clone();
+    let (next_potion_chance, offer) = if next_rng.random_int(99) >= chance {
+        let next_potion_chance = potion_chance
+            .checked_add(10)
+            .ok_or(SimError::InvalidState("potion reward chance overflows i32"))?;
+        (next_potion_chance, None)
     } else {
-        *potion_chance -= 10;
-        Some(target_random_potion(rng))
-    }
+        let next_potion_chance = potion_chance.checked_sub(10).ok_or(SimError::InvalidState(
+            "potion reward chance underflows i32",
+        ))?;
+        (
+            next_potion_chance,
+            Some(target_random_potion(&mut next_rng)),
+        )
+    };
+    *rng = next_rng;
+    *potion_chance = next_potion_chance;
+    Ok(offer)
 }
 
 pub(crate) fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey {
@@ -927,7 +941,14 @@ fn target_matryoshka_relic_tier(relic_rng: &mut StsRng) -> RelicTier {
     }
 }
 
-pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
+pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) -> SimResult<()> {
+    let mut next = run.clone();
+    enter_relic_reward_screen_inner(&mut next, kind)?;
+    *run = next;
+    Ok(())
+}
+
+fn enter_relic_reward_screen_inner(run: &mut RunState, kind: CombatRewardKind) -> SimResult<()> {
     let continuation = combat_reward_continuation(run);
     run.ensure_ironclad_relic_pools();
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
@@ -955,7 +976,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
             run.potions.len(),
             potion_capacity,
             run.relics.contains(&Relic::WhiteBeastStatue),
-        );
+        )?;
         run.store_rng_counter(RunRngStream::Potion, &potion_rng);
     }
 
@@ -975,6 +996,7 @@ pub fn enter_relic_reward_screen(run: &mut RunState, kind: CombatRewardKind) {
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
+    Ok(())
 }
 
 pub fn enter_boss_relic_reward_screen(run: &mut RunState) {
@@ -1214,6 +1236,13 @@ pub fn any_color_reward_card_key_from_identity(identity: &str) -> Option<&'stati
 }
 
 pub fn enter_normal_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
+    let mut next = run.clone();
+    enter_normal_combat_reward_screen_inner(&mut next)?;
+    *run = next;
+    Ok(())
+}
+
+fn enter_normal_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     let pending_card_reward_count = if run.relics.contains(&Relic::PrayerWheel) {
         2
     } else {
@@ -1249,8 +1278,12 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
         let potion_capacity = run.potion_capacity();
         let potion_offer = if all_monsters_escaped && !run.relics.contains(&Relic::WhiteBeastStatue)
         {
+            let next_potion_chance = run
+                .potion_chance
+                .checked_add(10)
+                .ok_or(SimError::InvalidState("potion reward chance overflows i32"))?;
             let _ = potion_rng.random_int(99);
-            run.potion_chance += 10;
+            run.potion_chance = next_potion_chance;
             None
         } else {
             target_potion_reward_offer(
@@ -1260,7 +1293,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
                 run.potions.len(),
                 potion_capacity,
                 run.relics.contains(&Relic::WhiteBeastStatue),
-            )
+            )?
         };
         run.store_rng_counter(RunRngStream::Potion, &potion_rng);
         potion_offer
@@ -1324,6 +1357,13 @@ pub fn enter_reward_screen(run: &mut RunState) -> SimResult<()> {
 }
 
 pub fn enter_elite_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
+    let mut next = run.clone();
+    enter_elite_combat_reward_screen_inner(&mut next)?;
+    *run = next;
+    Ok(())
+}
+
+fn enter_elite_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     run.reserve_card_instance_ids(reward_card_choice_count(run))?;
     let continuation = combat_reward_continuation(run);
     let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
@@ -1351,7 +1391,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
             run.potions.len(),
             potion_capacity,
             run.relics.contains(&Relic::WhiteBeastStatue),
-        );
+        )?;
         run.store_rng_counter(RunRngStream::Potion, &potion_rng);
         potion_offer
     } else {
@@ -1379,6 +1419,13 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
 }
 
 pub fn enter_boss_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
+    let mut next = run.clone();
+    enter_boss_combat_reward_screen_inner(&mut next)?;
+    *run = next;
+    Ok(())
+}
+
+fn enter_boss_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     run.reserve_card_instance_ids(reward_card_choice_count(run))?;
     let continuation = combat_reward_continuation(run);
     let mut misc_rng = run.rng_for_stream(RunRngStream::Misc);
@@ -1395,7 +1442,7 @@ pub fn enter_boss_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
             run.potions.len(),
             potion_capacity,
             run.relics.contains(&Relic::WhiteBeastStatue),
-        );
+        )?;
         run.store_rng_counter(RunRngStream::Potion, &potion_rng);
         potion_offer
     } else {
@@ -1510,8 +1557,8 @@ fn advance_card_rng_for_dungeon_transition(run: &mut RunState) {
     }
 }
 
-pub fn enter_elite_relic_reward_screen(run: &mut RunState) {
-    enter_relic_reward_screen(run, CombatRewardKind::Elite);
+pub fn enter_elite_relic_reward_screen(run: &mut RunState) -> SimResult<()> {
+    enter_relic_reward_screen(run, CombatRewardKind::Elite)
 }
 
 pub fn enter_chest_relic_reward_screen(run: &mut RunState) -> SimResult<()> {
@@ -2968,12 +3015,93 @@ mod tests {
         let mut expected_rng = StsRng::new(77);
         let mut potion_chance = 0;
 
-        let actual = target_potion_reward_offer(&mut actual_rng, &mut potion_chance, 2, 0, 3, true);
+        let actual = target_potion_reward_offer(&mut actual_rng, &mut potion_chance, 2, 0, 3, true)
+            .expect("guaranteed potion roll succeeds");
         let _drop_roll = expected_rng.random_int(99);
         let expected = Some(target_random_potion(&mut expected_rng));
 
         assert_eq!(actual, expected);
         assert_eq!(actual_rng.counter(), expected_rng.counter());
         assert_eq!(potion_chance, -10);
+    }
+
+    #[test]
+    fn potion_reward_chance_failures_do_not_consume_rng_or_mutate_chance() {
+        let mut base_overflow_rng = StsRng::new(77);
+        let base_overflow_rng_before = base_overflow_rng.clone();
+        let mut base_overflow_chance = i32::MAX;
+        assert_eq!(
+            target_potion_reward_offer(
+                &mut base_overflow_rng,
+                &mut base_overflow_chance,
+                1,
+                0,
+                3,
+                false,
+            ),
+            Err(SimError::InvalidState(
+                "potion reward drop chance overflows i32"
+            ))
+        );
+        assert_eq!(base_overflow_rng, base_overflow_rng_before);
+        assert_eq!(base_overflow_chance, i32::MAX);
+
+        let mut miss_overflow_rng = StsRng::new(77);
+        let miss_overflow_rng_before = miss_overflow_rng.clone();
+        let mut miss_overflow_chance = i32::MAX;
+        assert_eq!(
+            target_potion_reward_offer(
+                &mut miss_overflow_rng,
+                &mut miss_overflow_chance,
+                4,
+                0,
+                3,
+                false,
+            ),
+            Err(SimError::InvalidState("potion reward chance overflows i32"))
+        );
+        assert_eq!(miss_overflow_rng, miss_overflow_rng_before);
+        assert_eq!(miss_overflow_chance, i32::MAX);
+
+        let mut hit_underflow_rng = StsRng::new(77);
+        let hit_underflow_rng_before = hit_underflow_rng.clone();
+        let mut hit_underflow_chance = i32::MIN;
+        assert_eq!(
+            target_potion_reward_offer(
+                &mut hit_underflow_rng,
+                &mut hit_underflow_chance,
+                1,
+                0,
+                3,
+                true,
+            ),
+            Err(SimError::InvalidState(
+                "potion reward chance underflows i32"
+            ))
+        );
+        assert_eq!(hit_underflow_rng, hit_underflow_rng_before);
+        assert_eq!(hit_underflow_chance, i32::MIN);
+    }
+
+    #[test]
+    fn escaped_combat_potion_chance_overflow_rolls_back_reward_entry() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.potion_chance = i32::MAX;
+        let mut combat = CombatState::initial_fixture();
+        for monster in &mut combat.monsters {
+            monster.hp = 0;
+            monster.alive = false;
+            monster.escaped = true;
+        }
+        run.combat = Some(combat);
+        let before = run.clone();
+
+        assert_eq!(
+            enter_normal_combat_reward_screen(&mut run),
+            Err(SimError::InvalidState("potion reward chance overflows i32"))
+        );
+        assert_eq!(run, before);
     }
 }
