@@ -1218,37 +1218,10 @@ fn permanent_trace_entries_pass_seed_start() {
             integrity.duplicate_dispositions, 0,
             "{display_path} has duplicate or orphan verifier dispositions"
         );
-        let expected_boundary_category = match &entry.expectation {
-            sts_verify::VerificationExpectation::ExpectedBoundary { boundary } => {
-                Some(boundary.category.as_str())
-            }
-            _ => None,
-        };
-        match expected_boundary_category {
-            Some(
-                "unreconciled_copied_attack_frame"
-                | "unreconciled_deck_frame"
-                | "unreconciled_map_frame"
-                | "unreconciled_boss_relic_overlay_frame",
-            ) => assert_eq!(
-                integrity.unresolved_transient_assertions, 1,
-                "{display_path} copied-attack boundary must retain exactly its one causal unresolved assertion"
-            ),
-            Some(
-                "unreconciled_combat_frame"
-                | "unreconciled_smoke_bomb_frame"
-                | "unsupported_smoke_bomb_queued_combat",
-            ) => {
-                assert!(
-                    integrity.unresolved_transient_assertions > 0,
-                    "{display_path} Smoke Bomb boundary must retain its causal unresolved assertion"
-                );
-            }
-            _ => assert_eq!(
-                integrity.unresolved_transient_assertions, 0,
-                "{display_path} has unresolved transient assertions"
-            ),
-        }
+        assert_eq!(
+            integrity.unresolved_transient_assertions, 0,
+            "{display_path} has unresolved transient assertions"
+        );
         let outcome = assess_verification(Ok(&report), &entry.expectation, Some(integrity));
         assert!(
             outcome.is_success(),

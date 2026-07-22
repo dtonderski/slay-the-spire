@@ -713,12 +713,6 @@ fn expectation_label(expectation: &VerificationExpectation) -> String {
             "retained_prefix through step {} ({})",
             endpoint.action_step, endpoint.label
         ),
-        VerificationExpectation::ExpectedBoundary { boundary } => {
-            format!(
-                "expected_boundary {} at {}",
-                boundary.category, boundary.path
-            )
-        }
     }
 }
 
@@ -726,7 +720,6 @@ fn outcome_status(outcome: &VerificationOutcome) -> &'static str {
     match outcome {
         VerificationOutcome::CompletePass => "complete_pass",
         VerificationOutcome::RetainedPrefixPass { .. } => "retained_prefix_pass",
-        VerificationOutcome::ExpectedBoundary { .. } => "expected_boundary",
         VerificationOutcome::InvalidInput { .. } => "invalid_input",
         VerificationOutcome::Failed { .. } => "failed",
     }
@@ -734,9 +727,7 @@ fn outcome_status(outcome: &VerificationOutcome) -> &'static str {
 
 fn verification_outcome_exit_code(outcome: &VerificationOutcome) -> i32 {
     match outcome {
-        VerificationOutcome::CompletePass
-        | VerificationOutcome::RetainedPrefixPass { .. }
-        | VerificationOutcome::ExpectedBoundary { .. } => 0,
+        VerificationOutcome::CompletePass | VerificationOutcome::RetainedPrefixPass { .. } => 0,
         VerificationOutcome::InvalidInput { .. } => 1,
         VerificationOutcome::Failed { .. } => 2,
     }
@@ -751,9 +742,7 @@ fn print_verification_outcome(outcome: &VerificationOutcome) {
                 println!("failure={failure:?}");
             }
         }
-        VerificationOutcome::CompletePass
-        | VerificationOutcome::RetainedPrefixPass { .. }
-        | VerificationOutcome::ExpectedBoundary { .. } => {}
+        VerificationOutcome::CompletePass | VerificationOutcome::RetainedPrefixPass { .. } => {}
     }
 }
 
@@ -840,7 +829,7 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
         .filter(|entry| {
             matches!(
                 entry.status.as_str(),
-                "complete_pass" | "retained_prefix_pass" | "expected_boundary"
+                "complete_pass" | "retained_prefix_pass"
             )
         })
         .count();
@@ -855,10 +844,6 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     let prefix_passes = entries
         .iter()
         .filter(|entry| entry.status == "retained_prefix_pass")
-        .count();
-    let expected_boundaries = entries
-        .iter()
-        .filter(|entry| entry.status == "expected_boundary")
         .count();
     let raw_diffs: usize = entries.iter().map(|entry| entry.raw_diffs).sum();
     let unsupported: usize = entries.iter().map(|entry| entry.unsupported).sum();
@@ -881,7 +866,6 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     println!("passing_traces={passing}");
     println!("complete_passes={complete_passes}");
     println!("retained_prefix_passes={prefix_passes}");
-    println!("expected_boundaries={expected_boundaries}");
     println!("raw_unexpected_diffs={raw_diffs}");
     println!("unsupported_transitions={unsupported}");
     println!("verified_transitions={verified}");

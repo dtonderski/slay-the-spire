@@ -16,7 +16,7 @@ pass or a plausible substitute simulation result.
   Simulated projection functions take simulator state rather than observed
   post-state. Observation-derived legacy reconstruction helpers are test-only.
 - Verification outcomes are typed as complete pass, retained-prefix pass,
-  expected boundary, invalid input, or failure. Assessment rejects unexpected
+  invalid input, or failure. Assessment rejects unexpected
   diffs, unsupported transitions, ignored tails, inconsistent or unexpected
   boundaries, malformed input, incomplete or duplicate action dispositions,
   rejected actions in complete traces, missing terminal state, and unresolved

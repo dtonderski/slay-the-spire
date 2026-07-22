@@ -21,23 +21,23 @@ observation.
 
 Verification verdict and coverage scope are explicit. A report is assessed
 against one declared expectation: complete replay, a retained prefix with a
-named endpoint, or an exact expected boundary. The resulting typed outcome is
-one of complete pass, retained-prefix pass, expected boundary, invalid input,
-or failure.
+named endpoint. The resulting typed outcome is one of complete pass,
+retained-prefix pass, invalid input, or failure. Any replay boundary is a
+failure diagnostic and can never be declared as a passing expectation.
 
 No passing outcome may be produced from empty diff lists alone. It also
-requires zero unsupported transitions, zero ignored-tail actions, a boundary
-consistent with the declared expectation, and complete action-integrity
+requires zero unsupported transitions, zero ignored-tail actions, no replay
+boundary, and complete action-integrity
 evidence. That evidence must show exactly one disposition for every applicable
 action, no duplicate dispositions, and no unresolved transient assertions.
 Missing integrity evidence is itself a failure.
 
 The `parity` command is strict complete verification: it exits `0` only for a
 `complete_pass`, `1` for invalid input, and `2` for a valid trace that fails the
-complete contract. Retained prefixes and expected boundaries must be declared
-in a corpus manifest and assessed with `status`; status uses the same exit-code
-policy across all entries. A prefix that has no raw diff therefore cannot pass
-when invoked as complete parity.
+complete contract. Retained prefixes must be declared in a corpus manifest and
+assessed with `status`; status uses the same exit-code policy across all
+entries. A prefix that has no raw diff therefore cannot pass when invoked as
+complete parity.
 
 ## Real-Game Comparison
 
@@ -83,8 +83,8 @@ uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown perma
 
 [`permanent_traces.json`](../verification/corpus/permanent_traces.json) is the
 only permanent-corpus expectation authority. Its entries declare complete replay,
-retained-prefix coverage with an exact named action endpoint, or an exact
-expected boundary. The status command and permanent corpus test require the
+or retained-prefix coverage with an exact named action endpoint. The status
+command and permanent corpus test require the
 manifest to match the `permanent_traces/` filesystem exactly. Raw traces do not
 become passing evidence merely because they have no current diffs.
 
@@ -106,9 +106,10 @@ For multi-run traces, extract the useful attempt before promoting:
 node tools\communication\trace_tools.js extract-run simulator\verification\corpus\communication_mod\<raw>.valid-prefix.jsonl 1 simulator\verification\corpus\communication_mod\<raw>.run2.valid-prefix.jsonl
 ```
 
-Promote a trace only after assigning its typed expectation and making it pass
-the permanent corpus integrity gate. Keep failing or exploratory captures
-outside `permanent_traces/`; they are debugging inputs, not parity claims.
+Promoted traces may remain failing while their underlying simulator mechanics
+are implemented. They stay visible as failing permanent tests and must never be
+made green by declaring the failure location acceptable. Exploratory captures
+remain outside `permanent_traces/` until selected as durable evidence.
 
 ### Divergence minimization
 
@@ -119,7 +120,10 @@ cd simulator
 uv run -- cargo run -p sts_verify -- minimize -o verification\corpus\bugs\my-bug.jsonl verification\corpus\communication_mod\trace.jsonl
 ```
 
-`minimize` runs parity, finds the first `unexpected_diff` or expected-failure boundary, and writes metadata plus all state/action lines through that step. Summary fields go to stderr; the minimized trace goes to stdout or `-o`. Passing traces exit 0 with `minimize: trace has no unexpected diff or expected-failure boundary to minimize`.
+`minimize` runs parity, finds the first `unexpected_diff` or failure boundary,
+and writes metadata plus all state/action lines through that step. Summary
+fields go to stderr; the minimized trace goes to stdout or `-o`. Passing traces
+exit 0 when there is no failure to minimize.
 
 ### Visibility contract
 

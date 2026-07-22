@@ -15,7 +15,7 @@ pub use minimize::{
     MinimizeFailureKind, MinimizeReport,
 };
 pub use outcome::{
-    assess_verification, ExpectedBoundary, RetainedPrefixEndpoint, VerificationCorpusEntry,
+    assess_verification, RetainedPrefixEndpoint, VerificationCorpusEntry,
     VerificationCorpusManifest, VerificationExpectation, VerificationFailure,
     VerificationIntegrity, VerificationOutcome, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };

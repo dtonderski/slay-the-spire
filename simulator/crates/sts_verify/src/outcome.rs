@@ -3,7 +3,7 @@
 use crate::{ActionDispositionKind, SeedStartBoundary, SimRealError, SimRealReport};
 use serde::{Deserialize, Serialize};
 
-pub const VERIFICATION_CORPUS_MANIFEST_SCHEMA: u32 = 1;
+pub const VERIFICATION_CORPUS_MANIFEST_SCHEMA: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerificationCorpusManifest {
@@ -22,19 +22,12 @@ pub struct VerificationCorpusEntry {
 pub enum VerificationExpectation {
     Complete,
     RetainedPrefix { endpoint: RetainedPrefixEndpoint },
-    ExpectedBoundary { boundary: ExpectedBoundary },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RetainedPrefixEndpoint {
     pub action_step: u32,
     pub label: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ExpectedBoundary {
-    pub path: String,
-    pub category: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,17 +45,13 @@ pub struct VerificationIntegrity {
 pub enum VerificationOutcome {
     CompletePass,
     RetainedPrefixPass { endpoint: RetainedPrefixEndpoint },
-    ExpectedBoundary { boundary: SeedStartBoundary },
     InvalidInput { reason: String },
     Failed { failures: Vec<VerificationFailure> },
 }
 
 impl VerificationOutcome {
     pub fn is_success(&self) -> bool {
-        matches!(
-            self,
-            Self::CompletePass | Self::RetainedPrefixPass { .. } | Self::ExpectedBoundary { .. }
-        )
+        matches!(self, Self::CompletePass | Self::RetainedPrefixPass { .. })
     }
 }
 
@@ -85,10 +74,6 @@ pub enum VerificationFailure {
     },
     UnexpectedBoundary {
         boundary: SeedStartBoundary,
-    },
-    ExpectedBoundaryNotReached {
-        expected: ExpectedBoundary,
-        actual: SeedStartBoundary,
     },
     CompleteTraceNotTerminal,
     CompleteTraceHasRejectedActions {
@@ -167,44 +152,19 @@ pub fn assess_verification(
         }
     }
 
-    let unsupported_is_exact_boundary_cause = matches!(
-        (
-            expectation,
-            actual_boundary.as_ref(),
-            report.unsupported.as_slice(),
-        ),
-        (
-            VerificationExpectation::ExpectedBoundary { boundary: expected },
-            Some(actual),
-            [unsupported],
-        ) if actual.path == expected.path
-            && actual.category == expected.category
-            && actual.path == format!("$.actions[step={}].command", unsupported.action_step)
-            && actual.reason == unsupported.reason
-    );
-    if !report.unsupported.is_empty() && !unsupported_is_exact_boundary_cause {
+    if !report.unsupported.is_empty() {
         failures.push(VerificationFailure::UnsupportedTransitions {
             count: report.unsupported.len(),
         });
     }
 
-    match (expectation, actual_boundary.as_ref()) {
-        (VerificationExpectation::ExpectedBoundary { boundary: expected }, Some(actual))
-            if actual.path != expected.path || actual.category != expected.category =>
-        {
-            failures.push(VerificationFailure::ExpectedBoundaryNotReached {
-                expected: expected.clone(),
-                actual: actual.clone(),
-            });
-        }
-        (VerificationExpectation::ExpectedBoundary { .. }, Some(_)) => {}
-        (VerificationExpectation::ExpectedBoundary { .. }, None) => {}
-        (_, Some(actual)) if actual.category != "none" => {
-            failures.push(VerificationFailure::UnexpectedBoundary {
-                boundary: actual.clone(),
-            });
-        }
-        _ => {}
+    if let Some(actual) = actual_boundary
+        .as_ref()
+        .filter(|boundary| boundary.category != "none")
+    {
+        failures.push(VerificationFailure::UnexpectedBoundary {
+            boundary: actual.clone(),
+        });
     }
 
     match integrity {
@@ -220,28 +180,7 @@ pub fn assess_verification(
                     count: integrity.duplicate_dispositions,
                 });
             }
-            let unresolved_is_expected_boundary_cause = matches!(
-                (expectation, actual_boundary.as_ref()),
-                (
-                    VerificationExpectation::ExpectedBoundary { boundary: expected },
-                    Some(actual),
-                ) if actual.path == expected.path
-                    && actual.category == expected.category
-                    && ((expected.category == "unreconciled_copied_attack_frame"
-                        || expected.category == "unreconciled_deck_frame"
-                        || expected.category == "unreconciled_map_frame"
-                        || expected.category == "unreconciled_boss_relic_overlay_frame")
-                        && integrity.unresolved_transient_assertions == 1
-                        || expected.category == "unreconciled_combat_frame"
-                            && integrity.unresolved_transient_assertions > 0
-                        || expected.category == "unreconciled_smoke_bomb_frame"
-                            && integrity.unresolved_transient_assertions > 0
-                        || expected.category == "unsupported_smoke_bomb_queued_combat"
-                            && integrity.unresolved_transient_assertions > 0)
-            );
-            if integrity.unresolved_transient_assertions != 0
-                && !unresolved_is_expected_boundary_cause
-            {
+            if integrity.unresolved_transient_assertions != 0 {
                 failures.push(VerificationFailure::UnresolvedTransientAssertions {
                     count: integrity.unresolved_transient_assertions,
                 });
@@ -288,9 +227,6 @@ pub fn assess_verification(
                 endpoint: endpoint.clone(),
             }
         }
-        VerificationExpectation::ExpectedBoundary { .. } => VerificationOutcome::ExpectedBoundary {
-            boundary: actual_boundary.expect("successful assessment has seed-start boundary"),
-        },
     }
 }
 
@@ -385,231 +321,38 @@ mod tests {
     }
 
     #[test]
-    fn exact_expected_boundary_is_a_distinct_success() {
-        let mut report = report();
-        let actual = SeedStartBoundary {
-            path: "$.actions[12]".to_owned(),
-            category: "unsupported_mechanic".to_owned(),
-            reason: "mechanic is outside retained coverage".to_owned(),
-        };
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = actual.clone();
-        let expected = ExpectedBoundary {
-            path: actual.path.clone(),
-            category: actual.category.clone(),
-        };
-
-        assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::ExpectedBoundary { boundary: expected },
-                Some(&complete_integrity()),
-            ),
-            VerificationOutcome::ExpectedBoundary { boundary: actual }
-        );
-    }
-
-    #[test]
-    fn exact_expected_boundary_allows_its_single_causal_unsupported_transition() {
-        let mut report = report();
-        let actual = SeedStartBoundary {
-            path: "$.actions[step=12].command".to_owned(),
-            category: "unsupported_mechanic".to_owned(),
-            reason: "mechanic is outside retained coverage".to_owned(),
-        };
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = actual.clone();
-        report.unsupported.push(UnsupportedTransition {
+    fn retained_prefix_cannot_accept_a_replay_boundary() {
+        let endpoint = RetainedPrefixEndpoint {
             action_step: 12,
-            command: "CHOOSE 1".to_owned(),
-            reason: actual.reason.clone(),
-        });
-        let expected = ExpectedBoundary {
-            path: actual.path.clone(),
-            category: actual.category.clone(),
+            label: "captured trace endpoint".to_owned(),
         };
-
-        assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::ExpectedBoundary { boundary: expected },
-                Some(&complete_integrity()),
-            ),
-            VerificationOutcome::ExpectedBoundary { boundary: actual }
-        );
-    }
-
-    #[test]
-    fn copied_attack_boundary_preserves_its_unresolved_transient_evidence() {
-        let mut report = report();
-        let actual = SeedStartBoundary {
-            path: "$.actions[step=481].command".to_owned(),
-            category: "unreconciled_copied_attack_frame".to_owned(),
-            reason: "queued copied attack did not reach a captured stable frame".to_owned(),
-        };
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = actual.clone();
-        report.unsupported.push(UnsupportedTransition {
-            action_step: 481,
-            command: "END".to_owned(),
-            reason: actual.reason.clone(),
-        });
-        let expected = ExpectedBoundary {
-            path: actual.path.clone(),
-            category: actual.category.clone(),
-        };
-        let integrity = VerificationIntegrity {
-            unresolved_transient_assertions: 1,
-            ..complete_integrity()
-        };
-
-        assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::ExpectedBoundary { boundary: expected },
-                Some(&integrity),
-            ),
-            VerificationOutcome::ExpectedBoundary { boundary: actual }
-        );
-    }
-
-    #[test]
-    fn smoke_bomb_boundary_preserves_all_unresolved_queued_commands() {
-        let mut report = report();
-        let actual = SeedStartBoundary {
-            path: "$.actions[step=93].command".to_owned(),
-            category: "unreconciled_smoke_bomb_frame".to_owned(),
-            reason: "Smoke Bomb escape did not reach a captured stable reward frame".to_owned(),
-        };
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = actual.clone();
-        let expected = ExpectedBoundary {
-            path: actual.path.clone(),
-            category: actual.category.clone(),
-        };
-        let integrity = VerificationIntegrity {
-            unresolved_transient_assertions: 2,
-            ..complete_integrity()
-        };
-
-        assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::ExpectedBoundary { boundary: expected },
-                Some(&integrity),
-            ),
-            VerificationOutcome::ExpectedBoundary { boundary: actual }
-        );
-    }
-
-    #[test]
-    fn deck_boundary_preserves_its_unresolved_assertion() {
-        let mut report = report();
-        let actual = SeedStartBoundary {
-            path: "$.actions[step=107].command".to_owned(),
-            category: "unreconciled_deck_frame".to_owned(),
-            reason: "command arrived before deferred deck mutation reconciled".to_owned(),
-        };
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = actual.clone();
-        let expected = ExpectedBoundary {
-            path: actual.path.clone(),
-            category: actual.category.clone(),
-        };
-        let integrity = VerificationIntegrity {
-            unresolved_transient_assertions: 1,
-            ..complete_integrity()
-        };
-
-        assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::ExpectedBoundary { boundary: expected },
-                Some(&integrity),
-            ),
-            VerificationOutcome::ExpectedBoundary { boundary: actual }
-        );
-    }
-
-    #[test]
-    fn queued_smoke_bomb_combat_boundary_preserves_unresolved_escape_evidence() {
-        let mut report = report();
-        let actual = SeedStartBoundary {
-            path: "$.actions[step=230].command".to_owned(),
-            category: "unsupported_smoke_bomb_queued_combat".to_owned(),
-            reason: "a queued command mutated transient combat after the authoritative Smoke Bomb escape".to_owned(),
-        };
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = actual.clone();
-        report.unsupported.push(UnsupportedTransition {
-            action_step: 230,
-            command: "PLAY 2".to_owned(),
-            reason: actual.reason.clone(),
-        });
-        let expected = ExpectedBoundary {
-            path: actual.path.clone(),
-            category: actual.category.clone(),
-        };
-        let integrity = VerificationIntegrity {
-            unresolved_transient_assertions: 2,
-            ..complete_integrity()
-        };
-
-        assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::ExpectedBoundary { boundary: expected },
-                Some(&integrity),
-            ),
-            VerificationOutcome::ExpectedBoundary { boundary: actual }
-        );
-    }
-
-    #[test]
-    fn expected_boundary_rejects_additional_unsupported_transitions() {
-        let mut report = report();
-        let actual = SeedStartBoundary {
+        let boundary = SeedStartBoundary {
             path: "$.actions[step=12].command".to_owned(),
             category: "unsupported_mechanic".to_owned(),
-            reason: "mechanic is outside retained coverage".to_owned(),
+            reason: "mechanic is not implemented".to_owned(),
         };
+        let mut report = report();
         let seed_start = report.seed_start.as_mut().expect("seed-start report");
         seed_start.failed = true;
-        seed_start.first_boundary = actual.clone();
-        report.unsupported.extend([
-            UnsupportedTransition {
-                action_step: 11,
-                command: "CHOOSE 0".to_owned(),
-                reason: "earlier unsupported transition".to_owned(),
-            },
-            UnsupportedTransition {
-                action_step: 12,
-                command: "CHOOSE 1".to_owned(),
-                reason: actual.reason.clone(),
-            },
-        ]);
-        let expected = ExpectedBoundary {
-            path: actual.path.clone(),
-            category: actual.category.clone(),
-        };
+        seed_start.first_boundary = boundary.clone();
+        report.action_dispositions.push(crate::ActionDisposition {
+            action_ordinal: 0,
+            action_step: endpoint.action_step,
+            command: "CHOOSE 0".to_owned(),
+            disposition: ActionDispositionKind::Verified,
+            detail: None,
+            deferred_assertion_reconciled: false,
+        });
 
         let outcome = assess_verification(
             Ok(&report),
-            &VerificationExpectation::ExpectedBoundary { boundary: expected },
+            &VerificationExpectation::RetainedPrefix { endpoint },
             Some(&complete_integrity()),
         );
-        assert_eq!(
-            outcome,
-            VerificationOutcome::Failed {
-                failures: vec![VerificationFailure::UnsupportedTransitions { count: 2 }]
-            }
-        );
+        let VerificationOutcome::Failed { failures } = outcome else {
+            panic!("replay boundary unexpectedly passed: {outcome:?}");
+        };
+        assert!(failures.contains(&VerificationFailure::UnexpectedBoundary { boundary }));
     }
 
     #[test]
@@ -647,32 +390,6 @@ mod tests {
                 &VerificationExpectation::Complete,
                 Some(&complete_integrity()),
             ),
-            VerificationOutcome::InvalidInput {
-                reason: format!("{}: {}", boundary.path, boundary.reason),
-            }
-        );
-    }
-
-    #[test]
-    fn invalid_input_boundary_cannot_be_an_expected_boundary() {
-        let mut report = report();
-        let boundary = SeedStartBoundary {
-            path: "$.actions[step=12].sent_at".to_owned(),
-            category: "invalid_input".to_owned(),
-            reason: "command timing is malformed".to_owned(),
-        };
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = boundary.clone();
-        let expectation = VerificationExpectation::ExpectedBoundary {
-            boundary: ExpectedBoundary {
-                path: boundary.path.clone(),
-                category: boundary.category.clone(),
-            },
-        };
-
-        assert_eq!(
-            assess_verification(Ok(&report), &expectation, Some(&complete_integrity()),),
             VerificationOutcome::InvalidInput {
                 reason: format!("{}: {}", boundary.path, boundary.reason),
             }
@@ -836,39 +553,6 @@ mod tests {
             };
             assert!(failures.contains(&expected_failure), "{failures:?}");
         }
-    }
-
-    #[test]
-    fn expected_boundary_must_match_both_category_and_path() {
-        let mut report = report();
-        let actual = SeedStartBoundary {
-            path: "$.actions[12]".to_owned(),
-            category: "unsupported_mechanic".to_owned(),
-            reason: "stopped".to_owned(),
-        };
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = actual.clone();
-        let expected = ExpectedBoundary {
-            path: "$.actions[13]".to_owned(),
-            category: actual.category.clone(),
-        };
-
-        assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::ExpectedBoundary {
-                    boundary: expected.clone(),
-                },
-                Some(&complete_integrity()),
-            ),
-            VerificationOutcome::Failed {
-                failures: vec![VerificationFailure::ExpectedBoundaryNotReached {
-                    expected,
-                    actual,
-                }],
-            }
-        );
     }
 
     #[test]

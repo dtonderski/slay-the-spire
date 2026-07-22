@@ -36,6 +36,6 @@ One historical retained trace sends `CHOOSE 1` for a full-belt potion and only
 receives its next state 87 seconds later, after gold has instead been taken.
 Installed CommunicationMod bytecode confirms that the command marks reward
 index 1 (the potion) done; it does not select gold. That trace now declares the
-exact reward-command boundary instead of claiming coverage through the later
-externally divergent state. Expected-boundary assessment permits only the
-single unsupported transition that exactly caused its declared boundary.
+captured trace endpoint and remains a failing permanent trace until replay
+supports the full command sequence without substituting the later externally
+divergent state.
