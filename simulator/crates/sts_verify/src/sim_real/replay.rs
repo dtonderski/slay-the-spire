@@ -725,6 +725,344 @@ fn seed_start_handle_neow_potion_reward_phase(
     SeedStartPreDispatch::NotHandled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_neow_grid_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    deck_ids: &mut Vec<String>,
+    neow_gold: &mut i32,
+    neow_current_hp: &mut i32,
+    neow_max_hp: &mut i32,
+    neow_leave_visible_deck_ids: &mut Option<Vec<String>>,
+    delayed_neow_curse: &mut Option<String>,
+    delayed_neow_transform_count: &mut usize,
+    seed_sim: &mut Option<RunState>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase == SeedStartPhase::NeowOptions {
+        let Some(option) = seed_start_selected_neow_option(start.numeric_seed, &action.command)
+        else {
+            return SeedStartPreDispatch::NotHandled;
+        };
+        if !seed_start_neow_option_is_supported_grid_reward(option.clone()) {
+            return SeedStartPreDispatch::NotHandled;
+        }
+        let mut run = seed_start_open_neow_grid_run_for_ascension(
+            start.numeric_seed,
+            start.ascension,
+            deck_ids,
+            &option,
+        );
+        if option.drawback == NeowDrawback::Curse {
+            let mut curse_run = run.clone();
+            let curse = match apply_neow_curse_drawback(&mut curse_run) {
+                Ok(curse) => curse,
+                Err(error) => {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_neow_state".to_owned(),
+                        reason: format!(
+                            "core Neow curse drawback rejected simulator state: {error}"
+                        ),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return SeedStartPreDispatch::Boundary(boundary);
+                }
+            };
+            *delayed_neow_curse = Some(deck_content_key(curse.curse).to_owned());
+            run.card_rng_counter = curse.card_rng_counter;
+            *delayed_neow_transform_count = match option.reward {
+                NeowRewardType::TransformCard => 1,
+                NeowRewardType::TransformTwoCards => 2,
+                _ => 0,
+            };
+        }
+        *neow_gold = run.gold;
+        *neow_current_hp = run.player_hp;
+        *neow_max_hp = run.player_max_hp;
+        compare_subset(
+            report,
+            action,
+            seed_start_neow_grid_label(option.reward),
+            seed_start_grid_observed_subset(&post.message),
+            seed_start_grid_simulated_subset(&run),
+        );
+        *seed_sim = Some(run);
+        *phase = SeedStartPhase::NeowGrid;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowGrid && command_choose_index(&action.command).is_some() {
+        let Some(sim) = seed_sim.as_ref() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_grid_path".to_owned(),
+                reason: "seed-start Neow grid action without initialized run simulation".to_owned(),
+            });
+        };
+        let index = command_choose_index(&action.command).expect("matched choose command");
+        let Ok(next) = select_grid_card(sim, index) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_grid_path".to_owned(),
+                reason: "seed-start Neow grid choose simulation failed".to_owned(),
+            });
+        };
+        let observed_grid = seed_start_grid_observed_subset(&post.message);
+        let selected_subset = if *delayed_neow_transform_count > 0 {
+            let mut visible_deck_ids = deck_content_keys(&next.deck);
+            if let Some(curse) = delayed_neow_curse.as_deref() {
+                visible_deck_ids.push(curse.to_owned());
+            }
+            seed_start_grid_simulated_subset_with_deck(&next, visible_deck_ids)
+        } else {
+            seed_start_grid_simulated_subset(&next)
+        };
+        if !seed_start_neow_grid_auto_confirms_after_choose(&next) {
+            compare_subset(
+                report,
+                action,
+                "Neow grid select",
+                observed_grid,
+                selected_subset,
+            );
+            *seed_sim = Some(next);
+            *phase = SeedStartPhase::NeowGridConfirm;
+            return SeedStartPreDispatch::Handled;
+        }
+        let Ok(confirmed) = confirm_grid(&next) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_grid_path".to_owned(),
+                reason: "seed-start Neow grid auto-confirm simulation failed".to_owned(),
+            });
+        };
+        *deck_ids = deck_content_keys(&confirmed.deck);
+        let confirmed_deck_ids = deck_ids.clone();
+        let transform_count_before_confirm =
+            seed_start_neow_grid_transform_count(&next).unwrap_or(*delayed_neow_transform_count);
+        let mut visible_deck_ids = deck_ids.clone();
+        if transform_count_before_confirm > 0 {
+            visible_deck_ids = seed_start_visible_deck_after_neow_transform_selection(
+                deck_ids,
+                transform_count_before_confirm,
+                delayed_neow_curse.as_deref(),
+            );
+        }
+        if *delayed_neow_transform_count > 0 {
+            *deck_ids = visible_deck_ids.clone();
+            let transformed_start = confirmed_deck_ids
+                .len()
+                .saturating_sub(*delayed_neow_transform_count);
+            deck_ids.extend(confirmed_deck_ids[transformed_start..].iter().cloned());
+            if let Some(curse) = delayed_neow_curse.take() {
+                if !deck_ids.contains(&curse) {
+                    deck_ids.push(curse);
+                }
+            }
+            *delayed_neow_transform_count = 0;
+        }
+        let mut carried_confirmed = confirmed.clone();
+        if transform_count_before_confirm > 0 {
+            carried_confirmed.deck = deck_instances_from_keys(deck_ids);
+            *neow_leave_visible_deck_ids = Some(visible_deck_ids.clone());
+        }
+        compare_subset(
+            report,
+            action,
+            "Neow grid confirm",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": neow_gold,
+                "current_hp": neow_current_hp,
+                "max_hp": neow_max_hp,
+                "deck_ids": visible_deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            }),
+        );
+        *seed_sim = Some(carried_confirmed);
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowGridConfirm && action.command.eq_ignore_ascii_case("CONFIRM") {
+        let Some(sim) = seed_sim.as_ref() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_grid_path".to_owned(),
+                reason: "seed-start Neow grid confirm without initialized run simulation"
+                    .to_owned(),
+            });
+        };
+        let Ok(next) = confirm_grid(sim) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_grid_path".to_owned(),
+                reason: "seed-start Neow grid confirm simulation failed".to_owned(),
+            });
+        };
+        let had_delayed_transform = *delayed_neow_transform_count > 0;
+        *deck_ids = deck_content_keys(&next.deck);
+        if *delayed_neow_transform_count > 0 {
+            for _ in 0..(*delayed_neow_transform_count).min(deck_ids.len()) {
+                deck_ids.pop();
+            }
+            if let Some(curse) = delayed_neow_curse.take() {
+                deck_ids.push(curse);
+            }
+            *delayed_neow_transform_count = 0;
+        }
+        let mut carried_next = next.clone();
+        if had_delayed_transform {
+            carried_next.deck = deck_instances_from_keys(deck_ids);
+        }
+        if next.card_grid.is_some() {
+            compare_subset(
+                report,
+                action,
+                "Neow grid confirm",
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&next),
+            );
+            *seed_sim = Some(carried_next);
+            *phase = SeedStartPhase::NeowGrid;
+            return SeedStartPreDispatch::Handled;
+        }
+        compare_subset(
+            report,
+            action,
+            "Neow grid confirm",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": neow_gold,
+                "current_hp": neow_current_hp,
+                "max_hp": neow_max_hp,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            }),
+        );
+        *seed_sim = Some(carried_next);
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowGridConfirm
+        && command_choose_index(&action.command).is_some()
+        && seed_sim
+            .as_ref()
+            .is_some_and(seed_start_is_neow_multi_select_grid)
+    {
+        let sim = seed_sim
+            .as_ref()
+            .expect("matched initialized Neow multi-select grid");
+        let index = command_choose_index(&action.command).expect("matched choose command");
+        let Ok(next) = select_grid_card(sim, index) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_grid_path".to_owned(),
+                reason: "seed-start Neow multi-select grid choose simulation failed".to_owned(),
+            });
+        };
+        if !seed_start_neow_grid_auto_confirms_after_choose(&next) {
+            let simulated = if *delayed_neow_transform_count > 0 {
+                let mut visible_deck_ids = deck_content_keys(&next.deck);
+                if let Some(curse) = delayed_neow_curse.as_deref() {
+                    visible_deck_ids.push(curse.to_owned());
+                }
+                seed_start_grid_simulated_subset_with_deck(&next, visible_deck_ids)
+            } else {
+                seed_start_grid_simulated_subset(&next)
+            };
+            compare_subset(
+                report,
+                action,
+                "Neow grid select",
+                seed_start_grid_observed_subset(&post.message),
+                simulated,
+            );
+            *seed_sim = Some(next);
+            *phase = SeedStartPhase::NeowGridConfirm;
+            return SeedStartPreDispatch::Handled;
+        }
+        let delayed_transform_count_before_confirm = *delayed_neow_transform_count;
+        let delayed_curse_before_confirm = delayed_neow_curse.clone();
+        let Ok(confirmed) = confirm_grid(&next) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_grid_path".to_owned(),
+                reason: "seed-start Neow multi-select grid auto-confirm failed".to_owned(),
+            });
+        };
+        *delayed_neow_transform_count = 0;
+        *delayed_neow_curse = None;
+        *deck_ids = deck_content_keys(&confirmed.deck);
+        let confirmed_deck_ids = deck_ids.clone();
+        let transform_count_before_confirm = seed_start_neow_grid_transform_count(&next)
+            .unwrap_or(delayed_transform_count_before_confirm);
+        let mut visible_deck_ids = deck_ids.clone();
+        if transform_count_before_confirm > 0 {
+            visible_deck_ids = seed_start_visible_deck_after_neow_transform_selection(
+                deck_ids,
+                transform_count_before_confirm,
+                delayed_curse_before_confirm.as_deref(),
+            );
+        }
+        if delayed_transform_count_before_confirm > 0 {
+            *deck_ids = visible_deck_ids.clone();
+            let transformed_start = confirmed_deck_ids
+                .len()
+                .saturating_sub(delayed_transform_count_before_confirm);
+            deck_ids.extend(confirmed_deck_ids[transformed_start..].iter().cloned());
+            if let Some(curse) = delayed_curse_before_confirm {
+                if !deck_ids.contains(&curse) {
+                    deck_ids.push(curse);
+                }
+            }
+        }
+        let mut carried_confirmed = confirmed;
+        if transform_count_before_confirm > 0 {
+            carried_confirmed.deck = deck_instances_from_keys(deck_ids);
+            *neow_leave_visible_deck_ids = Some(visible_deck_ids.clone());
+        }
+        compare_subset(
+            report,
+            action,
+            "Neow grid confirm",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": neow_gold,
+                "current_hp": neow_current_hp,
+                "max_hp": neow_max_hp,
+                "deck_ids": visible_deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            }),
+        );
+        *seed_sim = Some(carried_confirmed);
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    SeedStartPreDispatch::NotHandled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -1353,6 +1691,25 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_neow_grid_phase(
+            action,
+            post,
+            start,
+            &mut deck_ids,
+            &mut neow_gold,
+            &mut neow_current_hp,
+            &mut neow_max_hp,
+            &mut neow_leave_visible_deck_ids,
+            &mut delayed_neow_curse,
+            &mut delayed_neow_transform_count,
+            &mut seed_sim,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
@@ -1561,322 +1918,6 @@ pub(super) fn verify_seed_start_transitions(
                 );
                 deck_ids = post_deck_ids;
                 seed_sim = Some(run);
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(seed_start_neow_option_is_supported_grid_reward) =>
-            {
-                let option = seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .expect("matched generated Neow grid option");
-                let mut run = seed_start_open_neow_grid_run_for_ascension(
-                    start.numeric_seed,
-                    start.ascension,
-                    &deck_ids,
-                    &option,
-                );
-                if option.drawback == NeowDrawback::Curse {
-                    let mut curse_run = run.clone();
-                    let curse = match apply_neow_curse_drawback(&mut curse_run) {
-                        Ok(curse) => curse,
-                        Err(error) => {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "invalid_neow_state".to_owned(),
-                                reason: format!(
-                                    "core Neow curse drawback rejected simulator state: {error}"
-                                ),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                    };
-                    delayed_neow_curse = Some(deck_content_key(curse.curse).to_owned());
-                    run.card_rng_counter = curse.card_rng_counter;
-                    delayed_neow_transform_count = match option.reward {
-                        NeowRewardType::TransformCard => 1,
-                        NeowRewardType::TransformTwoCards => 2,
-                        _ => 0,
-                    };
-                }
-                neow_gold = run.gold;
-                neow_current_hp = run.player_hp;
-                neow_max_hp = run.player_max_hp;
-                compare_subset(
-                    report,
-                    action,
-                    seed_start_neow_grid_label(option.reward),
-                    seed_start_grid_observed_subset(&post.message),
-                    seed_start_grid_simulated_subset(&run),
-                );
-                seed_sim = Some(run);
-                phase = SeedStartPhase::NeowGrid;
-            }
-            SeedStartPhase::NeowGrid if command_choose_index(&action.command).is_some() => {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_grid_path".to_owned(),
-                        reason: "seed-start Neow grid action without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                let index = command_choose_index(&action.command).expect("matched choose command");
-                let Ok(next) = select_grid_card(sim, index) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_grid_path".to_owned(),
-                        reason: "seed-start Neow grid choose simulation failed".to_owned(),
-                    });
-                };
-                let observed_grid = seed_start_grid_observed_subset(&post.message);
-                let selected_subset = if delayed_neow_transform_count > 0 {
-                    let mut visible_deck_ids = deck_content_keys(&next.deck);
-                    if let Some(curse) = delayed_neow_curse.as_deref() {
-                        visible_deck_ids.push(curse.to_owned());
-                    }
-                    seed_start_grid_simulated_subset_with_deck(&next, visible_deck_ids)
-                } else {
-                    seed_start_grid_simulated_subset(&next)
-                };
-                if !seed_start_neow_grid_auto_confirms_after_choose(&next) {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow grid select",
-                        observed_grid,
-                        selected_subset,
-                    );
-                    seed_sim = Some(next);
-                    phase = SeedStartPhase::NeowGridConfirm;
-                    continue;
-                }
-                let Ok(confirmed) = confirm_grid(&next) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_grid_path".to_owned(),
-                        reason: "seed-start Neow grid auto-confirm simulation failed".to_owned(),
-                    });
-                };
-                deck_ids = deck_content_keys(&confirmed.deck);
-                let confirmed_deck_ids = deck_ids.clone();
-                let transform_count_before_confirm = seed_start_neow_grid_transform_count(&next)
-                    .unwrap_or(delayed_neow_transform_count);
-                let mut visible_deck_ids = deck_ids.clone();
-                if transform_count_before_confirm > 0 {
-                    visible_deck_ids = seed_start_visible_deck_after_neow_transform_selection(
-                        &deck_ids,
-                        transform_count_before_confirm,
-                        delayed_neow_curse.as_deref(),
-                    );
-                }
-                if delayed_neow_transform_count > 0 {
-                    deck_ids = visible_deck_ids.clone();
-                    let transformed_start = confirmed_deck_ids
-                        .len()
-                        .saturating_sub(delayed_neow_transform_count);
-                    deck_ids.extend(confirmed_deck_ids[transformed_start..].iter().cloned());
-                    if let Some(curse) = delayed_neow_curse.take() {
-                        if !deck_ids.contains(&curse) {
-                            deck_ids.push(curse);
-                        }
-                    }
-                    delayed_neow_transform_count = 0;
-                }
-                let mut carried_confirmed = confirmed.clone();
-                if transform_count_before_confirm > 0 {
-                    carried_confirmed.deck = deck_instances_from_keys(&deck_ids);
-                }
-                if transform_count_before_confirm > 0 {
-                    neow_leave_visible_deck_ids = Some(visible_deck_ids.clone());
-                }
-                compare_subset(
-                    report,
-                    action,
-                    "Neow grid confirm",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": neow_gold,
-                        "current_hp": neow_current_hp,
-                        "max_hp": neow_max_hp,
-                        "deck_ids": visible_deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                seed_sim = Some(carried_confirmed);
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowGridConfirm if action.command.eq_ignore_ascii_case("CONFIRM") => {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_grid_path".to_owned(),
-                        reason: "seed-start Neow grid confirm without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                let Ok(next) = confirm_grid(sim) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_grid_path".to_owned(),
-                        reason: "seed-start Neow grid confirm simulation failed".to_owned(),
-                    });
-                };
-                let had_delayed_transform = delayed_neow_transform_count > 0;
-                deck_ids = deck_content_keys(&next.deck);
-                if delayed_neow_transform_count > 0 {
-                    for _ in 0..delayed_neow_transform_count.min(deck_ids.len()) {
-                        deck_ids.pop();
-                    }
-                    if let Some(curse) = delayed_neow_curse.take() {
-                        deck_ids.push(curse);
-                    }
-                    delayed_neow_transform_count = 0;
-                }
-                let mut carried_next = next.clone();
-                if had_delayed_transform {
-                    carried_next.deck = deck_instances_from_keys(&deck_ids);
-                }
-                if next.card_grid.is_some() {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow grid confirm",
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next),
-                    );
-                    seed_sim = Some(carried_next);
-                    phase = SeedStartPhase::NeowGrid;
-                    continue;
-                } else {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow grid confirm",
-                        seed_start_observed_subset(&post.message),
-                        json!({
-                            "screen_type": "EVENT",
-                            "ascension": start.ascension,
-                            "floor": 0,
-                            "gold": neow_gold,
-                            "current_hp": neow_current_hp,
-                            "max_hp": neow_max_hp,
-                            "deck_ids": deck_ids,
-                            "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                            "choices": ["leave"],
-                        }),
-                    );
-                }
-                seed_sim = Some(carried_next);
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowGridConfirm
-                if command_choose_index(&action.command).is_some()
-                    && seed_sim
-                        .as_ref()
-                        .is_some_and(seed_start_is_neow_multi_select_grid) =>
-            {
-                let sim = seed_sim
-                    .as_ref()
-                    .expect("matched initialized Neow multi-select grid");
-                let index = command_choose_index(&action.command).expect("matched choose command");
-                let Ok(next) = select_grid_card(sim, index) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_grid_path".to_owned(),
-                        reason: "seed-start Neow multi-select grid choose simulation failed"
-                            .to_owned(),
-                    });
-                };
-                if !seed_start_neow_grid_auto_confirms_after_choose(&next) {
-                    let simulated = if delayed_neow_transform_count > 0 {
-                        let mut visible_deck_ids = deck_content_keys(&next.deck);
-                        if let Some(curse) = delayed_neow_curse.as_deref() {
-                            visible_deck_ids.push(curse.to_owned());
-                        }
-                        seed_start_grid_simulated_subset_with_deck(&next, visible_deck_ids)
-                    } else {
-                        seed_start_grid_simulated_subset(&next)
-                    };
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow grid select",
-                        seed_start_grid_observed_subset(&post.message),
-                        simulated,
-                    );
-                    seed_sim = Some(next);
-                    phase = SeedStartPhase::NeowGridConfirm;
-                    continue;
-                }
-                let delayed_transform_count_before_confirm = delayed_neow_transform_count;
-                let delayed_curse_before_confirm = delayed_neow_curse.clone();
-                let Ok(confirmed) = confirm_grid(&next) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_grid_path".to_owned(),
-                        reason: "seed-start Neow multi-select grid auto-confirm failed".to_owned(),
-                    });
-                };
-                delayed_neow_transform_count = 0;
-                delayed_neow_curse = None;
-                deck_ids = deck_content_keys(&confirmed.deck);
-                let confirmed_deck_ids = deck_ids.clone();
-                let transform_count_before_confirm = seed_start_neow_grid_transform_count(&next)
-                    .unwrap_or(delayed_transform_count_before_confirm);
-                let mut visible_deck_ids = deck_ids.clone();
-                if transform_count_before_confirm > 0 {
-                    visible_deck_ids = seed_start_visible_deck_after_neow_transform_selection(
-                        &deck_ids,
-                        transform_count_before_confirm,
-                        delayed_curse_before_confirm.as_deref(),
-                    );
-                }
-                if delayed_transform_count_before_confirm > 0 {
-                    deck_ids = visible_deck_ids.clone();
-                    let transformed_start = confirmed_deck_ids
-                        .len()
-                        .saturating_sub(delayed_transform_count_before_confirm);
-                    deck_ids.extend(confirmed_deck_ids[transformed_start..].iter().cloned());
-                    if let Some(curse) = delayed_curse_before_confirm {
-                        if !deck_ids.contains(&curse) {
-                            deck_ids.push(curse);
-                        }
-                    }
-                }
-                let mut carried_confirmed = confirmed;
-                if transform_count_before_confirm > 0 {
-                    carried_confirmed.deck = deck_instances_from_keys(&deck_ids);
-                }
-                if transform_count_before_confirm > 0 {
-                    neow_leave_visible_deck_ids = Some(visible_deck_ids.clone());
-                }
-                compare_subset(
-                    report,
-                    action,
-                    "Neow grid confirm",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": neow_gold,
-                        "current_hp": neow_current_hp,
-                        "max_hp": neow_max_hp,
-                        "deck_ids": visible_deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                seed_sim = Some(carried_confirmed);
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowBossSwapCallingBellGrid
