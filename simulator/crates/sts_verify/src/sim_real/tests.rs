@@ -510,6 +510,43 @@ fn golden_idol_direct_leave_reaches_its_terminal_leave_screen() {
 }
 
 #[test]
+fn shovel_dig_enters_and_resolves_its_relic_reward() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-58d7201043d79df6.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Shovel Dig regression trace replays");
+
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "Dig trace diffs: {:?}",
+        report.unexpected_diffs
+    );
+    assert!(
+        report.unsupported.is_empty(),
+        "Dig trace unsupported: {:?}",
+        report.unsupported
+    );
+    assert!(
+        !report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .failed
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+}
+
+#[test]
 fn combat_selection_endpoint_names_its_unreconciled_frame() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-b9c0db157d03167f.jsonl")

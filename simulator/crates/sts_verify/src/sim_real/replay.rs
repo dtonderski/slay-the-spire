@@ -2367,6 +2367,11 @@ fn seed_start_handle_rest_phase(
                         "rest card reward",
                     )
                 }
+                RunPhase::Reward if next.reward.is_some() => (
+                    seed_start_reward_observed_subset(&post.message),
+                    seed_start_reward_simulated_subset(&next),
+                    "rest relic reward",
+                ),
                 RunPhase::Rest if next.reward.is_none() => (
                     seed_start_rest_observed_subset(&post.message),
                     seed_start_rest_simulated_subset(&next),
@@ -2393,11 +2398,7 @@ fn seed_start_handle_rest_phase(
         *sim = next;
         if sim.card_grid.is_some() {
             *phase = SeedStartPhase::Grid;
-        } else if sim
-            .reward
-            .as_ref()
-            .is_some_and(RewardScreen::card_reward_is_active)
-        {
+        } else if sim.phase == RunPhase::Reward && sim.reward.is_some() {
             *phase = SeedStartPhase::Reward;
         } else if sim.phase == RunPhase::Idle {
             *phase = SeedStartPhase::Proceed;
