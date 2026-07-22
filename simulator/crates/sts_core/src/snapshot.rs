@@ -1199,10 +1199,9 @@ mod tests {
     }
 
     #[test]
-    fn schema_three_merges_relic_ownership_and_offer_fields() {
+    fn schema_three_merges_relic_ownership_and_reward_offer_fields() {
         let mut run = RunState::seeded_ironclad(7, 0);
         run.relics.push(Relic::SpiritPoop);
-        run.pending_event_combat_relic_offer = Some(Relic::OddMushroom);
         run.phase = RunPhase::Reward;
         run.event = None;
         run.reward = Some(RewardScreen {
@@ -1230,12 +1229,6 @@ mod tests {
             .expect("relics are an array");
         let spirit_poop = relics.pop().expect("event relic is present");
         value["state"]["relic_keys"] = Value::Array(vec![spirit_poop]);
-        let pending_event = value["state"]
-            .as_object_mut()
-            .expect("state object")
-            .remove("pending_event_combat_relic_offer")
-            .expect("pending event offer");
-        value["state"]["pending_event_combat_relic_key_offer"] = pending_event;
         let reward = value["state"]["reward"]
             .as_object_mut()
             .expect("reward object");
@@ -1254,14 +1247,41 @@ mod tests {
         .expect("schema-three relic storage migrates");
         assert_eq!(restored.schema_version, SNAPSHOT_SCHEMA_VERSION);
         assert!(restored.state.relics.contains(&Relic::SpiritPoop));
-        assert_eq!(
-            restored.state.pending_event_combat_relic_offer,
-            Some(Relic::OddMushroom)
-        );
         let reward = restored.state.reward.expect("reward restored");
         assert_eq!(reward.relic_offer, Some(Relic::MarkOfBloom));
         assert_eq!(reward.pending_relic_offer, Some(Relic::NlothsGift));
         assert_eq!(reward.queued_relic_offers, vec![Relic::TheBoot]);
+    }
+
+    #[test]
+    fn schema_three_migrates_pending_event_combat_relic_offer() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Combat;
+        run.event = None;
+        run.combat = Some(CombatState::initial_fixture());
+        run.pending_event_combat_relic_offer = Some(Relic::OddMushroom);
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("snapshot serializes");
+
+        let pending_event = value["state"]
+            .as_object_mut()
+            .expect("state object")
+            .remove("pending_event_combat_relic_offer")
+            .expect("pending event offer");
+        value["state"]["pending_event_combat_relic_key_offer"] = pending_event;
+
+        let restored = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect("schema-three pending event relic offer migrates");
+        assert_eq!(restored.schema_version, SNAPSHOT_SCHEMA_VERSION);
+        assert_eq!(
+            restored.state.pending_event_combat_relic_offer,
+            Some(Relic::OddMushroom)
+        );
     }
 
     #[test]

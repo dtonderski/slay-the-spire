@@ -227,6 +227,45 @@ mod tests {
     }
 
     #[test]
+    fn run_validation_rejects_invalid_pending_event_combat_rewards() {
+        let mut negative_gold = RunState::map_fixture();
+        negative_gold.pending_event_combat_gold_offer = -1;
+        assert_eq!(
+            negative_gold.validate(),
+            Err(SimError::InvalidState(
+                "pending event combat gold reward is negative"
+            ))
+        );
+
+        let mut stale_gold = RunState::map_fixture();
+        stale_gold.pending_event_combat_gold_offer = 25;
+        assert_eq!(
+            stale_gold.validate(),
+            Err(SimError::InvalidState(
+                "pending event combat reward exists outside combat"
+            ))
+        );
+
+        let mut stale_relic = RunState::map_fixture();
+        stale_relic.pending_event_combat_relic_offer = Some(Relic::OddMushroom);
+        assert_eq!(
+            stale_relic.validate(),
+            Err(SimError::InvalidState(
+                "pending event combat reward exists outside combat"
+            ))
+        );
+
+        let mut combat = RunState::map_fixture();
+        combat.phase = RunPhase::Combat;
+        combat.combat = Some(CombatState::initial_fixture());
+        combat.pending_event_combat_gold_offer = 25;
+        combat.pending_event_combat_relic_offer = Some(Relic::OddMushroom);
+        combat
+            .validate()
+            .expect("pending event rewards are valid during their combat");
+    }
+
+    #[test]
     fn run_validation_rejects_consumed_or_impossible_relic_counters() {
         let mut run = RunState::map_fixture();
         run.tiny_chest_counter = TINY_CHEST_THRESHOLD - 1;
@@ -1325,6 +1364,20 @@ impl RunState {
                 ));
             }
             (_, None) => {}
+        }
+
+        if self.pending_event_combat_gold_offer < 0 {
+            return Err(SimError::InvalidState(
+                "pending event combat gold reward is negative",
+            ));
+        }
+        if (self.pending_event_combat_gold_offer > 0
+            || self.pending_event_combat_relic_offer.is_some())
+            && self.phase != RunPhase::Combat
+        {
+            return Err(SimError::InvalidState(
+                "pending event combat reward exists outside combat",
+            ));
         }
 
         if self.shop_merchant_open && self.shop.is_none() {
