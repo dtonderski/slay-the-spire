@@ -322,14 +322,27 @@ fn apply_neow_relic_reward_inner(
     })
 }
 
-pub fn apply_neow_simple_reward(run: &mut RunState, reward: NeowRewardType) {
+pub fn apply_neow_simple_reward(run: &mut RunState, reward: NeowRewardType) -> SimResult<()> {
+    let mut next = run.clone();
     match reward {
-        NeowRewardType::TenPercentHpBonus => gain_max_hp(run, ten_percent(run.player_max_hp)),
-        NeowRewardType::TwentyPercentHpBonus => gain_max_hp(run, twenty_percent(run.player_max_hp)),
-        NeowRewardType::HundredGold => run.gain_gold(100),
-        NeowRewardType::TwoFiftyGold => run.gain_gold(250),
-        other => panic!("Neow reward {other:?} is not a simple immediate reward"),
+        NeowRewardType::TenPercentHpBonus => {
+            let amount = ten_percent(next.player_max_hp);
+            gain_max_hp(&mut next, amount)?;
+        }
+        NeowRewardType::TwentyPercentHpBonus => {
+            let amount = twenty_percent(next.player_max_hp);
+            gain_max_hp(&mut next, amount)?;
+        }
+        NeowRewardType::HundredGold => next.gain_gold(100)?,
+        NeowRewardType::TwoFiftyGold => next.gain_gold(250)?,
+        _ => {
+            return Err(crate::SimError::IllegalAction(
+                "Neow reward is not a simple immediate reward",
+            ));
+        }
     }
+    *run = next;
+    Ok(())
 }
 
 pub fn apply_neow_lament_reward(run: &mut RunState) {
@@ -372,9 +385,18 @@ pub fn open_neow_reward_grid(run: &mut RunState, reward: NeowRewardType) {
     }
 }
 
-fn gain_max_hp(run: &mut RunState, amount: i32) {
-    run.player_max_hp = run.player_max_hp.wrapping_add(amount);
-    run.player_hp = run.player_hp.wrapping_add(amount);
+fn gain_max_hp(run: &mut RunState, amount: i32) -> SimResult<()> {
+    run.player_max_hp =
+        run.player_max_hp
+            .checked_add(amount)
+            .ok_or(crate::SimError::InvalidState(
+                "Neow max HP gain overflows i32",
+            ))?;
+    run.player_hp = run
+        .player_hp
+        .checked_add(amount)
+        .ok_or(crate::SimError::InvalidState("Neow HP gain overflows i32"))?;
+    Ok(())
 }
 
 fn lose_max_hp(run: &mut RunState, amount: i32) {

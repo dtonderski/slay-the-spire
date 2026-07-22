@@ -192,10 +192,71 @@ mod tests {
         run.player_max_hp = i32::MAX;
         run.player_hp = i32::MAX - 2;
 
-        run.heal_player(10);
+        run.heal_player(10).expect("healing remains representable");
 
         assert_eq!(run.player_hp, i32::MAX);
         run.validate().expect("clamped healing remains valid");
+    }
+
+    #[test]
+    fn gold_gain_and_floor_relic_overflow_roll_back_exactly() {
+        let mut direct = RunState::map_fixture();
+        direct.gold = i32::MAX;
+        let direct_before = direct.clone();
+        assert_eq!(
+            direct.gain_gold(1),
+            Err(SimError::InvalidState("run integer addition overflows i32"))
+        );
+        assert_eq!(direct, direct_before);
+
+        let mut late_failure = RunState::map_fixture();
+        late_failure.gold = 100;
+        late_failure.player_max_hp = i32::MAX;
+        late_failure.player_hp = i32::MIN;
+        late_failure.relics.push(Relic::BloodyIdol);
+        let late_before = late_failure.clone();
+        assert_eq!(
+            late_failure.gain_gold(1),
+            Err(SimError::InvalidState("run HP difference overflows i32"))
+        );
+        assert_eq!(late_failure, late_before);
+
+        let mut floor = RunState::map_fixture();
+        floor.gold = i32::MAX - MAW_BANK_GOLD;
+        floor.current_room_override = Some(RoomKind::Event);
+        floor.relics.extend([Relic::MawBank, Relic::SsserpentHead]);
+        let floor_before = floor.clone();
+        assert_eq!(
+            floor.apply_floor_entry_relics(),
+            Err(SimError::InvalidState("run integer addition overflows i32"))
+        );
+        assert_eq!(floor, floor_before);
+    }
+
+    #[test]
+    fn immediate_neow_reward_rejects_overflow_and_wrong_reward_kind() {
+        let mut run = RunState::map_fixture();
+        run.player_max_hp = i32::MAX;
+        let before = run.clone();
+        assert_eq!(
+            crate::run::neow::apply_neow_simple_reward(
+                &mut run,
+                crate::run::neow::NeowRewardType::TenPercentHpBonus,
+            ),
+            Err(SimError::InvalidState("Neow max HP gain overflows i32"))
+        );
+        assert_eq!(run, before);
+
+        assert_eq!(
+            crate::run::neow::apply_neow_simple_reward(
+                &mut run,
+                crate::run::neow::NeowRewardType::BossRelic,
+            ),
+            Err(SimError::IllegalAction(
+                "Neow reward is not a simple immediate reward"
+            ))
+        );
+        assert_eq!(run, before);
     }
 
     #[test]
@@ -1975,7 +2036,7 @@ impl RunState {
 
     fn apply_card_added_relics(&mut self, content_id: ContentId) -> SimResult<()> {
         if self.relics.contains(&Relic::CeramicFish) {
-            self.gain_gold_checked(CERAMIC_FISH_GOLD)?;
+            self.gain_gold(CERAMIC_FISH_GOLD)?;
         }
         if self.relics.contains(&Relic::DarkstonePeriapt) && is_curse_content_id(content_id) {
             self.player_max_hp = checked_run_add(self.player_max_hp, DARKSTONE_PERIAPT_MAX_HP)?;
@@ -2088,18 +2149,7 @@ impl RunState {
         self.relics.contains(&Relic::MarkOfBloom)
     }
 
-    pub fn heal_player(&mut self, amount: i32) {
-        if amount > 0 && !self.has_mark_of_bloom() {
-            let Some(missing_hp) = self.player_max_hp.checked_sub(self.player_hp) else {
-                return;
-            };
-            if missing_hp > 0 {
-                self.player_hp = self.player_hp.wrapping_add(amount.min(missing_hp));
-            }
-        }
-    }
-
-    fn heal_player_checked(&mut self, amount: i32) -> SimResult<()> {
+    pub fn heal_player(&mut self, amount: i32) -> SimResult<()> {
         if amount > 0 && !self.has_mark_of_bloom() {
             let missing_hp = self
                 .player_max_hp
@@ -2112,47 +2162,55 @@ impl RunState {
         Ok(())
     }
 
-    fn gain_gold_checked(&mut self, amount: i32) -> SimResult<()> {
-        if amount > 0 && self.can_gain_gold() {
-            self.gold = checked_run_add(self.gold, amount)?;
-            if self.relics.contains(&Relic::BloodyIdol) {
-                self.heal_player_checked(BLOODY_IDOL_HEAL)?;
-            }
+    pub fn gain_gold(&mut self, amount: i32) -> SimResult<()> {
+        let mut next = self.clone();
+        next.gain_gold_inner(amount)?;
+        *self = next;
+        Ok(())
+    }
+
+    fn gain_gold_inner(&mut self, amount: i32) -> SimResult<()> {
+        if amount <= 0 || !self.can_gain_gold() {
+            return Ok(());
+        }
+        self.gold = checked_run_add(self.gold, amount)?;
+        if self.relics.contains(&Relic::BloodyIdol) {
+            self.heal_player(BLOODY_IDOL_HEAL)?;
         }
         Ok(())
     }
 
-    pub fn gain_gold(&mut self, amount: i32) {
-        if amount > 0 && self.can_gain_gold() {
-            // Target gold is a Java `int`. Preserve its overflow semantics so
-            // the authoritative post-transition validator returns InvalidState
-            // instead of behavior depending on the Rust build profile.
-            self.gold = self.gold.wrapping_add(amount);
-            if self.relics.contains(&Relic::BloodyIdol) {
-                self.heal_player(BLOODY_IDOL_HEAL);
-            }
+    pub fn apply_floor_entry_relics(&mut self) -> SimResult<()> {
+        let mut next = self.clone();
+        if next.relics.contains(&Relic::MawBank) && !next.maw_bank_broken {
+            next.gain_gold(MAW_BANK_GOLD)?;
         }
-    }
-
-    pub fn apply_floor_entry_relics(&mut self) {
-        if self.relics.contains(&Relic::MawBank) && !self.maw_bank_broken {
-            self.gain_gold(MAW_BANK_GOLD);
-        }
-        if self.current_room_kind() == Some(RoomKind::Event)
-            && self.relics.contains(&Relic::SsserpentHead)
+        if next.current_room_kind() == Some(RoomKind::Event)
+            && next.relics.contains(&Relic::SsserpentHead)
         {
-            self.gain_gold(SSSERPENT_HEAD_GOLD);
+            next.gain_gold(SSSERPENT_HEAD_GOLD)?;
         }
+        *self = next;
+        Ok(())
     }
 
-    pub fn apply_rest_site_entry_relics(&mut self) {
-        if self.relics.contains(&Relic::AncientTeaSet) {
-            self.ancient_tea_set_armed = true;
+    pub fn apply_rest_site_entry_relics(&mut self) -> SimResult<()> {
+        let mut next = self.clone();
+        if next.relics.contains(&Relic::AncientTeaSet) {
+            next.ancient_tea_set_armed = true;
         }
-        if self.relics.contains(&Relic::EternalFeather) {
-            let heal = (self.deck.len() as i32 / 5) * ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS;
-            self.heal_player(heal);
+        if next.relics.contains(&Relic::EternalFeather) {
+            let deck_len = i32::try_from(next.deck.len())
+                .map_err(|_| SimError::InvalidState("run deck size exceeds i32"))?;
+            let heal = (deck_len / 5)
+                .checked_mul(ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS)
+                .ok_or(SimError::InvalidState(
+                    "run integer multiplication overflows i32",
+                ))?;
+            next.heal_player(heal)?;
         }
+        *self = next;
+        Ok(())
     }
 
     pub fn break_maw_bank_on_shop_spend(&mut self) {
@@ -2190,22 +2248,22 @@ impl RunState {
         match relic {
             Relic::Strawberry => {
                 self.player_max_hp = checked_run_add(self.player_max_hp, STRAWBERRY_MAX_HP)?;
-                self.heal_player_checked(STRAWBERRY_MAX_HP)?;
+                self.heal_player(STRAWBERRY_MAX_HP)?;
             }
             Relic::Pear => {
                 self.player_max_hp = checked_run_add(self.player_max_hp, PEAR_MAX_HP)?;
-                self.heal_player_checked(PEAR_MAX_HP)?;
+                self.heal_player(PEAR_MAX_HP)?;
             }
             Relic::Mango => {
                 self.player_max_hp = checked_run_add(self.player_max_hp, MANGO_MAX_HP)?;
-                self.heal_player_checked(MANGO_MAX_HP)?;
+                self.heal_player(MANGO_MAX_HP)?;
             }
             Relic::OldCoin => {
-                self.gain_gold_checked(OLD_COIN_GOLD)?;
+                self.gain_gold(OLD_COIN_GOLD)?;
             }
             Relic::LeesWaffle => {
                 self.player_max_hp = checked_run_add(self.player_max_hp, LEES_WAFFLE_MAX_HP)?;
-                self.heal_player_checked(self.player_max_hp)?;
+                self.heal_player(self.player_max_hp)?;
             }
             Relic::CoffeeDripper => {
                 self.energy_per_turn =
@@ -2278,7 +2336,7 @@ impl RunState {
             }
             Relic::TinyHouse => {
                 self.player_max_hp = checked_run_add(self.player_max_hp, TINY_HOUSE_MAX_HP)?;
-                self.heal_player_checked(TINY_HOUSE_MAX_HP + TINY_HOUSE_HEAL)?;
+                self.heal_player(TINY_HOUSE_MAX_HP + TINY_HOUSE_HEAL)?;
                 self.upgrade_random_deck_cards_matching(1, |_| true);
                 if let Some(reward) = self.reward.as_mut() {
                     reward.gold_offer = checked_run_add(reward.gold_offer, TINY_HOUSE_GOLD)?;

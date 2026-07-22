@@ -6438,7 +6438,8 @@ fn seed_start_apply_neow_simple_option(option: GeneratedNeowOption) -> Option<(i
     let mut run = RunState::map_fixture();
     run.gold = 99;
     apply_neow_simple_drawback(&mut run, option.drawback);
-    apply_neow_simple_reward(&mut run, option.reward);
+    apply_neow_simple_reward(&mut run, option.reward)
+        .expect("canonical seed-start immediate Neow reward is representable");
     Some((run.gold, run.player_hp, run.player_max_hp))
 }
 
@@ -6529,7 +6530,8 @@ fn seed_start_apply_neow_curse_simple_option(
     run.relics = vec![Relic::BurningBlood];
     apply_neow_curse_drawback(&mut run)
         .expect("canonical seed-start deck has card ID allocation headroom");
-    apply_neow_simple_reward(&mut run, option.reward);
+    apply_neow_simple_reward(&mut run, option.reward)
+        .expect("canonical seed-start immediate Neow reward is representable");
     run
 }
 
@@ -6541,7 +6543,8 @@ fn seed_start_apply_neow_curse_simple_visible_option(
 ) -> RunState {
     let mut run = seed_start_seeded_idle_run(numeric_seed, ascension, deck_ids);
     run.gold = 99;
-    apply_neow_simple_reward(&mut run, option.reward);
+    apply_neow_simple_reward(&mut run, option.reward)
+        .expect("canonical seed-start immediate Neow reward is representable");
     run
 }
 

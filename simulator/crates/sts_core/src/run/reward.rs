@@ -1657,7 +1657,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
         next.lizard_tail_used = true;
     }
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
-    apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat);
+    apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat)?;
     apply_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &mut next_combat)?;
     sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
     next.store_rng_counter(RunRngStream::CardRandom, &next_combat.rng.card_random_rng);
@@ -1770,12 +1770,20 @@ fn apply_combat_gold_gain_to_run(
     run: &mut RunState,
     before: &crate::combat::CombatState,
     after: &mut crate::combat::CombatState,
-) {
-    let delta = (after.combat_gold_gained - before.combat_gold_gained).max(0);
+) -> SimResult<()> {
+    let delta = after
+        .combat_gold_gained
+        .checked_sub(before.combat_gold_gained)
+        .ok_or(SimError::InvalidState("combat gold delta overflows i32"))?
+        .max(0);
     if delta > 0 {
-        run.gain_gold(delta);
+        run.gain_gold(delta)?;
     }
-    after.combat_gold_gained = before.combat_gold_gained + delta;
+    after.combat_gold_gained = before
+        .combat_gold_gained
+        .checked_add(delta)
+        .ok_or(SimError::InvalidState("combat gold total overflows i32"))?;
+    Ok(())
 }
 
 fn apply_looter_theft_to_run_gold(
@@ -2068,21 +2076,27 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             let reward = next.reward.as_mut().expect("validated reward screen");
             reward.choices.clear();
             reward.consume_active_card_reward()?;
-            next.player_max_hp = next.player_max_hp.wrapping_add(SINGING_BOWL_MAX_HP);
-            next.player_hp = next.player_hp.wrapping_add(SINGING_BOWL_MAX_HP);
+            next.player_max_hp = next
+                .player_max_hp
+                .checked_add(SINGING_BOWL_MAX_HP)
+                .ok_or(SimError::InvalidState("run max HP gain overflows i32"))?;
+            next.player_hp = next
+                .player_hp
+                .checked_add(SINGING_BOWL_MAX_HP)
+                .ok_or(SimError::InvalidState("run HP gain overflows i32"))?;
             return_to_reward_continuation_if_empty(&mut next);
         }
         RunAction::TakeGoldReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
             let gold_offer = reward.gold_offer;
             reward.gold_offer = 0;
-            next.gain_gold(gold_offer);
+            next.gain_gold(gold_offer)?;
         }
         RunAction::TakeStolenGoldReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
             let stolen_gold_offer = reward.stolen_gold_offer;
             reward.stolen_gold_offer = 0;
-            next.gain_gold(stolen_gold_offer);
+            next.gain_gold(stolen_gold_offer)?;
         }
         RunAction::TakePotionReward { index } => {
             let potion = {
@@ -2449,7 +2463,7 @@ mod tests {
 
         assert_eq!(
             apply_run_action(&run, RunAction::TakeGoldReward),
-            Err(SimError::InvalidState("run gold or energy is negative"))
+            Err(SimError::InvalidState("run integer addition overflows i32"))
         );
     }
 

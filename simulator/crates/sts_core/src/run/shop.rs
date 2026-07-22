@@ -494,13 +494,15 @@ pub fn generate_shop_screen(run: &mut RunState) -> SimResult<ShopScreen> {
 }
 
 pub fn enter_shop_room(run: &mut RunState) -> SimResult<()> {
-    run.phase = RunPhase::Shop;
-    run.shop = Some(generate_shop_screen(run)?);
-    run.shop_merchant_open = false;
-    run.card_grid = None;
-    if run.relics.contains(&Relic::MealTicket) {
-        run.heal_player(crate::relic::MEAL_TICKET_HEAL);
+    let mut next = run.clone();
+    next.phase = RunPhase::Shop;
+    next.shop = Some(generate_shop_screen(&mut next)?);
+    next.shop_merchant_open = false;
+    next.card_grid = None;
+    if next.relics.contains(&Relic::MealTicket) {
+        next.heal_player(crate::relic::MEAL_TICKET_HEAL)?;
     }
+    *run = next;
     Ok(())
 }
 

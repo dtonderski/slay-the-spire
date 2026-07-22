@@ -652,7 +652,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     } else {
                         let heal =
                             next.player_max_hp * BLOOD_POTION_HEAL_PERCENT * multiplier / 100;
-                        next.heal_player(heal);
+                        next.heal_player(heal)?;
                     }
                 }
                 Potion::Ancient => {

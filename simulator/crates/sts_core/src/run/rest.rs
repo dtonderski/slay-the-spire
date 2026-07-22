@@ -146,7 +146,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             if next.relics.contains(&Relic::RegalPillow) {
                 heal += REGAL_PILLOW_HEAL;
             }
-            next.heal_player(heal);
+            next.heal_player(heal)?;
             next.rest_room_complete = true;
             if next.relics.contains(&Relic::DreamCatcher) {
                 next.phase = RunPhase::Reward;

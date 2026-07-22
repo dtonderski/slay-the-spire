@@ -141,10 +141,10 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
     if uses_wing_boots {
         next.wing_boots_charges = next.wing_boots_charges.saturating_sub(1);
     }
-    next.apply_floor_entry_relics();
+    next.apply_floor_entry_relics()?;
 
     if current_room_kind(&next) == Some(RoomKind::Rest) {
-        next.apply_rest_site_entry_relics();
+        next.apply_rest_site_entry_relics()?;
         next.phase = RunPhase::Rest;
         next.rest_room_complete = false;
     } else if current_room_kind(&next) == Some(RoomKind::Combat) {

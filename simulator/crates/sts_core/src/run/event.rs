@@ -1948,14 +1948,17 @@ pub(crate) fn complete_bonfire_elementals_card(
         }
         BonfireCardClass::Basic => {}
         BonfireCardClass::Common | BonfireCardClass::Special => {
-            run.heal_player(5);
+            run.heal_player(5)?;
         }
         BonfireCardClass::Uncommon => {
-            run.heal_player(run.player_max_hp);
+            run.heal_player(run.player_max_hp)?;
         }
         BonfireCardClass::Rare => {
-            run.player_max_hp = run.player_max_hp.wrapping_add(10);
-            run.heal_player(run.player_max_hp);
+            run.player_max_hp = run
+                .player_max_hp
+                .checked_add(10)
+                .ok_or(SimError::InvalidState("Bonfire max HP gain overflows i32"))?;
+            run.heal_player(run.player_max_hp)?;
         }
     }
 
@@ -2805,7 +2808,7 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
         NeowRewardType::TenPercentHpBonus
         | NeowRewardType::TwentyPercentHpBonus
         | NeowRewardType::HundredGold
-        | NeowRewardType::TwoFiftyGold => apply_neow_simple_reward(next, option.reward),
+        | NeowRewardType::TwoFiftyGold => apply_neow_simple_reward(next, option.reward)?,
         NeowRewardType::ThreeEnemyKill => apply_neow_lament_reward(next),
         NeowRewardType::BossRelic => {
             apply_neow_boss_swap(next)?;
@@ -3172,7 +3175,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         },
         Event::GoldenShrine => match screen.stage {
             0 if choice_index == 0 => {
-                next.gain_gold(golden_shrine_gold(next.ascension));
+                next.gain_gold(golden_shrine_gold(next.ascension))?;
                 next.event = Some(make_event_screen(
                     Event::GoldenShrine,
                     golden_shrine_choices(1),
@@ -3180,7 +3183,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
             0 if choice_index == 1 => {
-                next.gain_gold(GOLDEN_SHRINE_DESECRATE_GOLD);
+                next.gain_gold(GOLDEN_SHRINE_DESECRATE_GOLD)?;
                 next.queue_pending_obtain_card(REGRET_ID);
                 next.event = Some(make_event_screen(
                     Event::GoldenShrine,
@@ -3312,7 +3315,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             0 if choice_index == 1 && has_wing_statue_attack_card(&next) => {
                 let gold = roll_wing_statue_gold(&mut next);
-                next.gain_gold(gold);
+                next.gain_gold(gold)?;
                 next.event = Some(EventScreen {
                     event: Event::WingStatue,
                     choices: wing_statue_choices(2, true),
@@ -3350,7 +3353,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         Event::WorldOfGoop => match screen.stage {
             0 if choice_index == 0 => {
                 lose_event_hp(&mut next, WORLD_OF_GOOP_DAMAGE);
-                next.gain_gold(WORLD_OF_GOOP_GOLD);
+                next.gain_gold(WORLD_OF_GOOP_GOLD)?;
                 next.event = Some(EventScreen {
                     event: Event::WorldOfGoop,
                     choices: world_of_goop_choices(1, screen.event_data as i32),
@@ -3467,7 +3470,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                             "Dead Adventurer search attempts exceed reward count",
                         ))?;
                     match reward {
-                        0 => next.gain_gold(30),
+                        0 => next.gain_gold(30)?,
                         2 => {
                             let act = next.current_act;
                             let relic = roll_event_relic_reward(&mut next, act);
@@ -3497,7 +3500,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                             "Dead Adventurer continuation attempts exceed reward count",
                         ))?;
                     match reward {
-                        0 => next.gain_gold(30),
+                        0 => next.gain_gold(30)?,
                         2 => {
                             let act = next.current_act;
                             let relic = roll_event_relic_reward(&mut next, act);
@@ -3560,7 +3563,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             0 if choice_index == 1 => {
                 let heal = next.player_max_hp * 25 / 100;
-                next.heal_player(heal);
+                next.heal_player(heal)?;
                 next.queue_pending_obtain_card(PARASITE_ID);
                 next.event = Some(EventScreen {
                     event: Event::HypnotizingColoredMushrooms,
@@ -3657,9 +3660,9 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let bet_for = screen.event_data & 1 != 0;
                 let owner_wins = screen.event_data & 2 != 0;
                 if owner_wins && bet_for {
-                    next.gain_gold(250);
+                    next.gain_gold(250)?;
                 } else if !owner_wins && !bet_for {
-                    next.gain_gold(100);
+                    next.gain_gold(100)?;
                 }
                 next.event = Some(make_event_screen(Event::TheJoust, joust_choices(4), 4));
             }
@@ -3723,7 +3726,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             next.gold -= 35;
             let heal = next.player_max_hp * 25 / 100;
-            next.heal_player(heal);
+            next.heal_player(heal)?;
             next.event = Some(make_event_screen(
                 Event::TheCleric,
                 vec![EventChoice {
@@ -3878,7 +3881,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             1 if choice_index == 0 => {
                 let damage = face_trader_damage(next.player_max_hp);
-                next.gain_gold(face_trader_gold(next.ascension));
+                next.gain_gold(face_trader_gold(next.ascension))?;
                 lose_event_hp(&mut next, damage);
                 next.event = Some(EventScreen {
                     event: Event::FaceTrader,
@@ -4026,7 +4029,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 );
                 next.player_max_hp = (next.player_max_hp - loss).max(1);
                 next.player_hp = next.player_hp.min(next.player_max_hp);
-                next.heal_player(next.player_max_hp);
+                next.heal_player(next.player_max_hp)?;
                 next.event = Some(make_event_screen(
                     Event::MoaiHead,
                     moai_choices(&next, 1),
@@ -4035,7 +4038,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             0 if has_relic_key(&next, RelicKey::GoldenIdol) && choice_index == 1 => {
                 remove_relic_key(&mut next, RelicKey::GoldenIdol);
-                next.gain_gold(333);
+                next.gain_gold(333)?;
                 next.event = Some(make_event_screen(
                     Event::MoaiHead,
                     moai_choices(&next, 1),
@@ -4180,7 +4183,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     next.player_max_hp,
                     if next.ascension >= 15 { 0.20 } else { 0.25 },
                 );
-                next.heal_player(heal);
+                next.heal_player(heal)?;
                 next.queue_pending_obtain_card(WRITHE_ID);
                 next.event = Some(make_event_screen(
                     Event::WindingHalls,
@@ -4212,7 +4215,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         Event::BigFish => match screen.stage {
             0 if choice_index == 0 => {
                 let heal = next.player_max_hp / 3;
-                next.heal_player(heal);
+                next.heal_player(heal)?;
                 next.event = Some(EventScreen {
                     event: Event::BigFish,
                     choices: big_fish_choices(1),
@@ -4274,7 +4277,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 if choice_index == 0 => {
-                next.gain_gold(SSSSSERPENT_GOLD);
+                next.gain_gold(SSSSSERPENT_GOLD)?;
                 next.event = Some(EventScreen {
                     event: Event::TheSsssserpent,
                     choices: sssssserpent_choices(2),
@@ -4352,7 +4355,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         }
         Event::TheLibrary if screen.stage == 0 && choice_index == 1 => {
             let heal = the_library_heal_for_ascension(next.player_max_hp, next.ascension);
-            next.heal_player(heal);
+            next.heal_player(heal)?;
             next.phase = RunPhase::Idle;
             next.event = None;
         }
@@ -4500,7 +4503,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 if choice_index == 0 => {
-                next.gain_gold(nest_gold_gain(next.ascension));
+                next.gain_gold(nest_gold_gain(next.ascension))?;
                 next.event = Some(EventScreen {
                     event: Event::Nest,
                     choices: nest_choices(2, next.ascension),
@@ -4714,7 +4717,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 lose_event_hp(&mut next, costs.gold);
                 costs.gold += 1;
                 let event_data = knowing_skull_event_data(costs)?;
-                next.gain_gold(KNOWING_SKULL_GOLD_REWARD);
+                next.gain_gold(KNOWING_SKULL_GOLD_REWARD)?;
                 next.event = Some(EventScreen {
                     event: Event::KnowingSkull,
                     choices: knowing_skull_choices(1, event_data),
@@ -4889,7 +4892,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             1 if choice_index == 0 => {
                 if screen.event_data == 0 {
-                    next.gain_gold(wheel_of_change_gold(next.current_act));
+                    next.gain_gold(wheel_of_change_gold(next.current_act))?;
                 }
                 next.event = Some(EventScreen {
                     event: Event::WheelOfChange,
@@ -4928,7 +4931,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     });
                 }
                 2 => {
-                    next.heal_player(next.player_max_hp);
+                    next.heal_player(next.player_max_hp)?;
                     next.event = Some(EventScreen {
                         event: Event::WheelOfChange,
                         choices: wheel_of_change_choices(3, screen.event_data),
@@ -4995,7 +4998,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         }
         Event::TombOfLordRedMask if screen.stage == 0 && choice_index == 0 => {
             if has_relic_key(&next, RelicKey::RedMask) {
-                next.gain_gold(222);
+                next.gain_gold(222)?;
             } else {
                 next.gold = 0;
                 next.gain_relic_key(RelicKey::RedMask)?;
@@ -5042,11 +5045,11 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         }
         Event::MindBloom if screen.stage == 0 && choice_index == 2 => {
             if next.current_floor % 50 <= 40 {
-                next.gain_gold(999);
+                next.gain_gold(999)?;
                 next.gain_deck_card(NORMALITY_ID)?;
                 next.gain_deck_card(NORMALITY_ID)?;
             } else {
-                next.heal_player(next.player_max_hp);
+                next.heal_player(next.player_max_hp)?;
                 next.gain_deck_card(DOUBT_ID)?;
             }
             next.event = Some(make_event_screen(
@@ -8282,7 +8285,8 @@ mod tests {
         run.gain_relic_key(RelicKey::MarkOfBloom)
             .expect("Mark of the Bloom pickup succeeds");
         run.player_hp = 20;
-        run.heal_player(30);
+        run.heal_player(30)
+            .expect("Mark of Bloom suppresses healing");
         assert_eq!(run.player_hp, 20);
 
         let mut combat = run
