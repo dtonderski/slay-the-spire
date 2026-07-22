@@ -192,6 +192,28 @@ pub struct StartRunCommand {
     pub ascension: u8,
     pub external_seed: String,
     pub numeric_seed: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_starting_hp: Option<i32>,
+}
+
+impl StartRunCommand {
+    fn starting_hp(&self) -> i32 {
+        self.verification_starting_hp.unwrap_or(80)
+    }
+
+    fn matches_command(&self, command: &str) -> bool {
+        let expected = match self.verification_starting_hp {
+            Some(hp) => format!(
+                "START_VERIFY {} {} {} {hp}",
+                self.character, self.ascension, self.external_seed
+            ),
+            None => format!(
+                "START {} {} {}",
+                self.character, self.ascension, self.external_seed
+            ),
+        };
+        command.eq_ignore_ascii_case(&expected)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1074,6 +1096,31 @@ fn seed_start_finish_boundary(
     }
 }
 
+fn seed_start_take_first_diff_boundary(report: &mut SimRealReport) -> Option<SeedStartBoundary> {
+    let diffs = std::mem::take(&mut report.unexpected_diffs);
+    let first = diffs.first()?;
+    let reason = diffs
+        .iter()
+        .filter(|diff| diff.action_step == first.action_step)
+        .flat_map(|diff| {
+            diff.diffs
+                .iter()
+                .map(move |detail| format!("{}: {detail}", diff.label))
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    report.unsupported.push(UnsupportedTransition {
+        action_step: first.action_step,
+        command: first.command.clone(),
+        reason: reason.clone(),
+    });
+    Some(SeedStartBoundary {
+        path: format!("$.actions[step={}].command", first.action_step),
+        category: "unexpected_sim_real_diff".to_owned(),
+        reason,
+    })
+}
+
 fn seed_start_apply_boss_unlocks(
     run: &mut RunState,
     numeric_seed: i64,
@@ -1088,6 +1135,7 @@ fn seed_start_apply_boss_unlocks(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SeedStartPhase {
     BeforeStart,
+    BootstrapSettling,
     NeowTalk,
     NeowOptions,
     NeowCardReward,
@@ -1227,13 +1275,16 @@ fn seed_start_grid_destination(run: &RunState) -> Result<SeedStartGridDestinatio
 
 fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, SimRealError>> {
     let parts: Vec<_> = action.command.split_whitespace().collect();
-    if !parts
+    let is_start = parts
         .first()
-        .is_some_and(|command| command.eq_ignore_ascii_case("START"))
-    {
+        .is_some_and(|command| command.eq_ignore_ascii_case("START"));
+    let is_start_verify = parts
+        .first()
+        .is_some_and(|command| command.eq_ignore_ascii_case("START_VERIFY"));
+    if !is_start && !is_start_verify {
         return None;
     }
-    if parts.len() != 4 {
+    if (is_start && parts.len() != 4) || (is_start_verify && parts.len() != 5) {
         return Some(Err(SimRealError::MalformedStartCommand(
             action.command.clone(),
         )));
@@ -1254,12 +1305,25 @@ fn parse_start_command(action: &TraceAction) -> Option<Result<StartRunCommand, S
             )))
         }
     };
+    let verification_starting_hp = if is_start_verify {
+        match parts[4].parse::<i32>() {
+            Ok(hp @ 1..=1_000_000) => Some(hp),
+            _ => {
+                return Some(Err(SimRealError::MalformedStartCommand(
+                    action.command.clone(),
+                )))
+            }
+        }
+    } else {
+        None
+    };
     Some(Ok(StartRunCommand {
         action_step: action.step,
         character: parts[1].to_owned(),
         ascension,
         external_seed: parts[3].to_owned(),
         numeric_seed,
+        verification_starting_hp,
     }))
 }
 
@@ -1327,8 +1391,8 @@ fn seed_start_bootstrap_simulated_subset(
         "ascension": start.ascension,
         "floor": 0,
         "gold": 99,
-        "current_hp": 80,
-        "max_hp": 80,
+        "current_hp": start.starting_hp(),
+        "max_hp": start.starting_hp(),
         "deck_ids": deck_ids,
         "relic_ids": ["Burning Blood"],
         "choices": ["talk"],
@@ -3107,12 +3171,13 @@ fn run_has_relic_key(run: &RunState, key: RelicKey) -> bool {
     run.relics.iter().any(|relic| relic.key() == key)
 }
 
-fn seed_start_carried_run(
+fn seed_start_carried_run_with_hp(
     carried: Option<&RunState>,
     numeric_seed: i64,
     ascension: u8,
     external_seed: &str,
     deck_ids: &[String],
+    starting_hp: i32,
 ) -> RunState {
     if let Some(sim) = carried {
         let mut next = sim.clone();
@@ -3125,7 +3190,8 @@ fn seed_start_carried_run(
         next.phase = RunPhase::Idle;
         return next;
     }
-    let mut run = seed_start_seeded_idle_run(numeric_seed, ascension, deck_ids);
+    let mut run =
+        seed_start_seeded_idle_run_with_hp(numeric_seed, ascension, deck_ids, starting_hp);
     run.gold = 99;
     run.reward_rng_seed = numeric_seed as u64;
     run.event_rng_seed = numeric_seed as u64;

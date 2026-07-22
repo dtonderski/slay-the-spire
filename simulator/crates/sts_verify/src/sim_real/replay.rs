@@ -119,12 +119,23 @@ fn seed_start_handle_bootstrap_phase(
     phase: &mut SeedStartPhase,
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
-    if *phase == SeedStartPhase::BeforeStart
-        && action.command.eq_ignore_ascii_case(&format!(
-            "START {} {} {}",
-            start.character, start.ascension, start.external_seed
-        ))
-    {
+    if *phase == SeedStartPhase::BeforeStart && start.matches_command(&action.command) {
+        let settling = post.message.get("in_game").and_then(Value::as_bool) == Some(false)
+            || post.message.get("game_state").is_none()
+            || post
+                .message
+                .get("ready_for_command")
+                .and_then(Value::as_bool)
+                == Some(false);
+        if settling {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "seed-start command accepted awaiting initialization".to_owned(),
+            });
+            *phase = SeedStartPhase::BootstrapSettling;
+            return SeedStartPreDispatch::Handled;
+        }
         compare_subset(
             report,
             action,
@@ -146,11 +157,14 @@ fn seed_start_handle_bootstrap_phase(
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
+                "current_hp": start.starting_hp(),
+                "max_hp": start.starting_hp(),
                 "deck_ids": deck_ids,
                 "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
-                "choices": seed_start_neow_choices(start.numeric_seed),
+                "choices": seed_start_neow_choices_with_max_hp(
+                    start.numeric_seed,
+                    start.starting_hp(),
+                ),
             }),
         );
         *phase = SeedStartPhase::NeowOptions;
@@ -171,8 +185,12 @@ fn seed_start_handle_neow_transform_phase(
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
     if *phase == SeedStartPhase::NeowOptions
-        && seed_start_selected_neow_option(start.numeric_seed, &action.command)
-            .is_some_and(|option| option.reward == NeowRewardType::TransformCard)
+        && seed_start_selected_neow_option_with_max_hp(
+            start.numeric_seed,
+            start.starting_hp(),
+            &action.command,
+        )
+        .is_some_and(|option| option.reward == NeowRewardType::TransformCard)
     {
         compare_subset(
             report,
@@ -184,8 +202,8 @@ fn seed_start_handle_neow_transform_phase(
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
+                "current_hp": start.starting_hp(),
+                "max_hp": start.starting_hp(),
                 "deck_ids": deck_ids,
                 "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
                 "choices": ["strike", "strike", "strike", "strike", "strike", "defend", "defend", "defend", "defend", "bash"],
@@ -214,8 +232,8 @@ fn seed_start_handle_neow_transform_phase(
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
+                "current_hp": start.starting_hp(),
+                "max_hp": start.starting_hp(),
                 "deck_ids": deck_ids,
                 "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
                 "choices": [],
@@ -238,8 +256,8 @@ fn seed_start_handle_neow_transform_phase(
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
+                "current_hp": start.starting_hp(),
+                "max_hp": start.starting_hp(),
                 "deck_ids": visible_deck_after_transform,
                 "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
                 "choices": ["leave"],
@@ -271,11 +289,17 @@ fn seed_start_handle_neow_immediate_phase(
     if *phase != SeedStartPhase::NeowOptions {
         return SeedStartPreDispatch::NotHandled;
     }
-    let Some(option) = seed_start_selected_neow_option(start.numeric_seed, &action.command) else {
+    let Some(option) = seed_start_selected_neow_option_with_max_hp(
+        start.numeric_seed,
+        start.starting_hp(),
+        &action.command,
+    ) else {
         return SeedStartPreDispatch::NotHandled;
     };
 
-    if let Some((gold, current_hp, max_hp)) = seed_start_apply_neow_simple_option(option.clone()) {
+    if let Some((gold, current_hp, max_hp)) =
+        seed_start_apply_neow_simple_option_with_hp(option.clone(), start.starting_hp())
+    {
         *neow_gold = gold;
         *neow_current_hp = current_hp;
         *neow_max_hp = max_hp;
@@ -301,12 +325,13 @@ fn seed_start_handle_neow_immediate_phase(
     }
 
     if option.reward == NeowRewardType::ThreeEnemyKill {
-        let mut run = seed_start_carried_run(
+        let mut run = seed_start_carried_run_with_hp(
             seed_sim.as_ref(),
             start.numeric_seed,
             start.ascension,
             &start.external_seed,
             deck_ids,
+            start.starting_hp(),
         );
         apply_neow_lament_reward(&mut run);
         *seed_sim = Some(run);
@@ -320,8 +345,8 @@ fn seed_start_handle_neow_immediate_phase(
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
+                "current_hp": neow_current_hp,
+                "max_hp": neow_max_hp,
                 "deck_ids": deck_ids,
                 "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                 "choices": ["leave"],
@@ -332,11 +357,12 @@ fn seed_start_handle_neow_immediate_phase(
     }
 
     if seed_start_neow_option_is_supported_curse_simple(option.clone()) {
-        let mut run = seed_start_apply_neow_curse_simple_visible_option(
+        let mut run = seed_start_apply_neow_curse_simple_visible_option_with_hp(
             start.numeric_seed,
             start.ascension,
             deck_ids,
             option.clone(),
+            start.starting_hp(),
         );
         let mut curse_run = run.clone();
         let curse = match apply_neow_curse_drawback(&mut curse_run) {
@@ -385,11 +411,12 @@ fn seed_start_handle_neow_immediate_phase(
     }
 
     if seed_start_neow_option_is_supported_relic_reward(option.clone()) {
-        let mut run = seed_start_apply_neow_relic_reward_for_ascension(
+        let mut run = seed_start_apply_neow_relic_reward_for_ascension_with_hp(
             start.numeric_seed,
             start.ascension,
             deck_ids,
             &option,
+            start.starting_hp(),
         );
         let mut visible_deck_ids = deck_content_keys(&run.deck);
         if option.drawback == NeowDrawback::Curse {
@@ -457,17 +484,21 @@ fn seed_start_handle_neow_card_reward_phase(
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
     if *phase == SeedStartPhase::NeowOptions {
-        let Some(option) = seed_start_selected_neow_option(start.numeric_seed, &action.command)
-        else {
+        let Some(option) = seed_start_selected_neow_option_with_max_hp(
+            start.numeric_seed,
+            start.starting_hp(),
+            &action.command,
+        ) else {
             return SeedStartPreDispatch::NotHandled;
         };
 
         if option.reward == NeowRewardType::OneRandomRareCard {
-            let mut run = seed_start_apply_neow_reward_drawback_for_ascension(
+            let mut run = seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
                 start.numeric_seed,
                 start.ascension,
                 deck_ids,
                 &option,
+                start.starting_hp(),
             );
             *deck_ids = deck_content_keys(&run.deck);
             *neow_gold = run.gold;
@@ -504,11 +535,12 @@ fn seed_start_handle_neow_card_reward_phase(
         }
 
         if seed_start_neow_option_is_supported_card_reward(option.clone()) {
-            let run = seed_start_apply_neow_reward_drawback_for_ascension(
+            let run = seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
                 start.numeric_seed,
                 start.ascension,
                 deck_ids,
                 &option,
+                start.starting_hp(),
             );
             *deck_ids = deck_content_keys(&run.deck);
             *neow_gold = run.gold;
@@ -578,11 +610,12 @@ fn seed_start_handle_neow_card_reward_phase(
         .expect("Neow card reward option is carried");
     let pre_pick_deck_ids = deck_ids.clone();
     deck_ids.push(picked_card.clone());
-    let mut run = seed_start_apply_neow_reward_drawback_for_ascension(
+    let mut run = seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
         start.numeric_seed,
         start.ascension,
         deck_ids,
         option,
+        start.starting_hp(),
     );
     if let Some(card_rng_counter) = *neow_card_reward_card_rng_counter {
         run.card_rng_counter = card_rng_counter;
@@ -693,18 +726,23 @@ fn seed_start_handle_neow_potion_reward_phase(
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
     if *phase == SeedStartPhase::NeowOptions
-        && seed_start_selected_neow_option(start.numeric_seed, &action.command)
-            .is_some_and(|option| option.reward == NeowRewardType::ThreeSmallPotions)
+        && seed_start_selected_neow_option_with_max_hp(
+            start.numeric_seed,
+            start.starting_hp(),
+            &action.command,
+        )
+        .is_some_and(|option| option.reward == NeowRewardType::ThreeSmallPotions)
     {
         let option_index =
             command_choose_index(&action.command).expect("matched generated three-potion option");
         *neow_potions_taken = 0;
-        let mut run = seed_start_carried_run(
+        let mut run = seed_start_carried_run_with_hp(
             seed_sim.as_ref(),
             start.numeric_seed,
             start.ascension,
             &start.external_seed,
             deck_ids,
+            start.starting_hp(),
         );
         run.gold = neow_gold;
         run.player_hp = neow_current_hp;
@@ -846,18 +884,22 @@ fn seed_start_handle_neow_grid_phase(
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
     if *phase == SeedStartPhase::NeowOptions {
-        let Some(option) = seed_start_selected_neow_option(start.numeric_seed, &action.command)
-        else {
+        let Some(option) = seed_start_selected_neow_option_with_max_hp(
+            start.numeric_seed,
+            start.starting_hp(),
+            &action.command,
+        ) else {
             return SeedStartPreDispatch::NotHandled;
         };
         if !seed_start_neow_option_is_supported_grid_reward(option.clone()) {
             return SeedStartPreDispatch::NotHandled;
         }
-        let mut run = seed_start_open_neow_grid_run_for_ascension(
+        let mut run = seed_start_open_neow_grid_run_for_ascension_with_hp(
             start.numeric_seed,
             start.ascension,
             deck_ids,
             &option,
+            start.starting_hp(),
         );
         if option.drawback == NeowDrawback::Curse {
             let mut curse_run = run.clone();
@@ -1181,14 +1223,22 @@ fn seed_start_handle_neow_boss_swap_phase(
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
     if *phase == SeedStartPhase::NeowOptions {
-        let Some(option) = seed_start_selected_neow_option(start.numeric_seed, &action.command)
-        else {
+        let Some(option) = seed_start_selected_neow_option_with_max_hp(
+            start.numeric_seed,
+            start.starting_hp(),
+            &action.command,
+        ) else {
             return SeedStartPreDispatch::NotHandled;
         };
         if !seed_start_neow_option_is_supported_boss_swap(option) {
             return SeedStartPreDispatch::NotHandled;
         }
-        let run = seed_start_apply_neow_boss_swap(start.numeric_seed, deck_ids);
+        let run = seed_start_apply_neow_boss_swap_with_hp(
+            start.numeric_seed,
+            start.ascension,
+            deck_ids,
+            start.starting_hp(),
+        );
         if seed_start_boss_swap_is_calling_bell_grid(&run) {
             compare_subset(
                 report,
@@ -1272,8 +1322,8 @@ fn seed_start_handle_neow_boss_swap_phase(
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
+                "current_hp": start.starting_hp(),
+                "max_hp": start.starting_hp(),
                 "deck_ids": post_deck_ids,
                 "relic_ids": relic_ids,
                 "choices": ["leave"],
@@ -1392,8 +1442,8 @@ fn seed_start_handle_neow_boss_swap_phase(
                         "ascension": start.ascension,
                         "floor": 0,
                         "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
+                        "current_hp": start.starting_hp(),
+                        "max_hp": start.starting_hp(),
                         "deck_ids": deck_ids,
                         "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
@@ -1425,8 +1475,8 @@ fn seed_start_handle_neow_boss_swap_phase(
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
+                "current_hp": start.starting_hp(),
+                "max_hp": start.starting_hp(),
                 "deck_ids": deck_ids,
                 "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                 "choices": ["leave"],
@@ -1468,8 +1518,8 @@ fn seed_start_handle_neow_boss_swap_phase(
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
+                "current_hp": start.starting_hp(),
+                "max_hp": start.starting_hp(),
                 "deck_ids": deck_ids,
                 "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                 "choices": ["leave"],
@@ -1550,8 +1600,8 @@ fn seed_start_handle_neow_boss_swap_phase(
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": 99,
-                "current_hp": 80,
-                "max_hp": 80,
+                "current_hp": start.starting_hp(),
+                "max_hp": start.starting_hp(),
                 "deck_ids": deck_ids,
                 "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                 "choices": ["leave"],
@@ -4328,8 +4378,8 @@ pub(super) fn verify_seed_start_transitions(
     let mut event_room_index = 0usize;
     let mut map_path_xs: Vec<i32> = Vec::new();
     let mut neow_gold = 99;
-    let mut neow_current_hp = 80;
-    let mut neow_max_hp = 80;
+    let mut neow_current_hp = start.starting_hp();
+    let mut neow_max_hp = start.starting_hp();
     let mut neow_card_reward_option: Option<GeneratedNeowOption> = None;
     let mut neow_card_reward_choices: Option<Vec<String>> = None;
     let mut neow_card_reward_card_rng_counter: Option<u32> = None;
@@ -4393,6 +4443,11 @@ pub(super) fn verify_seed_start_transitions(
     }
 
     for (pre, action, post) in transitions {
+        if start.verification_starting_hp.is_some() {
+            if let Some(boundary) = seed_start_take_first_diff_boundary(report) {
+                return finish_boundary!(boundary);
+            }
+        }
         if let Some(pending) = pending_deck_assertion.take() {
             if is_trace_observation_poll(action) {
                 let observed_deck = seed_start_observed_deck(&post.message);
@@ -4627,6 +4682,33 @@ pub(super) fn verify_seed_start_transitions(
         if action.command.eq_ignore_ascii_case("state")
             || smoke_bomb_ui.is_some() && action.command.eq_ignore_ascii_case("wait")
         {
+            if phase == SeedStartPhase::BootstrapSettling {
+                let still_settling = post.message.get("in_game").and_then(Value::as_bool)
+                    == Some(false)
+                    || post.message.get("game_state").is_none()
+                    || post
+                        .message
+                        .get("ready_for_command")
+                        .and_then(Value::as_bool)
+                        == Some(false);
+                if still_settling {
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "seed-start bootstrap settling poll".to_owned(),
+                    });
+                    continue;
+                }
+                compare_subset(
+                    report,
+                    action,
+                    "seed-start bootstrap settled",
+                    seed_start_bootstrap_observed_subset(&post.message),
+                    seed_start_bootstrap_simulated_subset(start, boss_unlocks, &deck_ids),
+                );
+                phase = SeedStartPhase::NeowTalk;
+                continue;
+            }
             if pending_combat_assertion.is_some() {
                 let Some(sim) = seed_sim.as_ref() else {
                     return finish_boundary!(SeedStartBoundary {
@@ -5138,6 +5220,12 @@ pub(super) fn verify_seed_start_transitions(
             reason: boundary.reason.clone(),
         });
         return finish_boundary!(boundary);
+    }
+
+    if start.verification_starting_hp.is_some() {
+        if let Some(boundary) = seed_start_take_first_diff_boundary(report) {
+            return finish_boundary!(boundary);
+        }
     }
 
     finish_boundary!(SeedStartBoundary {

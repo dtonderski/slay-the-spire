@@ -306,6 +306,7 @@ mod tests {
                     ascension: 0,
                     external_seed: "TEST".to_owned(),
                     numeric_seed: 1_218_623,
+                    verification_starting_hp: None,
                 },
                 failed: false,
                 first_boundary: no_boundary(),

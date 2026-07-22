@@ -320,7 +320,8 @@ fn validate_game_state_schema(step: u32, message: &Value) -> Result<(), serde_js
         )));
     }
     validate_optional_combat_state(step, game)?;
-    validate_visible_screen_schema(step, screen_type, game)?;
+    let command_ready = message.get("ready_for_command").and_then(Value::as_bool);
+    validate_visible_screen_schema(step, screen_type, game, command_ready)?;
     Ok(())
 }
 
@@ -500,13 +501,14 @@ fn validate_visible_screen_schema(
     step: u32,
     screen_type: &str,
     game: &serde_json::Map<String, Value>,
+    command_ready: Option<bool>,
 ) -> Result<(), serde_json::Error> {
     let required_collection = match screen_type {
         "CARD_REWARD" => return validate_card_reward_screen_schema(step, game),
         "BOSS_REWARD" => return validate_boss_reward_screen_schema(step, game),
         "CHEST" => return validate_chest_screen_schema(step, game),
         "COMBAT_REWARD" => Some("rewards"),
-        "EVENT" => return validate_event_screen_schema(step, game),
+        "EVENT" => return validate_event_screen_schema(step, game, command_ready),
         "MAP" => return validate_map_screen_schema(step, game),
         "GRID" => return validate_grid_screen_schema(step, game),
         "HAND_SELECT" => return validate_hand_select_screen_schema(step, game),
@@ -966,6 +968,7 @@ fn validate_nonblank_string_array(
 fn validate_event_screen_schema(
     step: u32,
     game: &serde_json::Map<String, Value>,
+    command_ready: Option<bool>,
 ) -> Result<(), serde_json::Error> {
     let screen = game
         .get("screen_state")
@@ -985,22 +988,24 @@ fn validate_event_screen_schema(
             "trace state at step {step} EVENT screen requires an event_id or event_name"
         )));
     }
-    let choices = game
-        .get("choice_list")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            serde_json::Error::custom(format!(
+    match game.get("choice_list") {
+        Some(Value::Array(choices)) => {
+            if choices.iter().any(|choice| {
+                choice
+                    .as_str()
+                    .is_none_or(|choice| choice.trim().is_empty())
+            }) {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} EVENT game_state.choice_list entries must be nonblank strings"
+                )));
+            }
+        }
+        None if command_ready == Some(false) => {}
+        _ => {
+            return Err(serde_json::Error::custom(format!(
                 "trace state at step {step} EVENT screen requires an array game_state.choice_list"
-            ))
-        })?;
-    if choices.iter().any(|choice| {
-        choice
-            .as_str()
-            .is_none_or(|choice| choice.trim().is_empty())
-    }) {
-        return Err(serde_json::Error::custom(format!(
-            "trace state at step {step} EVENT game_state.choice_list entries must be nonblank strings"
-        )));
+            )));
+        }
     }
     if screen.get("options").and_then(Value::as_array).is_none() {
         return Err(serde_json::Error::custom(format!(
@@ -1421,6 +1426,13 @@ mod tests {
         assert!(error.to_string().contains(
             "trace state at step 16 EVENT screen requires an array game_state.choice_list"
         ));
+    }
+
+    #[test]
+    fn parse_trace_allows_transient_event_without_choices() {
+        let content = r#"{"type":"state","step":16,"message":{"ready_for_command":false,"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":2,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"event_id":"Neow Event","options":[]}}}}"#;
+
+        parse_trace_jsonl(content).expect("non-commandable event frames may omit choices");
     }
 
     #[test]

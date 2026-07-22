@@ -35,25 +35,47 @@ pub(super) fn seed_start_deck_after_transform(numeric_seed: i64) -> Vec<String> 
     deck
 }
 
+#[cfg(test)]
 pub(super) fn seed_start_neow_choices(numeric_seed: i64) -> Vec<String> {
-    generate_neow_options(numeric_seed, 80)
+    seed_start_neow_choices_with_max_hp(numeric_seed, 80)
+}
+
+pub(super) fn seed_start_neow_choices_with_max_hp(numeric_seed: i64, max_hp: i32) -> Vec<String> {
+    generate_neow_options(numeric_seed, max_hp)
         .into_iter()
         .map(|option| option.label)
         .collect()
 }
 
+#[cfg(test)]
 pub(super) fn seed_start_selected_neow_option(
     numeric_seed: i64,
     command: &str,
 ) -> Option<GeneratedNeowOption> {
+    seed_start_selected_neow_option_with_max_hp(numeric_seed, 80, command)
+}
+
+pub(super) fn seed_start_selected_neow_option_with_max_hp(
+    numeric_seed: i64,
+    max_hp: i32,
+    command: &str,
+) -> Option<GeneratedNeowOption> {
     let index = command_choose_index(command)?;
-    generate_neow_options(numeric_seed, 80)
+    generate_neow_options(numeric_seed, max_hp)
         .into_iter()
         .nth(index)
 }
 
+#[cfg(test)]
 pub(super) fn seed_start_apply_neow_simple_option(
     option: GeneratedNeowOption,
+) -> Option<(i32, i32, i32)> {
+    seed_start_apply_neow_simple_option_with_hp(option, 80)
+}
+
+pub(super) fn seed_start_apply_neow_simple_option_with_hp(
+    option: GeneratedNeowOption,
+    starting_hp: i32,
 ) -> Option<(i32, i32, i32)> {
     if !seed_start_neow_drawback_is_simple(option.drawback)
         || !seed_start_neow_reward_is_simple(option.reward)
@@ -62,6 +84,8 @@ pub(super) fn seed_start_apply_neow_simple_option(
     }
 
     let mut run = RunState::map_fixture();
+    run.player_hp = starting_hp;
+    run.player_max_hp = starting_hp;
     run.gold = 99;
     apply_neow_simple_drawback(&mut run, option.drawback).expect("matched simple Neow drawback");
     apply_neow_simple_reward(&mut run, option.reward)
@@ -139,7 +163,18 @@ pub(super) fn seed_start_seeded_idle_run(
     ascension: u8,
     deck_ids: &[String],
 ) -> RunState {
+    seed_start_seeded_idle_run_with_hp(numeric_seed, ascension, deck_ids, 80)
+}
+
+pub(super) fn seed_start_seeded_idle_run_with_hp(
+    numeric_seed: i64,
+    ascension: u8,
+    deck_ids: &[String],
+    starting_hp: i32,
+) -> RunState {
     let mut run = RunState::seeded_ironclad(numeric_seed as u64, ascension);
+    run.player_hp = starting_hp;
+    run.player_max_hp = starting_hp;
     run.phase = RunPhase::Idle;
     run.event = None;
     run.reward = None;
@@ -151,12 +186,14 @@ pub(super) fn seed_start_seeded_idle_run(
     run
 }
 
-pub(super) fn seed_start_seeded_neow_run(
+pub(super) fn seed_start_seeded_neow_run_with_hp(
     numeric_seed: i64,
     ascension: u8,
     deck_ids: &[String],
+    starting_hp: i32,
 ) -> RunState {
-    let mut run = seed_start_seeded_idle_run(numeric_seed, ascension, deck_ids);
+    let mut run =
+        seed_start_seeded_idle_run_with_hp(numeric_seed, ascension, deck_ids, starting_hp);
     run.phase = RunPhase::Event;
     run.event = Some(neow_screen_for_stage(&run, 2));
     run
@@ -180,13 +217,15 @@ pub(super) fn seed_start_apply_neow_curse_simple_option(
     run
 }
 
-pub(super) fn seed_start_apply_neow_curse_simple_visible_option(
+pub(super) fn seed_start_apply_neow_curse_simple_visible_option_with_hp(
     numeric_seed: i64,
     ascension: u8,
     deck_ids: &[String],
     option: GeneratedNeowOption,
+    starting_hp: i32,
 ) -> RunState {
-    let mut run = seed_start_seeded_neow_run(numeric_seed, ascension, deck_ids);
+    let mut run =
+        seed_start_seeded_neow_run_with_hp(numeric_seed, ascension, deck_ids, starting_hp);
     run.gold = 99;
     apply_neow_simple_reward(&mut run, option.reward)
         .expect("canonical seed-start immediate Neow reward is representable");
@@ -208,13 +247,31 @@ pub(super) fn seed_start_apply_neow_reward_drawback(
     seed_start_apply_neow_reward_drawback_for_ascension(numeric_seed, 0, deck_ids, option)
 }
 
+#[cfg(test)]
 pub(super) fn seed_start_apply_neow_reward_drawback_for_ascension(
     numeric_seed: i64,
     ascension: u8,
     deck_ids: &[String],
     option: &GeneratedNeowOption,
 ) -> RunState {
-    let mut run = seed_start_seeded_neow_run(numeric_seed, ascension, deck_ids);
+    seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
+        numeric_seed,
+        ascension,
+        deck_ids,
+        option,
+        80,
+    )
+}
+
+pub(super) fn seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
+    numeric_seed: i64,
+    ascension: u8,
+    deck_ids: &[String],
+    option: &GeneratedNeowOption,
+    starting_hp: i32,
+) -> RunState {
+    let mut run =
+        seed_start_seeded_neow_run_with_hp(numeric_seed, ascension, deck_ids, starting_hp);
     run.gold = 99;
     match option.drawback {
         NeowDrawback::Curse => {}
@@ -234,13 +291,31 @@ pub(super) fn seed_start_open_neow_grid_run(
     seed_start_open_neow_grid_run_for_ascension(numeric_seed, 0, deck_ids, option)
 }
 
+#[cfg(test)]
 pub(super) fn seed_start_open_neow_grid_run_for_ascension(
     numeric_seed: i64,
     ascension: u8,
     deck_ids: &[String],
     option: &GeneratedNeowOption,
 ) -> RunState {
-    let mut run = seed_start_seeded_neow_run(numeric_seed, ascension, deck_ids);
+    seed_start_open_neow_grid_run_for_ascension_with_hp(
+        numeric_seed,
+        ascension,
+        deck_ids,
+        option,
+        80,
+    )
+}
+
+pub(super) fn seed_start_open_neow_grid_run_for_ascension_with_hp(
+    numeric_seed: i64,
+    ascension: u8,
+    deck_ids: &[String],
+    option: &GeneratedNeowOption,
+    starting_hp: i32,
+) -> RunState {
+    let mut run =
+        seed_start_seeded_neow_run_with_hp(numeric_seed, ascension, deck_ids, starting_hp);
     run.gold = 99;
     match option.drawback {
         NeowDrawback::Curse => {}
@@ -305,8 +380,19 @@ pub(super) fn seed_start_visible_deck_after_neow_transform_selection(
     visible
 }
 
+#[cfg(test)]
 pub(super) fn seed_start_apply_neow_boss_swap(numeric_seed: i64, deck_ids: &[String]) -> RunState {
-    let mut run = seed_start_seeded_neow_run(numeric_seed, 0, deck_ids);
+    seed_start_apply_neow_boss_swap_with_hp(numeric_seed, 0, deck_ids, 80)
+}
+
+pub(super) fn seed_start_apply_neow_boss_swap_with_hp(
+    numeric_seed: i64,
+    ascension: u8,
+    deck_ids: &[String],
+    starting_hp: i32,
+) -> RunState {
+    let mut run =
+        seed_start_seeded_neow_run_with_hp(numeric_seed, ascension, deck_ids, starting_hp);
     run.gold = 99;
     run.relics = vec![Relic::BurningBlood];
     run.event = Some(neow_screen_for_stage(&run, 2));
@@ -526,13 +612,31 @@ pub(super) fn seed_start_apply_neow_relic_reward(
     seed_start_apply_neow_relic_reward_for_ascension(numeric_seed, 0, deck_ids, option)
 }
 
+#[cfg(test)]
 pub(super) fn seed_start_apply_neow_relic_reward_for_ascension(
     numeric_seed: i64,
     ascension: u8,
     deck_ids: &[String],
     option: &GeneratedNeowOption,
 ) -> RunState {
-    let mut run = seed_start_seeded_neow_run(numeric_seed, ascension, deck_ids);
+    seed_start_apply_neow_relic_reward_for_ascension_with_hp(
+        numeric_seed,
+        ascension,
+        deck_ids,
+        option,
+        80,
+    )
+}
+
+pub(super) fn seed_start_apply_neow_relic_reward_for_ascension_with_hp(
+    numeric_seed: i64,
+    ascension: u8,
+    deck_ids: &[String],
+    option: &GeneratedNeowOption,
+    starting_hp: i32,
+) -> RunState {
+    let mut run =
+        seed_start_seeded_neow_run_with_hp(numeric_seed, ascension, deck_ids, starting_hp);
     run.gold = 99;
     match option.drawback {
         NeowDrawback::Curse => {

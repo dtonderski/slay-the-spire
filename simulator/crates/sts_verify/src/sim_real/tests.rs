@@ -2639,6 +2639,36 @@ fn start_command_accepts_signed_numeric_seed() {
 
     assert_eq!(parsed.numeric_seed, -5_230_933_468_808_623_542);
     assert_eq!(parsed.external_seed, "-5230933468808623542");
+    assert_eq!(parsed.verification_starting_hp, None);
+}
+
+#[test]
+fn start_verify_command_accepts_bounded_starting_hp() {
+    let parsed = parse_start_command(&TraceAction {
+        step: 1,
+        command: "START_VERIFY IRONCLAD 0 TEST 10000".to_owned(),
+        sent_at: None,
+        playtime_seconds: None,
+    })
+    .expect("start verify command")
+    .expect("valid start verify command");
+
+    assert_eq!(parsed.external_seed, "TEST");
+    assert_eq!(parsed.verification_starting_hp, Some(10_000));
+    assert_eq!(parsed.starting_hp(), 10_000);
+
+    for hp in ["0", "1000001", "nope"] {
+        let parsed = parse_start_command(&TraceAction {
+            step: 1,
+            command: format!("START_VERIFY IRONCLAD 0 TEST {hp}"),
+            sent_at: None,
+            playtime_seconds: None,
+        });
+        assert!(matches!(
+            parsed,
+            Some(Err(SimRealError::MalformedStartCommand(_)))
+        ));
+    }
 }
 
 #[test]
