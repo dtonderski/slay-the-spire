@@ -151,6 +151,17 @@ pub(super) fn seed_start_seeded_idle_run(
     run
 }
 
+pub(super) fn seed_start_seeded_neow_run(
+    numeric_seed: i64,
+    ascension: u8,
+    deck_ids: &[String],
+) -> RunState {
+    let mut run = seed_start_seeded_idle_run(numeric_seed, ascension, deck_ids);
+    run.phase = RunPhase::Event;
+    run.event = Some(neow_screen_for_stage(&run, 2));
+    run
+}
+
 #[cfg(test)]
 pub(super) fn seed_start_apply_neow_curse_simple_option(
     numeric_seed: i64,
@@ -175,7 +186,7 @@ pub(super) fn seed_start_apply_neow_curse_simple_visible_option(
     deck_ids: &[String],
     option: GeneratedNeowOption,
 ) -> RunState {
-    let mut run = seed_start_seeded_idle_run(numeric_seed, ascension, deck_ids);
+    let mut run = seed_start_seeded_neow_run(numeric_seed, ascension, deck_ids);
     run.gold = 99;
     apply_neow_simple_reward(&mut run, option.reward)
         .expect("canonical seed-start immediate Neow reward is representable");
@@ -203,7 +214,7 @@ pub(super) fn seed_start_apply_neow_reward_drawback_for_ascension(
     deck_ids: &[String],
     option: &GeneratedNeowOption,
 ) -> RunState {
-    let mut run = seed_start_seeded_idle_run(numeric_seed, ascension, deck_ids);
+    let mut run = seed_start_seeded_neow_run(numeric_seed, ascension, deck_ids);
     run.gold = 99;
     match option.drawback {
         NeowDrawback::Curse => {}
@@ -229,7 +240,7 @@ pub(super) fn seed_start_open_neow_grid_run_for_ascension(
     deck_ids: &[String],
     option: &GeneratedNeowOption,
 ) -> RunState {
-    let mut run = seed_start_seeded_idle_run(numeric_seed, ascension, deck_ids);
+    let mut run = seed_start_seeded_neow_run(numeric_seed, ascension, deck_ids);
     run.gold = 99;
     match option.drawback {
         NeowDrawback::Curse => {}
@@ -295,7 +306,7 @@ pub(super) fn seed_start_visible_deck_after_neow_transform_selection(
 }
 
 pub(super) fn seed_start_apply_neow_boss_swap(numeric_seed: i64, deck_ids: &[String]) -> RunState {
-    let mut run = seed_start_seeded_idle_run(numeric_seed, 0, deck_ids);
+    let mut run = seed_start_seeded_neow_run(numeric_seed, 0, deck_ids);
     run.gold = 99;
     run.relics = vec![Relic::BurningBlood];
     run.event = Some(neow_screen_for_stage(&run, 2));
@@ -521,7 +532,7 @@ pub(super) fn seed_start_apply_neow_relic_reward_for_ascension(
     deck_ids: &[String],
     option: &GeneratedNeowOption,
 ) -> RunState {
-    let mut run = seed_start_seeded_idle_run(numeric_seed, ascension, deck_ids);
+    let mut run = seed_start_seeded_neow_run(numeric_seed, ascension, deck_ids);
     run.gold = 99;
     match option.drawback {
         NeowDrawback::Curse => {

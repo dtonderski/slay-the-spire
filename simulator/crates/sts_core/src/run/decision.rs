@@ -401,6 +401,7 @@ mod tests {
     #[test]
     fn top_level_legal_actions_do_not_hide_invalid_candidate_state() {
         let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
         run.card_grid = Some(CardGridScreen {
             cards: vec![run.deck[0]],
             purpose: GridPurpose::ShopRemove,
@@ -410,13 +411,16 @@ mod tests {
 
         assert_eq!(
             legal_run_decision_actions(&run),
-            Err(SimError::InvalidState("shop screen is missing"))
+            Err(SimError::InvalidState("shop phase has no shop screen"))
         );
     }
 
     #[test]
     fn top_level_legal_actions_reject_duplicate_grid_selections() {
         let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
         run.card_grid = Some(CardGridScreen {
             cards: vec![run.deck[0]],
             purpose: GridPurpose::Astrolabe,

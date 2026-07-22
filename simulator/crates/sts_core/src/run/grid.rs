@@ -1115,6 +1115,8 @@ mod tests {
     #[test]
     fn rest_smith_grid_includes_unupgraded_ritual_dagger() {
         let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.current_room_override = Some(crate::RoomKind::Rest);
         run.gain_deck_card(RITUAL_DAGGER_ID)
             .expect("Ritual Dagger gain succeeds");
 
@@ -1132,6 +1134,8 @@ mod tests {
     #[test]
     fn rest_smith_grid_includes_bites_and_upgrades_them() {
         let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.current_room_override = Some(crate::RoomKind::Rest);
         run.gain_deck_card(BITE_ID).expect("Bite gain succeeds");
 
         open_rest_smith_grid(&mut run);
@@ -1192,7 +1196,7 @@ mod tests {
 
     #[test]
     fn neow_remove_two_keeps_full_grid_until_two_cards_are_selected() {
-        let mut run = RunState::map_fixture();
+        let mut run = RunState::seeded_ironclad(1, 0);
         open_neow_remove_grid(&mut run, 2);
         let original_deck = run.deck.clone();
 
@@ -1224,6 +1228,9 @@ mod tests {
     #[test]
     fn empty_cage_removes_one_selected_card_per_confirm() {
         let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
         open_empty_cage_grid(&mut run);
         let original_deck = run.deck.clone();
 

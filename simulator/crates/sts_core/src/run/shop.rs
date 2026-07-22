@@ -840,6 +840,7 @@ mod tests {
     fn non_shop_card_offer_is_rejected_before_courier_restock() {
         let mut run = RunState::seeded_ironclad(7, 10);
         run.phase = RunPhase::Shop;
+        run.event = None;
         run.gold = 999;
         run.relics.push(Relic::TheCourier);
         let mut shop = generate_shop_screen(&mut run).expect("shop fixture allocation is valid");

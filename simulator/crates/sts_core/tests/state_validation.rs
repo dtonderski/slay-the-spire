@@ -1,4 +1,5 @@
 use sts_core::run::event::{Event, MatchAndKeepCard, MatchAndKeepState};
+use sts_core::run::setup_treasure_room;
 use sts_core::{
     apply_combat_action,
     card::CardInstance,
@@ -9,9 +10,27 @@ use sts_core::{
     content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
     enter_reward_screen, legal_event_actions, legal_rest_actions, legal_run_decision_actions,
-    legal_shop_actions, CardGridScreen, CardId, CombatAction, CombatState, ContentId, GridPurpose,
-    MapNodeId, MonsterId, MonsterIntent, Relic, RunPhase, RunState, SimError,
+    legal_shop_actions, open_shop_merchant, CardGridScreen, CardId, CardRewardFlow, CombatAction,
+    CombatState, ContentId, EventScreen, GridPurpose, MapNodeId, MonsterId, MonsterIntent, Relic,
+    RewardContinuation, RewardScreen, RoomKind, RunPhase, RunState, SimError,
 };
+
+fn empty_reward_screen(continuation: RewardContinuation) -> RewardScreen {
+    RewardScreen {
+        continuation,
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 0,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers: Vec::new(),
+        relic_offer: None,
+        pending_relic_offer: None,
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: CardRewardFlow::None,
+    }
+}
 
 #[test]
 fn explicit_combat_and_run_fixtures_are_valid() {
@@ -311,6 +330,117 @@ fn run_phase_ownership_is_validated() {
         run.validate(),
         Err(SimError::InvalidState(
             "combat state exists outside combat phase"
+        ))
+    );
+}
+
+#[test]
+fn orphaned_run_screens_and_room_state_fail_validation() {
+    let mut reward = RunState::map_fixture();
+    reward.reward = Some(empty_reward_screen(RewardContinuation::None));
+    assert_eq!(
+        reward.validate(),
+        Err(SimError::InvalidState(
+            "reward screen exists outside reward phase"
+        ))
+    );
+
+    let mut event = RunState::map_fixture();
+    event.event = Some(sts_core::event_screen(Event::GoldenShrine));
+    assert_eq!(
+        event.validate(),
+        Err(SimError::InvalidState(
+            "event screen exists outside event, reward, or terminal complete phase"
+        ))
+    );
+
+    let mut shop = RunState::map_fixture();
+    sts_core::enter_shop_room(&mut shop).expect("shop fixture generation succeeds");
+    shop.phase = RunPhase::Idle;
+    assert_eq!(
+        shop.validate(),
+        Err(SimError::InvalidState(
+            "shop screen exists outside shop or reward phase"
+        ))
+    );
+
+    let mut treasure = RunState::map_fixture();
+    setup_treasure_room(&mut treasure);
+    assert_eq!(
+        treasure.validate(),
+        Err(SimError::InvalidState(
+            "treasure room exists outside treasure or reward phase"
+        ))
+    );
+
+    let mut rest = RunState::map_fixture();
+    rest.current_room_override = Some(RoomKind::Rest);
+    rest.rest_room_complete = true;
+    assert_eq!(
+        rest.validate(),
+        Err(SimError::InvalidState(
+            "completed rest room exists outside rest or reward phase"
+        ))
+    );
+
+    let mut boss = RunState::map_fixture();
+    boss.current_room_override = Some(RoomKind::Boss);
+    boss.boss_chest_opened = true;
+    assert_eq!(
+        boss.validate(),
+        Err(SimError::InvalidState(
+            "boss chest state exists outside reward or treasure phase"
+        ))
+    );
+}
+
+#[test]
+fn typed_reward_continuations_retain_only_their_authoritative_owner() {
+    let mut event = RunState::seeded_ironclad(1, 0);
+    event.phase = RunPhase::Reward;
+    event.event = Some(EventScreen {
+        event: Event::Neow,
+        choices: Vec::new(),
+        stage: 2,
+        event_data: 0,
+    });
+    event.reward = Some(empty_reward_screen(RewardContinuation::Neow));
+    event
+        .validate()
+        .expect("Neow reward retains its event owner");
+
+    let mut shop = RunState::map_fixture();
+    sts_core::enter_shop_room(&mut shop).expect("shop fixture generation succeeds");
+    open_shop_merchant(&mut shop).expect("merchant opens");
+    shop.phase = RunPhase::Reward;
+    shop.reward = Some(empty_reward_screen(RewardContinuation::Shop));
+    shop.validate()
+        .expect("shop reward retains its merchant owner");
+
+    let mut treasure = RunState::map_fixture();
+    treasure.current_room_override = Some(RoomKind::Treasure);
+    setup_treasure_room(&mut treasure);
+    treasure.phase = RunPhase::Reward;
+    treasure.reward = Some(empty_reward_screen(RewardContinuation::Map));
+    treasure
+        .validate()
+        .expect("chest reward retains its treasure-room owner");
+}
+
+#[test]
+fn card_grid_purpose_requires_its_phase_owner() {
+    let mut run = RunState::map_fixture();
+    run.card_grid = Some(CardGridScreen {
+        cards: run.deck.clone(),
+        purpose: GridPurpose::RestSmith,
+        selected: None,
+        selected_indices: Vec::new(),
+    });
+
+    assert_eq!(
+        run.validate(),
+        Err(SimError::InvalidState(
+            "card grid purpose has no authoritative phase owner"
         ))
     );
 }

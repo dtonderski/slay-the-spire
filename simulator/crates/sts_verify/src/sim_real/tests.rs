@@ -1137,6 +1137,7 @@ fn reward_projection_places_stolen_gold_before_combat_gold() {
 fn fusion_hammer_removes_smith_from_seed_start_rest_projection() {
     let mut run = RunState::seeded_ironclad(1, 0);
     run.phase = RunPhase::Rest;
+    run.event = None;
     run.current_room_override = Some(RoomKind::Rest);
     run.relics.push(Relic::FusionHammer);
 
@@ -1154,6 +1155,7 @@ fn fusion_hammer_removes_smith_from_seed_start_rest_projection() {
 fn seed_start_rest_projection_uses_dynamic_relic_action_order() {
     let mut run = RunState::seeded_ironclad(1, 0);
     run.phase = RunPhase::Rest;
+    run.event = None;
     run.current_room_override = Some(RoomKind::Rest);
     run.relics.extend([
         Relic::CoffeeDripper,
@@ -1181,6 +1183,7 @@ fn seed_start_rest_projection_uses_dynamic_relic_action_order() {
 fn seed_start_rest_projection_exposes_invalid_core_legal_state() {
     let mut run = RunState::seeded_ironclad(1, 0);
     run.phase = RunPhase::Rest;
+    run.event = None;
     run.current_room_override = Some(RoomKind::Rest);
     run.ascension = 21;
 
@@ -4573,6 +4576,7 @@ fn seed_start_shop_choice_labels_apply_egg_preview_upgrades() {
 #[test]
 fn shop_choose_binding_uses_core_merchant_state_and_rejects_room_index_drift() {
     let mut run = RunState::seeded_ironclad(1_218_623, 0);
+    run.event = None;
     run.gold = 999;
     sts_core::enter_shop_room(&mut run).expect("shop entry succeeds");
     assert_eq!(
@@ -5081,6 +5085,8 @@ fn runic_dome_boss_swap_jaw_worm_sequence_keeps_hidden_attack_damage() {
     let mut run =
         seed_start_apply_neow_boss_swap(903_575_075_592_564_628, &ironclad_starter_deck_keys());
     assert!(run_has_relic_key(&run, RelicKey::RunicDome));
+    run = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+        .expect("leave Neow after boss swap");
     let map_action = legal_map_decisions(&run)
         .expect("valid map decisions")
         .into_iter()

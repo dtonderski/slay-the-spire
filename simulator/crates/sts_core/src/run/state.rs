@@ -1354,6 +1354,72 @@ impl RunState {
             _ => {}
         }
 
+        if self.reward.is_some() && self.phase != RunPhase::Reward {
+            return Err(SimError::InvalidState(
+                "reward screen exists outside reward phase",
+            ));
+        }
+        let has_terminal_event = self.phase == RunPhase::Complete
+            && self.event.as_ref().is_some_and(|event| {
+                event.event == super::event::Event::SpireHeart
+                    && event.stage == 4
+                    && event.choices.is_empty()
+            });
+        if self.event.is_some()
+            && !matches!(self.phase, RunPhase::Event | RunPhase::Reward)
+            && !has_terminal_event
+        {
+            return Err(SimError::InvalidState(
+                "event screen exists outside event, reward, or terminal complete phase",
+            ));
+        }
+        if self.shop.is_some() && !matches!(self.phase, RunPhase::Shop | RunPhase::Reward) {
+            return Err(SimError::InvalidState(
+                "shop screen exists outside shop or reward phase",
+            ));
+        }
+        if self.shop_merchant_open && !matches!(self.phase, RunPhase::Shop | RunPhase::Reward) {
+            return Err(SimError::InvalidState(
+                "open merchant exists outside shop or reward phase",
+            ));
+        }
+        if self.phase == RunPhase::Reward && self.shop.is_some() && !self.shop_merchant_open {
+            return Err(SimError::InvalidState(
+                "reward-retained shop has no open merchant",
+            ));
+        }
+        if self.treasure_room.is_some()
+            && !matches!(self.phase, RunPhase::Treasure | RunPhase::Reward)
+        {
+            return Err(SimError::InvalidState(
+                "treasure room exists outside treasure or reward phase",
+            ));
+        }
+        if self.rest_room_complete {
+            if !matches!(self.phase, RunPhase::Rest | RunPhase::Reward) {
+                return Err(SimError::InvalidState(
+                    "completed rest room exists outside rest or reward phase",
+                ));
+            }
+            if self.current_room_kind() != Some(RoomKind::Rest) {
+                return Err(SimError::InvalidState(
+                    "completed rest state is not in a rest room",
+                ));
+            }
+        }
+        if self.boss_chest_opened || !self.pending_boss_relic_choices.is_empty() {
+            if !matches!(self.phase, RunPhase::Reward | RunPhase::Treasure) {
+                return Err(SimError::InvalidState(
+                    "boss chest state exists outside reward or treasure phase",
+                ));
+            }
+            if self.current_room_kind() != Some(RoomKind::Boss) {
+                return Err(SimError::InvalidState(
+                    "boss chest state exists outside a boss room",
+                ));
+            }
+        }
+
         if let Some(screen) = &self.event {
             super::event::validate_event_screen_authority(self, screen)?;
         }
@@ -1525,6 +1591,78 @@ impl RunState {
             }
         }
         if let Some(grid) = &self.card_grid {
+            use super::grid::GridPurpose;
+
+            let has_phase_owner = match grid.purpose {
+                GridPurpose::RestSmith | GridPurpose::RestRemove => {
+                    self.phase == RunPhase::Rest && !self.rest_room_complete
+                }
+                GridPurpose::ShopRemove | GridPurpose::DollysMirror => {
+                    self.phase == RunPhase::Shop && self.shop.is_some() && self.shop_merchant_open
+                }
+                GridPurpose::EventRemove
+                | GridPurpose::EventObtainCard
+                | GridPurpose::EventUpgrade
+                | GridPurpose::EventTransform { .. } => {
+                    self.phase == RunPhase::Event && self.event.is_some()
+                }
+                GridPurpose::EventRemoveReturnToEvent { event }
+                | GridPurpose::EventObtainCardReturnToEvent { event }
+                | GridPurpose::EventUpgradeReturnToEvent { event }
+                | GridPurpose::EventTransformReturnToEvent { event, .. } => {
+                    self.phase == RunPhase::Event
+                        && self
+                            .event
+                            .as_ref()
+                            .is_some_and(|screen| screen.event == event)
+                }
+                GridPurpose::NeowRemove { .. }
+                | GridPurpose::NeowUpgrade
+                | GridPurpose::NeowTransform { .. } => {
+                    self.phase == RunPhase::Event
+                        && self
+                            .event
+                            .as_ref()
+                            .is_some_and(|screen| screen.event == super::event::Event::Neow)
+                }
+                GridPurpose::BonfireElementals => {
+                    self.phase == RunPhase::Event
+                        && self.event.as_ref().is_some_and(|screen| {
+                            screen.event == super::event::Event::BonfireElementals
+                        })
+                }
+                GridPurpose::DesignerRemoveAndUpgrade => {
+                    self.phase == RunPhase::Event
+                        && self
+                            .event
+                            .as_ref()
+                            .is_some_and(|screen| screen.event == super::event::Event::Designer)
+                }
+                GridPurpose::EmptyCage { .. }
+                | GridPurpose::CallingBellCurse
+                | GridPurpose::PandorasBox
+                | GridPurpose::Astrolabe => {
+                    (self.phase == RunPhase::Event
+                        && self
+                            .event
+                            .as_ref()
+                            .is_some_and(|screen| screen.event == super::event::Event::Neow))
+                        || (self.phase == RunPhase::Treasure
+                            && self.current_room_kind() == Some(RoomKind::Boss)
+                            && self.boss_chest_opened)
+                }
+                GridPurpose::Bottle { .. } => match self.phase {
+                    RunPhase::Event => self.event.is_some(),
+                    RunPhase::Reward => self.reward.is_some(),
+                    RunPhase::Shop => self.shop.is_some() && self.shop_merchant_open,
+                    _ => false,
+                },
+            };
+            if !has_phase_owner {
+                return Err(SimError::InvalidState(
+                    "card grid purpose has no authoritative phase owner",
+                ));
+            }
             validate_run_choice_cards(&grid.cards)?;
             let mut selected_indices = BTreeSet::new();
             if grid.selected.is_some_and(|index| index >= grid.cards.len())

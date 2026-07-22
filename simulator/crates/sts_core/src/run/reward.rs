@@ -2335,6 +2335,9 @@ fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) {
         RewardContinuation::Neow => RunPhase::Idle,
     };
     run.reward = None;
+    if continuation == RewardContinuation::Map {
+        run.treasure_room = None;
+    }
     if continuation == RewardContinuation::Neow && reason == RewardCloseReason::Proceed {
         run.event = None;
     }
@@ -3005,6 +3008,29 @@ mod tests {
         assert!(picked.pending_boss_relic_choices.is_empty());
         assert!(validate_treasure_action(&picked, RunAction::OpenChest).is_err());
         assert!(validate_treasure_action(&picked, RunAction::Proceed).is_ok());
+    }
+
+    #[test]
+    fn closing_map_chest_reward_clears_retained_treasure_room() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(RoomKind::Treasure);
+        setup_treasure_room(&mut run);
+
+        let opened = apply_run_action(&run, RunAction::OpenChest).expect("map chest opens");
+        opened
+            .validate()
+            .expect("reward overlay retains the treasure-room owner");
+        assert!(opened.treasure_room.is_some());
+
+        let closed = apply_run_action(&opened, RunAction::SkipReward)
+            .expect("map chest reward can be closed");
+        assert_eq!(closed.phase, RunPhase::Idle);
+        assert!(closed.reward.is_none());
+        assert!(closed.treasure_room.is_none());
+        closed
+            .validate()
+            .expect("closed chest reward has no orphaned treasure state");
     }
 
     #[test]
