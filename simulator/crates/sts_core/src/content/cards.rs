@@ -3,7 +3,7 @@ use crate::{
         CardDefinition, CardInstance, CardKeywords, CardRarity, CardType, CardValues,
         TargetRequirement, CARD_KEYWORDS_NONE,
     },
-    ContentId,
+    ContentId, SimError, SimResult,
 };
 
 pub const STRIKE_R_ID: ContentId = ContentId::new(1);
@@ -5047,12 +5047,18 @@ pub fn searing_blow_card_damage(card: &CardInstance) -> Option<i32> {
     }
 }
 
-#[must_use]
-pub fn ritual_dagger_card_damage(card: &CardInstance) -> Option<i32> {
+pub fn ritual_dagger_card_damage(card: &CardInstance) -> SimResult<Option<i32>> {
     if card.content_id == RITUAL_DAGGER_ID {
-        Some(RITUAL_DAGGER.values.damage.unwrap_or(15) + card.ritual_dagger_damage_bonus)
+        let base_damage = RITUAL_DAGGER.values.damage.ok_or(SimError::InvalidState(
+            "Ritual Dagger definition is missing damage",
+        ))?;
+        Ok(Some(
+            base_damage
+                .checked_add(card.ritual_dagger_damage_bonus)
+                .ok_or(SimError::InvalidState("Ritual Dagger damage overflows i32"))?,
+        ))
     } else {
-        None
+        Ok(None)
     }
 }
 

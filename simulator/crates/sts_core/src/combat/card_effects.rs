@@ -1041,6 +1041,12 @@ fn ritual_dagger_queue(
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
+    let amount = ritual_dagger_card_damage(card)?.ok_or(SimError::InvalidState(
+        "Ritual Dagger queue received a different card",
+    ))?;
+    let growth = ritual_dagger_card_growth(card).ok_or(SimError::InvalidState(
+        "Ritual Dagger queue received a different card",
+    ))?;
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id: card.id },
         InternalAction::SpendCardEnergy { card_id: card.id },
@@ -1048,10 +1054,9 @@ fn ritual_dagger_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card.id),
                 target,
-                amount: ritual_dagger_card_damage(card)
-                    .unwrap_or_else(|| definition.values.damage.unwrap_or(0)),
+                amount,
             },
-            growth: ritual_dagger_card_growth(card).unwrap_or(3),
+            growth,
         },
         InternalAction::MoveCard {
             card_id: card.id,

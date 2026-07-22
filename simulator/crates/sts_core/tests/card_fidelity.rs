@@ -3153,6 +3153,33 @@ fn ritual_dagger_gains_three_damage_on_fatal_non_minion_kill() {
 }
 
 #[test]
+fn ritual_dagger_damage_overflow_fails_before_resolving_the_hit() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    let mut ritual_dagger = CardInstance::new(CardId::new(1), cards::RITUAL_DAGGER_ID);
+    ritual_dagger.ritual_dagger_damage_bonus = i32::MAX;
+    state.piles.hand = vec![ritual_dagger];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 15;
+    state.monsters[0].max_hp = 15;
+
+    assert_eq!(
+        apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(MonsterId::new(1)),
+            },
+        ),
+        Err(sts_core::SimError::InvalidState(
+            "Ritual Dagger damage overflows i32"
+        ))
+    );
+}
+
+#[test]
 fn ritual_dagger_does_not_grow_on_minion_kill() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

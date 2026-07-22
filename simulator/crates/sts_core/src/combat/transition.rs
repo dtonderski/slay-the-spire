@@ -758,7 +758,7 @@ fn apply_internal_action(
             if !still_alive {
                 if !minion {
                     let DamageSource::Card(source_card_id) = info.source;
-                    add_ritual_dagger_damage_bonus(state, source_card_id, growth);
+                    add_ritual_dagger_damage_bonus(state, source_card_id, growth)?;
                 }
                 apply_monster_death_hooks(state, info.target)?;
             }
@@ -3460,10 +3460,19 @@ fn find_combat_card_mut(state: &mut CombatState, card_id: CardId) -> Option<&mut
         .find(|card| card.id == card_id)
 }
 
-fn add_ritual_dagger_damage_bonus(state: &mut CombatState, card_id: CardId, amount: i32) {
-    if let Some(card) = find_combat_card_mut(state, card_id) {
-        card.ritual_dagger_damage_bonus += amount.max(0);
-    }
+fn add_ritual_dagger_damage_bonus(
+    state: &mut CombatState,
+    card_id: CardId,
+    amount: i32,
+) -> SimResult<()> {
+    let card = find_combat_card_mut(state, card_id).ok_or(SimError::UnknownCard(card_id))?;
+    card.ritual_dagger_damage_bonus = card
+        .ritual_dagger_damage_bonus
+        .checked_add(amount.max(0))
+        .ok_or(SimError::InvalidState(
+            "Ritual Dagger damage bonus overflows i32",
+        ))?;
+    Ok(())
 }
 
 fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<CardInstance> {
@@ -3559,6 +3568,28 @@ mod tests {
         monster_state, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
     };
     use crate::rng::StsRng;
+
+    #[test]
+    fn ritual_dagger_growth_overflow_and_missing_source_fail_closed() {
+        let mut state = CombatState::initial_fixture();
+        let mut ritual_dagger = CardInstance::new(CardId::new(1), RITUAL_DAGGER_ID);
+        ritual_dagger.ritual_dagger_damage_bonus = i32::MAX;
+        state.piles.hand = vec![ritual_dagger];
+        let before = state.clone();
+
+        assert_eq!(
+            add_ritual_dagger_damage_bonus(&mut state, CardId::new(1), 1),
+            Err(SimError::InvalidState(
+                "Ritual Dagger damage bonus overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+        assert_eq!(
+            add_ritual_dagger_damage_bonus(&mut state, CardId::new(99), 1),
+            Err(SimError::UnknownCard(CardId::new(99)))
+        );
+        assert_eq!(state, before);
+    }
 
     #[test]
     fn power_overflow_fails_closed_at_the_combat_action_boundary() {
