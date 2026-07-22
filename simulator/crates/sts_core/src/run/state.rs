@@ -1087,6 +1087,11 @@ impl RunState {
         if self.ascension > 20 {
             return Err(SimError::InvalidState("run ascension exceeds 20"));
         }
+        if self.shop_remove_count > super::shop::MAX_SHOP_REMOVE_COUNT {
+            return Err(SimError::InvalidState(
+                "shop remove count exceeds the supported price range",
+            ));
+        }
         if self.player_max_hp <= 0 || self.player_hp < 0 || self.player_hp > self.player_max_hp {
             return Err(SimError::InvalidState("run player HP is out of bounds"));
         }

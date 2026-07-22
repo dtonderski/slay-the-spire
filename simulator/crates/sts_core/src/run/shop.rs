@@ -18,6 +18,8 @@ use crate::{
 
 pub const SHOP_BASE_REMOVE_PRICE: i32 = 75;
 pub const SHOP_REMOVE_PRICE_INCREASE: i32 = 25;
+pub(crate) const MAX_SHOP_REMOVE_COUNT: u32 =
+    ((i32::MAX - SHOP_BASE_REMOVE_PRICE) / SHOP_REMOVE_PRICE_INCREASE) as u32;
 
 const SHOP_CARD_COMMON_PRICE: i32 = 50;
 const SHOP_CARD_UNCOMMON_PRICE: i32 = 75;
@@ -135,13 +137,16 @@ fn potion_price(potion: Potion, merchant_rng: &mut StsRng) -> i32 {
     (potion_base_price(potion) as f32 * factor).round() as i32
 }
 
-#[must_use]
-pub fn shop_remove_cost_for_run(run: &RunState) -> i32 {
+pub fn shop_remove_cost_for_run(run: &RunState) -> SimResult<i32> {
+    shop_remove_cost_for_count(run, run.shop_remove_count)
+}
+
+pub(crate) fn shop_remove_cost_for_count(run: &RunState, count: u32) -> SimResult<i32> {
+    let mut cost = shop_base_remove_cost(count)?;
     if owns_relic_key(run, RelicKey::SmilingMask) {
-        return 50;
+        return Ok(50);
     }
 
-    let mut cost = shop_base_remove_cost(run);
     if has_the_courier(run) {
         cost = round_discount(cost, 4, 5);
     }
@@ -149,11 +154,16 @@ pub fn shop_remove_cost_for_run(run: &RunState) -> i32 {
         cost = round_discount(cost, 1, 2);
     }
 
-    cost
+    Ok(cost)
 }
 
-fn shop_base_remove_cost(run: &RunState) -> i32 {
-    SHOP_BASE_REMOVE_PRICE + SHOP_REMOVE_PRICE_INCREASE * run.shop_remove_count as i32
+fn shop_base_remove_cost(count: u32) -> SimResult<i32> {
+    let count = i32::try_from(count)
+        .map_err(|_| SimError::InvalidState("shop remove count exceeds i32"))?;
+    SHOP_REMOVE_PRICE_INCREASE
+        .checked_mul(count)
+        .and_then(|increase| SHOP_BASE_REMOVE_PRICE.checked_add(increase))
+        .ok_or(SimError::InvalidState("shop remove price overflows i32"))
 }
 
 fn has_membership_card(run: &RunState) -> bool {
@@ -165,7 +175,9 @@ fn has_the_courier(run: &RunState) -> bool {
 }
 
 fn round_discount(price: i32, numerator: i32, denominator: i32) -> i32 {
-    (price * numerator + denominator / 2) / denominator
+    let rounded = (i64::from(price) * i64::from(numerator) + i64::from(denominator) / 2)
+        / i64::from(denominator);
+    i32::try_from(rounded).expect("static shop discount of an i32 price fits i32")
 }
 
 fn apply_discount_to_shop(shop: &mut ShopScreen, numerator: i32, denominator: i32) {
@@ -375,6 +387,7 @@ fn restock_courier_potion_slot(next: &mut RunState, slot: usize) {
 }
 
 pub fn generate_shop_screen(run: &mut RunState) -> SimResult<ShopScreen> {
+    let remove_cost = shop_base_remove_cost(run.shop_remove_count)?;
     let mut next_card_id = run.reserve_card_instance_ids(7)?;
     let mut card_rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
     let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
@@ -477,7 +490,7 @@ pub fn generate_shop_screen(run: &mut RunState) -> SimResult<ShopScreen> {
         cards,
         relics,
         potions,
-        remove_cost: shop_base_remove_cost(run),
+        remove_cost,
         remove_available: true,
         sale_slot: Some(sale_slot),
     };
@@ -774,6 +787,54 @@ pub fn shop_action_for_choice_index(run: &RunState, choice_index: usize) -> SimR
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shop_remove_prices_are_checked_without_changing_valid_discounts() {
+        let mut run = RunState::map_fixture();
+        assert_eq!(shop_remove_cost_for_run(&run), Ok(75));
+
+        run.shop_remove_count = 1;
+        assert_eq!(shop_remove_cost_for_run(&run), Ok(100));
+
+        run.relics = vec![Relic::TheCourier];
+        assert_eq!(shop_remove_cost_for_run(&run), Ok(80));
+
+        run.relics.push(Relic::MembershipCard);
+        assert_eq!(shop_remove_cost_for_run(&run), Ok(40));
+
+        run.relics = vec![Relic::MembershipCard];
+        assert_eq!(shop_remove_cost_for_run(&run), Ok(50));
+
+        run.relics = vec![Relic::TheCourier, Relic::MembershipCard, Relic::SmilingMask];
+        assert_eq!(shop_remove_cost_for_run(&run), Ok(50));
+
+        run.relics.clear();
+        run.shop_remove_count = MAX_SHOP_REMOVE_COUNT;
+        assert_eq!(shop_remove_cost_for_run(&run), Ok(2_147_483_625));
+    }
+
+    #[test]
+    fn invalid_shop_remove_count_fails_before_shop_generation_mutates_run() {
+        let mut run = RunState::map_fixture();
+        run.shop_remove_count = MAX_SHOP_REMOVE_COUNT + 1;
+        let before = run.clone();
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "shop remove count exceeds the supported price range"
+            ))
+        );
+        assert_eq!(
+            shop_remove_cost_for_run(&run),
+            Err(SimError::InvalidState("shop remove price overflows i32"))
+        );
+        assert_eq!(
+            generate_shop_screen(&mut run),
+            Err(SimError::InvalidState("shop remove price overflows i32"))
+        );
+        assert_eq!(run, before);
+    }
 
     #[test]
     fn non_shop_card_offer_is_rejected_before_courier_restock() {

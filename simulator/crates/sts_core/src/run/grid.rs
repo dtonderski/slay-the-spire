@@ -691,12 +691,16 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             if next.gold < cost {
                 return Err(SimError::IllegalAction("not enough gold"));
             }
+            let next_remove_count = next
+                .shop_remove_count
+                .checked_add(1)
+                .ok_or(SimError::InvalidState("shop remove count overflows u32"))?;
+            let remove_cost = super::shop::shop_remove_cost_for_count(&next, next_remove_count)?;
             next.gold -= cost;
             next.break_maw_bank_on_shop_spend();
-            next.shop_remove_count += 1;
+            next.shop_remove_count = next_remove_count;
             next.remove_deck_card(card.id)
                 .expect("shop remove selected a deck card");
-            let remove_cost = super::shop::shop_remove_cost_for_run(&next);
             if let Some(shop) = next.shop.as_mut() {
                 shop.remove_available = false;
                 shop.remove_cost = remove_cost;
@@ -1103,6 +1107,7 @@ mod tests {
         content::cards::{
             BITE_ID, BITE_PLUS_ID, CURSE_OF_THE_BELL_ID, RITUAL_DAGGER_ID, STRIKE_R_ID,
         },
+        run::shop,
         RunState,
     };
 
@@ -1161,6 +1166,27 @@ mod tests {
             .cards
             .iter()
             .all(|card| card.content_id != CURSE_OF_THE_BELL_ID));
+    }
+
+    #[test]
+    fn shop_remove_price_overflow_leaves_grid_run_unchanged() {
+        let mut run = RunState::map_fixture();
+        run.shop_remove_count = shop::MAX_SHOP_REMOVE_COUNT;
+        run.gold = i32::MAX;
+        run.phase = RunPhase::Shop;
+        let generated_shop = shop::generate_shop_screen(&mut run)
+            .expect("maximum supported purge price generates a shop");
+        run.shop = Some(generated_shop);
+        run.shop_merchant_open = true;
+        open_shop_remove_grid(&mut run);
+        let selected = select_grid_card(&run, 0).expect("purge card can be selected");
+        let before = selected.clone();
+
+        assert_eq!(
+            confirm_grid(&selected),
+            Err(SimError::InvalidState("shop remove price overflows i32"))
+        );
+        assert_eq!(selected, before);
     }
 
     #[test]
