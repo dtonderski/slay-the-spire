@@ -1247,6 +1247,56 @@ mod tests {
     }
 
     #[test]
+    fn current_snapshot_rejects_forged_falling_rng_result() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            crate::Event::Falling,
+        ));
+        let intro = crate::run::event::apply_event_action(
+            &run,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Falling intro opens card-type choices");
+        let skill_index = intro
+            .event
+            .as_ref()
+            .expect("Falling choices")
+            .choices
+            .iter()
+            .position(|choice| choice.label.contains("Skill"))
+            .expect("starter deck offers a skill");
+        let mut opened = crate::run::event::apply_event_action(
+            &intro,
+            crate::EventAction::Choose {
+                choice_index: skill_index,
+            },
+        )
+        .expect("Falling opens its RNG-selected grid");
+        let shown = opened.card_grid.as_ref().expect("Falling grid").cards[0];
+        let alternate = opened
+            .deck
+            .iter()
+            .copied()
+            .find(|card| card.id != shown.id && card.content_id == shown.content_id)
+            .expect("starter deck has another copy of the selected skill");
+        opened.card_grid.as_mut().expect("Falling grid").cards[0] = alternate;
+        let value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: opened,
+        })
+        .expect("run snapshot serializes");
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("Falling cannot import a different card for the consumed RNG draw");
+
+        assert!(matches!(error, SnapshotRestoreError::InvalidState(_)));
+    }
+
+    #[test]
     fn historical_run_snapshots_migrate_pending_card_reward_counts() {
         for version in [
             LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,

@@ -138,6 +138,15 @@ pub(super) fn validate_grid_payload_authority(
 }
 
 fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimResult<()> {
+    if matches!(
+        grid.purpose,
+        GridPurpose::EventRemoveReturnToEvent {
+            event: Event::Falling
+        }
+    ) {
+        return validate_falling_grid_payload(run, grid);
+    }
+
     let expected = match grid.purpose {
         GridPurpose::RestSmith
         | GridPurpose::NeowUpgrade
@@ -206,6 +215,63 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
     if expected.as_ref().is_some_and(|cards| cards != &grid.cards) {
         return Err(SimError::InvalidState(
             "card grid payload does not match its deck-derived authority",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_falling_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimResult<()> {
+    let Some(card) = grid
+        .cards
+        .first()
+        .copied()
+        .filter(|_| grid.cards.len() == 1)
+    else {
+        return Err(SimError::InvalidState(
+            "Falling grid does not match its RNG-selected card authority",
+        ));
+    };
+    let card_type = get_card_definition(card.content_id)
+        .map(|definition| definition.card_type)
+        .ok_or(SimError::UnknownContent(card.content_id))?;
+    if !matches!(
+        card_type,
+        CardType::Attack | CardType::Skill | CardType::Power
+    ) {
+        return Err(SimError::InvalidState(
+            "Falling grid does not match its RNG-selected card authority",
+        ));
+    }
+    let eligible = run
+        .deck
+        .iter()
+        .copied()
+        .filter(|candidate| {
+            !candidate.bottled
+                && get_card_definition(candidate.content_id)
+                    .is_some_and(|definition| definition.card_type == card_type)
+        })
+        .collect::<Vec<_>>();
+    let previous_counter = run
+        .misc_rng_counter
+        .checked_sub(1)
+        .ok_or(SimError::InvalidState(
+            "Falling grid has no preceding misc RNG draw",
+        ))?;
+    let max_index = eligible
+        .len()
+        .checked_sub(1)
+        .and_then(|index| i32::try_from(index).ok())
+        .ok_or(SimError::InvalidState(
+            "Falling grid has no supported card candidates",
+        ))?;
+    let mut misc_rng = StsRng::with_counter(run.misc_rng_seed as i64, previous_counter);
+    let expected = eligible
+        .get(misc_rng.random_int(max_index) as usize)
+        .copied();
+    if expected != Some(card) || misc_rng.counter() != run.misc_rng_counter {
+        return Err(SimError::InvalidState(
+            "Falling grid does not match its RNG-selected card authority",
         ));
     }
     Ok(())
@@ -1568,6 +1634,69 @@ mod tests {
             shop_run.validate(),
             Err(SimError::InvalidState(
                 "card grid payload does not match its deck-derived authority"
+            ))
+        );
+    }
+
+    #[test]
+    fn falling_grid_requires_the_exact_prior_misc_rng_draw() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            Event::Falling,
+        ));
+        let intro = crate::run::event::apply_event_action(
+            &run,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Falling intro opens card-type choices");
+        let skill_index = intro
+            .event
+            .as_ref()
+            .expect("Falling choices")
+            .choices
+            .iter()
+            .position(|choice| choice.label.contains("Skill"))
+            .expect("starter deck offers a skill");
+        let opened = crate::run::event::apply_event_action(
+            &intro,
+            crate::EventAction::Choose {
+                choice_index: skill_index,
+            },
+        )
+        .expect("Falling opens its RNG-selected card grid");
+        opened
+            .validate()
+            .expect("Falling payload matches the consumed misc RNG draw");
+
+        let shown = opened.card_grid.as_ref().expect("Falling grid").cards[0];
+        let alternate = opened
+            .deck
+            .iter()
+            .copied()
+            .find(|card| {
+                card.id != shown.id
+                    && !card.bottled
+                    && get_card_definition(card.content_id)
+                        .is_some_and(|definition| definition.card_type == CardType::Skill)
+            })
+            .expect("starter deck has another skill");
+        let mut forged = opened.clone();
+        forged.card_grid.as_mut().expect("Falling grid").cards[0] = alternate;
+        assert_eq!(
+            forged.validate(),
+            Err(SimError::InvalidState(
+                "Falling grid does not match its RNG-selected card authority"
+            ))
+        );
+
+        let mut missing_draw = opened;
+        missing_draw.misc_rng_counter = 0;
+        assert_eq!(
+            missing_draw.validate(),
+            Err(SimError::InvalidState(
+                "Falling grid has no preceding misc RNG draw"
             ))
         );
     }
