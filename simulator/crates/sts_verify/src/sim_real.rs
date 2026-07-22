@@ -4129,6 +4129,25 @@ fn seed_start_is_transient_combat_post_state(message: &Value) -> bool {
         && game.get("current_action").is_some()
 }
 
+fn seed_start_is_stable_combat_decision_frame(message: &Value) -> bool {
+    let Some(game) = message.get("game_state") else {
+        return false;
+    };
+    let screen_type = game.get("screen_type").and_then(Value::as_str);
+    matches!(screen_type, Some("GRID" | "HAND_SELECT"))
+        && game.get("action_phase").and_then(Value::as_str) == Some("EXECUTING_ACTIONS")
+        && game.get("current_action").is_some()
+        && message.get("ready_for_command").and_then(Value::as_bool) == Some(true)
+        && message
+            .get("available_commands")
+            .and_then(Value::as_array)
+            .is_some_and(|commands| {
+                commands
+                    .iter()
+                    .any(|command| matches!(command.as_str(), Some("choose" | "confirm")))
+            })
+}
+
 fn seed_start_is_transient_combat_entry_post_state(message: &Value) -> bool {
     let Some(game) = message.get("game_state") else {
         return false;

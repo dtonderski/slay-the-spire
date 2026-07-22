@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::VecDeque;
 use sts_core::content::cards::{
     BASH_PLUS_ID, BATTLE_TRANCE_ID, BURN_ID, COMBUST_ID, CORRUPTION_PLUS_ID, DEFEND_R_ID,
     DEMON_FORM_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, ENTRENCH_ID, POMMEL_STRIKE_PLUS_ID,
@@ -581,7 +582,7 @@ fn distilled_chaos_hand_select_is_a_stable_verified_endpoint() {
 }
 
 #[test]
-fn combat_selection_endpoint_names_its_unreconciled_frame() {
+fn combat_selection_endpoint_reconciles_final_decision_frame() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-b9c0db157d03167f.jsonl")
     else {
@@ -599,9 +600,10 @@ fn combat_selection_endpoint_names_its_unreconciled_frame() {
             .expect("seed-start report")
             .first_boundary,
         SeedStartBoundary {
-            path: "$.actions[step=745].command".to_owned(),
-            category: "unreconciled_combat_frame".to_owned(),
-            reason: "deferred combat transition did not reach a captured stable frame".to_owned(),
+            path: "$.actions[verified]".to_owned(),
+            category: "none".to_owned(),
+            reason: "seed-start verifier checked every verifiable transition in the trace"
+                .to_owned(),
         }
     );
     assert_eq!(
@@ -610,12 +612,12 @@ fn combat_selection_endpoint_names_its_unreconciled_frame() {
             .as_ref()
             .expect("action integrity")
             .unresolved_transient_assertions,
-        1
+        0
     );
 }
 
 #[test]
-fn queued_potion_reward_endpoint_names_its_unreconciled_combat_frame() {
+fn queued_potion_reward_endpoint_reconciles_final_decision_frame() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-733fa5c1c94c6af0.jsonl")
     else {
@@ -631,15 +633,15 @@ fn queued_potion_reward_endpoint_names_its_unreconciled_combat_frame() {
         .as_ref()
         .expect("seed-start report")
         .first_boundary;
-    assert_eq!(boundary.path, "$.actions[step=629].command");
-    assert_eq!(boundary.category, "unreconciled_combat_frame");
+    assert_eq!(boundary.path, "$.actions[verified]");
+    assert_eq!(boundary.category, "none");
     assert_eq!(
         report
             .action_integrity
             .as_ref()
             .expect("action integrity")
             .unresolved_transient_assertions,
-        3
+        0
     );
 }
 
@@ -4969,6 +4971,7 @@ fn simulated_combat_screen_type_comes_from_typed_decision_state() {
             source_card_id: Some(source_card_id),
             source_card: None,
             selected_hand_indices: Vec::new(),
+            pending_actions: VecDeque::new(),
         },
     });
     assert_eq!(

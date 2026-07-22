@@ -4661,6 +4661,7 @@ pub(super) fn verify_seed_start_transitions(
     let mut pending_boss_relic_overlay: Option<PendingBossRelicOverlayAssertion> = None;
     let mut pending_combat_assertion: Option<PendingCombatAssertion> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
+    let mut last_post_message: Option<Value> = None;
 
     macro_rules! finish_boundary {
         ($boundary:expr) => {{
@@ -4719,6 +4720,7 @@ pub(super) fn verify_seed_start_transitions(
     }
 
     for (pre, action, post) in transitions {
+        last_post_message = Some(post.message.clone());
         if let Some(boundary) = pending_combat_assertion
             .as_ref()
             .and_then(|pending| pending.failed_reconciliation.clone())
@@ -5664,6 +5666,44 @@ pub(super) fn verify_seed_start_transitions(
             reason: boundary.reason.clone(),
         });
         return finish_boundary!(boundary);
+    }
+
+    if let (Some(pending), Some(post_message), Some(sim)) = (
+        pending_combat_assertion.as_ref(),
+        last_post_message.as_ref(),
+        seed_sim.as_ref(),
+    ) {
+        if seed_start_is_stable_combat_decision_frame(post_message) {
+            let stable_matches = seed_start_compare_deferred_combat_subset(
+                report,
+                &pending
+                    .transitions
+                    .last()
+                    .expect("pending combat assertion has a transition")
+                    .action,
+                "final combat decision frame",
+                seed_start_combat_observed_subset(post_message),
+                seed_start_simulated_combat_subset(sim, false),
+            );
+            if stable_matches
+                && pending
+                    .transitions
+                    .iter()
+                    .all(|transition| transition.transient_matches)
+            {
+                let pending = pending_combat_assertion
+                    .take()
+                    .expect("pending combat assertion checked above");
+                for transition in pending.transitions {
+                    report.verified.push(VerifiedTransition {
+                        action_step: transition.action.step,
+                        command: transition.action.command,
+                        label: transition.label,
+                    });
+                    reconciled_deferred_action_steps.push(transition.action.step);
+                }
+            }
+        }
     }
 
     if start.verification_starting_hp.is_some() {

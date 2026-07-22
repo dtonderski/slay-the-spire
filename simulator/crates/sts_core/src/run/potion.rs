@@ -1037,7 +1037,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                             CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
                         })
                         .collect();
-                    combat.decision = Some(CombatDecisionState::PotionCardReward {
+                    combat.queue_or_activate_decision(CombatDecisionState::PotionCardReward {
                         choices: reward_cards,
                         reward_kind: kind,
                     });
@@ -1620,6 +1620,32 @@ mod tests {
             rng_counter_before + 35,
             "captured colorless Discovery settlement must advance cardRandomRng"
         );
+    }
+
+    #[test]
+    fn discovery_potion_queues_behind_an_active_combat_decision() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::Skill];
+        run.empty_potion_slots = vec![1, 2];
+        open_exhaust_select(run.combat.as_mut().expect("combat fixture"))
+            .expect("open the active exhaust decision");
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Skill Potion can be used during an active combat decision");
+        let combat = next.combat.expect("combat remains open");
+
+        assert!(matches!(
+            combat.decision,
+            Some(CombatDecisionState::ExhaustSelect { .. })
+        ));
+        assert_eq!(combat.queued_decisions.len(), 1);
+        assert!(combat.potion_card_reward_choices().is_none());
     }
 
     #[test]

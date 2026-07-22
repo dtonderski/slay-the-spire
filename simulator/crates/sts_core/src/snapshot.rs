@@ -672,6 +672,7 @@ mod tests {
         RewardScreen, RoomKind, RunPhase,
     };
     use serde_json::json;
+    use std::collections::VecDeque;
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     struct EmptySnapshotState {}
@@ -924,6 +925,7 @@ mod tests {
             source_card_id: None,
             source_card: None,
             selected_hand_indices: Vec::new(),
+            pending_actions: VecDeque::new(),
         })
         .expect("exhaust selection serializes");
 

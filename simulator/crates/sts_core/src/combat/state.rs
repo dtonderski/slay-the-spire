@@ -185,6 +185,8 @@ pub struct ExhaustSelectState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_card: Option<CardInstance>,
     pub selected_hand_indices: Vec<usize>,
+    #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+    pub pending_actions: VecDeque<InternalAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -663,6 +665,14 @@ impl CombatState {
     pub fn activate_next_queued_decision_if_idle(&mut self) {
         if self.decision.is_none() {
             self.decision = self.queued_decisions.pop_front();
+        }
+    }
+
+    pub(crate) fn queue_or_activate_decision(&mut self, decision: CombatDecisionState) {
+        if self.decision.is_some() {
+            self.queued_decisions.push_back(decision);
+        } else {
+            self.decision = Some(decision);
         }
     }
 

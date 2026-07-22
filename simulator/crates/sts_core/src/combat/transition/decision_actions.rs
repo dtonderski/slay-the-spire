@@ -179,6 +179,7 @@ pub(super) fn await_exhaust_select(
             source_card_id: Some(source_card_id),
             source_card,
             selected_hand_indices: Vec::new(),
+            pending_actions: VecDeque::new(),
         },
     });
     Ok(Vec::new())

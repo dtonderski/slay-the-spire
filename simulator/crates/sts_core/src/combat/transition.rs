@@ -185,12 +185,18 @@ fn process_internal_queue(
             push_follow_up(&mut queue, follow_up);
         }
         if !queue.is_empty() {
-            if let Some(CombatDecisionState::HandSelect {
-                pending_actions, ..
-            }) = next.decision.as_mut()
-            {
-                pending_actions.extend(queue.drain(..));
-                break;
+            match next.decision.as_mut() {
+                Some(CombatDecisionState::HandSelect {
+                    pending_actions, ..
+                }) => {
+                    pending_actions.extend(queue.drain(..));
+                    break;
+                }
+                Some(CombatDecisionState::ExhaustSelect { state }) => {
+                    state.pending_actions.extend(queue.drain(..));
+                    break;
+                }
+                _ => {}
             }
         }
     }
@@ -2161,6 +2167,7 @@ pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
             source_card_id: None,
             source_card: None,
             selected_hand_indices: Vec::new(),
+            pending_actions: VecDeque::new(),
         },
     });
     Ok(())
@@ -2176,6 +2183,7 @@ pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
             source_card_id: None,
             source_card: None,
             selected_hand_indices: Vec::new(),
+            pending_actions: VecDeque::new(),
         },
     });
     Ok(())
@@ -2276,6 +2284,7 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
     let exhaust_select = state
         .take_exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    let pending_actions = exhaust_select.pending_actions.clone();
     match exhaust_select.purpose {
         crate::combat::ExhaustSelectPurpose::GamblingChip => {
             confirm_gambling_chip_select(state, exhaust_select.selected_hand_indices)?;
@@ -2318,6 +2327,10 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
                 apply_on_exhaust_effects(state, card_id)?;
             }
         }
+    }
+    if !pending_actions.is_empty() {
+        let transition = process_internal_queue(state, pending_actions)?;
+        *state = transition.state;
     }
     state.activate_next_queued_decision_if_idle();
     Ok(())
@@ -3282,6 +3295,61 @@ mod tests {
         confirm_hand_select(&mut next).expect("Armaments selection should resolve");
 
         assert_eq!(next.pending_hand_select_action_count(), 0);
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .filter(|card| card.content_id == DAZED_ID)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn hex_dazed_waits_for_burning_pact_exhaust_select_to_close() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.hex = 1;
+        state.rng.card_random_rng = StsRng::new(7_141_693_325_691_831_207);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(4), SHRUG_IT_OFF_ID),
+            CardInstance::new(CardId::new(5), BASH_ID),
+            CardInstance::new(CardId::new(6), RAMPAGE_ID),
+        ];
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact should open its exhaust-select screen");
+
+        assert!(next.exhaust_select().is_some());
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .filter(|card| card.content_id == DAZED_ID)
+                .count(),
+            0
+        );
+        assert_eq!(
+            next.exhaust_select()
+                .expect("exhaust select")
+                .pending_actions
+                .len(),
+            1
+        );
+
+        choose_exhaust_select(&mut next, 0).expect("Strike is selectable");
+        confirm_exhaust_select(&mut next).expect("Burning Pact selection should resolve");
+
         assert_eq!(
             next.piles
                 .draw_pile
