@@ -91,3 +91,16 @@ minion and Darkling exclusions, Magic Flower-adjusted healing, checked max-HP
 arithmetic, and Red Skull synchronization before death hooks. Preserve Ritual
 Dagger's non-minion source-card growth before death hooks. Both retain final
 spike reflection ordering.
+
+## Ninth slice: card-play lifecycle actions
+
+Move card-play and copied-card triggers, duplication/relic consumption, energy
+spending, and hand-card cost mutation into a private `card_actions` module.
+Preserve normal-play trigger order: Enrage, Rage, relics, Mummified Hand,
+powers, then hand-card triggers. Preserve copied-play trigger order: Enrage,
+Rage, relics, powers, then copied-card triggers; copied play intentionally does
+not apply Mummified Hand. Preserve checked card-energy subtraction and the
+existing direct `SpendEnergy` semantics.
+
+Keep copied-effect marker no-ops in the central router. This module does not
+classify actions or process the queue.

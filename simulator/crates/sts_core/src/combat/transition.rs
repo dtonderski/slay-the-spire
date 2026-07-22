@@ -1,4 +1,5 @@
 use super::card_effects;
+mod card_actions;
 mod damage_actions;
 mod decision_actions;
 mod defense_actions;
@@ -9,7 +10,7 @@ use crate::{
     card::{CardType, TargetRequirement},
     combat::{
         apply_burning_blood,
-        cost::{effective_card_cost, effective_card_cost_with_corruption, printed_card_cost},
+        cost::{effective_card_cost, printed_card_cost},
         damage::{
             deal_damage_info_to_monster_with_result, deal_unmodified_damage_to_monster,
             reflect_spikes_to_player, DamageInfo, DamageSource,
@@ -339,82 +340,23 @@ fn apply_internal_action(
     action: InternalAction,
 ) -> SimResult<Vec<InternalAction>> {
     match action {
-        InternalAction::ConsumeDuplicationPotion => {
-            if state.duplication_potion_stacks > 0 {
-                state.duplication_potion_stacks -= 1;
-                if state.duplication_potion_stacks == 0 {
-                    state.duplication_potion_pending = false;
-                }
-            } else if state.duplication_potion_pending {
-                state.duplication_potion_pending = false;
-            }
-            Ok(Vec::new())
-        }
-        InternalAction::ConsumeDoubleTap => {
-            state.double_tap_pending = state.double_tap_pending.saturating_sub(1);
-            Ok(Vec::new())
-        }
-        InternalAction::ConsumeNecronomicon => {
-            state.relic_counters.necronomicon_used_this_turn = true;
-            Ok(Vec::new())
-        }
-        InternalAction::PlayCard { card_id } => {
-            let card = find_hand_card(state, card_id)?;
-            let definition = get_card_definition(card.content_id)
-                .ok_or(SimError::UnknownContent(card.content_id))?;
-            apply_enrage_on_card_type(state, definition.card_type)?;
-            apply_rage_on_card_type(state, definition.card_type)?;
-            let mut follow_ups =
-                crate::relic::apply_on_card_play_relics(state, definition.card_type)?;
-            apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
-            follow_ups.extend(apply_on_card_play_powers(state, definition.card_type)?);
-            follow_ups.extend(apply_hand_card_play_triggers(state, card_id));
-            Ok(follow_ups)
-        }
-        InternalAction::PlayCardCopy { card_id } => {
-            let definition = card_content_definition(state, card_id)?;
-            apply_enrage_on_card_type(state, definition.card_type)?;
-            apply_rage_on_card_type(state, definition.card_type)?;
-            let mut follow_ups =
-                crate::relic::apply_on_card_play_relics(state, definition.card_type)?;
-            follow_ups.extend(apply_on_card_play_powers(state, definition.card_type)?);
-            follow_ups.extend(apply_copied_card_play_triggers(state));
-            Ok(follow_ups)
-        }
+        InternalAction::ConsumeDuplicationPotion => card_actions::consume_duplication_potion(state),
+        InternalAction::ConsumeDoubleTap => card_actions::consume_double_tap(state),
+        InternalAction::ConsumeNecronomicon => card_actions::consume_necronomicon(state),
+        InternalAction::PlayCard { card_id } => card_actions::play_card(state, card_id),
+        InternalAction::PlayCardCopy { card_id } => card_actions::play_card_copy(state, card_id),
         InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
         | InternalAction::SkipCopiedCardEffectsIfCombatDone
         | InternalAction::EndCopiedCardEffects => Ok(Vec::new()),
-        InternalAction::SpendEnergy { amount } => {
-            state.player.energy -= amount;
-            Ok(Vec::new())
-        }
+        InternalAction::SpendEnergy { amount } => card_actions::spend_energy(state, amount),
         InternalAction::SpendCardEnergy { card_id } => {
-            let card = state
-                .piles
-                .hand
-                .iter()
-                .find(|card| card.id == card_id)
-                .ok_or(SimError::UnknownCard(card_id))?;
-            let cost =
-                effective_card_cost_with_corruption(card, state.player.powers.corruption > 0)?;
-            state.player.energy = state
-                .player
-                .energy
-                .checked_sub(cost)
-                .ok_or(SimError::InvalidState("combat energy spend overflows i32"))?;
-            Ok(Vec::new())
+            card_actions::spend_card_energy(state, card_id)
         }
         InternalAction::SetHandCardCostForTurn { card_id, cost } => {
-            let card = find_hand_card_mut(state, card_id)?;
-            card.temp_cost = Some(cost);
-            card.temp_cost_turn_only = true;
-            Ok(Vec::new())
+            card_actions::set_hand_card_cost_for_turn(state, card_id, cost)
         }
         InternalAction::SetHandCardCostForCombat { card_id, cost } => {
-            let card = find_hand_card_mut(state, card_id)?;
-            card.temp_cost = Some(cost);
-            card.temp_cost_turn_only = false;
-            Ok(Vec::new())
+            card_actions::set_hand_card_cost_for_combat(state, card_id, cost)
         }
         InternalAction::DealDamage { info } => damage_actions::deal_damage(state, info),
         InternalAction::DealHandOfGreedDamage { info, gold } => {
