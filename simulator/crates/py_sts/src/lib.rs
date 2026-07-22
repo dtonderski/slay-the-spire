@@ -1421,7 +1421,7 @@ mod tests {
     #[test]
     fn reward_exact_actions_expose_fruit_juice_without_combat_state() {
         let mut env = PyOmniRunEnv::combat_fixture();
-        sts_core::enter_reward_screen(&mut env.state);
+        sts_core::enter_reward_screen(&mut env.state).expect("fixture reward entry succeeds");
         env.state.player_hp = 75;
         env.state.player_max_hp = 80;
         env.state.potions = vec![Potion::Attack, Potion::FruitJuice];

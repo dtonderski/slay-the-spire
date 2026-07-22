@@ -291,7 +291,7 @@ pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
         .exhaust_pile
         .len()
         .saturating_sub(exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
     next.combat = Some(combat);
     Ok(next)
 }
@@ -315,7 +315,7 @@ pub fn apply_draw_select_confirm(run: &RunState) -> SimResult<RunState> {
         .exhaust_pile
         .len()
         .saturating_sub(exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
     next.combat = Some(combat);
     Ok(next)
 }
@@ -367,7 +367,7 @@ pub fn apply_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<Ru
         let exhaust_before = combat.piles.exhaust_pile.len();
         confirm_exhaust_select(&mut combat)?;
         let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
-        apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count);
+        apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
         next.combat = Some(combat);
     }
     Ok(next)
@@ -381,7 +381,7 @@ pub fn apply_exhaust_select_confirm(run: &RunState) -> SimResult<RunState> {
     let exhaust_before = combat.piles.exhaust_pile.len();
     confirm_exhaust_select(&mut combat)?;
     let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
     next.combat = Some(combat);
     Ok(next)
 }
@@ -437,9 +437,9 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             choices,
             reward_kind,
         } => {
+            let card_id = CardId::new(combat.next_card_instance_id()?);
             settle_potion_card_reward_rng(combat, reward_kind, true);
             let choice = choices[index];
-            let card_id = CardId::new(combat.next_card_instance_id());
             let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
             card.temp_cost_turn_only = true;
             // CommunicationMod exposes potion-generated cards after the cards that
@@ -453,6 +453,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             choices,
             source_card,
         } => {
+            let card_id = CardId::new(combat.next_card_instance_id()?);
             // After a card-played Discovery is selected, DiscoveryAction keeps
             // regenerating its three choices for four hidden fast-action updates.
             burn_all_discovery_card_choice_generations(
@@ -461,7 +462,6 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                 PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
             );
             let choice = choices[index];
-            let card_id = CardId::new(combat.next_card_instance_id());
             let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
             card.temp_cost_turn_only = true;
             // DiscoveryAction adds the generated card after the cards already in hand.
@@ -471,7 +471,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
         }
         CombatDecisionState::ToolboxCardReward { choices } => {
             let choice = choices[index];
-            let card_id = CardId::new(combat.next_card_instance_id());
+            let card_id = CardId::new(combat.next_card_instance_id()?);
             combat.piles.hand.insert(
                 0,
                 CardInstance {
@@ -866,6 +866,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Attack | Potion::Skill | Potion::Colorless | Potion::Power => {
                     defer_potion_use_relics = true;
                     let mut combat = next.combat.take().expect("validated combat state");
+                    let next_card_id = combat.reserve_card_instance_ids(3)?;
                     let rng = &mut combat.rng.card_random_rng;
                     let (kind, content_ids) = match potion {
                         Potion::Attack => (
@@ -887,7 +888,6 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         _ => unreachable!("matched discovery potion"),
                     };
                     next.card_random_rng_counter = rng.counter();
-                    let next_card_id = combat.next_card_instance_id();
                     let reward_cards = content_ids
                         .into_iter()
                         .enumerate()
@@ -932,7 +932,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     next.player_hp = combat.player.hp;
                     next.player_max_hp = combat.player.max_hp;
                 }
-                enter_combat_reward_for_current_room(&mut next);
+                enter_combat_reward_for_current_room(&mut next)?;
             }
         }
         RunAction::DiscardPotion { slot } => {
@@ -944,7 +944,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
     Ok(next)
 }
 
-fn enter_combat_reward_for_current_room(run: &mut RunState) {
+fn enter_combat_reward_for_current_room(run: &mut RunState) -> SimResult<()> {
     match current_room_kind(run) {
         Some(RoomKind::Boss) => super::reward::enter_boss_combat_reward_screen(run),
         Some(RoomKind::Elite) => super::reward::enter_elite_combat_reward_screen(run),
@@ -1114,7 +1114,11 @@ mod tests {
             .iter()
             .map(|card| card.id)
             .collect::<Vec<_>>();
-        let chosen_id = CardId::new(combat.next_card_instance_id());
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
         let choice_content = combat.piles.hand[0].content_id;
         combat.decision = Some(CombatDecisionState::PotionCardReward {
             choices: vec![CardInstance::new(
@@ -1204,7 +1208,11 @@ mod tests {
             .iter()
             .map(|card| card.id)
             .collect::<Vec<_>>();
-        let chosen_id = CardId::new(combat.next_card_instance_id());
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
         let choice_content = combat.piles.hand[0].content_id;
         combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
             choices: vec![CardInstance::new(
@@ -1243,7 +1251,11 @@ mod tests {
             .iter()
             .map(|card| card.id)
             .collect::<Vec<_>>();
-        let chosen_id = CardId::new(combat.next_card_instance_id());
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
         let choice_content = combat.piles.hand[0].content_id;
         combat.decision = Some(CombatDecisionState::ToolboxCardReward {
             choices: vec![CardInstance::new(

@@ -920,7 +920,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::AddCardToPile { content_id, to } => {
-            add_card_to_pile(state, content_id, to);
+            add_card_to_pile(state, content_id, to)?;
             Ok(Vec::new())
         }
         InternalAction::AddGeneratedCardToPile {
@@ -929,7 +929,7 @@ fn apply_internal_action(
             temp_cost,
             temp_cost_turn_only,
         } => {
-            add_generated_card_to_pile(state, content_id, to, temp_cost, temp_cost_turn_only);
+            add_generated_card_to_pile(state, content_id, to, temp_cost, temp_cost_turn_only)?;
             Ok(Vec::new())
         }
         InternalAction::AddGeneratedHandCardBeforePendingDraw {
@@ -943,15 +943,15 @@ fn apply_internal_action(
                 CardPile::Hand,
                 temp_cost,
                 temp_cost_turn_only,
-            );
+            )?;
             Ok(Vec::new())
         }
         InternalAction::AddStatEquivalentCopyToPile { card, to } => {
-            add_stat_equivalent_copy_to_pile(state, card, to);
+            add_stat_equivalent_copy_to_pile(state, card, to)?;
             Ok(Vec::new())
         }
         InternalAction::AddGeneratedCardToDrawPileRandomSpot { content_id } => {
-            add_generated_card_to_draw_pile_random_spot(state, content_id, None, false);
+            add_generated_card_to_draw_pile_random_spot(state, content_id, None, false)?;
             Ok(Vec::new())
         }
         InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost {
@@ -964,15 +964,16 @@ fn apply_internal_action(
                 content_id,
                 temp_cost,
                 temp_cost_turn_only,
-            );
+            )?;
             Ok(Vec::new())
         }
         InternalAction::AddRandomColorlessCardToHand { temp_cost, upgrade } => {
+            state.reserve_card_instance_ids(1)?;
             let mut content_id = random_colorless_card(state);
             if upgrade {
                 content_id = upgrade_content_id(content_id).unwrap_or(content_id);
             }
-            add_generated_card_to_pile(state, content_id, CardPile::Hand, temp_cost, false);
+            add_generated_card_to_pile(state, content_id, CardPile::Hand, temp_cost, false)?;
             Ok(Vec::new())
         }
         InternalAction::DrawCards { count } => {
@@ -1193,7 +1194,7 @@ fn apply_internal_action(
         }
         InternalAction::CopyHandCardToHand { card_id } => {
             let card = find_hand_card(state, card_id)?;
-            let next_id = CardId::new(state.next_card_instance_id());
+            let next_id = CardId::new(state.next_card_instance_id()?);
             state
                 .piles
                 .hand
@@ -1956,10 +1957,11 @@ fn apply_unceasing_top_after_hand_emptied(state: &mut CombatState) {
     }
 }
 
-fn add_card_to_pile(state: &mut CombatState, content_id: ContentId, to: CardPile) {
-    let next_id = CardId::new(state.next_card_instance_id());
+fn add_card_to_pile(state: &mut CombatState, content_id: ContentId, to: CardPile) -> SimResult<()> {
+    let next_id = CardId::new(state.next_card_instance_id()?);
     let card = CardInstance::new(next_id, content_id);
     push_card_to_pile(state, card, to);
+    Ok(())
 }
 
 fn add_generated_card_to_pile(
@@ -1968,8 +1970,8 @@ fn add_generated_card_to_pile(
     to: CardPile,
     temp_cost: Option<u8>,
     temp_cost_turn_only: bool,
-) {
-    let next_id = CardId::new(state.next_card_instance_id());
+) -> SimResult<()> {
+    let next_id = CardId::new(state.next_card_instance_id()?);
     let mut card = CardInstance {
         combat_only: true,
         ..CardInstance::new(next_id, content_id)
@@ -1982,10 +1984,15 @@ fn add_generated_card_to_pile(
         to
     };
     push_card_to_pile(state, card, destination);
+    Ok(())
 }
 
-fn add_stat_equivalent_copy_to_pile(state: &mut CombatState, source: CardInstance, to: CardPile) {
-    let next_id = CardId::new(state.next_card_instance_id());
+fn add_stat_equivalent_copy_to_pile(
+    state: &mut CombatState,
+    source: CardInstance,
+    to: CardPile,
+) -> SimResult<()> {
+    let next_id = CardId::new(state.next_card_instance_id()?);
     let mut copy = source;
     copy.id = next_id;
     copy.bottled = false;
@@ -1999,6 +2006,7 @@ fn add_stat_equivalent_copy_to_pile(state: &mut CombatState, source: CardInstanc
         to
     };
     push_card_to_pile(state, copy, destination);
+    Ok(())
 }
 
 fn add_generated_card_to_draw_pile_random_spot(
@@ -2006,8 +2014,8 @@ fn add_generated_card_to_draw_pile_random_spot(
     content_id: ContentId,
     temp_cost: Option<u8>,
     temp_cost_turn_only: bool,
-) {
-    let next_id = CardId::new(state.next_card_instance_id());
+) -> SimResult<()> {
+    let next_id = CardId::new(state.next_card_instance_id()?);
     let mut card = CardInstance {
         combat_only: true,
         ..CardInstance::new(next_id, content_id)
@@ -2016,11 +2024,12 @@ fn add_generated_card_to_draw_pile_random_spot(
     card.temp_cost_turn_only = temp_cost_turn_only;
     if state.piles.draw_pile.is_empty() {
         state.piles.draw_pile.push(card);
-        return;
+        return Ok(());
     }
     let bound = (state.piles.draw_pile.len() - 1) as i32;
     let index = state.rng.card_random_rng.random_int(bound) as usize;
     state.piles.draw_pile.insert(index, card);
+    Ok(())
 }
 
 fn random_colorless_card(state: &mut CombatState) -> ContentId {
@@ -2727,7 +2736,7 @@ fn confirm_dual_wield_select(
     } else {
         1
     };
-    let mut next_id = state.next_card_instance_id();
+    let mut next_id = state.reserve_card_instance_ids(copy_count)?;
     let mut selected = None;
     let mut unselected_selectable = Vec::new();
     let mut nonselectable = Vec::new();
@@ -3556,6 +3565,22 @@ mod tests {
                 "combat integer addition overflows i32"
             ))
         );
+    }
+
+    #[test]
+    fn copied_hand_card_rejects_id_exhaustion_without_mutating_combat() {
+        let mut state = CombatState::initial_fixture();
+        let card_id = CardId::new(crate::ids::MAX_SUPPORTED_CARD_INSTANCE_ID);
+        state.piles.hand = vec![CardInstance::new(card_id, STRIKE_R_ID)];
+        let before = state.clone();
+
+        assert_eq!(
+            apply_internal_action(&mut state, InternalAction::CopyHandCardToHand { card_id },),
+            Err(SimError::InvalidState(
+                "card instance ID allocation exceeds the supported domain"
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     #[test]

@@ -218,7 +218,7 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
         state.phase = CombatPhase::Lost;
         return Ok(());
     }
-    apply_start_of_turn_magnetism(state);
+    apply_start_of_turn_magnetism(state)?;
     draw_next_hand_without_shuffle(state);
     crate::relic::apply_start_of_player_turn_post_draw_relics(state);
     apply_start_of_turn_mayhem(state)?;
@@ -334,14 +334,19 @@ fn apply_start_of_turn_brutality(state: &mut CombatState) -> SimResult<()> {
     Ok(())
 }
 
-fn apply_start_of_turn_magnetism(state: &mut CombatState) {
+fn apply_start_of_turn_magnetism(state: &mut CombatState) -> SimResult<()> {
     if state.monsters.iter().all(|monster| !monster.alive) {
-        return;
+        return Ok(());
     }
 
-    for _ in 0..state.player.powers.magnetism.max(0) {
+    let count = state.player.powers.magnetism.max(0) as usize;
+    if count == 0 {
+        return Ok(());
+    }
+    let first_id = state.reserve_card_instance_ids(count)?;
+    for offset in 0..count {
         let content_id = crate::combat::card_effects::magnetism_generated_colorless_card(state);
-        let next_id = crate::CardId::new(state.next_card_instance_id());
+        let next_id = crate::CardId::new(first_id + offset as u64);
         let generated = crate::CardInstance {
             combat_only: true,
             ..crate::CardInstance::new(next_id, content_id)
@@ -352,6 +357,7 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) {
             state.piles.hand.push(generated);
         }
     }
+    Ok(())
 }
 
 fn apply_start_of_turn_mayhem(state: &mut CombatState) -> SimResult<()> {
@@ -2232,11 +2238,27 @@ mod tests {
             state.ascension,
         )];
 
-        apply_start_of_turn_magnetism(&mut state);
+        apply_start_of_turn_magnetism(&mut state).expect("Magnetism generation succeeds");
 
         assert_eq!(state.piles.hand.len(), 10);
         assert_eq!(state.piles.discard_pile.len(), 1);
         assert!(state.piles.discard_pile[0].combat_only);
+    }
+
+    #[test]
+    fn magnetism_reserves_its_complete_id_range_before_consuming_rng() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.magnetism = 2;
+        state.piles.hand[0].id = CardId::new(crate::ids::MAX_SUPPORTED_CARD_INSTANCE_ID - 1);
+        let before = state.clone();
+
+        assert_eq!(
+            apply_start_of_turn_magnetism(&mut state),
+            Err(SimError::InvalidState(
+                "card instance ID allocation exceeds the supported domain"
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     #[test]

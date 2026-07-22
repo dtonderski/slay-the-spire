@@ -10,7 +10,7 @@ use crate::{
         requires_rolled_attack_damage, CULTIST_A0, FIXED_SIMPLE_MONSTER, LAGAVULIN_A0,
         RED_LOUSE_A0, RED_LOUSE_BITE_DAMAGE, SENTRY_A0,
     },
-    ids::{card_instance_id_is_supported, CardId, MonsterId},
+    ids::{card_instance_id_is_supported, reserve_card_instance_id_range, CardId, MonsterId},
     potion::FAIRY_HEAL_PERCENT,
     power::{MonsterPowers, PlayerPowers},
     relic::{Relic, RelicCounters},
@@ -1027,11 +1027,16 @@ impl CombatState {
             .unwrap_or(0)
     }
 
-    /// Returns an unused card-instance ID across every authoritative combat
-    /// card location, including open choices and monster stasis.
-    #[must_use]
-    pub fn next_card_instance_id(&self) -> u64 {
-        self.max_authoritative_card_instance_id() + 1
+    /// Reserves a contiguous range after every authoritative combat card
+    /// location, including open choices and monster stasis.
+    pub(crate) fn reserve_card_instance_ids(&self, count: usize) -> SimResult<u64> {
+        reserve_card_instance_id_range(self.max_authoritative_card_instance_id(), count)
+    }
+
+    /// Returns one checked unused card-instance ID across every authoritative
+    /// combat card location, including open choices and monster stasis.
+    pub fn next_card_instance_id(&self) -> SimResult<u64> {
+        self.reserve_card_instance_ids(1)
     }
 }
 

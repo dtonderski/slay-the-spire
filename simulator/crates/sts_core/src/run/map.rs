@@ -154,7 +154,7 @@ pub fn apply_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<R
     } else if current_room_kind(&next) == Some(RoomKind::Boss) {
         enter_boss_combat(&mut next)?;
     } else if current_room_kind(&next) == Some(RoomKind::Shop) {
-        enter_shop_room(&mut next);
+        enter_shop_room(&mut next)?;
     } else if current_room_kind(&next) == Some(RoomKind::Treasure) {
         setup_treasure_room(&mut next);
         next.phase = RunPhase::Treasure;
@@ -230,7 +230,7 @@ fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -
     run.phase = RunPhase::Combat;
     let mut initialized = run.init_combat_consuming_relics(combat)?;
     initialized.rng.monster_rng = monster_rng;
-    add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized);
+    add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized)?;
     initialized.validate()?;
     run.combat = Some(initialized);
     Ok(())
@@ -265,13 +265,17 @@ fn record_initial_monster_moves(combat: &mut CombatState) {
     }
 }
 
-fn add_mark_of_pain_wounds_to_draw_pile(run: &mut RunState, combat: &mut CombatState) {
+fn add_mark_of_pain_wounds_to_draw_pile(
+    run: &mut RunState,
+    combat: &mut CombatState,
+) -> SimResult<()> {
     if !run.relics.contains(&Relic::MarkOfPain) {
-        return;
+        return Ok(());
     }
+    let first_id = combat.reserve_card_instance_ids(MARK_OF_PAIN_WOUNDS)?;
     let mut rng = run.card_random_rng();
-    for _ in 0..MARK_OF_PAIN_WOUNDS {
-        let next_id = CardId::new(combat.next_card_instance_id());
+    for offset in 0..MARK_OF_PAIN_WOUNDS {
+        let next_id = CardId::new(first_id + offset as u64);
         let wound = CardInstance::new(next_id, WOUND_ID);
         if combat.piles.draw_pile.is_empty() {
             combat.piles.draw_pile.push(wound);
@@ -282,6 +286,7 @@ fn add_mark_of_pain_wounds_to_draw_pile(run: &mut RunState, combat: &mut CombatS
     }
     combat.rng.card_random_rng = rng.clone();
     run.store_rng_counter(RunRngStream::CardRandom, &rng);
+    Ok(())
 }
 
 pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng) -> SimResult<()> {
@@ -986,7 +991,7 @@ fn apply_event_room_outcome(run: &mut RunState, last_room_was_shop: bool) -> Sim
         }
         EventRoomOutcome::Shop => {
             run.current_room_override = Some(RoomKind::Shop);
-            enter_shop_room(run);
+            enter_shop_room(run)?;
         }
         EventRoomOutcome::Treasure => {
             run.current_room_override = Some(RoomKind::Treasure);

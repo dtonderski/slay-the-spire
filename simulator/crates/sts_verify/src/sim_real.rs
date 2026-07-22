@@ -1780,7 +1780,24 @@ fn verify_seed_start_transitions(
                     option,
                 );
                 let mut curse_run = run.clone();
-                let curse = apply_neow_curse_drawback(&mut curse_run);
+                let curse = match apply_neow_curse_drawback(&mut curse_run) {
+                    Ok(curse) => curse,
+                    Err(error) => {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_neow_state".to_owned(),
+                            reason: format!(
+                                "core Neow curse drawback rejected simulator state: {error}"
+                            ),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return finish_boundary!(boundary);
+                    }
+                };
                 pending_neow_room_entry_curse = Some(deck_content_key(curse.curse).to_owned());
                 pending_neow_room_entry_curse_advances_card_rng = false;
                 run.card_rng_counter = curse.card_rng_counter;
@@ -1952,7 +1969,8 @@ fn verify_seed_start_transitions(
                 let reward = generate_neow_card_reward(start.numeric_seed, option.reward);
                 neow_leave_visible_deck_ids = Some(deck_ids.clone());
                 for content_id in reward.cards {
-                    run.gain_deck_card(content_id);
+                    run.gain_deck_card(content_id)
+                        .expect("canonical seed-start deck has card ID allocation headroom");
                 }
                 deck_ids = deck_content_keys(&run.deck);
                 seed_sim = Some(run);
@@ -2257,7 +2275,24 @@ fn verify_seed_start_transitions(
                 );
                 if option.drawback == NeowDrawback::Curse {
                     let mut curse_run = run.clone();
-                    let curse = apply_neow_curse_drawback(&mut curse_run);
+                    let curse = match apply_neow_curse_drawback(&mut curse_run) {
+                        Ok(curse) => curse,
+                        Err(error) => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "invalid_neow_state".to_owned(),
+                                reason: format!(
+                                    "core Neow curse drawback rejected simulator state: {error}"
+                                ),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return finish_boundary!(boundary);
+                        }
+                    };
                     delayed_neow_curse = Some(deck_content_key(curse.curse).to_owned());
                     run.card_rng_counter = curse.card_rng_counter;
                     delayed_neow_transform_count = match option.reward {
@@ -6492,7 +6527,8 @@ fn seed_start_apply_neow_curse_simple_option(
     run.reward_rng_seed = numeric_seed as u64;
     run.deck = deck_instances_from_keys(deck_ids);
     run.relics = vec![Relic::BurningBlood];
-    apply_neow_curse_drawback(&mut run);
+    apply_neow_curse_drawback(&mut run)
+        .expect("canonical seed-start deck has card ID allocation headroom");
     apply_neow_simple_reward(&mut run, option.reward);
     run
 }
@@ -6566,7 +6602,8 @@ fn seed_start_neow_curse_deck_key(numeric_seed: i64, card_rng_counter: u32) -> O
     let mut run = RunState::map_fixture();
     run.reward_rng_seed = numeric_seed as u64;
     run.card_rng_counter = card_rng_counter;
-    apply_neow_curse_drawback(&mut run);
+    apply_neow_curse_drawback(&mut run)
+        .expect("canonical seed-start deck has card ID allocation headroom");
     run.deck
         .last()
         .map(|card| deck_content_key(card.content_id).to_owned())
@@ -6617,7 +6654,7 @@ fn seed_start_apply_neow_boss_swap(numeric_seed: i64, deck_ids: &[String]) -> Ru
     run.relics = vec![Relic::BurningBlood];
     run.event = Some(neow_screen_for_stage(&run, 2));
     seed_start_prepare_neow_relic_equip(&mut run);
-    apply_neow_boss_swap(&mut run);
+    apply_neow_boss_swap(&mut run).expect("canonical seed-start boss swap is representable");
     run
 }
 
@@ -6833,12 +6870,14 @@ fn seed_start_apply_neow_relic_reward_for_ascension(
     match option.drawback {
         NeowDrawback::Curse => {
             run.reward_rng_seed = numeric_seed as u64;
-            apply_neow_curse_drawback(&mut run);
+            apply_neow_curse_drawback(&mut run)
+                .expect("canonical seed-start deck has card ID allocation headroom");
         }
         drawback => apply_neow_simple_drawback(&mut run, drawback),
     }
     seed_start_prepare_neow_relic_equip(&mut run);
-    apply_neow_relic_reward(&mut run, option.reward);
+    apply_neow_relic_reward(&mut run, option.reward)
+        .expect("canonical seed-start relic reward is representable");
     run
 }
 
@@ -11233,7 +11272,9 @@ fn seed_start_deck_with_pending_neow_curse(deck: &[String], curse: &str) -> Vec<
 
 fn deck_content_keys_after_pending_obtain_cards_settle(run: &RunState) -> Vec<String> {
     let mut settled = run.clone();
-    settled.flush_pending_obtain_cards();
+    settled
+        .flush_pending_obtain_cards()
+        .expect("canonical seed-start deck has card ID allocation headroom");
     deck_content_keys(&settled.deck)
 }
 
@@ -14693,7 +14734,8 @@ mod tests {
         use sts_core::content::cards::{RITUAL_DAGGER_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID};
 
         let mut run = RunState::map_fixture();
-        run.gain_relic_key(RelicKey::ToxicEgg);
+        run.gain_relic_key(RelicKey::ToxicEgg)
+            .expect("Toxic Egg pickup succeeds");
 
         assert_eq!(
             grid_trace_choice_label(&run, &CardInstance::new(CardId::new(1), TRUE_GRIT_ID)),
@@ -15870,7 +15912,8 @@ mod tests {
         use sts_core::content::cards::{PANACEA_ID, WARCRY_ID};
 
         let mut run = RunState::map_fixture();
-        run.gain_relic_key(RelicKey::ToxicEgg);
+        run.gain_relic_key(RelicKey::ToxicEgg)
+            .expect("Toxic Egg pickup succeeds");
 
         assert_eq!(shop_card_display_key(&run, WARCRY_ID), "Warcry+");
         assert_eq!(shop_card_display_key(&run, PANACEA_ID), "Panacea+");
@@ -15880,7 +15923,7 @@ mod tests {
     fn shop_choose_binding_uses_core_merchant_state_and_rejects_room_index_drift() {
         let mut run = RunState::seeded_ironclad(1_218_623, 0);
         run.gold = 999;
-        sts_core::enter_shop_room(&mut run);
+        sts_core::enter_shop_room(&mut run).expect("shop entry succeeds");
         assert_eq!(
             seed_start_shop_destination(&run),
             Ok(SeedStartShopDestination::Room)
@@ -16276,7 +16319,8 @@ mod tests {
             Relic::CentennialPuzzle,
             Relic::OddlySmoothStone,
         ];
-        run.gain_relic(Relic::BlackBlood);
+        run.gain_relic(Relic::BlackBlood)
+            .expect("Black Blood pickup succeeds");
 
         let relic_ids = relic_ids_for_simulated_subset(
             &run,
@@ -16529,7 +16573,8 @@ mod tests {
     fn seed_start_event_grid_projection_delays_confirmed_transform_output() {
         let mut run = RunState::map_fixture();
         let visible_before = run.deck.len();
-        run.gain_deck_card(sts_core::content::cards::PERFECTED_STRIKE_ID);
+        run.gain_deck_card(sts_core::content::cards::PERFECTED_STRIKE_ID)
+            .expect("Perfected Strike gain succeeds");
 
         let projected =
             seed_start_event_simulated_subset_with_delayed_deck_append(&run, &[], Some(1));
@@ -16557,7 +16602,9 @@ mod tests {
 
         let mut protected = RunState::seeded_ironclad(1, 0);
         let protected_deck = deck_content_keys(&protected.deck);
-        protected.gain_relic_key(RelicKey::Omamori);
+        protected
+            .gain_relic_key(RelicKey::Omamori)
+            .expect("Omamori pickup succeeds");
         protected.queue_pending_obtain_card(sts_core::content::cards::PAIN_ID);
         assert_eq!(
             deck_content_keys_after_pending_obtain_cards_settle(&protected),
@@ -16802,7 +16849,8 @@ mod tests {
     fn seed_start_boss_swap_classifies_grid_opening_relics() {
         let mut run = RunState::map_fixture();
 
-        run.gain_relic(Relic::Astrolabe);
+        run.gain_relic(Relic::Astrolabe)
+            .expect("Astrolabe pickup succeeds");
 
         assert_eq!(
             seed_start_unsupported_boss_swap_reason(&run),
@@ -18221,7 +18269,7 @@ mod tests {
         deck_ids.push(reward_ids[1].clone());
         run.deck = deck_instances_from_keys(&deck_ids);
 
-        enter_normal_combat_reward_screen(&mut run);
+        enter_normal_combat_reward_screen(&mut run).expect("normal reward entry succeeds");
 
         let reward = run.reward.as_ref().expect("combat reward screen");
         let ids = reward

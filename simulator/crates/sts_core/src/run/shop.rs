@@ -304,6 +304,7 @@ fn restock_courier_card_slot(
     slot: usize,
     purchased: CardInstance,
 ) -> SimResult<()> {
+    let next_card_id = next.next_card_instance_id()?;
     let mut card_rng = StsRng::with_counter(next.reward_rng_seed as i64, next.card_rng_counter);
     let mut merchant_rng =
         StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
@@ -331,7 +332,7 @@ fn restock_courier_card_slot(
     };
     next.card_rng_counter = card_rng.counter();
 
-    let card = CardInstance::new(CardId::new(next.next_card_instance_id()), content_id);
+    let card = CardInstance::new(CardId::new(next_card_id), content_id);
     let mut offer = ShopCardSlot {
         card,
         price: 0,
@@ -373,9 +374,8 @@ fn restock_courier_potion_slot(next: &mut RunState, slot: usize) {
     };
 }
 
-#[must_use]
-pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
-    let mut next_card_id = run.next_card_instance_id();
+pub fn generate_shop_screen(run: &mut RunState) -> SimResult<ShopScreen> {
+    let mut next_card_id = run.reserve_card_instance_ids(7)?;
     let mut card_rng = StsRng::with_counter(run.reward_rng_seed as i64, run.card_rng_counter);
     let mut potion_rng = StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
     let mut merchant_rng =
@@ -490,29 +490,31 @@ pub fn generate_shop_screen(run: &mut RunState) -> ShopScreen {
     if owns_relic_key(run, RelicKey::SmilingMask) {
         shop.remove_cost = 50;
     }
-    shop
+    Ok(shop)
 }
 
-pub fn enter_shop_room(run: &mut RunState) {
+pub fn enter_shop_room(run: &mut RunState) -> SimResult<()> {
     run.phase = RunPhase::Shop;
-    run.shop = Some(generate_shop_screen(run));
+    run.shop = Some(generate_shop_screen(run)?);
     run.shop_merchant_open = false;
     run.card_grid = None;
     if run.relics.contains(&Relic::MealTicket) {
         run.heal_player(crate::relic::MEAL_TICKET_HEAL);
     }
+    Ok(())
 }
 
-pub fn open_shop_merchant(run: &mut RunState) {
+pub fn open_shop_merchant(run: &mut RunState) -> SimResult<()> {
     run.phase = RunPhase::Shop;
     if run.shop.is_none() {
-        run.shop = Some(generate_shop_screen(run));
+        run.shop = Some(generate_shop_screen(run)?);
     }
     run.shop_merchant_open = true;
+    Ok(())
 }
 
-pub fn enter_shop_screen(run: &mut RunState) {
-    open_shop_merchant(run);
+pub fn enter_shop_screen(run: &mut RunState) -> SimResult<()> {
+    open_shop_merchant(run)
 }
 
 pub fn leave_shop_merchant(run: &mut RunState) {
@@ -689,7 +691,7 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
     let mut next = run.clone();
     match action {
         RunAction::EnterShop => {
-            open_shop_merchant(&mut next);
+            open_shop_merchant(&mut next)?;
         }
         RunAction::LeaveShop => {
             leave_shop_merchant(&mut next);
@@ -724,9 +726,9 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             if key == RelicKey::Orrery {
                 enter_orrery_reward_screen(&mut next);
             }
-            next.gain_relic_key(key);
+            next.gain_relic_key(key)?;
             if key == RelicKey::Orrery {
-                queue_orrery_card_reward_choices(&mut next);
+                queue_orrery_card_reward_choices(&mut next)?;
             }
             if key == RelicKey::MembershipCard {
                 if let Some(shop) = next.shop.as_mut() {
@@ -777,7 +779,7 @@ mod tests {
         run.phase = RunPhase::Shop;
         run.gold = 999;
         run.relics.push(Relic::TheCourier);
-        let mut shop = generate_shop_screen(&mut run);
+        let mut shop = generate_shop_screen(&mut run).expect("shop fixture allocation is valid");
         shop.cards[0].card.content_id = crate::content::cards::ASCENDERS_BANE_ID;
         shop.cards[0].price = 0;
         run.shop = Some(shop);
@@ -812,7 +814,7 @@ mod tests {
     fn leaving_merchant_preserves_inventory_until_shop_room_exit() {
         let mut run = RunState::map_fixture();
         run.gold = 999;
-        enter_shop_room(&mut run);
+        enter_shop_room(&mut run).expect("shop entry succeeds");
 
         let opened = apply_shop_action(&run, RunAction::EnterShop).expect("shop opens");
         assert!(opened.shop_merchant_open);
@@ -840,7 +842,7 @@ mod tests {
     fn zero_seed_shop_uses_generated_inventory_and_rng_streams() {
         let mut run = RunState::map_fixture();
         assert_eq!(run.merchant_rng_seed, 0);
-        enter_shop_room(&mut run);
+        enter_shop_room(&mut run).expect("zero-seed shop entry succeeds");
 
         let shop = run.shop.as_ref().expect("zero-seed shop is generated");
         assert_eq!(shop.cards.len(), 7);
@@ -851,12 +853,28 @@ mod tests {
         assert!(run.merchant_rng_counter > 0);
         assert!(run.potion_rng_counter > 0);
     }
+
+    #[test]
+    fn shop_generation_id_exhaustion_does_not_consume_rng_or_mutate_run() {
+        let mut run = RunState::map_fixture();
+        run.deck[0].id = CardId::new(crate::ids::MAX_SUPPORTED_CARD_INSTANCE_ID - 6);
+        let before = run.clone();
+
+        assert_eq!(
+            generate_shop_screen(&mut run),
+            Err(SimError::InvalidState(
+                "card instance ID allocation exceeds the supported domain"
+            ))
+        );
+        assert_eq!(run, before);
+    }
+
     #[test]
     fn entering_shop_room_generates_inventory_before_merchant_is_opened() {
         let mut run = RunState::seeded_ironclad(3_840_209_149_409_335_969, 0);
         let card_rng_before = run.card_rng_counter;
 
-        enter_shop_room(&mut run);
+        enter_shop_room(&mut run).expect("shop entry succeeds");
 
         assert!(run.shop.is_some());
         assert!(!run.shop_merchant_open);
@@ -868,7 +886,7 @@ mod tests {
             run.relic_rng_counter,
         );
 
-        open_shop_merchant(&mut run);
+        open_shop_merchant(&mut run).expect("merchant opens");
 
         assert!(run.shop_merchant_open);
         assert_eq!(
@@ -888,7 +906,7 @@ mod tests {
         run.phase = RunPhase::Shop;
         run.event = None;
         run.gold = 999;
-        let shop = generate_shop_screen(&mut run);
+        let shop = generate_shop_screen(&mut run).expect("shop fixture allocation is valid");
         run.shop = Some(shop);
         run.shop_merchant_open = true;
         run.shop.as_mut().unwrap().relics[0].relic_key = RelicKey::Orrery;

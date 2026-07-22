@@ -1688,7 +1688,7 @@ fn discovery_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    open_discovery_card_reward(state, card_id);
+    open_discovery_card_reward(state, card_id)?;
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -1701,7 +1701,8 @@ fn discovery_queue(
 }
 
 #[allow(clippy::reversed_empty_ranges)]
-fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) {
+fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) -> SimResult<()> {
+    let next_card_id = state.reserve_card_instance_ids(3)?;
     let pool = discovery_modeled_card_pool();
     let rng = &mut state.rng.card_random_rng;
     let content_choices = discovery_choices_from_pool(rng, &pool);
@@ -1719,7 +1720,6 @@ fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) 
         let _ = rng.random_int((pool.len() - 1) as i32);
     }
 
-    let next_card_id = state.next_card_instance_id();
     state.decision = Some(CombatDecisionState::DiscoveryCardReward {
         choices: content_choices
             .into_iter()
@@ -1730,6 +1730,7 @@ fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) 
             .collect(),
         source_card: None,
     });
+    Ok(())
 }
 
 fn discovery_choices_from_pool(rng: &mut crate::rng::StsRng, pool: &[ContentId]) -> Vec<ContentId> {

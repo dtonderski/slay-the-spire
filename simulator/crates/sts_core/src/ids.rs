@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use crate::{SimError, SimResult};
+
 macro_rules! id_type {
     ($name:ident, $prefix:literal) => {
         #[derive(
@@ -43,6 +45,36 @@ pub(crate) const fn card_instance_id_is_supported(id: CardId) -> bool {
     id.get() > 0 && id.get() <= MAX_SUPPORTED_CARD_INSTANCE_ID
 }
 
+/// Returns the first ID in a contiguous card-instance allocation after
+/// `max_id`, after proving that the complete allocation fits the externally
+/// representable positive signed-long domain.
+pub(crate) fn reserve_card_instance_id_range(max_id: u64, count: usize) -> SimResult<u64> {
+    if count == 0 {
+        return Err(SimError::InvalidState(
+            "card instance allocation reserved no IDs",
+        ));
+    }
+    if max_id > MAX_SUPPORTED_CARD_INSTANCE_ID {
+        return Err(SimError::InvalidState(
+            "existing card instance ID exceeds the supported domain",
+        ));
+    }
+    let count = u64::try_from(count).map_err(|_| {
+        SimError::InvalidState("card instance allocation count exceeds the supported domain")
+    })?;
+    let last_id = max_id.checked_add(count).ok_or(SimError::InvalidState(
+        "card instance ID allocation overflows u64",
+    ))?;
+    if last_id > MAX_SUPPORTED_CARD_INSTANCE_ID {
+        return Err(SimError::InvalidState(
+            "card instance ID allocation exceeds the supported domain",
+        ));
+    }
+    max_id.checked_add(1).ok_or(SimError::InvalidState(
+        "card instance ID allocation overflows u64",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,5 +105,22 @@ mod tests {
         assert!(!card_instance_id_is_supported(CardId::new(
             i64::MAX as u64 + 1
         )));
+    }
+
+    #[test]
+    fn card_instance_range_reservation_checks_the_complete_range() {
+        assert_eq!(reserve_card_instance_id_range(0, 2), Ok(1));
+        assert_eq!(
+            reserve_card_instance_id_range(MAX_SUPPORTED_CARD_INSTANCE_ID - 1, 2),
+            Err(SimError::InvalidState(
+                "card instance ID allocation exceeds the supported domain"
+            ))
+        );
+        assert_eq!(
+            reserve_card_instance_id_range(MAX_SUPPORTED_CARD_INSTANCE_ID, 1),
+            Err(SimError::InvalidState(
+                "card instance ID allocation exceeds the supported domain"
+            ))
+        );
     }
 }

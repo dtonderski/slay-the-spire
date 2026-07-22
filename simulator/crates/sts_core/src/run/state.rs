@@ -12,7 +12,9 @@ use crate::{
         colorless_discovery_card_choices, discovery_card_choices, shop_card_is_colorless,
         shop_card_type,
     },
-    ids::{card_instance_id_is_supported, CardId, ContentId, MonsterId},
+    ids::{
+        card_instance_id_is_supported, reserve_card_instance_id_range, CardId, ContentId, MonsterId,
+    },
     map::{generate_target_fixed_map, milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
     potion::{Potion, MAX_POTIONS},
     relic::{
@@ -64,7 +66,8 @@ mod tests {
         run.misc_rng_counter = 1;
         run.relics = vec![Relic::BurningBlood];
 
-        let reward = crate::run::neow::apply_neow_boss_swap(&mut run);
+        let reward = crate::run::neow::apply_neow_boss_swap(&mut run)
+            .expect("seed-start fixture can allocate its boss relic reward");
         assert_eq!(reward.relic, RelicKey::TinyHouse);
 
         let upgraded = run
@@ -193,7 +196,9 @@ mod tests {
     fn relic_integer_overflow_produces_invalid_state_without_panicking() {
         let mut hp_run = RunState::map_fixture();
         hp_run.player_max_hp = i32::MAX;
-        hp_run.gain_relic(Relic::Strawberry);
+        hp_run
+            .gain_relic(Relic::Strawberry)
+            .expect("Strawberry pickup itself remains representable");
         assert_eq!(
             hp_run.validate(),
             Err(SimError::InvalidState("run player HP is out of bounds"))
@@ -201,7 +206,9 @@ mod tests {
 
         let mut energy_run = RunState::map_fixture();
         energy_run.energy_per_turn = i32::MAX;
-        energy_run.gain_relic(Relic::CoffeeDripper);
+        energy_run
+            .gain_relic(Relic::CoffeeDripper)
+            .expect("Coffee Dripper pickup itself remains representable");
         assert_eq!(
             energy_run.validate(),
             Err(SimError::InvalidState("run gold or energy is negative"))
@@ -212,7 +219,8 @@ mod tests {
     fn snecko_eye_does_not_grant_energy() {
         let mut run = RunState::map_fixture();
 
-        run.gain_relic(Relic::SneckoEye);
+        run.gain_relic(Relic::SneckoEye)
+            .expect("Snecko Eye pickup succeeds");
         let combat = run
             .init_combat(CombatState::cultist_fixture())
             .expect("combat initializes");
@@ -220,6 +228,21 @@ mod tests {
         assert_eq!(run.energy_per_turn, BASE_PLAYER_ENERGY);
         assert_eq!(combat.player.max_energy, BASE_PLAYER_ENERGY);
         assert_eq!(combat.player.energy, BASE_PLAYER_ENERGY);
+    }
+
+    #[test]
+    fn deck_card_gain_rejects_exhausted_instance_ids_without_mutating_run() {
+        let mut run = RunState::map_fixture();
+        run.deck[0].id = CardId::new(crate::ids::MAX_SUPPORTED_CARD_INSTANCE_ID);
+        let before = run.clone();
+
+        assert_eq!(
+            run.gain_deck_card(crate::content::cards::ANGER_ID),
+            Err(SimError::InvalidState(
+                "card instance ID allocation exceeds the supported domain"
+            ))
+        );
+        assert_eq!(run, before);
     }
 
     #[test]
@@ -342,13 +365,13 @@ mod tests {
     }
 }
 
-fn add_enchiridion_power_to_hand(combat: &mut CombatState) {
+fn add_enchiridion_power_to_hand(combat: &mut CombatState) -> SimResult<()> {
     if combat.piles.hand.len() >= ENCHIRIDION_HAND_LIMIT {
-        return;
+        return Ok(());
     }
 
+    let next_id = CardId::new(combat.next_card_instance_id()?);
     let content_id = discovery_card_choices(&mut combat.rng.card_random_rng, CardType::Power, 1)[0];
-    let next_id = CardId::new(combat.next_card_instance_id());
     let mut card = CardInstance {
         combat_only: true,
         ..CardInstance::new(next_id, content_id)
@@ -356,6 +379,7 @@ fn add_enchiridion_power_to_hand(combat: &mut CombatState) {
     card.temp_cost = Some(0);
     card.temp_cost_turn_only = true;
     combat.piles.hand.push(card);
+    Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1380,14 +1404,14 @@ impl RunState {
         }
         apply_start_of_combat_relics(&mut combat, &self.relics)?;
         if self.relics.contains(&Relic::Enchiridion) {
-            add_enchiridion_power_to_hand(&mut combat);
+            add_enchiridion_power_to_hand(&mut combat)?;
         }
         if self.relics.contains(&Relic::GamblingChip) {
             crate::combat::open_gambling_chip_select(&mut combat)
                 .expect("Gambling Chip selection opens without validation side effects");
         }
         if self.relics.contains(&Relic::Toolbox) {
-            let next_card_id = combat.next_card_instance_id();
+            let next_card_id = combat.reserve_card_instance_ids(3)?;
             let choices = colorless_discovery_card_choices(&mut combat.rng.card_random_rng, 3)
                 .into_iter()
                 .enumerate()
@@ -1788,29 +1812,45 @@ impl RunState {
         }
     }
 
-    pub fn next_card_instance_id(&self) -> u64 {
-        self.deck
+    pub(crate) fn reserve_card_instance_ids(&self, count: usize) -> SimResult<u64> {
+        let max_id = self
+            .deck
             .iter()
             .map(|card| card.id.get())
             .max()
-            .unwrap_or(0)
-            + 1
+            .unwrap_or(0);
+        reserve_card_instance_id_range(max_id, count)
     }
 
-    pub fn gain_deck_card(&mut self, content_id: ContentId) {
-        let id = CardId::new(self.next_card_instance_id());
+    pub fn next_card_instance_id(&self) -> SimResult<u64> {
+        self.reserve_card_instance_ids(1)
+    }
+
+    pub fn gain_deck_card(&mut self, content_id: ContentId) -> SimResult<()> {
+        if self.should_omamori_prevent_card(content_id) {
+            self.omamori_charges_used = self
+                .omamori_charges_used
+                .checked_add(1)
+                .ok_or(SimError::InvalidState("Omamori charge usage overflows u32"))?;
+            return Ok(());
+        }
+        let id = CardId::new(self.next_card_instance_id()?);
         self.add_deck_card(CardInstance::new(id, content_id));
+        Ok(())
     }
 
     pub fn queue_pending_obtain_card(&mut self, content_id: ContentId) {
         self.pending_obtain_cards.push(content_id);
     }
 
-    pub fn flush_pending_obtain_cards(&mut self) {
-        let pending = std::mem::take(&mut self.pending_obtain_cards);
+    pub fn flush_pending_obtain_cards(&mut self) -> SimResult<()> {
+        let mut next = self.clone();
+        let pending = std::mem::take(&mut next.pending_obtain_cards);
         for content_id in pending {
-            self.gain_deck_card(content_id);
+            next.gain_deck_card(content_id)?;
         }
+        *self = next;
+        Ok(())
     }
 
     pub fn add_deck_card(&mut self, mut card: CardInstance) {
@@ -2022,15 +2062,25 @@ impl RunState {
         }
     }
 
-    pub fn gain_relic_key(&mut self, key: RelicKey) {
-        self.ensure_ironclad_relic_pools();
-        if let Some(pools) = self.relic_pools.as_mut() {
+    pub fn gain_relic_key(&mut self, key: RelicKey) -> SimResult<()> {
+        let mut next = self.clone();
+        next.ensure_ironclad_relic_pools();
+        if let Some(pools) = next.relic_pools.as_mut() {
             pools.remove_relic(key);
         }
-        self.gain_relic(key);
+        next.gain_relic(key)?;
+        *self = next;
+        Ok(())
     }
 
-    pub fn gain_relic(&mut self, relic: Relic) {
+    pub fn gain_relic(&mut self, relic: Relic) -> SimResult<()> {
+        let mut next = self.clone();
+        next.gain_relic_inner(relic)?;
+        *self = next;
+        Ok(())
+    }
+
+    fn gain_relic_inner(&mut self, relic: Relic) -> SimResult<()> {
         if let Some(pools) = self.relic_pools.as_mut() {
             pools.remove_relic(relic.key());
         }
@@ -2078,13 +2128,13 @@ impl RunState {
                 self.wing_boots_charges = u32::from(WING_BOOTS_CHARGES);
             }
             Relic::CallingBell => {
-                super::grid::open_calling_bell_grid(self);
+                super::grid::open_calling_bell_grid(self)?;
             }
             Relic::PandorasBox => {
-                super::grid::open_pandoras_box_grid(self);
+                super::grid::open_pandoras_box_grid(self)?;
             }
             Relic::Astrolabe => {
-                super::grid::open_astrolabe_grid(self);
+                super::grid::open_astrolabe_grid(self)?;
             }
             Relic::VelvetChoker => {
                 self.energy_per_turn = self.energy_per_turn.wrapping_add(VELVET_CHOKER_ENERGY);
@@ -2274,6 +2324,7 @@ impl RunState {
             | Relic::OddMushroom
             | Relic::NlothsGift => {}
         }
+        Ok(())
     }
 
     fn replace_starter_relic_slot(&mut self, relic: Relic) -> bool {

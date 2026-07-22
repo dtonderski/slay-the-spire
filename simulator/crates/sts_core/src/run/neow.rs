@@ -13,6 +13,7 @@ use crate::{
     relic::{Relic, RelicKey, RelicTier},
     rng::StsRng,
     run::state::{RewardScreen, RunPhase, RunRngStream, RunState},
+    SimResult,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -209,7 +210,14 @@ pub fn generate_neow_three_potions_with_rng(potion_rng: &mut StsRng) -> NeowPoti
     }
 }
 
-pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
+pub fn apply_neow_boss_swap(run: &mut RunState) -> SimResult<NeowBossSwapReward> {
+    let mut next = run.clone();
+    let reward = apply_neow_boss_swap_inner(&mut next)?;
+    *run = next;
+    Ok(reward)
+}
+
+fn apply_neow_boss_swap_inner(run: &mut RunState) -> SimResult<NeowBossSwapReward> {
     run.ensure_ironclad_relic_pools();
 
     run.relics.retain(|relic| *relic != Relic::BurningBlood);
@@ -245,12 +253,12 @@ pub fn apply_neow_boss_swap(run: &mut RunState) -> NeowBossSwapReward {
             card_reward_flow: crate::run::CardRewardFlow::None,
         });
     }
-    run.gain_relic_key(relic);
+    run.gain_relic_key(relic)?;
 
-    NeowBossSwapReward {
+    Ok(NeowBossSwapReward {
         relic,
         relic_rng_counter: run.relic_rng_counter,
-    }
+    })
 }
 
 pub fn generate_neow_transform_reward(
@@ -279,7 +287,20 @@ pub fn generate_neow_transform_reward_with_rng(
     }
 }
 
-pub fn apply_neow_relic_reward(run: &mut RunState, reward: NeowRewardType) -> NeowRelicReward {
+pub fn apply_neow_relic_reward(
+    run: &mut RunState,
+    reward: NeowRewardType,
+) -> SimResult<NeowRelicReward> {
+    let mut next = run.clone();
+    let reward = apply_neow_relic_reward_inner(&mut next, reward)?;
+    *run = next;
+    Ok(reward)
+}
+
+fn apply_neow_relic_reward_inner(
+    run: &mut RunState,
+    reward: NeowRewardType,
+) -> SimResult<NeowRelicReward> {
     let tier = match reward {
         NeowRewardType::RandomCommonRelic => RelicTier::Common,
         NeowRewardType::OneRareRelic => RelicTier::Rare,
@@ -293,12 +314,12 @@ pub fn apply_neow_relic_reward(run: &mut RunState, reward: NeowRewardType) -> Ne
         .as_mut()
         .expect("relic pools initialized")
         .return_random_relic(tier, &context);
-    run.gain_relic_key(relic);
+    run.gain_relic_key(relic)?;
 
-    NeowRelicReward {
+    Ok(NeowRelicReward {
         relic,
         relic_rng_counter: run.relic_rng_counter,
-    }
+    })
 }
 
 pub fn apply_neow_simple_reward(run: &mut RunState, reward: NeowRewardType) {
@@ -327,16 +348,17 @@ pub fn apply_neow_simple_drawback(run: &mut RunState, drawback: NeowDrawback) {
     }
 }
 
-pub fn apply_neow_curse_drawback(run: &mut RunState) -> NeowCurseDrawback {
+pub fn apply_neow_curse_drawback(run: &mut RunState) -> SimResult<NeowCurseDrawback> {
+    run.reserve_card_instance_ids(1)?;
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
     let curse = neow_modeled_random_curse(&mut card_rng);
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
-    run.gain_deck_card(curse);
+    run.gain_deck_card(curse)?;
 
-    NeowCurseDrawback {
+    Ok(NeowCurseDrawback {
         curse,
         card_rng_counter: run.card_rng_counter,
-    }
+    })
 }
 
 pub fn open_neow_reward_grid(run: &mut RunState, reward: NeowRewardType) {

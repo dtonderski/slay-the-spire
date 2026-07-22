@@ -301,7 +301,8 @@ fn strawberry_pickup_increases_current_and_max_hp() {
     run.player_hp = 40;
     run.player_max_hp = 80;
 
-    run.gain_relic(Relic::Strawberry);
+    run.gain_relic(Relic::Strawberry)
+        .expect("Strawberry pickup succeeds");
 
     assert_eq!(run.relics, vec![Relic::Strawberry]);
     assert_eq!(run.player_max_hp, 80 + STRAWBERRY_MAX_HP);
@@ -313,7 +314,8 @@ fn strawberry_hp_bonus_applies_to_next_combat() {
     let mut run = RunState::map_fixture();
     run.player_hp = 40;
     run.player_max_hp = 80;
-    run.gain_relic(Relic::Strawberry);
+    run.gain_relic(Relic::Strawberry)
+        .expect("Strawberry pickup succeeds");
 
     let combat = run
         .init_combat(sts_core::CombatState::initial_fixture())
@@ -326,7 +328,8 @@ fn strawberry_hp_bonus_applies_to_next_combat() {
 #[test]
 fn strawberry_round_trips_through_run_state_json() {
     let mut run = RunState::map_fixture();
-    run.gain_relic(Relic::Strawberry);
+    run.gain_relic(Relic::Strawberry)
+        .expect("Strawberry pickup succeeds");
 
     let json = serde_json::to_string(&run).expect("run serializes");
     let restored: RunState = serde_json::from_str(&json).expect("run deserializes");
@@ -339,7 +342,8 @@ fn strawberry_round_trips_through_run_state_json() {
 fn coffee_dripper_pickup_increases_energy_per_turn() {
     let mut run = RunState::map_fixture();
 
-    run.gain_relic(Relic::CoffeeDripper);
+    run.gain_relic(Relic::CoffeeDripper)
+        .expect("Coffee Dripper pickup succeeds");
 
     assert_eq!(run.relics, vec![Relic::CoffeeDripper]);
     assert_eq!(
@@ -351,7 +355,8 @@ fn coffee_dripper_pickup_increases_energy_per_turn() {
 #[test]
 fn coffee_dripper_energy_applies_to_combat_and_next_turn_refill() {
     let mut run = RunState::map_fixture();
-    run.gain_relic(Relic::CoffeeDripper);
+    run.gain_relic(Relic::CoffeeDripper)
+        .expect("Coffee Dripper pickup succeeds");
 
     let mut combat = run
         .init_combat(sts_core::CombatState::initial_fixture())
@@ -371,7 +376,8 @@ fn coffee_dripper_disables_rest_heal() {
     run.phase = RunPhase::Rest;
     run.current_room_override = Some(RoomKind::Rest);
     run.player_hp = 40;
-    run.gain_relic(Relic::CoffeeDripper);
+    run.gain_relic(Relic::CoffeeDripper)
+        .expect("Coffee Dripper pickup succeeds");
 
     assert!(!legal_rest_actions(&run)
         .expect("valid rest state")
@@ -389,8 +395,10 @@ fn coffee_dripper_and_fusion_hammer_allow_immediate_campfire_proceed() {
     let mut run = RunState::map_fixture();
     run.phase = RunPhase::Rest;
     run.current_room_override = Some(RoomKind::Rest);
-    run.gain_relic(Relic::CoffeeDripper);
-    run.gain_relic(Relic::FusionHammer);
+    run.gain_relic(Relic::CoffeeDripper)
+        .expect("Coffee Dripper pickup succeeds");
+    run.gain_relic(Relic::FusionHammer)
+        .expect("Fusion Hammer pickup succeeds");
 
     assert_eq!(
         legal_rest_actions(&run).expect("valid completed rest state"),
@@ -405,7 +413,8 @@ fn coffee_dripper_and_fusion_hammer_allow_immediate_campfire_proceed() {
 #[test]
 fn coffee_dripper_energy_round_trips_through_run_state_json() {
     let mut run = RunState::map_fixture();
-    run.gain_relic(Relic::CoffeeDripper);
+    run.gain_relic(Relic::CoffeeDripper)
+        .expect("Coffee Dripper pickup succeeds");
 
     let json = serde_json::to_string(&run).expect("run serializes");
     let restored: RunState = serde_json::from_str(&json).expect("run deserializes");

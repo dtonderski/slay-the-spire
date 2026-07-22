@@ -164,7 +164,7 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                     boss_relic_choices: Vec::new(),
                     card_reward_flow: crate::run::CardRewardFlow::pending(1),
                 });
-                roll_pending_card_reward_choices(&mut next);
+                roll_pending_card_reward_choices(&mut next)?;
                 next.reward
                     .as_mut()
                     .expect("rest card reward")

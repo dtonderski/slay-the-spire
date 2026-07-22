@@ -158,9 +158,9 @@ pub fn golden_idol_max_hp_loss(max_hp: i32, ascension: u8) -> i32 {
     (max_hp as f32 * percent) as i32
 }
 
-fn open_the_library_read_grid(run: &mut RunState) {
+fn open_the_library_read_grid(run: &mut RunState) -> SimResult<()> {
+    let next_card_id = run.reserve_card_instance_ids(THE_LIBRARY_READ_CARD_COUNT)?;
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
-    let next_card_id = run.next_card_instance_id();
     let choices = target_library_card_choices(
         &mut card_rng,
         run.card_rarity_factor,
@@ -169,6 +169,7 @@ fn open_the_library_read_grid(run: &mut RunState) {
     );
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
     open_event_obtain_card_return_to_event_grid(run, Event::TheLibrary, choices);
+    Ok(())
 }
 
 fn roll_mausoleum_curses_player(run: &mut RunState) -> bool {
@@ -188,12 +189,15 @@ pub fn vampires_max_hp_loss(max_hp: i32) -> i32 {
     loss.min(max_hp.saturating_sub(1))
 }
 
-fn replace_starter_strikes_with_bites(run: &mut RunState) {
-    run.deck
+fn replace_starter_strikes_with_bites(run: &mut RunState) -> SimResult<()> {
+    let mut next = run.clone();
+    next.deck
         .retain(|card| !matches!(card.content_id, STRIKE_R_ID | STRIKE_R_PLUS_ID));
     for _ in 0..VAMPIRES_BITE_COUNT {
-        run.gain_deck_card(BITE_ID);
+        next.gain_deck_card(BITE_ID)?;
     }
+    *run = next;
+    Ok(())
 }
 
 #[must_use]
@@ -808,11 +812,12 @@ fn knowing_skull_event_data(costs: KnowingSkullCosts) -> SimResult<u32> {
         | (u32::from(leave) << 24))
 }
 
-fn knowing_skull_gain_random_colorless(run: &mut RunState) {
+fn knowing_skull_gain_random_colorless(run: &mut RunState) -> SimResult<()> {
+    run.reserve_card_instance_ids(1)?;
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
     let content_id = random_colorless_from_pool(&mut card_rng, CardRarity::Uncommon);
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
-    run.gain_deck_card(content_id);
+    run.gain_deck_card(content_id)
 }
 
 fn knowing_skull_gain_random_potion(run: &mut RunState) {
@@ -857,9 +862,9 @@ fn give_forgotten_altar_idol(run: &mut RunState) -> SimResult<()> {
         ));
     }
     if has_relic_key(run, RelicKey::BloodyIdol) {
-        run.gain_relic_key(RelicKey::Circlet);
+        run.gain_relic_key(RelicKey::Circlet)?;
     } else {
-        run.gain_relic_key(RelicKey::BloodyIdol);
+        run.gain_relic_key(RelicKey::BloodyIdol)?;
     }
     Ok(())
 }
@@ -1217,11 +1222,15 @@ fn note_for_yourself_choices(stage: u32) -> Vec<EventChoice> {
     }
 }
 
-fn note_card_for_run(run: &RunState) -> CardInstance {
-    let mut card = CardInstance::new(
-        CardId::new(run.next_card_instance_id()),
-        run.note_card_content_id,
-    );
+fn note_card_for_run(run: &RunState) -> SimResult<CardInstance> {
+    Ok(note_card_for_run_with_id(
+        run,
+        CardId::new(run.next_card_instance_id()?),
+    ))
+}
+
+fn note_card_for_run_with_id(run: &RunState, card_id: CardId) -> CardInstance {
+    let mut card = CardInstance::new(card_id, run.note_card_content_id);
     for _ in 0..run.note_card_upgrades {
         if let Some(upgraded) = upgrade_card_instance(card) {
             card = upgraded;
@@ -1234,7 +1243,8 @@ fn note_for_yourself_choices_for_run(run: &RunState, stage: u32) -> Vec<EventCho
     if stage != 1 {
         return note_for_yourself_choices(stage);
     }
-    let card_name = get_card_definition(note_card_for_run(run).content_id)
+    let preview = note_card_for_run_with_id(run, CardId::new(1));
+    let card_name = get_card_definition(preview.content_id)
         .map_or("the saved card", |definition| definition.name);
     vec![
         EventChoice {
@@ -1860,8 +1870,12 @@ fn designer_done_screen(run: &mut RunState) {
     run.event = Some(designer_screen(run, 2, 0));
 }
 
-fn open_duplicator_card_grid(run: &mut RunState) {
-    let next_card_id = run.next_card_instance_id();
+fn open_duplicator_card_grid(run: &mut RunState) -> SimResult<()> {
+    if run.deck.is_empty() {
+        open_event_obtain_card_return_to_event_grid(run, Event::Duplicator, Vec::new());
+        return Ok(());
+    }
+    let next_card_id = run.reserve_card_instance_ids(run.deck.len())?;
     let cards = run
         .deck
         .iter()
@@ -1874,6 +1888,7 @@ fn open_duplicator_card_grid(run: &mut RunState) {
         })
         .collect();
     open_event_obtain_card_return_to_event_grid(run, Event::Duplicator, cards);
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1926,9 +1941,9 @@ pub(crate) fn complete_bonfire_elementals_card(
     match class {
         BonfireCardClass::Curse => {
             if run.relics.contains(&Relic::SpiritPoop) {
-                run.gain_relic_key(RelicKey::Circlet);
+                run.gain_relic_key(RelicKey::Circlet)?;
             } else {
-                run.gain_relic_key(RelicKey::SpiritPoop);
+                run.gain_relic_key(RelicKey::SpiritPoop)?;
             }
         }
         BonfireCardClass::Basic => {}
@@ -2768,7 +2783,7 @@ pub fn neow_screen_for_stage(run: &RunState, stage: u32) -> EventScreen {
 fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption) -> SimResult<()> {
     match option.drawback {
         NeowDrawback::Curse => {
-            apply_neow_curse_drawback(next);
+            apply_neow_curse_drawback(next)?;
         }
         drawback => apply_neow_simple_drawback(next, drawback),
     }
@@ -2777,15 +2792,15 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
         NeowRewardType::OneRandomRareCard => {
             let reward = generate_neow_card_reward(next.event_rng_seed as i64, option.reward);
             for content_id in reward.cards {
-                next.gain_deck_card(content_id);
+                next.gain_deck_card(content_id)?;
             }
         }
         NeowRewardType::ThreeSmallPotions => {
-            open_neow_three_potion_reward(next);
+            open_neow_three_potion_reward(next)?;
             return Ok(());
         }
         NeowRewardType::RandomCommonRelic | NeowRewardType::OneRareRelic => {
-            apply_neow_relic_reward(next, option.reward);
+            apply_neow_relic_reward(next, option.reward)?;
         }
         NeowRewardType::TenPercentHpBonus
         | NeowRewardType::TwentyPercentHpBonus
@@ -2793,7 +2808,7 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
         | NeowRewardType::TwoFiftyGold => apply_neow_simple_reward(next, option.reward),
         NeowRewardType::ThreeEnemyKill => apply_neow_lament_reward(next),
         NeowRewardType::BossRelic => {
-            apply_neow_boss_swap(next);
+            apply_neow_boss_swap(next)?;
         }
         NeowRewardType::RemoveCard
         | NeowRewardType::RemoveTwo
@@ -2804,11 +2819,11 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
             return Ok(());
         }
         NeowRewardType::ThreeCards | NeowRewardType::ThreeRareCards => {
-            open_neow_card_reward(next, option.reward);
+            open_neow_card_reward(next, option.reward)?;
             return Ok(());
         }
         NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
-            open_neow_colorless_card_reward(next, option.reward);
+            open_neow_colorless_card_reward(next, option.reward)?;
             return Ok(());
         }
     }
@@ -2817,12 +2832,12 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
     Ok(())
 }
 
-fn open_neow_three_potion_reward(run: &mut RunState) {
+fn open_neow_three_potion_reward(run: &mut RunState) -> SimResult<()> {
     let generated = generate_neow_three_potions(run.event_rng_seed as i64);
     run.potion_rng_counter = generated.potion_rng_counter;
     // Target CombatRewardScreen setup constructs a normal card reward before
     // Neow removes it, so these hidden card-RNG draws remain authoritative.
-    super::reward::consume_neow_three_potions_hidden_card_reward(run);
+    super::reward::consume_neow_three_potions_hidden_card_reward(run)?;
     run.phase = RunPhase::Reward;
     run.event = Some(make_event_screen(Event::Neow, neow_leave_choices(), 2));
     run.reward = Some(RewardScreen {
@@ -2839,27 +2854,33 @@ fn open_neow_three_potion_reward(run: &mut RunState) {
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
+    Ok(())
 }
 
-fn open_neow_card_reward(run: &mut RunState, reward_type: NeowRewardType) {
+fn open_neow_card_reward(run: &mut RunState, reward_type: NeowRewardType) -> SimResult<()> {
     let reward = generate_neow_card_reward(run.event_rng_seed as i64, reward_type);
-    open_neow_card_reward_choices(run, reward.cards);
+    open_neow_card_reward_choices(run, reward.cards)?;
     run.event_rng_counter = reward.neow_rng_counter;
+    Ok(())
 }
 
-fn open_neow_colorless_card_reward(run: &mut RunState, reward_type: NeowRewardType) {
+fn open_neow_colorless_card_reward(
+    run: &mut RunState,
+    reward_type: NeowRewardType,
+) -> SimResult<()> {
     let reward = generate_neow_colorless_reward_with_card_rng_counter(
         run.event_rng_seed as i64,
         reward_type,
         run.card_rng_counter,
     );
-    open_neow_card_reward_choices(run, reward.cards);
+    open_neow_card_reward_choices(run, reward.cards)?;
     run.event_rng_counter = reward.neow_rng_counter;
     run.card_rng_counter = reward.card_rng_counter;
+    Ok(())
 }
 
-fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) {
-    let next_card_id = run.next_card_instance_id();
+fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) -> SimResult<()> {
+    let next_card_id = run.reserve_card_instance_ids(cards.len())?;
     let choices = cards
         .into_iter()
         .enumerate()
@@ -2883,6 +2904,7 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) {
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::active(1),
     });
+    Ok(())
 }
 
 pub fn legal_event_actions(run: &RunState) -> SimResult<Vec<EventAction>> {
@@ -2926,15 +2948,16 @@ pub fn validate_event_action(run: &RunState, action: EventAction) -> SimResult<(
     }
 }
 
-fn scrap_ooze_success(next: &mut RunState) {
+fn scrap_ooze_success(next: &mut RunState) -> SimResult<()> {
     let key = super::reward::roll_event_relic_reward(next, next.current_act);
-    next.gain_relic_key(key);
+    next.gain_relic_key(key)?;
     next.event = Some(EventScreen {
         event: Event::ScrapOoze,
         choices: scrap_ooze_choices(2),
         stage: 2,
         event_data: 0,
     });
+    Ok(())
 }
 
 pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunState> {
@@ -3096,7 +3119,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         },
         Event::Duplicator => match screen.stage {
             0 if choice_index == 0 => {
-                open_duplicator_card_grid(&mut next);
+                open_duplicator_card_grid(&mut next)?;
                 if next.card_grid.is_none() {
                     next.event = Some(make_event_screen(
                         Event::Duplicator,
@@ -3173,7 +3196,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
             1 if choice_index == 0 => {
-                next.flush_pending_obtain_cards();
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -3188,7 +3211,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 open_event_upgrade_return_to_event_grid(&mut next, Event::AccursedBlacksmith);
             }
             0 if choice_index == 1 => {
-                next.gain_relic_key(RelicKey::WarpedTongs);
+                next.gain_relic_key(RelicKey::WarpedTongs)?;
                 next.pending_obtain_cards.push(PAIN_ID);
                 next.event = Some(EventScreen {
                     event: Event::AccursedBlacksmith,
@@ -3206,7 +3229,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 if choice_index == 0 => {
-                next.flush_pending_obtain_cards();
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -3219,9 +3242,9 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         Event::GoldenIdol => match screen.stage {
             0 if choice_index == 0 => {
                 if has_relic_key(&next, RelicKey::GoldenIdol) {
-                    next.gain_relic_key(RelicKey::Circlet);
+                    next.gain_relic_key(RelicKey::Circlet)?;
                 } else {
-                    next.gain_relic_key(RelicKey::GoldenIdol);
+                    next.gain_relic_key(RelicKey::GoldenIdol)?;
                 }
                 next.event = Some(EventScreen {
                     event: Event::GoldenIdol,
@@ -3267,7 +3290,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             2 if choice_index == 0 => {
-                next.flush_pending_obtain_cards();
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -3375,7 +3398,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                             next.take_potion_slot(slot)?;
                             let act = next.current_act;
                             let key = roll_event_relic_reward(&mut next, act);
-                            next.gain_relic_key(key);
+                            next.gain_relic_key(key)?;
                         }
                         WeMeetAgainChoice::GiveGold => {
                             if options.gold_amount <= 0 || next.gold < options.gold_amount {
@@ -3386,7 +3409,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                             next.gold -= options.gold_amount;
                             let act = next.current_act;
                             let key = roll_event_relic_reward(&mut next, act);
-                            next.gain_relic_key(key);
+                            next.gain_relic_key(key)?;
                         }
                         WeMeetAgainChoice::GiveCard => {
                             let Some(card_index) = options.card_index else {
@@ -3401,7 +3424,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                                 .expect("We Meet Again selected a deck card");
                             let act = next.current_act;
                             let key = roll_event_relic_reward(&mut next, act);
-                            next.gain_relic_key(key);
+                            next.gain_relic_key(key)?;
                         }
                         WeMeetAgainChoice::Attack => {}
                     }
@@ -3448,7 +3471,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                         2 => {
                             let act = next.current_act;
                             let relic = roll_event_relic_reward(&mut next, act);
-                            next.gain_relic_key(relic);
+                            next.gain_relic_key(relic)?;
                         }
                         _ => {}
                     }
@@ -3478,7 +3501,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                         2 => {
                             let act = next.current_act;
                             let relic = roll_event_relic_reward(&mut next, act);
-                            next.gain_relic_key(relic);
+                            next.gain_relic_key(relic)?;
                         }
                         _ => {}
                     }
@@ -3547,7 +3570,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 if choice_index == 0 => {
-                next.flush_pending_obtain_cards();
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -3565,14 +3588,14 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     .get(offered_index)
                     .ok_or(SimError::InvalidState("N'loth offered relic is missing"))?;
                 if has_relic_key(&next, RelicKey::NlothsGift) {
-                    next.gain_relic_key(RelicKey::Circlet);
+                    next.gain_relic_key(RelicKey::Circlet)?;
                 } else {
                     if !remove_relic_key(&mut next, offered) {
                         return Err(SimError::InvalidState(
                             "N'loth offered relic is no longer owned",
                         ));
                     }
-                    next.gain_relic_key(RelicKey::NlothsGift);
+                    next.gain_relic_key(RelicKey::NlothsGift)?;
                 }
                 next.event = Some(EventScreen {
                     event: Event::Nloth,
@@ -3794,7 +3817,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data)?;
                 next.player_hp = (next.player_hp - hp_loss).max(0);
                 if roll_scrap_ooze_relic(&mut next, screen.event_data)? {
-                    scrap_ooze_success(&mut next);
+                    scrap_ooze_success(&mut next)?;
                 } else {
                     next.event = Some(EventScreen {
                         event: Event::ScrapOoze,
@@ -3816,7 +3839,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data)?;
                 next.player_hp = (next.player_hp - hp_loss).max(0);
                 if roll_scrap_ooze_relic(&mut next, screen.event_data)? {
-                    scrap_ooze_success(&mut next);
+                    scrap_ooze_success(&mut next)?;
                 } else {
                     next.event = Some(EventScreen {
                         event: Event::ScrapOoze,
@@ -3866,7 +3889,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             1 if choice_index == 1 => {
                 let key = roll_face_trader_relic(&mut next);
-                next.gain_relic_key(key);
+                next.gain_relic_key(key)?;
                 next.event = Some(EventScreen {
                     event: Event::FaceTrader,
                     choices: face_trader_choices(2),
@@ -3902,7 +3925,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 if choice_index == 0 => {
-                let note = note_card_for_run(&next);
+                let note = note_card_for_run(&next)?;
                 next.add_deck_card(note);
                 open_event_remove_return_to_event_grid(&mut next, Event::NoteForYourself);
             }
@@ -4083,9 +4106,14 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             let reward_count = u8::try_from(choice_index + 1)
                 .expect("Sensory Stone offers at most three card rewards");
             let card_choice_count = reward_card_choice_count(&next);
+            let total_card_choices = usize::from(reward_count)
+                .checked_mul(card_choice_count)
+                .ok_or(SimError::InvalidState(
+                    "Sensory Stone card choice count overflows usize",
+                ))?;
+            let mut next_card_id = next.reserve_card_instance_ids(total_card_choices)?;
             let mut card_rng = next.rng_for_stream(RunRngStream::CardReward);
             let mut rarity_factor = next.card_rarity_factor;
-            let mut next_card_id = next.next_card_instance_id();
             let mut queued_card_rewards = Vec::with_capacity(usize::from(reward_count));
             for _ in 0..reward_count {
                 let cards = target_colorless_card_reward_choices_with_count(
@@ -4171,7 +4199,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
             2 if choice_index == 0 => {
-                next.flush_pending_obtain_cards();
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -4205,7 +4233,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             0 if choice_index == 2 => {
                 let act = next.current_act;
                 let key = super::reward::roll_event_relic_reward(&mut next, act);
-                next.gain_relic_key(key);
+                next.gain_relic_key(key)?;
                 // Target source uses ShowCardAndObtainEffect for the curse; the
                 // relic is obtained immediately, but the card reaches the deck
                 // when that visual effect resolves.
@@ -4218,7 +4246,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 if choice_index == 0 => {
-                next.flush_pending_obtain_cards();
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -4255,7 +4283,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             2 if choice_index == 0 => {
-                next.gain_deck_card(DOUBT_ID);
+                next.gain_deck_card(DOUBT_ID)?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -4329,13 +4357,13 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             next.event = None;
         }
         Event::TheLibrary if screen.stage == 0 && choice_index == 0 => {
-            open_the_library_read_grid(&mut next);
+            open_the_library_read_grid(&mut next)?;
         }
         Event::TheMausoleum | Event::Vampires
             if choice_index == screen.choices.len().saturating_sub(1) =>
         {
             if screen.event == Event::TheMausoleum {
-                next.flush_pending_obtain_cards();
+                next.flush_pending_obtain_cards()?;
             }
             next.phase = RunPhase::Idle;
             next.event = None;
@@ -4346,7 +4374,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             let act = next.current_act;
             let key = super::reward::roll_event_relic_reward(&mut next, act);
-            next.gain_relic_key(key);
+            next.gain_relic_key(key)?;
             next.event = Some(EventScreen {
                 event: Event::TheMausoleum,
                 choices: labeled_choices(&["Leave"]),
@@ -4358,7 +4386,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             let loss = vampires_max_hp_loss(next.player_max_hp);
             next.player_max_hp = (next.player_max_hp - loss).max(1);
             next.player_hp = next.player_hp.min(next.player_max_hp);
-            replace_starter_strikes_with_bites(&mut next);
+            replace_starter_strikes_with_bites(&mut next)?;
             next.event = Some(EventScreen {
                 event: Event::Vampires,
                 choices: labeled_choices(&["Leave"]),
@@ -4373,7 +4401,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 ));
             }
             next.relics.retain(|relic| *relic != Relic::BloodVial);
-            replace_starter_strikes_with_bites(&mut next);
+            replace_starter_strikes_with_bites(&mut next)?;
             next.event = Some(EventScreen {
                 event: Event::Vampires,
                 choices: labeled_choices(&["Leave"]),
@@ -4491,7 +4519,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             2 if choice_index == 0 => {
-                next.flush_pending_obtain_cards();
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -4549,7 +4577,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.gold -= ADDICT_GOLD_COST;
                 let act = next.current_act;
                 let key = super::reward::roll_event_relic_reward(&mut next, act);
-                next.gain_relic_key(key);
+                next.gain_relic_key(key)?;
                 next.event = Some(EventScreen {
                     event: Event::Addict,
                     choices: addict_choices(1),
@@ -4558,10 +4586,10 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             0 if choice_index == 1 => {
-                next.gain_deck_card(SHAME_ID);
+                next.gain_deck_card(SHAME_ID)?;
                 let act = next.current_act;
                 let key = super::reward::roll_event_relic_reward(&mut next, act);
-                next.gain_relic_key(key);
+                next.gain_relic_key(key)?;
                 next.event = Some(EventScreen {
                     event: Event::Addict,
                     choices: addict_choices(1),
@@ -4606,7 +4634,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             0 if choice_index == usize::from(next.relics.contains(&Relic::GoldenIdol)) + 1 => {
-                next.gain_deck_card(DECAY_ID);
+                next.gain_deck_card(DECAY_ID)?;
                 next.event = Some(EventScreen {
                     event: Event::ForgottenAltar,
                     choices: forgotten_altar_choices(1, false),
@@ -4648,7 +4676,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 });
             }
             1 | 2 if choice_index == 0 => {
-                next.flush_pending_obtain_cards();
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -4699,7 +4727,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 lose_event_hp(&mut next, costs.card);
                 costs.card += 1;
                 let event_data = knowing_skull_event_data(costs)?;
-                knowing_skull_gain_random_colorless(&mut next);
+                knowing_skull_gain_random_colorless(&mut next)?;
                 next.event = Some(EventScreen {
                     event: Event::KnowingSkull,
                     choices: knowing_skull_choices(1, event_data),
@@ -4802,7 +4830,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         },
         Event::DrugDealer => match screen.stage {
             0 if choice_index == 0 => {
-                next.gain_deck_card(JAX_ID);
+                next.gain_deck_card(JAX_ID)?;
                 next.event = Some(EventScreen {
                     event: Event::DrugDealer,
                     choices: drug_dealer_choices(1, true),
@@ -4828,9 +4856,9 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             0 if choice_index == 2 => {
                 if has_relic_key(&next, RelicKey::MutagenicStrength) {
-                    next.gain_relic_key(RelicKey::Circlet);
+                    next.gain_relic_key(RelicKey::Circlet)?;
                 } else {
-                    next.gain_relic_key(RelicKey::MutagenicStrength);
+                    next.gain_relic_key(RelicKey::MutagenicStrength)?;
                 }
                 next.event = Some(EventScreen {
                     event: Event::DrugDealer,
@@ -4909,7 +4937,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     });
                 }
                 3 => {
-                    next.gain_deck_card(DECAY_ID);
+                    next.gain_deck_card(DECAY_ID)?;
                     next.event = Some(EventScreen {
                         event: Event::WheelOfChange,
                         choices: wheel_of_change_choices(3, screen.event_data),
@@ -4970,7 +4998,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 next.gain_gold(222);
             } else {
                 next.gold = 0;
-                next.gain_relic_key(RelicKey::RedMask);
+                next.gain_relic_key(RelicKey::RedMask)?;
             }
             next.event = Some(make_event_screen(
                 Event::TombOfLordRedMask,
@@ -5005,7 +5033,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                     *card = upgraded;
                 }
             }
-            next.gain_relic_key(RelicKey::MarkOfBloom);
+            next.gain_relic_key(RelicKey::MarkOfBloom)?;
             next.event = Some(make_event_screen(
                 Event::MindBloom,
                 labeled_choices(&["Leave"]),
@@ -5015,11 +5043,11 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         Event::MindBloom if screen.stage == 0 && choice_index == 2 => {
             if next.current_floor % 50 <= 40 {
                 next.gain_gold(999);
-                next.gain_deck_card(NORMALITY_ID);
-                next.gain_deck_card(NORMALITY_ID);
+                next.gain_deck_card(NORMALITY_ID)?;
+                next.gain_deck_card(NORMALITY_ID)?;
             } else {
                 next.heal_player(next.player_max_hp);
-                next.gain_deck_card(DOUBT_ID);
+                next.gain_deck_card(DOUBT_ID)?;
             }
             next.event = Some(make_event_screen(
                 Event::MindBloom,
@@ -5050,7 +5078,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             apply_match_and_keep_card_choice(&mut next, card_index)?;
         }
         Event::MatchAndKeep if screen.stage == 3 && choice_index == 0 => {
-            next.flush_pending_obtain_cards();
+            next.flush_pending_obtain_cards()?;
             next.phase = RunPhase::Idle;
             next.event = None;
             next.match_and_keep = None;
@@ -5121,7 +5149,7 @@ fn match_and_keep_group_index_for_visible_choice(
 
 fn apply_match_and_keep_card_choice(run: &mut RunState, choice_index: usize) -> SimResult<()> {
     // A matched card's obtain effect settles on the following update.
-    run.flush_pending_obtain_cards();
+    run.flush_pending_obtain_cards()?;
 
     {
         let state = run
@@ -5166,7 +5194,7 @@ fn apply_match_and_keep_card_choice(run: &mut RunState, choice_index: usize) -> 
         .ok_or(SimError::InvalidState("Match and Keep state is missing"))?
         .attempts_remaining;
     if attempts_remaining == 0 {
-        run.flush_pending_obtain_cards();
+        run.flush_pending_obtain_cards()?;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
             labeled_choices(&["Leave"]),
@@ -5311,7 +5339,8 @@ mod tests {
             .expect("seed one offers three potions");
         let generated = generate_neow_three_potions(run.event_rng_seed as i64);
         let mut expected_rng = run.clone();
-        crate::run::reward::consume_neow_three_potions_hidden_card_reward(&mut expected_rng);
+        crate::run::reward::consume_neow_three_potions_hidden_card_reward(&mut expected_rng)
+            .expect("hidden Neow reward generation succeeds");
 
         let mut next = apply_event_action(
             &run,
@@ -6785,7 +6814,8 @@ mod tests {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.gold = 100;
         run.gain_potion(Potion::Swift).expect("potion slot is open");
-        run.gain_deck_card(crate::content::cards::ANGER_ID);
+        run.gain_deck_card(crate::content::cards::ANGER_ID)
+            .expect("fixture card gain succeeds");
         run.phase = RunPhase::Event;
         run.event = Some(
             entered_event_screen_for_run(&mut run, Event::WeMeetAgain)
@@ -6827,7 +6857,8 @@ mod tests {
             let mut run = RunState::seeded_ironclad(1, 0);
             run.gold = 100;
             run.gain_potion(Potion::Swift).expect("potion slot is open");
-            run.gain_deck_card(crate::content::cards::ANGER_ID);
+            run.gain_deck_card(crate::content::cards::ANGER_ID)
+                .expect("fixture card gain succeeds");
             run.phase = RunPhase::Event;
             run.event = Some(
                 entered_event_screen_for_run(&mut run, Event::WeMeetAgain)
@@ -7621,8 +7652,9 @@ mod tests {
     fn nloth_trades_one_owned_relic_for_nloths_gift() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
-        run.gain_relic(Relic::Vajra);
-        run.gain_relic(Relic::Strawberry);
+        run.gain_relic(Relic::Vajra).expect("Vajra pickup succeeds");
+        run.gain_relic(Relic::Strawberry)
+            .expect("Strawberry pickup succeeds");
         run.phase = RunPhase::Event;
         let event_data = nloth_event_data(0, 1).expect("distinct relic offers fit encoding");
         run.event = Some(EventScreen {
@@ -7736,7 +7768,7 @@ mod tests {
     #[test]
     fn nloth_import_rejects_missing_offered_relic() {
         let mut run = RunState::seeded_ironclad(1, 0);
-        run.gain_relic(Relic::Vajra);
+        run.gain_relic(Relic::Vajra).expect("Vajra pickup succeeds");
         run.phase = RunPhase::Event;
         run.event = Some(EventScreen {
             event: Event::Nloth,
@@ -7840,9 +7872,11 @@ mod tests {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.current_act = 1;
-        run.gain_deck_card(INJURY_ID);
-        run.gain_deck_card(ASCENDERS_BANE_ID);
-        run.gain_deck_card(CURSE_OF_THE_BELL_ID);
+        run.gain_deck_card(INJURY_ID).expect("Injury gain succeeds");
+        run.gain_deck_card(ASCENDERS_BANE_ID)
+            .expect("Ascender's Bane gain succeeds");
+        run.gain_deck_card(CURSE_OF_THE_BELL_ID)
+            .expect("Curse of the Bell gain succeeds");
         run.event = Some(event_screen(Event::FountainOfCleansing));
 
         let initial_choices = run
@@ -8245,7 +8279,8 @@ mod tests {
     #[test]
     fn mark_of_bloom_blocks_run_and_combat_healing() {
         let mut run = RunState::seeded_ironclad(1, 0);
-        run.gain_relic_key(RelicKey::MarkOfBloom);
+        run.gain_relic_key(RelicKey::MarkOfBloom)
+            .expect("Mark of the Bloom pickup succeeds");
         run.player_hp = 20;
         run.heal_player(30);
         assert_eq!(run.player_hp, 20);

@@ -410,33 +410,42 @@ pub fn open_dollys_mirror_grid(run: &mut RunState) {
     });
 }
 
-pub fn open_calling_bell_grid(run: &mut RunState) {
+pub fn open_calling_bell_grid(run: &mut RunState) -> SimResult<()> {
+    let next_card_id = run.next_card_instance_id()?;
     run.card_grid = Some(CardGridScreen {
         cards: vec![CardInstance::new(
-            crate::ids::CardId::new(run.next_card_instance_id()),
+            crate::ids::CardId::new(next_card_id),
             CURSE_OF_THE_BELL_ID,
         )],
         purpose: GridPurpose::CallingBellCurse,
         selected: None,
         selected_indices: Vec::new(),
     });
+    Ok(())
 }
 
-pub fn open_pandoras_box_grid(run: &mut RunState) {
+pub fn open_pandoras_box_grid(run: &mut RunState) -> SimResult<()> {
+    let mut next = run.clone();
+    open_pandoras_box_grid_inner(&mut next)?;
+    *run = next;
+    Ok(())
+}
+
+fn open_pandoras_box_grid_inner(run: &mut RunState) -> SimResult<()> {
     let starter_count = run
         .deck
         .iter()
         .filter(|card| is_pandoras_box_removed_starter(card.content_id))
         .count();
     if starter_count == 0 {
-        return;
+        return Ok(());
     }
 
     run.deck
         .retain(|card| !is_pandoras_box_removed_starter(card.content_id));
     let pool = ironclad_truly_random_card_pool();
+    let next_card_id = run.reserve_card_instance_ids(starter_count)?;
     let mut rng = run.card_random_rng();
-    let next_card_id = run.next_card_instance_id();
     let cards = (0..starter_count)
         .map(|index| {
             let pick = rng.random_int((pool.len() - 1) as i32) as usize;
@@ -454,16 +463,17 @@ pub fn open_pandoras_box_grid(run: &mut RunState) {
         selected: None,
         selected_indices: Vec::new(),
     });
+    Ok(())
 }
 
-pub fn open_astrolabe_grid(run: &mut RunState) {
+pub fn open_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
     let cards = run.deck.clone();
     if cards.is_empty() {
-        return;
+        return Ok(());
     }
     if cards.len() <= ASTROLABE_TRANSFORM_COUNT {
-        transform_astrolabe_cards(run, &cards);
-        return;
+        transform_astrolabe_cards(run, &cards)?;
+        return Ok(());
     }
 
     run.card_grid = Some(CardGridScreen {
@@ -472,6 +482,7 @@ pub fn open_astrolabe_grid(run: &mut RunState) {
         selected: None,
         selected_indices: Vec::new(),
     });
+    Ok(())
 }
 
 const ASTROLABE_TRANSFORM_COUNT: usize = 3;
@@ -611,7 +622,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             // Calling Bell opens CombatRewardScreen while still in NeowRoom.
             // setupItemReward constructs the room's ordinary card reward first;
             // CallingBell.update then clears it and replaces it with three relics.
-            super::reward::consume_hidden_neow_room_card_reward(&mut next);
+            super::reward::consume_hidden_neow_room_card_reward(&mut next)?;
             super::reward::enter_calling_bell_reward_screen(&mut next);
         }
         GridPurpose::PandorasBox => {
@@ -776,7 +787,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         GridPurpose::DollysMirror => {
             let card = selected_grid_card(grid)?;
             let mut copy = card;
-            copy.id = crate::ids::CardId::new(next.next_card_instance_id());
+            copy.id = crate::ids::CardId::new(next.next_card_instance_id()?);
             copy.bottled = false;
             next.add_deck_card(copy);
             next.card_grid = None;
@@ -903,7 +914,7 @@ fn confirm_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
                 .ok_or(SimError::IllegalAction("grid index out of range"))
         })
         .collect::<SimResult<Vec<_>>>()?;
-    transform_astrolabe_cards(run, &cards);
+    transform_astrolabe_cards(run, &cards)?;
     run.card_grid = None;
     Ok(())
 }
@@ -930,7 +941,7 @@ fn confirm_neow_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
                 .ok_or(SimError::IllegalAction("grid index out of range"))
         })
         .collect::<SimResult<Vec<_>>>()?;
-    transform_neow_cards(run, &cards);
+    transform_neow_cards(run, &cards)?;
     run.card_grid = None;
     finish_neow_grid_reward(run);
     Ok(())
@@ -994,18 +1005,18 @@ fn confirm_event_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> 
                 .ok_or(SimError::IllegalAction("grid index out of range"))
         })
         .collect::<SimResult<Vec<_>>>()?;
-    transform_event_cards(run, &cards);
+    transform_event_cards(run, &cards)?;
     run.card_grid = None;
     run.phase = RunPhase::Idle;
     run.event = None;
     Ok(())
 }
 
-fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) {
+fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResult<()> {
+    let next_card_id = run.reserve_card_instance_ids(cards.len())?;
     let sources = cards.iter().map(|card| card.content_id).collect::<Vec<_>>();
     let reward =
         crate::run::neow::generate_neow_transform_reward(run.reward_rng_seed as i64, &sources);
-    let next_card_id = run.next_card_instance_id();
     let transformed = reward
         .cards
         .into_iter()
@@ -1025,11 +1036,12 @@ fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) {
     for card in transformed {
         run.add_deck_card(card);
     }
+    Ok(())
 }
 
-fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) {
+fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResult<()> {
+    let next_card_id = run.reserve_card_instance_ids(cards.len())?;
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
-    let next_card_id = run.next_card_instance_id();
     let transformed = cards
         .iter()
         .enumerate()
@@ -1051,11 +1063,12 @@ fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) {
     for card in transformed {
         run.add_deck_card(card);
     }
+    Ok(())
 }
 
-fn transform_event_cards(run: &mut RunState, cards: &[CardInstance]) {
+fn transform_event_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResult<()> {
+    let next_card_id = run.reserve_card_instance_ids(cards.len())?;
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
-    let next_card_id = run.next_card_instance_id();
     let transformed = cards
         .iter()
         .enumerate()
@@ -1076,6 +1089,7 @@ fn transform_event_cards(run: &mut RunState, cards: &[CardInstance]) {
     for card in transformed {
         run.add_deck_card(card);
     }
+    Ok(())
 }
 
 fn transform_card_content_id(source: crate::ContentId, rng: &mut StsRng) -> crate::ContentId {
@@ -1095,7 +1109,8 @@ mod tests {
     #[test]
     fn rest_smith_grid_includes_unupgraded_ritual_dagger() {
         let mut run = RunState::map_fixture();
-        run.gain_deck_card(RITUAL_DAGGER_ID);
+        run.gain_deck_card(RITUAL_DAGGER_ID)
+            .expect("Ritual Dagger gain succeeds");
 
         open_rest_smith_grid(&mut run);
 
@@ -1111,7 +1126,7 @@ mod tests {
     #[test]
     fn rest_smith_grid_includes_bites_and_upgrades_them() {
         let mut run = RunState::map_fixture();
-        run.gain_deck_card(BITE_ID);
+        run.gain_deck_card(BITE_ID).expect("Bite gain succeeds");
 
         open_rest_smith_grid(&mut run);
         let bite_index = run
@@ -1134,7 +1149,8 @@ mod tests {
     #[test]
     fn shop_remove_grid_excludes_curse_of_the_bell() {
         let mut run = RunState::map_fixture();
-        run.gain_deck_card(CURSE_OF_THE_BELL_ID);
+        run.gain_deck_card(CURSE_OF_THE_BELL_ID)
+            .expect("Curse of the Bell gain succeeds");
 
         open_shop_remove_grid(&mut run);
 
@@ -1209,8 +1225,9 @@ mod tests {
         let mut event_run = run.clone();
         let mut astrolabe_run = run;
 
-        transform_event_cards(&mut event_run, &sources);
-        transform_astrolabe_cards(&mut astrolabe_run, &sources);
+        transform_event_cards(&mut event_run, &sources).expect("event transforms allocate cards");
+        transform_astrolabe_cards(&mut astrolabe_run, &sources)
+            .expect("Astrolabe transforms allocate cards");
 
         let event_results = &event_run.deck[event_run.deck.len() - sources.len()..];
         let astrolabe_results = &astrolabe_run.deck[astrolabe_run.deck.len() - sources.len()..];

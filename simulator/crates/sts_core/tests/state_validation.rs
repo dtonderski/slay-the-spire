@@ -441,9 +441,12 @@ fn known_generated_card_content_remains_valid() {
 #[test]
 fn known_unmodeled_reward_identity_is_valid_until_selected() {
     let mut run = RunState::map_fixture();
-    enter_reward_screen(&mut run);
+    enter_reward_screen(&mut run).expect("reward entry succeeds");
     let content_id = shop_card_content_id("REACH_HEAVEN");
-    let reward_id = CardId::new(run.next_card_instance_id());
+    let reward_id = CardId::new(
+        run.next_card_instance_id()
+            .expect("fixture has card ID allocation headroom"),
+    );
     run.reward
         .as_mut()
         .expect("reward screen")
@@ -453,7 +456,10 @@ fn known_unmodeled_reward_identity_is_valid_until_selected() {
     run.validate()
         .expect("known unmodeled card may remain a visible reward choice");
 
-    let deck_id = CardId::new(run.next_card_instance_id());
+    let deck_id = CardId::new(
+        run.next_card_instance_id()
+            .expect("fixture has card ID allocation headroom"),
+    );
     run.deck.push(CardInstance::new(deck_id, content_id));
     assert_eq!(run.validate(), Err(SimError::UnknownContent(content_id)));
 }

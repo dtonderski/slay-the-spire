@@ -61,7 +61,10 @@ fn reach_shop_via_left_branch() -> RunState {
         }
     }
     let mut run = apply_run_action(&run, RunAction::EnterShop).expect("open merchant");
-    run.shop = Some(legacy_fixed_shop_screen(run.next_card_instance_id()));
+    run.shop = Some(legacy_fixed_shop_screen(
+        run.next_card_instance_id()
+            .expect("fixture has card ID allocation headroom"),
+    ));
     run
 }
 
@@ -582,7 +585,10 @@ fn removing_parasite_at_rest_loses_three_max_hp() {
     run.relics.push(Relic::PeacePipe);
     run.player_max_hp = 50;
     run.player_hp = 50;
-    let parasite_id = CardId::new(run.next_card_instance_id());
+    let parasite_id = CardId::new(
+        run.next_card_instance_id()
+            .expect("fixture has card ID allocation headroom"),
+    );
     run.deck.push(CardInstance::new(parasite_id, PARASITE_ID));
     run = apply_map_action_on_run(
         &run,
