@@ -825,6 +825,128 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
         }
+        Event::Falling => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Falling stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Falling retains unexpected event data",
+                ));
+            }
+            if screen.choices != falling_choices(run, screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Falling choices do not match its stage",
+                ));
+            }
+        }
+        Event::MoaiHead => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("The Moai Head stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "The Moai Head retains unexpected event data",
+                ));
+            }
+            if screen.choices != moai_choices(run, screen.stage) {
+                return Err(SimError::InvalidState(
+                    "The Moai Head choices do not match its stage",
+                ));
+            }
+        }
+        Event::MysteriousSphere => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Mysterious Sphere stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Mysterious Sphere retains unexpected event data",
+                ));
+            }
+            if screen.choices != mysterious_sphere_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Mysterious Sphere choices do not match its stage",
+                ));
+            }
+        }
+        Event::SensoryStone => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Sensory Stone stage is invalid"));
+            }
+            let valid_data = match screen.stage {
+                0 | 2 => screen.event_data == 0,
+                1 => screen.event_data <= 3,
+                _ => unreachable!("Sensory Stone stage was validated above"),
+            };
+            if !valid_data {
+                return Err(SimError::InvalidState(
+                    "Sensory Stone memory does not match its stage",
+                ));
+            }
+            let expected_choices = if screen.stage == 2 {
+                labeled_choices(&["Leave"])
+            } else {
+                sensory_stone_choices(screen.stage)
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Sensory Stone choices do not match its stage",
+                ));
+            }
+        }
+        Event::WindingHalls => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Winding Halls stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Winding Halls retains unexpected event data",
+                ));
+            }
+            if screen.choices != winding_halls_choices(run, screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Winding Halls choices do not match its stage",
+                ));
+            }
+        }
+        Event::TombOfLordRedMask => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState(
+                    "Tomb of Lord Red Mask stage is invalid",
+                ));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Tomb of Lord Red Mask retains unexpected event data",
+                ));
+            }
+            if screen.choices != tomb_of_lord_red_mask_choices(run, screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Tomb of Lord Red Mask choices do not match its stage",
+                ));
+            }
+        }
+        Event::MindBloom => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Mind Bloom stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Mind Bloom retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                mind_bloom_choices(run)
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Mind Bloom choices do not match its stage",
+                ));
+            }
+        }
         Event::DeadAdventurer => {
             if screen.event_data & !0x7ff != 0 {
                 return Err(SimError::InvalidState(
@@ -5954,6 +6076,119 @@ mod tests {
         run.event = Some(screen);
         run.validate()
             .expect("generated Ghosts entry has authoritative choices");
+    }
+
+    #[test]
+    fn act_three_import_rejects_unreachable_event_screen_shapes() {
+        for (event, invalid_stage, stage_error, data_error, choices_error) in [
+            (
+                Event::Falling,
+                3,
+                "Falling stage is invalid",
+                "Falling retains unexpected event data",
+                "Falling choices do not match its stage",
+            ),
+            (
+                Event::MoaiHead,
+                2,
+                "The Moai Head stage is invalid",
+                "The Moai Head retains unexpected event data",
+                "The Moai Head choices do not match its stage",
+            ),
+            (
+                Event::MysteriousSphere,
+                2,
+                "Mysterious Sphere stage is invalid",
+                "Mysterious Sphere retains unexpected event data",
+                "Mysterious Sphere choices do not match its stage",
+            ),
+            (
+                Event::SensoryStone,
+                3,
+                "Sensory Stone stage is invalid",
+                "Sensory Stone memory does not match its stage",
+                "Sensory Stone choices do not match its stage",
+            ),
+            (
+                Event::WindingHalls,
+                3,
+                "Winding Halls stage is invalid",
+                "Winding Halls retains unexpected event data",
+                "Winding Halls choices do not match its stage",
+            ),
+            (
+                Event::TombOfLordRedMask,
+                2,
+                "Tomb of Lord Red Mask stage is invalid",
+                "Tomb of Lord Red Mask retains unexpected event data",
+                "Tomb of Lord Red Mask choices do not match its stage",
+            ),
+            (
+                Event::MindBloom,
+                2,
+                "Mind Bloom stage is invalid",
+                "Mind Bloom retains unexpected event data",
+                "Mind Bloom choices do not match its stage",
+            ),
+        ] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.current_act = 3;
+            run.current_floor = 40;
+            run.phase = RunPhase::Event;
+            run.event = Some(event_screen_for_run(&run, event));
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").stage = invalid_stage;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(stage_error)),
+                "{event:?} accepts an unreachable stage"
+            );
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").event_data = 1;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(data_error)),
+                "{event:?} accepts unreachable event data"
+            );
+
+            run.event.as_mut().expect("event screen").choices.clear();
+            assert_eq!(
+                run.validate(),
+                Err(SimError::InvalidState(choices_error)),
+                "{event:?} accepts a noncanonical choice list"
+            );
+        }
+    }
+
+    #[test]
+    fn sensory_stone_import_accepts_only_rolled_memories_and_retained_leave() {
+        for memory in 0..=3 {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.current_act = 3;
+            run.phase = RunPhase::Event;
+            run.event = Some(EventScreen {
+                event: Event::SensoryStone,
+                choices: sensory_stone_choices(1),
+                stage: 1,
+                event_data: memory,
+            });
+            run.validate()
+                .expect("rolled Sensory Stone memory is valid");
+        }
+
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 3;
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::SensoryStone,
+            choices: labeled_choices(&["Leave"]),
+            stage: 2,
+            event_data: 0,
+        });
+        run.validate()
+            .expect("Sensory Stone reward retains its leave continuation");
     }
 
     #[test]
