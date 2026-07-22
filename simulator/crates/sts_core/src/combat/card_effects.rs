@@ -48,11 +48,11 @@ use crate::{
         SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID,
         SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
-        SWORD_BOOMERANG_PLUS_ID, THE_BOMB_DAMAGE, THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS,
-        THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID,
-        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID,
-        TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, UPPERCUT_PLUS_ID,
-        VIOLENCE_ID, VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID,
+        THINKING_AHEAD_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANSMUTATION_ID,
+        TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, UPPERCUT_PLUS_ID, VIOLENCE_ID,
+        VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
         WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::shop_pool::{
@@ -957,6 +957,24 @@ fn card_move_destination(definition: &CardDefinition) -> CardPile {
     }
 }
 
+fn required_damage(definition: &CardDefinition) -> SimResult<i32> {
+    definition.values.damage.ok_or(SimError::InvalidState(
+        "card definition is missing required damage",
+    ))
+}
+
+fn required_block(definition: &CardDefinition) -> SimResult<i32> {
+    definition.values.block.ok_or(SimError::InvalidState(
+        "card definition is missing required block",
+    ))
+}
+
+fn required_vulnerable(definition: &CardDefinition) -> SimResult<i32> {
+    definition.values.vulnerable.ok_or(SimError::InvalidState(
+        "card definition is missing required vulnerable",
+    ))
+}
+
 fn strike_queue(
     state: &CombatState,
     card_id: CardId,
@@ -970,10 +988,7 @@ fn strike_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: strike_damage_with_relics(
-                    &state.relics,
-                    definition.values.damage.unwrap_or(0),
-                ),
+                amount: strike_damage_with_relics(&state.relics, required_damage(definition)?),
             },
         },
         InternalAction::MoveCard {
@@ -996,7 +1011,7 @@ fn generic_attack_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::MoveCard {
@@ -1019,9 +1034,9 @@ fn hand_of_greed_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
-            gold: definition.values.vulnerable.unwrap_or(0),
+            gold: required_vulnerable(definition)?,
         },
         InternalAction::MoveCard {
             card_id,
@@ -1072,13 +1087,13 @@ fn iron_wave_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
         InternalAction::DealDamage {
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::MoveCard {
@@ -1126,7 +1141,7 @@ fn armaments_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
     ]);
 
@@ -1200,7 +1215,7 @@ fn headbutt_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
     ]);
@@ -1286,7 +1301,7 @@ fn hemokinesis_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::LoseHp {
@@ -1313,7 +1328,7 @@ fn blood_for_blood_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::MoveCard {
@@ -1338,7 +1353,7 @@ fn feed_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
             max_hp_gain: if definition.id == FEED_PLUS_ID { 4 } else { 3 },
         },
@@ -1371,7 +1386,7 @@ fn dropkick_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
     ]);
@@ -1412,7 +1427,7 @@ fn heavy_blade_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: (definition.values.damage.unwrap_or(0) + extra_strength).max(0),
+                amount: (required_damage(definition)? + extra_strength).max(0),
             },
         },
         InternalAction::MoveCard {
@@ -1435,7 +1450,7 @@ fn perfected_strike_queue(
     } else {
         2
     };
-    let base_damage = definition.values.damage.unwrap_or(0) + (strike_bonus * strike_count);
+    let base_damage = required_damage(definition)? + (strike_bonus * strike_count);
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -1491,7 +1506,7 @@ fn wild_strike_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::AddGeneratedCardToDrawPileRandomSpot {
@@ -1519,7 +1534,7 @@ fn bite_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::HealPlayer { amount: 2 },
@@ -1603,7 +1618,7 @@ fn power_through_queue(
             temp_cost_turn_only: false,
         },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
         InternalAction::MoveCard {
             card_id,
@@ -2036,7 +2051,7 @@ fn reckless_charge_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::AddGeneratedCardToDrawPileRandomSpot {
@@ -2055,7 +2070,7 @@ fn pummel_queue(
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let damage = definition.values.damage.unwrap_or(0);
+    let damage = required_damage(definition)?;
     let hits = if definition.id == PUMMEL_PLUS_ID {
         5
     } else {
@@ -2099,7 +2114,7 @@ fn clothesline_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::ApplyWeak {
@@ -2202,13 +2217,13 @@ fn trip_queue(
     if definition.target == TargetRequirement::Enemy {
         queue.push_back(InternalAction::ApplyVulnerable {
             target: target.expect("validated Trip has a target"),
-            amount: definition.values.vulnerable.unwrap_or(0),
+            amount: required_vulnerable(definition)?,
         });
     } else {
         for monster in state.monsters.iter().filter(|monster| monster.alive) {
             queue.push_back(InternalAction::ApplyVulnerable {
                 target: monster.id,
-                amount: definition.values.vulnerable.unwrap_or(0),
+                amount: required_vulnerable(definition)?,
             });
         }
     }
@@ -2235,7 +2250,7 @@ fn shockwave_queue(
     ]);
 
     for monster in state.monsters.iter().filter(|monster| monster.alive) {
-        let amount = definition.values.vulnerable.unwrap_or(0);
+        let amount = required_vulnerable(definition)?;
         queue.push_back(InternalAction::ApplyWeak {
             target: monster.id,
             amount,
@@ -2320,7 +2335,7 @@ fn sword_boomerang_queue(
         .ok_or(SimError::InvalidState(
             "Sword Boomerang requires a living monster",
         ))?;
-    let damage = definition.values.damage.unwrap_or(0);
+    let damage = required_damage(definition)?;
 
     let hits = if definition.id == SWORD_BOOMERANG_PLUS_ID {
         4
@@ -2360,7 +2375,7 @@ fn defend_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
         InternalAction::MoveCard {
             card_id,
@@ -2380,7 +2395,7 @@ fn generic_skill_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
         InternalAction::MoveCard {
             card_id,
@@ -2470,7 +2485,7 @@ fn berserk_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::ApplyPlayerVulnerable {
-            amount: definition.values.vulnerable.unwrap_or(0),
+            amount: required_vulnerable(definition)?,
         },
         InternalAction::GainBerserk { amount: 1 },
         InternalAction::RemoveCard {
@@ -2521,7 +2536,7 @@ fn juggernaut_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainJuggernaut {
-            amount: definition.values.damage.unwrap_or(0),
+            amount: required_damage(definition)?,
         },
         InternalAction::RemoveCard {
             card_id,
@@ -2588,7 +2603,7 @@ fn panache_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainPanache {
-            amount: definition.values.damage.unwrap_or(0),
+            amount: required_damage(definition)?,
         },
         InternalAction::RemoveCard {
             card_id,
@@ -2605,7 +2620,7 @@ fn sadistic_nature_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainSadisticNature {
-            amount: definition.values.damage.unwrap_or(0),
+            amount: required_damage(definition)?,
         },
         InternalAction::RemoveCard {
             card_id,
@@ -2705,7 +2720,7 @@ fn sever_soul_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::MoveCard {
@@ -2724,7 +2739,7 @@ fn second_wind_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     let exhaust_targets = non_attack_hand_cards_except(state, card_id);
     let exhaust_count = exhaust_targets.len();
-    let block_per_card = definition.values.block.unwrap_or(0);
+    let block_per_card = required_block(definition)?;
     let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -2790,7 +2805,7 @@ fn fiend_fire_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         });
     }
@@ -2836,12 +2851,12 @@ fn bash_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::ApplyVulnerable {
             target,
-            amount: definition.values.vulnerable.unwrap_or(0),
+            amount: required_vulnerable(definition)?,
         },
         InternalAction::MoveCard {
             card_id,
@@ -2866,7 +2881,7 @@ fn anger_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::AddStatEquivalentCopyToPile {
@@ -2890,7 +2905,7 @@ fn cleave_queue(
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::DealDamageAll {
             source: card_id,
-            amount: definition.values.damage.unwrap_or(0),
+            amount: required_damage(definition)?,
         },
         InternalAction::MoveCard {
             card_id,
@@ -2929,7 +2944,7 @@ fn reaper_queue(
         },
         InternalAction::DealDamageAllAndHealUnblocked {
             source: card_id,
-            amount: definition.values.damage.unwrap_or(0),
+            amount: required_damage(definition)?,
         },
         InternalAction::MoveCard {
             card_id,
@@ -2951,14 +2966,14 @@ fn thunderclap_queue(
         },
         InternalAction::DealDamageAll {
             source: card_id,
-            amount: definition.values.damage.unwrap_or(0),
+            amount: required_damage(definition)?,
         },
     ]);
 
     for monster in state.monsters.iter().filter(|monster| monster.alive) {
         queue.push_back(InternalAction::ApplyVulnerable {
             target: monster.id,
-            amount: definition.values.vulnerable.unwrap_or(0),
+            amount: required_vulnerable(definition)?,
         });
     }
 
@@ -2985,7 +3000,7 @@ fn uppercut_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::ApplyWeak {
@@ -2998,7 +3013,7 @@ fn uppercut_queue(
         },
         InternalAction::ApplyVulnerable {
             target,
-            amount: definition.values.vulnerable.unwrap_or(0),
+            amount: required_vulnerable(definition)?,
         },
         InternalAction::MoveCard {
             card_id,
@@ -3025,7 +3040,7 @@ fn whirlwind_queue(
         ));
     }
 
-    let damage = definition.values.damage.unwrap_or(0);
+    let damage = required_damage(definition)?;
     let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy { amount: x },
@@ -3357,7 +3372,7 @@ fn twin_strike_queue(
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let damage = definition.values.damage.unwrap_or(0);
+    let damage = required_damage(definition)?;
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -3393,7 +3408,7 @@ fn shrug_it_off_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
         InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count: 1 },
     ]))
@@ -3409,7 +3424,7 @@ fn finesse_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
         InternalAction::DrawCards { count: 1 },
         InternalAction::MoveCard {
@@ -3431,7 +3446,7 @@ fn the_bomb_queue(
         },
         InternalAction::ArmTheBomb {
             turns: THE_BOMB_TURNS,
-            damage: definition.values.damage.unwrap_or(THE_BOMB_DAMAGE),
+            damage: required_damage(definition)?,
         },
         InternalAction::MoveCard {
             card_id,
@@ -3499,7 +3514,7 @@ fn panic_button_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
         InternalAction::PreventBlockGain { turns: 2 },
         InternalAction::MoveCard {
@@ -3584,7 +3599,7 @@ fn flame_barrier_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
         InternalAction::GainTemporaryThorns {
             amount: flame_barrier_thorns_amount(definition),
@@ -3626,7 +3641,7 @@ fn true_grit_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
     ]);
 
@@ -3742,7 +3757,7 @@ fn combust_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainCombust {
-            amount: definition.values.damage.unwrap_or(0),
+            amount: required_damage(definition)?,
         },
         InternalAction::RemoveCard {
             card_id,
@@ -3784,7 +3799,7 @@ fn fire_breathing_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainFireBreathing {
-            amount: definition.values.damage.unwrap_or(0),
+            amount: required_damage(definition)?,
         },
         InternalAction::RemoveCard {
             card_id,
@@ -3801,7 +3816,7 @@ fn metallicize_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainMetallicize {
-            amount: definition.values.block.unwrap_or(0),
+            amount: required_block(definition)?,
         },
         InternalAction::RemoveCard {
             card_id,
@@ -3829,7 +3844,7 @@ fn pommel_strike_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0),
+                amount: required_damage(definition)?,
             },
         },
         InternalAction::DrawCards { count: draw_count },
@@ -4114,4 +4129,43 @@ fn monster_intends_attack(state: &CombatState, target: MonsterId) -> bool {
                     | MonsterIntent::AttackStealGold { .. }
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn card_effect_builders_reject_missing_required_values() {
+        let state = CombatState::initial_fixture();
+        let card_id = CardId::new(1);
+        let target = MonsterId::new(1);
+
+        let mut strike = *get_card_definition(STRIKE_R_ID).expect("Strike definition");
+        strike.values.damage = None;
+        assert_eq!(
+            strike_queue(&state, card_id, target, &strike),
+            Err(SimError::InvalidState(
+                "card definition is missing required damage"
+            ))
+        );
+
+        let mut defend = *get_card_definition(DEFEND_R_ID).expect("Defend definition");
+        defend.values.block = None;
+        assert_eq!(
+            defend_queue(card_id, &defend),
+            Err(SimError::InvalidState(
+                "card definition is missing required block"
+            ))
+        );
+
+        let mut bash = *get_card_definition(BASH_ID).expect("Bash definition");
+        bash.values.vulnerable = None;
+        assert_eq!(
+            bash_queue(card_id, target, &bash),
+            Err(SimError::InvalidState(
+                "card definition is missing required vulnerable"
+            ))
+        );
+    }
 }
