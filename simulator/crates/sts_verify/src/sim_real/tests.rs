@@ -2730,6 +2730,81 @@ fn boss_relic_deck_overlay_requires_stable_reconciliation() {
 }
 
 #[test]
+fn ftue_dismissal_routes_through_typed_overlay_pre_dispatch() {
+    let pre = TraceState {
+        step: 10,
+        received_at: None,
+        message: json!({
+            "game_state": {
+                "screen_name": "FTUE"
+            }
+        }),
+    };
+    let action = TraceAction {
+        step: 11,
+        command: "CLICK LEFT 1080 700 250".to_owned(),
+        sent_at: None,
+        playtime_seconds: None,
+    };
+    let post = TraceState {
+        step: 12,
+        received_at: None,
+        message: json!({
+            "game_state": {
+                "screen_type": "COMBAT_REWARD"
+            }
+        }),
+    };
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.phase = RunPhase::Reward;
+    run.reward = Some(RewardScreen {
+        continuation: sts_core::RewardContinuation::None,
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 0,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers: Vec::new(),
+        relic_offer: None,
+        pending_relic_offer: None,
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: sts_core::CardRewardFlow::None,
+    });
+    let mut phase = SeedStartPhase::NeowTalk;
+    let mut pending_overlay = None;
+    let mut reconciled = Vec::new();
+    let mut report = SimRealReport {
+        total_actions: 1,
+        ignored_tail_actions: 0,
+        action_dispositions: Vec::new(),
+        action_integrity: None,
+        verified: Vec::new(),
+        unsupported: Vec::new(),
+        unexpected_diffs: Vec::new(),
+        seed_start: None,
+    };
+
+    let result = replay::seed_start_handle_overlay_command(
+        &pre,
+        &action,
+        &post,
+        &mut phase,
+        Some(&run),
+        &mut pending_overlay,
+        &mut reconciled,
+        &mut report,
+    );
+
+    assert!(matches!(result, replay::SeedStartPreDispatch::Handled));
+    assert_eq!(phase, SeedStartPhase::Reward);
+    assert!(report
+        .unexpected_diffs
+        .iter()
+        .all(|diff| diff.label == "dismiss FTUE overlay"));
+}
+
+#[test]
 fn dramatic_entrance_maps_from_observed_card_json() {
     let card = json!({"id": "Dramatic Entrance", "name": "Dramatic Entrance", "upgrades": 0});
     assert_eq!(

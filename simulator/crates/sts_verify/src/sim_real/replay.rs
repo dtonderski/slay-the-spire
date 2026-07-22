@@ -1,5 +1,113 @@
 use super::*;
 
+pub(super) enum SeedStartPreDispatch {
+    NotHandled,
+    Handled,
+    Boundary(SeedStartBoundary),
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn seed_start_handle_overlay_command(
+    pre: &TraceState,
+    action: &TraceAction,
+    post: &TraceState,
+    phase: &mut SeedStartPhase,
+    seed_sim: Option<&RunState>,
+    pending_boss_relic_overlay: &mut Option<PendingBossRelicOverlayAssertion>,
+    reconciled_deferred_action_steps: &mut Vec<u32>,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if action
+        .command
+        .split_whitespace()
+        .next()
+        .is_some_and(|head| head.eq_ignore_ascii_case("CLICK"))
+        && pre
+            .message
+            .get("game_state")
+            .and_then(|game| game.get("screen_name"))
+            .and_then(Value::as_str)
+            .is_some_and(|screen| screen.eq_ignore_ascii_case("FTUE"))
+    {
+        let Some(sim) = seed_sim else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_ftue_dismiss".to_owned(),
+                reason: "FTUE dismissal occurred without initialized deterministic replay"
+                    .to_owned(),
+            });
+        };
+        if sim.phase != RunPhase::Reward {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_ftue_dismiss".to_owned(),
+                reason: format!(
+                    "FTUE dismissal expected deterministic reward state, found {:?}",
+                    sim.phase
+                ),
+            });
+        }
+        compare_subset(
+            report,
+            action,
+            "dismiss FTUE overlay",
+            seed_start_reward_observed_subset(&post.message),
+            seed_start_reward_simulated_subset(sim),
+        );
+        *phase = SeedStartPhase::Reward;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if action
+        .command
+        .split_whitespace()
+        .next()
+        .is_some_and(|head| head.eq_ignore_ascii_case("KEY"))
+        && action
+            .command
+            .split_whitespace()
+            .nth(1)
+            .is_some_and(|key| key.eq_ignore_ascii_case("CANCEL"))
+        && pre
+            .message
+            .get("game_state")
+            .and_then(|game| game.get("screen_name"))
+            .and_then(Value::as_str)
+            .is_some_and(|screen| screen.eq_ignore_ascii_case("MASTER_DECK_VIEW"))
+        && *phase == SeedStartPhase::Treasure
+    {
+        let Some(sim) = seed_sim else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_boss_reward_overlay".to_owned(),
+                reason: "boss relic deck overlay closed without initialized deterministic replay"
+                    .to_owned(),
+            });
+        };
+        let diff_count = report.unexpected_diffs.len();
+        compare_subset(
+            report,
+            action,
+            "close boss relic deck overlay",
+            seed_start_treasure_observed_subset(&post.message),
+            seed_start_treasure_simulated_subset(sim),
+        );
+        let stable_matches = report.unexpected_diffs.len() == diff_count;
+        if let Some(pending) = pending_boss_relic_overlay.take() {
+            seed_start_reconcile_boss_relic_overlay(
+                report,
+                pending,
+                stable_matches,
+                action.step,
+                reconciled_deferred_action_steps,
+            );
+        }
+        return SeedStartPreDispatch::Handled;
+    }
+
+    SeedStartPreDispatch::NotHandled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -530,92 +638,19 @@ pub(super) fn verify_seed_start_transitions(
             });
             continue;
         }
-        if action
-            .command
-            .split_whitespace()
-            .next()
-            .is_some_and(|head| head.eq_ignore_ascii_case("CLICK"))
-            && pre
-                .message
-                .get("game_state")
-                .and_then(|game| game.get("screen_name"))
-                .and_then(Value::as_str)
-                .is_some_and(|screen| screen.eq_ignore_ascii_case("FTUE"))
-        {
-            let Some(sim) = seed_sim.as_ref() else {
-                return finish_boundary!(SeedStartBoundary {
-                    path: format!("$.actions[step={}].command", action.step),
-                    category: "unsupported_ftue_dismiss".to_owned(),
-                    reason: "FTUE dismissal occurred without initialized deterministic replay"
-                        .to_owned(),
-                });
-            };
-            if sim.phase != RunPhase::Reward {
-                return finish_boundary!(SeedStartBoundary {
-                    path: format!("$.actions[step={}].command", action.step),
-                    category: "unsupported_ftue_dismiss".to_owned(),
-                    reason: format!(
-                        "FTUE dismissal expected deterministic reward state, found {:?}",
-                        sim.phase
-                    ),
-                });
-            }
-            compare_subset(
-                report,
-                action,
-                "dismiss FTUE overlay",
-                seed_start_reward_observed_subset(&post.message),
-                seed_start_reward_simulated_subset(sim),
-            );
-            phase = SeedStartPhase::Reward;
-            continue;
-        }
-        if action
-            .command
-            .split_whitespace()
-            .next()
-            .is_some_and(|head| head.eq_ignore_ascii_case("KEY"))
-            && action
-                .command
-                .split_whitespace()
-                .nth(1)
-                .is_some_and(|key| key.eq_ignore_ascii_case("CANCEL"))
-            && pre
-                .message
-                .get("game_state")
-                .and_then(|game| game.get("screen_name"))
-                .and_then(Value::as_str)
-                .is_some_and(|screen| screen.eq_ignore_ascii_case("MASTER_DECK_VIEW"))
-            && phase == SeedStartPhase::Treasure
-        {
-            let Some(sim) = seed_sim.as_ref() else {
-                return finish_boundary!(SeedStartBoundary {
-                    path: format!("$.actions[step={}].command", action.step),
-                    category: "unsupported_boss_reward_overlay".to_owned(),
-                    reason:
-                        "boss relic deck overlay closed without initialized deterministic replay"
-                            .to_owned(),
-                });
-            };
-            let diff_count = report.unexpected_diffs.len();
-            compare_subset(
-                report,
-                action,
-                "close boss relic deck overlay",
-                seed_start_treasure_observed_subset(&post.message),
-                seed_start_treasure_simulated_subset(sim),
-            );
-            let stable_matches = report.unexpected_diffs.len() == diff_count;
-            if let Some(pending) = pending_boss_relic_overlay.take() {
-                seed_start_reconcile_boss_relic_overlay(
-                    report,
-                    pending,
-                    stable_matches,
-                    action.step,
-                    &mut reconciled_deferred_action_steps,
-                );
-            }
-            continue;
+        match seed_start_handle_overlay_command(
+            pre,
+            action,
+            post,
+            &mut phase,
+            seed_sim.as_ref(),
+            &mut pending_boss_relic_overlay,
+            &mut reconciled_deferred_action_steps,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
         match phase {
             SeedStartPhase::BeforeStart
