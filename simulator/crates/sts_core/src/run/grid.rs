@@ -4,7 +4,7 @@ use crate::{
     content::{
         cards::{
             card_instance_is_upgradeable, get_card_definition, is_pandoras_box_removed_starter,
-            upgrade_card_instance, upgrade_content_id, CURSE_OF_THE_BELL_ID,
+            required_upgrade_content_id, upgrade_card_instance, CURSE_OF_THE_BELL_ID,
         },
         reward_pool::{ironclad_transform_card_content_id, ironclad_truly_random_card_pool},
     },
@@ -1049,15 +1049,15 @@ fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) -> SimR
     let transformed = cards
         .iter()
         .enumerate()
-        .map(|(index, card)| {
+        .map(|(index, card)| -> SimResult<CardInstance> {
             let transformed = transform_card_content_id(card.content_id, &mut rng);
-            let content_id = upgrade_content_id(transformed).unwrap_or(transformed);
-            CardInstance::new(
+            let content_id = required_upgrade_content_id(transformed)?;
+            Ok(CardInstance::new(
                 crate::ids::CardId::new(next_card_id + index as u64),
                 content_id,
-            )
+            ))
         })
-        .collect::<Vec<_>>();
+        .collect::<SimResult<Vec<_>>>()?;
     run.misc_rng_counter = rng.counter();
 
     for card in cards {
@@ -1105,7 +1105,8 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{
-            BITE_ID, BITE_PLUS_ID, CURSE_OF_THE_BELL_ID, RITUAL_DAGGER_ID, STRIKE_R_ID,
+            upgrade_content_id, BITE_ID, BITE_PLUS_ID, CURSE_OF_THE_BELL_ID, RITUAL_DAGGER_ID,
+            STRIKE_R_ID,
         },
         run::shop,
         RunState,

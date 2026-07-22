@@ -5030,6 +5030,13 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
     get_card_definition(id)?.upgrade
 }
 
+pub(crate) fn required_upgrade_content_id(id: ContentId) -> SimResult<ContentId> {
+    get_card_definition(id)
+        .ok_or(SimError::UnknownContent(id))?
+        .upgrade
+        .ok_or(SimError::UnsupportedMechanic(id))
+}
+
 pub fn searing_blow_damage_for_upgrades(upgrades: u8) -> SimResult<i32> {
     let upgrades = i32::from(upgrades);
     let base_damage = SEARING_BLOW.values.damage.ok_or(SimError::InvalidState(
@@ -5177,6 +5184,23 @@ mod tests {
     #[test]
     fn upgrade_content_id_covers_true_grit() {
         assert_eq!(upgrade_content_id(TRUE_GRIT_ID), Some(TRUE_GRIT_PLUS_ID));
+    }
+
+    #[test]
+    fn required_upgrade_content_distinguishes_unknown_and_unsupported_content() {
+        let unknown = ContentId::new(999_999);
+        assert_eq!(
+            required_upgrade_content_id(unknown),
+            Err(SimError::UnknownContent(unknown))
+        );
+        assert_eq!(
+            required_upgrade_content_id(STRIKE_R_PLUS_ID),
+            Err(SimError::UnsupportedMechanic(STRIKE_R_PLUS_ID))
+        );
+        assert_eq!(
+            required_upgrade_content_id(STRIKE_R_ID),
+            Ok(STRIKE_R_PLUS_ID)
+        );
     }
 
     #[test]

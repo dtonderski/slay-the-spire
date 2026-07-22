@@ -16,6 +16,7 @@ use sts_core::{
     content::{
         cards,
         monsters::{monster_state, FIXED_SIMPLE_MONSTER, GUARDIAN_A0},
+        shop_pool::colorless_discovery_pool,
     },
     legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
     MonsterIntent, Relic, RunPhase, RunState, StsRng,
@@ -2873,6 +2874,38 @@ fn transmutation_definitions_are_x_cost_exhausting_skills() {
     assert_eq!(cards::TRANSMUTATION_PLUS.card_type, CardType::Skill);
     assert_eq!(cards::TRANSMUTATION_PLUS.target, TargetRequirement::None);
     assert!(cards::TRANSMUTATION_PLUS.keywords.exhaust);
+}
+
+#[test]
+fn transmutation_plus_generates_an_upgraded_zero_cost_colorless_card() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::TRANSMUTATION_PLUS_ID,
+    )];
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Transmutation+ plays");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.piles.hand.len(), 1);
+    let generated = next.piles.hand[0];
+    assert_eq!(generated.temp_cost, Some(0));
+    assert!(colorless_discovery_pool()
+        .iter()
+        .any(|base| { cards::upgrade_content_id(*base) == Some(generated.content_id) }));
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::TRANSMUTATION_PLUS_ID
+    );
 }
 
 #[test]

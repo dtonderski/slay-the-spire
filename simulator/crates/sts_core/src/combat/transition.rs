@@ -14,8 +14,8 @@ use crate::{
         DrawSelectPurpose, HandSelectPurpose,
     },
     content::cards::{
-        card_instance_is_upgradeable, get_card_definition, upgrade_card_instance,
-        upgrade_content_id, DAZED_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, PAIN_ID,
+        card_instance_is_upgradeable, get_card_definition, required_upgrade_content_id,
+        upgrade_card_instance, DAZED_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, PAIN_ID,
         PURITY_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
     },
     content::monsters::{
@@ -986,10 +986,7 @@ fn apply_internal_action(
         }
         InternalAction::AddRandomColorlessCardToHand { temp_cost, upgrade } => {
             state.reserve_card_instance_ids(1)?;
-            let mut content_id = random_colorless_card(state);
-            if upgrade {
-                content_id = upgrade_content_id(content_id).unwrap_or(content_id);
-            }
+            let content_id = random_colorless_card(state, upgrade)?;
             add_generated_card_to_pile(state, content_id, CardPile::Hand, temp_cost, false)?;
             Ok(Vec::new())
         }
@@ -2073,13 +2070,26 @@ fn add_generated_card_to_draw_pile_random_spot(
     Ok(())
 }
 
-fn random_colorless_card(state: &mut CombatState) -> ContentId {
-    let pool = colorless_discovery_pool();
-    let idx = state
-        .rng
-        .card_random_rng
-        .random_int((pool.len() - 1) as i32) as usize;
-    pool[idx]
+fn random_colorless_card(state: &mut CombatState, upgrade: bool) -> SimResult<ContentId> {
+    let pool = colorless_discovery_pool()
+        .iter()
+        .map(|content_id| {
+            if upgrade {
+                required_upgrade_content_id(*content_id)
+            } else {
+                Ok(*content_id)
+            }
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    let max_index = pool
+        .len()
+        .checked_sub(1)
+        .and_then(|index| i32::try_from(index).ok())
+        .ok_or(SimError::InvalidState(
+            "colorless discovery pool has no representable random bound",
+        ))?;
+    let idx = state.rng.card_random_rng.random_int(max_index) as usize;
+    Ok(pool[idx])
 }
 
 fn push_card_to_pile(state: &mut CombatState, card: CardInstance, to: CardPile) {
