@@ -2061,7 +2061,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .expect("validated reward card");
             reward.choices.clear();
             reward.consume_active_card_reward()?;
-            next.add_deck_card(choice);
+            next.add_deck_card(choice)?;
             return_to_reward_continuation_if_empty(&mut next);
         }
         RunAction::TakeSingingBowlReward => {

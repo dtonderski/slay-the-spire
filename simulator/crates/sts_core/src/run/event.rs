@@ -3926,7 +3926,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             }
             1 if choice_index == 0 => {
                 let note = note_card_for_run(&next)?;
-                next.add_deck_card(note);
+                next.add_deck_card(note)?;
                 open_event_remove_return_to_event_grid(&mut next, Event::NoteForYourself);
             }
             1 if choice_index == 1 => {

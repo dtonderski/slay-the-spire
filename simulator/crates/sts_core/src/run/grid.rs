@@ -618,7 +618,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
                 .copied()
                 .ok_or(SimError::InvalidState("calling bell grid is empty"))?;
             next.card_grid = None;
-            next.add_deck_card(card);
+            next.add_deck_card(card)?;
             // Calling Bell opens CombatRewardScreen while still in NeowRoom.
             // setupItemReward constructs the room's ordinary card reward first;
             // CallingBell.update then clears it and replaces it with three relics.
@@ -630,7 +630,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             // generated group and then appends them to the master deck in that
             // visible order, which is the reverse of our generation vector.
             for card in grid.cards.iter().rev() {
-                next.add_deck_card(*card);
+                next.add_deck_card(*card)?;
             }
             next.card_grid = None;
         }
@@ -736,14 +736,14 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
         }
         GridPurpose::EventObtainCard => {
             let card = selected_grid_card(grid)?;
-            next.add_deck_card(card);
+            next.add_deck_card(card)?;
             next.card_grid = None;
             next.phase = RunPhase::Idle;
             next.event = None;
         }
         GridPurpose::EventObtainCardReturnToEvent { event } => {
             let card = selected_grid_card(grid)?;
-            next.add_deck_card(card);
+            next.add_deck_card(card)?;
             next.card_grid = None;
             next.phase = RunPhase::Event;
             next.event = Some(EventScreen {
@@ -789,7 +789,7 @@ pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
             let mut copy = card;
             copy.id = crate::ids::CardId::new(next.next_card_instance_id()?);
             copy.bottled = false;
-            next.add_deck_card(copy);
+            next.add_deck_card(copy)?;
             next.card_grid = None;
         }
     }
@@ -1034,7 +1034,7 @@ fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResult
             .expect("transform selected a deck card");
     }
     for card in transformed {
-        run.add_deck_card(card);
+        run.add_deck_card(card)?;
     }
     Ok(())
 }
@@ -1061,7 +1061,7 @@ fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) -> SimR
             .expect("transform selected a deck card");
     }
     for card in transformed {
-        run.add_deck_card(card);
+        run.add_deck_card(card)?;
     }
     Ok(())
 }
@@ -1087,7 +1087,7 @@ fn transform_event_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResul
             .expect("transform selected a deck card");
     }
     for card in transformed {
-        run.add_deck_card(card);
+        run.add_deck_card(card)?;
     }
     Ok(())
 }

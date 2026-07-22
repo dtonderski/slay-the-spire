@@ -710,7 +710,7 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             offer.sold = true;
             next.gold -= price;
             next.break_maw_bank_on_shop_spend();
-            next.add_deck_card(card);
+            next.add_deck_card(card)?;
             if has_the_courier(&next) {
                 restock_courier_card_slot(&mut next, slot, card)?;
             }
