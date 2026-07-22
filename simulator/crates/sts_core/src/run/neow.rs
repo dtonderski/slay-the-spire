@@ -364,6 +364,9 @@ pub fn apply_neow_simple_reward(run: &mut RunState, reward: NeowRewardType) -> S
 }
 
 pub fn apply_neow_lament_reward(run: &mut RunState) {
+    if !run.relics.contains(&Relic::NeowsLament) {
+        run.relics.push(Relic::NeowsLament);
+    }
     run.neow_lament_combats_remaining = super::state::NEOW_LAMENT_COMBATS;
 }
 
@@ -651,6 +654,23 @@ fn neow_modeled_random_curse(card_rng: &mut StsRng) -> ContentId {
 mod tests {
     use super::*;
     use crate::SimError;
+
+    #[test]
+    fn neows_lament_identity_remains_ordered_after_its_counter() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::BurningBlood];
+
+        apply_neow_lament_reward(&mut run);
+        run.gain_relic(Relic::Lantern)
+            .expect("later relic pickup succeeds");
+        run.neow_lament_combats_remaining = 0;
+
+        assert_eq!(
+            run.relics,
+            vec![Relic::BurningBlood, Relic::NeowsLament, Relic::Lantern]
+        );
+        assert_eq!(run.validate(), Ok(()));
+    }
 
     #[test]
     fn invalid_neow_dispatch_returns_typed_errors_without_mutation_or_rng_use() {

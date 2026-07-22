@@ -1128,7 +1128,7 @@ fn verify_seed_start_transitions(
 
     macro_rules! require_map_projection {
         ($run:expr, $action:expr, $category:expr) => {{
-            match seed_start_simulated_map_return($run, &relics) {
+            match seed_start_simulated_map_return($run) {
                 Ok(projection) => projection,
                 Err(reason) => {
                     let boundary = SeedStartBoundary {
@@ -1265,7 +1265,7 @@ fn verify_seed_start_transitions(
                 .as_ref()
                 .expect("pending combat assertion keeps authoritative simulator state");
             let observed = seed_start_combat_observed_subset(&pre.message);
-            let simulated = seed_start_simulated_combat_subset(sim, false, &relics);
+            let simulated = seed_start_simulated_combat_subset(sim, false);
             if seed_start_combat_subsets_match(observed, simulated) {
                 let pending = pending_combat_assertion
                     .take()
@@ -1397,7 +1397,7 @@ fn verify_seed_start_transitions(
                     "combat observation poll",
                     &post.message,
                     seed_start_combat_observed_subset(&post.message),
-                    seed_start_simulated_combat_subset(sim, false, &relics),
+                    seed_start_simulated_combat_subset(sim, false),
                     &mut pending_combat_assertion,
                     &mut reconciled_deferred_action_steps,
                 );
@@ -1428,7 +1428,7 @@ fn verify_seed_start_transitions(
                     action,
                     "boss relic overlay settled observation poll",
                     seed_start_treasure_observed_subset(&post.message),
-                    seed_start_treasure_simulated_subset(sim, &relics),
+                    seed_start_treasure_simulated_subset(sim),
                 );
                 let stable_matches = report.unexpected_diffs.len() == diff_count;
                 let pending = pending_boss_relic_overlay
@@ -1460,11 +1460,7 @@ fn verify_seed_start_transitions(
                         escape_action,
                         "Smoke Bomb transient combat frame",
                         seed_start_smoke_bomb_transient_observed_subset(&post.message),
-                        seed_start_smoke_bomb_transient_simulated_subset(
-                            source,
-                            destination,
-                            &relics,
-                        ),
+                        seed_start_smoke_bomb_transient_simulated_subset(source, destination),
                     );
                     report.verified.push(VerifiedTransition {
                         action_step: action.step,
@@ -1482,7 +1478,7 @@ fn verify_seed_start_transitions(
                         escape_action,
                         "Smoke Bomb escape settled to empty reward",
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(destination, &relics),
+                        seed_start_reward_simulated_subset(destination),
                     );
                     if *transient_matches && stable_matches {
                         report.verified.push(VerifiedTransition {
@@ -1528,7 +1524,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Smoke Bomb empty reward observation poll",
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(destination, &relics),
+                        seed_start_reward_simulated_subset(destination),
                     );
                     continue;
                 }
@@ -1620,7 +1616,7 @@ fn verify_seed_start_transitions(
                 action,
                 "dismiss FTUE overlay",
                 seed_start_reward_observed_subset(&post.message),
-                seed_start_reward_simulated_subset(sim, &relics),
+                seed_start_reward_simulated_subset(sim),
             );
             phase = SeedStartPhase::Reward;
             continue;
@@ -1658,7 +1654,7 @@ fn verify_seed_start_transitions(
                 action,
                 "close boss relic deck overlay",
                 seed_start_treasure_observed_subset(&post.message),
-                seed_start_treasure_simulated_subset(sim, &relics),
+                seed_start_treasure_simulated_subset(sim),
             );
             let stable_matches = report.unexpected_diffs.len() == diff_count;
             if let Some(pending) = pending_boss_relic_overlay.take() {
@@ -1684,7 +1680,7 @@ fn verify_seed_start_transitions(
                     action,
                     "seed-start bootstrap",
                     seed_start_bootstrap_observed_subset(&post.message),
-                    seed_start_bootstrap_simulated_subset(start, boss_unlocks, &deck_ids, &relics),
+                    seed_start_bootstrap_simulated_subset(start, boss_unlocks, &deck_ids),
                 );
                 phase = SeedStartPhase::NeowTalk;
             }
@@ -2121,7 +2117,7 @@ fn verify_seed_start_transitions(
                     action,
                     "Neow three potion reward",
                     seed_start_neow_potion_reward_observed_subset(&post.message),
-                    seed_start_neow_potion_reward_simulated_subset(&next, &relics),
+                    seed_start_neow_potion_reward_simulated_subset(&next),
                 );
                 seed_sim = Some(next);
                 phase = SeedStartPhase::NeowPotionReward;
@@ -2138,7 +2134,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Neow boss swap Calling Bell grid",
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&run, &relic_ids),
+                        seed_start_grid_simulated_subset(&run),
                     );
                     relics = relic_ids;
                     seed_sim = Some(run);
@@ -2152,7 +2148,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Neow boss swap Astrolabe grid",
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&run, &relic_ids),
+                        seed_start_grid_simulated_subset(&run),
                     );
                     relics = relic_ids;
                     seed_sim = Some(run);
@@ -2166,7 +2162,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Neow boss swap Pandora's Box grid",
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&run, &relic_ids),
+                        seed_start_grid_simulated_subset(&run),
                     );
                     relics = relic_ids;
                     seed_sim = Some(run);
@@ -2180,7 +2176,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Neow boss swap Empty Cage grid",
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&run, &relic_ids),
+                        seed_start_grid_simulated_subset(&run),
                     );
                     relics = relic_ids;
                     seed_sim = Some(run);
@@ -2194,7 +2190,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Neow boss swap Tiny House reward",
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(&run, &relic_ids),
+                        seed_start_reward_simulated_subset(&run),
                     );
                     deck_ids = deck_content_keys(&run.deck);
                     neow_gold = run.gold;
@@ -2284,7 +2280,7 @@ fn verify_seed_start_transitions(
                     action,
                     seed_start_neow_grid_label(option.reward),
                     seed_start_grid_observed_subset(&post.message),
-                    seed_start_grid_simulated_subset(&run, &relics),
+                    seed_start_grid_simulated_subset(&run),
                 );
                 seed_sim = Some(run);
                 phase = SeedStartPhase::NeowGrid;
@@ -2312,9 +2308,9 @@ fn verify_seed_start_transitions(
                     if let Some(curse) = delayed_neow_curse.as_deref() {
                         visible_deck_ids.push(curse.to_owned());
                     }
-                    seed_start_grid_simulated_subset_with_deck(&next, &relics, visible_deck_ids)
+                    seed_start_grid_simulated_subset_with_deck(&next, visible_deck_ids)
                 } else {
-                    seed_start_grid_simulated_subset(&next, &relics)
+                    seed_start_grid_simulated_subset(&next)
                 };
                 if !seed_start_neow_grid_auto_confirms_after_choose(&next) {
                     compare_subset(
@@ -2424,7 +2420,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Neow grid confirm",
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next, &relics),
+                        seed_start_grid_simulated_subset(&next),
                     );
                     seed_sim = Some(carried_next);
                     phase = SeedStartPhase::NeowGrid;
@@ -2475,9 +2471,9 @@ fn verify_seed_start_transitions(
                         if let Some(curse) = delayed_neow_curse.as_deref() {
                             visible_deck_ids.push(curse.to_owned());
                         }
-                        seed_start_grid_simulated_subset_with_deck(&next, &relics, visible_deck_ids)
+                        seed_start_grid_simulated_subset_with_deck(&next, visible_deck_ids)
                     } else {
-                        seed_start_grid_simulated_subset(&next, &relics)
+                        seed_start_grid_simulated_subset(&next)
                     };
                     compare_subset(
                         report,
@@ -2578,7 +2574,7 @@ fn verify_seed_start_transitions(
                     action,
                     "Neow boss swap Calling Bell rewards",
                     seed_start_reward_observed_subset(&post.message),
-                    seed_start_reward_simulated_subset(&next, &relics),
+                    seed_start_reward_simulated_subset(&next),
                 );
                 seed_sim = Some(next);
                 phase = SeedStartPhase::NeowBossSwapCallingBellReward;
@@ -2618,7 +2614,7 @@ fn verify_seed_start_transitions(
                         action,
                         &label,
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(sim, &relics),
+                        seed_start_reward_simulated_subset(sim),
                     );
                     phase = SeedStartPhase::Reward;
                 } else {
@@ -2627,7 +2623,7 @@ fn verify_seed_start_transitions(
                         action,
                         &label,
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(sim, &relics),
+                        seed_start_reward_simulated_subset(sim),
                     );
                 }
             }
@@ -2683,7 +2679,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Neow boss swap Astrolabe grid select",
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next, &relics),
+                        seed_start_grid_simulated_subset(&next),
                     );
                     seed_sim = Some(next);
                     continue;
@@ -2774,7 +2770,7 @@ fn verify_seed_start_transitions(
                     action,
                     "Neow boss swap Empty Cage grid select",
                     seed_start_grid_observed_subset(&post.message),
-                    seed_start_grid_simulated_subset(&next, &relics),
+                    seed_start_grid_simulated_subset(&next),
                 );
                 seed_sim = Some(next);
             }
@@ -2804,7 +2800,7 @@ fn verify_seed_start_transitions(
                         action,
                         "Neow boss swap Empty Cage grid confirm",
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next, &relics),
+                        seed_start_grid_simulated_subset(&next),
                     );
                     seed_sim = Some(next);
                     continue;
@@ -2969,7 +2965,7 @@ fn verify_seed_start_transitions(
                     action,
                     &format!("Neow potion reward pick {neow_potions_taken}"),
                     seed_start_neow_potion_reward_observed_subset(&post.message),
-                    seed_start_neow_potion_reward_simulated_subset(&next, &relics),
+                    seed_start_neow_potion_reward_simulated_subset(&next),
                 );
                 seed_sim = Some(next);
             }
@@ -2994,7 +2990,7 @@ fn verify_seed_start_transitions(
                 };
                 let mut observed = seed_start_map_return_observed_subset(&post.message);
                 seed_start_insert_observed_potion_ids(&mut observed, &post.message);
-                let mut simulated = match seed_start_simulated_map_return(&next, &relics) {
+                let mut simulated = match seed_start_simulated_map_return(&next) {
                     Ok(simulated) => simulated,
                     Err(reason) => {
                         return finish_boundary!(SeedStartBoundary {
@@ -3221,7 +3217,7 @@ fn verify_seed_start_transitions(
                                         action,
                                         &label,
                                         seed_start_event_observed_subset(&post.message),
-                                        seed_start_event_simulated_subset(&next, &relics),
+                                        seed_start_event_simulated_subset(&next),
                                     );
                                     event_room_index += 1;
                                     seed_sim = Some(next);
@@ -3233,7 +3229,6 @@ fn verify_seed_start_transitions(
                                         seed_start_encounter_observed_subset(&post.message);
                                     let simulated = seed_start_simulated_map_combat_subset(
                                         &next,
-                                        &relics,
                                         normal_combat_index,
                                     );
                                     seed_start_compare_or_defer_combat_entry(
@@ -3256,7 +3251,7 @@ fn verify_seed_start_transitions(
                                         action,
                                         &label,
                                         seed_start_rest_observed_subset(&post.message),
-                                        seed_start_rest_simulated_subset(&next, &relics),
+                                        seed_start_rest_simulated_subset(&next),
                                     );
                                     seed_sim = Some(next);
                                     phase = SeedStartPhase::Rest;
@@ -3268,7 +3263,7 @@ fn verify_seed_start_transitions(
                                         action,
                                         &label,
                                         seed_start_treasure_observed_subset(&post.message),
-                                        seed_start_treasure_simulated_subset(&next, &relics),
+                                        seed_start_treasure_simulated_subset(&next),
                                     );
                                     seed_sim = Some(next);
                                     phase = SeedStartPhase::Treasure;
@@ -3280,7 +3275,7 @@ fn verify_seed_start_transitions(
                                         action,
                                         &label,
                                         seed_start_shop_observed_subset(&post.message),
-                                        seed_start_shop_room_simulated_subset(&next, &relics),
+                                        seed_start_shop_room_simulated_subset(&next),
                                     );
                                     seed_sim = Some(next);
                                     phase = SeedStartPhase::Shop;
@@ -3305,7 +3300,7 @@ fn verify_seed_start_transitions(
                                         action,
                                         "map reward",
                                         seed_start_reward_observed_subset(&post.message),
-                                        seed_start_reward_simulated_subset(&next, &relics),
+                                        seed_start_reward_simulated_subset(&next),
                                     );
                                     seed_sim = Some(next);
                                     phase = SeedStartPhase::Reward;
@@ -3482,7 +3477,7 @@ fn verify_seed_start_transitions(
                         action,
                         "open boss relic chest",
                         seed_start_boss_reward_observed_subset(&post.message),
-                        seed_start_boss_reward_simulated_subset(&next, &relics),
+                        seed_start_boss_reward_simulated_subset(&next),
                     );
                     phase = SeedStartPhase::BossReward;
                 } else if ordinary_reward {
@@ -3491,7 +3486,7 @@ fn verify_seed_start_transitions(
                         action,
                         "open treasure chest",
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(&next, &relics),
+                        seed_start_reward_simulated_subset(&next),
                     );
                     phase = SeedStartPhase::Reward;
                 } else {
@@ -3563,7 +3558,7 @@ fn verify_seed_start_transitions(
                     action,
                     "rest skip card reward",
                     seed_start_rest_observed_subset(&post.message),
-                    seed_start_rest_simulated_subset(&next, &relics),
+                    seed_start_rest_simulated_subset(&next),
                 );
                 *sim = next;
             }
@@ -3652,7 +3647,7 @@ fn verify_seed_start_transitions(
                 let (observed, simulated, label) = if next.card_grid.is_some() {
                     (
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next, &relics),
+                        seed_start_grid_simulated_subset(&next),
                         "rest grid",
                     )
                 } else {
@@ -3665,13 +3660,13 @@ fn verify_seed_start_transitions(
                         {
                             (
                                 seed_start_reward_observed_subset(&post.message),
-                                seed_start_reward_simulated_subset(&next, &relics),
+                                seed_start_reward_simulated_subset(&next),
                                 "rest card reward",
                             )
                         }
                         RunPhase::Rest if next.reward.is_none() => (
                             seed_start_rest_observed_subset(&post.message),
-                            seed_start_rest_simulated_subset(&next, &relics),
+                            seed_start_rest_simulated_subset(&next),
                             "rest choice",
                         ),
                         phase => {
@@ -3793,7 +3788,7 @@ fn verify_seed_start_transitions(
                             action,
                             "Spire Heart choice",
                             seed_start_event_observed_subset(&post.message),
-                            seed_start_event_simulated_subset(&next, &relics),
+                            seed_start_event_simulated_subset(&next),
                         );
                     }
                     seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
@@ -3822,7 +3817,7 @@ fn verify_seed_start_transitions(
                     }
                     let label = "event combat";
                     let observed = seed_start_encounter_observed_subset(&post.message);
-                    let simulated = seed_start_simulated_combat_subset(&next, false, &relics);
+                    let simulated = seed_start_simulated_combat_subset(&next, false);
                     seed_start_compare_or_defer_combat_entry(
                         report,
                         action,
@@ -3840,7 +3835,7 @@ fn verify_seed_start_transitions(
                 let (mut observed, mut simulated) = if next.card_grid.is_some() {
                     (
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next, &relics),
+                        seed_start_grid_simulated_subset(&next),
                     )
                 } else {
                     match next.phase {
@@ -3850,13 +3845,12 @@ fn verify_seed_start_transitions(
                         ),
                         RunPhase::Reward if next.reward.is_some() => (
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next, &relics),
+                            seed_start_reward_simulated_subset(&next),
                         ),
                         RunPhase::Event if next.event.is_some() => (
                             seed_start_event_observed_subset(&post.message),
                             seed_start_event_simulated_subset_with_delayed_deck_append(
                                 &next,
-                                &relics,
                                 delayed_event_deck_append_count,
                             ),
                         ),
@@ -4004,7 +3998,7 @@ fn verify_seed_start_transitions(
                             "combat decision refresh",
                             &post.message,
                             seed_start_combat_observed_subset(&post.message),
-                            seed_start_simulated_combat_subset(sim, false, &relics),
+                            seed_start_simulated_combat_subset(sim, false),
                             &mut pending_combat_assertion,
                             &mut reconciled_deferred_action_steps,
                         );
@@ -4042,7 +4036,7 @@ fn verify_seed_start_transitions(
                         label,
                         &post.message,
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false, &relics),
+                        seed_start_simulated_combat_subset(&next, false),
                         &mut pending_combat_assertion,
                         &mut reconciled_deferred_action_steps,
                     );
@@ -4100,9 +4094,7 @@ fn verify_seed_start_transitions(
                                 action,
                                 "Smoke Bomb escape queued",
                                 seed_start_smoke_bomb_transient_observed_subset(&post.message),
-                                seed_start_smoke_bomb_transient_simulated_subset(
-                                    &source, &next, &relics,
-                                ),
+                                seed_start_smoke_bomb_transient_simulated_subset(&source, &next),
                             );
                             seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
                             *sim = next;
@@ -4120,7 +4112,7 @@ fn verify_seed_start_transitions(
                                 action,
                                 "Smoke Bomb escape settled to empty reward",
                                 seed_start_reward_observed_subset(&post.message),
-                                seed_start_reward_simulated_subset(&next, &relics),
+                                seed_start_reward_simulated_subset(&next),
                             );
                             *sim = next;
                             phase = SeedStartPhase::Reward;
@@ -4151,7 +4143,7 @@ fn verify_seed_start_transitions(
                             "combat potion card reward",
                             &post.message,
                             seed_start_combat_observed_subset(&post.message),
-                            seed_start_simulated_combat_subset(&next, false, &relics),
+                            seed_start_simulated_combat_subset(&next, false),
                             &mut pending_combat_assertion,
                             &mut reconciled_deferred_action_steps,
                         );
@@ -4165,7 +4157,7 @@ fn verify_seed_start_transitions(
                             action,
                             "reward-screen potion use",
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next, &relics),
+                            seed_start_reward_simulated_subset(&next),
                         );
                         *sim = next;
                         phase = SeedStartPhase::Reward;
@@ -4195,7 +4187,7 @@ fn verify_seed_start_transitions(
                         "combat potion use",
                         &post.message,
                         seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false, &relics),
+                        seed_start_simulated_combat_subset(&next, false),
                         &mut pending_combat_assertion,
                         &mut reconciled_deferred_action_steps,
                     );
@@ -4326,7 +4318,7 @@ fn verify_seed_start_transitions(
                 };
                 let label = combat_label(command, sim);
                 let observed = seed_start_combat_observed_subset(&post.message);
-                let simulated = seed_start_simulated_combat_subset(&next, false, &relics);
+                let simulated = seed_start_simulated_combat_subset(&next, false);
                 let copied_attack = seed_start_copied_attack_expectation(combat, combat_action);
                 let stable_projection_matches =
                     seed_start_combat_subsets_match(observed.clone(), simulated.clone());
@@ -4374,7 +4366,7 @@ fn verify_seed_start_transitions(
                             action,
                             "Smoke Bomb reward proceed awaiting map",
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(destination, &relics),
+                            seed_start_reward_simulated_subset(destination),
                         ) {
                             let Some(SmokeBombUiState::Reward { pending_proceeds }) =
                                 smoke_bomb_ui.as_mut()
@@ -4464,29 +4456,29 @@ fn verify_seed_start_transitions(
                         (
                             "skip card reward to grid",
                             seed_start_grid_observed_subset(&post.message),
-                            seed_start_grid_simulated_subset(&next, &relics),
+                            seed_start_grid_simulated_subset(&next),
                         )
                     } else {
                         match next.phase {
                             RunPhase::Reward if next.reward.is_some() => (
                                 "skip combat card reward",
                                 seed_start_reward_observed_subset(&post.message),
-                                seed_start_reward_simulated_subset(&next, &relics),
+                                seed_start_reward_simulated_subset(&next),
                             ),
                             RunPhase::Rest if next.reward.is_none() => (
                                 "skip rest card reward",
                                 seed_start_rest_observed_subset(&post.message),
-                                seed_start_rest_simulated_subset(&next, &relics),
+                                seed_start_rest_simulated_subset(&next),
                             ),
                             RunPhase::Event if next.event.is_some() => (
                                 "skip event card reward",
                                 seed_start_event_observed_subset(&post.message),
-                                seed_start_event_simulated_subset(&next, &relics),
+                                seed_start_event_simulated_subset(&next),
                             ),
                             RunPhase::Shop if next.shop.is_some() => (
                                 "skip shop card reward",
                                 seed_start_shop_observed_subset(&post.message),
-                                seed_start_shop_screen_simulated_subset(&next, &relics),
+                                seed_start_shop_screen_simulated_subset(&next),
                             ),
                             phase => {
                                 let boundary = SeedStartBoundary {
@@ -4596,7 +4588,7 @@ fn verify_seed_start_transitions(
                             action,
                             "boss combat proceed to chest",
                             seed_start_treasure_observed_subset(&post.message),
-                            seed_start_treasure_simulated_subset(&next, &relics),
+                            seed_start_treasure_simulated_subset(&next),
                         );
                         *sim = next;
                         phase = SeedStartPhase::Treasure;
@@ -4733,7 +4725,7 @@ fn verify_seed_start_transitions(
                         action,
                         "reward-screen potion use",
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(sim, &relics),
+                        seed_start_reward_simulated_subset(sim),
                     );
                     continue;
                 }
@@ -4745,17 +4737,17 @@ fn verify_seed_start_transitions(
                         let (mut observed, mut simulated) = if sim.card_grid.is_some() {
                             (
                                 seed_start_grid_observed_subset(&post.message),
-                                seed_start_grid_simulated_subset(sim, &relics),
+                                seed_start_grid_simulated_subset(sim),
                             )
                         } else {
                             match sim.phase {
                                 RunPhase::Reward if sim.reward.is_some() => (
                                     seed_start_reward_observed_subset(&post.message),
-                                    seed_start_reward_simulated_subset(sim, &relics),
+                                    seed_start_reward_simulated_subset(sim),
                                 ),
                                 RunPhase::Rest if sim.reward.is_none() => (
                                     seed_start_rest_observed_subset(&post.message),
-                                    seed_start_rest_simulated_subset(sim, &relics),
+                                    seed_start_rest_simulated_subset(sim),
                                 ),
                                 RunPhase::Event
                                     if sim.event.as_ref().is_some_and(|event| {
@@ -4767,20 +4759,20 @@ fn verify_seed_start_transitions(
                                     // reward screen until PROCEED leaves the room.
                                     (
                                         seed_start_reward_observed_subset(&post.message),
-                                        seed_start_reward_simulated_subset(sim, &relics),
+                                        seed_start_reward_simulated_subset(sim),
                                     )
                                 }
                                 RunPhase::Event if sim.event.is_some() => (
                                     seed_start_event_observed_subset(&post.message),
-                                    seed_start_event_simulated_subset(sim, &relics),
+                                    seed_start_event_simulated_subset(sim),
                                 ),
                                 RunPhase::Shop if sim.shop.is_some() => (
                                     seed_start_shop_observed_subset(&post.message),
-                                    seed_start_shop_screen_simulated_subset(sim, &relics),
+                                    seed_start_shop_screen_simulated_subset(sim),
                                 ),
                                 RunPhase::Treasure if sim.reward.is_none() => (
                                     seed_start_reward_observed_subset(&post.message),
-                                    seed_start_reward_simulated_subset(sim, &relics),
+                                    seed_start_reward_simulated_subset(sim),
                                 ),
                                 phase => {
                                     let boundary = SeedStartBoundary {
@@ -4922,7 +4914,7 @@ fn verify_seed_start_transitions(
                             action,
                             "boss relic reward grid",
                             seed_start_grid_observed_subset(&post.message),
-                            seed_start_grid_simulated_subset(&next, &relics),
+                            seed_start_grid_simulated_subset(&next),
                         );
                     } else if opened_master_deck_overlay {
                         let simulated_overlay = seed_start_boss_relic_deck_overlay_simulated_subset(
@@ -4947,7 +4939,7 @@ fn verify_seed_start_transitions(
                             action,
                             "boss relic reward",
                             seed_start_treasure_observed_subset(&post.message),
-                            seed_start_treasure_simulated_subset(&next, &relics),
+                            seed_start_treasure_simulated_subset(&next),
                         );
                     }
                     *sim = next;
@@ -4999,7 +4991,7 @@ fn verify_seed_start_transitions(
                     action,
                     "boss relic reward skip",
                     seed_start_treasure_observed_subset(&post.message),
-                    seed_start_treasure_simulated_subset(&next, &relics),
+                    seed_start_treasure_simulated_subset(&next),
                 );
                 *sim = next;
                 phase = SeedStartPhase::Treasure;
@@ -5062,13 +5054,13 @@ fn verify_seed_start_transitions(
                     SeedStartGridDestination::Grid => (
                         "grid",
                         seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next, &relics),
+                        seed_start_grid_simulated_subset(&next),
                         SeedStartPhase::Grid,
                     ),
                     SeedStartGridDestination::Shop => (
                         "shop grid",
                         seed_start_shop_observed_subset(&post.message),
-                        seed_start_shop_screen_simulated_subset(&next, &relics),
+                        seed_start_shop_screen_simulated_subset(&next),
                         SeedStartPhase::Shop,
                     ),
                     SeedStartGridDestination::Event => (
@@ -5076,7 +5068,6 @@ fn verify_seed_start_transitions(
                         seed_start_event_observed_subset(&post.message),
                         seed_start_event_simulated_subset_with_delayed_deck_append(
                             &next,
-                            &relics,
                             delayed_event_deck_append_count,
                         ),
                         SeedStartPhase::Event,
@@ -5084,13 +5075,13 @@ fn verify_seed_start_transitions(
                     SeedStartGridDestination::Rest => (
                         "rest grid",
                         seed_start_rest_observed_subset(&post.message),
-                        seed_start_rest_simulated_subset(&next, &relics),
+                        seed_start_rest_simulated_subset(&next),
                         SeedStartPhase::Rest,
                     ),
                     SeedStartGridDestination::Reward => (
                         "grid",
                         seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(&next, &relics),
+                        seed_start_reward_simulated_subset(&next),
                         if seed_start_reward_sequence_complete(&next) {
                             seed_start_phase_after_reward_completion(&next)
                         } else {
@@ -5100,13 +5091,13 @@ fn verify_seed_start_transitions(
                     SeedStartGridDestination::Treasure => (
                         "boss relic grid confirm",
                         seed_start_treasure_observed_subset(&post.message),
-                        seed_start_treasure_simulated_subset(&next, &relics),
+                        seed_start_treasure_simulated_subset(&next),
                         SeedStartPhase::Treasure,
                     ),
                     SeedStartGridDestination::Proceed => (
                         "grid proceed",
                         seed_start_observed_subset(&post.message),
-                        seed_start_proceed_simulated_subset(&next, &relics),
+                        seed_start_proceed_simulated_subset(&next),
                         SeedStartPhase::Proceed,
                     ),
                 };
@@ -5218,7 +5209,7 @@ fn verify_seed_start_transitions(
                         action,
                         "leave shop merchant",
                         seed_start_shop_observed_subset(&post.message),
-                        seed_start_shop_room_simulated_subset(&next, &relics),
+                        seed_start_shop_room_simulated_subset(&next),
                     );
                     *sim = next;
                     continue;
@@ -5335,8 +5326,7 @@ fn verify_seed_start_transitions(
                     match destination {
                         SeedStartShopDestination::Screen => {
                             let mut observed = seed_start_shop_observed_subset(&post.message);
-                            let mut simulated =
-                                seed_start_shop_screen_simulated_subset(&next, &relics);
+                            let mut simulated = seed_start_shop_screen_simulated_subset(&next);
                             let observed_deck = observed
                                 .as_object_mut()
                                 .and_then(|fields| fields.remove("deck_ids"))
@@ -5393,14 +5383,14 @@ fn verify_seed_start_transitions(
                             action,
                             label,
                             seed_start_grid_observed_subset(&post.message),
-                            seed_start_grid_simulated_subset(&next, &relics),
+                            seed_start_grid_simulated_subset(&next),
                         ),
                         SeedStartShopDestination::Reward => compare_subset(
                             report,
                             action,
                             label,
                             seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next, &relics),
+                            seed_start_reward_simulated_subset(&next),
                         ),
                         destination => {
                             let boundary = SeedStartBoundary {
@@ -5526,7 +5516,7 @@ fn verify_seed_start_transitions(
                             action,
                             "boss combat proceed to chest",
                             seed_start_treasure_observed_subset(&post.message),
-                            seed_start_treasure_simulated_subset(&next, &relics),
+                            seed_start_treasure_simulated_subset(&next),
                         );
                         *sim = next;
                         phase = SeedStartPhase::Treasure;
@@ -5894,7 +5884,6 @@ fn seed_start_bootstrap_simulated_subset(
     start: &StartRunCommand,
     boss_unlocks: BossUnlockState,
     deck_ids: &[String],
-    relic_ids: &[String],
 ) -> Value {
     json!({
         "screen_type": "EVENT",
@@ -5904,7 +5893,7 @@ fn seed_start_bootstrap_simulated_subset(
         "current_hp": 80,
         "max_hp": 80,
         "deck_ids": deck_ids,
-        "relic_ids": relic_ids,
+        "relic_ids": ["Burning Blood"],
         "choices": ["talk"],
         "act_boss": target_exordium_act_one_boss_with_unlocks(
             start.numeric_seed,
@@ -5913,7 +5902,7 @@ fn seed_start_bootstrap_simulated_subset(
     })
 }
 
-fn seed_start_proceed_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+fn seed_start_proceed_simulated_subset(run: &RunState) -> Value {
     json!({
         "screen_type": "NONE",
         "ascension": run.ascension as u64,
@@ -5922,7 +5911,7 @@ fn seed_start_proceed_simulated_subset(run: &RunState, relic_ids: &[String]) -> 
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "choices": Vec::<String>::new(),
     })
 }
@@ -6069,11 +6058,10 @@ fn seed_start_smoke_bomb_transient_observed_subset(message: &Value) -> Value {
 fn seed_start_smoke_bomb_transient_simulated_subset(
     source: &RunState,
     destination: &RunState,
-    relics: &[String],
 ) -> Value {
     let mut projection = source.clone();
     projection.potions = destination.potions.clone();
-    let mut subset = seed_start_simulated_combat_subset(&projection, false, relics);
+    let mut subset = seed_start_simulated_combat_subset(&projection, false);
     seed_start_defer_smoke_bomb_hp(&mut subset);
     subset
 }
@@ -6186,8 +6174,8 @@ fn seed_start_neow_potion_reward_observed_subset(message: &Value) -> Value {
     subset
 }
 
-fn seed_start_neow_potion_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
-    let mut subset = seed_start_reward_simulated_subset(run, relic_ids);
+fn seed_start_neow_potion_reward_simulated_subset(run: &RunState) -> Value {
+    let mut subset = seed_start_reward_simulated_subset(run);
     seed_start_insert_simulated_potion_ids(&mut subset, run);
     if let Some(fields) = subset.as_object_mut() {
         let offers = run
@@ -7033,7 +7021,7 @@ fn seed_start_rest_observed_subset(message: &Value) -> Value {
     })
 }
 
-fn seed_start_rest_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+fn seed_start_rest_simulated_subset(run: &RunState) -> Value {
     let choices = if run.phase == RunPhase::Rest && !run.rest_room_complete {
         let actions = match seed_start_rest_screen_actions(run) {
             Ok(actions) => actions,
@@ -7073,7 +7061,7 @@ fn seed_start_rest_simulated_subset(run: &RunState, relic_ids: &[String]) -> Val
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "choices": choices,
     })
 }
@@ -7094,7 +7082,7 @@ fn seed_start_rest_screen_actions(run: &RunState) -> sts_core::SimResult<Vec<Res
         .collect())
 }
 
-fn seed_start_treasure_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+fn seed_start_treasure_simulated_subset(run: &RunState) -> Value {
     let choices = if run.current_room_kind() == Some(RoomKind::Boss) && run.boss_chest_opened {
         Vec::new()
     } else {
@@ -7107,12 +7095,12 @@ fn seed_start_treasure_simulated_subset(run: &RunState, relic_ids: &[String]) ->
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "choices": choices,
     })
 }
 
-fn seed_start_boss_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+fn seed_start_boss_reward_simulated_subset(run: &RunState) -> Value {
     let boss_relic_ids = run
         .reward
         .as_ref()
@@ -7131,7 +7119,7 @@ fn seed_start_boss_reward_simulated_subset(run: &RunState, relic_ids: &[String])
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "choices": boss_relic_ids.iter().map(|key| key.to_ascii_lowercase()).collect::<Vec<_>>(),
         "boss_relic_ids": boss_relic_ids,
     })
@@ -7211,7 +7199,7 @@ fn seed_start_shop_observed_subset(message: &Value) -> Value {
     })
 }
 
-fn seed_start_shop_room_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+fn seed_start_shop_room_simulated_subset(run: &RunState) -> Value {
     json!({
         "screen_type": "SHOP_ROOM",
         "floor": run.current_floor,
@@ -7219,7 +7207,7 @@ fn seed_start_shop_room_simulated_subset(run: &RunState, relic_ids: &[String]) -
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "choices": ["shop"],
     })
 }
@@ -7328,7 +7316,7 @@ fn shop_pool_trace_name(content_id: ContentId) -> Option<&'static str> {
     None
 }
 
-fn seed_start_shop_screen_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+fn seed_start_shop_screen_simulated_subset(run: &RunState) -> Value {
     json!({
         "screen_type": if run.card_grid.is_some() { "GRID" } else { "SHOP_SCREEN" },
         "floor": run.current_floor,
@@ -7336,7 +7324,7 @@ fn seed_start_shop_screen_simulated_subset(run: &RunState, relic_ids: &[String])
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "choices": seed_start_shop_trace_choice_labels(run),
     })
 }
@@ -7413,7 +7401,7 @@ fn grid_card_choices_from_value(game: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn seed_start_grid_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+fn seed_start_grid_simulated_subset(run: &RunState) -> Value {
     let choices = run
         .card_grid
         .as_ref()
@@ -7443,7 +7431,7 @@ fn seed_start_grid_simulated_subset(run: &RunState, relic_ids: &[String]) -> Val
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "choices": choices,
     })
 }
@@ -7465,10 +7453,9 @@ fn grid_selection_ready_for_confirm(grid: &CardGridScreen) -> bool {
 
 fn seed_start_grid_simulated_subset_with_deck(
     run: &RunState,
-    relic_ids: &[String],
     visible_deck_ids: Vec<String>,
 ) -> Value {
-    let mut subset = seed_start_grid_simulated_subset(run, relic_ids);
+    let mut subset = seed_start_grid_simulated_subset(run);
     if let Some(object) = subset.as_object_mut() {
         object.insert("deck_ids".to_owned(), json!(visible_deck_ids));
     }
@@ -7605,7 +7592,6 @@ fn seed_start_handle_proceed_to_map(
             seed_sim
                 .as_ref()
                 .expect("proceed-to-map transition retained core run state"),
-            carried_relics,
         ) {
             Ok(projection) => projection,
             Err(reason) => {
@@ -7633,7 +7619,6 @@ fn seed_start_handle_proceed_to_map(
         seed_sim
             .as_ref()
             .expect("proceed-to-map transition retained core run state"),
-        carried_relics,
     ) {
         Ok(projection) => projection,
         Err(reason) => {
@@ -7733,7 +7718,7 @@ fn seed_start_compare_map_return(
     );
 }
 
-fn seed_start_simulated_map_return(run: &RunState, relic_ids: &[String]) -> Result<Value, String> {
+fn seed_start_simulated_map_return(run: &RunState) -> Result<Value, String> {
     let map_state = run
         .map
         .as_ref()
@@ -7815,7 +7800,7 @@ fn seed_start_simulated_map_return(run: &RunState, relic_ids: &[String]) -> Resu
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "choices": choices,
         "first_node_chosen": first_node_chosen,
         "current_node": {
@@ -8224,26 +8209,12 @@ fn potion_key_from_value(potion: &Value) -> Option<String> {
     )
 }
 
-fn relic_ids_for_simulated_subset(run: &RunState, carry: &[String]) -> Vec<String> {
-    let mut out = Vec::new();
-    // Carry the observed order forward. This preserves relics that are represented
-    // only by verifier state (such as Neow's Lament) relative to later pickups.
-    for name in carry {
-        if name != "Unknown Relic" && !out.contains(name) {
-            out.push(name.clone());
-        }
-    }
-    for relic in &run.relics {
-        let name = relic_key_trace_name(relic.key()).to_owned();
-        if name != "Unknown Relic" && !out.contains(&name) {
-            out.push(name);
-        }
-    }
-    remove_simulated_replaced_starter_relics(run, &mut out);
-    if run.neow_lament_combats_remaining > 0 && !out.iter().any(|name| name == "Neow's Lament") {
-        out.push("Neow's Lament".to_owned());
-    }
-    out
+fn relic_ids_for_simulated_subset(run: &RunState) -> Vec<String> {
+    run.relics
+        .iter()
+        .map(|relic| relic_key_trace_name(relic.key()).to_owned())
+        .filter(|name| name != "Unknown Relic")
+        .collect()
 }
 
 fn remove_simulated_replaced_starter_relics(run: &RunState, relics: &mut Vec<String>) {
@@ -8345,35 +8316,30 @@ fn seed_start_event_observed_subset(message: &Value) -> Value {
     value
 }
 
-fn seed_start_event_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
-    seed_start_event_simulated_subset_with_deck(run, relic_ids, deck_content_keys(&run.deck))
+fn seed_start_event_simulated_subset(run: &RunState) -> Value {
+    seed_start_event_simulated_subset_with_deck(run, deck_content_keys(&run.deck))
 }
 
 fn seed_start_event_simulated_subset_with_delayed_deck_append(
     run: &RunState,
-    relic_ids: &[String],
     delayed_event_deck_append_count: Option<usize>,
 ) -> Value {
     if run.card_grid.is_some() {
-        return seed_start_event_simulated_subset(run, relic_ids);
+        return seed_start_event_simulated_subset(run);
     }
 
     let Some(count) = delayed_event_deck_append_count else {
-        return seed_start_event_simulated_subset(run, relic_ids);
+        return seed_start_event_simulated_subset(run);
     };
     let mut visible_deck = deck_content_keys(&run.deck);
     // Live event grids publish selected cards and transform results on the
     // next state poll. Core state is already complete, so project only the
     // action frame without those newly appended cards.
     visible_deck.truncate(visible_deck.len().saturating_sub(count));
-    seed_start_event_simulated_subset_with_deck(run, relic_ids, visible_deck)
+    seed_start_event_simulated_subset_with_deck(run, visible_deck)
 }
 
-fn seed_start_event_simulated_subset_with_deck(
-    run: &RunState,
-    relic_ids: &[String],
-    deck_ids: Vec<String>,
-) -> Value {
+fn seed_start_event_simulated_subset_with_deck(run: &RunState, deck_ids: Vec<String>) -> Value {
     let choices = run
         .event
         .as_ref()
@@ -8408,7 +8374,7 @@ fn seed_start_event_simulated_subset_with_deck(
         "current_hp": run.player_hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_ids,
-        "relic_ids": relic_ids_for_simulated_subset(run, relic_ids),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "choices": choices,
     })
 }
@@ -8506,12 +8472,8 @@ fn seed_start_opening_piles_match(simulated: &CardPiles, message: &Value) -> boo
     observed_hand == simulated_hand && observed_draw == simulated_draw
 }
 
-fn seed_start_simulated_combat_subset(
-    run: &RunState,
-    end_turn_snapshot: bool,
-    relics: &[String],
-) -> Value {
-    seed_start_simulated_combat_subset_with_options(run, end_turn_snapshot, relics)
+fn seed_start_simulated_combat_subset(run: &RunState, end_turn_snapshot: bool) -> Value {
+    seed_start_simulated_combat_subset_with_options(run, end_turn_snapshot)
 }
 
 fn seed_start_run_has_combat_card_reward(run: &RunState) -> bool {
@@ -8603,18 +8565,13 @@ fn seed_start_bind_combat_decision_command(
     ))
 }
 
-fn seed_start_simulated_map_combat_subset(
-    run: &RunState,
-    relics: &[String],
-    _normal_combat_index: usize,
-) -> Value {
-    seed_start_simulated_combat_subset_with_options(run, false, relics)
+fn seed_start_simulated_map_combat_subset(run: &RunState, _normal_combat_index: usize) -> Value {
+    seed_start_simulated_combat_subset_with_options(run, false)
 }
 
 fn seed_start_simulated_combat_subset_with_options(
     run: &RunState,
     end_turn_snapshot: bool,
-    relics: &[String],
 ) -> Value {
     let Some(combat) = run.combat.as_ref() else {
         return json!({
@@ -8625,7 +8582,7 @@ fn seed_start_simulated_combat_subset_with_options(
             "current_hp": run.player_hp,
             "max_hp": run.player_max_hp,
             "deck_ids": deck_content_keys(&run.deck),
-            "relic_ids": relic_ids_for_simulated_subset(run, relics),
+            "relic_ids": relic_ids_for_simulated_subset(run),
             "potion_ids": run.potions.iter().map(|potion| potion_trace_name(*potion)).collect::<Vec<_>>(),
             "combat_player_hp": run.player_hp,
             "combat_player_block": 0,
@@ -8651,7 +8608,7 @@ fn seed_start_simulated_combat_subset_with_options(
         "current_hp": combat.player.hp,
         "max_hp": run.player_max_hp,
         "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run, relics),
+        "relic_ids": relic_ids_for_simulated_subset(run),
         "potion_ids": run.potions.iter().map(|potion| potion_trace_name(*potion)).collect::<Vec<_>>(),
         "combat_player_hp": combat.player.hp,
         "combat_player_block": combat.player.block,
@@ -9029,12 +8986,12 @@ fn seed_start_apply_reward_choose(sim: &mut RunState, command: &str) -> Result<S
     Ok(format!("{choice} reward"))
 }
 
-fn seed_start_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
+fn seed_start_reward_simulated_subset(run: &RunState) -> Value {
     if run.card_grid.is_some() {
-        return seed_start_grid_simulated_subset(run, relic_ids);
+        return seed_start_grid_simulated_subset(run);
     }
     let floor = run.current_floor;
-    let relic_ids = relic_ids_for_simulated_subset(run, relic_ids);
+    let relic_ids = relic_ids_for_simulated_subset(run);
 
     if run
         .reward
@@ -9057,7 +9014,7 @@ fn seed_start_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> V
             "current_hp": run.player_hp,
             "max_hp": run.player_max_hp,
             "deck_ids": deck_content_keys(&run.deck),
-            "relic_ids": relic_ids_for_simulated_subset(run, &relic_ids),
+            "relic_ids": relic_ids_for_simulated_subset(run),
             "choices": card_choices,
             "card_reward_ids": reward
                 .choices
@@ -11853,8 +11810,7 @@ mod tests {
         assert!(destination.reward.is_none());
         assert!(destination.potions.is_empty());
 
-        let projection =
-            seed_start_smoke_bomb_transient_simulated_subset(&source, &destination, &[]);
+        let projection = seed_start_smoke_bomb_transient_simulated_subset(&source, &destination);
         assert_eq!(projection["screen_type"], json!("NONE"));
         assert_eq!(projection["potion_ids"], json!([]));
         assert!(projection.get("current_hp").is_none());
@@ -12376,7 +12332,7 @@ mod tests {
             pending_actions: Default::default(),
         });
         run.combat = Some(combat);
-        let projected = seed_start_simulated_combat_subset(&run, false, &[]);
+        let projected = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(projected["hand_ids"], json!(["Pommel Strike+", "Combust"]));
         assert_eq!(projected["screen_type"], json!("HAND_SELECT"));
@@ -12719,7 +12675,7 @@ mod tests {
             vec![RestAction::Heal]
         );
         assert_eq!(
-            seed_start_rest_simulated_subset(&run, &[])["choices"],
+            seed_start_rest_simulated_subset(&run)["choices"],
             json!(["rest"])
         );
     }
@@ -12746,7 +12702,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            seed_start_rest_simulated_subset(&run, &[])["choices"],
+            seed_start_rest_simulated_subset(&run)["choices"],
             json!(["smith", "toke", "lift", "dig"])
         );
     }
@@ -12758,11 +12714,9 @@ mod tests {
         run.current_room_override = Some(RoomKind::Rest);
         run.ascension = 21;
 
-        assert!(
-            seed_start_rest_simulated_subset(&run, &[])["simulator_error"]
-                .as_str()
-                .is_some_and(|message| message.contains("run ascension exceeds 20"))
-        );
+        assert!(seed_start_rest_simulated_subset(&run)["simulator_error"]
+            .as_str()
+            .is_some_and(|message| message.contains("run ascension exceeds 20")));
     }
 
     #[test]
@@ -12993,7 +12947,7 @@ mod tests {
             card_reward_flow: sts_core::CardRewardFlow::active(1),
         });
         run.current_floor = 8;
-        let subset = seed_start_reward_simulated_subset(&run, &[]);
+        let subset = seed_start_reward_simulated_subset(&run);
         assert_eq!(
             subset["choices"].as_array().unwrap().last(),
             Some(&json!("bowl"))
@@ -13044,7 +12998,7 @@ mod tests {
             }
         });
 
-        let simulated = seed_start_reward_simulated_subset(&run, &[]);
+        let simulated = seed_start_reward_simulated_subset(&run);
         let observed = seed_start_reward_observed_subset(&observed_message);
         assert_eq!(simulated["choices"], json!(["gold", "card"]));
         assert_eq!(observed["choices"], json!(["card", "gold"]));
@@ -13083,7 +13037,7 @@ mod tests {
         });
 
         let observed = seed_start_reward_observed_subset(&observed_message);
-        let simulated = seed_start_reward_simulated_subset(&run, &[]);
+        let simulated = seed_start_reward_simulated_subset(&run);
         assert_eq!(observed["relic_offer_ids"], json!(["Pantograph"]));
         assert_eq!(simulated["relic_offer_ids"], json!(["The Boot"]));
         assert!(subset_diffs(observed, simulated)
@@ -15020,7 +14974,7 @@ mod tests {
         );
 
         let action_frame =
-            seed_start_event_simulated_subset_with_delayed_deck_append(&completed, &[], Some(2));
+            seed_start_event_simulated_subset_with_delayed_deck_append(&completed, Some(2));
         assert_eq!(
             action_frame["deck_ids"]
                 .as_array()
@@ -15097,7 +15051,7 @@ mod tests {
             &mut report,
             &action,
             &forged_post,
-            seed_start_simulated_map_return(&run, &[]).expect("core map projection"),
+            seed_start_simulated_map_return(&run).expect("core map projection"),
         );
 
         assert!(report.verified.is_empty());
@@ -15118,7 +15072,7 @@ mod tests {
         run.map = None;
 
         assert_eq!(
-            seed_start_simulated_map_return(&run, &[]),
+            seed_start_simulated_map_return(&run),
             Err("core run state has no authoritative map".to_owned())
         );
     }
@@ -15129,7 +15083,7 @@ mod tests {
         run.map.as_mut().expect("map fixture").current_node = sts_core::MapNodeId::new(999);
 
         assert_eq!(
-            seed_start_simulated_map_return(&run, &[]),
+            seed_start_simulated_map_return(&run),
             Err("core map current node is missing".to_owned())
         );
     }
@@ -15152,8 +15106,7 @@ mod tests {
         run = apply_map_action_on_run(&run, first_node).expect("first map node is legal");
         run.phase = RunPhase::Reward;
 
-        let projected =
-            seed_start_simulated_map_return(&run, &[]).expect("core Wing Boots projection");
+        let projected = seed_start_simulated_map_return(&run).expect("core Wing Boots projection");
 
         assert_eq!(
             projected["choices"],
@@ -15211,7 +15164,7 @@ mod tests {
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::HypnotizingColoredMushrooms));
 
-        let subset = seed_start_event_simulated_subset(&run, &[]);
+        let subset = seed_start_event_simulated_subset(&run);
 
         assert_eq!(subset["event_id"], "mushrooms");
         assert_eq!(subset["choices"], json!(["stomp", "eat"]));
@@ -15835,7 +15788,7 @@ mod tests {
                 .expect("combat initializes"),
         );
 
-        let subset = seed_start_simulated_combat_subset(&run, false, &[]);
+        let subset = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(subset["current_hp"], json!(36));
         assert_eq!(subset["combat_player_hp"], json!(36));
@@ -15850,7 +15803,7 @@ mod tests {
                 .expect("combat initializes"),
         );
 
-        let subset = seed_start_simulated_combat_subset(&run, false, &[]);
+        let subset = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(subset["floor"], json!(17));
     }
@@ -15864,7 +15817,7 @@ mod tests {
         combat.monsters[0].hp = 31;
         combat.monsters[0].max_hp = 47;
         run.combat = Some(combat);
-        let subset = seed_start_simulated_combat_subset(&run, false, &[]);
+        let subset = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(subset["monsters"][0]["current_hp"], json!(31));
         assert_eq!(subset["monsters"][0]["max_hp"], json!(47));
@@ -15942,7 +15895,7 @@ mod tests {
         );
         let mut toolbox_run = RunState::map_fixture();
         toolbox_run.combat = Some(combat.clone());
-        let toolbox_subset = seed_start_simulated_combat_subset(&toolbox_run, false, &[]);
+        let toolbox_subset = seed_start_simulated_combat_subset(&toolbox_run, false);
         assert_eq!(toolbox_subset["screen_type"], json!("CARD_REWARD"));
         assert_eq!(
             toolbox_subset["card_reward_ids"],
@@ -16075,7 +16028,7 @@ mod tests {
         });
         run.combat = Some(combat);
 
-        let subset = seed_start_simulated_combat_subset(&run, false, &[]);
+        let subset = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(subset["screen_type"], json!("CARD_REWARD"));
         assert_eq!(
@@ -16121,7 +16074,7 @@ mod tests {
         });
 
         let observed = seed_start_combat_observed_subset(&message);
-        let simulated = seed_start_simulated_combat_subset(&run, false, &[]);
+        let simulated = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(simulated["screen_type"], json!("NO_COMBAT"));
         assert!(!subset_diffs(observed, simulated).is_empty());
@@ -16449,7 +16402,7 @@ mod tests {
             .and_then(|seed_start| seed_start.sim_run_state.as_ref())
             .expect("seed-start carries simulator state after Neow leave");
         assert!(carried.event.is_none(), "Neow must be cleared after leave");
-        assert!(relic_ids_for_simulated_subset(carried, &[])
+        assert!(relic_ids_for_simulated_subset(carried)
             .contains(&seed_start_newest_trace_relic_name(&run)));
         assert_eq!(
             report
@@ -16568,14 +16521,7 @@ mod tests {
         run.gain_relic(Relic::BlackBlood)
             .expect("Black Blood pickup succeeds");
 
-        let relic_ids = relic_ids_for_simulated_subset(
-            &run,
-            &[
-                "Burning Blood".to_owned(),
-                "Centennial Puzzle".to_owned(),
-                "Oddly Smooth Stone".to_owned(),
-            ],
-        );
+        let relic_ids = relic_ids_for_simulated_subset(&run);
 
         assert_eq!(
             relic_ids,
@@ -16590,27 +16536,28 @@ mod tests {
     #[test]
     fn simulated_relic_projection_includes_active_neows_lament() {
         let mut run = RunState::map_fixture();
-        run.neow_lament_combats_remaining = 3;
+        apply_neow_lament_reward(&mut run);
 
-        let relic_ids = relic_ids_for_simulated_subset(&run, &[]);
+        let relic_ids = relic_ids_for_simulated_subset(&run);
 
         assert!(relic_ids.contains(&"Neow's Lament".to_owned()));
     }
 
     #[test]
-    fn simulated_relic_projection_preserves_carried_visible_neows_lament() {
+    fn simulated_relic_projection_retains_spent_owned_neows_lament() {
         let mut run = RunState::map_fixture();
-        run.phase = RunPhase::Combat;
+        run.relics.push(Relic::NeowsLament);
         run.neow_lament_combats_remaining = 0;
 
-        let relic_ids = relic_ids_for_simulated_subset(&run, &["Neow's Lament".to_owned()]);
+        let relic_ids = relic_ids_for_simulated_subset(&run);
 
         assert!(relic_ids.contains(&"Neow's Lament".to_owned()));
     }
 
     #[test]
-    fn combat_projection_preserves_carried_used_up_neows_lament() {
+    fn combat_projection_uses_owned_spent_neows_lament() {
         let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::BurningBlood, Relic::NeowsLament];
         run.phase = RunPhase::Combat;
         run.neow_lament_combats_remaining = 0;
         run.combat = Some(
@@ -16618,11 +16565,7 @@ mod tests {
                 .expect("combat initializes"),
         );
 
-        let subset = seed_start_simulated_combat_subset(
-            &run,
-            false,
-            &["Burning Blood".to_owned(), "Neow's Lament".to_owned()],
-        );
+        let subset = seed_start_simulated_combat_subset(&run, false);
 
         assert_eq!(
             subset["relic_ids"],
@@ -16631,15 +16574,12 @@ mod tests {
     }
 
     #[test]
-    fn simulated_relic_projection_preserves_carried_relic_order_before_new_pickups() {
+    fn simulated_relic_projection_uses_core_relic_order_before_new_pickups() {
         let mut run = RunState::map_fixture();
-        run.relics = vec![Relic::BurningBlood, Relic::Lantern];
+        run.relics = vec![Relic::BurningBlood, Relic::NeowsLament, Relic::Lantern];
         run.neow_lament_combats_remaining = 0;
 
-        let relic_ids = relic_ids_for_simulated_subset(
-            &run,
-            &["Burning Blood".to_owned(), "Neow's Lament".to_owned()],
-        );
+        let relic_ids = relic_ids_for_simulated_subset(&run);
 
         assert_eq!(
             relic_ids,
@@ -16652,13 +16592,14 @@ mod tests {
     }
 
     #[test]
-    fn treasure_projection_preserves_carried_visible_neows_lament() {
+    fn treasure_projection_uses_owned_spent_neows_lament() {
         let mut run = RunState::map_fixture();
+        run.relics.push(Relic::NeowsLament);
         run.phase = RunPhase::Treasure;
         run.current_floor = 9;
         run.neow_lament_combats_remaining = 0;
 
-        let subset = seed_start_treasure_simulated_subset(&run, &["Neow's Lament".to_owned()]);
+        let subset = seed_start_treasure_simulated_subset(&run);
         let relic_ids = subset["relic_ids"]
             .as_array()
             .expect("relic_ids is an array")
@@ -16770,10 +16711,7 @@ mod tests {
             selected_indices: vec![0],
         });
 
-        assert_eq!(
-            seed_start_grid_simulated_subset(&run, &[])["choices"],
-            json!([])
-        );
+        assert_eq!(seed_start_grid_simulated_subset(&run)["choices"], json!([]));
     }
 
     #[test]
@@ -16800,7 +16738,7 @@ mod tests {
         });
 
         let observed = seed_start_grid_observed_subset(&forged_observation);
-        let simulated = seed_start_grid_simulated_subset(&run, &[]);
+        let simulated = seed_start_grid_simulated_subset(&run);
 
         assert_eq!(observed["choices"], json!(["bash", "anger"]));
         assert_eq!(simulated["choices"], json!(["strike", "defend"]));
@@ -16822,8 +16760,7 @@ mod tests {
         run.gain_deck_card(sts_core::content::cards::PERFECTED_STRIKE_ID)
             .expect("Perfected Strike gain succeeds");
 
-        let projected =
-            seed_start_event_simulated_subset_with_delayed_deck_append(&run, &[], Some(1));
+        let projected = seed_start_event_simulated_subset_with_delayed_deck_append(&run, Some(1));
         let deck = projected["deck_ids"].as_array().expect("projected deck");
 
         assert_eq!(deck.len(), visible_before);
@@ -16838,7 +16775,7 @@ mod tests {
         let deck_before = deck_content_keys(&run.deck);
         run.queue_pending_obtain_card(sts_core::content::cards::REGRET_ID);
 
-        let transient_projection = seed_start_event_simulated_subset(&run, &[]);
+        let transient_projection = seed_start_event_simulated_subset(&run);
         let settled_projection = deck_content_keys_after_pending_obtain_cards_settle(&run);
 
         assert_eq!(transient_projection["deck_ids"], json!(deck_before));
@@ -16916,7 +16853,6 @@ mod tests {
 
         let projected = seed_start_event_simulated_subset_with_delayed_deck_append(
             &accepted,
-            &[],
             Some(VAMPIRES_BITE_COUNT),
         );
         let deck = projected["deck_ids"].as_array().expect("projected deck");
@@ -17161,19 +17097,17 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let common_relics: Vec<_> =
-            relic_ids_for_simulated_subset(&after_common, &bell_relic_names)
-                .into_iter()
-                .filter(|name| name != "Unknown Relic")
-                .map(|name| json!({ "name": name }))
-                .collect();
-        let uncommon_relics: Vec<_> =
-            relic_ids_for_simulated_subset(&after_uncommon, &bell_relic_names)
-                .into_iter()
-                .filter(|name| name != "Unknown Relic")
-                .map(|name| json!({ "name": name }))
-                .collect();
-        let rare_relics: Vec<_> = relic_ids_for_simulated_subset(&after_rare, &bell_relic_names)
+        let common_relics: Vec<_> = relic_ids_for_simulated_subset(&after_common)
+            .into_iter()
+            .filter(|name| name != "Unknown Relic")
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let uncommon_relics: Vec<_> = relic_ids_for_simulated_subset(&after_uncommon)
+            .into_iter()
+            .filter(|name| name != "Unknown Relic")
+            .map(|name| json!({ "name": name }))
+            .collect();
+        let rare_relics: Vec<_> = relic_ids_for_simulated_subset(&after_rare)
             .into_iter()
             .filter(|name| name != "Unknown Relic")
             .map(|name| json!({ "name": name }))
@@ -17340,11 +17274,10 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let grid_choices: Vec<_> =
-            seed_start_grid_simulated_subset(&astrolabe_run, &["Astrolabe".to_owned()])["choices"]
-                .as_array()
-                .expect("grid choices")
-                .clone();
+        let grid_choices: Vec<_> = seed_start_grid_simulated_subset(&astrolabe_run)["choices"]
+            .as_array()
+            .expect("grid choices")
+            .clone();
 
         let lines = vec![
             json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
@@ -17465,12 +17398,10 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let grid_choices: Vec<_> =
-            seed_start_grid_simulated_subset(&pandora_run, &["Pandora's Box".to_owned()])
-                ["choices"]
-                .as_array()
-                .expect("grid choices")
-                .clone();
+        let grid_choices: Vec<_> = seed_start_grid_simulated_subset(&pandora_run)["choices"]
+            .as_array()
+            .expect("grid choices")
+            .clone();
 
         assert_eq!(pandora_run.card_grid.as_ref().expect("grid").cards.len(), 9);
         assert_eq!(pandora_run.deck.len(), 1);
@@ -17549,7 +17480,7 @@ mod tests {
             &ironclad_starter_deck_keys(),
         );
         let grid = run.card_grid.as_ref().expect("Pandora's Box grid");
-        let subset = seed_start_grid_simulated_subset(&run, &["Pandora's Box".to_owned()]);
+        let subset = seed_start_grid_simulated_subset(&run);
         let choices = subset
             .get("choices")
             .and_then(Value::as_array)
@@ -17596,18 +17527,16 @@ mod tests {
         let after_first_confirm = confirm_grid(&after_first_select).expect("remove first");
         let after_second_select = select_grid_card(&after_first_confirm, 0).expect("select second");
         let after_second_confirm = confirm_grid(&after_second_select).expect("remove second");
-        let first_grid_choices: Vec<_> =
-            seed_start_grid_simulated_subset(&empty_cage_run, &["Empty Cage".to_owned()])
-                ["choices"]
-                .as_array()
-                .expect("first grid choices")
-                .clone();
-        let second_grid_choices: Vec<_> =
-            seed_start_grid_simulated_subset(&after_first_confirm, &["Empty Cage".to_owned()])
-                ["choices"]
-                .as_array()
-                .expect("second grid choices")
-                .clone();
+        let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&empty_cage_run)
+            ["choices"]
+            .as_array()
+            .expect("first grid choices")
+            .clone();
+        let second_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&after_first_confirm)
+            ["choices"]
+            .as_array()
+            .expect("second grid choices")
+            .clone();
         let one_removed_deck: Vec<_> = deck_content_keys(&after_first_confirm.deck)
             .into_iter()
             .map(|id| json!({ "id": id }))
@@ -17977,7 +17906,7 @@ mod tests {
         let run = seed_start_open_neow_grid_run(1, &ironclad_starter_deck_keys(), &option);
 
         assert_eq!(
-            seed_start_grid_simulated_subset(&run, &["Burning Blood".to_owned()]),
+            seed_start_grid_simulated_subset(&run),
             json!({
                 "screen_type": "GRID",
                 "floor": 0,
@@ -18004,7 +17933,7 @@ mod tests {
         run = select_grid_card(&run, 0).expect("select first strike");
         assert!(!seed_start_neow_grid_auto_confirms_after_choose(&run));
         assert_eq!(
-            seed_start_grid_simulated_subset(&run, &["Burning Blood".to_owned()]),
+            seed_start_grid_simulated_subset(&run),
             json!({
                 "screen_type": "GRID",
                 "floor": 0,
@@ -18060,7 +17989,7 @@ mod tests {
         assert!(!seed_start_neow_grid_auto_confirms_after_choose(&run));
         assert_eq!(run.deck.len(), 10);
         assert_eq!(
-            seed_start_grid_simulated_subset(&run, &["Burning Blood".to_owned()])["choices"]
+            seed_start_grid_simulated_subset(&run)["choices"]
                 .as_array()
                 .expect("choices")
                 .len(),
@@ -18094,14 +18023,12 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let relics = vec!["Burning Blood".to_owned()];
         let initial_run =
             seed_start_open_neow_grid_run(numeric_seed, &ironclad_starter_deck_keys(), &option);
         let after_first_select = select_grid_card(&initial_run, 0).expect("select first");
         let after_second_select = select_grid_card(&after_first_select, 1).expect("select second");
         let after_second_confirm = confirm_grid(&after_second_select).expect("remove second");
-        let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
-            ["choices"]
+        let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run)["choices"]
             .as_array()
             .expect("first grid choices")
             .clone();
@@ -18225,13 +18152,11 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let relics = vec!["Burning Blood".to_owned()];
         let initial_run =
             seed_start_open_neow_grid_run(numeric_seed, &ironclad_starter_deck_keys(), &option);
         let after_select = select_grid_card(&initial_run, 0).expect("select first");
         let after_confirm = confirm_grid(&after_select).expect("confirm upgrade");
-        let grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
-            ["choices"]
+        let grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run)["choices"]
             .as_array()
             .expect("grid choices")
             .clone();
@@ -18356,7 +18281,6 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let relics = vec!["Burning Blood".to_owned()];
         let initial_run =
             seed_start_open_neow_grid_run(numeric_seed, &ironclad_starter_deck_keys(), &option);
         let after_first_select = select_grid_card(&initial_run, 0).expect("select first");
@@ -18388,16 +18312,15 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run, &relics)
-            ["choices"]
+        let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&initial_run)["choices"]
             .as_array()
             .expect("first grid choices")
             .clone();
-        let second_grid_choices: Vec<_> =
-            seed_start_grid_simulated_subset(&after_first_select, &relics)["choices"]
-                .as_array()
-                .expect("second grid choices")
-                .clone();
+        let second_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&after_first_select)
+            ["choices"]
+            .as_array()
+            .expect("second grid choices")
+            .clone();
         let hp = initial_run.player_hp;
         let max_hp = initial_run.player_max_hp;
         let gold = initial_run.gold;

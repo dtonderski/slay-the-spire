@@ -252,6 +252,19 @@ mod tests {
     }
 
     #[test]
+    fn run_validation_rejects_active_neows_lament_without_owned_identity() {
+        let mut run = RunState::map_fixture();
+        run.neow_lament_combats_remaining = 1;
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "active Neow's Lament counter has no owned relic"
+            ))
+        );
+    }
+
+    #[test]
     fn healing_at_the_target_integer_limit_clamps_without_overflow() {
         let mut run = RunState::map_fixture();
         run.player_max_hp = i32::MAX;
@@ -1232,6 +1245,11 @@ impl RunState {
         {
             return Err(SimError::InvalidState(
                 "run relic counter is outside its stable range",
+            ));
+        }
+        if self.neow_lament_combats_remaining > 0 && !self.relics.contains(&Relic::NeowsLament) {
+            return Err(SimError::InvalidState(
+                "active Neow's Lament counter has no owned relic",
             ));
         }
         if self.ascension > 20 {
@@ -2714,7 +2732,8 @@ impl RunState {
             | Relic::MarkOfBloom
             | Relic::SpiritPoop
             | Relic::OddMushroom
-            | Relic::NlothsGift => {}
+            | Relic::NlothsGift
+            | Relic::NeowsLament => {}
         }
         Ok(())
     }

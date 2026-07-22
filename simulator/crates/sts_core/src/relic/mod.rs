@@ -562,6 +562,8 @@ pub const SPIRIT_POOP_ID: ContentId = ContentId::new(447);
 pub const ODD_MUSHROOM_ID: ContentId = ContentId::new(448);
 /// Content id for [Relic::NlothsGift].
 pub const NLOTHS_GIFT_ID: ContentId = ContentId::new(449);
+/// Content id for [Relic::NeowsLament].
+pub const NEOWS_LAMENT_ID: ContentId = ContentId::new(456);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct RelicCounters {
@@ -1202,6 +1204,7 @@ pub enum Relic {
     SpiritPoop,
     OddMushroom,
     NlothsGift,
+    NeowsLament,
 }
 
 pub const ALL_RELICS: &[Relic] = &[
@@ -1361,6 +1364,7 @@ pub const ALL_RELICS: &[Relic] = &[
     Relic::SpiritPoop,
     Relic::OddMushroom,
     Relic::NlothsGift,
+    Relic::NeowsLament,
 ];
 
 fn normalize_relic_name(name: &str) -> String {
@@ -1403,7 +1407,7 @@ impl Relic {
     #[must_use]
     pub const fn effect_status(self) -> RelicEffectStatus {
         match self {
-            Relic::MarkOfBloom => RelicEffectStatus::Modeled,
+            Relic::MarkOfBloom | Relic::NeowsLament => RelicEffectStatus::Modeled,
             Relic::Circlet | Relic::RedCirclet | Relic::CultistMask | Relic::SpiritPoop => {
                 RelicEffectStatus::IdentityOnly
             }
@@ -1482,6 +1486,7 @@ impl Relic {
             Relic::SpiritPoop => "Spirit Poop",
             Relic::OddMushroom => "Odd Mushroom",
             Relic::NlothsGift => "N'loth's Gift",
+            Relic::NeowsLament => "Neow's Lament",
             Relic::Circlet => "Circlet",
             Relic::RedCirclet => "Red Circlet",
             Relic::Anchor => "Anchor",
@@ -1768,6 +1773,7 @@ impl Relic {
             Relic::SpiritPoop => SPIRIT_POOP_ID,
             Relic::OddMushroom => ODD_MUSHROOM_ID,
             Relic::NlothsGift => NLOTHS_GIFT_ID,
+            Relic::NeowsLament => NEOWS_LAMENT_ID,
         }
     }
 
@@ -1930,6 +1936,7 @@ impl Relic {
             id if id == SPIRIT_POOP_ID => Some(Relic::SpiritPoop),
             id if id == ODD_MUSHROOM_ID => Some(Relic::OddMushroom),
             id if id == NLOTHS_GIFT_ID => Some(Relic::NlothsGift),
+            id if id == NEOWS_LAMENT_ID => Some(Relic::NeowsLament),
             _ => None,
         }
     }
@@ -2142,6 +2149,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::SpiritPoop => {}
             Relic::OddMushroom => {}
             Relic::NlothsGift => {}
+            Relic::NeowsLament => {}
         }
     }
 
@@ -2914,7 +2922,7 @@ mod tests {
 
     #[test]
     fn canonical_relic_metadata_is_complete_and_self_consistent() {
-        assert_eq!(ALL_RELICS.len(), 156);
+        assert_eq!(ALL_RELICS.len(), 157);
         let mut relics = Vec::new();
         let mut content_ids = Vec::new();
         let mut names = Vec::new();

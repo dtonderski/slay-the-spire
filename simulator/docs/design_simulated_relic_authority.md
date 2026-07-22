@@ -1,0 +1,49 @@
+# Simulated relic authority
+
+## Problem
+
+Seed-start simulated projections currently merge `RunState::relics` with a
+verifier-owned carry list. The carry began as a way to keep Neow's Lament
+visible after its three-combat counter reached zero and to retain its position
+before later pickups. Although the list is normally derived from earlier
+simulated transitions, it is state outside the authoritative simulator and is
+accepted by every simulated screen projector. A projector can therefore emit a
+relic identity or order that is absent from `RunState`.
+
+## Contract
+
+`RunState::relics` is the sole ordered authority for stable simulated screen
+projections whenever a core run state exists.
+Neow's Lament is a normal core relic identity acquired after the current
+starter relic and retained after its effect is spent, matching captured traces.
+`neow_lament_combats_remaining` remains the separate gameplay counter. A
+positive counter without the relic identity is invalid core state.
+
+Reusable simulated screen projectors derive relic identity and order directly
+from `RunState::relics`. They do not accept an observed or verifier-carried
+relic list. Starter-relic replacement remains core behavior and therefore
+preserves the replaced slot without projection repair.
+
+The monolithic seed-start verifier still has legacy inline projections around
+Neow and transient boss-relic overlays. Those retain a simulator-derived local
+list until command binding and replay phases are extracted into typed state.
+That list is not accepted by the stable screen projectors changed here, and it
+must be removed with the remaining verifier state-machine work; this slice does
+not claim that all inline projection debt is gone.
+
+## Snapshot migration
+
+The snapshot schema is versioned for the new relic authority. Schema-seven and
+older snapshots with a positive Neow's Lament counter receive the missing relic
+identity immediately after the starter slot. A zero counter is historically
+ambiguous because old state did not record whether the relic was never acquired
+or already spent; migration preserves the old absence rather than guessing.
+All newly created states record the identity permanently, including after the
+counter reaches zero.
+
+## Failure behavior
+
+Current-schema snapshots and raw states with a positive counter but no Neow's
+Lament identity fail validation. Duplicate identity remains invalid under the
+existing owned-relic invariant. Stable screen projection never invents,
+reorders, or carries relics to make an observation match.

@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::{error::Error, fmt};
 
-pub const SNAPSHOT_SCHEMA_VERSION: u32 = 7;
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 8;
+pub const LEGACY_NEOWS_LAMENT_RELIC_SNAPSHOT_SCHEMA_VERSION: u32 = 7;
 pub const PREVIOUS_SNAPSHOT_SCHEMA_VERSION: u32 = 6;
 pub const LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION: u32 = 5;
 pub const LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION: u32 = 4;
@@ -100,6 +101,7 @@ fn validate_supported_schema(version: u32) -> Result<(), SnapshotRestoreError> {
     if matches!(
         version,
         SNAPSHOT_SCHEMA_VERSION
+            | LEGACY_NEOWS_LAMENT_RELIC_SNAPSHOT_SCHEMA_VERSION
             | PREVIOUS_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION
             | LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION
@@ -467,6 +469,38 @@ fn migrate_legacy_relic_storage(value: &mut Value) -> Result<(), SnapshotRestore
     Ok(())
 }
 
+fn migrate_legacy_neows_lament_relic(value: &mut Value) -> Result<(), SnapshotRestoreError> {
+    let state = value
+        .get_mut("state")
+        .and_then(Value::as_object_mut)
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "state must be an object",
+        ))?;
+    let remaining = match state.get("neow_lament_combats_remaining") {
+        None => 0,
+        Some(value) => value
+            .as_u64()
+            .filter(|remaining| u32::try_from(*remaining).is_ok())
+            .ok_or(SnapshotRestoreError::InvalidDocument(
+                "neow_lament_combats_remaining must be a u32",
+            ))?,
+    };
+    if remaining == 0 {
+        return Ok(());
+    }
+    let relics = state
+        .get_mut("relics")
+        .and_then(Value::as_array_mut)
+        .ok_or(SnapshotRestoreError::InvalidDocument(
+            "relics must be an array",
+        ))?;
+    let identity = Value::String("NeowsLament".to_owned());
+    if !relics.contains(&identity) {
+        relics.insert(usize::min(1, relics.len()), identity);
+    }
+    Ok(())
+}
+
 fn migrate_legacy_reward_continuation(value: &mut Value) -> Result<(), SnapshotRestoreError> {
     let state = value
         .get_mut("state")
@@ -591,6 +625,9 @@ pub fn restore_run_snapshot_json(json: &str) -> Result<Snapshot<RunState>, Snaps
         migrate_legacy_reward_flow(&mut value)?;
         migrate_legacy_relic_storage(&mut value)?;
     }
+    if version <= LEGACY_NEOWS_LAMENT_RELIC_SNAPSHOT_SCHEMA_VERSION {
+        migrate_legacy_neows_lament_relic(&mut value)?;
+    }
     if let Some(combat) = value
         .pointer_mut("/state/combat")
         .filter(|combat| !combat.is_null())
@@ -644,6 +681,33 @@ mod tests {
             schema_version: SNAPSHOT_SCHEMA_VERSION,
             state: EmptySnapshotState {},
         }
+    }
+
+    #[test]
+    fn schema_seven_active_neows_lament_migrates_to_owned_relic_order() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::BurningBlood];
+        run.relics.push(Relic::NeowsLament);
+        run.relics.push(Relic::Lantern);
+        run.neow_lament_combats_remaining = 2;
+        let snapshot = Snapshot {
+            schema_version: LEGACY_NEOWS_LAMENT_RELIC_SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        };
+        let mut value = serde_json::to_value(snapshot).expect("snapshot serializes");
+        value["state"]["relics"]
+            .as_array_mut()
+            .expect("relics are an array")
+            .retain(|relic| relic != "NeowsLament");
+
+        let restored = restore_run_snapshot_json(&value.to_string())
+            .expect("schema-seven Neow's Lament identity migrates");
+
+        assert_eq!(restored.schema_version, SNAPSHOT_SCHEMA_VERSION);
+        assert_eq!(
+            restored.state.relics,
+            vec![Relic::BurningBlood, Relic::NeowsLament, Relic::Lantern]
+        );
     }
 
     fn legacy_run_snapshot_json(version: u32, active: bool, pending: bool, count: u8) -> String {
@@ -718,7 +782,7 @@ mod tests {
 
         assert_eq!(
             snapshot.canonical_json().expect("snapshot serializes"),
-            r#"{"schema_version":7,"state":{}}"#
+            r#"{"schema_version":8,"state":{}}"#
         );
     }
 
