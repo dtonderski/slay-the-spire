@@ -183,9 +183,9 @@ pub(super) fn apply_special_event_action(
             }
             0 if choice_index == 2 => {
                 next.event = Some(EventScreen {
-                    event: Event::WingStatue,
-                    choices: wing_statue_choices(2, false),
-                    stage: 2,
+                    event: Event::AccursedBlacksmith,
+                    choices: labeled_choices(&["Leave"]),
+                    stage: 1,
                     event_data: 0,
                 });
             }

@@ -947,6 +947,243 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
         }
+        Event::BonfireElementals => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState(
+                    "Bonfire Elementals stage is invalid",
+                ));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Bonfire Elementals retains unexpected event data",
+                ));
+            }
+            if screen.choices != bonfire_elementals_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Bonfire Elementals choices do not match its stage",
+                ));
+            }
+        }
+        Event::Duplicator => {
+            if !matches!(screen.stage, 0 | 2) {
+                return Err(SimError::InvalidState("Duplicator stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Duplicator retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Duplicate", "Leave"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Duplicator choices do not match its stage",
+                ));
+            }
+        }
+        Event::FountainOfCleansing => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState(
+                    "Fountain of Cleansing stage is invalid",
+                ));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Fountain of Cleansing retains unexpected event data",
+                ));
+            }
+            if screen.choices != fountain_of_cleansing_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Fountain of Cleansing choices do not match its stage",
+                ));
+            }
+        }
+        Event::AccursedBlacksmith => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState(
+                    "Accursed Blacksmith stage is invalid",
+                ));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Accursed Blacksmith retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Forge", "Rummage", "Leave"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Accursed Blacksmith choices do not match its stage",
+                ));
+            }
+        }
+        Event::GoldenShrine => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Golden Shrine stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Golden Shrine retains unexpected event data",
+                ));
+            }
+            if screen.choices != golden_shrine_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Golden Shrine choices do not match its stage",
+                ));
+            }
+        }
+        Event::Purifier => {
+            if !matches!(screen.stage, 0 | 2) {
+                return Err(SimError::InvalidState("Purifier stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Purifier retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Pray", "Leave"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Purifier choices do not match its stage",
+                ));
+            }
+        }
+        Event::Transmorgrifier => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Transmogrifier stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Transmogrifier retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Pray", "Leave"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Transmogrifier choices do not match its stage",
+                ));
+            }
+        }
+        Event::UpgradeShrine => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Upgrade Shrine stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Upgrade Shrine retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Pray", "Leave"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Upgrade Shrine choices do not match its stage",
+                ));
+            }
+        }
+        Event::FaceTrader => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Face Trader stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Face Trader retains unexpected event data",
+                ));
+            }
+            if screen.choices != face_trader_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Face Trader choices do not match its stage",
+                ));
+            }
+        }
+        Event::NoteForYourself => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Note For Yourself stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Note For Yourself retains unexpected event data",
+                ));
+            }
+            let expected_choices = note_for_yourself_choices_for_run(run, screen.stage)?;
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Note For Yourself choices do not match its stage",
+                ));
+            }
+        }
+        Event::SecretPortal => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Secret Portal stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Secret Portal retains unexpected event data",
+                ));
+            }
+            let expected_choices = match screen.stage {
+                0 => labeled_choices(&["Take the portal", "Leave"]),
+                1 => labeled_choices(&["Continue"]),
+                _ => labeled_choices(&["Leave"]),
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Secret Portal choices do not match its stage",
+                ));
+            }
+        }
+        Event::TheWomanInBlue => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("The Woman in Blue stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "The Woman in Blue retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                woman_in_blue_choices(run)
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "The Woman in Blue choices do not match its stage",
+                ));
+            }
+        }
+        Event::Lab => {
+            if screen.stage != 0 {
+                return Err(SimError::InvalidState("The Lab stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "The Lab retains unexpected event data",
+                ));
+            }
+            if screen.choices != labeled_choices(&["Search"]) {
+                return Err(SimError::InvalidState(
+                    "The Lab choices do not match its stage",
+                ));
+            }
+        }
         Event::DeadAdventurer => {
             if screen.event_data & !0x7ff != 0 {
                 return Err(SimError::InvalidState(
@@ -995,6 +1232,11 @@ pub(super) fn validate_event_screen_authority(
             } else if screen.event_data != 0 {
                 return Err(SimError::InvalidState(
                     "completed N'loth event retains offer data",
+                ));
+            }
+            if screen.choices != nloth_choices(run, screen.stage, screen.event_data) {
+                return Err(SimError::InvalidState(
+                    "N'loth choices do not match encoded offers",
                 ));
             }
         }
@@ -1094,6 +1336,16 @@ pub(super) fn validate_event_screen_authority(
                     "completed Designer event retains option data",
                 ));
             }
+            // Designer retains its pre-purchase event screen behind a card
+            // grid after gold is spent. The grid owns the active decision, so
+            // those hidden labels cannot be recomputed from post-spend state.
+            if run.card_grid.is_none()
+                && screen.choices != designer_screen(run, screen.stage, screen.event_data).choices
+            {
+                return Err(SimError::InvalidState(
+                    "Designer choices do not match its stage",
+                ));
+            }
         }
         Event::TheJoust => {
             let valid_data = match screen.stage {
@@ -1107,6 +1359,11 @@ pub(super) fn validate_event_screen_authority(
                     "The Joust event data does not match its stage",
                 ));
             }
+            if screen.choices != joust_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "The Joust choices do not match its stage",
+                ));
+            }
         }
         Event::WheelOfChange => {
             let valid_data = match screen.stage {
@@ -1118,6 +1375,11 @@ pub(super) fn validate_event_screen_authority(
             if !valid_data {
                 return Err(SimError::InvalidState(
                     "Wheel of Change result does not match its stage",
+                ));
+            }
+            if screen.choices != wheel_of_change_choices(screen.stage, screen.event_data) {
+                return Err(SimError::InvalidState(
+                    "Wheel of Change choices do not match its stage",
                 ));
             }
         }
@@ -4958,6 +5220,11 @@ mod tests {
 
         assert_eq!(after_confirm.phase, RunPhase::Event);
         assert_eq!(leave_choices, vec!["Leave"]);
+
+        let completed = apply_event_action(&after_confirm, EventAction::Choose { choice_index: 0 })
+            .expect("Upgrade Shrine leave returns to the map");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert!(completed.event.is_none());
     }
 
     #[test]
@@ -6189,6 +6456,182 @@ mod tests {
         });
         run.validate()
             .expect("Sensory Stone reward retains its leave continuation");
+    }
+
+    #[test]
+    fn special_and_shrine_imports_reject_unreachable_screen_shapes() {
+        for (event, invalid_stage, stage_error, data_error, choices_error) in [
+            (
+                Event::BonfireElementals,
+                3,
+                "Bonfire Elementals stage is invalid",
+                "Bonfire Elementals retains unexpected event data",
+                "Bonfire Elementals choices do not match its stage",
+            ),
+            (
+                Event::Duplicator,
+                1,
+                "Duplicator stage is invalid",
+                "Duplicator retains unexpected event data",
+                "Duplicator choices do not match its stage",
+            ),
+            (
+                Event::FountainOfCleansing,
+                2,
+                "Fountain of Cleansing stage is invalid",
+                "Fountain of Cleansing retains unexpected event data",
+                "Fountain of Cleansing choices do not match its stage",
+            ),
+            (
+                Event::AccursedBlacksmith,
+                2,
+                "Accursed Blacksmith stage is invalid",
+                "Accursed Blacksmith retains unexpected event data",
+                "Accursed Blacksmith choices do not match its stage",
+            ),
+            (
+                Event::GoldenShrine,
+                2,
+                "Golden Shrine stage is invalid",
+                "Golden Shrine retains unexpected event data",
+                "Golden Shrine choices do not match its stage",
+            ),
+            (
+                Event::Purifier,
+                1,
+                "Purifier stage is invalid",
+                "Purifier retains unexpected event data",
+                "Purifier choices do not match its stage",
+            ),
+            (
+                Event::Transmorgrifier,
+                2,
+                "Transmogrifier stage is invalid",
+                "Transmogrifier retains unexpected event data",
+                "Transmogrifier choices do not match its stage",
+            ),
+            (
+                Event::UpgradeShrine,
+                2,
+                "Upgrade Shrine stage is invalid",
+                "Upgrade Shrine retains unexpected event data",
+                "Upgrade Shrine choices do not match its stage",
+            ),
+            (
+                Event::FaceTrader,
+                3,
+                "Face Trader stage is invalid",
+                "Face Trader retains unexpected event data",
+                "Face Trader choices do not match its stage",
+            ),
+            (
+                Event::NoteForYourself,
+                3,
+                "Note For Yourself stage is invalid",
+                "Note For Yourself retains unexpected event data",
+                "Note For Yourself choices do not match its stage",
+            ),
+            (
+                Event::SecretPortal,
+                3,
+                "Secret Portal stage is invalid",
+                "Secret Portal retains unexpected event data",
+                "Secret Portal choices do not match its stage",
+            ),
+            (
+                Event::TheWomanInBlue,
+                2,
+                "The Woman in Blue stage is invalid",
+                "The Woman in Blue retains unexpected event data",
+                "The Woman in Blue choices do not match its stage",
+            ),
+            (
+                Event::Lab,
+                1,
+                "The Lab stage is invalid",
+                "The Lab retains unexpected event data",
+                "The Lab choices do not match its stage",
+            ),
+        ] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.phase = RunPhase::Event;
+            run.event = Some(event_screen_for_run(&run, event));
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").stage = invalid_stage;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(stage_error)),
+                "{event:?} accepts an unreachable stage"
+            );
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").event_data = 1;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(data_error)),
+                "{event:?} accepts unreachable event data"
+            );
+
+            run.event.as_mut().expect("event screen").choices.clear();
+            assert_eq!(
+                run.validate(),
+                Err(SimError::InvalidState(choices_error)),
+                "{event:?} accepts a noncanonical choice list"
+            );
+        }
+    }
+
+    #[test]
+    fn packed_special_and_shrine_events_reject_noncanonical_choices() {
+        for (event, error) in [
+            (Event::Designer, "Designer choices do not match its stage"),
+            (Event::Nloth, "N'loth choices do not match encoded offers"),
+            (Event::TheJoust, "The Joust choices do not match its stage"),
+            (
+                Event::WheelOfChange,
+                "Wheel of Change choices do not match its stage",
+            ),
+        ] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.gold = 200;
+            run.gain_relic_key(RelicKey::Anchor)
+                .expect("test relic gain succeeds");
+            run.phase = RunPhase::Event;
+            run.event = Some(match event {
+                Event::Nloth => {
+                    let data = nloth_event_data(0, 1).expect("two distinct relic offers");
+                    EventScreen {
+                        event,
+                        choices: nloth_choices(&run, 0, data),
+                        stage: 0,
+                        event_data: data,
+                    }
+                }
+                _ => event_screen_for_run(&run, event),
+            });
+            run.event.as_mut().expect("event screen").choices.clear();
+            assert_eq!(run.validate(), Err(SimError::InvalidState(error)));
+        }
+    }
+
+    #[test]
+    fn accursed_blacksmith_leave_retains_identity_until_completion() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::AccursedBlacksmith));
+
+        let leave = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
+            .expect("Accursed Blacksmith leave opens its final screen");
+        let screen = leave.event.as_ref().expect("final leave screen");
+        assert_eq!(screen.event, Event::AccursedBlacksmith);
+        assert_eq!(screen.stage, 1);
+        assert_eq!(screen.choices, labeled_choices(&["Leave"]));
+
+        let completed = apply_event_action(&leave, EventAction::Choose { choice_index: 0 })
+            .expect("Accursed Blacksmith final leave returns to the map");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert!(completed.event.is_none());
     }
 
     #[test]

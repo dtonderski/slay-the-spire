@@ -74,6 +74,10 @@ pub(super) fn apply_shrine_event_action(
             next.phase = RunPhase::Idle;
             next.event = None;
         }
+        Event::UpgradeShrine if screen.stage == 1 && choice_index == 0 => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
         Event::WheelOfChange => match screen.stage {
             0 if choice_index == 0 => {
                 let result = roll_wheel_of_change_result(next);

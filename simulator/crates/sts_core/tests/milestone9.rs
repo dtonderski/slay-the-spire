@@ -38,9 +38,8 @@ fn legacy_fixed_shop_screen(next_card_id: u64) -> ShopScreen {
     }
 }
 
-fn enter_legacy_fixed_event_screen_fixture(run: &mut RunState) {
-    let mut screen = sts_core::event_screen(Event::GoldenShrine);
-    screen.choices.truncate(1);
+fn enter_fixed_event_screen_fixture(run: &mut RunState) {
+    let screen = sts_core::event_screen(Event::GoldenShrine);
     run.phase = RunPhase::Event;
     run.event = Some(screen);
 }
@@ -420,18 +419,22 @@ fn discard_potion_removes_it_from_belt() {
 }
 
 #[test]
-fn entering_legacy_event_fixture_exposes_golden_shrine() {
+fn entering_event_fixture_exposes_canonical_golden_shrine() {
     let mut run = RunState::map_fixture();
 
-    enter_legacy_fixed_event_screen_fixture(&mut run);
+    enter_fixed_event_screen_fixture(&mut run);
 
     assert_eq!(run.phase, RunPhase::Event);
     let event = run.event.as_ref().expect("event screen");
     assert_eq!(event.event, Event::GoldenShrine);
-    assert_eq!(event.choices.len(), 1);
+    assert_eq!(event.choices.len(), 3);
     assert_eq!(
         valid_event_actions(&run),
-        vec![EventAction::Choose { choice_index: 0 }]
+        vec![
+            EventAction::Choose { choice_index: 0 },
+            EventAction::Choose { choice_index: 1 },
+            EventAction::Choose { choice_index: 2 },
+        ]
     );
     assert!(valid_map_actions(&run).is_empty());
 }
@@ -439,7 +442,7 @@ fn entering_legacy_event_fixture_exposes_golden_shrine() {
 #[test]
 fn golden_shrine_choice_grants_gold_and_returns_to_map() {
     let mut run = RunState::map_fixture();
-    enter_legacy_fixed_event_screen_fixture(&mut run);
+    enter_fixed_event_screen_fixture(&mut run);
     let gold_before = run.gold;
 
     let after_pray =
