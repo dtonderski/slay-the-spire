@@ -80,16 +80,14 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
                 .ok_or(SimError::InvalidState("combat state is missing"))?;
             let select_actions = legal_combat_select_actions_on_run(run, combat)?;
             if !select_actions.is_empty() {
-                return Ok(select_actions
-                    .into_iter()
-                    .map(RunDecisionAction::Run)
-                    .collect());
+                actions.extend(select_actions.into_iter().map(RunDecisionAction::Run));
+            } else {
+                actions.extend(
+                    legal_combat_actions(combat)?
+                        .into_iter()
+                        .map(RunDecisionAction::Combat),
+                );
             }
-            actions.extend(
-                legal_combat_actions(combat)?
-                    .into_iter()
-                    .map(RunDecisionAction::Combat),
-            );
             actions.extend(
                 legal_potion_actions_on_run(run)?
                     .into_iter()
@@ -479,6 +477,8 @@ mod tests {
     #[test]
     fn top_level_legal_actions_omit_single_select_noops() {
         let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::Energy];
+        run.empty_potion_slots = vec![1, 2];
         let combat = run.combat.as_mut().expect("combat fixture");
         let source_card_id = combat.piles.hand[0].id;
         combat.decision = Some(CombatDecisionState::HandSelect {
@@ -504,6 +504,23 @@ mod tests {
             }))
         );
         assert!(actions.contains(&RunDecisionAction::Run(RunAction::ConfirmHandSelect)));
+        let use_energy_potion = RunDecisionAction::Run(RunAction::UsePotion {
+            slot: 0,
+            target: None,
+        });
+        assert!(actions.contains(&use_energy_potion));
+
+        let after_potion = apply_run_decision_action(&selected, use_energy_potion)
+            .expect("potion use remains legal during hand selection");
+        assert!(matches!(
+            after_potion
+                .combat
+                .as_ref()
+                .expect("combat remains active")
+                .decision,
+            Some(CombatDecisionState::HandSelect { .. })
+        ));
+        assert_eq!(after_potion.potion_at_slot(0), None);
     }
 
     #[test]

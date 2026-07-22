@@ -2720,7 +2720,7 @@ fn seed_start_handle_combat_phase(
         return SeedStartPreDispatch::Boundary(boundary);
     };
 
-    if let Some(decision) = combat_decision {
+    if let Some(decision) = combat_decision.filter(|_| potion_use.is_none()) {
         if command.eq_ignore_ascii_case("WAIT") {
             seed_start_compare_or_defer_combat_transition(
                 report,
