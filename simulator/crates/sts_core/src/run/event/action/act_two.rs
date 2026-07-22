@@ -37,20 +37,30 @@ pub(super) fn apply_act_two_event_action(
         Event::TheLibrary if screen.stage == 0 && choice_index == 1 => {
             let heal = the_library_heal_for_ascension(next.player_max_hp, next.ascension);
             next.heal_player(heal)?;
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            next.event = Some(EventScreen {
+                event: Event::TheLibrary,
+                choices: labeled_choices(&["Leave"]),
+                stage: 1,
+                event_data: 0,
+            });
         }
         Event::TheLibrary if screen.stage == 0 && choice_index == 0 => {
             open_the_library_read_grid(next)?;
         }
-        Event::TheMausoleum | Event::Vampires
-            if choice_index == screen.choices.len().saturating_sub(1) =>
-        {
-            if screen.event == Event::TheMausoleum {
-                next.flush_pending_obtain_cards()?;
-            }
+        Event::TheMausoleum if screen.stage == 1 && choice_index == 0 => {
+            next.flush_pending_obtain_cards()?;
             next.phase = RunPhase::Idle;
             next.event = None;
+        }
+        Event::TheMausoleum
+            if screen.stage == 0 && choice_index == screen.choices.len().saturating_sub(1) =>
+        {
+            next.event = Some(EventScreen {
+                event: Event::TheMausoleum,
+                choices: labeled_choices(&["Leave"]),
+                stage: 1,
+                event_data: 0,
+            });
         }
         Event::TheMausoleum if screen.stage == 0 && choice_index == 0 => {
             if roll_mausoleum_curses_player(next) {
@@ -66,7 +76,7 @@ pub(super) fn apply_act_two_event_action(
                 event_data: 0,
             });
         }
-        Event::Vampires if choice_index == 0 => {
+        Event::Vampires if screen.stage == 0 && choice_index == 0 => {
             let loss = vampires_max_hp_loss(next.player_max_hp);
             next.player_max_hp = (next.player_max_hp - loss).max(1);
             next.player_hp = next.player_hp.min(next.player_max_hp);
@@ -78,7 +88,7 @@ pub(super) fn apply_act_two_event_action(
                 event_data: 0,
             });
         }
-        Event::Vampires if choice_index == 1 && screen.choices.len() == 3 => {
+        Event::Vampires if screen.stage == 0 && choice_index == 1 && screen.choices.len() == 3 => {
             if !next.relics.contains(&Relic::BloodVial) {
                 return Err(SimError::IllegalAction(
                     "Blood Vial choice requires Blood Vial",
@@ -86,6 +96,20 @@ pub(super) fn apply_act_two_event_action(
             }
             next.relics.retain(|relic| *relic != Relic::BloodVial);
             replace_starter_strikes_with_bites(next)?;
+            next.event = Some(EventScreen {
+                event: Event::Vampires,
+                choices: labeled_choices(&["Leave"]),
+                stage: 1,
+                event_data: 0,
+            });
+        }
+        Event::Vampires if screen.stage == 1 && choice_index == 0 => {
+            next.phase = RunPhase::Idle;
+            next.event = None;
+        }
+        Event::Vampires
+            if screen.stage == 0 && choice_index == screen.choices.len().saturating_sub(1) =>
+        {
             next.event = Some(EventScreen {
                 event: Event::Vampires,
                 choices: labeled_choices(&["Leave"]),

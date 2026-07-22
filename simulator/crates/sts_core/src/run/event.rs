@@ -577,10 +577,10 @@ pub(super) fn validate_event_screen_authority(
             }
         }
         Event::GoldenIdol => {
-            if screen.stage > 2 {
+            if screen.stage > 3 {
                 return Err(SimError::InvalidState("Golden Idol stage is invalid"));
             }
-            if screen.stage < 2 && screen.event_data != 0 {
+            if (screen.stage < 2 || screen.stage == 3) && screen.event_data != 0 {
                 return Err(SimError::InvalidState(
                     "Golden Idol result does not match its stage",
                 ));
@@ -2388,7 +2388,7 @@ fn golden_idol_choices(stage: u32, max_hp: i32, ascension: u8) -> Vec<EventChoic
                 ),
             },
         ],
-        2 => labeled_choices(&["Leave"]),
+        2 | 3 => labeled_choices(&["Leave"]),
         _ => Vec::new(),
     }
 }
@@ -5787,6 +5787,84 @@ mod tests {
                 .expect("second Purifier leave choice returns to the map");
         assert_eq!(completed.phase, RunPhase::Idle);
         assert!(completed.event.is_none());
+    }
+
+    #[test]
+    fn golden_idol_leave_requires_second_leave_click() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::GoldenIdol));
+
+        let after_first_leave = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("first Golden Idol leave choice applies");
+        let screen = after_first_leave
+            .event
+            .as_ref()
+            .expect("Golden Idol remains open after first leave");
+        assert_eq!(after_first_leave.phase, RunPhase::Event);
+        assert_eq!(screen.stage, 3);
+        assert_eq!(screen.choices, labeled_choices(&["Leave"]));
+
+        let completed =
+            apply_event_action(&after_first_leave, EventAction::Choose { choice_index: 0 })
+                .expect("second Golden Idol leave choice returns to the map");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert!(completed.event.is_none());
+    }
+
+    #[test]
+    fn library_sleep_requires_a_terminal_leave_click() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.player_hp = 20;
+        run.event = Some(event_screen_for_run(&run, Event::TheLibrary));
+
+        let after_sleep = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("Library sleep choice applies");
+        let screen = after_sleep
+            .event
+            .as_ref()
+            .expect("Library remains open after sleeping");
+        assert!(after_sleep.player_hp > run.player_hp);
+        assert_eq!(after_sleep.phase, RunPhase::Event);
+        assert_eq!(screen.stage, 1);
+        assert_eq!(screen.choices, labeled_choices(&["Leave"]));
+
+        let completed = apply_event_action(&after_sleep, EventAction::Choose { choice_index: 0 })
+            .expect("Library leave choice returns to the map");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert!(completed.event.is_none());
+    }
+
+    #[test]
+    fn mausoleum_and_vampires_direct_leave_require_a_terminal_leave_click() {
+        for event in [Event::TheMausoleum, Event::Vampires] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.phase = RunPhase::Event;
+            run.event = Some(event_screen_for_run(&run, event));
+            let direct_leave_index = run.event.as_ref().expect("event screen").choices.len() - 1;
+
+            let after_first_leave = apply_event_action(
+                &run,
+                EventAction::Choose {
+                    choice_index: direct_leave_index,
+                },
+            )
+            .expect("first direct leave choice applies");
+            let screen = after_first_leave
+                .event
+                .as_ref()
+                .expect("event remains open after first leave");
+            assert_eq!(after_first_leave.phase, RunPhase::Event);
+            assert_eq!(screen.stage, 1);
+            assert_eq!(screen.choices, labeled_choices(&["Leave"]));
+
+            let completed =
+                apply_event_action(&after_first_leave, EventAction::Choose { choice_index: 0 })
+                    .expect("terminal leave choice returns to the map");
+            assert_eq!(completed.phase, RunPhase::Idle);
+            assert!(completed.event.is_none());
+        }
     }
 
     #[test]

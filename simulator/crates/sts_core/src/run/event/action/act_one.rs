@@ -21,8 +21,12 @@ pub(super) fn apply_act_one_event_action(
                 });
             }
             0 if choice_index == 1 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(EventScreen {
+                    event: Event::GoldenIdol,
+                    choices: golden_idol_choices(3, next.player_max_hp, next.ascension),
+                    stage: 3,
+                    event_data: 0,
+                });
             }
             1 if choice_index == 0 => {
                 // Target source uses ShowCardAndObtainEffect for the curse; the
@@ -56,7 +60,7 @@ pub(super) fn apply_act_one_event_action(
                     event_data: max_hp_loss as u32,
                 });
             }
-            2 if choice_index == 0 => {
+            2 | 3 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;

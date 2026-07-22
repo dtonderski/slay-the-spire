@@ -465,6 +465,51 @@ fn purifier_direct_leave_reaches_its_terminal_leave_screen() {
 }
 
 #[test]
+fn golden_idol_direct_leave_reaches_its_terminal_leave_screen() {
+    for name in [
+        "random-fidelity-8e680d9593a06359.jsonl",
+        "random-fidelity-a66d580b08db3587.jsonl",
+    ] {
+        let path = format!("permanent_traces/{name}");
+        let Some(content) = crate::load_corpus_file(&path) else {
+            continue;
+        };
+        let report = verify_seed_start_communication_mod_trace(&content)
+            .unwrap_or_else(|error| panic!("{name} verifies: {error}"));
+
+        assert!(
+            report.unexpected_diffs.is_empty(),
+            "{name} diffs: {:?}",
+            report.unexpected_diffs
+        );
+        assert!(
+            report.unsupported.is_empty(),
+            "{name} unsupported: {:?}",
+            report.unsupported
+        );
+        assert_eq!(
+            report
+                .seed_start
+                .as_ref()
+                .expect("seed-start report")
+                .first_boundary
+                .category,
+            "none",
+            "{name} has a replay boundary"
+        );
+        assert_eq!(
+            report
+                .action_integrity
+                .as_ref()
+                .expect("action integrity")
+                .unresolved_transient_assertions,
+            0,
+            "{name} has an unresolved transient assertion"
+        );
+    }
+}
+
+#[test]
 fn combat_selection_endpoint_names_its_unreconciled_frame() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-b9c0db157d03167f.jsonl")
