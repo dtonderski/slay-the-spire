@@ -594,6 +594,21 @@ fn potion_multiplier(run: &RunState) -> i32 {
     }
 }
 
+fn checked_potion_stat_gain(current: i32, base_amount: i32, multiplier: i32) -> SimResult<i32> {
+    base_amount
+        .checked_mul(multiplier)
+        .and_then(|amount| current.checked_add(amount))
+        .ok_or(SimError::InvalidState(
+            "combat potion stat gain overflows i32",
+        ))
+}
+
+fn blood_potion_heal(max_hp: i32, multiplier: i32) -> SimResult<i32> {
+    let heal =
+        i64::from(max_hp) * i64::from(BLOOD_POTION_HEAL_PERCENT) * i64::from(multiplier) / 100;
+    i32::try_from(heal).map_err(|_| SimError::InvalidState("Blood Potion heal exceeds i32"))
+}
+
 pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     validate_potion_action(run, action)?;
 
@@ -629,7 +644,11 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::Block => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.block += BLOCK_POTION_BLOCK * multiplier;
+                    combat.player.block = checked_potion_stat_gain(
+                        combat.player.block,
+                        BLOCK_POTION_BLOCK,
+                        multiplier,
+                    )?;
                 }
                 Potion::Fear => {
                     let target = target.expect("validated fear potion target");
@@ -646,30 +665,44 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::Blood => {
                     if let Some(combat) = next.combat.as_mut() {
-                        let heal =
-                            combat.player.max_hp * BLOOD_POTION_HEAL_PERCENT * multiplier / 100;
+                        let heal = blood_potion_heal(combat.player.max_hp, multiplier)?;
                         crate::relic::heal_combat_player_with_relics(combat, heal);
                     } else {
-                        let heal =
-                            next.player_max_hp * BLOOD_POTION_HEAL_PERCENT * multiplier / 100;
+                        let heal = blood_potion_heal(next.player_max_hp, multiplier)?;
                         next.heal_player(heal)?;
                     }
                 }
                 Potion::Ancient => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.artifact += ANCIENT_POTION_ARTIFACT * multiplier;
+                    combat.player.powers.artifact = checked_potion_stat_gain(
+                        combat.player.powers.artifact,
+                        ANCIENT_POTION_ARTIFACT,
+                        multiplier,
+                    )?;
                 }
                 Potion::HeartOfIron => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.metallicize += HEART_OF_IRON_METALLICIZE * multiplier;
+                    combat.player.powers.metallicize = checked_potion_stat_gain(
+                        combat.player.powers.metallicize,
+                        HEART_OF_IRON_METALLICIZE,
+                        multiplier,
+                    )?;
                 }
                 Potion::Cultist => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.ritual += CULTIST_POTION_RITUAL * multiplier;
+                    combat.player.powers.ritual = checked_potion_stat_gain(
+                        combat.player.powers.ritual,
+                        CULTIST_POTION_RITUAL,
+                        multiplier,
+                    )?;
                 }
                 Potion::Dexterity => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.dexterity += DEXTERITY_POTION_DEXTERITY * multiplier;
+                    combat.player.powers.dexterity = checked_potion_stat_gain(
+                        combat.player.powers.dexterity,
+                        DEXTERITY_POTION_DEXTERITY,
+                        multiplier,
+                    )?;
                 }
                 Potion::Energy => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -683,7 +716,11 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::EssenceOfSteel => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.plated_armor += ESSENCE_OF_STEEL_PLATED_ARMOR * multiplier;
+                    combat.player.powers.plated_armor = checked_potion_stat_gain(
+                        combat.player.powers.plated_armor,
+                        ESSENCE_OF_STEEL_PLATED_ARMOR,
+                        multiplier,
+                    )?;
                 }
                 Potion::Explosive => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -717,24 +754,50 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::LiquidBronze => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.thorns += LIQUID_BRONZE_THORNS * multiplier;
+                    combat.player.powers.thorns = checked_potion_stat_gain(
+                        combat.player.powers.thorns,
+                        LIQUID_BRONZE_THORNS,
+                        multiplier,
+                    )?;
                 }
                 Potion::Regen => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.regen += REGEN_POTION_REGEN * multiplier;
+                    combat.player.powers.regen = checked_potion_stat_gain(
+                        combat.player.powers.regen,
+                        REGEN_POTION_REGEN,
+                        multiplier,
+                    )?;
                 }
                 Potion::Strength => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.strength += STRENGTH_POTION_STRENGTH * multiplier;
+                    combat.player.powers.strength = checked_potion_stat_gain(
+                        combat.player.powers.strength,
+                        STRENGTH_POTION_STRENGTH,
+                        multiplier,
+                    )?;
                 }
                 Potion::Flex => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.temp_strength += FLEX_POTION_TEMP_STRENGTH * multiplier;
+                    combat.player.temp_strength = checked_potion_stat_gain(
+                        combat.player.temp_strength,
+                        FLEX_POTION_TEMP_STRENGTH,
+                        multiplier,
+                    )?;
                 }
                 Potion::Speed => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.dexterity += SPEED_POTION_TEMP_DEXTERITY * multiplier;
-                    combat.player.temp_dexterity += SPEED_POTION_TEMP_DEXTERITY * multiplier;
+                    let dexterity = checked_potion_stat_gain(
+                        combat.player.powers.dexterity,
+                        SPEED_POTION_TEMP_DEXTERITY,
+                        multiplier,
+                    )?;
+                    let temp_dexterity = checked_potion_stat_gain(
+                        combat.player.temp_dexterity,
+                        SPEED_POTION_TEMP_DEXTERITY,
+                        multiplier,
+                    )?;
+                    combat.player.powers.dexterity = dexterity;
+                    combat.player.temp_dexterity = temp_dexterity;
                 }
                 Potion::Swift => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -770,7 +833,8 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::Duplication => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.duplication_potion_stacks += multiplier;
+                    combat.duplication_potion_stacks =
+                        checked_potion_stat_gain(combat.duplication_potion_stacks, 1, multiplier)?;
                     combat.duplication_potion_pending = false;
                 }
                 Potion::DistilledChaos => {
@@ -968,6 +1032,167 @@ fn enter_combat_reward_for_current_room(run: &mut RunState) -> SimResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, Clone, Copy)]
+    enum PotionStatDestination {
+        Block,
+        Artifact,
+        Metallicize,
+        Ritual,
+        Dexterity,
+        PlatedArmor,
+        Thorns,
+        Regen,
+        Strength,
+        TempStrength,
+        SpeedDexterity,
+        SpeedTempDexterity,
+        DuplicationStacks,
+    }
+
+    #[test]
+    fn combat_potion_stat_overflow_leaves_exact_input_state() {
+        let cases = [
+            (Potion::Block, PotionStatDestination::Block),
+            (Potion::Ancient, PotionStatDestination::Artifact),
+            (Potion::HeartOfIron, PotionStatDestination::Metallicize),
+            (Potion::Cultist, PotionStatDestination::Ritual),
+            (Potion::Dexterity, PotionStatDestination::Dexterity),
+            (Potion::EssenceOfSteel, PotionStatDestination::PlatedArmor),
+            (Potion::LiquidBronze, PotionStatDestination::Thorns),
+            (Potion::Regen, PotionStatDestination::Regen),
+            (Potion::Strength, PotionStatDestination::Strength),
+            (Potion::Flex, PotionStatDestination::TempStrength),
+            (Potion::Speed, PotionStatDestination::SpeedDexterity),
+            (Potion::Speed, PotionStatDestination::SpeedTempDexterity),
+            (
+                Potion::Duplication,
+                PotionStatDestination::DuplicationStacks,
+            ),
+        ];
+
+        for (potion, destination) in cases {
+            let mut run = RunState::combat_fixture();
+            run.potions = vec![potion];
+            run.empty_potion_slots = vec![1, 2];
+            let combat = run.combat.as_mut().expect("combat fixture");
+            match destination {
+                PotionStatDestination::Block => combat.player.block = i32::MAX,
+                PotionStatDestination::Artifact => combat.player.powers.artifact = i32::MAX,
+                PotionStatDestination::Metallicize => {
+                    combat.player.powers.metallicize = i32::MAX;
+                }
+                PotionStatDestination::Ritual => combat.player.powers.ritual = i32::MAX,
+                PotionStatDestination::Dexterity | PotionStatDestination::SpeedDexterity => {
+                    combat.player.powers.dexterity = i32::MAX;
+                }
+                PotionStatDestination::PlatedArmor => {
+                    combat.player.powers.plated_armor = i32::MAX;
+                }
+                PotionStatDestination::Thorns => combat.player.powers.thorns = i32::MAX,
+                PotionStatDestination::Regen => combat.player.powers.regen = i32::MAX,
+                PotionStatDestination::Strength => combat.player.powers.strength = i32::MAX,
+                PotionStatDestination::TempStrength => combat.player.temp_strength = i32::MAX,
+                PotionStatDestination::SpeedTempDexterity => {
+                    combat.player.temp_dexterity = i32::MAX;
+                }
+                PotionStatDestination::DuplicationStacks => {
+                    combat.duplication_potion_stacks = i32::MAX;
+                }
+            }
+            let before = run.clone();
+
+            assert_eq!(
+                apply_potion_action(
+                    &run,
+                    RunAction::UsePotion {
+                        slot: 0,
+                        target: None,
+                    },
+                ),
+                Err(SimError::InvalidState(
+                    "combat potion stat gain overflows i32"
+                )),
+                "{potion:?} {destination:?}"
+            );
+            assert_eq!(run, before, "{potion:?} {destination:?}");
+        }
+    }
+
+    #[test]
+    fn sacred_bark_doubles_checked_combat_potion_stats() {
+        for potion in [
+            Potion::Block,
+            Potion::HeartOfIron,
+            Potion::Speed,
+            Potion::Duplication,
+        ] {
+            let mut run = RunState::combat_fixture();
+            run.relics.push(crate::Relic::SacredBark);
+            run.potions = vec![potion];
+            run.empty_potion_slots = vec![1, 2];
+
+            let next = apply_potion_action(
+                &run,
+                RunAction::UsePotion {
+                    slot: 0,
+                    target: None,
+                },
+            )
+            .expect("checked Sacred Bark potion effect succeeds");
+            let combat = next.combat.as_ref().expect("combat remains active");
+            match potion {
+                Potion::Block => assert_eq!(combat.player.block, BLOCK_POTION_BLOCK * 2),
+                Potion::HeartOfIron => {
+                    assert_eq!(
+                        combat.player.powers.metallicize,
+                        HEART_OF_IRON_METALLICIZE * 2
+                    );
+                }
+                Potion::Speed => {
+                    assert_eq!(
+                        combat.player.powers.dexterity,
+                        SPEED_POTION_TEMP_DEXTERITY * 2
+                    );
+                    assert_eq!(
+                        combat.player.temp_dexterity,
+                        SPEED_POTION_TEMP_DEXTERITY * 2
+                    );
+                }
+                Potion::Duplication => assert_eq!(combat.duplication_potion_stacks, 2),
+                _ => unreachable!("representative checked potion list"),
+            }
+        }
+    }
+
+    #[test]
+    fn blood_potion_uses_wide_percentage_intermediate() {
+        let mut run = RunState::combat_fixture();
+        run.relics.push(crate::Relic::SacredBark);
+        run.potions = vec![Potion::Blood];
+        run.empty_potion_slots = vec![1, 2];
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.player.hp = 1;
+        combat.player.max_hp = i32::MAX;
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("wide Blood Potion heal succeeds");
+
+        assert_eq!(
+            next.combat
+                .as_ref()
+                .expect("combat remains active")
+                .player
+                .hp,
+            858_993_459
+        );
+    }
 
     #[test]
     fn resource_potion_overflow_fails_before_returning_partial_state() {
