@@ -61,3 +61,10 @@ Move healing, block, temporary defense, vulnerable/weak, and monster-strength
 reduction into a private `defense_actions` module. Preserve dead-target no-op
 behavior, checked arithmetic, Artifact handling, Sadistic Nature follow-ups,
 and the order in which temporary strength reduction is recorded.
+
+## Fifth slice: multi-target damage actions
+
+Move the three all-enemy damage variants into a private `damage_actions`
+module before moving the larger single-target variants. Preserve per-hit death
+effects, filtering and deferred aggregation of Malleable block, monster order,
+and post-damage healing order.

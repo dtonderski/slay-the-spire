@@ -1,4 +1,5 @@
 use super::card_effects;
+mod damage_actions;
 mod decision_actions;
 mod defense_actions;
 mod pile_actions;
@@ -779,47 +780,15 @@ fn apply_internal_action(
             Ok(follow_ups)
         }
         InternalAction::DealDamageAll { source, amount } => {
-            let (_, follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
-            Ok(follow_ups)
+            damage_actions::deal_damage_all(state, source, amount)
         }
         InternalAction::DealDamageAllRepeated {
             source,
             amount,
             times,
-        } => {
-            let initial_malleable = state
-                .monsters
-                .iter()
-                .map(|monster| (monster.id, monster.powers.malleable))
-                .collect::<Vec<_>>();
-            let mut follow_ups = Vec::new();
-            for _ in 0..times {
-                let (_, hit_follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
-                follow_ups.extend(hit_follow_ups.into_iter().filter(|follow_up| {
-                    !matches!(follow_up, InternalAction::GainMonsterBlock { .. })
-                }));
-            }
-            for (target, malleable) in initial_malleable {
-                if malleable <= 0 {
-                    continue;
-                }
-                if let Some(monster) = living_monster_mut_opt(state, target) {
-                    if monster.powers.malleable > malleable {
-                        monster.powers.malleable = malleable + times;
-                        let block = (0..times).map(|offset| malleable + offset).sum();
-                        follow_ups.push(InternalAction::GainMonsterBlock {
-                            target,
-                            amount: block,
-                        });
-                    }
-                }
-            }
-            Ok(follow_ups)
-        }
+        } => damage_actions::deal_damage_all_repeated(state, source, amount, times),
         InternalAction::DealDamageAllAndHealUnblocked { source, amount } => {
-            let (hp_damage, follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
-            crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
-            Ok(follow_ups)
+            damage_actions::deal_damage_all_and_heal_unblocked(state, source, amount)
         }
         InternalAction::HealPlayer { amount } => defense_actions::heal_player(state, amount),
         InternalAction::GainBlock { amount } => defense_actions::gain_player_block(state, amount),
