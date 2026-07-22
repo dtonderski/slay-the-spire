@@ -1459,6 +1459,81 @@ impl RunState {
                         "Match and Keep flipped card indices are not unique",
                     ));
                 }
+                if state.cards.is_empty() {
+                    return Err(SimError::InvalidState("Match and Keep card state is empty"));
+                }
+                if state.attempts_remaining > 5 {
+                    return Err(SimError::InvalidState(
+                        "Match and Keep attempts exceed the starting count",
+                    ));
+                }
+                if state.second_flipped_index.is_some() {
+                    return Err(SimError::InvalidState(
+                        "Match and Keep retains an unresolved second flip",
+                    ));
+                }
+                if let Some(index) = state.first_flipped_index {
+                    let card = &state.cards[index];
+                    if !card.revealed || card.matched {
+                        return Err(SimError::InvalidState(
+                            "Match and Keep first flip flags are inconsistent",
+                        ));
+                    }
+                }
+                if state
+                    .cards
+                    .iter()
+                    .any(|card| card.matched && !card.revealed)
+                {
+                    return Err(SimError::InvalidState(
+                        "Match and Keep matched card is not revealed",
+                    ));
+                }
+                for content_id in state
+                    .cards
+                    .iter()
+                    .map(|card| card.content_id)
+                    .chain(state.matched_cards.iter().copied())
+                {
+                    let marked_count = state
+                        .cards
+                        .iter()
+                        .filter(|card| card.content_id == content_id && card.matched)
+                        .count();
+                    let recorded_count = state
+                        .matched_cards
+                        .iter()
+                        .filter(|recorded| **recorded == content_id)
+                        .count();
+                    if marked_count % 2 != 0 || marked_count / 2 != recorded_count {
+                        return Err(SimError::InvalidState(
+                            "Match and Keep matched-card accounting is inconsistent",
+                        ));
+                    }
+                }
+                match screen.stage {
+                    0 | 1
+                        if state.attempts_remaining != 5
+                            || state.first_flipped_index.is_some()
+                            || !state.matched_cards.is_empty()
+                            || state.cards.iter().any(|card| card.revealed || card.matched) =>
+                    {
+                        return Err(SimError::InvalidState(
+                            "Match and Keep intro retains modified game state",
+                        ));
+                    }
+                    2 if state.attempts_remaining == 0 => {
+                        return Err(SimError::InvalidState(
+                            "Match and Keep play stage has no attempts remaining",
+                        ));
+                    }
+                    3 if state.attempts_remaining != 0 || state.first_flipped_index.is_some() => {
+                        return Err(SimError::InvalidState(
+                            "Match and Keep completion state is inconsistent",
+                        ));
+                    }
+                    _ => {}
+                }
             }
             (Some(screen), None) if screen.event == super::event::Event::MatchAndKeep => {
                 return Err(SimError::InvalidState("Match and Keep state is missing"));

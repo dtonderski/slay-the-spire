@@ -3950,11 +3950,10 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
     let Some(state) = run.match_and_keep.as_mut() else {
         return Ok(false);
     };
-    let Some(first_index) = state.first_flipped_index.take() else {
+    let Some(first_index) = state.first_flipped_index else {
         return Ok(false);
     };
-    let Some(second_index) = state.second_flipped_index.take() else {
-        state.first_flipped_index = Some(first_index);
+    let Some(second_index) = state.second_flipped_index else {
         return Ok(false);
     };
     if first_index >= state.cards.len() || second_index >= state.cards.len() {
@@ -3962,9 +3961,18 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
             "Match and Keep pending pair is out of range",
         ));
     }
+    let attempts_remaining =
+        state
+            .attempts_remaining
+            .checked_sub(1)
+            .ok_or(SimError::InvalidState(
+                "Match and Keep has no attempts remaining",
+            ))?;
 
     let first_content = state.cards[first_index].content_id;
     let second_content = state.cards[second_index].content_id;
+    state.first_flipped_index = None;
+    state.second_flipped_index = None;
     if first_content == second_content {
         state.matched_cards.push(first_content);
         matched_content = Some(first_content);
@@ -3974,7 +3982,7 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
         state.cards[first_index].revealed = true;
         state.cards[second_index].revealed = true;
     }
-    state.attempts_remaining = state.attempts_remaining.saturating_sub(1);
+    state.attempts_remaining = attempts_remaining;
 
     if let Some(content_id) = matched_content {
         run.queue_pending_obtain_card(content_id);
@@ -4061,6 +4069,42 @@ mod tests {
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::BonfireElementals));
         run
+    }
+
+    fn match_and_keep_validation_run(stage: u32, attempts_remaining: u8) -> RunState {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.match_and_keep = Some(MatchAndKeepState {
+            cards: vec![
+                MatchAndKeepCard {
+                    content_id: STRIKE_R_ID,
+                    revealed: false,
+                    matched: false,
+                },
+                MatchAndKeepCard {
+                    content_id: STRIKE_R_ID,
+                    revealed: false,
+                    matched: false,
+                },
+            ],
+            attempts_remaining,
+            first_flipped_index: None,
+            second_flipped_index: None,
+            matched_cards: Vec::new(),
+        });
+        let choices = match stage {
+            0 | 1 => match_and_keep_choices(stage, 0),
+            2 => match_and_keep_card_choices(&run).expect("test Match and Keep state is present"),
+            _ => labeled_choices(&["Leave"]),
+        };
+        run.event = Some(make_event_screen(Event::MatchAndKeep, choices, stage));
+        run
+    }
+
+    fn refresh_match_and_keep_choices(run: &mut RunState) {
+        let choices =
+            match_and_keep_card_choices(run).expect("test Match and Keep state is present");
+        run.event.as_mut().expect("Match and Keep screen").choices = choices;
     }
 
     #[test]
@@ -4935,6 +4979,134 @@ mod tests {
             apply_event_action(&run, EventAction::Choose { choice_index: 0 }),
             Err(SimError::InvalidState("Match and Keep state is missing"))
         );
+    }
+
+    #[test]
+    fn match_and_keep_imports_reject_incoherent_internal_state() {
+        let mut invalid = match_and_keep_validation_run(2, 5);
+        invalid
+            .match_and_keep
+            .as_mut()
+            .expect("state")
+            .cards
+            .clear();
+        refresh_match_and_keep_choices(&mut invalid);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState("Match and Keep card state is empty"))
+        );
+
+        let invalid = match_and_keep_validation_run(2, 6);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "Match and Keep attempts exceed the starting count"
+            ))
+        );
+
+        let mut invalid = match_and_keep_validation_run(2, 5);
+        {
+            let state = invalid.match_and_keep.as_mut().expect("state");
+            state.first_flipped_index = Some(0);
+            state.second_flipped_index = Some(1);
+            state.cards[0].revealed = true;
+            state.cards[1].revealed = true;
+        }
+        refresh_match_and_keep_choices(&mut invalid);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "Match and Keep retains an unresolved second flip"
+            ))
+        );
+
+        let mut invalid = match_and_keep_validation_run(2, 5);
+        invalid
+            .match_and_keep
+            .as_mut()
+            .expect("state")
+            .first_flipped_index = Some(0);
+        refresh_match_and_keep_choices(&mut invalid);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "Match and Keep first flip flags are inconsistent"
+            ))
+        );
+
+        let mut invalid = match_and_keep_validation_run(2, 4);
+        {
+            let state = invalid.match_and_keep.as_mut().expect("state");
+            for card in &mut state.cards {
+                card.matched = true;
+            }
+            state.matched_cards.push(STRIKE_R_ID);
+        }
+        refresh_match_and_keep_choices(&mut invalid);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "Match and Keep matched card is not revealed"
+            ))
+        );
+
+        let mut invalid = match_and_keep_validation_run(2, 4);
+        {
+            let state = invalid.match_and_keep.as_mut().expect("state");
+            for card in &mut state.cards {
+                card.revealed = true;
+                card.matched = true;
+            }
+        }
+        refresh_match_and_keep_choices(&mut invalid);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "Match and Keep matched-card accounting is inconsistent"
+            ))
+        );
+
+        let mut invalid = match_and_keep_validation_run(0, 5);
+        invalid.match_and_keep.as_mut().expect("state").cards[0].revealed = true;
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "Match and Keep intro retains modified game state"
+            ))
+        );
+
+        let invalid = match_and_keep_validation_run(2, 0);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "Match and Keep play stage has no attempts remaining"
+            ))
+        );
+
+        let invalid = match_and_keep_validation_run(3, 1);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "Match and Keep completion state is inconsistent"
+            ))
+        );
+    }
+
+    #[test]
+    fn match_and_keep_attempt_underflow_is_transactional() {
+        let mut run = match_and_keep_validation_run(2, 0);
+        let state = run.match_and_keep.as_mut().expect("state");
+        state.first_flipped_index = Some(0);
+        state.second_flipped_index = Some(1);
+        let before = run.clone();
+
+        assert_eq!(
+            resolve_match_and_keep_pending_pair(&mut run),
+            Err(SimError::InvalidState(
+                "Match and Keep has no attempts remaining"
+            ))
+        );
+        assert_eq!(run, before);
     }
 
     #[test]
