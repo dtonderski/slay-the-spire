@@ -43,7 +43,8 @@ use crate::{
         target_mugger_direct_next_intent_after_turn, target_nemesis_next_intent_from_roll,
         target_orb_walker_next_intent_from_roll, target_reptomancer_next_intent_from_roll,
         target_repulsor_next_intent_from_roll, target_sentry_next_intent,
-        target_shelled_parasite_next_intent_from_roll, target_slaver_blue_next_intent_from_roll,
+        target_shelled_parasite_next_intent_from_roll,
+        target_shelled_parasite_shell_break_roll_move, target_slaver_blue_next_intent_from_roll,
         target_slaver_red_next_intent_from_roll, target_small_acid_slime_followup_intent,
         target_snake_plant_next_intent_from_roll, target_snecko_next_intent_from_roll,
         target_spheric_guardian_next_intent_from_roll, target_spiker_next_intent_from_roll,
@@ -644,6 +645,12 @@ fn execute_generic_monster_intent(
             state.monsters[index].intent = target_lagavulin_direct_wake_attack_intent(ascension);
             record_target_move(&mut state.monsters[index]);
             return Ok(ActorTurnDisposition::Continue);
+        }
+        if state.monsters[index].content_id == SHELLED_PARASITE_ID
+            && matches!(intent, crate::MonsterIntent::Stun)
+        {
+            state.monsters[index].intent = target_shelled_parasite_shell_break_roll_move(ascension);
+            record_target_move(&mut state.monsters[index]);
         }
         prepare_next_intent_for_actor(state, actor_id)?;
         apply_transient_fading_after_turn(&mut state.monsters, actor_id);

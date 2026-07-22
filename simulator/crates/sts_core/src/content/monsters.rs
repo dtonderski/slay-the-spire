@@ -5675,6 +5675,15 @@ fn shelled_parasite_fell_intent(ascension: u8) -> MonsterIntent {
     }
 }
 
+/// Move Shelled Parasite installs immediately before rolling after its shell-break Stun turn.
+///
+/// The target records this temporary Fell move in move history even though the Stun move is what
+/// the player observes for the turn. That history entry affects the normal AI reroll rules.
+#[must_use]
+pub fn target_shelled_parasite_shell_break_roll_move(ascension: u8) -> MonsterIntent {
+    shelled_parasite_fell_intent(ascension)
+}
+
 #[must_use]
 fn shelled_parasite_intent(moves_executed: u32, ascension: u8) -> MonsterIntent {
     if moves_executed == 0 && ascension >= 17 {
@@ -11306,6 +11315,18 @@ mod tests {
         assert_eq!(
             target_move_byte(SHELLED_PARASITE_ID, MonsterIntent::Stun),
             Some(4)
+        );
+        let shell_break_roll_move = target_shelled_parasite_shell_break_roll_move(0);
+        assert_eq!(
+            shell_break_roll_move,
+            MonsterIntent::AttackApplyPlayerFrail {
+                damage: SHELLED_PARASITE_FELL_DAMAGE,
+                frail: SHELLED_PARASITE_FELL_FRAIL,
+            }
+        );
+        assert_eq!(
+            target_move_byte(SHELLED_PARASITE_ID, shell_break_roll_move),
+            Some(1)
         );
     }
 
