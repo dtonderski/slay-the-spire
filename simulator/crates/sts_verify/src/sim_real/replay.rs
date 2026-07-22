@@ -3847,6 +3847,474 @@ fn seed_start_handle_grid_phase(
     SeedStartPreDispatch::Handled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_shop_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    seed_sim: &mut Option<RunState>,
+    pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::Shop {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    let Some(sim) = seed_sim.as_mut() else {
+        return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_shop_path".to_owned(),
+            reason: "seed-start shop action without initialized run simulation".to_owned(),
+        });
+    };
+    let command = action.command.trim();
+    if command.eq_ignore_ascii_case("LEAVE") {
+        let next = match apply_run_action(sim, RunAction::LeaveShop) {
+            Ok(next) => next,
+            Err(err) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_shop_path".to_owned(),
+                    reason: format!("core rejected shop merchant leave: {err}"),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        if seed_start_shop_destination(&next) != Ok(SeedStartShopDestination::Room) {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_shop_destination".to_owned(),
+                reason: seed_start_shop_destination(&next).err().unwrap_or_else(|| {
+                    "shop merchant leave did not reach the shop room".to_owned()
+                }),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        compare_subset(
+            report,
+            action,
+            "leave shop merchant",
+            seed_start_shop_observed_subset(&post.message),
+            seed_start_shop_room_simulated_subset(&next),
+        );
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+    if command.eq_ignore_ascii_case("PROCEED") {
+        let next = match apply_run_action(sim, RunAction::Proceed) {
+            Ok(next) => next,
+            Err(err) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_shop_path".to_owned(),
+                    reason: format!("core rejected shop room proceed: {err}"),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        if seed_start_shop_destination(&next) != Ok(SeedStartShopDestination::Map) {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_shop_destination".to_owned(),
+                reason: seed_start_shop_destination(&next)
+                    .err()
+                    .unwrap_or_else(|| "shop room proceed did not reach the map".to_owned()),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        let simulated_map = match seed_start_simulated_map_return(&next) {
+            Ok(projection) => projection,
+            Err(reason) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_shop_map_projection".to_owned(),
+                    reason,
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        compare_subset(
+            report,
+            action,
+            "leave shop room",
+            seed_start_map_return_observed_subset(&post.message),
+            simulated_map,
+        );
+        *sim = next;
+        *phase = SeedStartPhase::Map;
+        return SeedStartPreDispatch::Handled;
+    }
+    if command_head_eq(command, "CHOOSE") {
+        let choose_index =
+            choose_index(command).expect("malformed CHOOSE rejected before phase dispatch");
+        let (shop_action, label) = match seed_start_bind_shop_choose(sim, choose_index) {
+            Ok(bound) => bound,
+            Err(reason) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_shop_path".to_owned(),
+                    reason,
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        let next = apply_run_action(sim, shop_action).map_err(|err| err.to_string());
+        let Ok(next) = next else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_shop_path".to_owned(),
+                reason: next.err().unwrap_or_default(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        };
+        let destination = match seed_start_shop_destination(&next) {
+            Ok(destination) => destination,
+            Err(reason) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_shop_destination".to_owned(),
+                    reason,
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        if screen_type(&post.message) == Some("NONE") {
+            let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "trace_client_shop_transient".to_owned(),
+                            reason: format!(
+                                "shop {shop_action:?} reached a transient NONE frame before its core-owned {destination:?} destination became observable"
+                            ),
+                        };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        match destination {
+            SeedStartShopDestination::Screen => {
+                let mut observed = seed_start_shop_observed_subset(&post.message);
+                let mut simulated = seed_start_shop_screen_simulated_subset(&next);
+                let observed_deck = observed
+                    .as_object_mut()
+                    .and_then(|fields| fields.remove("deck_ids"))
+                    .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                    .unwrap_or_default();
+                if let Some(fields) = simulated.as_object_mut() {
+                    fields.remove("deck_ids");
+                }
+                let mut diffs = subset_diffs(observed, simulated);
+                let transient_deck = deck_content_keys(&sim.deck);
+                let expected_deck = deck_content_keys(&next.deck);
+                match classify_deferred_deck_observation(
+                    &observed_deck,
+                    &transient_deck,
+                    &expected_deck,
+                ) {
+                    PendingDeckObservation::Settled if diffs.is_empty() => {
+                        report.verified.push(VerifiedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: label.to_owned(),
+                        });
+                    }
+                    PendingDeckObservation::Deferred if diffs.is_empty() => {
+                        *pending_deck_assertion = Some(PendingDeckAssertion {
+                            action: action.clone(),
+                            label: label.to_owned(),
+                            transient_decks: vec![transient_deck],
+                            expected_deck,
+                        });
+                    }
+                    PendingDeckObservation::Diverged(deck_diffs) => {
+                        diffs.extend(deck_diffs);
+                        report.unexpected_diffs.push(UnexpectedDiff {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: label.to_owned(),
+                            diffs,
+                        });
+                    }
+                    PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+                        report.unexpected_diffs.push(UnexpectedDiff {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: label.to_owned(),
+                            diffs,
+                        });
+                    }
+                }
+            }
+            SeedStartShopDestination::Grid => compare_subset(
+                report,
+                action,
+                label,
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&next),
+            ),
+            SeedStartShopDestination::Reward => compare_subset(
+                report,
+                action,
+                label,
+                seed_start_reward_observed_subset(&post.message),
+                seed_start_reward_simulated_subset(&next),
+            ),
+            destination => {
+                let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "invalid_shop_destination".to_owned(),
+                                reason: format!(
+                                    "shop CHOOSE {choose_index} produced unsupported destination {destination:?}"
+                                ),
+                            };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        }
+        *sim = next;
+        *phase = match destination {
+            SeedStartShopDestination::Grid => SeedStartPhase::Grid,
+            SeedStartShopDestination::Reward => SeedStartPhase::Reward,
+            SeedStartShopDestination::Screen => SeedStartPhase::Shop,
+            _ => unreachable!("shop CHOOSE destination checked above"),
+        };
+        return SeedStartPreDispatch::Handled;
+    }
+    let boundary = SeedStartBoundary {
+        path: format!("$.actions[step={}].command", action.step),
+        category: "unsupported_shop_path".to_owned(),
+        reason: format!("seed-start verifier does not support shop command {command:?}"),
+    };
+    report.unsupported.push(UnsupportedTransition {
+        action_step: action.step,
+        command: action.command.clone(),
+        reason: boundary.reason.clone(),
+    });
+    SeedStartPreDispatch::Boundary(boundary)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_proceed_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    seed_sim: &mut Option<RunState>,
+    pending_map_assertion: &mut Option<PendingMapAssertion>,
+    map_path_xs: &mut Vec<i32>,
+    combat_index: &mut usize,
+    reward_step: &mut usize,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::Proceed {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    if action.command.eq_ignore_ascii_case("PROCEED") {
+        if seed_sim
+            .as_ref()
+            .is_some_and(seed_start_is_final_boss_victory)
+        {
+            let sim = seed_sim
+                .as_mut()
+                .expect("final boss simulation checked above");
+            let next = seed_start_apply_final_boss_proceed(sim);
+            let Ok(next) = next else {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_post_reward_map".to_owned(),
+                    reason: next.err().unwrap_or_default(),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            };
+            compare_subset(
+                report,
+                action,
+                "final boss proceed to Spire Heart",
+                seed_start_spire_heart_observed_subset(&post.message),
+                seed_start_spire_heart_simulated_subset(&next),
+            );
+            *sim = next;
+            *phase = SeedStartPhase::Event;
+            return SeedStartPreDispatch::Handled;
+        }
+        if seed_sim
+            .as_ref()
+            .is_some_and(seed_start_is_boss_chest_proceed)
+        {
+            let Some(sim) = seed_sim.as_mut() else {
+                return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_post_reward_map".to_owned(),
+                    reason: "seed-start boss reward chest without initialized reward simulation"
+                        .to_owned(),
+                });
+            };
+            let next = apply_run_action(sim, RunAction::SkipReward).map_err(|err| err.to_string());
+            let Ok(next) = next else {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_post_reward_map".to_owned(),
+                    reason: next.err().unwrap_or_default(),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            };
+            if next.phase != RunPhase::Treasure {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_post_reward_map".to_owned(),
+                    reason: format!(
+                        "boss combat proceed ended in simulator phase {:?}",
+                        next.phase
+                    ),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+            compare_subset(
+                report,
+                action,
+                "boss combat proceed to chest",
+                seed_start_treasure_observed_subset(&post.message),
+                seed_start_treasure_simulated_subset(&next),
+            );
+            *sim = next;
+            *phase = SeedStartPhase::Treasure;
+            return SeedStartPreDispatch::Handled;
+        }
+        if let Some(boundary) = seed_start_handle_proceed_to_map(
+            report,
+            action,
+            &post.message,
+            phase,
+            combat_index,
+            reward_step,
+            map_path_xs,
+            seed_sim,
+            pending_map_assertion,
+        ) {
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        SeedStartPreDispatch::Handled
+    } else {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_post_reward_map".to_owned(),
+            reason: "seed-start verifier expected reward-to-map PROCEED command".to_owned(),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        SeedStartPreDispatch::Boundary(boundary)
+    }
+}
+
+fn seed_start_handle_complete_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    seed_sim: Option<&RunState>,
+    phase: SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if phase != SeedStartPhase::Complete || !action.command.eq_ignore_ascii_case("PROCEED") {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    let Some(sim) = seed_sim else {
+        return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_complete_path".to_owned(),
+            reason: "terminal proceed without initialized run simulation".to_owned(),
+        });
+    };
+    if sim.phase != RunPhase::Complete
+        || !sim
+            .event
+            .as_ref()
+            .is_some_and(|event| event.event == Event::SpireHeart && event.stage == 4)
+    {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_complete_path".to_owned(),
+            reason: "terminal proceed requires completed Spire Heart state".to_owned(),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    }
+    compare_subset(
+        report,
+        action,
+        "leave completed run",
+        json!({
+            "in_game": post.message.get("in_game").and_then(Value::as_bool),
+        }),
+        json!({ "in_game": false }),
+    );
+    SeedStartPreDispatch::Handled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -3921,27 +4389,6 @@ pub(super) fn verify_seed_start_transitions(
                 reconciled_deferred_action_steps,
                 unresolved_deferred_action_steps,
             )
-        }};
-    }
-
-    macro_rules! require_map_projection {
-        ($run:expr, $action:expr, $category:expr) => {{
-            match seed_start_simulated_map_return($run) {
-                Ok(projection) => projection,
-                Err(reason) => {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", $action.step),
-                        category: $category.to_owned(),
-                        reason,
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: $action.step,
-                        command: $action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                }
-            }
         }};
     }
 
@@ -4645,446 +5092,52 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
-        match phase {
-            SeedStartPhase::Shop => {
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_shop_path".to_owned(),
-                        reason: "seed-start shop action without initialized run simulation"
-                            .to_owned(),
-                    });
-                };
-                let command = action.command.trim();
-                if command.eq_ignore_ascii_case("LEAVE") {
-                    let next = match apply_run_action(sim, RunAction::LeaveShop) {
-                        Ok(next) => next,
-                        Err(err) => {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "unsupported_shop_path".to_owned(),
-                                reason: format!("core rejected shop merchant leave: {err}"),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                    };
-                    if seed_start_shop_destination(&next) != Ok(SeedStartShopDestination::Room) {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_shop_destination".to_owned(),
-                            reason: seed_start_shop_destination(&next).err().unwrap_or_else(|| {
-                                "shop merchant leave did not reach the shop room".to_owned()
-                            }),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                    compare_subset(
-                        report,
-                        action,
-                        "leave shop merchant",
-                        seed_start_shop_observed_subset(&post.message),
-                        seed_start_shop_room_simulated_subset(&next),
-                    );
-                    *sim = next;
-                    continue;
-                }
-                if command.eq_ignore_ascii_case("PROCEED") {
-                    let next = match apply_run_action(sim, RunAction::Proceed) {
-                        Ok(next) => next,
-                        Err(err) => {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "unsupported_shop_path".to_owned(),
-                                reason: format!("core rejected shop room proceed: {err}"),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                    };
-                    if seed_start_shop_destination(&next) != Ok(SeedStartShopDestination::Map) {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_shop_destination".to_owned(),
-                            reason: seed_start_shop_destination(&next).err().unwrap_or_else(|| {
-                                "shop room proceed did not reach the map".to_owned()
-                            }),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                    compare_subset(
-                        report,
-                        action,
-                        "leave shop room",
-                        seed_start_map_return_observed_subset(&post.message),
-                        require_map_projection!(&next, action, "invalid_shop_map_projection"),
-                    );
-                    *sim = next;
-                    phase = SeedStartPhase::Map;
-                    continue;
-                }
-                if command_head_eq(command, "CHOOSE") {
-                    let choose_index = choose_index(command)
-                        .expect("malformed CHOOSE rejected before phase dispatch");
-                    let (shop_action, label) = match seed_start_bind_shop_choose(sim, choose_index)
-                    {
-                        Ok(bound) => bound,
-                        Err(reason) => {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "unsupported_shop_path".to_owned(),
-                                reason,
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                    };
-                    let next = apply_run_action(sim, shop_action).map_err(|err| err.to_string());
-                    let Ok(next) = next else {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_shop_path".to_owned(),
-                            reason: next.err().unwrap_or_default(),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    };
-                    let destination = match seed_start_shop_destination(&next) {
-                        Ok(destination) => destination,
-                        Err(reason) => {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "invalid_shop_destination".to_owned(),
-                                reason,
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                    };
-                    if screen_type(&post.message) == Some("NONE") {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "trace_client_shop_transient".to_owned(),
-                            reason: format!(
-                                "shop {shop_action:?} reached a transient NONE frame before its core-owned {destination:?} destination became observable"
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                    match destination {
-                        SeedStartShopDestination::Screen => {
-                            let mut observed = seed_start_shop_observed_subset(&post.message);
-                            let mut simulated = seed_start_shop_screen_simulated_subset(&next);
-                            let observed_deck = observed
-                                .as_object_mut()
-                                .and_then(|fields| fields.remove("deck_ids"))
-                                .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
-                                .unwrap_or_default();
-                            if let Some(fields) = simulated.as_object_mut() {
-                                fields.remove("deck_ids");
-                            }
-                            let mut diffs = subset_diffs(observed, simulated);
-                            let transient_deck = deck_content_keys(&sim.deck);
-                            let expected_deck = deck_content_keys(&next.deck);
-                            match classify_deferred_deck_observation(
-                                &observed_deck,
-                                &transient_deck,
-                                &expected_deck,
-                            ) {
-                                PendingDeckObservation::Settled if diffs.is_empty() => {
-                                    report.verified.push(VerifiedTransition {
-                                        action_step: action.step,
-                                        command: action.command.clone(),
-                                        label: label.to_owned(),
-                                    });
-                                }
-                                PendingDeckObservation::Deferred if diffs.is_empty() => {
-                                    pending_deck_assertion = Some(PendingDeckAssertion {
-                                        action: action.clone(),
-                                        label: label.to_owned(),
-                                        transient_decks: vec![transient_deck],
-                                        expected_deck,
-                                    });
-                                }
-                                PendingDeckObservation::Diverged(deck_diffs) => {
-                                    diffs.extend(deck_diffs);
-                                    report.unexpected_diffs.push(UnexpectedDiff {
-                                        action_step: action.step,
-                                        command: action.command.clone(),
-                                        label: label.to_owned(),
-                                        diffs,
-                                    });
-                                }
-                                PendingDeckObservation::Settled
-                                | PendingDeckObservation::Deferred => {
-                                    report.unexpected_diffs.push(UnexpectedDiff {
-                                        action_step: action.step,
-                                        command: action.command.clone(),
-                                        label: label.to_owned(),
-                                        diffs,
-                                    });
-                                }
-                            }
-                        }
-                        SeedStartShopDestination::Grid => compare_subset(
-                            report,
-                            action,
-                            label,
-                            seed_start_grid_observed_subset(&post.message),
-                            seed_start_grid_simulated_subset(&next),
-                        ),
-                        SeedStartShopDestination::Reward => compare_subset(
-                            report,
-                            action,
-                            label,
-                            seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next),
-                        ),
-                        destination => {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "invalid_shop_destination".to_owned(),
-                                reason: format!(
-                                    "shop CHOOSE {choose_index} produced unsupported destination {destination:?}"
-                                ),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                    }
-                    *sim = next;
-                    phase = match destination {
-                        SeedStartShopDestination::Grid => SeedStartPhase::Grid,
-                        SeedStartShopDestination::Reward => SeedStartPhase::Reward,
-                        SeedStartShopDestination::Screen => SeedStartPhase::Shop,
-                        _ => unreachable!("shop CHOOSE destination checked above"),
-                    };
-                    continue;
-                }
-                let boundary = SeedStartBoundary {
-                    path: format!("$.actions[step={}].command", action.step),
-                    category: "unsupported_shop_path".to_owned(),
-                    reason: format!(
-                        "seed-start verifier does not support shop command {command:?}"
-                    ),
-                };
-                report.unsupported.push(UnsupportedTransition {
-                    action_step: action.step,
-                    command: action.command.clone(),
-                    reason: boundary.reason.clone(),
-                });
-                return finish_boundary!(boundary);
-            }
-            SeedStartPhase::Proceed => {
-                if action.command.eq_ignore_ascii_case("PROCEED") {
-                    if seed_sim
-                        .as_ref()
-                        .is_some_and(seed_start_is_final_boss_victory)
-                    {
-                        let sim = seed_sim
-                            .as_mut()
-                            .expect("final boss simulation checked above");
-                        let next = seed_start_apply_final_boss_proceed(sim);
-                        let Ok(next) = next else {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "unsupported_post_reward_map".to_owned(),
-                                reason: next.err().unwrap_or_default(),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        };
-                        compare_subset(
-                            report,
-                            action,
-                            "final boss proceed to Spire Heart",
-                            seed_start_spire_heart_observed_subset(&post.message),
-                            seed_start_spire_heart_simulated_subset(&next),
-                        );
-                        *sim = next;
-                        phase = SeedStartPhase::Event;
-                        continue;
-                    }
-                    if seed_sim
-                        .as_ref()
-                        .is_some_and(seed_start_is_boss_chest_proceed)
-                    {
-                        let Some(sim) = seed_sim.as_mut() else {
-                            return finish_boundary!(SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "unsupported_post_reward_map".to_owned(),
-                                reason: "seed-start boss reward chest without initialized reward simulation"
-                                    .to_owned(),
-                            });
-                        };
-                        let next = apply_run_action(sim, RunAction::SkipReward)
-                            .map_err(|err| err.to_string());
-                        let Ok(next) = next else {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "unsupported_post_reward_map".to_owned(),
-                                reason: next.err().unwrap_or_default(),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        };
-                        if next.phase != RunPhase::Treasure {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "unsupported_post_reward_map".to_owned(),
-                                reason: format!(
-                                    "boss combat proceed ended in simulator phase {:?}",
-                                    next.phase
-                                ),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                        compare_subset(
-                            report,
-                            action,
-                            "boss combat proceed to chest",
-                            seed_start_treasure_observed_subset(&post.message),
-                            seed_start_treasure_simulated_subset(&next),
-                        );
-                        *sim = next;
-                        phase = SeedStartPhase::Treasure;
-                        continue;
-                    }
-                    if let Some(boundary) = seed_start_handle_proceed_to_map(
-                        report,
-                        action,
-                        &post.message,
-                        &mut phase,
-                        &mut combat_index,
-                        &mut _reward_step,
-                        &mut map_path_xs,
-                        &mut seed_sim,
-                        &mut pending_map_assertion,
-                    ) {
-                        return finish_boundary!(boundary);
-                    }
-                    continue;
-                } else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_post_reward_map".to_owned(),
-                        reason: "seed-start verifier expected reward-to-map PROCEED command"
-                            .to_owned(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                }
-            }
-            SeedStartPhase::Complete if action.command.eq_ignore_ascii_case("PROCEED") => {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_complete_path".to_owned(),
-                        reason: "terminal proceed without initialized run simulation".to_owned(),
-                    });
-                };
-                if sim.phase != RunPhase::Complete
-                    || !sim
-                        .event
-                        .as_ref()
-                        .is_some_and(|event| event.event == Event::SpireHeart && event.stage == 4)
-                {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_complete_path".to_owned(),
-                        reason: "terminal proceed requires completed Spire Heart state".to_owned(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                }
-                compare_subset(
-                    report,
-                    action,
-                    "leave completed run",
-                    json!({
-                        "in_game": post.message.get("in_game").and_then(Value::as_bool),
-                    }),
-                    json!({ "in_game": false }),
-                );
-                continue;
-            }
-            _ => {
-                let boundary = SeedStartBoundary {
-                    path: format!("$.actions[step={}].command", action.step),
-                    category: "unexpected_seed_start_command".to_owned(),
-                    reason: format!(
-                        "seed-start bootstrap harness did not expect command '{}' in phase {:?}",
-                        action.command, phase
-                    ),
-                };
-                report.unsupported.push(UnsupportedTransition {
-                    action_step: action.step,
-                    command: action.command.clone(),
-                    reason: boundary.reason.clone(),
-                });
-                return finish_boundary!(boundary);
-            }
+        match seed_start_handle_shop_phase(
+            action,
+            post,
+            &mut seed_sim,
+            &mut pending_deck_assertion,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_proceed_phase(
+            action,
+            post,
+            &mut seed_sim,
+            &mut pending_map_assertion,
+            &mut map_path_xs,
+            &mut combat_index,
+            &mut _reward_step,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
+        match seed_start_handle_complete_phase(action, post, seed_sim.as_ref(), phase, report) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unexpected_seed_start_command".to_owned(),
+            reason: format!(
+                "seed-start bootstrap harness did not expect command '{}' in phase {:?}",
+                action.command, phase
+            ),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return finish_boundary!(boundary);
     }
 
     finish_boundary!(SeedStartBoundary {
