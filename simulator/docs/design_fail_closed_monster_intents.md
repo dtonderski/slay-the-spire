@@ -38,6 +38,12 @@ explicitly unsupported monsters are not retained behind an early error check,
 and the helper has no default `Stun` fallback that could become reachable after
 future dispatch changes.
 
+The final generic dispatch arm names `FIXED_SIMPLE_MONSTER_ID` explicitly.
+Every other unhandled definition produces `PendingAiRoll`, which the
+authoritative preparation API converts to `UnsupportedMechanic`; adding a
+registered monster definition can no longer inherit the fixture's ordinary
+attack by omission.
+
 ## Verification
 
 Regression tests must prove that unknown identities return `UnknownContent`,

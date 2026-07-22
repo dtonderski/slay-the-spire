@@ -3989,6 +3989,9 @@ pub fn prepare_monster_intent_for_ascension(
         monster.mode_shift,
         monster.rolled_attack_damage,
     );
+    if matches!(intent, MonsterIntent::PendingAiRoll) {
+        return Err(SimError::UnsupportedMechanic(monster.content_id));
+    }
     if monster.content_id != TRANSIENT_ID {
         if let Some(damage) = monster.rolled_attack_damage {
             if let MonsterIntent::Attack {
@@ -4179,6 +4182,9 @@ fn prepare_monster_intent_for(
         CULTIST_ID if moves_executed == 0 => MonsterIntent::Ritual {
             amount: definition.ritual_amount,
         },
+        CULTIST_ID => MonsterIntent::Attack {
+            damage: definition.attack_damage,
+        },
         JAW_WORM_ID => jaw_worm_intent(moves_executed),
         GREMLIN_NOB_ID => gremlin_nob_intent(moves_executed, 0),
         RED_LOUSE_ID => red_louse_intent(moves_executed, rolled_attack_damage),
@@ -4225,9 +4231,10 @@ fn prepare_monster_intent_for(
         }
         HEXAGHOST_ID => hexaghost_intent(moves_executed),
         SLIME_BOSS_ID => slime_boss_intent(moves_executed, 0),
-        _ => MonsterIntent::Attack {
+        FIXED_SIMPLE_MONSTER_ID => MonsterIntent::Attack {
             damage: definition.attack_damage,
         },
+        _ => MonsterIntent::PendingAiRoll,
     }
 }
 
@@ -12029,6 +12036,16 @@ mod tests {
 
     #[test]
     fn generic_intent_preparation_rejects_unknown_and_approximate_content() {
+        let unhandled_definition = MonsterDefinition {
+            content_id: ContentId::new(u64::MAX),
+            ..FIXED_SIMPLE_MONSTER
+        };
+        assert_eq!(
+            prepare_monster_intent_for(&unhandled_definition, 0, None),
+            MonsterIntent::PendingAiRoll,
+            "an unhandled definition must not inherit the fixed fixture attack"
+        );
+
         let mut unknown = monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1));
         unknown.content_id = ContentId::new(u64::MAX);
         assert_eq!(
