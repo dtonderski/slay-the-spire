@@ -170,13 +170,6 @@ pub const BEYOND_ELITE_ENCOUNTERS: [(&str, f32); 3] =
     [("Giant Head", 2.0), ("Nemesis", 2.0), ("Reptomancer", 2.0)];
 
 #[must_use]
-pub fn generate_exordium_weak_encounters(seed: i64) -> Vec<String> {
-    let mut rng = StsRng::new(seed);
-    generate_exordium_weak_encounters_with_rng(&mut rng, 3)
-        .expect("static Exordium weak encounter pool is valid")
-}
-
-#[must_use]
 pub fn generate_exordium_normal_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
     let mut encounters = generate_exordium_weak_encounters_with_rng(&mut rng, 3)
@@ -326,13 +319,6 @@ pub fn target_beyond_act_three_boss_kind_with_unlocks(
 }
 
 #[must_use]
-pub fn generate_city_weak_encounters(seed: i64) -> Vec<String> {
-    let mut rng = StsRng::new(seed);
-    generate_city_weak_encounters_with_rng(&mut rng, 2)
-        .expect("static City weak encounter pool is valid")
-}
-
-#[must_use]
 pub fn generate_city_normal_encounters(seed: i64) -> Vec<String> {
     let mut rng = StsRng::new(seed);
     let mut encounters = generate_city_weak_encounters_with_rng(&mut rng, 2)
@@ -459,7 +445,7 @@ pub fn target_normal_encounter_key_at_combat_index(
     }
 }
 
-pub fn generate_exordium_weak_encounters_with_rng(
+fn generate_exordium_weak_encounters_with_rng(
     rng: &mut StsRng,
     count: usize,
 ) -> SimResult<Vec<String>> {
@@ -470,7 +456,7 @@ pub fn generate_exordium_weak_encounters_with_rng(
     Ok(encounters)
 }
 
-pub fn generate_city_weak_encounters_with_rng(
+fn generate_city_weak_encounters_with_rng(
     rng: &mut StsRng,
     count: usize,
 ) -> SimResult<Vec<String>> {
@@ -481,7 +467,7 @@ pub fn generate_city_weak_encounters_with_rng(
     Ok(encounters)
 }
 
-pub fn generate_beyond_weak_encounters_with_rng(
+fn generate_beyond_weak_encounters_with_rng(
     rng: &mut StsRng,
     count: usize,
 ) -> SimResult<Vec<String>> {
