@@ -615,6 +615,216 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
         }
+        Event::BackToBasics => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Back to Basics stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Back to Basics retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Elegance", "Simplicity"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Back to Basics choices do not match its stage",
+                ));
+            }
+        }
+        Event::TheLibrary => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("The Library stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "The Library retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Read", "Sleep"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "The Library choices do not match its stage",
+                ));
+            }
+        }
+        Event::TheMausoleum => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("The Mausoleum stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "The Mausoleum retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                labeled_choices(&["Open coffin", "Leave"])
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "The Mausoleum choices do not match its stage",
+                ));
+            }
+        }
+        Event::Vampires => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Vampires stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Vampires retains unexpected event data",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                vampires_choices(run.relics.contains(&Relic::BloodVial))
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Vampires choices do not match its stage",
+                ));
+            }
+        }
+        Event::Nest => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Nest stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState("Nest retains unexpected event data"));
+            }
+            if screen.choices != nest_choices(screen.stage as u8, run.ascension) {
+                return Err(SimError::InvalidState(
+                    "Nest choices do not match its stage",
+                ));
+            }
+        }
+        Event::Beggar => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Beggar stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Beggar retains unexpected event data",
+                ));
+            }
+            if screen.choices != beggar_choices(screen.stage as u8) {
+                return Err(SimError::InvalidState(
+                    "Beggar choices do not match its stage",
+                ));
+            }
+        }
+        Event::Addict => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Addict stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Addict retains unexpected event data",
+                ));
+            }
+            if screen.choices != addict_choices(screen.stage as u8) {
+                return Err(SimError::InvalidState(
+                    "Addict choices do not match its stage",
+                ));
+            }
+        }
+        Event::ForgottenAltar => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Forgotten Altar stage is invalid"));
+            }
+            if screen.stage == 0 && screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Forgotten Altar result does not match its stage",
+                ));
+            }
+            if screen.choices
+                != forgotten_altar_choices(
+                    screen.stage as u8,
+                    run.relics.contains(&Relic::GoldenIdol),
+                )
+            {
+                return Err(SimError::InvalidState(
+                    "Forgotten Altar choices do not match its stage",
+                ));
+            }
+        }
+        Event::Ghosts => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Ghosts stage is invalid"));
+            }
+            if matches!(screen.stage, 0 | 2) && screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Ghosts result does not match its stage",
+                ));
+            }
+            let expected_choices = if screen.stage == 0 {
+                ghosts_choices(0, run.player_max_hp)
+            } else {
+                labeled_choices(&["Leave"])
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Ghosts choices do not match its stage",
+                ));
+            }
+        }
+        Event::MaskedBandits => {
+            if screen.stage > 3 {
+                return Err(SimError::InvalidState("Masked Bandits stage is invalid"));
+            }
+            if screen.stage == 0 && screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Masked Bandits result does not match its stage",
+                ));
+            }
+            if screen.choices != masked_bandits_choices(screen.stage as u8) {
+                return Err(SimError::InvalidState(
+                    "Masked Bandits choices do not match its stage",
+                ));
+            }
+        }
+        Event::Colosseum => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Colosseum stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Colosseum retains unexpected event data",
+                ));
+            }
+            if screen.choices != colosseum_choices(screen.stage as u8) {
+                return Err(SimError::InvalidState(
+                    "Colosseum choices do not match its stage",
+                ));
+            }
+        }
+        Event::DrugDealer => {
+            if screen.stage > 1 {
+                return Err(SimError::InvalidState("Drug Dealer stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Drug Dealer retains unexpected event data",
+                ));
+            }
+            let transform_enabled =
+                purgeable_event_card_count(run) >= usize::from(DRUG_DEALER_TRANSFORM_COUNT);
+            if screen.choices != drug_dealer_choices(screen.stage as u8, transform_enabled) {
+                return Err(SimError::InvalidState(
+                    "Drug Dealer choices do not match its stage",
+                ));
+            }
+        }
         Event::DeadAdventurer => {
             if screen.event_data & !0x7ff != 0 {
                 return Err(SimError::InvalidState(
@@ -692,6 +902,11 @@ pub(super) fn validate_event_screen_authority(
                     ));
                 }
             }
+            if screen.choices != knowing_skull_choices(screen.stage, screen.event_data) {
+                return Err(SimError::InvalidState(
+                    "Knowing Skull choices do not match its stage",
+                ));
+            }
         }
         Event::ScrapOoze => {
             if screen.stage > 2 {
@@ -734,6 +949,11 @@ pub(super) fn validate_event_screen_authority(
             if !valid_data {
                 return Err(SimError::InvalidState(
                     "Cursed Tome accumulated HP loss does not match its stage",
+                ));
+            }
+            if screen.choices != cursed_tome_choices(screen.stage as u8, run.ascension) {
+                return Err(SimError::InvalidState(
+                    "Cursed Tome choices do not match its stage",
                 ));
             }
         }
@@ -2863,6 +3083,15 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
         Event::ForgottenAltar => make_event_screen(
             event,
             forgotten_altar_choices(0, run.relics.contains(&Relic::GoldenIdol)),
+            0,
+        ),
+        Event::Ghosts => make_event_screen(event, ghosts_choices(0, run.player_max_hp), 0),
+        Event::DrugDealer => make_event_screen(
+            event,
+            drug_dealer_choices(
+                0,
+                purgeable_event_card_count(run) >= usize::from(DRUG_DEALER_TRANSFORM_COUNT),
+            ),
             0,
         ),
         Event::NoteForYourself => make_event_screen(event, note_for_yourself_choices(0), 0),
@@ -5557,6 +5786,174 @@ mod tests {
             run.validate()
                 .expect("removal-grid return stage is authoritative");
         }
+    }
+
+    #[test]
+    fn act_two_import_rejects_unreachable_event_screen_shapes() {
+        for (event, invalid_stage, stage_error, data_error, choices_error) in [
+            (
+                Event::BackToBasics,
+                2,
+                "Back to Basics stage is invalid",
+                "Back to Basics retains unexpected event data",
+                "Back to Basics choices do not match its stage",
+            ),
+            (
+                Event::TheLibrary,
+                3,
+                "The Library stage is invalid",
+                "The Library retains unexpected event data",
+                "The Library choices do not match its stage",
+            ),
+            (
+                Event::TheMausoleum,
+                2,
+                "The Mausoleum stage is invalid",
+                "The Mausoleum retains unexpected event data",
+                "The Mausoleum choices do not match its stage",
+            ),
+            (
+                Event::Vampires,
+                2,
+                "Vampires stage is invalid",
+                "Vampires retains unexpected event data",
+                "Vampires choices do not match its stage",
+            ),
+            (
+                Event::Nest,
+                3,
+                "Nest stage is invalid",
+                "Nest retains unexpected event data",
+                "Nest choices do not match its stage",
+            ),
+            (
+                Event::Beggar,
+                3,
+                "Beggar stage is invalid",
+                "Beggar retains unexpected event data",
+                "Beggar choices do not match its stage",
+            ),
+            (
+                Event::Addict,
+                2,
+                "Addict stage is invalid",
+                "Addict retains unexpected event data",
+                "Addict choices do not match its stage",
+            ),
+            (
+                Event::ForgottenAltar,
+                2,
+                "Forgotten Altar stage is invalid",
+                "Forgotten Altar result does not match its stage",
+                "Forgotten Altar choices do not match its stage",
+            ),
+            (
+                Event::Ghosts,
+                3,
+                "Ghosts stage is invalid",
+                "Ghosts result does not match its stage",
+                "Ghosts choices do not match its stage",
+            ),
+            (
+                Event::MaskedBandits,
+                4,
+                "Masked Bandits stage is invalid",
+                "Masked Bandits result does not match its stage",
+                "Masked Bandits choices do not match its stage",
+            ),
+            (
+                Event::Colosseum,
+                3,
+                "Colosseum stage is invalid",
+                "Colosseum retains unexpected event data",
+                "Colosseum choices do not match its stage",
+            ),
+            (
+                Event::DrugDealer,
+                2,
+                "Drug Dealer stage is invalid",
+                "Drug Dealer retains unexpected event data",
+                "Drug Dealer choices do not match its stage",
+            ),
+        ] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.current_act = 2;
+            run.phase = RunPhase::Event;
+            run.event = Some(event_screen_for_run(&run, event));
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").stage = invalid_stage;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(stage_error)),
+                "{event:?} accepts an unreachable stage"
+            );
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").event_data = 1;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(data_error)),
+                "{event:?} accepts unreachable event data"
+            );
+
+            run.event.as_mut().expect("event screen").choices.clear();
+            assert_eq!(
+                run.validate(),
+                Err(SimError::InvalidState(choices_error)),
+                "{event:?} accepts a noncanonical choice list"
+            );
+        }
+    }
+
+    #[test]
+    fn existing_act_two_authority_checks_reject_noncanonical_choices() {
+        for (event, error) in [
+            (
+                Event::CursedTome,
+                "Cursed Tome choices do not match its stage",
+            ),
+            (
+                Event::KnowingSkull,
+                "Knowing Skull choices do not match its stage",
+            ),
+        ] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.current_act = 2;
+            run.phase = RunPhase::Event;
+            run.event = Some(event_screen_for_run(&run, event));
+            run.event.as_mut().expect("event screen").choices.clear();
+            assert_eq!(run.validate(), Err(SimError::InvalidState(error)));
+        }
+    }
+
+    #[test]
+    fn drug_dealer_entry_uses_the_typed_transform_eligibility() {
+        let run = RunState::seeded_ironclad(1, 0);
+        let enabled = event_screen_for_run(&run, Event::DrugDealer);
+        assert_eq!(enabled.choices[1].label, "Become test subject");
+
+        let mut empty = run;
+        empty.deck.clear();
+        let disabled = event_screen_for_run(&empty, Event::DrugDealer);
+        assert_eq!(
+            disabled.choices[1].label,
+            "Become test subject (requires 2 cards)"
+        );
+    }
+
+    #[test]
+    fn ghosts_entry_uses_current_max_hp_instead_of_static_placeholder_state() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.player_max_hp = 96;
+
+        let screen = event_screen_for_run(&run, Event::Ghosts);
+
+        assert_eq!(screen.choices[0].label, "Accept (lose 48 max HP)");
+        run.phase = RunPhase::Event;
+        run.event = Some(screen);
+        run.validate()
+            .expect("generated Ghosts entry has authoritative choices");
     }
 
     #[test]
