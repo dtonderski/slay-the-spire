@@ -1732,18 +1732,12 @@ impl RunState {
                 GridPurpose::EventRemove
                 | GridPurpose::EventObtainCard
                 | GridPurpose::EventUpgrade
-                | GridPurpose::EventTransform { .. } => {
-                    self.phase == RunPhase::Event && self.event.is_some()
-                }
-                GridPurpose::EventRemoveReturnToEvent { event }
-                | GridPurpose::EventObtainCardReturnToEvent { event }
-                | GridPurpose::EventUpgradeReturnToEvent { event }
-                | GridPurpose::EventTransformReturnToEvent { event, .. } => {
-                    self.phase == RunPhase::Event
-                        && self
-                            .event
-                            .as_ref()
-                            .is_some_and(|screen| screen.event == event)
+                | GridPurpose::EventTransform { .. }
+                | GridPurpose::EventRemoveReturnToEvent { .. }
+                | GridPurpose::EventObtainCardReturnToEvent { .. }
+                | GridPurpose::EventUpgradeReturnToEvent { .. }
+                | GridPurpose::EventTransformReturnToEvent { .. } => {
+                    super::grid::event_grid_has_authoritative_owner(self, grid.purpose)
                 }
                 GridPurpose::NeowRemove { .. }
                 | GridPurpose::NeowUpgrade
@@ -1755,17 +1749,10 @@ impl RunState {
                             .is_some_and(|screen| screen.event == super::event::Event::Neow)
                 }
                 GridPurpose::BonfireElementals => {
-                    self.phase == RunPhase::Event
-                        && self.event.as_ref().is_some_and(|screen| {
-                            screen.event == super::event::Event::BonfireElementals
-                        })
+                    super::grid::event_grid_has_authoritative_owner(self, grid.purpose)
                 }
                 GridPurpose::DesignerRemoveAndUpgrade => {
-                    self.phase == RunPhase::Event
-                        && self
-                            .event
-                            .as_ref()
-                            .is_some_and(|screen| screen.event == super::event::Event::Designer)
+                    super::grid::event_grid_has_authoritative_owner(self, grid.purpose)
                 }
                 GridPurpose::EmptyCage { .. }
                 | GridPurpose::CallingBellCurse

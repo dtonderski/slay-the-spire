@@ -48,6 +48,77 @@ pub struct CardGridScreen {
     pub selected_indices: Vec<usize>,
 }
 
+pub(super) fn event_grid_has_authoritative_owner(run: &RunState, purpose: GridPurpose) -> bool {
+    let Some(screen) = run.event.as_ref().filter(|_| run.phase == RunPhase::Event) else {
+        return false;
+    };
+
+    match purpose {
+        GridPurpose::EventRemove => matches!(
+            (screen.event, screen.stage),
+            (Event::BackToBasics, 0) | (Event::Beggar, 2)
+        ),
+        GridPurpose::EventObtainCard
+        | GridPurpose::EventUpgrade
+        | GridPurpose::EventTransform { .. } => false,
+        GridPurpose::EventRemoveReturnToEvent { event } => {
+            event == screen.event
+                && match (screen.event, screen.stage) {
+                    (Event::WingStatue, 2) => screen.event_data == 0,
+                    (Event::TheCleric | Event::LivingWall | Event::Purifier, 0)
+                    | (Event::Designer | Event::NoteForYourself | Event::Falling, 1) => true,
+                    (Event::WheelOfChange, 2) => screen.event_data == 4,
+                    _ => false,
+                }
+        }
+        GridPurpose::EventObtainCardReturnToEvent { event } => {
+            event == screen.event
+                && matches!(
+                    (screen.event, screen.stage),
+                    (Event::TheLibrary | Event::Duplicator, 0)
+                )
+        }
+        GridPurpose::EventUpgradeReturnToEvent { event } => {
+            event == screen.event
+                && matches!(
+                    (screen.event, screen.stage),
+                    (Event::Designer, 1)
+                        | (
+                            Event::AccursedBlacksmith | Event::UpgradeShrine | Event::LivingWall,
+                            0
+                        )
+                )
+        }
+        GridPurpose::EventTransformReturnToEvent { event, count } => {
+            event == screen.event
+                && matches!(
+                    (screen.event, screen.stage, count),
+                    (Event::Designer, 1, 2)
+                        | (Event::Transmorgrifier | Event::LivingWall, 0, 1)
+                        | (Event::DrugDealer, 1, 2)
+                )
+        }
+        GridPurpose::BonfireElementals => {
+            screen.event == Event::BonfireElementals && screen.stage == 1
+        }
+        GridPurpose::DesignerRemoveAndUpgrade => {
+            screen.event == Event::Designer && screen.stage == 1
+        }
+        GridPurpose::RestSmith
+        | GridPurpose::RestRemove
+        | GridPurpose::ShopRemove
+        | GridPurpose::EmptyCage { .. }
+        | GridPurpose::NeowRemove { .. }
+        | GridPurpose::NeowUpgrade
+        | GridPurpose::Bottle { .. }
+        | GridPurpose::DollysMirror
+        | GridPurpose::CallingBellCurse
+        | GridPurpose::PandorasBox
+        | GridPurpose::Astrolabe
+        | GridPurpose::NeowTransform { .. } => false,
+    }
+}
+
 pub fn open_rest_smith_grid(run: &mut RunState) {
     let cards = run
         .deck
@@ -1129,6 +1200,73 @@ mod tests {
             .cards
             .iter()
             .any(|card| card.content_id == RITUAL_DAGGER_ID));
+    }
+
+    #[test]
+    fn event_grids_require_their_exact_reachable_owner_stage() {
+        let mut purifier = RunState::seeded_ironclad(1, 0);
+        purifier.phase = RunPhase::Event;
+        purifier.event = Some(crate::run::event::event_screen_for_run(
+            &purifier,
+            Event::Purifier,
+        ));
+        let opened = crate::run::event::apply_event_action(
+            &purifier,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Purifier opens its remove grid");
+        opened
+            .validate()
+            .expect("Purifier owns its stage-zero remove grid");
+
+        let grid = opened.card_grid.clone().expect("remove grid");
+        let selected = select_grid_card(&opened, 0).expect("remove card can be selected");
+        let mut stale = confirm_grid(&selected).expect("Purifier remove confirms");
+        stale.card_grid = Some(grid);
+        assert_eq!(
+            stale.validate(),
+            Err(SimError::InvalidState(
+                "card grid purpose has no authoritative phase owner"
+            ))
+        );
+
+        let mut generic = opened;
+        generic.card_grid.as_mut().expect("remove grid").purpose = GridPurpose::EventUpgrade;
+        assert_eq!(
+            generic.validate(),
+            Err(SimError::InvalidState(
+                "card grid purpose has no authoritative phase owner"
+            ))
+        );
+
+        let mut living_wall = RunState::seeded_ironclad(1, 0);
+        living_wall.phase = RunPhase::Event;
+        living_wall.event = Some(crate::run::event::event_screen_for_run(
+            &living_wall,
+            Event::LivingWall,
+        ));
+        let mut transform = crate::run::event::apply_event_action(
+            &living_wall,
+            crate::EventAction::Choose { choice_index: 1 },
+        )
+        .expect("Living Wall opens its transform grid");
+        transform
+            .validate()
+            .expect("Living Wall owns its one-card transform grid");
+        transform
+            .card_grid
+            .as_mut()
+            .expect("transform grid")
+            .purpose = GridPurpose::EventTransformReturnToEvent {
+            event: Event::LivingWall,
+            count: 2,
+        };
+        assert_eq!(
+            transform.validate(),
+            Err(SimError::InvalidState(
+                "card grid purpose has no authoritative phase owner"
+            ))
+        );
     }
 
     #[test]
