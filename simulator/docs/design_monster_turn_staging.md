@@ -58,6 +58,17 @@ summoner-content error; summoner liveness checks; ally selection; checked move
 counters; and next-intent preparation. These handled branches continue to
 bypass generic effects and between-actor revival exactly as before.
 
+## Fourth slice: generic intent execution
+
+Move the generic intent path and its between-actor Lizard Tail check into one
+stage returning an explicit actor-turn disposition. Preserve the pre-intent
+player snapshot, deferred status-pile restoration, hit calculation, Ritual
+tracking, pending-effect order, living-player-only status additions, Nemesis
+Intangible toggle, next-intent preparation, and Transient fading. Preserve
+Lagavulin's natural-wake shortcut as a continue disposition before revival.
+Return the stop disposition only when the ordinary revival point leaves the
+player dead; the caller then exits before round cleanup exactly as before.
+
 ## Verification
 
 Review the moved body against the pre-extraction diff, run focused `sts_core`

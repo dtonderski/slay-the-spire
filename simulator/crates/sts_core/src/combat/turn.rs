@@ -471,160 +471,188 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
         if execute_spawning_or_targeted_special_intent(state, actor_id, index, ascension)? {
             continue;
         }
-        let player_snapshot = state.player.clone();
-        let intent = state.monsters[index].intent;
-        let nemesis_had_intangible = state.monsters[index].content_id == NEMESIS_ID
-            && state.monsters[index].powers.intangible > 0;
-        let deferred_burn_to_discard = match intent {
-            crate::MonsterIntent::AddBurnToDiscard { count, .. } => count,
-            _ => 0,
-        };
-        let deferred_burn_is_upgraded = deferred_burn_to_discard > 0
-            && state.monsters[index].content_id == HEXAGHOST_ID
-            && state.monsters[index].burns_upgraded;
-        let deferred_upgrade_burns = match intent {
-            crate::MonsterIntent::AttackMultipleUpgradeBurns { count, .. } => count,
-            _ => 0,
-        };
-        let deferred_wounds_to_discard = match intent {
-            crate::MonsterIntent::AttackAddWoundsToDiscard { count, .. } => {
-                if state.monsters[index].content_id == crate::content::monsters::TASKMASTER_ID {
-                    target_taskmaster_wound_count(ascension)
-                } else {
-                    count
-                }
-            }
-            _ => 0,
-        };
-        let piles_before_post_damage_effects = (deferred_burn_to_discard > 0
-            || deferred_upgrade_burns > 0)
-            .then(|| state.piles.clone());
-        let allocated_card_id_through = state.max_authoritative_card_instance_id();
-        let damage = apply_monster_intent_with_card_rng(
-            &mut state.monsters[index],
-            &mut state.player,
-            &mut state.piles,
-            allocated_card_id_through,
-            ascension,
-            &player_snapshot,
-            &relics,
-            &mut state.rng.card_random_rng,
-        )?;
-        if let Some(piles) = piles_before_post_damage_effects {
-            // CommunicationMod observes Hexaghost/Nemesis status cards only
-            // after attack damage resolves. In particular, a lethal Inferno
-            // does not upgrade existing Burns or add its three new Burns.
-            state.piles = piles;
-        }
-        let hits = effective_current_move_hits(intent, state.monsters[index].intent);
-        if matches!(intent, crate::MonsterIntent::Ritual { .. }) {
-            skip_ritual_tick.push(actor_id);
-        }
-        let heal_self =
-            matches!(intent, crate::MonsterIntent::AttackHealSelf { .. }).then_some(actor_id);
-        let burn_to_discard_and_draw = match intent {
-            crate::MonsterIntent::AddBurnToDiscardAndDraw { count, .. } => count,
-            _ => 0,
-        };
-        let dazed_to_discard = match intent {
-            crate::MonsterIntent::AttackMultipleAddDazedToDiscard { count, .. } => count,
-            _ => 0,
-        };
-        let weak = match intent {
-            crate::MonsterIntent::AttackMultipleApplyPlayerWeak { weak, .. } => weak,
-            _ => 0,
-        };
-        if damage > 0
-            || burn_to_discard_and_draw > 0
-            || weak > 0
-            || deferred_burn_to_discard > 0
-            || deferred_upgrade_burns > 0
-        {
-            let heal_self_thorns = if heal_self.is_some() {
-                checked_turn_mul(
-                    checked_turn_add(state.player.powers.thorns, state.player.temp_thorns)?,
-                    hits.max(1),
-                )?
-            } else {
-                0
-            };
-            apply_monster_pending_effects(
+        if matches!(
+            execute_generic_monster_intent(
                 state,
-                damage,
-                hits,
-                state.monsters[index].powers.painful_stabs,
-                heal_self,
-                heal_self_thorns,
-                burn_to_discard_and_draw,
-                weak,
-                deferred_burn_to_discard,
-                deferred_burn_is_upgraded,
-                deferred_upgrade_burns,
-            )?;
-        }
-        if state.player.hp > 0
-            && deferred_upgrade_burns > 0
-            && state.monsters[index].content_id == HEXAGHOST_ID
-        {
-            state.monsters[index].burns_upgraded = true;
-        }
-        if state.player.hp > 0 {
-            if let crate::MonsterIntent::AttackAddSlimedToDiscard { count, .. } = intent {
-                let allocated_card_id_through = state.max_authoritative_card_instance_id();
-                add_cards_to_discard(
-                    &mut state.piles,
-                    SLIMED_ID,
-                    count,
-                    allocated_card_id_through,
-                )?;
-            }
-            if deferred_wounds_to_discard > 0 {
-                let allocated_card_id_through = state.max_authoritative_card_instance_id();
-                add_cards_to_discard(
-                    &mut state.piles,
-                    WOUND_ID,
-                    deferred_wounds_to_discard,
-                    allocated_card_id_through,
-                )?;
-            }
-        }
-        if state.player.hp > 0 && dazed_to_discard > 0 {
-            let allocated_card_id_through = state.max_authoritative_card_instance_id();
-            add_cards_to_discard(
-                &mut state.piles,
-                DAZED_ID,
-                dazed_to_discard,
-                allocated_card_id_through,
-            )?;
-        }
-        if state.monsters[index].alive && state.monsters[index].content_id == NEMESIS_ID {
-            if nemesis_had_intangible {
-                state.monsters[index].powers.intangible =
-                    state.monsters[index].powers.intangible.saturating_sub(1);
-            } else if state.monsters[index].powers.intangible == 0 {
-                state.monsters[index].powers.intangible = 1;
-            }
-        }
-        if state.monsters[index].alive {
-            if state.monsters[index].content_id == LAGAVULIN_ID
-                && matches!(intent, crate::MonsterIntent::Sleep)
-                && state.monsters[index].sleep_turns_remaining == 0
-            {
-                state.monsters[index].intent =
-                    target_lagavulin_direct_wake_attack_intent(ascension);
-                record_target_move(&mut state.monsters[index]);
-                continue;
-            }
-            prepare_next_intent_for_actor(state, actor_id)?;
-            apply_transient_fading_after_turn(&mut state.monsters, actor_id);
-        }
-        revive_with_lizard_tail_if_available(state)?;
-        if state.player.hp <= 0 {
+                actor_id,
+                index,
+                ascension,
+                &relics,
+                &mut skip_ritual_tick,
+            )?,
+            ActorTurnDisposition::StopPlayerDead
+        ) {
             return Ok(());
         }
     }
 
     finish_monster_turn_cleanup(state, &skip_ritual_tick)
+}
+
+enum ActorTurnDisposition {
+    Continue,
+    StopPlayerDead,
+}
+
+fn execute_generic_monster_intent(
+    state: &mut CombatState,
+    actor_id: MonsterId,
+    index: usize,
+    ascension: u8,
+    relics: &[crate::Relic],
+    skip_ritual_tick: &mut Vec<MonsterId>,
+) -> SimResult<ActorTurnDisposition> {
+    let player_snapshot = state.player.clone();
+    let intent = state.monsters[index].intent;
+    let nemesis_had_intangible = state.monsters[index].content_id == NEMESIS_ID
+        && state.monsters[index].powers.intangible > 0;
+    let deferred_burn_to_discard = match intent {
+        crate::MonsterIntent::AddBurnToDiscard { count, .. } => count,
+        _ => 0,
+    };
+    let deferred_burn_is_upgraded = deferred_burn_to_discard > 0
+        && state.monsters[index].content_id == HEXAGHOST_ID
+        && state.monsters[index].burns_upgraded;
+    let deferred_upgrade_burns = match intent {
+        crate::MonsterIntent::AttackMultipleUpgradeBurns { count, .. } => count,
+        _ => 0,
+    };
+    let deferred_wounds_to_discard = match intent {
+        crate::MonsterIntent::AttackAddWoundsToDiscard { count, .. } => {
+            if state.monsters[index].content_id == crate::content::monsters::TASKMASTER_ID {
+                target_taskmaster_wound_count(ascension)
+            } else {
+                count
+            }
+        }
+        _ => 0,
+    };
+    let piles_before_post_damage_effects =
+        (deferred_burn_to_discard > 0 || deferred_upgrade_burns > 0).then(|| state.piles.clone());
+    let allocated_card_id_through = state.max_authoritative_card_instance_id();
+    let damage = apply_monster_intent_with_card_rng(
+        &mut state.monsters[index],
+        &mut state.player,
+        &mut state.piles,
+        allocated_card_id_through,
+        ascension,
+        &player_snapshot,
+        relics,
+        &mut state.rng.card_random_rng,
+    )?;
+    if let Some(piles) = piles_before_post_damage_effects {
+        // CommunicationMod observes Hexaghost/Nemesis status cards only
+        // after attack damage resolves. In particular, a lethal Inferno
+        // does not upgrade existing Burns or add its three new Burns.
+        state.piles = piles;
+    }
+    let hits = effective_current_move_hits(intent, state.monsters[index].intent);
+    if matches!(intent, crate::MonsterIntent::Ritual { .. }) {
+        skip_ritual_tick.push(actor_id);
+    }
+    let heal_self =
+        matches!(intent, crate::MonsterIntent::AttackHealSelf { .. }).then_some(actor_id);
+    let burn_to_discard_and_draw = match intent {
+        crate::MonsterIntent::AddBurnToDiscardAndDraw { count, .. } => count,
+        _ => 0,
+    };
+    let dazed_to_discard = match intent {
+        crate::MonsterIntent::AttackMultipleAddDazedToDiscard { count, .. } => count,
+        _ => 0,
+    };
+    let weak = match intent {
+        crate::MonsterIntent::AttackMultipleApplyPlayerWeak { weak, .. } => weak,
+        _ => 0,
+    };
+    if damage > 0
+        || burn_to_discard_and_draw > 0
+        || weak > 0
+        || deferred_burn_to_discard > 0
+        || deferred_upgrade_burns > 0
+    {
+        let heal_self_thorns = if heal_self.is_some() {
+            checked_turn_mul(
+                checked_turn_add(state.player.powers.thorns, state.player.temp_thorns)?,
+                hits.max(1),
+            )?
+        } else {
+            0
+        };
+        apply_monster_pending_effects(
+            state,
+            damage,
+            hits,
+            state.monsters[index].powers.painful_stabs,
+            heal_self,
+            heal_self_thorns,
+            burn_to_discard_and_draw,
+            weak,
+            deferred_burn_to_discard,
+            deferred_burn_is_upgraded,
+            deferred_upgrade_burns,
+        )?;
+    }
+    if state.player.hp > 0
+        && deferred_upgrade_burns > 0
+        && state.monsters[index].content_id == HEXAGHOST_ID
+    {
+        state.monsters[index].burns_upgraded = true;
+    }
+    if state.player.hp > 0 {
+        if let crate::MonsterIntent::AttackAddSlimedToDiscard { count, .. } = intent {
+            let allocated_card_id_through = state.max_authoritative_card_instance_id();
+            add_cards_to_discard(
+                &mut state.piles,
+                SLIMED_ID,
+                count,
+                allocated_card_id_through,
+            )?;
+        }
+        if deferred_wounds_to_discard > 0 {
+            let allocated_card_id_through = state.max_authoritative_card_instance_id();
+            add_cards_to_discard(
+                &mut state.piles,
+                WOUND_ID,
+                deferred_wounds_to_discard,
+                allocated_card_id_through,
+            )?;
+        }
+    }
+    if state.player.hp > 0 && dazed_to_discard > 0 {
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+        add_cards_to_discard(
+            &mut state.piles,
+            DAZED_ID,
+            dazed_to_discard,
+            allocated_card_id_through,
+        )?;
+    }
+    if state.monsters[index].alive && state.monsters[index].content_id == NEMESIS_ID {
+        if nemesis_had_intangible {
+            state.monsters[index].powers.intangible =
+                state.monsters[index].powers.intangible.saturating_sub(1);
+        } else if state.monsters[index].powers.intangible == 0 {
+            state.monsters[index].powers.intangible = 1;
+        }
+    }
+    if state.monsters[index].alive {
+        if state.monsters[index].content_id == LAGAVULIN_ID
+            && matches!(intent, crate::MonsterIntent::Sleep)
+            && state.monsters[index].sleep_turns_remaining == 0
+        {
+            state.monsters[index].intent = target_lagavulin_direct_wake_attack_intent(ascension);
+            record_target_move(&mut state.monsters[index]);
+            return Ok(ActorTurnDisposition::Continue);
+        }
+        prepare_next_intent_for_actor(state, actor_id)?;
+        apply_transient_fading_after_turn(&mut state.monsters, actor_id);
+    }
+    revive_with_lizard_tail_if_available(state)?;
+    if state.player.hp <= 0 {
+        Ok(ActorTurnDisposition::StopPlayerDead)
+    } else {
+        Ok(ActorTurnDisposition::Continue)
+    }
 }
 
 fn execute_state_oriented_special_intent(
