@@ -335,12 +335,6 @@ const COLLECTOR_A4_FIREBALL_DAMAGE: i32 = 21;
 const COLLECTOR_BUFF_BLOCK: i32 = 35;
 const TORCH_HEAD_TACKLE_DAMAGE: i32 = 7;
 const AWAKENED_ONE_SLASH_DAMAGE: i32 = 20;
-const AWAKENED_ONE_SOUL_STRIKE_DAMAGE: i32 = 6;
-const AWAKENED_ONE_SOUL_STRIKE_HITS: i32 = 4;
-const AWAKENED_ONE_DARK_ECHO_DAMAGE: i32 = 40;
-const AWAKENED_ONE_SLUDGE_DAMAGE: i32 = 18;
-const AWAKENED_ONE_TACKLE_DAMAGE: i32 = 10;
-const AWAKENED_ONE_TACKLE_HITS: i32 = 3;
 const DAGGER_WOUND_DAMAGE: i32 = 9;
 const DAGGER_EXPLODE_DAMAGE: i32 = 25;
 const DECA_BEAM_DAMAGE: i32 = 10;
@@ -397,11 +391,7 @@ const MAW_ROAR_DEBUFF: i32 = 3;
 const MAW_A17_ROAR_DEBUFF: i32 = 5;
 const MAW_STRENGTH: i32 = 3;
 const MAW_A17_STRENGTH: i32 = 5;
-const TIME_EATER_REVERBERATE_DAMAGE: i32 = 7;
-const TIME_EATER_REVERBERATE_HITS: i32 = 3;
-const TIME_EATER_RIPPLE_BLOCK: i32 = 20;
 const TIME_EATER_HEAD_SLAM_DAMAGE: i32 = 26;
-const TIME_EATER_HASTE_BLOCK: i32 = 26;
 const TRANSIENT_HP: i32 = 999;
 const TRANSIENT_ATTACK_DAMAGE: i32 = 30;
 const TRANSIENT_A4_ATTACK_DAMAGE: i32 = 40;
@@ -416,21 +406,9 @@ const WRITHING_MASS_A2_ATTACK_BLOCK_DAMAGE: i32 = 16;
 const WRITHING_MASS_ATTACK_DEBUFF_DAMAGE: i32 = 10;
 const WRITHING_MASS_A2_ATTACK_DEBUFF_DAMAGE: i32 = 12;
 const WRITHING_MASS_MALLEABLE: i32 = 3;
-const CORRUPT_HEART_BLOOD_SHOTS_DAMAGE: i32 = 2;
-const CORRUPT_HEART_BLOOD_SHOTS_HITS: i32 = 12;
 const CORRUPT_HEART_ECHO_ATTACK_DAMAGE: i32 = 40;
-const CORRUPT_HEART_A4_ECHO_ATTACK_DAMAGE: i32 = 45;
 const SPIRE_SHIELD_BASH_DAMAGE: i32 = 12;
-const SPIRE_SHIELD_A2_BASH_DAMAGE: i32 = 14;
-const SPIRE_SHIELD_FORTIFY_BLOCK: i32 = 30;
-const SPIRE_SHIELD_SMASH_DAMAGE: i32 = 34;
-const SPIRE_SHIELD_A2_SMASH_DAMAGE: i32 = 38;
-const SPIRE_SHIELD_SMASH_BLOCK: i32 = 99;
 const SPIRE_SPEAR_BURN_STRIKE_DAMAGE: i32 = 5;
-const SPIRE_SPEAR_A2_BURN_STRIKE_DAMAGE: i32 = 6;
-const SPIRE_SPEAR_BURN_STRIKE_HITS: i32 = 2;
-const SPIRE_SPEAR_SKEWER_DAMAGE: i32 = 10;
-const SPIRE_SPEAR_SKEWER_HITS: i32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MonsterDefinition {
@@ -4173,8 +4151,10 @@ fn prepare_monster_intent_for_monster(
     if definition.content_id == SLIME_BOSS_ID {
         return slime_boss_intent(moves_executed, ascension);
     }
-    if is_public_backlog_monster_content_id(definition.content_id) {
-        return public_backlog_monster_intent(definition.content_id, moves_executed, ascension);
+    if let Some(intent) =
+        source_backed_complex_monster_intent(definition.content_id, moves_executed, ascension)
+    {
+        return intent;
     }
     if is_gremlin_leader_minion_content_id(definition.content_id) {
         return gremlin_leader_minion_intent(definition.content_id, moves_executed, ascension);
@@ -4189,6 +4169,8 @@ fn prepare_monster_intent_for(
     moves_executed: u32,
     rolled_attack_damage: Option<i32>,
 ) -> MonsterIntent {
+    let complex_intent =
+        source_backed_complex_monster_intent(definition.content_id, moves_executed, 0);
     match definition.content_id {
         CULTIST_ID if moves_executed == 0 => MonsterIntent::Ritual {
             amount: definition.ritual_amount,
@@ -4223,8 +4205,8 @@ fn prepare_monster_intent_for(
         EXPLODER_ID => exploder_intent(moves_executed, 0),
         SPIKER_ID => spiker_intent(moves_executed, 0),
         REPULSOR_ID => repulsor_intent(moves_executed, 0),
-        _ if is_public_backlog_monster_content_id(definition.content_id) => {
-            public_backlog_monster_intent(definition.content_id, moves_executed, 0)
+        _ if complex_intent.is_some() => {
+            complex_intent.expect("guard established a source-backed complex monster intent")
         }
         FUNGI_BEAST_ID => fungi_beast_intent(moves_executed, 0),
         SLAVER_BLUE_ID => slaver_blue_intent(moves_executed, 0),
@@ -6888,37 +6870,6 @@ pub fn target_gremlin_wizard_direct_next_intent_after_turn(
     }
 }
 
-#[must_use]
-fn is_public_backlog_monster_content_id(content_id: ContentId) -> bool {
-    matches!(
-        content_id,
-        BANDIT_BEAR_ID
-            | BANDIT_POINTY_ID
-            | BANDIT_LEADER_ID
-            | CHAMP_ID
-            | THE_COLLECTOR_ID
-            | TORCH_HEAD_ID
-            | AWAKENED_ONE_ID
-            | DAGGER_ID
-            | DECA_ID
-            | DONU_ID
-            | EXPLODER_ID
-            | GIANT_HEAD_ID
-            | NEMESIS_ID
-            | REPTOMANCER_ID
-            | REPULSOR_ID
-            | SPIKER_ID
-            | SPIRE_GROWTH_ID
-            | MAW_ID
-            | TIME_EATER_ID
-            | TRANSIENT_ID
-            | WRITHING_MASS_ID
-            | CORRUPT_HEART_ID
-            | SPIRE_SHIELD_ID
-            | SPIRE_SPEAR_ID
-    )
-}
-
 pub(crate) fn is_unsupported_approximate_monster_intent(content_id: ContentId) -> bool {
     matches!(
         content_id,
@@ -6959,21 +6910,21 @@ fn nemesis_max_hp(ascension: u8) -> i32 {
 }
 
 #[must_use]
-fn public_backlog_monster_intent(
+fn source_backed_complex_monster_intent(
     content_id: ContentId,
     moves_executed: u32,
     ascension: u8,
-) -> MonsterIntent {
-    match content_id {
+) -> Option<MonsterIntent> {
+    Some(match content_id {
         BANDIT_BEAR_ID => {
             if moves_executed == 0 {
-                return MonsterIntent::SiphonPlayer {
+                return Some(MonsterIntent::SiphonPlayer {
                     strength: 0,
                     dexterity: if ascension >= 17 { 4 } else { 2 },
-                };
+                });
             }
             if moves_executed % 2 == 1 {
-                return MonsterIntent::AttackAndBlock {
+                return Some(MonsterIntent::AttackAndBlock {
                     damage: asc_damage(
                         ascension,
                         BANDIT_BEAR_LUNGE_DAMAGE,
@@ -6981,7 +6932,7 @@ fn public_backlog_monster_intent(
                         2,
                     ),
                     block: BANDIT_BEAR_LUNGE_BLOCK,
-                };
+                });
             }
             MonsterIntent::Attack {
                 damage: asc_damage(
@@ -6998,10 +6949,10 @@ fn public_backlog_monster_intent(
         },
         BANDIT_LEADER_ID => {
             if moves_executed == 0 {
-                return MonsterIntent::Stun;
+                return Some(MonsterIntent::Stun);
             }
             if moves_executed % 2 == 1 {
-                return MonsterIntent::AttackApplyPlayerWeak {
+                return Some(MonsterIntent::AttackApplyPlayerWeak {
                     damage: asc_damage(
                         ascension,
                         BANDIT_LEADER_AGONIZE_DAMAGE,
@@ -7013,7 +6964,7 @@ fn public_backlog_monster_intent(
                     } else {
                         BANDIT_LEADER_WEAK
                     },
-                };
+                });
             }
             MonsterIntent::Attack {
                 damage: asc_damage(
@@ -7071,27 +7022,6 @@ fn public_backlog_monster_intent(
         },
         TORCH_HEAD_ID => MonsterIntent::Attack {
             damage: TORCH_HEAD_TACKLE_DAMAGE,
-        },
-        AWAKENED_ONE_ID => match moves_executed % 6 {
-            0 => MonsterIntent::Attack {
-                damage: AWAKENED_ONE_SLASH_DAMAGE,
-            },
-            1 => MonsterIntent::AttackMultiple {
-                damage: AWAKENED_ONE_SOUL_STRIKE_DAMAGE,
-                hits: AWAKENED_ONE_SOUL_STRIKE_HITS,
-            },
-            2 => MonsterIntent::Stun,
-            3 => MonsterIntent::Attack {
-                damage: AWAKENED_ONE_DARK_ECHO_DAMAGE,
-            },
-            4 => MonsterIntent::AttackApplyPlayerWeak {
-                damage: AWAKENED_ONE_SLUDGE_DAMAGE,
-                weak: 2,
-            },
-            _ => MonsterIntent::AttackMultiple {
-                damage: AWAKENED_ONE_TACKLE_DAMAGE,
-                hits: AWAKENED_ONE_TACKLE_HITS,
-            },
         },
         DAGGER_ID => match moves_executed % 2 {
             0 => MonsterIntent::AttackAddWoundsToDiscard {
@@ -7165,23 +7095,6 @@ fn public_backlog_monster_intent(
             target_spire_growth_next_intent_from_roll(moves_executed, &[], 99, false, ascension)
         }
         MAW_ID => target_maw_next_intent_from_roll(moves_executed, &[], 99, ascension),
-        TIME_EATER_ID => match moves_executed % 4 {
-            0 => MonsterIntent::AttackMultiple {
-                damage: TIME_EATER_REVERBERATE_DAMAGE,
-                hits: TIME_EATER_REVERBERATE_HITS,
-            },
-            1 => MonsterIntent::Block {
-                block: TIME_EATER_RIPPLE_BLOCK,
-            },
-            2 => MonsterIntent::AttackApplyPlayerVulnerable {
-                damage: TIME_EATER_HEAD_SLAM_DAMAGE,
-                vulnerable: 1,
-            },
-            _ => MonsterIntent::StrengthAndBlock {
-                strength: 2,
-                block: TIME_EATER_HASTE_BLOCK,
-            },
-        },
         TRANSIENT_ID => MonsterIntent::Attack {
             damage: asc_damage(
                 ascension,
@@ -7197,63 +7110,8 @@ fn public_backlog_monster_intent(
             3 => writhing_mass_attack_debuff_intent(ascension),
             _ => MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 },
         },
-        CORRUPT_HEART_ID => match moves_executed % 4 {
-            0 => MonsterIntent::AttackMultiple {
-                damage: CORRUPT_HEART_BLOOD_SHOTS_DAMAGE,
-                hits: CORRUPT_HEART_BLOOD_SHOTS_HITS,
-            },
-            1 => MonsterIntent::Attack {
-                damage: asc_damage(
-                    ascension,
-                    CORRUPT_HEART_ECHO_ATTACK_DAMAGE,
-                    CORRUPT_HEART_A4_ECHO_ATTACK_DAMAGE,
-                    4,
-                ),
-            },
-            2 => MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 },
-            _ => MonsterIntent::StrengthSelf { amount: 1 },
-        },
-        SPIRE_SHIELD_ID => match moves_executed % 3 {
-            0 => MonsterIntent::AttackApplyPlayerVulnerable {
-                damage: asc_damage(
-                    ascension,
-                    SPIRE_SHIELD_BASH_DAMAGE,
-                    SPIRE_SHIELD_A2_BASH_DAMAGE,
-                    2,
-                ),
-                vulnerable: 1,
-            },
-            1 => MonsterIntent::Block {
-                block: SPIRE_SHIELD_FORTIFY_BLOCK,
-            },
-            _ => MonsterIntent::AttackAndBlock {
-                damage: asc_damage(
-                    ascension,
-                    SPIRE_SHIELD_SMASH_DAMAGE,
-                    SPIRE_SHIELD_A2_SMASH_DAMAGE,
-                    2,
-                ),
-                block: SPIRE_SHIELD_SMASH_BLOCK,
-            },
-        },
-        SPIRE_SPEAR_ID => match moves_executed % 3 {
-            0 => MonsterIntent::AttackMultiple {
-                damage: asc_damage(
-                    ascension,
-                    SPIRE_SPEAR_BURN_STRIKE_DAMAGE,
-                    SPIRE_SPEAR_A2_BURN_STRIKE_DAMAGE,
-                    2,
-                ),
-                hits: SPIRE_SPEAR_BURN_STRIKE_HITS,
-            },
-            1 => MonsterIntent::StrengthAllMonsters { amount: 2 },
-            _ => MonsterIntent::AttackMultiple {
-                damage: SPIRE_SPEAR_SKEWER_DAMAGE,
-                hits: SPIRE_SPEAR_SKEWER_HITS,
-            },
-        },
-        _ => MonsterIntent::Stun,
-    }
+        _ => return None,
+    })
 }
 
 #[must_use]
@@ -12173,11 +12031,19 @@ mod tests {
             Err(SimError::UnknownContent(ContentId::new(u64::MAX)))
         );
 
-        let awakened = monster_state(&AWAKENED_ONE_A0, MonsterId::new(1));
-        assert_eq!(
-            prepare_monster_intent_for_ascension(&awakened, 0),
-            Err(SimError::UnsupportedMechanic(AWAKENED_ONE_ID))
-        );
+        for (definition, content_id) in [
+            (&AWAKENED_ONE_A0, AWAKENED_ONE_ID),
+            (&TIME_EATER_A0, TIME_EATER_ID),
+            (&CORRUPT_HEART_A0, CORRUPT_HEART_ID),
+            (&SPIRE_SHIELD_A0, SPIRE_SHIELD_ID),
+            (&SPIRE_SPEAR_A0, SPIRE_SPEAR_ID),
+        ] {
+            let monster = monster_state(definition, MonsterId::new(1));
+            assert_eq!(
+                prepare_monster_intent_for_ascension(&monster, 0),
+                Err(SimError::UnsupportedMechanic(content_id))
+            );
+        }
 
         let mut transient = monster_state(&TRANSIENT_A0, MonsterId::new(1));
         transient.moves_executed = u32::MAX;

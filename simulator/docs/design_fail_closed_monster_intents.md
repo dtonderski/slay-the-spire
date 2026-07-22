@@ -32,6 +32,12 @@ This slice does not rewrite monster AI or decide that every historically
 source-backed branch remains executable; the error applies only when execution
 would otherwise reach the approximate generic cycle.
 
+The source-backed complex-intent helper contains only supported identities and
+returns `None` for every other identity. Approximate implementations for the
+explicitly unsupported monsters are not retained behind an early error check,
+and the helper has no default `Stun` fallback that could become reachable after
+future dispatch changes.
+
 ## Verification
 
 Regression tests must prove that unknown identities return `UnknownContent`,
