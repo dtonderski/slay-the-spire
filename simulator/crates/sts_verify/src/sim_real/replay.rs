@@ -4684,6 +4684,50 @@ pub(super) fn verify_seed_start_transitions(
                 return finish_boundary!(boundary);
             }
         }
+        if matches!(smoke_bomb_ui, Some(SmokeBombUiState::Escaping { .. }))
+            && !is_trace_observation_poll(action)
+            && screen_type(&post.message) == Some("COMBAT_REWARD")
+        {
+            let destination = seed_sim
+                .as_ref()
+                .expect("Smoke Bomb escape keeps its core destination");
+            let pending = smoke_bomb_ui
+                .take()
+                .expect("Smoke Bomb escape state checked above");
+            let SmokeBombUiState::Escaping {
+                action: escape_action,
+                transient_matches,
+                ..
+            } = pending
+            else {
+                unreachable!("matched Smoke Bomb escape state")
+            };
+            let stable_matches = seed_start_compare_deferred_subset(
+                report,
+                &escape_action,
+                "Smoke Bomb escape settled to empty reward",
+                seed_start_reward_observed_subset(&post.message),
+                seed_start_reward_simulated_subset(destination),
+            );
+            if transient_matches && stable_matches {
+                report.verified.push(VerifiedTransition {
+                    action_step: escape_action.step,
+                    command: escape_action.command,
+                    label: "Smoke Bomb escape reconciled at empty reward".to_owned(),
+                });
+                reconciled_deferred_action_steps.push(escape_action.step);
+            }
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Smoke Bomb queued command settled to reward".to_owned(),
+            });
+            phase = SeedStartPhase::Reward;
+            smoke_bomb_ui = Some(SmokeBombUiState::Reward {
+                pending_proceeds: Vec::new(),
+            });
+            continue;
+        }
         if action.command.eq_ignore_ascii_case("state")
             || smoke_bomb_ui.is_some() && action.command.eq_ignore_ascii_case("wait")
         {

@@ -331,6 +331,39 @@ fn smoke_bomb_trace_reconciles_escape_and_reward_proceeds_at_stable_frames() {
 }
 
 #[test]
+fn smoke_bomb_trace_reconciles_queued_combat_command_at_stable_reward() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-7a15d436727123b4.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("queued Smoke Bomb command regression trace verifies");
+
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "{:#?}",
+        report.unexpected_diffs
+    );
+    assert!(report.unsupported.is_empty(), "{:#?}", report.unsupported);
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+    for (step, command) in [(66, "POTION USE 0 0"), (67, "END")] {
+        assert!(report.action_dispositions.iter().any(|entry| {
+            entry.action_step == step
+                && entry.command == command
+                && entry.disposition == ActionDispositionKind::Verified
+        }));
+    }
+}
+
+#[test]
 fn recorded_action_input_drives_time_gated_run_state_without_gameplay_hydration() {
     let pre = TraceState {
         step: 10,
