@@ -2,6 +2,7 @@ use crate::{
     action::{CardPile, HpLossSource, InternalAction},
     card::{CardDefinition, CardType, TargetRequirement},
     combat::{
+        cost::effective_card_cost,
         damage::{DamageInfo, DamageSource},
         CombatDecisionState, CombatState, HandSelectPurpose,
     },
@@ -376,7 +377,7 @@ pub(super) fn play_card_queue(
         queue = apply_duplication_potion_to_queue(queue, card_id);
     }
     apply_akabeko_to_first_attack_queue(state, definition.card_type, card_id, &mut queue);
-    if should_apply_necronomicon(state, card, definition) {
+    if should_apply_necronomicon(state, card, definition)? {
         queue = apply_necronomicon_to_queue(queue, card_id);
     }
     if definition.card_type == CardType::Attack && state.double_tap_pending > 0 {
@@ -388,7 +389,7 @@ pub(super) fn play_card_queue(
     // damage and incorrectly receive Pen Nib too.
     apply_pen_nib_to_tenth_attack_queue(state, definition.card_type, card_id, &mut queue);
 
-    apply_effective_cost_to_played_card_queue(card, definition, &mut queue);
+    apply_effective_cost_to_played_card_queue(card, definition, &mut queue)?;
     apply_corruption_to_played_skill_queue(state, definition, card_id, &mut queue);
     apply_strange_spoon_to_played_card_move(&mut queued_state, definition, card_id, &mut queue);
 
@@ -546,11 +547,11 @@ fn apply_effective_cost_to_played_card_queue(
     card: &CardInstance,
     definition: &CardDefinition,
     queue: &mut VecDeque<InternalAction>,
-) {
+) -> SimResult<()> {
     let printed_cost = i32::from(definition.cost);
-    let effective_cost = effective_card_cost_for_queue(card, definition);
+    let effective_cost = effective_card_cost(card)?;
     if effective_cost == printed_cost {
-        return;
+        return Ok(());
     }
 
     for action in queue.iter_mut() {
@@ -561,27 +562,21 @@ fn apply_effective_cost_to_played_card_queue(
             break;
         }
     }
-}
-
-fn effective_card_cost_for_queue(card: &CardInstance, definition: &CardDefinition) -> i32 {
-    if let Some(cost) = card.temp_cost {
-        return i32::from(cost);
-    }
-    if definition.id == BLOOD_FOR_BLOOD_ID || definition.id == BLOOD_FOR_BLOOD_PLUS_ID {
-        return (i32::from(definition.cost) - card.blood_for_blood_cost_reduction).max(0);
-    }
-    i32::from(definition.cost)
+    Ok(())
 }
 
 fn should_apply_necronomicon(
     state: &CombatState,
     card: &CardInstance,
     definition: &CardDefinition,
-) -> bool {
-    definition.card_type == CardType::Attack
-        && state.relics.contains(&Relic::Necronomicon)
-        && !state.relic_counters.necronomicon_used_this_turn
-        && effective_card_cost_for_queue(card, definition) >= 2
+) -> SimResult<bool> {
+    if definition.card_type != CardType::Attack
+        || !state.relics.contains(&Relic::Necronomicon)
+        || state.relic_counters.necronomicon_used_this_turn
+    {
+        return Ok(false);
+    }
+    Ok(effective_card_cost(card)? >= 2)
 }
 
 fn apply_corruption_to_played_skill_queue(

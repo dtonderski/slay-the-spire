@@ -1,5 +1,6 @@
 pub mod burning_blood;
 mod card_effects;
+pub(crate) mod cost;
 pub mod damage;
 pub mod draw;
 pub mod hand;

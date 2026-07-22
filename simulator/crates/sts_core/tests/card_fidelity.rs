@@ -1286,6 +1286,27 @@ fn blood_for_blood_upgrade_preserves_combat_cost_reduction() {
 }
 
 #[test]
+fn fully_reduced_blood_for_blood_is_legal_and_spends_zero_energy() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    let mut card = CardInstance::new(CardId::new(1), cards::BLOOD_FOR_BLOOD_ID);
+    card.blood_for_blood_cost_reduction = 4;
+    state.piles.hand = vec![card];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let action = CombatAction::PlayCard {
+        card_id: card.id,
+        target: Some(MonsterId::new(1)),
+    };
+    assert!(valid_legal_combat_actions(&state).contains(&action));
+    let next = apply_combat_action(&state, action).expect("zero-cost Blood for Blood plays");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.piles.discard_pile[0], card);
+}
+
+#[test]
 fn body_slam_plus_deals_current_block_as_attack_damage() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
@@ -3352,6 +3373,46 @@ fn madness_prefers_cards_with_positive_cost_for_turn() {
     assert_eq!(defend.temp_cost, Some(0));
     assert!(!defend.temp_cost_turn_only);
     assert_eq!(next.piles.exhaust_pile[0].content_id, cards::MADNESS_ID);
+}
+
+#[test]
+fn madness_ignores_fully_reduced_blood_for_blood() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    let mut blood_for_blood = CardInstance::new(CardId::new(2), cards::BLOOD_FOR_BLOOD_ID);
+    blood_for_blood.blood_for_blood_cost_reduction = 4;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::MADNESS_ID),
+        blood_for_blood,
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Madness plays");
+
+    let blood_for_blood = next
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == CardId::new(2))
+        .expect("Blood for Blood remains in hand");
+    let strike = next
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == CardId::new(3))
+        .expect("Strike remains in hand");
+    assert_eq!(blood_for_blood.temp_cost, None);
+    assert_eq!(strike.temp_cost, Some(0));
+    assert!(!strike.temp_cost_turn_only);
 }
 
 #[test]

@@ -1,6 +1,7 @@
 use crate::{
     action::InternalAction,
     card::CardInstance,
+    combat::cost::validate_combat_card_cost_metadata,
     content::cards::{
         get_card_definition, validate_searing_blow_metadata, BASH_ID, COMBUST_DAMAGE,
         COMBUST_PLUS_DAMAGE, DEFEND_R_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, STRIKE_R_ID,
@@ -979,6 +980,7 @@ fn validate_combat_card(card: &CardInstance) -> SimResult<()> {
         return Err(SimError::UnknownContent(card.content_id));
     }
     validate_searing_blow_metadata(card)?;
+    validate_combat_card_cost_metadata(card)?;
     if card.rampage_damage_bonus < 0 {
         return Err(SimError::InvalidState(
             "Rampage damage bonus cannot be negative",
@@ -1204,6 +1206,40 @@ mod tests {
             wrong_card.validate(),
             Err(SimError::InvalidState(
                 "non-Searing-Blow card carries Searing Blow upgrade metadata"
+            ))
+        );
+    }
+
+    #[test]
+    fn combat_validation_rejects_invalid_card_cost_metadata() {
+        let mut negative = CombatState::initial_fixture();
+        negative.piles.hand = vec![CardInstance::new(
+            CardId::new(100),
+            crate::content::cards::BLOOD_FOR_BLOOD_ID,
+        )];
+        negative.piles.hand[0].blood_for_blood_cost_reduction = -1;
+        assert_eq!(
+            negative.validate(),
+            Err(SimError::InvalidState(
+                "Blood for Blood cost reduction cannot be negative"
+            ))
+        );
+
+        let mut wrong_card = CombatState::initial_fixture();
+        wrong_card.piles.hand[0].blood_for_blood_cost_reduction = 1;
+        assert_eq!(
+            wrong_card.validate(),
+            Err(SimError::InvalidState(
+                "non-Blood-for-Blood card carries cost-reduction metadata"
+            ))
+        );
+
+        let mut missing_temp_cost = CombatState::initial_fixture();
+        missing_temp_cost.piles.hand[0].temp_cost_turn_only = true;
+        assert_eq!(
+            missing_temp_cost.validate(),
+            Err(SimError::InvalidState(
+                "turn-only card cost flag has no temporary cost"
             ))
         );
     }

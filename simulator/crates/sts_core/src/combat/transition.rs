@@ -4,6 +4,7 @@ use crate::{
     card::{CardType, TargetRequirement},
     combat::{
         apply_burning_blood,
+        cost::{effective_card_cost, effective_card_cost_with_corruption, printed_card_cost},
         damage::{
             deal_damage_info_to_monster_with_result, deal_unmodified_damage_to_monster,
             reflect_spikes_to_player, DamageInfo, DamageSource,
@@ -14,9 +15,8 @@ use crate::{
     },
     content::cards::{
         card_instance_is_upgradeable, get_card_definition, upgrade_card_instance,
-        upgrade_content_id, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, DAZED_ID,
-        DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, PAIN_ID, PURITY_PLUS_ID, SENTINEL_ID,
-        SENTINEL_PLUS_ID,
+        upgrade_content_id, DAZED_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, PAIN_ID,
+        PURITY_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
@@ -387,8 +387,19 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::SpendCardEnergy { card_id } => {
-            let cost = effective_hand_card_cost(state, card_id);
-            state.player.energy -= cost;
+            let card = state
+                .piles
+                .hand
+                .iter()
+                .find(|card| card.id == card_id)
+                .ok_or(SimError::UnknownCard(card_id))?;
+            let cost =
+                effective_card_cost_with_corruption(card, state.player.powers.corruption > 0)?;
+            state.player.energy = state
+                .player
+                .energy
+                .checked_sub(cost)
+                .ok_or(SimError::InvalidState("combat energy spend overflows i32"))?;
             Ok(Vec::new())
         }
         InternalAction::SetHandCardCostForTurn { card_id, cost } => {
@@ -1042,7 +1053,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::SetRandomHandCardCostForCombat { amount } => {
-            set_random_hand_card_cost_for_combat(state, amount);
+            set_random_hand_card_cost_for_combat(state, amount)?;
             Ok(Vec::new())
         }
         InternalAction::UpgradeHandCardsExcept { card_id } => {
@@ -2124,63 +2135,48 @@ fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) -> SimR
     Ok(())
 }
 
-fn set_random_hand_card_cost_for_combat(state: &mut CombatState, amount: u8) {
+fn set_random_hand_card_cost_for_combat(state: &mut CombatState, amount: u8) -> SimResult<()> {
     if state.piles.hand.is_empty() {
-        return;
+        return Ok(());
     }
 
-    let better_possible = state
-        .piles
-        .hand
-        .iter()
-        .any(|card| card_cost_for_turn(card) > 0);
-    let possible = state
-        .piles
-        .hand
-        .iter()
-        .any(|card| card_printed_cost(card) > 0);
+    let better_possible = state.piles.hand.iter().try_fold(false, |found, card| {
+        Ok(found || effective_card_cost(card)? > 0)
+    })?;
+    let possible = state.piles.hand.iter().try_fold(false, |found, card| {
+        Ok(found || printed_card_cost(card)? > 0)
+    })?;
     if !better_possible && !possible {
-        return;
+        return Ok(());
     }
 
-    let Some(index) = random_madness_candidate_index(state, better_possible) else {
-        return;
-    };
+    let index = random_madness_candidate_index(state, better_possible)?;
 
     let card = &mut state.piles.hand[index];
     card.temp_cost = Some(amount);
     card.temp_cost_turn_only = false;
+    Ok(())
 }
 
-fn random_madness_candidate_index(state: &mut CombatState, better_possible: bool) -> Option<usize> {
+fn random_madness_candidate_index(
+    state: &mut CombatState,
+    better_possible: bool,
+) -> SimResult<usize> {
     loop {
         let bound = (state.piles.hand.len() - 1) as i32;
         let index = state.rng.card_random_rng.random_int(bound) as usize;
-        if madness_card_matches(&state.piles.hand[index], better_possible) {
-            return Some(index);
+        if madness_card_matches(&state.piles.hand[index], better_possible)? {
+            return Ok(index);
         }
     }
 }
 
-fn madness_card_matches(card: &CardInstance, better_possible: bool) -> bool {
+fn madness_card_matches(card: &CardInstance, better_possible: bool) -> SimResult<bool> {
     if better_possible {
-        card_cost_for_turn(card) > 0
+        Ok(effective_card_cost(card)? > 0)
     } else {
-        card_printed_cost(card) > 0
+        Ok(printed_card_cost(card)? > 0)
     }
-}
-
-fn card_cost_for_turn(card: &CardInstance) -> i8 {
-    card.temp_cost
-        .map(|cost| cost as i8)
-        .or_else(|| get_card_definition(card.content_id).map(|definition| definition.cost))
-        .unwrap_or(0)
-}
-
-fn card_printed_cost(card: &CardInstance) -> i8 {
-    get_card_definition(card.content_id)
-        .map(|definition| definition.cost)
-        .unwrap_or(0)
 }
 
 fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) -> SimResult<()> {
@@ -3507,31 +3503,6 @@ fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<
         .ok_or(SimError::UnknownCard(card_id))?;
 
     Ok(state.piles.hand.remove(index))
-}
-
-fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
-    let card = state
-        .piles
-        .hand
-        .iter()
-        .find(|card| card.id == card_id)
-        .expect("hand card");
-    let base_cost = if let Some(cost) = card.temp_cost {
-        i32::from(cost)
-    } else {
-        get_card_definition(card.content_id)
-            .map(|definition| i32::from(definition.cost))
-            .unwrap_or(0)
-    };
-    if get_card_definition(card.content_id).is_some_and(|definition| {
-        state.player.powers.corruption > 0 && definition.card_type == CardType::Skill
-    }) {
-        return 0;
-    }
-    if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
-        return (base_cost - card.blood_for_blood_cost_reduction).max(0);
-    }
-    base_cost
 }
 
 fn move_card(

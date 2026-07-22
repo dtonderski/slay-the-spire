@@ -1,12 +1,15 @@
 use crate::{
     action::CombatAction,
     card::{CardDefinition, CardType, TargetRequirement},
-    combat::{transition::top_draw_card_definition, CombatDecisionState, CombatPhase, CombatState},
+    combat::{
+        cost::effective_card_cost_with_corruption, transition::top_draw_card_definition,
+        CombatDecisionState, CombatPhase, CombatState,
+    },
     content::cards::{
-        get_card_definition, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
-        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, NORMALITY_ID,
-        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
-        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        get_card_definition, CLASH_ID, CLASH_PLUS_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, HAVOC_ID,
+        HAVOC_PLUS_ID, NORMALITY_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID,
+        SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
@@ -44,7 +47,7 @@ pub fn legal_combat_actions(state: &CombatState) -> SimResult<Vec<CombatAction>>
             continue;
         }
 
-        if !is_affordable(state, card.id, definition) {
+        if !is_affordable(state, card, definition)? {
             continue;
         }
 
@@ -217,7 +220,7 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 ));
             }
 
-            if !is_affordable(state, card_id, definition) {
+            if !is_affordable(state, card, definition)? {
                 return Err(SimError::IllegalAction("card is unaffordable"));
             }
 
@@ -275,36 +278,16 @@ fn card_definition_for_hand_card(
     get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))
 }
 
-fn is_affordable(state: &CombatState, card_id: CardId, definition: &CardDefinition) -> bool {
+fn is_affordable(
+    state: &CombatState,
+    card: &crate::CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<bool> {
     if is_x_cost(definition) {
-        return state.player.energy >= 1 || state.relics.contains(&Relic::ChemicalX);
+        return Ok(state.player.energy >= 1 || state.relics.contains(&Relic::ChemicalX));
     }
-    state.player.energy >= effective_hand_card_cost(state, card_id)
-}
-
-fn effective_hand_card_cost(state: &CombatState, card_id: CardId) -> i32 {
-    let card = state
-        .piles
-        .hand
-        .iter()
-        .find(|card| card.id == card_id)
-        .expect("hand card");
-    let base_cost = if let Some(cost) = card.temp_cost {
-        i32::from(cost)
-    } else {
-        get_card_definition(card.content_id)
-            .map(|definition| i32::from(definition.cost))
-            .unwrap_or(i32::MAX)
-    };
-    if get_card_definition(card.content_id).is_some_and(|definition| {
-        state.player.powers.corruption > 0 && definition.card_type == CardType::Skill
-    }) {
-        return 0;
-    }
-    if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
-        return (base_cost - card.blood_for_blood_cost_reduction).max(0);
-    }
-    base_cost
+    Ok(state.player.energy
+        >= effective_card_cost_with_corruption(card, state.player.powers.corruption > 0)?)
 }
 
 fn is_x_cost(definition: &CardDefinition) -> bool {

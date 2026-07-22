@@ -163,6 +163,34 @@ mod tests {
     }
 
     #[test]
+    fn run_validation_rejects_combat_local_card_cost_metadata() {
+        let mut temp_cost = RunState::map_fixture();
+        temp_cost.deck[0].temp_cost = Some(0);
+        assert_eq!(
+            temp_cost.validate(),
+            Err(SimError::InvalidState(
+                "run card retains combat-local temporary cost metadata"
+            ))
+        );
+
+        let mut combat_only = RunState::map_fixture();
+        combat_only.deck[0].combat_only = true;
+        assert_eq!(
+            combat_only.validate(),
+            Err(SimError::InvalidState("run card is marked as combat-only"))
+        );
+
+        let mut reduction = RunState::map_fixture();
+        reduction.deck[0].blood_for_blood_cost_reduction = 1;
+        assert_eq!(
+            reduction.validate(),
+            Err(SimError::InvalidState(
+                "run card retains combat-local Blood for Blood cost reduction"
+            ))
+        );
+    }
+
+    #[test]
     fn run_validation_rejects_unrepresentable_note_card_upgrades() {
         let mut run = RunState::map_fixture();
         run.note_card_content_id = crate::content::cards::BASH_ID;
@@ -1014,6 +1042,19 @@ fn validate_run_choice_card_content(card: &CardInstance) -> SimResult<()> {
 
 fn validate_run_card_metadata(card: &CardInstance) -> SimResult<()> {
     validate_searing_blow_metadata(card)?;
+    if card.temp_cost.is_some() || card.temp_cost_turn_only {
+        return Err(SimError::InvalidState(
+            "run card retains combat-local temporary cost metadata",
+        ));
+    }
+    if card.combat_only {
+        return Err(SimError::InvalidState("run card is marked as combat-only"));
+    }
+    if card.blood_for_blood_cost_reduction != 0 {
+        return Err(SimError::InvalidState(
+            "run card retains combat-local Blood for Blood cost reduction",
+        ));
+    }
     if card.rampage_damage_bonus != 0 {
         return Err(SimError::InvalidState(
             "run card retains a combat-local Rampage damage bonus",
