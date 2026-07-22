@@ -1343,87 +1343,12 @@ fn prepare_next_intents_for_ids(
             {
                 continue;
             }
-            if monster.content_id == ACID_SLIME_ID
-                && monster.hp <= ACID_SLIME_S_A7_HP_RANGE.max
-                && !acid_slime_uses_medium_move_table(monster)
-            {
-                monster.intent =
-                    target_small_acid_slime_followup_intent(monster.intent, state.ascension);
-                record_target_move(monster);
-                continue;
-            }
-            if monster.content_id == SPIKE_SLIME_ID
-                && monster.hp <= SPIKE_SLIME_S_A7_HP_RANGE.max
-                && !spike_slime_uses_medium_or_large_move_table(monster)
-            {
-                let _ = state.rng.monster_rng.random_int(99);
-                monster.intent = crate::MonsterIntent::Attack {
-                    damage: if state.ascension >= 2 { 6 } else { 5 },
-                };
-                record_target_move(monster);
-                continue;
-            }
-            if monster.content_id == TORCH_HEAD_ID {
-                monster.intent = crate::MonsterIntent::Attack {
-                    damage: crate::content::monsters::TORCH_HEAD_ATTACK_DAMAGE,
-                };
-                record_target_move(monster);
-                continue;
-            }
-            if monster.content_id == TRANSIENT_ID {
-                monster.intent = crate::MonsterIntent::Attack {
-                    damage: crate::content::monsters::transient_attack_damage(
-                        monster.moves_executed,
-                        state.ascension,
-                    )?,
-                };
-                record_target_move(monster);
-                continue;
-            }
-            if monster.content_id == LOOTER_ID {
-                monster.intent = target_looter_direct_next_intent_after_turn(
-                    &monster.move_history,
-                    monster.moves_executed,
-                    &mut state.rng.monster_rng,
-                    state.ascension,
-                );
-                record_target_move(monster);
-                continue;
-            }
-            if monster.content_id == MUGGER_ID {
-                monster.intent = target_mugger_direct_next_intent_after_turn(
-                    &monster.move_history,
-                    monster.moves_executed,
-                    &mut state.rng.monster_rng,
-                    state.ascension,
-                );
-                record_target_move(monster);
-                continue;
-            }
-            if matches!(monster.content_id, GREMLIN_WARRIOR_ID | GREMLIN_THIEF_ID) {
-                monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension)?;
-                record_target_move(monster);
-                continue;
-            }
-            if monster.content_id == GREMLIN_TSUNDERE_ID {
-                let mut source_branch = monster.clone();
-                source_branch.moves_executed = if living_monster_count > 1 { 0 } else { 1 };
-                monster.intent =
-                    prepare_monster_intent_for_ascension(&source_branch, state.ascension)?;
-                record_target_move(monster);
-                continue;
-            }
-            if monster.content_id == GREMLIN_WIZARD_ID {
-                monster.intent = target_gremlin_wizard_direct_next_intent_after_turn(
-                    monster.moves_executed,
-                    state.ascension,
-                );
-                record_target_move(monster);
-                continue;
-            }
-            if monster.content_id == SLIME_BOSS_ID {
-                monster.intent = prepare_monster_intent_for_ascension(monster, state.ascension)?;
-                record_target_move(monster);
+            if prepare_direct_next_intent(
+                monster,
+                &mut state.rng.monster_rng,
+                state.ascension,
+                living_monster_count,
+            )? {
                 continue;
             }
             let roll = state.rng.monster_rng.random_int(99);
@@ -1696,6 +1621,94 @@ fn prepare_next_intents_for_ids(
         }
     }
     Ok(())
+}
+
+fn prepare_direct_next_intent(
+    monster: &mut crate::MonsterState,
+    monster_rng: &mut StsRng,
+    ascension: u8,
+    living_monster_count: usize,
+) -> SimResult<bool> {
+    if monster.content_id == ACID_SLIME_ID
+        && monster.hp <= ACID_SLIME_S_A7_HP_RANGE.max
+        && !acid_slime_uses_medium_move_table(monster)
+    {
+        monster.intent = target_small_acid_slime_followup_intent(monster.intent, ascension);
+        record_target_move(monster);
+        return Ok(true);
+    }
+    if monster.content_id == SPIKE_SLIME_ID
+        && monster.hp <= SPIKE_SLIME_S_A7_HP_RANGE.max
+        && !spike_slime_uses_medium_or_large_move_table(monster)
+    {
+        let _ = monster_rng.random_int(99);
+        monster.intent = crate::MonsterIntent::Attack {
+            damage: if ascension >= 2 { 6 } else { 5 },
+        };
+        record_target_move(monster);
+        return Ok(true);
+    }
+    if monster.content_id == TORCH_HEAD_ID {
+        monster.intent = crate::MonsterIntent::Attack {
+            damage: crate::content::monsters::TORCH_HEAD_ATTACK_DAMAGE,
+        };
+        record_target_move(monster);
+        return Ok(true);
+    }
+    if monster.content_id == TRANSIENT_ID {
+        monster.intent = crate::MonsterIntent::Attack {
+            damage: crate::content::monsters::transient_attack_damage(
+                monster.moves_executed,
+                ascension,
+            )?,
+        };
+        record_target_move(monster);
+        return Ok(true);
+    }
+    if monster.content_id == LOOTER_ID {
+        monster.intent = target_looter_direct_next_intent_after_turn(
+            &monster.move_history,
+            monster.moves_executed,
+            monster_rng,
+            ascension,
+        );
+        record_target_move(monster);
+        return Ok(true);
+    }
+    if monster.content_id == MUGGER_ID {
+        monster.intent = target_mugger_direct_next_intent_after_turn(
+            &monster.move_history,
+            monster.moves_executed,
+            monster_rng,
+            ascension,
+        );
+        record_target_move(monster);
+        return Ok(true);
+    }
+    if matches!(monster.content_id, GREMLIN_WARRIOR_ID | GREMLIN_THIEF_ID) {
+        monster.intent = prepare_monster_intent_for_ascension(monster, ascension)?;
+        record_target_move(monster);
+        return Ok(true);
+    }
+    if monster.content_id == GREMLIN_TSUNDERE_ID {
+        let mut source_branch = monster.clone();
+        source_branch.moves_executed = if living_monster_count > 1 { 0 } else { 1 };
+        monster.intent = prepare_monster_intent_for_ascension(&source_branch, ascension)?;
+        record_target_move(monster);
+        return Ok(true);
+    }
+    if monster.content_id == GREMLIN_WIZARD_ID {
+        monster.intent =
+            target_gremlin_wizard_direct_next_intent_after_turn(monster.moves_executed, ascension);
+        record_target_move(monster);
+        return Ok(true);
+    }
+    if monster.content_id == SLIME_BOSS_ID {
+        monster.intent = prepare_monster_intent_for_ascension(monster, ascension)?;
+        record_target_move(monster);
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 pub(super) fn reroll_writhing_mass_after_attack(state: &mut CombatState, actor_id: MonsterId) {
