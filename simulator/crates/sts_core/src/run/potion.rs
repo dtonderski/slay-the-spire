@@ -428,6 +428,16 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     validate_combat_card_reward_choice(run, index)?;
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
+    let played_discovery_card_id = matches!(
+        combat.decision.as_ref(),
+        Some(CombatDecisionState::DiscoveryCardReward {
+            source_card: Some(_),
+            ..
+        })
+    )
+    .then(|| combat.next_card_instance_id())
+    .transpose()?
+    .map(CardId::new);
     let decision = combat
         .decision
         .take()
@@ -453,7 +463,11 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             choices,
             source_card,
         } => {
-            let card_id = CardId::new(combat.next_card_instance_id()?);
+            let card_id = if let Some(card_id) = played_discovery_card_id {
+                card_id
+            } else {
+                CardId::new(combat.next_card_instance_id()?)
+            };
             // After a card-played Discovery is selected, DiscoveryAction keeps
             // regenerating its three choices for four hidden fast-action updates.
             burn_all_discovery_card_choice_generations(
@@ -1698,6 +1712,42 @@ mod tests {
             28,
             "four hidden DiscoveryAction generations consume twelve draws"
         );
+    }
+
+    #[test]
+    fn played_discovery_choice_does_not_reuse_its_held_source_id() {
+        use crate::content::cards::DISCOVERY_ID;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let source_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        let choice_id = CardId::new(source_id.get() + 1);
+        let chosen_id = CardId::new(choice_id.get() + 1);
+        let choice_content = combat.piles.hand[0].content_id;
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(choice_id, choice_content)],
+            source_card: Some(CardInstance::new(source_id, DISCOVERY_ID)),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0).expect("Discovery card choice");
+        let combat = next.combat.expect("combat remains open");
+
+        combat
+            .validate()
+            .expect("held Discovery and generated choice IDs remain unique");
+        assert_eq!(
+            combat.piles.hand.last().map(|card| card.id),
+            Some(chosen_id)
+        );
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == source_id && card.content_id == DISCOVERY_ID));
     }
 
     #[test]
