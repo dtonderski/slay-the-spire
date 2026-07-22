@@ -6682,7 +6682,7 @@ mod tests {
         for (event, invalid_stage, stage_error, data_error, choices_error) in [
             (
                 Event::GoldenIdol,
-                3,
+                4,
                 "Golden Idol stage is invalid",
                 "Golden Idol result does not match its stage",
                 "Golden Idol choices do not match its stage",
