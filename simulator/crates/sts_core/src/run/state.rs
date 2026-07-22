@@ -1723,11 +1723,22 @@ impl RunState {
             use super::grid::GridPurpose;
 
             let has_phase_owner = match grid.purpose {
-                GridPurpose::RestSmith | GridPurpose::RestRemove => {
-                    self.phase == RunPhase::Rest && !self.rest_room_complete
+                GridPurpose::RestSmith => self.phase == RunPhase::Rest && !self.rest_room_complete,
+                GridPurpose::RestRemove => {
+                    self.phase == RunPhase::Rest
+                        && !self.rest_room_complete
+                        && self.relics.contains(&Relic::PeacePipe)
                 }
-                GridPurpose::ShopRemove | GridPurpose::DollysMirror => {
-                    self.phase == RunPhase::Shop && self.shop.is_some() && self.shop_merchant_open
+                GridPurpose::ShopRemove => {
+                    self.phase == RunPhase::Shop
+                        && self.shop.as_ref().is_some_and(|shop| shop.remove_available)
+                        && self.shop_merchant_open
+                }
+                GridPurpose::DollysMirror => {
+                    self.phase == RunPhase::Shop
+                        && self.shop.is_some()
+                        && self.shop_merchant_open
+                        && self.relics.contains(&Relic::DollysMirror)
                 }
                 GridPurpose::EventRemove
                 | GridPurpose::EventObtainCard
@@ -1754,25 +1765,65 @@ impl RunState {
                 GridPurpose::DesignerRemoveAndUpgrade => {
                     super::grid::event_grid_has_authoritative_owner(self, grid.purpose)
                 }
-                GridPurpose::EmptyCage { .. }
-                | GridPurpose::CallingBellCurse
-                | GridPurpose::PandorasBox
-                | GridPurpose::Astrolabe => {
-                    (self.phase == RunPhase::Event
+                GridPurpose::EmptyCage { .. } => {
+                    ((self.phase == RunPhase::Event
                         && self
                             .event
                             .as_ref()
                             .is_some_and(|screen| screen.event == super::event::Event::Neow))
                         || (self.phase == RunPhase::Treasure
                             && self.current_room_kind() == Some(RoomKind::Boss)
-                            && self.boss_chest_opened)
+                            && self.boss_chest_opened))
+                        && self.relics.contains(&Relic::EmptyCage)
                 }
-                GridPurpose::Bottle { .. } => match self.phase {
-                    RunPhase::Event => self.event.is_some(),
-                    RunPhase::Reward => self.reward.is_some(),
-                    RunPhase::Shop => self.shop.is_some() && self.shop_merchant_open,
-                    _ => false,
-                },
+                GridPurpose::CallingBellCurse => {
+                    ((self.phase == RunPhase::Event
+                        && self
+                            .event
+                            .as_ref()
+                            .is_some_and(|screen| screen.event == super::event::Event::Neow))
+                        || (self.phase == RunPhase::Treasure
+                            && self.current_room_kind() == Some(RoomKind::Boss)
+                            && self.boss_chest_opened))
+                        && self.relics.contains(&Relic::CallingBell)
+                }
+                GridPurpose::PandorasBox => {
+                    ((self.phase == RunPhase::Event
+                        && self
+                            .event
+                            .as_ref()
+                            .is_some_and(|screen| screen.event == super::event::Event::Neow))
+                        || (self.phase == RunPhase::Treasure
+                            && self.current_room_kind() == Some(RoomKind::Boss)
+                            && self.boss_chest_opened))
+                        && self.relics.contains(&Relic::PandorasBox)
+                }
+                GridPurpose::Astrolabe => {
+                    ((self.phase == RunPhase::Event
+                        && self
+                            .event
+                            .as_ref()
+                            .is_some_and(|screen| screen.event == super::event::Event::Neow))
+                        || (self.phase == RunPhase::Treasure
+                            && self.current_room_kind() == Some(RoomKind::Boss)
+                            && self.boss_chest_opened))
+                        && self.relics.contains(&Relic::Astrolabe)
+                }
+                GridPurpose::Bottle { card_type } => {
+                    let owns_bottle = match card_type {
+                        CardType::Attack => self.relics.contains(&Relic::BottledFlame),
+                        CardType::Skill => self.relics.contains(&Relic::BottledLightning),
+                        CardType::Power => self.relics.contains(&Relic::BottledTornado),
+                        CardType::Status => false,
+                    };
+                    owns_bottle
+                        && match self.phase {
+                            RunPhase::Event => self.event.is_some(),
+                            RunPhase::Reward => self.reward.is_some(),
+                            RunPhase::Shop => self.shop.is_some() && self.shop_merchant_open,
+                            _ => false,
+                        }
+                }
             };
             if !has_phase_owner {
                 return Err(SimError::InvalidState(

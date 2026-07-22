@@ -1214,6 +1214,32 @@ mod tests {
     }
 
     #[test]
+    fn current_snapshot_rejects_fabricated_pandoras_box_grid() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            crate::Event::Neow,
+        ));
+        run.gain_relic(crate::Relic::PandorasBox)
+            .expect("Pandora's Box opens its generated grid");
+        run.card_grid.as_mut().expect("Pandora's Box grid").cards[0].content_id =
+            crate::content::cards::BASH_ID;
+        let value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("run snapshot serializes");
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("Pandora's Box cannot import fabricated generated cards");
+
+        assert!(matches!(error, SnapshotRestoreError::InvalidState(_)));
+    }
+
+    #[test]
     fn current_snapshot_rejects_incomplete_deck_derived_grid() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;

@@ -1,4 +1,7 @@
-use super::event::{Event, EventChoice, EventScreen};
+use super::{
+    event::{Event, EventChoice, EventScreen},
+    state::RunRngStream,
+};
 use crate::{
     card::{CardInstance, CardType},
     content::{
@@ -133,8 +136,62 @@ pub(super) fn validate_grid_payload_authority(
         GridPurpose::EventObtainCardReturnToEvent {
             event: Event::Duplicator,
         } => validate_duplicator_grid_payload(run, grid),
+        GridPurpose::CallingBellCurse => validate_calling_bell_grid_payload(run, grid),
+        GridPurpose::PandorasBox => validate_pandoras_box_grid_payload(run, grid),
         _ => validate_deck_derived_grid_payload(run, grid),
     }
+}
+
+fn validate_calling_bell_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimResult<()> {
+    let expected = CardInstance::new(
+        crate::ids::CardId::new(run.next_card_instance_id()?),
+        CURSE_OF_THE_BELL_ID,
+    );
+    if grid.cards.as_slice() != [expected]
+        || grid.selected.is_some()
+        || !grid.selected_indices.is_empty()
+    {
+        return Err(SimError::InvalidState(
+            "Calling Bell grid does not match generated curse authority",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_pandoras_box_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimResult<()> {
+    let draw_count = u32::try_from(grid.cards.len())
+        .map_err(|_| SimError::InvalidState("Pandora's Box grid is too large"))?;
+    let stream = run.rng_stream_state(RunRngStream::CardRandom);
+    let prior_counter = stream
+        .counter
+        .checked_sub(draw_count)
+        .ok_or(SimError::InvalidState(
+            "Pandora's Box grid has no preceding card RNG draws",
+        ))?;
+    let first_id = run.reserve_card_instance_ids(grid.cards.len())?;
+    let pool = ironclad_truly_random_card_pool();
+    let mut rng = StsRng::with_counter(stream.seed as i64, prior_counter);
+    let expected = (0..grid.cards.len())
+        .map(|index| -> SimResult<CardInstance> {
+            let pick = rng.random_int((pool.len() - 1) as i32) as usize;
+            let content_id = run.content_id_after_card_add_relics(pool[pick])?;
+            Ok(CardInstance::new(
+                crate::ids::CardId::new(first_id + index as u64),
+                content_id,
+            ))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    if expected != grid.cards
+        || rng.counter() != stream.counter
+        || grid.cards.is_empty()
+        || grid.selected.is_some()
+        || !grid.selected_indices.is_empty()
+    {
+        return Err(SimError::InvalidState(
+            "Pandora's Box grid does not match generated card authority",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimResult<()> {
@@ -1702,6 +1759,83 @@ mod tests {
     }
 
     #[test]
+    fn relic_grids_require_matching_owners_and_generated_payloads() {
+        let mut calling_bell = RunState::seeded_ironclad(1, 0);
+        calling_bell.phase = RunPhase::Event;
+        calling_bell.event = Some(crate::run::event::event_screen_for_run(
+            &calling_bell,
+            Event::Neow,
+        ));
+        calling_bell
+            .gain_relic(crate::Relic::CallingBell)
+            .expect("Calling Bell opens its curse grid");
+        calling_bell
+            .validate()
+            .expect("Calling Bell owns its exact generated curse");
+
+        let mut fabricated_bell = calling_bell.clone();
+        fabricated_bell
+            .card_grid
+            .as_mut()
+            .expect("Calling Bell grid")
+            .cards[0]
+            .content_id = STRIKE_R_ID;
+        assert_eq!(
+            fabricated_bell.validate(),
+            Err(SimError::InvalidState(
+                "Calling Bell grid does not match generated curse authority"
+            ))
+        );
+
+        let mut unowned_bell = calling_bell;
+        unowned_bell
+            .relics
+            .retain(|relic| *relic != crate::Relic::CallingBell);
+        assert_eq!(
+            unowned_bell.validate(),
+            Err(SimError::InvalidState(
+                "card grid purpose has no authoritative phase owner"
+            ))
+        );
+
+        let mut pandora = RunState::seeded_ironclad(1, 0);
+        pandora.phase = RunPhase::Event;
+        pandora.event = Some(crate::run::event::event_screen_for_run(
+            &pandora,
+            Event::Neow,
+        ));
+        pandora
+            .gain_relic(crate::Relic::PandorasBox)
+            .expect("Pandora's Box opens its generated grid");
+        pandora
+            .validate()
+            .expect("Pandora's Box payload replays from card RNG");
+
+        let mut fabricated_pandora = pandora.clone();
+        fabricated_pandora
+            .card_grid
+            .as_mut()
+            .expect("Pandora's Box grid")
+            .cards[0]
+            .content_id = BASH_ID;
+        assert_eq!(
+            fabricated_pandora.validate(),
+            Err(SimError::InvalidState(
+                "Pandora's Box grid does not match generated card authority"
+            ))
+        );
+
+        let mut missing_draw = pandora;
+        missing_draw.card_random_rng_counter = 0;
+        assert_eq!(
+            missing_draw.validate(),
+            Err(SimError::InvalidState(
+                "Pandora's Box grid has no preceding card RNG draws"
+            ))
+        );
+    }
+
+    #[test]
     fn rest_smith_grid_includes_bites_and_upgrades_them() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Rest;
@@ -1801,6 +1935,7 @@ mod tests {
         run.phase = RunPhase::Treasure;
         run.current_room_override = Some(crate::RoomKind::Boss);
         run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::EmptyCage);
         open_empty_cage_grid(&mut run);
         let original_deck = run.deck.clone();
 

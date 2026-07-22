@@ -421,6 +421,7 @@ mod tests {
         run.phase = RunPhase::Treasure;
         run.current_room_override = Some(crate::RoomKind::Boss);
         run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::Astrolabe);
         run.card_grid = Some(CardGridScreen {
             cards: vec![run.deck[0]],
             purpose: GridPurpose::Astrolabe,
