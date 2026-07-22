@@ -1,4 +1,4 @@
-use sts_core::run::event::{Event, MatchAndKeepCard, MatchAndKeepState};
+use sts_core::run::event::{neow_screen_for_stage, Event, MatchAndKeepCard, MatchAndKeepState};
 use sts_core::run::setup_treasure_room;
 use sts_core::{
     apply_combat_action,
@@ -11,7 +11,7 @@ use sts_core::{
     content::shop_pool::shop_card_content_id,
     enter_reward_screen, legal_event_actions, legal_rest_actions, legal_run_decision_actions,
     legal_shop_actions, open_shop_merchant, CardGridScreen, CardId, CardRewardFlow, CombatAction,
-    CombatState, ContentId, EventScreen, GridPurpose, MapNodeId, MonsterId, MonsterIntent, Relic,
+    CombatState, ContentId, GridPurpose, MapNodeId, MonsterId, MonsterIntent, Relic,
     RewardContinuation, RewardScreen, RoomKind, RunPhase, RunState, SimError,
 };
 
@@ -398,12 +398,7 @@ fn orphaned_run_screens_and_room_state_fail_validation() {
 fn typed_reward_continuations_retain_only_their_authoritative_owner() {
     let mut event = RunState::seeded_ironclad(1, 0);
     event.phase = RunPhase::Reward;
-    event.event = Some(EventScreen {
-        event: Event::Neow,
-        choices: Vec::new(),
-        stage: 2,
-        event_data: 0,
-    });
+    event.event = Some(neow_screen_for_stage(&event, 2));
     event.reward = Some(empty_reward_screen(RewardContinuation::Neow));
     event
         .validate()

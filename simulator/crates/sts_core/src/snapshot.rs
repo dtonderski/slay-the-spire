@@ -717,6 +717,7 @@ mod tests {
         };
         let mut value = serde_json::to_value(snapshot).expect("snapshot serializes");
         value["state"]["phase"] = Value::String("Reward".to_owned());
+        value["state"]["event"] = Value::Null;
         let choices = if active {
             vec![value["state"]["deck"][0].clone()]
         } else {
@@ -993,7 +994,12 @@ mod tests {
             (
                 RewardContinuation::Event,
                 json!({
-                    "event": crate::run::event::event_screen(crate::Event::Neow),
+                    "event": crate::EventScreen {
+                        event: crate::Event::SensoryStone,
+                        choices: vec![crate::EventChoice { label: "Leave".to_owned() }],
+                        stage: 2,
+                        event_data: 0,
+                    },
                 }),
             ),
             (
@@ -1109,9 +1115,15 @@ mod tests {
     #[test]
     fn current_reward_snapshot_rejects_retained_owner_without_continuation() {
         let mut value = reward_snapshot_value(SNAPSHOT_SCHEMA_VERSION);
-        value["state"]["event"] =
-            serde_json::to_value(crate::run::event::event_screen(crate::Event::Neow))
-                .expect("event serializes");
+        value["state"]["event"] = serde_json::to_value(crate::EventScreen {
+            event: crate::Event::SensoryStone,
+            choices: vec![crate::EventChoice {
+                label: "Leave".to_owned(),
+            }],
+            stage: 2,
+            event_data: 0,
+        })
+        .expect("event serializes");
 
         let error = restore_run_snapshot_json(
             &serde_json::to_string(&value).expect("snapshot value serializes"),
@@ -1192,6 +1204,7 @@ mod tests {
         run.relics.push(Relic::SpiritPoop);
         run.pending_event_combat_relic_offer = Some(Relic::OddMushroom);
         run.phase = RunPhase::Reward;
+        run.event = None;
         run.reward = Some(RewardScreen {
             continuation: RewardContinuation::None,
             choices: Vec::new(),

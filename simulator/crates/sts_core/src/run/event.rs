@@ -459,6 +459,85 @@ pub(super) fn validate_event_screen_authority(
     screen: &EventScreen,
 ) -> SimResult<()> {
     match screen.event {
+        Event::Neow => {
+            if screen.stage > 2 {
+                return Err(SimError::InvalidState("Neow stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState("Neow retains unexpected event data"));
+            }
+            let valid_phase = match screen.stage {
+                0 | 1 => run.phase == RunPhase::Event,
+                2 => matches!(run.phase, RunPhase::Event | RunPhase::Reward),
+                _ => unreachable!("Neow stage was validated above"),
+            };
+            if !valid_phase {
+                return Err(SimError::InvalidState(
+                    "Neow stage does not match the run phase",
+                ));
+            }
+            if screen.choices != neow_screen_for_stage(run, screen.stage).choices {
+                return Err(SimError::InvalidState(
+                    "Neow choices do not match its stage",
+                ));
+            }
+        }
+        Event::SpireHeart => {
+            if screen.stage > 4 {
+                return Err(SimError::InvalidState("Spire Heart stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Spire Heart retains unexpected event data",
+                ));
+            }
+            let valid_phase = if screen.stage == 4 {
+                run.phase == RunPhase::Complete
+            } else {
+                run.phase == RunPhase::Event
+            };
+            if !valid_phase {
+                return Err(SimError::InvalidState(
+                    "Spire Heart stage does not match the run phase",
+                ));
+            }
+            let expected_choices = if screen.stage == 4 {
+                Vec::new()
+            } else {
+                spire_heart_choices(screen.stage)
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Spire Heart choices do not match its stage",
+                ));
+            }
+        }
+        Event::MatchAndKeep => {
+            if screen.stage > 3 {
+                return Err(SimError::InvalidState("Match and Keep stage is invalid"));
+            }
+            if screen.event_data != 0 {
+                return Err(SimError::InvalidState(
+                    "Match and Keep retains unexpected event data",
+                ));
+            }
+            if run.phase != RunPhase::Event {
+                return Err(SimError::InvalidState(
+                    "Match and Keep exists outside the event phase",
+                ));
+            }
+            let expected_choices = match screen.stage {
+                0 | 1 => match_and_keep_choices(screen.stage, 0),
+                2 => match_and_keep_card_choices(run)?,
+                3 => labeled_choices(&["Leave"]),
+                _ => unreachable!("Match and Keep stage was validated above"),
+            };
+            if screen.choices != expected_choices {
+                return Err(SimError::InvalidState(
+                    "Match and Keep choices do not match its state",
+                ));
+            }
+        }
         Event::BigFish => {
             if screen.stage > 1 {
                 return Err(SimError::InvalidState("Big Fish stage is invalid"));
@@ -1424,7 +1503,6 @@ pub(super) fn validate_event_screen_authority(
             }
         }
         Event::WeMeetAgain => validate_we_meet_again_authority(run, screen)?,
-        _ => {}
     }
     Ok(())
 }
@@ -3969,6 +4047,97 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_and_match_imports_reject_unreachable_screen_shapes() {
+        let cases = [
+            (
+                Event::Neow,
+                3,
+                "Neow stage is invalid",
+                "Neow retains unexpected event data",
+                "Neow choices do not match its stage",
+            ),
+            (
+                Event::SpireHeart,
+                5,
+                "Spire Heart stage is invalid",
+                "Spire Heart retains unexpected event data",
+                "Spire Heart choices do not match its stage",
+            ),
+            (
+                Event::MatchAndKeep,
+                4,
+                "Match and Keep stage is invalid",
+                "Match and Keep retains unexpected event data",
+                "Match and Keep choices do not match its state",
+            ),
+        ];
+
+        for (event, invalid_stage, stage_error, data_error, choices_error) in cases {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            if event == Event::MatchAndKeep {
+                run.match_and_keep = Some(
+                    initialize_match_and_keep_state(&mut run)
+                        .expect("Match and Keep initialization succeeds"),
+                );
+            }
+            run.phase = RunPhase::Event;
+            run.event = Some(event_screen_for_run(&run, event));
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").stage = invalid_stage;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(stage_error)),
+                "{event:?} accepts an unreachable stage"
+            );
+
+            let mut invalid = run.clone();
+            invalid.event.as_mut().expect("event screen").event_data = 1;
+            assert_eq!(
+                invalid.validate(),
+                Err(SimError::InvalidState(data_error)),
+                "{event:?} accepts unreachable event data"
+            );
+
+            run.event.as_mut().expect("event screen").choices.clear();
+            assert_eq!(
+                run.validate(),
+                Err(SimError::InvalidState(choices_error)),
+                "{event:?} accepts a noncanonical choice list"
+            );
+        }
+    }
+
+    #[test]
+    fn lifecycle_event_stages_require_their_authoritative_phase() {
+        let mut neow = RunState::seeded_ironclad(1, 0);
+        neow.phase = RunPhase::Idle;
+        let neow_screen = neow_talk_screen();
+        assert_eq!(
+            validate_event_screen_authority(&neow, &neow_screen),
+            Err(SimError::InvalidState(
+                "Neow stage does not match the run phase"
+            ))
+        );
+
+        let mut heart = RunState::seeded_ironclad(1, 0);
+        heart.phase = RunPhase::Event;
+        let terminal = make_event_screen(Event::SpireHeart, Vec::new(), 4);
+        assert_eq!(
+            validate_event_screen_authority(&heart, &terminal),
+            Err(SimError::InvalidState(
+                "Spire Heart stage does not match the run phase"
+            ))
+        );
+
+        heart.phase = RunPhase::Complete;
+        heart.event = Some(terminal);
+        heart
+            .validate()
+            .expect("terminal Spire Heart screen is authoritative");
+    }
+
+    #[test]
     fn neow_three_potions_remain_reward_items_until_core_picks_and_proceed() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
@@ -4841,7 +5010,7 @@ mod tests {
         assert_eq!(
             apply_event_action(&run, EventAction::Choose { choice_index: 0 }),
             Err(SimError::InvalidState(
-                "Match and Keep card label is invalid"
+                "Match and Keep choices do not match its state"
             ))
         );
     }
