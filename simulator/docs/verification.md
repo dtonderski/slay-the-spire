@@ -12,12 +12,10 @@ Verification is staged:
 4. Real-game state comparison through CommunicationMod-style exports.
 5. Distribution checks for systems where exact hidden state is not yet observable.
 
-Production live collection and permanent-corpus promotion use only seed-start
-replay. Historical observed-state replay notes below describe an old,
-non-authoritative diagnostic mode; they are not permitted as fidelity evidence
-and are never used by the autonomous collector. Simulator state must be derived
-from the initial seed/config plus accepted actions, never copied, repaired, or
-hydrated from a real-game observation.
+Production live collection and permanent-corpus verification use only
+seed-start replay. Simulator state is derived from the initial seed/config plus
+accepted typed actions, never copied, repaired, or hydrated from a real-game
+observation.
 
 ## Verification Outcome Contract
 
@@ -49,62 +47,46 @@ For the Phase 1 live trace UI, use the manual/quarantined checklist in
 [`live_trace_real_game_smoke.md`](live_trace_real_game_smoke.md) when validating against a real ModTheSpire
 process. Keep that smoke out of ordinary CI.
 
-Build a verifier that can:
+The verifier has two independent projection paths:
 
-- launch or connect to a real game through CommunicationMod
-- send a scripted action
-- capture the stable JSON state after each decision
-- normalize the real-game state into the simulator's canonical snapshot schema
-- apply the same action to the simulator
-- diff canonical state after each step
+```text
+validated trace pre-state + typed command
+    -> core transition
+    -> simulated projection
 
-For early work, manual captured JSON fixtures are enough. Automation comes later.
+validated trace post-state
+    -> observed projection
 
-Current Milestone 12 observed-state replay command:
+simulated projection <-> observed projection
+    -> comparison and one action disposition
+```
+
+The simulated projection accepts simulator state only. The observed post-state
+is expected output and cannot select content, repair RNG, reconstruct a screen,
+or otherwise mutate authoritative simulation state. Busy or otherwise transient
+frames create deferred assertions. A later stable frame must reconcile them;
+an unresolved assertion is not verified coverage.
+
+Use `parity` for a trace that claims complete terminal replay:
 
 ```powershell
 cd simulator
-cargo run -p sts_verify -- parity verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
+uv run -- cargo run -q -p sts_verify --bin sts_verify -- parity verification\corpus\permanent_traces\trace-session-8.jsonl
 ```
 
-This mode restores simulator state from each observed real pre-state, applies the matching CommunicationMod action, and compares a supported canonical post-state subset. It verifies the captured trace's supported combat/reward mechanics: Bash, Strike, Defend, end turn, Cultist attack/ritual behavior where currently modeled, Burning Blood heal, gold reward pickup, and Twin Strike pickup.
-
-Observed-state mode does not verify seed-start RNG parity. Use seed-start mode for the captured `VERIFY01` and `CODEX04` traces. Observed-state combat still classifies reward-offer generation as unsupported at combat victory; seed-start mode verifies reward offers and pickups from simulation-driven RNG. Broad game-compatible RNG remains bounded to captured branches for Neow, map return after rewards, and unreached paths:
-
-- `START IRONCLAD 0 VERIFY01` / `CODEX04` seed/bootstrap parity
-- Neow option/reward RNG (captured branches only; CODEX03 Lament pending)
-- map generation and node RNG (post-reward map returns still pinned in seed-start verifier)
-- encounter selection and monster HP RNG
-- shop/rest/event/chest captured-trace verification on the TEST seed-start trace (`trace-2026-06-21T09-57-10-380Z.jsonl`); VERIFY01/CODEX04/CODEX03 do not enter those rooms
-
-Current seed-start harness command:
+Use the typed permanent manifest for corpus-wide status:
 
 ```powershell
 cd simulator
-uv run -- cargo run -p sts_verify -- parity verification\corpus\communication_mod\trace-2026-06-18T06-04-49-264Z.jsonl
+uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown permanent_traces
 ```
 
-This mode parses the real `START IRONCLAD 0 VERIFY01` command and verifies the captured Ironclad A0 trace through return to map without restoring from observed pre-state. It verifies the selected Neow path, first map choice, first Cultist encounter entry, captured Cultist combat through lethal Strike, simulation-driven reward offers, gold pickup, card reward choices, Twin Strike pickup, and post-reward `PROCEED`. For the captured trace, it reports `seed_start.expected_failure=false`, `seed_start.first_boundary.path=$.actions[complete]`, and `unexpected_diffs=0`.
-
-The same seed-start mode also covers the captured `CODEX04` path through the first three combats:
-
-```powershell
-cd simulator
-uv run -- cargo run -p sts_verify -- parity verification\corpus\communication_mod\trace-2026-06-18T16-50-50-232Z.jsonl
-```
-
-For `CODEX04`, it verifies talk, the captured colorless-card reward choices `Deep Breath`, `Dramatic Entrance`, and `Jack Of All Trades`, picking `Dramatic Entrance`, leaving Neow with that card in the deck, entering the captured map path, simulation-driven floor-1/floor-2 reward screens (gold, card, potion skip), and replaying through floor-3 combat completion with `seed_start.expected_failure=false` and `unexpected_diffs=0`. For `CODEX03`, seed-start replay covers Neow's Lament, three normal combats, deferred card-reward RNG (rolled when the player opens the card screen), combat-entry `cardRng` advancement, simulation-driven rewards and map returns, and ends after floor-3 return-to-map with `unexpected_diffs=0`.
-
-```powershell
-cd simulator
-uv run -- cargo run -p sts_verify -- parity verification\corpus\communication_mod\trace-2026-06-18T16-45-23-530Z.jsonl
-```
-
-Seed-start output also includes `seed_start.m22_encounter_report`, which separates captured verified combat-entry spawn state from source-backed predictions: CODEX04 and CODEX03 have three captured verified combat-entry rosters, while VERIFY01 has one captured verified entry plus two source-backed predictions because the available VERIFY01 trace ends after the first combat reward.
-
-The seed-start report includes named RNG boundaries for the captured traces: seed conversion, Neow, map, encounter selection, monster HP, shuffle, card reward, reward gold, relic, merchant, event, potion, and misc streams. Normal-combat card rewards defer `cardRng` draws until `OpenCardReward`; target card reward screens also consume non-rare preview upgrade rolls from `cardRng`, which is why Dream Catcher rest-card rewards now carry through the TEST trace without counter search. Normal-combat and relic reward RNG are source-backed and verified in seed-start mode for VERIFY01/CODEX04/CODEX03. Counter-search and observed shop-screen/card-reward reconstruction are not valid parity mechanisms and have been removed from the TEST seed-start verifier path. On `trace-2026-06-21T09-57-10-380Z.jsonl`, shop inventory, purchase, purge, and affordable choice-list refresh are source-backed through step 176 (`test_seed_start_m28_shop_entry_parity`, `test_seed_start_full_act1_boss_relic_prefix`). Class-card prices use library rarity with target-style int truncation; colorless prices use `getPrice` bases (50/75/150) with the 1.2 multiplier; `affordable_shop_picks` drives CommunicationMod `choice_list` and `CHOOSE` index mapping. Unmapped colorless shop pool cards receive synthetic `ContentId`s for pool-index RNG parity; buying them is allowed but playing them may fail until the card is mapped. Post-reward map returns in the seed-start verifier are simulation-driven from captured map topology and chosen path coordinates. TEST-only room-kind table for map picks and event-entry RNG pins remain documented hidden-state assumptions.
-
-Milestone 29 currently has a first TEST elite/boss slice rather than full elite/boss parity. `test_seed_start_m29_test_elite_boss_without_observed_sync` disables elite/boss observed-state restoration and verifies the non-potion Lagavulin mechanics reached before the Power Potion branch. The in-combat Power Potion card reward, temporary zero-cost card play, and downstream potion-tainted combat state remain explicit observed-sync boundaries until potion/card temporary-state modeling is split out.
+[`permanent_traces.json`](../verification/corpus/permanent_traces.json) is the
+only permanent-corpus expectation authority. Its entries declare complete replay,
+retained-prefix coverage with an exact named action endpoint, or an exact
+expected boundary. The status command and permanent corpus test require the
+manifest to match the `permanent_traces/` filesystem exactly. Raw traces do not
+become passing evidence merely because they have no current diffs.
 
 The overnight CommunicationMod collector can harvest longer traces for missing elite coverage. Validate harvested traces before promoting them:
 
@@ -124,7 +106,9 @@ For multi-run traces, extract the useful attempt before promoting:
 node tools\communication\trace_tools.js extract-run simulator\verification\corpus\communication_mod\<raw>.valid-prefix.jsonl 1 simulator\verification\corpus\communication_mod\<raw>.run2.valid-prefix.jsonl
 ```
 
-`trace-2026-06-23T02-56-19-245Z.run2.valid-prefix.jsonl` is the current harvested Sentries candidate. It is structurally valid, includes the second `M290001` attempt, and reaches floor 7 Sentries. Seed-start verification currently supports its transform-card Neow branch and Sever Soul, then stops at floor-2 step 29 on a target-liveness sync boundary.
+Promote a trace only after assigning its typed expectation and making it pass
+the permanent corpus integrity gate. Keep failing or exploratory captures
+outside `permanent_traces/`; they are debugging inputs, not parity claims.
 
 ### Divergence minimization
 
@@ -137,32 +121,27 @@ uv run -- cargo run -p sts_verify -- minimize -o verification\corpus\bugs\my-bug
 
 `minimize` runs parity, finds the first `unexpected_diff` or expected-failure boundary, and writes metadata plus all state/action lines through that step. Summary fields go to stderr; the minimized trace goes to stdout or `-o`. Passing traces exit 0 with `minimize: trace has no unexpected diff or expected-failure boundary to minimize`.
 
-### Seed-start hidden and waived fields
+### Visibility contract
 
-Fields below are excluded from comparison or treated as unsupported rather than silently equated. Each has a named reason in verifier output or subset `unobservable` markers.
+Every excluded field must have a narrow observation reason. Current comparison
+exceptions are:
 
-| Area | Treatment | Reason |
-|------|-----------|--------|
-| Selected first-combat opening hand/draw piles with innate or Neow-granted cards | Seed-derived from current master-deck order plus Java `Collections.shuffle(new Random(shuffleRng.randomLong()))` | Covered for selected Ironclad A0 CODEX04/TEST/M290001/M290008 first combats |
-| Post-`END` pile state in selected M34 traces | Compared without stripping or restoring piles | Selected CODEX04/TEST/M290001/M290008 seed-start traces now pass the covered pile-order checks |
-| Post-`END` non-pile combat state | Hidden-state stabilization may still sync raw ignored fields, but no longer records restoration when the normalized supported subset matches | Disabling the sync entirely now cascades from Small Slimes step 27 in TEST; default TEST reports no post-END non-pile restoration records |
-| Louse curl move | Modeled as +3 Strength with no move block, separate from the one-time Curl Up power block on HP damage | Trace-backed by TEST louse combat; post-END non-pile restoration records are gone from the TEST default report |
-| Looter stolen gold | First-class selected A0 model: Mug-style `AttackStealGold` subtracts capped run gold, carries hidden stolen gold into reward, and `TakeStolenGoldReward` restores it | Covers the TEST Looter path through the `STOLEN_GOLD` reward; later Smoke Bomb/Escape/Lunge branches remain outside this slice |
-| TEST late normal-combat observed sync | Disabled by default | The TEST full Act 1 trace still passes with `unexpected_diffs=0`; fixing this required Burn trace mapping, Offering+ draw-five behavior, and large Spike Slime two-Slimed reconstruction |
-| `shuffle_rng_draws` on combat compare | `unobservable` when draw pile length is 5 | CommunicationMod export order vs simulator top-of-pile semantics |
-| Card reward UUIDs / internal reward IDs | `unobservable` on CARD_REWARD and COMBAT_REWARD | Simulator uses sequential `CardId`; trace uses game UUIDs |
-| Reward gold RNG draw count | `unobservable` on COMBAT_REWARD | Draw count not exported by CommunicationMod |
-| Picked card UUID after reward | `unobservable` on empty COMBAT_REWARD | Same UUID gap as deck cards |
-| Neow branches not taken in trace | Not counted as unsupported transitions | The selected path is what the trace verifies; unchosen/counterfactual Neow options remain caveated in the `neowRng` boundary text instead of poisoning a passing trace's `unsupported` count |
-| `cardRng` +3 per combat entry | Hidden counter advance, inferred from captured traces | Not exported; validated indirectly via reward card offers |
-| Deferred card reward timing | Sim rolls on `OpenCardReward`, not combat victory | Matches game UI; counter position not observable mid-screen |
-| Shop/event/rest captured traces | Outside nightly seed-start set | Room execution not in passing scope |
-| Act 1 boss reward | Passing single-trace candidate in the M35 manifest | `trace-2026-06-21T09-57-10-380Z.jsonl` (`TEST`) reaches Act 1 boss relic pickup and pre-Act-2 map return with `unexpected_diffs=0`; the manifest marks it `allow_observed_state_restoration=false` and the default report has `observed_state_restorations=0`. M35 ratchet tests now pin all three TEST elites plus boss no-sync with no unexpected diffs, and those scopes are default verifier behavior. The elite ratchet cleared the former downstream shop potion-offer mismatch after rewinding normal reward RNG side effects before elite reward replacement, plus the third-elite Blessing of the Forge upgraded-hand path for `Defend+`, `Bash+`, and `Immolate+`; the boss ratchet clears Mummified Hand cost carry, Shrug It Off+ block, potion-use path restoration, Bash HP, Guardian end-turn HP, and Pommel Strike current-HP boundaries. M35 still needs 4-9 more clean full Act 1 traces before the corpus can be complete |
-| Act 2 map generation | Source-backed/synthetic-testable scaffold only | `TargetMapAct::City` now generates City topology/fixed maps with target-style `seed + actNum * 100` map RNG offset (`seed + 200` for Act 2), fixed rows, room-list generation, shuffle, and assignment rules. This is M36 prep; no selected Act 2 trace has passed through Act 2 boss reward yet |
-| Act 2 encounter lists/groups | Source-backed/synthetic-testable scaffold only | `TheCity` weak/strong/elite encounter key pools, first-strong exclusions, normal/elite no-repeat rules, act-aware City key lookup, `MonsterHelper.getEncounter` group composition metadata, City-native monster HP ranges, source-backed City monster damage/status/block constants, and a partial executable Spheric Guardian opening are modeled and unit-tested. Broader City monster AI, spawn RNG, executable combat groups, and selected trace parity are not claimed yet |
-| Act 2 event/shrine lists | Source-backed/synthetic-testable scaffold only | `TheCity` event and shrine inventories are modeled and selected through the normal event RNG path when `current_act == 2`. Individual City event bodies are continue-only scaffolds until implemented, and selected Act 2 trace parity is not claimed yet |
+| State | Contract | Why |
+|---|---|---|
+| Card UUIDs and reward-screen internal IDs | Compare content identity, order, and visible offers; do not compare process-local identifiers | Simulator card IDs and target UUIDs use different identity domains |
+| RNG counters not exported by CommunicationMod | Do not compare the counter directly; verify its effects in later visible offers, piles, encounters, and intents | The observation contains outcomes, not hidden stream positions |
+| Runic Dome monster intent and move ID | Omit both from observed and simulated projections while the relic hides intent | The player cannot observe them |
+| Missing target `move_id` | Omit the simulated `move_id` only for that monster and frame | Some CommunicationMod frames do not export it |
+| `DEBUG` monster intent | Omit intent only on the unsettled frame and require later stable reconciliation | `DEBUG` is an animation/update sentinel, not a settled intent |
+| Dead-monster Strength, Ritual, and Vulnerable | Omit only after that monster is dead | CommunicationMod exposes terminal powers inconsistently and they cannot affect future transitions |
+| Intent and move ID after player or monster death | Omit only on the terminal frame | No later player decision can observe or act on them |
+| Busy combat fields | Compare the stable portion immediately and defer HP, block, energy, piles, and monsters until a stable frame | Animation frames can precede the authoritative settled observation |
 
-Never strip these fields from snapshots to force a pass. Comparisons use subset diffing with explicit `unobservable` keys removed in `seed_start_normalize_combat_compare`.
+These exceptions affect comparison projections only. They never authorize
+mutation of simulator state. Living-monster powers and stable-frame intent,
+HP, block, energy, pile order, rewards, relics, potions, deck, and choices remain
+strict. Any deferred assertion that does not reconcile fails the integrity
+gate.
 
 Seed conversion status:
 

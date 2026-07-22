@@ -138,7 +138,7 @@ fn checker_uses_seed_start_for_complete_start_traces() {
 #[test]
 fn checker_returns_simulator_state_for_supported_live_trace() {
     let corpus_path =
-        sts_verify::corpus_path("communication_mod/trace-2026-07-06T16-59-52-285Z.jsonl");
+        sts_verify::corpus_path("permanent_traces/trace-2026-07-06T16-59-52-285Z.jsonl");
     if !corpus_path.exists() {
         return;
     }

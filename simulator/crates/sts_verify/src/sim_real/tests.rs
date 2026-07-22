@@ -296,7 +296,7 @@ fn smoke_bomb_transient_projection_preserves_the_core_destination() {
 #[test]
 fn smoke_bomb_trace_reconciles_escape_and_reward_proceeds_at_stable_frames() {
     let Some(content) =
-        crate::load_corpus_file("communication_mod/trace-2026-07-07T18-33-54-807Z.jsonl")
+        crate::load_corpus_file("permanent_traces/trace-2026-07-07T18-33-54-807Z.jsonl")
     else {
         return;
     };

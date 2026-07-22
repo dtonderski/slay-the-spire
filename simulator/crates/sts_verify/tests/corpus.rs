@@ -14,40 +14,6 @@ use sts_verify::{
     VerificationCorpusManifest, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
-#[derive(Debug, serde::Deserialize)]
-struct Act1CorpusManifest {
-    status: String,
-    required_passing_traces: Act1CorpusRequirements,
-    entries: Vec<Act1CorpusEntry>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct Act1CorpusRequirements {
-    min: usize,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct Act1CorpusEntry {
-    path: String,
-    external_seed: String,
-    numeric_seed: i64,
-    failed: bool,
-    first_boundary_category: String,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct LiveRegressionManifest {
-    entries: Vec<LiveRegressionEntry>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct LiveRegressionEntry {
-    path: String,
-    external_seed: String,
-    expected_verified: bool,
-    rust_seed_start_unexpected_diffs: usize,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 struct CapturedEncounterPrefix {
     action_step: u32,
@@ -1041,106 +1007,8 @@ fn test_seed_start_boss_relic_retained_trace() {
 }
 
 #[test]
-fn m35_act1_manifest_entries_pass_seed_start() {
-    let Some(manifest_content) = load_corpus_file("act1_a0_ironclad.json") else {
-        return;
-    };
-    let manifest: Act1CorpusManifest =
-        serde_json::from_str(&manifest_content).expect("Act 1 corpus manifest parses");
-
-    assert!(
-        manifest.status == "partial_data_blocked" || manifest.status == "satisfied",
-        "unexpected Act 1 corpus status: {}",
-        manifest.status
-    );
-    if manifest.status == "satisfied" {
-        assert!(
-            manifest.entries.len() >= manifest.required_passing_traces.min,
-            "satisfied Act 1 corpus has only {} entries; expected at least {}",
-            manifest.entries.len(),
-            manifest.required_passing_traces.min
-        );
-    }
-
-    for entry in manifest.entries {
-        let content = load_corpus_file(&entry.path)
-            .unwrap_or_else(|| panic!("manifest trace is readable: {}", entry.path));
-        let report = verify_seed_start_communication_mod_trace(&content)
-            .unwrap_or_else(|err| panic!("seed-start report for {}: {err}", entry.path));
-        assert!(
-            report.unexpected_diffs.is_empty(),
-            "{} unexpected diffs: {:?}",
-            entry.path,
-            report.unexpected_diffs
-        );
-
-        let seed_start = report
-            .seed_start
-            .unwrap_or_else(|| panic!("seed-start details for {}", entry.path));
-        assert_eq!(
-            seed_start.failed, entry.failed,
-            "{} failed mismatch",
-            entry.path
-        );
-        assert_eq!(
-            seed_start.start_command.external_seed, entry.external_seed,
-            "{} external seed mismatch",
-            entry.path
-        );
-        assert_eq!(
-            seed_start.start_command.numeric_seed, entry.numeric_seed,
-            "{} numeric seed mismatch",
-            entry.path
-        );
-        assert_eq!(
-            seed_start.first_boundary.category, entry.first_boundary_category,
-            "{} first boundary mismatch",
-            entry.path
-        );
-    }
-}
-
-#[test]
-fn live_regression_manifest_entries_pass_seed_start() {
-    let Some(manifest_content) = load_corpus_file("live_regressions.json") else {
-        return;
-    };
-    let manifest: LiveRegressionManifest =
-        serde_json::from_str(&manifest_content).expect("live regression manifest parses");
-
-    for entry in manifest.entries {
-        let content = load_corpus_file(&entry.path)
-            .unwrap_or_else(|| panic!("live regression trace is readable: {}", entry.path));
-        let report = verify_seed_start_communication_mod_trace(&content)
-            .unwrap_or_else(|err| panic!("seed-start report for {}: {err}", entry.path));
-        assert_eq!(
-            report.unexpected_diffs.len(),
-            entry.rust_seed_start_unexpected_diffs,
-            "{} unexpected diff count changed: {:?}",
-            entry.path,
-            report.unexpected_diffs
-        );
-        let seed_start = report
-            .seed_start
-            .unwrap_or_else(|| panic!("seed-start details for {}", entry.path));
-        assert_eq!(
-            seed_start.start_command.external_seed, entry.external_seed,
-            "{} external seed mismatch",
-            entry.path
-        );
-        if entry.expected_verified {
-            assert!(
-                !report.verified.is_empty(),
-                "{} had no verified seed-start transitions",
-                entry.path
-            );
-        }
-    }
-}
-
-#[test]
 fn codex10_neow_transform_two_trace_verifies_through_first_map_node() {
-    let Some(content) = load_corpus_file("communication_mod/trace-2026-07-06T16-59-52-285Z.jsonl")
+    let Some(content) = load_corpus_file("permanent_traces/trace-2026-07-06T16-59-52-285Z.jsonl")
     else {
         return;
     };
@@ -1190,7 +1058,7 @@ fn codex10_neow_transform_two_trace_verifies_through_first_map_node() {
 
 #[test]
 fn library_grid_uses_target_card_group_bottom_order() {
-    let Some(content) = load_corpus_file("communication_mod/trace-2026-07-07T18-33-54-807Z.jsonl")
+    let Some(content) = load_corpus_file("permanent_traces/trace-2026-07-07T18-33-54-807Z.jsonl")
     else {
         return;
     };
