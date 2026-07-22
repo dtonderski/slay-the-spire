@@ -5316,9 +5316,10 @@ fn seed_start_event_grid_projection_delays_confirmed_transform_output() {
 fn event_projection_defers_simulator_owned_pending_obtain_cards() {
     let mut run = RunState::seeded_ironclad(1, 0);
     run.phase = RunPhase::Event;
-    run.event = Some(event_screen(Event::TheSsssserpent));
+    run.event = Some(event_screen(Event::GoldenShrine));
     let deck_before = deck_content_keys(&run.deck);
-    run.queue_pending_obtain_card(sts_core::content::cards::REGRET_ID);
+    let run = sts_core::apply_event_action(&run, sts_core::EventAction::Choose { choice_index: 1 })
+        .expect("Golden Shrine queues its deferred Regret");
 
     let transient_projection = seed_start_event_simulated_subset(&run);
     let settled_projection = deck_content_keys_after_pending_obtain_cards_settle(&run);
@@ -5329,11 +5330,17 @@ fn event_projection_defers_simulator_owned_pending_obtain_cards() {
     assert_eq!(settled_projection, expected_deck);
 
     let mut protected = RunState::seeded_ironclad(1, 0);
-    let protected_deck = deck_content_keys(&protected.deck);
     protected
         .gain_relic_key(RelicKey::Omamori)
         .expect("Omamori pickup succeeds");
-    protected.queue_pending_obtain_card(sts_core::content::cards::PAIN_ID);
+    protected.phase = RunPhase::Event;
+    protected.event = Some(event_screen(Event::AccursedBlacksmith));
+    let protected_deck = deck_content_keys(&protected.deck);
+    let protected = sts_core::apply_event_action(
+        &protected,
+        sts_core::EventAction::Choose { choice_index: 1 },
+    )
+    .expect("Accursed Blacksmith queues its deferred Pain");
     assert_eq!(
         deck_content_keys_after_pending_obtain_cards_settle(&protected),
         protected_deck,

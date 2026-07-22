@@ -558,11 +558,16 @@ fn duplicate_run_deck_ids_fail_validation() {
 }
 
 #[test]
-fn known_generated_card_content_remains_valid() {
+fn known_pending_card_without_event_authority_is_invalid() {
     let mut run = RunState::map_fixture();
     run.pending_obtain_cards.push(cards::ANGER_ID);
 
-    run.validate().expect("known pending card is valid");
+    assert_eq!(
+        run.validate(),
+        Err(SimError::InvalidState(
+            "pending obtain cards do not match event authority"
+        ))
+    );
 }
 
 #[test]

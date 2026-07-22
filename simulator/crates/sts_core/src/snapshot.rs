@@ -1134,6 +1134,25 @@ mod tests {
     }
 
     #[test]
+    fn current_snapshot_rejects_ownerless_pending_obtain_cards() {
+        let mut run = RunState::map_fixture();
+        run.pending_obtain_cards
+            .push(crate::content::cards::INJURY_ID);
+        let value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("run snapshot serializes");
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("pending obtain cards require an authoritative event owner");
+
+        assert!(matches!(error, SnapshotRestoreError::InvalidState(_)));
+    }
+
+    #[test]
     fn historical_run_snapshots_migrate_pending_card_reward_counts() {
         for version in [
             LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,

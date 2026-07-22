@@ -1524,6 +1524,53 @@ pub(super) fn validate_event_screen_authority(
     Ok(())
 }
 
+pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()> {
+    let pending = run.pending_obtain_cards.as_slice();
+    let valid = match run.event.as_ref() {
+        Some(screen) if run.phase == RunPhase::Event => match (screen.event, screen.stage) {
+            (Event::GoldenIdol, 2) if screen.event_data == 0 => {
+                let zero_hp_result_is_reachable =
+                    golden_idol_hp_loss(run.player_max_hp, run.ascension) == 0
+                        || golden_idol_max_hp_loss(run.player_max_hp, run.ascension) == 0;
+                pending == [INJURY_ID] || (zero_hp_result_is_reachable && pending.is_empty())
+            }
+            (Event::HypnotizingColoredMushrooms, 1) => pending == [PARASITE_ID],
+            (Event::BigFish, 1) if screen.event_data == 0 => {
+                pending == [REGRET_ID] || (run.player_max_hp / 3 == 0 && pending.is_empty())
+            }
+            (Event::TheMausoleum, 1) => pending.is_empty() || pending == [WRITHE_ID],
+            (Event::Nest, 2) => pending.is_empty() || pending == [RITUAL_DAGGER_ID],
+            (Event::Ghosts, 1) => {
+                pending.len() == ghosts_apparition_count(run.ascension)
+                    && pending
+                        .iter()
+                        .all(|content_id| *content_id == APPARITION_ID)
+            }
+            (Event::WindingHalls, 2) => {
+                pending.is_empty() || pending == [WRITHE_ID] || pending == [MADNESS_ID, MADNESS_ID]
+            }
+            (Event::AccursedBlacksmith, 1) => pending.is_empty() || pending == [PAIN_ID],
+            (Event::GoldenShrine, 1) => pending.is_empty() || pending == [REGRET_ID],
+            (Event::MatchAndKeep, 2) => {
+                pending.is_empty()
+                    || (pending.len() == 1
+                        && run
+                            .match_and_keep
+                            .as_ref()
+                            .is_some_and(|state| state.matched_cards.contains(&pending[0])))
+            }
+            _ => pending.is_empty(),
+        },
+        _ => pending.is_empty(),
+    };
+    if !valid {
+        return Err(SimError::InvalidState(
+            "pending obtain cards do not match event authority",
+        ));
+    }
+    Ok(())
+}
+
 fn dead_adventurer_encounter_chance(run: &RunState, attempts: u8) -> i32 {
     let starting_chance = if run.ascension >= 15 { 35 } else { 25 };
     starting_chance + i32::from(attempts) * 25
@@ -4167,6 +4214,84 @@ mod tests {
                 "{event:?} accepts a noncanonical choice list"
             );
         }
+    }
+
+    #[test]
+    fn pending_obtain_imports_require_exact_event_authority() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::GoldenIdol));
+        let taken = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Golden Idol can be taken");
+        let injury = apply_event_action(&taken, EventAction::Choose { choice_index: 0 })
+            .expect("Golden Idol injury can be selected");
+        assert_eq!(injury.pending_obtain_cards, vec![INJURY_ID]);
+        injury
+            .validate()
+            .expect("Golden Idol owns its pending Injury");
+
+        let mut missing = injury.clone();
+        missing.pending_obtain_cards.clear();
+        assert_eq!(
+            missing.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+
+        let mut wrong = injury;
+        wrong.pending_obtain_cards = vec![REGRET_ID];
+        assert_eq!(
+            wrong.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+
+        let mut stale = RunState::map_fixture();
+        stale.pending_obtain_cards = vec![INJURY_ID];
+        assert_eq!(
+            stale.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+
+        let mut ambiguous = RunState::seeded_ironclad(1, 0);
+        ambiguous.phase = RunPhase::Event;
+        ambiguous.event = Some(make_event_screen(
+            Event::GoldenShrine,
+            golden_shrine_choices(1),
+            1,
+        ));
+        ambiguous
+            .validate()
+            .expect("Golden Shrine may reach its leave screen without a curse");
+        ambiguous.pending_obtain_cards = vec![REGRET_ID];
+        ambiguous
+            .validate()
+            .expect("Golden Shrine may retain its deferred Regret");
+        ambiguous.pending_obtain_cards = vec![PAIN_ID];
+        assert_eq!(
+            ambiguous.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+
+        let mut low_hp = RunState::seeded_ironclad(1, 0);
+        low_hp.player_hp = 1;
+        low_hp.player_max_hp = 1;
+        low_hp.phase = RunPhase::Event;
+        low_hp.event = Some(EventScreen {
+            event: Event::GoldenIdol,
+            choices: golden_idol_choices(2, low_hp.player_max_hp, low_hp.ascension),
+            stage: 2,
+            event_data: 0,
+        });
+        low_hp
+            .validate()
+            .expect("zero-sized Golden Idol HP loss may have no pending Injury");
     }
 
     #[test]

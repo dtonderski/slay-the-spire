@@ -1598,6 +1598,7 @@ impl RunState {
             }
             _ => {}
         }
+        super::event::validate_pending_obtain_authority(self)?;
 
         if self.potions.len() + self.empty_potion_slots.len() > self.potion_capacity() {
             return Err(SimError::InvalidState("potion slots exceed capacity"));
