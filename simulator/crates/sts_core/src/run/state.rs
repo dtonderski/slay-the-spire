@@ -431,6 +431,19 @@ mod tests {
                 "combat integer addition overflows i32"
             ))
         );
+
+        let mut red_skull_run = RunState::map_fixture();
+        red_skull_run.relics = vec![Relic::RedSkull];
+        red_skull_run.player_hp = red_skull_run.player_max_hp / 2;
+        let mut base = CombatState::initial_fixture();
+        base.player.powers.strength = i32::MAX;
+        base.validate().expect("input combat is valid");
+        assert_eq!(
+            red_skull_run.init_combat(base),
+            Err(SimError::InvalidState(
+                "Red Skull Strength activation overflows i32"
+            ))
+        );
     }
 
     #[test]

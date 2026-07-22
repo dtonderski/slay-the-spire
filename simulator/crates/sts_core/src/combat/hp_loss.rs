@@ -36,22 +36,40 @@ pub(crate) fn apply_player_hp_loss_hooks(state: &mut CombatState, hp_loss: i32) 
         return Ok(());
     }
 
-    reduce_blood_for_blood_costs(state);
-    crate::relic::apply_player_hp_loss_relics(state, hp_loss)
+    let mut next = state.clone();
+    apply_player_hp_loss_hooks_in_place(&mut next, hp_loss)?;
+    *state = next;
+    Ok(())
 }
 
 pub(crate) fn apply_player_card_hp_loss_hooks(
     state: &mut CombatState,
     hp_loss: i32,
 ) -> SimResult<()> {
-    apply_player_hp_loss_hooks(state, hp_loss)?;
-    if hp_loss > 0 {
-        state.player.powers.strength += state.player.powers.rupture;
+    if hp_loss <= 0 {
+        return Ok(());
     }
+
+    let mut next = state.clone();
+    apply_player_hp_loss_hooks_in_place(&mut next, hp_loss)?;
+    next.player.powers.strength = next
+        .player
+        .powers
+        .strength
+        .checked_add(next.player.powers.rupture)
+        .ok_or(crate::SimError::InvalidState(
+            "Rupture Strength gain overflows i32",
+        ))?;
+    *state = next;
     Ok(())
 }
 
-fn reduce_blood_for_blood_costs(state: &mut CombatState) {
+fn apply_player_hp_loss_hooks_in_place(state: &mut CombatState, hp_loss: i32) -> SimResult<()> {
+    reduce_blood_for_blood_costs(state)?;
+    crate::relic::apply_player_hp_loss_relics(state, hp_loss)
+}
+
+fn reduce_blood_for_blood_costs(state: &mut CombatState) -> SimResult<()> {
     for pile in [
         &mut state.piles.hand,
         &mut state.piles.draw_pile,
@@ -60,8 +78,79 @@ fn reduce_blood_for_blood_costs(state: &mut CombatState) {
     ] {
         for card in pile {
             if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
-                card.blood_for_blood_cost_reduction += 1;
+                card.blood_for_blood_cost_reduction = card
+                    .blood_for_blood_cost_reduction
+                    .checked_add(1)
+                    .ok_or(crate::SimError::InvalidState(
+                        "Blood for Blood cost reduction overflows i32",
+                    ))?;
             }
         }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{CardId, CardInstance, Relic, SimError};
+
+    #[test]
+    fn blood_for_blood_overflow_rolls_back_all_pile_reductions() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(CardId::new(100), BLOOD_FOR_BLOOD_ID)];
+        let mut overflowing = CardInstance::new(CardId::new(101), BLOOD_FOR_BLOOD_PLUS_ID);
+        overflowing.blood_for_blood_cost_reduction = i32::MAX;
+        state.piles.draw_pile = vec![overflowing];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        let before = state.clone();
+
+        assert_eq!(
+            apply_player_hp_loss_hooks(&mut state, 1),
+            Err(SimError::InvalidState(
+                "Blood for Blood cost reduction overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn self_forming_clay_overflow_rolls_back_earlier_hp_loss_triggers() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::SelfFormingClay);
+        state.relic_counters.self_forming_clay_next_turn_block = i32::MAX;
+        state.piles.hand = vec![CardInstance::new(CardId::new(100), BLOOD_FOR_BLOOD_ID)];
+        let before = state.clone();
+
+        assert_eq!(
+            apply_player_hp_loss_hooks(&mut state, 1),
+            Err(SimError::InvalidState(
+                "Self-Forming Clay block accumulation overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn rupture_overflow_rolls_back_relic_draws_and_card_reductions() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.strength = i32::MAX;
+        state.player.powers.rupture = 1;
+        state.relics.push(Relic::CentennialPuzzle);
+        state.piles.hand = vec![CardInstance::new(CardId::new(100), BLOOD_FOR_BLOOD_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(
+            CardId::new(101),
+            crate::content::cards::DEFEND_R_ID,
+        )];
+        let before = state.clone();
+
+        assert_eq!(
+            apply_player_card_hp_loss_hooks(&mut state, 1),
+            Err(SimError::InvalidState(
+                "Rupture Strength gain overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
     }
 }

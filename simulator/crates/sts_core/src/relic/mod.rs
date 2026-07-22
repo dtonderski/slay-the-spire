@@ -2236,7 +2236,13 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> Sim
         crate::combat::transition::player_draw_cards(&mut next, CENTENNIAL_PUZZLE_DRAW)?;
     }
     if next.relics.contains(&Relic::SelfFormingClay) {
-        next.relic_counters.self_forming_clay_next_turn_block += SELF_FORMING_CLAY_BLOCK;
+        next.relic_counters.self_forming_clay_next_turn_block = next
+            .relic_counters
+            .self_forming_clay_next_turn_block
+            .checked_add(SELF_FORMING_CLAY_BLOCK)
+            .ok_or(SimError::InvalidState(
+                "Self-Forming Clay block accumulation overflows i32",
+            ))?;
     }
     if next.relics.contains(&Relic::RunicCube) {
         crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
@@ -2674,19 +2680,7 @@ fn checked_add_relic_value(value: &mut i32, amount: i32) -> SimResult<()> {
 }
 
 fn apply_start_of_combat_red_skull(state: &mut CombatState) -> SimResult<()> {
-    let should_be_active = i64::from(state.player.hp) * 2 <= i64::from(state.player.max_hp);
-    match (should_be_active, state.relic_counters.red_skull_active) {
-        (true, false) => {
-            checked_add_relic_value(&mut state.player.powers.strength, RED_SKULL_STRENGTH)?;
-            state.relic_counters.red_skull_active = true;
-        }
-        (false, true) => {
-            checked_add_relic_value(&mut state.player.powers.strength, -RED_SKULL_STRENGTH)?;
-            state.relic_counters.red_skull_active = false;
-        }
-        _ => {}
-    }
-    Ok(())
+    sync_red_skull_strength_present(state, true)
 }
 
 fn apply_orange_pellets_on_card_play(state: &mut CombatState, card_type: CardType) {
