@@ -398,6 +398,46 @@ fn smoke_bomb_trace_names_an_unreconciled_queued_command_endpoint() {
 }
 
 #[test]
+fn smoke_bomb_trace_names_a_queued_command_that_mutates_transient_combat() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-617b5319ca2c85b4.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("mutated transient Smoke Bomb regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert_eq!(report.unsupported.len(), 1);
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "unsupported_smoke_bomb_queued_combat"
+    );
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .path,
+        "$.actions[step=230].command"
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        2
+    );
+}
+
+#[test]
 fn recorded_action_input_drives_time_gated_run_state_without_gameplay_hydration() {
     let pre = TraceState {
         step: 10,

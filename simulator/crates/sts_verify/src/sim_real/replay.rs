@@ -4697,21 +4697,32 @@ pub(super) fn verify_seed_start_transitions(
         {
             if let Some(SmokeBombUiState::Escaping {
                 source,
-                action: escape_action,
                 pending_commands,
                 transient_matches,
+                ..
             }) = smoke_bomb_ui.as_mut()
             {
                 let destination = seed_sim
                     .as_ref()
                     .expect("Smoke Bomb escape keeps its core destination");
-                *transient_matches &= seed_start_compare_deferred_combat_subset(
-                    report,
-                    escape_action,
-                    "Smoke Bomb transient combat frame",
-                    seed_start_smoke_bomb_transient_observed_subset(&post.message),
-                    seed_start_smoke_bomb_transient_simulated_subset(source, destination),
-                );
+                let observed = seed_start_smoke_bomb_transient_observed_subset(&post.message);
+                let simulated =
+                    seed_start_smoke_bomb_transient_simulated_subset(source, destination);
+                if !seed_start_combat_subsets_match(observed, simulated) {
+                    pending_commands.push(action.clone());
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_smoke_bomb_queued_combat".to_owned(),
+                        reason: "a queued command mutated transient combat after the authoritative Smoke Bomb escape".to_owned(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
+                }
+                *transient_matches &= true;
                 pending_commands.push(action.clone());
                 continue;
             }

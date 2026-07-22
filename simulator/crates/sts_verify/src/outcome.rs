@@ -230,6 +230,8 @@ pub fn assess_verification(
                     && (expected.category == "unreconciled_copied_attack_frame"
                         && integrity.unresolved_transient_assertions == 1
                         || expected.category == "unreconciled_smoke_bomb_frame"
+                            && integrity.unresolved_transient_assertions > 0
+                        || expected.category == "unsupported_smoke_bomb_queued_combat"
                             && integrity.unresolved_transient_assertions > 0)
             );
             if integrity.unresolved_transient_assertions != 0
@@ -480,6 +482,41 @@ mod tests {
         let seed_start = report.seed_start.as_mut().expect("seed-start report");
         seed_start.failed = true;
         seed_start.first_boundary = actual.clone();
+        let expected = ExpectedBoundary {
+            path: actual.path.clone(),
+            category: actual.category.clone(),
+        };
+        let integrity = VerificationIntegrity {
+            unresolved_transient_assertions: 2,
+            ..complete_integrity()
+        };
+
+        assert_eq!(
+            assess_verification(
+                Ok(&report),
+                &VerificationExpectation::ExpectedBoundary { boundary: expected },
+                Some(&integrity),
+            ),
+            VerificationOutcome::ExpectedBoundary { boundary: actual }
+        );
+    }
+
+    #[test]
+    fn queued_smoke_bomb_combat_boundary_preserves_unresolved_escape_evidence() {
+        let mut report = report();
+        let actual = SeedStartBoundary {
+            path: "$.actions[step=230].command".to_owned(),
+            category: "unsupported_smoke_bomb_queued_combat".to_owned(),
+            reason: "a queued command mutated transient combat after the authoritative Smoke Bomb escape".to_owned(),
+        };
+        let seed_start = report.seed_start.as_mut().expect("seed-start report");
+        seed_start.failed = true;
+        seed_start.first_boundary = actual.clone();
+        report.unsupported.push(UnsupportedTransition {
+            action_step: 230,
+            command: "PLAY 2".to_owned(),
+            reason: actual.reason.clone(),
+        });
         let expected = ExpectedBoundary {
             path: actual.path.clone(),
             category: actual.category.clone(),
