@@ -843,7 +843,7 @@ fn apply_internal_action(
         InternalAction::ApplyWeak { target, amount } => {
             let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
-                applied = apply_monster_weak(&mut monster.powers, amount);
+                applied = apply_monster_weak(&mut monster.powers, amount)?;
             }
             apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
             Ok(Vec::new())
@@ -851,7 +851,7 @@ fn apply_internal_action(
         InternalAction::ReduceMonsterStrength { target, amount } => {
             let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
-                applied = reduce_monster_strength(&mut monster.powers, amount);
+                applied = reduce_monster_strength(&mut monster.powers, amount)?;
             }
             apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
             Ok(Vec::new())
@@ -859,7 +859,7 @@ fn apply_internal_action(
         InternalAction::ReduceMonsterStrengthThisTurn { target, amount } => {
             let mut applied = false;
             if let Some(monster) = living_monster_mut_opt(state, target) {
-                applied = reduce_monster_strength(&mut monster.powers, amount);
+                applied = reduce_monster_strength(&mut monster.powers, amount)?;
                 if applied {
                     checked_add_combat_value(&mut monster.temp_strength_down, amount)?;
                 }
@@ -1696,11 +1696,13 @@ fn apply_player_vulnerable_debuff(
     let mut vulnerable_applied = false;
     let mut champion_belt_weak_applied = false;
     if let Some(monster) = living_monster_mut_opt(state, target) {
-        vulnerable_applied = apply_monster_vulnerable(&mut monster.powers, amount);
+        let mut next_powers = monster.powers;
+        vulnerable_applied = apply_monster_vulnerable(&mut next_powers, amount)?;
         if vulnerable_applied && applies_champion_belt {
             champion_belt_weak_applied =
-                apply_monster_weak(&mut monster.powers, crate::relic::CHAMPION_BELT_WEAK);
+                apply_monster_weak(&mut next_powers, crate::relic::CHAMPION_BELT_WEAK)?;
         }
+        monster.powers = next_powers;
     }
 
     apply_sadistic_nature_after_monster_debuff(state, target, vulnerable_applied)?;
@@ -3545,6 +3547,49 @@ mod tests {
                 "combat integer addition overflows i32"
             ))
         );
+    }
+
+    #[test]
+    fn monster_vulnerable_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].powers.vulnerable = i32::MAX;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BASH_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: Some(state.monsters[0].id),
+                },
+            ),
+            Err(SimError::InvalidState(
+                "monster Vulnerable application overflows i32"
+            ))
+        );
+    }
+
+    #[test]
+    fn champion_belt_weak_overflow_fails_closed_at_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::ChampionBelt);
+        state.monsters[0].powers.weak = i32::MAX;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BASH_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: Some(state.monsters[0].id),
+                },
+            ),
+            Err(SimError::InvalidState(
+                "monster Weak application overflows i32"
+            ))
+        );
+        assert_eq!(state.monsters[0].powers.vulnerable, 0);
+        assert_eq!(state.monsters[0].powers.weak, i32::MAX);
     }
 
     #[test]

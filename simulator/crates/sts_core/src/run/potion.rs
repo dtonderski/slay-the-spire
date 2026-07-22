@@ -661,7 +661,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     apply_monster_vulnerable(
                         &mut monster.powers,
                         FEAR_POTION_VULNERABLE * multiplier,
-                    );
+                    )?;
                 }
                 Potion::Blood => {
                     if let Some(combat) = next.combat.as_mut() {
@@ -893,7 +893,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         .iter_mut()
                         .find(|monster| monster.id == target)
                         .expect("validated potion target");
-                    apply_monster_weak(&mut monster.powers, WEAK_POTION_WEAK * multiplier);
+                    apply_monster_weak(&mut monster.powers, WEAK_POTION_WEAK * multiplier)?;
                 }
                 Potion::FruitJuice => {
                     let max_hp = FRUIT_JUICE_MAX_HP * multiplier;
@@ -1048,6 +1048,63 @@ mod tests {
         SpeedDexterity,
         SpeedTempDexterity,
         DuplicationStacks,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum MonsterDebuffDestination {
+        Weak,
+        Vulnerable,
+    }
+
+    #[test]
+    fn monster_debuff_potion_overflow_preserves_run_and_potion_slot() {
+        let cases = [
+            (
+                Potion::Weak,
+                MonsterDebuffDestination::Weak,
+                SimError::InvalidState("monster Weak application overflows i32"),
+            ),
+            (
+                Potion::Fear,
+                MonsterDebuffDestination::Vulnerable,
+                SimError::InvalidState("monster Vulnerable application overflows i32"),
+            ),
+        ];
+
+        for (potion, destination, expected_error) in cases {
+            let mut run = RunState::combat_fixture();
+            run.potions = vec![potion];
+            run.empty_potion_slots = vec![1, 2];
+            let monster = run
+                .combat
+                .as_mut()
+                .expect("combat fixture")
+                .monsters
+                .first_mut()
+                .expect("combat fixture monster");
+            let target = monster.id;
+            match destination {
+                MonsterDebuffDestination::Weak => monster.powers.weak = i32::MAX,
+                MonsterDebuffDestination::Vulnerable => {
+                    monster.powers.vulnerable = i32::MAX;
+                }
+            }
+            let before = run.clone();
+
+            assert_eq!(
+                apply_potion_action(
+                    &run,
+                    RunAction::UsePotion {
+                        slot: 0,
+                        target: Some(target),
+                    },
+                ),
+                Err(expected_error),
+                "{potion:?} {destination:?}"
+            );
+            assert_eq!(run, before, "{potion:?} {destination:?}");
+            assert_eq!(run.potion_at_slot(0), Some(potion));
+        }
     }
 
     #[test]

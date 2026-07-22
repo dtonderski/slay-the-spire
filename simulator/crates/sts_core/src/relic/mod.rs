@@ -1985,7 +1985,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::BloodyIdol => {}
             Relic::RedMask => {
                 for monster in combat.monsters.iter_mut().filter(|monster| monster.alive) {
-                    crate::power::apply_monster_weak(&mut monster.powers, 1);
+                    crate::power::apply_monster_weak(&mut monster.powers, 1)?;
                 }
             }
             Relic::Necronomicon => {}
@@ -2030,7 +2030,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                         &mut monster.powers,
                         relics,
                         BAG_OF_MARBLES_VULNERABLE,
-                    );
+                    )?;
                 }
             }
             Relic::BronzeScales => {
@@ -2514,11 +2514,14 @@ pub fn apply_monster_vulnerable_with_relics(
     powers: &mut crate::power::MonsterPowers,
     relics: &[Relic],
     amount: i32,
-) {
-    let applied = crate::power::apply_monster_vulnerable(powers, amount);
+) -> SimResult<()> {
+    let mut next = *powers;
+    let applied = crate::power::apply_monster_vulnerable(&mut next, amount)?;
     if applied && relics.contains(&Relic::ChampionBelt) {
-        crate::power::apply_monster_weak(powers, CHAMPION_BELT_WEAK);
+        crate::power::apply_monster_weak(&mut next, CHAMPION_BELT_WEAK)?;
     }
+    *powers = next;
+    Ok(())
 }
 
 pub fn apply_on_card_play_relics(
@@ -2726,7 +2729,8 @@ mod tests {
             &mut powers,
             &[Relic::BagOfMarbles, Relic::ChampionBelt],
             1,
-        );
+        )
+        .expect("Artifact-blocked Vulnerable is valid");
 
         assert_eq!(powers.artifact, 0);
         assert_eq!(powers.vulnerable, 0);
@@ -2737,10 +2741,28 @@ mod tests {
     fn champion_belt_applies_weak_after_vulnerable_lands() {
         let mut powers = MonsterPowers::default();
 
-        apply_monster_vulnerable_with_relics(&mut powers, &[Relic::ChampionBelt], 2);
+        apply_monster_vulnerable_with_relics(&mut powers, &[Relic::ChampionBelt], 2)
+            .expect("representable Vulnerable and Weak are valid");
 
         assert_eq!(powers.vulnerable, 2);
         assert_eq!(powers.weak, CHAMPION_BELT_WEAK);
+    }
+
+    #[test]
+    fn champion_belt_weak_overflow_rolls_back_vulnerable() {
+        let mut powers = MonsterPowers {
+            weak: i32::MAX,
+            ..MonsterPowers::default()
+        };
+        let before = powers;
+
+        assert_eq!(
+            apply_monster_vulnerable_with_relics(&mut powers, &[Relic::ChampionBelt], 2),
+            Err(SimError::InvalidState(
+                "monster Weak application overflows i32"
+            ))
+        );
+        assert_eq!(powers, before);
     }
 
     #[test]

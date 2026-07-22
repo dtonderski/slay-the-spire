@@ -1,3 +1,4 @@
+use crate::{SimError, SimResult};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -203,16 +204,40 @@ pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) {
     apply_player_debuff(powers, |powers| powers.dexterity -= amount);
 }
 
-pub fn apply_monster_weak(powers: &mut MonsterPowers, amount: i32) -> bool {
-    apply_monster_debuff(powers, amount, |powers, amount| powers.weak += amount)
+pub fn apply_monster_weak(powers: &mut MonsterPowers, amount: i32) -> SimResult<bool> {
+    apply_monster_debuff(powers, amount, |powers, amount| {
+        powers.weak = powers
+            .weak
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "monster Weak application overflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
-pub fn apply_monster_vulnerable(powers: &mut MonsterPowers, amount: i32) -> bool {
-    apply_monster_debuff(powers, amount, |powers, amount| powers.vulnerable += amount)
+pub fn apply_monster_vulnerable(powers: &mut MonsterPowers, amount: i32) -> SimResult<bool> {
+    apply_monster_debuff(powers, amount, |powers, amount| {
+        powers.vulnerable = powers
+            .vulnerable
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "monster Vulnerable application overflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
-pub fn reduce_monster_strength(powers: &mut MonsterPowers, amount: i32) -> bool {
-    apply_monster_debuff(powers, amount, |powers, amount| powers.strength -= amount)
+pub fn reduce_monster_strength(powers: &mut MonsterPowers, amount: i32) -> SimResult<bool> {
+    apply_monster_debuff(powers, amount, |powers, amount| {
+        powers.strength = powers
+            .strength
+            .checked_sub(amount)
+            .ok_or(SimError::InvalidState(
+                "monster Strength reduction underflows i32",
+            ))?;
+        Ok(())
+    })
 }
 
 pub fn clear_player_debuffs(powers: &mut PlayerPowers) {
@@ -242,17 +267,93 @@ fn apply_player_debuff(powers: &mut PlayerPowers, apply: impl FnOnce(&mut Player
 fn apply_monster_debuff(
     powers: &mut MonsterPowers,
     amount: i32,
-    apply: impl FnOnce(&mut MonsterPowers, i32),
-) -> bool {
+    apply: impl FnOnce(&mut MonsterPowers, i32) -> SimResult<()>,
+) -> SimResult<bool> {
     if amount <= 0 {
-        return false;
+        return Ok(false);
     }
 
     if powers.artifact > 0 {
         powers.artifact -= 1;
-        false
+        Ok(false)
     } else {
-        apply(powers, amount);
-        true
+        apply(powers, amount)?;
+        Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn monster_debuff_arithmetic_fails_closed() {
+        let cases = [
+            (
+                MonsterPowers {
+                    weak: i32::MAX,
+                    ..MonsterPowers::default()
+                },
+                apply_monster_weak as fn(&mut MonsterPowers, i32) -> SimResult<bool>,
+                SimError::InvalidState("monster Weak application overflows i32"),
+            ),
+            (
+                MonsterPowers {
+                    vulnerable: i32::MAX,
+                    ..MonsterPowers::default()
+                },
+                apply_monster_vulnerable,
+                SimError::InvalidState("monster Vulnerable application overflows i32"),
+            ),
+            (
+                MonsterPowers {
+                    strength: i32::MIN,
+                    ..MonsterPowers::default()
+                },
+                reduce_monster_strength,
+                SimError::InvalidState("monster Strength reduction underflows i32"),
+            ),
+        ];
+
+        for (mut powers, apply, expected_error) in cases {
+            let before = powers;
+            assert_eq!(apply(&mut powers, 1), Err(expected_error));
+            assert_eq!(powers, before);
+        }
+    }
+
+    #[test]
+    fn monster_debuff_artifact_and_non_positive_amounts_preserve_semantics() {
+        let mut artifact = MonsterPowers {
+            weak: i32::MAX,
+            artifact: 1,
+            ..MonsterPowers::default()
+        };
+        assert_eq!(apply_monster_weak(&mut artifact, 1), Ok(false));
+        assert_eq!(artifact.weak, i32::MAX);
+        assert_eq!(artifact.artifact, 0);
+
+        let mut non_positive = MonsterPowers {
+            artifact: 1,
+            ..MonsterPowers::default()
+        };
+        assert_eq!(apply_monster_vulnerable(&mut non_positive, 0), Ok(false));
+        assert_eq!(reduce_monster_strength(&mut non_positive, -1), Ok(false));
+        assert_eq!(non_positive.artifact, 1);
+    }
+
+    #[test]
+    fn valid_monster_debuffs_report_that_they_landed() {
+        let mut powers = MonsterPowers {
+            strength: 3,
+            ..MonsterPowers::default()
+        };
+
+        assert_eq!(apply_monster_weak(&mut powers, 2), Ok(true));
+        assert_eq!(apply_monster_vulnerable(&mut powers, 3), Ok(true));
+        assert_eq!(reduce_monster_strength(&mut powers, 4), Ok(true));
+        assert_eq!(powers.weak, 2);
+        assert_eq!(powers.vulnerable, 3);
+        assert_eq!(powers.strength, -1);
     }
 }
