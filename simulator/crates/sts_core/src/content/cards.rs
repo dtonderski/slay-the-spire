@@ -5030,20 +5030,47 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
     get_card_definition(id)?.upgrade
 }
 
-#[must_use]
-pub fn searing_blow_damage_for_upgrades(upgrades: u8) -> i32 {
+pub fn searing_blow_damage_for_upgrades(upgrades: u8) -> SimResult<i32> {
     let upgrades = i32::from(upgrades);
-    SEARING_BLOW.values.damage.unwrap_or(12) + (upgrades * (upgrades + 7)) / 2
+    let base_damage = SEARING_BLOW.values.damage.ok_or(SimError::InvalidState(
+        "Searing Blow definition is missing damage",
+    ))?;
+    let triangular_bonus = upgrades
+        .checked_mul(
+            upgrades
+                .checked_add(7)
+                .ok_or(SimError::InvalidState("Searing Blow damage overflows i32"))?,
+        )
+        .and_then(|value| value.checked_div(2))
+        .ok_or(SimError::InvalidState("Searing Blow damage overflows i32"))?;
+    base_damage
+        .checked_add(triangular_bonus)
+        .ok_or(SimError::InvalidState("Searing Blow damage overflows i32"))
 }
 
-#[must_use]
-pub fn searing_blow_card_damage(card: &CardInstance) -> Option<i32> {
+pub fn searing_blow_card_damage(card: &CardInstance) -> SimResult<Option<i32>> {
+    validate_searing_blow_metadata(card)?;
     match card.content_id {
-        SEARING_BLOW_ID => Some(searing_blow_damage_for_upgrades(card.searing_blow_upgrades)),
-        SEARING_BLOW_PLUS_ID => Some(searing_blow_damage_for_upgrades(
-            card.searing_blow_upgrades.max(1),
+        SEARING_BLOW_ID | SEARING_BLOW_PLUS_ID => Ok(Some(searing_blow_damage_for_upgrades(
+            card.searing_blow_upgrades,
+        )?)),
+        _ => Ok(None),
+    }
+}
+
+pub(crate) fn validate_searing_blow_metadata(card: &CardInstance) -> SimResult<()> {
+    match card.content_id {
+        SEARING_BLOW_ID if card.searing_blow_upgrades != 0 => Err(SimError::InvalidState(
+            "base Searing Blow carries upgrade-count metadata",
         )),
-        _ => None,
+        SEARING_BLOW_PLUS_ID if card.searing_blow_upgrades == 0 => Err(SimError::InvalidState(
+            "Searing Blow+ is missing its upgrade count",
+        )),
+        SEARING_BLOW_ID | SEARING_BLOW_PLUS_ID => Ok(()),
+        _ if card.searing_blow_upgrades != 0 => Err(SimError::InvalidState(
+            "non-Searing-Blow card carries Searing Blow upgrade metadata",
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -5071,29 +5098,42 @@ pub fn ritual_dagger_card_growth(card: &CardInstance) -> Option<i32> {
     }
 }
 
-#[must_use]
-pub fn upgrade_card_instance(card: CardInstance) -> Option<CardInstance> {
+pub fn upgrade_card_instance(card: CardInstance) -> SimResult<Option<CardInstance>> {
+    validate_searing_blow_metadata(&card)?;
     if card.content_id == RITUAL_DAGGER_ID && card.upgrades == 0 {
         let mut upgraded = card;
         upgraded.upgrades = 1;
-        return Some(upgraded);
+        return Ok(Some(upgraded));
     }
 
-    let upgraded_content_id = upgrade_content_id(card.content_id)?;
+    let Some(upgraded_content_id) = upgrade_content_id(card.content_id) else {
+        return Ok(None);
+    };
     let mut upgraded = card;
     upgraded.content_id = upgraded_content_id;
     if matches!(card.content_id, SEARING_BLOW_ID | SEARING_BLOW_PLUS_ID) {
         upgraded.searing_blow_upgrades =
             card.searing_blow_upgrades
-                .max(if card.content_id == SEARING_BLOW_PLUS_ID {
-                    1
-                } else {
-                    0
-                })
-                + 1;
+                .checked_add(1)
+                .ok_or(SimError::InvalidState(
+                    "Searing Blow upgrade count overflows u8",
+                ))?;
     }
     adjust_temp_cost_for_upgrade(card, &mut upgraded);
-    Some(upgraded)
+    Ok(Some(upgraded))
+}
+
+pub(crate) fn card_instance_after_upgrades(
+    mut card: CardInstance,
+    upgrades: u8,
+) -> SimResult<CardInstance> {
+    validate_searing_blow_metadata(&card)?;
+    for _ in 0..upgrades {
+        card = upgrade_card_instance(card)?.ok_or(SimError::InvalidState(
+            "card upgrade count exceeds its content upgrade path",
+        ))?;
+    }
+    Ok(card)
 }
 
 fn adjust_temp_cost_for_upgrade(card: CardInstance, upgraded: &mut CardInstance) {
@@ -5125,12 +5165,14 @@ fn adjust_temp_cost_for_upgrade(card: CardInstance, upgraded: &mut CardInstance)
 
 #[must_use]
 pub fn card_instance_is_upgradeable(card: &CardInstance) -> bool {
-    upgrade_card_instance(*card).is_some()
+    (card.content_id == RITUAL_DAGGER_ID && card.upgrades == 0)
+        || upgrade_content_id(card.content_id).is_some()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CardId;
 
     #[test]
     fn upgrade_content_id_covers_true_grit() {
@@ -5209,5 +5251,23 @@ mod tests {
                 base.rarity
             );
         }
+    }
+
+    #[test]
+    fn searing_blow_max_upgrade_is_playable_but_cannot_upgrade_again() {
+        let mut card = CardInstance::new(CardId::new(1), SEARING_BLOW_PLUS_ID);
+        card.searing_blow_upgrades = u8::MAX;
+
+        assert!(card_instance_is_upgradeable(&card));
+        assert_eq!(
+            searing_blow_card_damage(&card),
+            Ok(Some(searing_blow_damage_for_upgrades(u8::MAX).unwrap()))
+        );
+        assert_eq!(
+            upgrade_card_instance(card),
+            Err(SimError::InvalidState(
+                "Searing Blow upgrade count overflows u8"
+            ))
+        );
     }
 }

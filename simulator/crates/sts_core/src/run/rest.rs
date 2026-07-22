@@ -202,12 +202,14 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             });
         }
         RestAction::Smith { card_id } => {
-            let upgraded_card = next
+            let card = next
                 .deck
                 .iter()
                 .find(|card| card.id == card_id)
-                .and_then(|card| upgrade_card_instance(*card))
-                .expect("smith validated before apply");
+                .copied()
+                .ok_or(SimError::UnknownCard(card_id))?;
+            let upgraded_card = upgrade_card_instance(card)?
+                .ok_or(SimError::IllegalAction("card cannot be upgraded"))?;
             for card in &mut next.deck {
                 if card.id == card_id {
                     *card = upgraded_card;
@@ -234,8 +236,36 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
 mod tests {
     use super::*;
     use crate::{
-        run::reward::apply_run_action, RoomKind, RunAction, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+        content::cards::SEARING_BLOW_PLUS_ID, run::reward::apply_run_action, CardId, CardInstance,
+        RoomKind, RunAction, Snapshot, SNAPSHOT_SCHEMA_VERSION,
     };
+
+    #[test]
+    fn max_searing_blow_upgrade_is_legal_but_fails_closed_when_applied() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.current_room_override = Some(RoomKind::Rest);
+        run.event = None;
+        let mut searing_blow = CardInstance::new(CardId::new(100), SEARING_BLOW_PLUS_ID);
+        searing_blow.searing_blow_upgrades = u8::MAX;
+        run.deck = vec![searing_blow];
+        run.validate()
+            .expect("maximum modeled Searing Blow is valid");
+
+        let action = RestAction::Smith {
+            card_id: searing_blow.id,
+        };
+        assert!(legal_rest_actions(&run)
+            .expect("rest actions are available")
+            .contains(&action));
+        assert_eq!(
+            apply_rest_action(&run, action),
+            Err(SimError::InvalidState(
+                "Searing Blow upgrade count overflows u8"
+            ))
+        );
+        assert_eq!(run.deck, vec![searing_blow]);
+    }
 
     #[test]
     fn dream_catcher_reward_returns_to_completed_rest_room() {

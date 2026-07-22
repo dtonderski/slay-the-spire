@@ -3313,7 +3313,9 @@ fn searing_blow_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: searing_blow_card_damage(card).unwrap_or(12),
+                amount: searing_blow_card_damage(card)?.ok_or(SimError::InvalidState(
+                    "Searing Blow queue received a different card",
+                ))?,
             },
         },
         InternalAction::MoveCard {

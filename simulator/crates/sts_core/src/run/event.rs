@@ -2,11 +2,12 @@ use crate::{
     card::{CardRarity, CardType},
     combat::{initialize_combat_piles_with_relics, CombatRngState, PlayerState},
     content::cards::{
-        card_instance_is_upgradeable, get_card_definition, is_basic_starter_card,
-        is_curse_content_id, upgrade_card_instance, APPARITION_ID, ASCENDERS_BANE_ID, BASH_ID,
-        BASH_PLUS_ID, BITE_ID, CURSE_OF_THE_BELL_ID, DECAY_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID,
-        DOUBT_ID, INJURY_ID, JAX_ID, MADNESS_ID, NORMALITY_ID, PAIN_ID, PARASITE_ID, REGRET_ID,
-        RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
+        card_instance_after_upgrades, card_instance_is_upgradeable, get_card_definition,
+        is_basic_starter_card, is_curse_content_id, upgrade_card_instance, APPARITION_ID,
+        ASCENDERS_BANE_ID, BASH_ID, BASH_PLUS_ID, BITE_ID, CURSE_OF_THE_BELL_ID, DECAY_ID,
+        DEFEND_R_ID, DEFEND_R_PLUS_ID, DOUBT_ID, INJURY_ID, JAX_ID, MADNESS_ID, NORMALITY_ID,
+        PAIN_ID, PARASITE_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        WRITHE_ID,
     },
     content::{
         monsters::{
@@ -915,7 +916,7 @@ fn open_cursed_tome_book_reward(run: &mut RunState, key: RelicKey) {
     });
 }
 
-fn upgrade_random_deck_cards(run: &mut RunState, max_count: usize) {
+fn upgrade_random_deck_cards(run: &mut RunState, max_count: usize) -> SimResult<()> {
     let mut upgradeable: Vec<usize> = run
         .deck
         .iter()
@@ -923,30 +924,39 @@ fn upgrade_random_deck_cards(run: &mut RunState, max_count: usize) {
         .filter_map(|(index, card)| card_instance_is_upgradeable(card).then_some(index))
         .collect();
     if upgradeable.is_empty() {
-        return;
+        return Ok(());
     }
 
     let mut misc_rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
     let shuffle_seed = misc_rng.random_long();
-    run.misc_rng_counter = misc_rng.counter();
-
     JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
 
-    for index in upgradeable.into_iter().take(max_count) {
-        let upgraded_card = upgrade_card_instance(run.deck[index])
-            .expect("upgradeable card validated before shuffle");
+    let upgrades = upgradeable
+        .into_iter()
+        .take(max_count)
+        .map(|index| {
+            let upgraded_card = upgrade_card_instance(run.deck[index])?.ok_or(
+                SimError::InvalidState("event selected a non-upgradeable card"),
+            )?;
+            Ok((index, upgraded_card))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    run.misc_rng_counter = misc_rng.counter();
+    for (index, upgraded_card) in upgrades {
         run.deck[index] = upgraded_card;
     }
+    Ok(())
 }
 
-fn upgrade_starter_strikes_and_defends(run: &mut RunState) {
+fn upgrade_starter_strikes_and_defends(run: &mut RunState) -> SimResult<()> {
     for card in &mut run.deck {
         if matches!(card.content_id, STRIKE_R_ID | DEFEND_R_ID) {
-            if let Some(upgraded) = upgrade_card_instance(*card) {
+            if let Some(upgraded) = upgrade_card_instance(*card)? {
                 *card = upgraded;
             }
         }
     }
+    Ok(())
 }
 
 const ACT1_EVENTS: [Event; 11] = [
@@ -1223,37 +1233,31 @@ fn note_for_yourself_choices(stage: u32) -> Vec<EventChoice> {
 }
 
 fn note_card_for_run(run: &RunState) -> SimResult<CardInstance> {
-    Ok(note_card_for_run_with_id(
-        run,
-        CardId::new(run.next_card_instance_id()?),
-    ))
+    note_card_for_run_with_id(run, CardId::new(run.next_card_instance_id()?))
 }
 
-fn note_card_for_run_with_id(run: &RunState, card_id: CardId) -> CardInstance {
-    let mut card = CardInstance::new(card_id, run.note_card_content_id);
-    for _ in 0..run.note_card_upgrades {
-        if let Some(upgraded) = upgrade_card_instance(card) {
-            card = upgraded;
-        }
-    }
-    card
+fn note_card_for_run_with_id(run: &RunState, card_id: CardId) -> SimResult<CardInstance> {
+    card_instance_after_upgrades(
+        CardInstance::new(card_id, run.note_card_content_id),
+        run.note_card_upgrades,
+    )
 }
 
-fn note_for_yourself_choices_for_run(run: &RunState, stage: u32) -> Vec<EventChoice> {
+fn note_for_yourself_choices_for_run(run: &RunState, stage: u32) -> SimResult<Vec<EventChoice>> {
     if stage != 1 {
-        return note_for_yourself_choices(stage);
+        return Ok(note_for_yourself_choices(stage));
     }
-    let preview = note_card_for_run_with_id(run, CardId::new(1));
+    let preview = note_card_for_run_with_id(run, CardId::new(1))?;
     let card_name = get_card_definition(preview.content_id)
         .map_or("the saved card", |definition| definition.name);
-    vec![
+    Ok(vec![
         EventChoice {
             label: format!("Take and Give ({card_name})"),
         },
         EventChoice {
             label: "Ignore".to_owned(),
         },
-    ]
+    ])
 }
 
 fn falling_card_types(run: &RunState) -> Vec<CardType> {
@@ -1979,7 +1983,7 @@ pub(crate) fn complete_designer_remove_and_upgrade(
     run.remove_deck_card(card.id).ok_or(SimError::InvalidState(
         "Designer selected card is not in deck",
     ))?;
-    upgrade_random_deck_cards(run, 1);
+    upgrade_random_deck_cards(run, 1)?;
     run.card_grid = None;
     run.phase = RunPhase::Event;
     designer_done_screen(run);
@@ -2702,9 +2706,7 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
             forgotten_altar_choices(0, run.relics.contains(&Relic::GoldenIdol)),
             0,
         ),
-        Event::NoteForYourself => {
-            make_event_screen(event, note_for_yourself_choices_for_run(run, 0), 0)
-        }
+        Event::NoteForYourself => make_event_screen(event, note_for_yourself_choices(0), 0),
         Event::Falling => make_event_screen(event, falling_choices(run, 0), 0),
         Event::MoaiHead => make_event_screen(event, moai_choices(run, 0), 0),
         Event::MysteriousSphere => make_event_screen(event, mysterious_sphere_choices(0), 0),
@@ -3061,7 +3063,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
                 if designer_event_data_adjustment_upgrades_one(screen.event_data) {
                     open_event_upgrade_return_to_event_grid(&mut next, Event::Designer);
                 } else {
-                    upgrade_random_deck_cards(&mut next, 2);
+                    upgrade_random_deck_cards(&mut next, 2)?;
                     designer_done_screen(&mut next);
                 }
             }
@@ -3766,7 +3768,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         Event::ShiningLight if screen.stage == 0 && choice_index == 0 => {
             let loss = shining_light_hp_loss(next.player_max_hp);
             next.player_hp = (next.player_hp - loss).max(0);
-            upgrade_random_deck_cards(&mut next, 2);
+            upgrade_random_deck_cards(&mut next, 2)?;
             next.event = Some(make_event_screen(
                 Event::ShiningLight,
                 labeled_choices(&["Leave"]),
@@ -3923,7 +3925,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             0 if choice_index == 0 => {
                 next.event = Some(EventScreen {
                     event: Event::NoteForYourself,
-                    choices: note_for_yourself_choices_for_run(&next, 1),
+                    choices: note_for_yourself_choices_for_run(&next, 1)?,
                     stage: 1,
                     event_data: 0,
                 });
@@ -4305,7 +4307,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
             next.event = None;
         }
         Event::BackToBasics if choice_index == 1 => {
-            upgrade_starter_strikes_and_defends(&mut next);
+            upgrade_starter_strikes_and_defends(&mut next)?;
             next.event = Some(EventScreen {
                 event: Event::BackToBasics,
                 choices: labeled_choices(&["Leave"]),
@@ -5031,7 +5033,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         }
         Event::MindBloom if screen.stage == 0 && choice_index == 1 => {
             for card in &mut next.deck {
-                if let Some(upgraded) = upgrade_card_instance(*card) {
+                if let Some(upgraded) = upgrade_card_instance(*card)? {
                     *card = upgraded;
                 }
             }

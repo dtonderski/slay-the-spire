@@ -3,8 +3,9 @@ use crate::{
     combat::state::BASE_PLAYER_ENERGY,
     combat::{CombatDecisionState, CombatState},
     content::cards::{
-        card_instance_is_upgradeable, card_type_and_rarity, get_card_definition,
-        is_basic_starter_card, is_curse_content_id, upgrade_card_instance, upgrade_content_id,
+        card_instance_after_upgrades, card_instance_is_upgradeable, card_type_and_rarity,
+        get_card_definition, is_basic_starter_card, is_curse_content_id, upgrade_card_instance,
+        upgrade_content_id, validate_searing_blow_metadata,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::reward_pool::ironclad_reward_card_rarity,
@@ -157,6 +158,29 @@ mod tests {
             run.validate(),
             Err(SimError::InvalidState(
                 "run card retains a combat-local Rampage damage bonus"
+            ))
+        );
+    }
+
+    #[test]
+    fn run_validation_rejects_unrepresentable_note_card_upgrades() {
+        let mut run = RunState::map_fixture();
+        run.note_card_content_id = crate::content::cards::BASH_ID;
+        run.note_card_upgrades = 2;
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "card upgrade count exceeds its content upgrade path"
+            ))
+        );
+
+        run.note_card_content_id = crate::content::cards::SEARING_BLOW_PLUS_ID;
+        run.note_card_upgrades = 0;
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "Searing Blow+ is missing its upgrade count"
             ))
         );
     }
@@ -989,6 +1013,7 @@ fn validate_run_choice_card_content(card: &CardInstance) -> SimResult<()> {
 }
 
 fn validate_run_card_metadata(card: &CardInstance) -> SimResult<()> {
+    validate_searing_blow_metadata(card)?;
     if card.rampage_damage_bonus != 0 {
         return Err(SimError::InvalidState(
             "run card retains a combat-local Rampage damage bonus",
@@ -1164,6 +1189,10 @@ impl RunState {
         if get_card_definition(self.note_card_content_id).is_none() {
             return Err(SimError::UnknownContent(self.note_card_content_id));
         }
+        card_instance_after_upgrades(
+            CardInstance::new(CardId::new(1), self.note_card_content_id),
+            self.note_card_upgrades,
+        )?;
         let mut owned_relics = Vec::with_capacity(self.relics.len());
         for relic in &self.relics {
             if *relic != Relic::Circlet && owned_relics.contains(relic) {
@@ -2405,10 +2434,10 @@ impl RunState {
                 self.energy_per_turn = checked_run_add(self.energy_per_turn, RUNIC_DOME_ENERGY)?;
             }
             Relic::Whetstone => {
-                self.upgrade_random_deck_cards(CardType::Attack, 2);
+                self.upgrade_random_deck_cards(CardType::Attack, 2)?;
             }
             Relic::WarPaint => {
-                self.upgrade_random_deck_cards(CardType::Skill, 2);
+                self.upgrade_random_deck_cards(CardType::Skill, 2)?;
             }
             Relic::EmptyCage => {
                 super::grid::open_empty_cage_grid(self);
@@ -2431,7 +2460,7 @@ impl RunState {
             Relic::TinyHouse => {
                 self.player_max_hp = checked_run_add(self.player_max_hp, TINY_HOUSE_MAX_HP)?;
                 self.heal_player(TINY_HOUSE_MAX_HP + TINY_HOUSE_HEAL)?;
-                self.upgrade_random_deck_cards_matching(1, |_| true);
+                self.upgrade_random_deck_cards_matching(1, |_| true)?;
                 if let Some(reward) = self.reward.as_mut() {
                     reward.gold_offer = checked_run_add(reward.gold_offer, TINY_HOUSE_GOLD)?;
                     let mut misc_rng =
@@ -2627,19 +2656,19 @@ impl RunState {
         self.potion_rng_counter = potion_rng.counter();
     }
 
-    fn upgrade_random_deck_cards(&mut self, card_type: CardType, amount: usize) {
+    fn upgrade_random_deck_cards(&mut self, card_type: CardType, amount: usize) -> SimResult<()> {
         self.upgrade_random_deck_cards_matching(amount, |card| {
             card_type_and_rarity(card.content_id).is_some_and(|(candidate_type, _)| {
                 candidate_type == card_type && card_instance_is_upgradeable(card)
             })
-        });
+        })
     }
 
     fn upgrade_random_deck_cards_matching(
         &mut self,
         amount: usize,
         matches_card: impl Fn(&CardInstance) -> bool,
-    ) {
+    ) -> SimResult<()> {
         let mut upgradeable: Vec<_> = self
             .deck
             .iter()
@@ -2650,19 +2679,28 @@ impl RunState {
             .collect();
 
         if upgradeable.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut misc_rng = StsRng::with_counter(self.misc_rng_seed as i64, self.misc_rng_counter);
         let shuffle_seed = misc_rng.random_long();
-        self.misc_rng_counter = misc_rng.counter();
-
         JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
 
-        for deck_index in upgradeable.into_iter().take(amount) {
-            self.deck[deck_index] = upgrade_card_instance(self.deck[deck_index])
-                .expect("upgradeable card validated before shuffle");
+        let upgrades = upgradeable
+            .into_iter()
+            .take(amount)
+            .map(|deck_index| {
+                let upgraded = upgrade_card_instance(self.deck[deck_index])?.ok_or(
+                    SimError::InvalidState("random upgrade selected a non-upgradeable card"),
+                )?;
+                Ok((deck_index, upgraded))
+            })
+            .collect::<SimResult<Vec<_>>>()?;
+        self.misc_rng_counter = misc_rng.counter();
+        for (deck_index, upgraded) in upgrades {
+            self.deck[deck_index] = upgraded;
         }
+        Ok(())
     }
 
     pub fn validate_reward_action(&self, action: RunAction) -> SimResult<()> {

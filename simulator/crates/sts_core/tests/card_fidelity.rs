@@ -596,8 +596,12 @@ fn rupture_plus_grants_strength_when_player_loses_hp_from_card() {
 #[test]
 fn searing_blow_repeated_upgrades_use_source_damage_sequence() {
     let base = CardInstance::new(CardId::new(1), cards::SEARING_BLOW_ID);
-    let plus_one = cards::upgrade_card_instance(base).expect("Searing Blow upgrades once");
-    let plus_two = cards::upgrade_card_instance(plus_one).expect("Searing Blow upgrades twice");
+    let plus_one = cards::upgrade_card_instance(base)
+        .expect("first Searing Blow upgrade is representable")
+        .expect("Searing Blow upgrades once");
+    let plus_two = cards::upgrade_card_instance(plus_one)
+        .expect("second Searing Blow upgrade is representable")
+        .expect("Searing Blow upgrades twice");
     assert_eq!(plus_two.content_id, cards::SEARING_BLOW_PLUS_ID);
     assert_eq!(plus_two.searing_blow_upgrades, 2);
 
@@ -1273,7 +1277,9 @@ fn blood_for_blood_upgrade_preserves_combat_cost_reduction() {
     let mut card = CardInstance::new(CardId::new(1), cards::BLOOD_FOR_BLOOD_ID);
     card.blood_for_blood_cost_reduction = 2;
 
-    let upgraded = cards::upgrade_card_instance(card).expect("Blood for Blood upgrades");
+    let upgraded = cards::upgrade_card_instance(card)
+        .expect("Blood for Blood upgrade is representable")
+        .expect("Blood for Blood upgrades");
 
     assert_eq!(upgraded.content_id, cards::BLOOD_FOR_BLOOD_PLUS_ID);
     assert_eq!(upgraded.blood_for_blood_cost_reduction, 2);
@@ -3230,6 +3236,7 @@ fn ritual_dagger_does_not_grow_on_minion_kill() {
 fn upgraded_ritual_dagger_grows_by_five_without_changing_content_id() {
     let upgraded =
         cards::upgrade_card_instance(CardInstance::new(CardId::new(1), cards::RITUAL_DAGGER_ID))
+            .expect("Ritual Dagger upgrade is representable")
             .expect("Ritual Dagger is upgradeable");
     assert_eq!(upgraded.content_id, cards::RITUAL_DAGGER_ID);
     assert_eq!(upgraded.upgrades, 1);

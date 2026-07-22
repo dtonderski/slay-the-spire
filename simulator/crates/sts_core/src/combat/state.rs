@@ -2,8 +2,8 @@ use crate::{
     action::InternalAction,
     card::CardInstance,
     content::cards::{
-        get_card_definition, BASH_ID, COMBUST_DAMAGE, COMBUST_PLUS_DAMAGE, DEFEND_R_ID, RAMPAGE_ID,
-        RAMPAGE_PLUS_ID, STRIKE_R_ID,
+        get_card_definition, validate_searing_blow_metadata, BASH_ID, COMBUST_DAMAGE,
+        COMBUST_PLUS_DAMAGE, DEFEND_R_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, STRIKE_R_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
@@ -978,6 +978,7 @@ fn validate_combat_card(card: &CardInstance) -> SimResult<()> {
     if get_card_definition(card.content_id).is_none() {
         return Err(SimError::UnknownContent(card.content_id));
     }
+    validate_searing_blow_metadata(card)?;
     if card.rampage_damage_bonus < 0 {
         return Err(SimError::InvalidState(
             "Rampage damage bonus cannot be negative",
@@ -1074,6 +1075,7 @@ impl CardPiles {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::cards::{SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID};
 
     fn empty_piles() -> CardPiles {
         CardPiles {
@@ -1171,6 +1173,37 @@ mod tests {
             wrong_card.validate(),
             Err(SimError::InvalidState(
                 "non-Rampage card carries a Rampage damage bonus"
+            ))
+        );
+    }
+
+    #[test]
+    fn combat_validation_rejects_inconsistent_searing_blow_metadata() {
+        let mut base = CombatState::initial_fixture();
+        base.piles.hand = vec![CardInstance::new(CardId::new(100), SEARING_BLOW_ID)];
+        base.piles.hand[0].searing_blow_upgrades = 1;
+        assert_eq!(
+            base.validate(),
+            Err(SimError::InvalidState(
+                "base Searing Blow carries upgrade-count metadata"
+            ))
+        );
+
+        let mut upgraded = CombatState::initial_fixture();
+        upgraded.piles.hand = vec![CardInstance::new(CardId::new(100), SEARING_BLOW_PLUS_ID)];
+        assert_eq!(
+            upgraded.validate(),
+            Err(SimError::InvalidState(
+                "Searing Blow+ is missing its upgrade count"
+            ))
+        );
+
+        let mut wrong_card = CombatState::initial_fixture();
+        wrong_card.piles.hand[0].searing_blow_upgrades = 1;
+        assert_eq!(
+            wrong_card.validate(),
+            Err(SimError::InvalidState(
+                "non-Searing-Blow card carries Searing Blow upgrade metadata"
             ))
         );
     }

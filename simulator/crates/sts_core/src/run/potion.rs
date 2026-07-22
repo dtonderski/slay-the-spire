@@ -826,7 +826,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::BlessingOfTheForge => {
                     let combat = next.combat.as_mut().expect("validated combat state");
                     for card in &mut combat.piles.hand {
-                        if let Some(upgraded) = upgrade_card_instance(*card) {
+                        if let Some(upgraded) = upgrade_card_instance(*card)? {
                             *card = upgraded;
                         }
                     }

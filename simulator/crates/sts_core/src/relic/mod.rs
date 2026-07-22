@@ -2409,12 +2409,12 @@ pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> S
     }
 
     if state.relics.contains(&Relic::WarpedTongs) {
-        upgrade_random_non_status_hand_card(state);
+        upgrade_random_non_status_hand_card(state)?;
     }
     Ok(())
 }
 
-fn upgrade_random_non_status_hand_card(state: &mut CombatState) {
+fn upgrade_random_non_status_hand_card(state: &mut CombatState) -> SimResult<()> {
     let mut upgradeable = state
         .piles
         .hand
@@ -2422,21 +2422,26 @@ fn upgrade_random_non_status_hand_card(state: &mut CombatState) {
         .enumerate()
         .filter_map(|(index, card)| {
             let definition = crate::content::cards::get_card_definition(card.content_id)?;
-            (definition.card_type != CardType::Status && upgrade_card_instance(*card).is_some())
-                .then_some(index)
+            (definition.card_type != CardType::Status
+                && crate::content::cards::card_instance_is_upgradeable(card))
+            .then_some(index)
         })
         .collect::<Vec<_>>();
     if upgradeable.is_empty() {
-        return;
+        return Ok(());
     }
 
-    let shuffle_seed = state.rng.shuffle_rng.random_long();
+    let mut shuffle_rng = state.rng.shuffle_rng.clone();
+    let shuffle_seed = shuffle_rng.random_long();
     JavaRng::new(shuffle_seed).collections_shuffle(&mut upgradeable);
 
     let index = upgradeable[0];
-    if let Some(upgraded) = upgrade_card_instance(state.piles.hand[index]) {
-        state.piles.hand[index] = upgraded;
-    }
+    let upgraded = upgrade_card_instance(state.piles.hand[index])?.ok_or(
+        SimError::InvalidState("Warped Tongs selected a non-upgradeable card"),
+    )?;
+    state.rng.shuffle_rng = shuffle_rng;
+    state.piles.hand[index] = upgraded;
+    Ok(())
 }
 
 fn has_start_of_turn_relic(state: &CombatState) -> bool {

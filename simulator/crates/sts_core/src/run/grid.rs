@@ -582,7 +582,7 @@ pub(crate) fn validate_grid_confirm(run: &RunState) -> SimResult<()> {
                     | GridPurpose::NeowUpgrade
                     | GridPurpose::EventUpgrade
                     | GridPurpose::EventUpgradeReturnToEvent { .. }
-            ) && upgrade_card_instance(card).is_none()
+            ) && upgrade_card_instance(card)?.is_none()
             {
                 return Err(SimError::IllegalAction("card cannot be upgraded"));
             }
@@ -848,7 +848,7 @@ fn reward_sequence_has_remaining_choices(run: &RunState) -> bool {
 
 fn upgrade_deck_card(run: &mut RunState, card: CardInstance) -> SimResult<()> {
     let upgraded =
-        upgrade_card_instance(card).ok_or(SimError::IllegalAction("card cannot be upgraded"))?;
+        upgrade_card_instance(card)?.ok_or(SimError::IllegalAction("card cannot be upgraded"))?;
     for deck_card in &mut run.deck {
         if deck_card.id == card.id {
             *deck_card = upgraded;

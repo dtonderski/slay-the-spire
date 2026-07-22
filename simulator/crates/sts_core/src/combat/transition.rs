@@ -1046,7 +1046,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::UpgradeHandCardsExcept { card_id } => {
-            upgrade_hand_cards_except(state, card_id);
+            upgrade_hand_cards_except(state, card_id)?;
             Ok(Vec::new())
         }
         InternalAction::UpgradeHandCard { card_id } => {
@@ -1173,7 +1173,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::UpgradeCombatCards => {
-            upgrade_combat_cards(state);
+            upgrade_combat_cards(state)?;
             Ok(Vec::new())
         }
         InternalAction::CardExhausted { card_id } => {
@@ -2183,20 +2183,25 @@ fn card_printed_cost(card: &CardInstance) -> i8 {
         .unwrap_or(0)
 }
 
-fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) {
-    for card in &mut state.piles.hand {
-        if card.id == excluded_card_id {
-            continue;
-        }
-        if let Some(upgraded) = upgrade_card_instance(*card) {
-            *card = upgraded;
+fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) -> SimResult<()> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != excluded_card_id)
+        .map(|card| Ok((card.id, upgrade_card_instance(*card)?)))
+        .collect::<SimResult<Vec<_>>>()?;
+    for (card_id, upgraded) in upgrades {
+        if let Some(upgraded) = upgraded {
+            *find_hand_card_mut(state, card_id)? = upgraded;
         }
     }
+    Ok(())
 }
 
 fn upgrade_hand_card(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
     let card = find_hand_card_mut(state, card_id)?;
-    *card = upgrade_card_instance(*card).ok_or(SimError::IllegalAction("card cannot upgrade"))?;
+    *card = upgrade_card_instance(*card)?.ok_or(SimError::IllegalAction("card cannot upgrade"))?;
     Ok(())
 }
 
@@ -2295,7 +2300,7 @@ fn hand_select_allows_card(
 
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw => true,
-        HandSelectPurpose::ArmamentsUpgrade => upgrade_card_instance(*card).is_some(),
+        HandSelectPurpose::ArmamentsUpgrade => card_instance_is_upgradeable(card),
         HandSelectPurpose::ForethoughtPutOnDraw | HandSelectPurpose::ForethoughtPutAnyOnDraw => {
             true
         }
@@ -2637,7 +2642,7 @@ fn confirm_armaments_select(
         return Err(SimError::IllegalAction("cannot upgrade Armaments"));
     }
     card_content_definition(state, source_card_id)?;
-    let upgraded = upgrade_card_instance(selected)
+    let upgraded = upgrade_card_instance(selected)?
         .ok_or(SimError::IllegalAction("selected card cannot be upgraded"))?;
     let upgradeable_count = state
         .piles
@@ -3563,19 +3568,22 @@ fn move_card(
     }
 }
 
-fn upgrade_combat_cards(state: &mut CombatState) {
-    for card in state
+fn upgrade_combat_cards(state: &mut CombatState) -> SimResult<()> {
+    let upgrades = state
         .piles
         .hand
-        .iter_mut()
-        .chain(state.piles.draw_pile.iter_mut())
-        .chain(state.piles.discard_pile.iter_mut())
-        .chain(state.piles.exhaust_pile.iter_mut())
-    {
-        if let Some(upgraded) = upgrade_card_instance(*card) {
-            *card = upgraded;
+        .iter()
+        .chain(state.piles.draw_pile.iter())
+        .chain(state.piles.discard_pile.iter())
+        .chain(state.piles.exhaust_pile.iter())
+        .map(|card| Ok((card.id, upgrade_card_instance(*card)?)))
+        .collect::<SimResult<Vec<_>>>()?;
+    for (card_id, upgraded) in upgrades {
+        if let Some(upgraded) = upgraded {
+            *find_combat_card_mut(state, card_id).ok_or(SimError::UnknownCard(card_id))? = upgraded;
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]

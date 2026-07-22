@@ -1091,7 +1091,7 @@ pub(crate) fn consume_hidden_neow_room_card_reward(run: &mut RunState) -> SimRes
         None,
         true,
     );
-    consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run));
+    consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run))?;
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
     Ok(())
 }
@@ -1130,7 +1130,7 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) -> SimResult<
         forced_requested_rarity,
         apply_card_rarity_factor,
     );
-    consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run));
+    consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run))?;
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
     for choice in &mut choices {
         choice.content_id = run.content_id_after_card_add_relics(choice.content_id);
@@ -1163,7 +1163,7 @@ fn consume_reward_card_upgrade_rolls(
     rng: &mut StsRng,
     choices: &mut [CardInstance],
     upgraded_chance: f32,
-) {
+) -> SimResult<()> {
     for choice in choices {
         if reward_card_rarity(choice.content_id) == Some(CardRarity::Rare) {
             continue;
@@ -1171,11 +1171,12 @@ fn consume_reward_card_upgrade_rolls(
 
         let upgrades = rng.random_float() < upgraded_chance;
         if upgrades {
-            if let Some(upgraded) = upgrade_card_instance(*choice) {
+            if let Some(upgraded) = upgrade_card_instance(*choice)? {
                 *choice = upgraded;
             }
         }
     }
+    Ok(())
 }
 
 fn reward_card_rarity(content_id: ContentId) -> Option<CardRarity> {
