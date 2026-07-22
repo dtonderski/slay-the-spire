@@ -7,7 +7,7 @@ use crate::{
     },
     ids::{ContentId, MonsterId},
     rng::{JavaRng, StsRng},
-    CardInstance, Relic,
+    CardInstance, Relic, SimResult,
 };
 
 /// CommunicationMod lists draw piles bottom-first; the game draws from the top (last entry).
@@ -21,10 +21,27 @@ fn drawable_count(state: &CombatState, count: usize) -> usize {
     count.min(MAX_HAND_SIZE.saturating_sub(state.piles.hand.len()))
 }
 
-pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut StsRng) {
+pub fn draw_cards_with_sts_rng(
+    state: &mut CombatState,
+    count: usize,
+    rng: &mut StsRng,
+) -> SimResult<()> {
+    let mut next = state.clone();
+    let mut next_rng = rng.clone();
+    draw_cards_with_sts_rng_inner(&mut next, count, &mut next_rng)?;
+    *state = next;
+    *rng = next_rng;
+    Ok(())
+}
+
+fn draw_cards_with_sts_rng_inner(
+    state: &mut CombatState,
+    count: usize,
+    rng: &mut StsRng,
+) -> SimResult<()> {
     for _ in 0..drawable_count(state, count) {
         if state.piles.draw_pile.is_empty() {
-            shuffle_discard_into_draw_sts(state, rng);
+            shuffle_discard_into_draw_sts(state, rng)?;
         }
 
         if state.piles.draw_pile.is_empty() {
@@ -35,16 +52,24 @@ pub fn draw_cards_with_sts_rng(state: &mut CombatState, count: usize, rng: &mut 
             let content_id = card.content_id;
             apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
-            apply_fire_breathing_on_draw(state, content_id);
-            draw_cards_with_sts_rng(state, evolve_extra_draw_count(state, content_id), rng);
+            apply_fire_breathing_on_draw(state, content_id)?;
+            draw_cards_with_sts_rng_inner(state, evolve_extra_draw_count(state, content_id), rng)?;
         }
     }
+    Ok(())
 }
 
-pub(crate) fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) {
+pub(crate) fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) -> SimResult<()> {
+    let mut next = state.clone();
+    draw_cards_with_combat_rng_inner(&mut next, count)?;
+    *state = next;
+    Ok(())
+}
+
+fn draw_cards_with_combat_rng_inner(state: &mut CombatState, count: usize) -> SimResult<()> {
     for _ in 0..drawable_count(state, count) {
         if state.piles.draw_pile.is_empty() {
-            shuffle_discard_into_draw_with_combat_rng(state);
+            shuffle_discard_into_draw_with_combat_rng(state)?;
         }
 
         if state.piles.draw_pile.is_empty() {
@@ -55,16 +80,20 @@ pub(crate) fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) 
             let content_id = card.content_id;
             apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
-            apply_fire_breathing_on_draw(state, content_id);
-            draw_cards_with_combat_rng(state, evolve_extra_draw_count(state, content_id));
+            apply_fire_breathing_on_draw(state, content_id)?;
+            draw_cards_with_combat_rng_inner(state, evolve_extra_draw_count(state, content_id))?;
         }
     }
+    Ok(())
 }
 
-pub(crate) fn apply_fire_breathing_on_draw(state: &mut CombatState, content_id: crate::ContentId) {
+pub(crate) fn apply_fire_breathing_on_draw(
+    state: &mut CombatState,
+    content_id: crate::ContentId,
+) -> SimResult<()> {
     let amount = state.player.powers.fire_breathing;
     if amount <= 0 || !is_status_or_curse(content_id) {
-        return;
+        return Ok(());
     }
 
     let targets = state
@@ -90,9 +119,10 @@ pub(crate) fn apply_fire_breathing_on_draw(state: &mut CombatState, content_id: 
         };
         check_slime_boss_split(state, target);
         if !still_alive {
-            crate::combat::transition::apply_monster_death_hooks(state, target);
+            crate::combat::transition::apply_monster_death_hooks(state, target)?;
         }
     }
+    Ok(())
 }
 
 pub(crate) fn evolve_extra_draw_count(state: &CombatState, content_id: ContentId) -> usize {
@@ -126,31 +156,36 @@ pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: 
     card.temp_cost = Some(rng.random_int(3) as u8);
 }
 
-pub(crate) fn shuffle_discard_into_draw_sts(state: &mut CombatState, rng: &mut StsRng) {
+pub(crate) fn shuffle_discard_into_draw_sts(
+    state: &mut CombatState,
+    rng: &mut StsRng,
+) -> SimResult<()> {
     if state.piles.discard_pile.is_empty() {
-        return;
+        return Ok(());
     }
 
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let shuffle_seed = rng.random_long();
     JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
-    crate::relic::apply_shuffle_relics(state);
+    crate::relic::apply_shuffle_relics(state)
 }
 
-pub(crate) fn shuffle_discard_into_draw_with_combat_rng(state: &mut CombatState) {
+pub(crate) fn shuffle_discard_into_draw_with_combat_rng(state: &mut CombatState) -> SimResult<()> {
     if state.piles.discard_pile.is_empty() {
-        return;
+        return Ok(());
     }
 
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let shuffle_seed = state.rng.shuffle_rng.random_long();
     JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
-    crate::relic::apply_shuffle_relics(state);
+    crate::relic::apply_shuffle_relics(state)
 }
 
-pub(crate) fn deep_breath_shuffle_discard_into_draw_with_combat_rng(state: &mut CombatState) {
+pub(crate) fn deep_breath_shuffle_discard_into_draw_with_combat_rng(
+    state: &mut CombatState,
+) -> SimResult<()> {
     if state.piles.discard_pile.is_empty() {
-        return;
+        return Ok(());
     }
 
     let discard_shuffle_seed = state.rng.shuffle_rng.random_long();
@@ -158,5 +193,5 @@ pub(crate) fn deep_breath_shuffle_discard_into_draw_with_combat_rng(state: &mut 
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let draw_shuffle_seed = state.rng.shuffle_rng.random_long();
     JavaRng::new(draw_shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
-    crate::relic::apply_shuffle_relics(state);
+    crate::relic::apply_shuffle_relics(state)
 }

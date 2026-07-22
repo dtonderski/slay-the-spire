@@ -86,7 +86,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     // Slay the Spire checks Orichalcum before queued end-of-turn powers such as
     // Metallicize resolve. Both block grants therefore apply when the player
     // clicks End Turn with zero block.
-    crate::relic::apply_orichalcum_end_of_player_turn(&mut next);
+    crate::relic::apply_orichalcum_end_of_player_turn(&mut next)?;
     apply_end_of_player_turn_powers(&mut next)?;
     resolve_player_temp_strength(&mut next)?;
     let deferred_stasis_cards = if next.monsters.iter().any(|monster| monster.alive) {
@@ -94,17 +94,17 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     } else {
         Vec::new()
     };
-    resolve_end_of_turn_hand(&mut next);
+    resolve_end_of_turn_hand(&mut next)?;
     if finish_combat_if_over(&mut next, started_with_living_monster) {
         return Ok(next);
     }
-    crate::relic::apply_end_of_player_turn_relics(&mut next);
+    crate::relic::apply_end_of_player_turn_relics(&mut next)?;
     if finish_combat_if_over(&mut next, started_with_living_monster) {
         return Ok(next);
     }
     discard_end_of_turn_hand(&mut next);
     next.piles.hand.extend(deferred_stasis_cards);
-    apply_pending_player_spikes_damage(&mut next);
+    apply_pending_player_spikes_damage(&mut next)?;
     if next.player.hp <= 0 {
         next.player.hp = 0;
         next.player.block = 0;
@@ -149,14 +149,14 @@ fn take_released_stasis_cards_from_piles(
     released
 }
 
-fn apply_pending_player_spikes_damage(state: &mut CombatState) {
+fn apply_pending_player_spikes_damage(state: &mut CombatState) -> SimResult<()> {
     let damage = std::mem::take(&mut state.pending_player_spikes_damage);
     if damage <= 0 {
-        return;
+        return Ok(());
     }
     let hp_loss =
         crate::combat::damage::reflect_spikes_to_player(&mut state.player, &state.relics, damage);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)
 }
 
 fn clear_living_monster_block(state: &mut CombatState) {
@@ -219,8 +219,8 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
         return Ok(());
     }
     apply_start_of_turn_magnetism(state)?;
-    draw_next_hand_without_shuffle(state);
-    crate::relic::apply_start_of_player_turn_post_draw_relics(state);
+    draw_next_hand_without_shuffle(state)?;
+    crate::relic::apply_start_of_player_turn_post_draw_relics(state)?;
     apply_start_of_turn_mayhem(state)?;
     if state.player.hp <= 0 {
         state.player.hp = 0;
@@ -324,12 +324,12 @@ fn finish_monster_turn_after_player_revival_inner(state: &mut CombatState) -> Si
 fn apply_start_of_turn_brutality(state: &mut CombatState) -> SimResult<()> {
     for _ in 0..state.player.powers.brutality.max(0) {
         let hp_loss = crate::combat::hp_loss::lose_player_hp(state, 1);
-        crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
+        crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
         revive_player_if_available(state)?;
         if state.player.hp <= 0 {
             return Ok(());
         }
-        crate::combat::transition::player_draw_cards(state, 1);
+        crate::combat::transition::player_draw_cards(state, 1)?;
     }
     Ok(())
 }
@@ -1119,7 +1119,7 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> SimResult<i32>
         crate::relic::mitigate_unblocked_attack_damage(&state.relics, incoming - blocked);
     let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp = (state.player.hp - hp_damage).max(0);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_damage);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_damage)?;
     revive_player_if_available(state)?;
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
@@ -1185,10 +1185,10 @@ fn apply_attack_heal_self_thorns_after_heal(
     }
 }
 
-fn draw_next_hand_without_shuffle(state: &mut CombatState) {
+fn draw_next_hand_without_shuffle(state: &mut CombatState) -> SimResult<()> {
     for _ in 0..next_hand_draw_count(state) {
         if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
-            shuffle_discard_into_draw_with_combat_rng(state);
+            shuffle_discard_into_draw_with_combat_rng(state)?;
         }
 
         if state.piles.draw_pile.is_empty() {
@@ -1200,10 +1200,11 @@ fn draw_next_hand_without_shuffle(state: &mut CombatState) {
             let extra_draws = evolve_extra_draw_count(state, content_id);
             apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
-            apply_fire_breathing_on_draw(state, content_id);
-            draw_cards_with_combat_rng(state, extra_draws);
+            apply_fire_breathing_on_draw(state, content_id)?;
+            draw_cards_with_combat_rng(state, extra_draws)?;
         }
     }
+    Ok(())
 }
 
 pub(crate) fn target_hand_size(state: &CombatState) -> usize {

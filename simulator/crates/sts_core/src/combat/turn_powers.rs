@@ -16,7 +16,7 @@ pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()>
     if state.player.hp <= 0 {
         return Ok(());
     }
-    apply_end_of_turn_bomb_timers(state);
+    apply_end_of_turn_bomb_timers(state)?;
     Ok(())
 }
 
@@ -35,13 +35,13 @@ fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) -> 
         crate::combat::transition::apply_player_direct_block_gain(
             state,
             state.player.powers.metallicize,
-        );
+        )?;
     }
     if state.player.powers.plated_armor > 0 {
         crate::combat::transition::apply_player_direct_block_gain(
             state,
             state.player.powers.plated_armor,
-        );
+        )?;
     }
     if state.player.powers.regen > 0 {
         heal_combat_player_with_relics(state, state.player.powers.regen);
@@ -64,7 +64,7 @@ fn apply_end_of_turn_constricted(state: &mut CombatState) -> SimResult<()> {
         return Ok(());
     }
     let hp_loss = lose_player_hp(state, state.player.powers.constricted);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
     crate::combat::turn::revive_player_if_available(state)
 }
 
@@ -112,44 +112,47 @@ fn apply_end_of_turn_combust(state: &mut CombatState) -> SimResult<()> {
         // one per stack. Card-loss hooks such as Rupture therefore fire once,
         // not once for every point of HP lost.
         let hp_loss = lose_player_hp(state, combust_stacks * COMBUST_HP_LOSS);
-        crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
+        crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
         crate::combat::turn::revive_player_if_available(state)?;
         if state.player.hp <= 0 {
             return Ok(());
         }
     }
-    deal_combust_damage_to_living_monsters(state);
-    Ok(())
+    deal_combust_damage_to_living_monsters(state)
 }
 
 fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
     crate::combat::hp_loss::lose_player_hp(state, amount)
 }
 
-fn deal_combust_damage_to_living_monsters(state: &mut CombatState) {
-    deal_unmodified_damage_to_living_monsters(state, state.player.powers.combust_damage);
+fn deal_combust_damage_to_living_monsters(state: &mut CombatState) -> SimResult<()> {
+    deal_unmodified_damage_to_living_monsters(state, state.player.powers.combust_damage)
 }
 
-fn apply_end_of_turn_bomb_timers(state: &mut CombatState) {
+fn apply_end_of_turn_bomb_timers(state: &mut CombatState) -> SimResult<()> {
     if state.bomb_timers.is_empty() {
-        return;
+        return Ok(());
     }
 
     let timers = std::mem::take(&mut state.bomb_timers);
     for mut timer in timers {
         timer.turns_remaining -= 1;
         if timer.turns_remaining <= 0 {
-            deal_unmodified_damage_to_living_monsters(state, timer.damage);
+            deal_unmodified_damage_to_living_monsters(state, timer.damage)?;
             if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
-                return;
+                return Ok(());
             }
         } else {
             state.bomb_timers.push(timer);
         }
     }
+    Ok(())
 }
 
-fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i32) {
+fn deal_unmodified_damage_to_living_monsters(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<()> {
     let targets = state
         .monsters
         .iter()
@@ -171,9 +174,10 @@ fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i3
         };
         check_slime_boss_split(state, target);
         if killed {
-            crate::combat::transition::apply_monster_death_hooks(state, target);
+            crate::combat::transition::apply_monster_death_hooks(state, target)?;
         }
     }
+    Ok(())
 }
 
 pub fn apply_end_of_monster_turn_powers(monster: &mut MonsterState) -> SimResult<()> {

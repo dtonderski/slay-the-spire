@@ -4,19 +4,30 @@ use crate::{
         get_card_definition, BURN_END_TURN_DAMAGE, BURN_ID, DECAY_ID, DOUBT_ID, REGRET_ID, SHAME_ID,
     },
     ids::CardId,
+    SimResult,
 };
 
-pub fn resolve_end_of_turn_hand(state: &mut CombatState) {
+pub fn resolve_end_of_turn_hand(state: &mut CombatState) -> SimResult<()> {
+    let mut next = state.clone();
+    resolve_end_of_turn_hand_inner(&mut next)?;
+    *state = next;
+    Ok(())
+}
+
+fn resolve_end_of_turn_hand_inner(state: &mut CombatState) -> SimResult<()> {
     let hand_size_for_regret = state.piles.hand.len() as i32;
-    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size_for_regret);
-    exhaust_unplayed_ethereal_cards(state);
+    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size_for_regret)?;
+    exhaust_unplayed_ethereal_cards(state)
 }
 
 pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
     discard_non_retain_hand(state);
 }
 
-fn apply_end_of_turn_for_playing_cards_in_hand_order(state: &mut CombatState, hand_size: i32) {
+fn apply_end_of_turn_for_playing_cards_in_hand_order(
+    state: &mut CombatState,
+    hand_size: i32,
+) -> SimResult<()> {
     let mut remaining = Vec::with_capacity(state.piles.hand.len());
     let hand = std::mem::take(&mut state.piles.hand);
 
@@ -29,17 +40,17 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(state: &mut CombatState, ha
                     BURN_END_TURN_DAMAGE
                 };
                 let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, burn_damage);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
                 state.piles.discard_pile.push(card);
             }
             DECAY_ID => {
                 let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, 2);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
                 state.piles.discard_pile.push(card);
             }
             REGRET_ID => {
                 let hp_loss = crate::combat::hp_loss::lose_player_hp(state, hand_size);
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
                 state.piles.discard_pile.push(card);
             }
             DOUBT_ID => {
@@ -71,9 +82,10 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(state: &mut CombatState, ha
         }
     }
     state.piles.hand = remaining;
+    Ok(())
 }
 
-fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) {
+fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) -> SimResult<()> {
     let ethereal_ids: Vec<CardId> = state
         .piles
         .hand
@@ -89,9 +101,10 @@ fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) {
         if let Some(index) = state.piles.hand.iter().position(|card| card.id == card_id) {
             let card = state.piles.hand.remove(index);
             state.piles.exhaust_pile.push(card);
-            apply_on_exhaust_effects(state, card_id);
+            apply_on_exhaust_effects(state, card_id)?;
         }
     }
+    Ok(())
 }
 
 fn discard_non_retain_hand(state: &mut CombatState) {
@@ -132,7 +145,7 @@ mod tests {
         ];
         state.piles.discard_pile.clear();
 
-        resolve_end_of_turn_hand(&mut state);
+        resolve_end_of_turn_hand(&mut state).expect("end-turn hand resolves");
 
         assert_eq!(
             state
@@ -164,7 +177,7 @@ mod tests {
         ];
         state.piles.discard_pile.clear();
 
-        resolve_end_of_turn_hand(&mut state);
+        resolve_end_of_turn_hand(&mut state).expect("end-turn hand resolves");
 
         assert_eq!(
             state

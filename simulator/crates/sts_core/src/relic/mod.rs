@@ -2022,7 +2022,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 checked_add_relic_value(&mut combat.player.energy, LANTERN_ENERGY)?;
             }
             Relic::BagOfPreparation => {
-                crate::combat::transition::player_draw_cards(combat, BAG_OF_PREPARATION_DRAW);
+                crate::combat::transition::player_draw_cards(combat, BAG_OF_PREPARATION_DRAW)?;
             }
             Relic::BagOfMarbles => {
                 for monster in combat.monsters.iter_mut().filter(|monster| monster.alive) {
@@ -2149,9 +2149,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
     Ok(())
 }
 
-pub fn apply_shuffle_relics(state: &mut CombatState) {
+pub fn apply_shuffle_relics(state: &mut CombatState) -> SimResult<()> {
     if state.relics.contains(&Relic::TheAbacus) {
-        crate::combat::transition::apply_player_direct_block_gain(state, THE_ABACUS_BLOCK);
+        crate::combat::transition::apply_player_direct_block_gain(state, THE_ABACUS_BLOCK)?;
     }
     if state.relics.contains(&Relic::Sundial) {
         state.relic_counters.sundial_shuffles =
@@ -2164,13 +2164,17 @@ pub fn apply_shuffle_relics(state: &mut CombatState) {
             state.player.energy = state.player.energy.wrapping_add(SUNDIAL_ENERGY);
         }
     }
+    Ok(())
 }
 
-pub fn apply_monster_death_relics(state: &mut CombatState) {
-    if state.relics.contains(&Relic::GremlinHorn) {
-        state.player.energy = state.player.energy.wrapping_add(GREMLIN_HORN_ENERGY);
-        crate::combat::transition::player_draw_cards(state, GREMLIN_HORN_DRAW);
+pub fn apply_monster_death_relics(state: &mut CombatState) -> SimResult<()> {
+    let mut next = state.clone();
+    if next.relics.contains(&Relic::GremlinHorn) {
+        checked_add_relic_value(&mut next.player.energy, GREMLIN_HORN_ENERGY)?;
+        crate::combat::transition::player_draw_cards(&mut next, GREMLIN_HORN_DRAW)?;
     }
+    *state = next;
+    Ok(())
 }
 
 #[must_use]
@@ -2215,23 +2219,26 @@ pub fn apply_potion_use_relics_to_combat(combat: &mut CombatState) {
     }
 }
 
-pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) {
+pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> SimResult<()> {
     if hp_loss <= 0 {
-        return;
+        return Ok(());
     }
-    if state.relics.contains(&Relic::CentennialPuzzle)
-        && state.relic_counters.centennial_puzzle_triggers == 0
+    let mut next = state.clone();
+    if next.relics.contains(&Relic::CentennialPuzzle)
+        && next.relic_counters.centennial_puzzle_triggers == 0
     {
-        state.relic_counters.centennial_puzzle_triggers = 1;
-        crate::combat::transition::player_draw_cards(state, CENTENNIAL_PUZZLE_DRAW);
+        next.relic_counters.centennial_puzzle_triggers = 1;
+        crate::combat::transition::player_draw_cards(&mut next, CENTENNIAL_PUZZLE_DRAW)?;
     }
-    if state.relics.contains(&Relic::SelfFormingClay) {
-        state.relic_counters.self_forming_clay_next_turn_block += SELF_FORMING_CLAY_BLOCK;
+    if next.relics.contains(&Relic::SelfFormingClay) {
+        next.relic_counters.self_forming_clay_next_turn_block += SELF_FORMING_CLAY_BLOCK;
     }
-    if state.relics.contains(&Relic::RunicCube) {
-        crate::combat::transition::player_draw_cards(state, RUNIC_CUBE_DRAW);
+    if next.relics.contains(&Relic::RunicCube) {
+        crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
     }
-    sync_red_skull_strength(state);
+    sync_red_skull_strength(&mut next);
+    *state = next;
+    Ok(())
 }
 
 pub fn sync_red_skull_strength(state: &mut CombatState) {
@@ -2309,7 +2316,7 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<(
                     "combat integer addition overflows i32",
                 ))?;
         }
-        crate::combat::transition::apply_player_direct_block_gain(state, block);
+        crate::combat::transition::apply_player_direct_block_gain(state, block)?;
     }
 
     if state.relics.contains(&Relic::HappyFlower) {
@@ -2363,21 +2370,22 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<(
     Ok(())
 }
 
-pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) {
+pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> SimResult<()> {
     if state.relics.contains(&Relic::MercuryHourglass) {
-        deal_unmodified_damage_to_living_monsters(state, MERCURY_HOURGLASS_DAMAGE);
+        deal_unmodified_damage_to_living_monsters(state, MERCURY_HOURGLASS_DAMAGE)?;
     }
 
     if state.relics.contains(&Relic::Pocketwatch)
         && state.relic_counters.player_turns_started > 1
         && state.relic_counters.cards_played_last_turn <= POCKETWATCH_CARD_LIMIT
     {
-        crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW);
+        crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW)?;
     }
 
     if state.relics.contains(&Relic::WarpedTongs) {
         upgrade_random_non_status_hand_card(state);
     }
+    Ok(())
 }
 
 fn upgrade_random_non_status_hand_card(state: &mut CombatState) {
@@ -2423,22 +2431,24 @@ fn has_start_of_turn_relic(state: &CombatState) -> bool {
     })
 }
 
-pub fn apply_orichalcum_end_of_player_turn(state: &mut CombatState) {
+pub fn apply_orichalcum_end_of_player_turn(state: &mut CombatState) -> SimResult<()> {
     if state.relics.contains(&Relic::Orichalcum) && state.player.block == 0 {
-        crate::combat::transition::apply_player_direct_block_gain(state, ORICHALCUM_BLOCK);
+        crate::combat::transition::apply_player_direct_block_gain(state, ORICHALCUM_BLOCK)?;
     }
+    Ok(())
 }
 
 pub fn settle_pending_start_of_turn_relic_actions(state: &mut CombatState) {
     state.player.energy += std::mem::take(&mut state.pending_start_of_turn_relic_energy);
 }
 
-pub fn apply_end_of_player_turn_relics(state: &mut CombatState) {
+pub fn apply_end_of_player_turn_relics(state: &mut CombatState) -> SimResult<()> {
     if state.relics.contains(&Relic::StoneCalendar)
         && state.relic_counters.player_turns_started == STONE_CALENDAR_TURN
     {
-        deal_unmodified_damage_to_living_monsters(state, STONE_CALENDAR_DAMAGE);
+        deal_unmodified_damage_to_living_monsters(state, STONE_CALENDAR_DAMAGE)?;
     }
+    Ok(())
 }
 
 #[must_use]
@@ -2700,7 +2710,10 @@ pub fn can_play_unplayable_card_with_relics(
     }
 }
 
-fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i32) {
+fn deal_unmodified_damage_to_living_monsters(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<()> {
     let mut dead = Vec::new();
     for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
         crate::combat::damage::deal_unmodified_damage_to_monster(monster, amount);
@@ -2709,8 +2722,9 @@ fn deal_unmodified_damage_to_living_monsters(state: &mut CombatState, amount: i3
         }
     }
     for monster_id in dead {
-        crate::combat::transition::apply_monster_death_hooks(state, monster_id);
+        crate::combat::transition::apply_monster_death_hooks(state, monster_id)?;
     }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -1594,7 +1594,7 @@ impl RunState {
                 combat.queued_decisions.push_back(existing);
             }
         }
-        crate::relic::apply_start_of_player_turn_post_draw_relics(&mut combat);
+        crate::relic::apply_start_of_player_turn_post_draw_relics(&mut combat)?;
         combat.validate()?;
         Ok(combat)
     }

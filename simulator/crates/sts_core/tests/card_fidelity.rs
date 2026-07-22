@@ -62,7 +62,7 @@ fn upgraded_burn_deals_four_blockable_end_turn_damage_and_discards() {
     state.piles.discard_pile.clear();
 
     let mut next = state.clone();
-    resolve_end_of_turn_hand(&mut next);
+    resolve_end_of_turn_hand(&mut next).expect("end-turn hand resolves");
 
     assert_eq!(next.player.hp, 47);
     assert_eq!(next.player.block, 0);
@@ -83,7 +83,7 @@ fn decay_deals_two_blockable_end_turn_damage_and_discards() {
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
 
     let mut next = state.clone();
-    resolve_end_of_turn_hand(&mut next);
+    resolve_end_of_turn_hand(&mut next).expect("end-turn hand resolves");
 
     assert_eq!(next.player.hp, 49);
     assert_eq!(next.player.block, 0);
@@ -104,7 +104,7 @@ fn regret_loses_hp_equal_to_end_turn_hand_size_and_discards() {
     state.piles.discard_pile.clear();
 
     let mut next = state.clone();
-    resolve_end_of_turn_hand(&mut next);
+    resolve_end_of_turn_hand(&mut next).expect("end-turn hand resolves");
 
     assert_eq!(next.player.hp, 47);
     assert_eq!(next.piles.hand.len(), 2);

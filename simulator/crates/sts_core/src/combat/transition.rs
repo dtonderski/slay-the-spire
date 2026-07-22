@@ -192,8 +192,8 @@ fn process_internal_queue(
         }
     }
 
-    flush_pending_player_spikes_damage_if_ready(&mut next);
-    flush_pending_monster_death_relics_if_ready(&mut next);
+    flush_pending_player_spikes_damage_if_ready(&mut next)?;
+    flush_pending_monster_death_relics_if_ready(&mut next)?;
 
     // Byrd's Grounded action is queued behind the complete card action. A
     // copied or multi-hit card therefore keeps Flight's reduction for every
@@ -296,23 +296,29 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
     queue.push_back(follow_up);
 }
 
-pub fn flush_pending_player_spikes_damage_if_ready(state: &mut CombatState) {
-    if state.pending_player_spikes_damage <= 0 || state.decision.is_some() {
-        return;
+pub fn flush_pending_player_spikes_damage_if_ready(state: &mut CombatState) -> SimResult<()> {
+    let mut next = state.clone();
+    if next.pending_player_spikes_damage <= 0 || next.decision.is_some() {
+        return Ok(());
     }
-    let damage = std::mem::take(&mut state.pending_player_spikes_damage);
-    let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, damage);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+    let damage = std::mem::take(&mut next.pending_player_spikes_damage);
+    let hp_loss = reflect_spikes_to_player(&mut next.player, &next.relics, damage);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(&mut next, hp_loss)?;
+    *state = next;
+    Ok(())
 }
 
-pub fn flush_pending_monster_death_relics_if_ready(state: &mut CombatState) {
-    if state.pending_monster_death_relic_triggers == 0 || state.decision.is_some() {
-        return;
+pub fn flush_pending_monster_death_relics_if_ready(state: &mut CombatState) -> SimResult<()> {
+    let mut next = state.clone();
+    if next.pending_monster_death_relic_triggers == 0 || next.decision.is_some() {
+        return Ok(());
     }
-    let triggers = std::mem::take(&mut state.pending_monster_death_relic_triggers);
+    let triggers = std::mem::take(&mut next.pending_monster_death_relic_triggers);
     for _ in 0..triggers {
-        crate::relic::apply_monster_death_relics(state);
+        crate::relic::apply_monster_death_relics(&mut next)?;
     }
+    *state = next;
+    Ok(())
 }
 
 fn checked_combat_sum(value: i32, amount: i32) -> SimResult<i32> {
@@ -355,7 +361,7 @@ fn apply_internal_action(
             let definition = get_card_definition(card.content_id)
                 .ok_or(SimError::UnknownContent(card.content_id))?;
             apply_enrage_on_card_type(state, definition.card_type)?;
-            apply_rage_on_card_type(state, definition.card_type);
+            apply_rage_on_card_type(state, definition.card_type)?;
             let mut follow_ups =
                 crate::relic::apply_on_card_play_relics(state, definition.card_type)?;
             apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
@@ -366,7 +372,7 @@ fn apply_internal_action(
         InternalAction::PlayCardCopy { card_id } => {
             let definition = card_content_definition(state, card_id)?;
             apply_enrage_on_card_type(state, definition.card_type)?;
-            apply_rage_on_card_type(state, definition.card_type);
+            apply_rage_on_card_type(state, definition.card_type)?;
             let mut follow_ups =
                 crate::relic::apply_on_card_play_relics(state, definition.card_type)?;
             follow_ups.extend(apply_on_card_play_powers(state, definition.card_type)?);
@@ -445,7 +451,7 @@ fn apply_internal_action(
             if !still_alive {
                 queue_monster_death_hooks(state, info.target)?;
             }
-            apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
+            apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
             Ok(follow_ups)
         }
         InternalAction::DealHandOfGreedDamage { info, gold } => {
@@ -505,9 +511,9 @@ fn apply_internal_action(
                 if !minion {
                     checked_add_combat_value(&mut state.combat_gold_gained, gold.max(0))?;
                 }
-                apply_monster_death_hooks(state, info.target);
+                apply_monster_death_hooks(state, info.target)?;
             }
-            apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
+            apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
             Ok(follow_ups)
         }
         InternalAction::DealDamageRandomEnemy { source, amount } => {
@@ -558,9 +564,9 @@ fn apply_internal_action(
                 }
                 check_slime_boss_split(state, target);
                 if !still_alive {
-                    apply_monster_death_hooks(state, target);
+                    apply_monster_death_hooks(state, target)?;
                 }
-                apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
+                apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
                 return Ok(follow_ups);
             }
             Ok(Vec::new())
@@ -620,9 +626,9 @@ fn apply_internal_action(
             }
             check_slime_boss_split(state, info.target);
             if !still_alive {
-                apply_monster_death_hooks(state, info.target);
+                apply_monster_death_hooks(state, info.target)?;
             }
-            apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
+            apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
             Ok(follow_ups)
         }
         InternalAction::DealFeedDamage { info, max_hp_gain } => {
@@ -691,9 +697,9 @@ fn apply_internal_action(
                     state.player.hp = hp;
                     crate::relic::sync_red_skull_strength(state);
                 }
-                apply_monster_death_hooks(state, info.target);
+                apply_monster_death_hooks(state, info.target)?;
             }
-            apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
+            apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
             Ok(follow_ups)
         }
         InternalAction::DealRitualDaggerDamage { info, growth } => {
@@ -754,9 +760,9 @@ fn apply_internal_action(
                     let DamageSource::Card(source_card_id) = info.source;
                     add_ritual_dagger_damage_bonus(state, source_card_id, growth);
                 }
-                apply_monster_death_hooks(state, info.target);
+                apply_monster_death_hooks(state, info.target)?;
             }
-            apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
+            apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
             Ok(follow_ups)
         }
         InternalAction::DealDamageAll { source, amount } => {
@@ -879,7 +885,7 @@ fn apply_internal_action(
             move_card(state, card_id, from, to)?;
             let mut follow_ups = Vec::new();
             if from == CardPile::Hand && state.piles.hand.is_empty() {
-                apply_unceasing_top_after_hand_emptied(state);
+                apply_unceasing_top_after_hand_emptied(state)?;
             }
             if to == CardPile::ExhaustPile {
                 if hand_exhaust_is_attack {
@@ -908,14 +914,14 @@ fn apply_internal_action(
             };
             move_card(state, card_id, CardPile::Hand, CardPile::ExhaustPile)?;
             if state.piles.hand.is_empty() {
-                apply_unceasing_top_after_hand_emptied(state);
+                apply_unceasing_top_after_hand_emptied(state)?;
             }
             Ok(vec![InternalAction::CardExhausted { card_id }])
         }
         InternalAction::RemoveCard { card_id, from } => {
             remove_card_from_pile(state, card_id, from)?;
             if from == CardPile::Hand && state.piles.hand.is_empty() {
-                apply_unceasing_top_after_hand_emptied(state);
+                apply_unceasing_top_after_hand_emptied(state)?;
             }
             Ok(Vec::new())
         }
@@ -977,7 +983,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::DrawCards { count } => {
-            player_draw_cards(state, count);
+            player_draw_cards(state, count)?;
             Ok(Vec::new())
         }
         InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count } => {
@@ -988,25 +994,25 @@ fn apply_internal_action(
                 .position(|card| card.id == card_id)
                 .ok_or(SimError::IllegalAction("played card is not in hand"))?;
             let played_card = state.piles.hand.remove(hand_index);
-            player_draw_cards(state, count);
+            player_draw_cards(state, count)?;
             state.piles.discard_pile.push(played_card);
             Ok(Vec::new())
         }
         InternalAction::DrawCardsFromInkBottle { count } => {
-            player_draw_cards(state, count);
+            player_draw_cards(state, count)?;
             Ok(Vec::new())
         }
         InternalAction::ShuffleDiscardIntoDraw => {
-            player_shuffle_discard_into_draw(state);
+            player_shuffle_discard_into_draw(state)?;
             Ok(Vec::new())
         }
         InternalAction::DeepBreathShuffleDiscardIntoDraw => {
-            player_deep_breath_shuffle_discard_into_draw(state);
+            player_deep_breath_shuffle_discard_into_draw(state)?;
             Ok(Vec::new())
         }
         InternalAction::DrawCardsIfNoAttacksInHand { count } => {
             if !hand_contains_attack(state) {
-                player_draw_cards(state, count);
+                player_draw_cards(state, count)?;
             }
             Ok(Vec::new())
         }
@@ -1021,9 +1027,9 @@ fn apply_internal_action(
         InternalAction::LoseHp { amount, source } => {
             let hp_loss = crate::combat::hp_loss::lose_player_hp(state, amount);
             if matches!(source, HpLossSource::Card(_)) {
-                crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss);
+                crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
             } else {
-                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+                crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
             }
             Ok(Vec::new())
         }
@@ -1173,11 +1179,11 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::CardExhausted { card_id } => {
-            apply_on_exhaust_effects(state, card_id);
+            apply_on_exhaust_effects(state, card_id)?;
             Ok(dead_branch_follow_up(state).into_iter().collect())
         }
         InternalAction::HandCardExhausted { card_id } => {
-            apply_on_exhaust_effects(state, card_id);
+            apply_on_exhaust_effects(state, card_id)?;
             Ok(dead_branch_follow_up_before_pending_draw(state)
                 .into_iter()
                 .collect())
@@ -1564,9 +1570,9 @@ fn deal_attack_damage_to_all_living(
         total_hp_damage += hp_damage;
         check_slime_boss_split(state, target);
         if !still_alive {
-            apply_monster_death_hooks(state, target);
+            apply_monster_death_hooks(state, target)?;
         }
-        apply_or_queue_spikes_to_player(state, monster_content_id, spikes);
+        apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
     }
 
     Ok((total_hp_damage, follow_ups))
@@ -1576,15 +1582,15 @@ fn apply_or_queue_spikes_to_player(
     state: &mut CombatState,
     monster_content_id: ContentId,
     spikes: i32,
-) {
+) -> SimResult<()> {
     if spikes <= 0 {
-        return;
+        return Ok(());
     }
     if monster_content_id == GUARDIAN_ID {
-        return;
+        return Ok(());
     }
     let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)
 }
 
 fn push_malleable_block_follow_up(
@@ -1622,20 +1628,26 @@ fn deal_unmodified_damage_to_living_monster(
     };
     check_slime_boss_split(state, target);
     if !still_alive {
-        apply_monster_death_hooks(state, target);
+        apply_monster_death_hooks(state, target)?;
     }
     Ok(())
 }
 
-pub(crate) fn apply_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) {
-    apply_monster_death_non_relic_hooks(state, monster_id);
-    if state.monsters.iter().any(|monster| monster.alive) {
-        crate::relic::apply_monster_death_relics(state);
+pub(crate) fn apply_monster_death_hooks(
+    state: &mut CombatState,
+    monster_id: MonsterId,
+) -> SimResult<()> {
+    let mut next = state.clone();
+    apply_monster_death_non_relic_hooks(&mut next, monster_id)?;
+    if next.monsters.iter().any(|monster| monster.alive) {
+        crate::relic::apply_monster_death_relics(&mut next)?;
     }
+    *state = next;
+    Ok(())
 }
 
 fn queue_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) -> SimResult<()> {
-    apply_monster_death_non_relic_hooks(state, monster_id);
+    apply_monster_death_non_relic_hooks(state, monster_id)?;
     if state.monsters.iter().any(|monster| monster.alive)
         && state.relics.contains(&Relic::GremlinHorn)
     {
@@ -1649,7 +1661,10 @@ fn queue_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) -> 
     Ok(())
 }
 
-fn apply_monster_death_non_relic_hooks(state: &mut CombatState, monster_id: MonsterId) {
+fn apply_monster_death_non_relic_hooks(
+    state: &mut CombatState,
+    monster_id: MonsterId,
+) -> SimResult<()> {
     if let Some(monster) = state
         .monsters
         .iter_mut()
@@ -1659,20 +1674,24 @@ fn apply_monster_death_non_relic_hooks(state: &mut CombatState, monster_id: Mons
     }
     apply_gremlin_leader_death_escape(&mut state.monsters, monster_id);
     apply_collector_death_escape(&mut state.monsters, monster_id);
-    apply_spore_cloud_on_monster_death(state, monster_id);
+    apply_spore_cloud_on_monster_death(state, monster_id)
 }
 
-fn apply_spore_cloud_on_monster_death(state: &mut CombatState, monster_id: MonsterId) {
+fn apply_spore_cloud_on_monster_death(
+    state: &mut CombatState,
+    monster_id: MonsterId,
+) -> SimResult<()> {
     let amount = state
         .monsters
         .iter()
         .find(|monster| monster.id == monster_id)
         .map_or(0, |monster| monster.powers.spore_cloud);
     if amount <= 0 || !state.monsters.iter().any(|monster| monster.alive) {
-        return;
+        return Ok(());
     }
 
     apply_player_vulnerable(&mut state.player.powers, amount);
+    Ok(())
 }
 
 fn apply_sadistic_nature_after_monster_debuff(
@@ -1726,14 +1745,18 @@ fn juggernaut_follow_up_for_positive_block_gain(
         .unwrap_or_default()
 }
 
-pub(crate) fn apply_juggernaut_after_direct_block_gain(state: &mut CombatState, gained: i32) {
+pub(crate) fn apply_juggernaut_after_direct_block_gain(
+    state: &mut CombatState,
+    gained: i32,
+) -> SimResult<()> {
     if let Some(InternalAction::DealUnmodifiedDamage { target, amount }) =
         juggernaut_follow_up_for_positive_block_gain(state, gained)
             .into_iter()
             .next()
     {
-        let _ = deal_unmodified_damage_to_living_monster(state, target, amount);
+        deal_unmodified_damage_to_living_monster(state, target, amount)?;
     }
+    Ok(())
 }
 
 fn apply_player_card_block_gain(
@@ -1748,14 +1771,17 @@ fn apply_player_card_block_gain(
     Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
 }
 
-pub(crate) fn apply_player_direct_block_gain(state: &mut CombatState, amount: i32) {
+pub(crate) fn apply_player_direct_block_gain(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<()> {
     if state.player.no_block_turns > 0 {
-        return;
+        return Ok(());
     }
     // The target runtime uses signed 32-bit arithmetic. Authoritative combat
     // transitions validate that block remains nonnegative before returning.
     state.player.block = state.player.block.wrapping_add(amount);
-    apply_juggernaut_after_direct_block_gain(state, amount);
+    apply_juggernaut_after_direct_block_gain(state, amount)
 }
 
 fn random_living_monster_id(state: &mut CombatState) -> Option<MonsterId> {
@@ -1833,7 +1859,7 @@ fn dead_branch_card_pool() -> Vec<ContentId> {
     ironclad_combat_discovery_pool().to_vec()
 }
 
-pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) {
+pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
     match exhausted_card_content_id(state, card_id) {
         // Energy is nonnegative in every valid combat state, so signed target
         // overflow is rejected by the authoritative transition validation.
@@ -1843,10 +1869,10 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId)
     }
     if state.player.powers.feel_no_pain > 0 {
         let gained = state.player.powers.feel_no_pain;
-        apply_player_direct_block_gain(state, gained);
+        apply_player_direct_block_gain(state, gained)?;
     }
     if state.player.powers.dark_embrace > 0 {
-        player_draw_cards(state, state.player.powers.dark_embrace as usize);
+        player_draw_cards(state, state.player.powers.dark_embrace as usize)?;
     }
     if state.relics.contains(&Relic::CharonsAshes) {
         let targets = state
@@ -1867,10 +1893,11 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId)
             };
             check_slime_boss_split(state, target);
             if !still_alive {
-                apply_monster_death_hooks(state, target);
+                apply_monster_death_hooks(state, target)?;
             }
         }
     }
+    Ok(())
 }
 
 fn exhausted_card_content_id(state: &CombatState, card_id: CardId) -> Option<ContentId> {
@@ -1882,19 +1909,21 @@ fn exhausted_card_content_id(state: &CombatState, card_id: CardId) -> Option<Con
         .map(|card| card.content_id)
 }
 
-pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) {
+pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) -> SimResult<()> {
     if state.player.cannot_draw {
-        return;
+        return Ok(());
     }
-    crate::combat::draw::draw_cards_with_combat_rng(state, count);
+    crate::combat::draw::draw_cards_with_combat_rng(state, count)
 }
 
-pub(crate) fn player_shuffle_discard_into_draw(state: &mut CombatState) {
-    crate::combat::draw::shuffle_discard_into_draw_with_combat_rng(state);
+pub(crate) fn player_shuffle_discard_into_draw(state: &mut CombatState) -> SimResult<()> {
+    crate::combat::draw::shuffle_discard_into_draw_with_combat_rng(state)
 }
 
-pub(crate) fn player_deep_breath_shuffle_discard_into_draw(state: &mut CombatState) {
-    crate::combat::draw::deep_breath_shuffle_discard_into_draw_with_combat_rng(state);
+pub(crate) fn player_deep_breath_shuffle_discard_into_draw(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    crate::combat::draw::deep_breath_shuffle_discard_into_draw_with_combat_rng(state)
 }
 
 fn hand_contains_attack(state: &CombatState) -> bool {
@@ -1953,10 +1982,11 @@ fn draw_random_attacks_from_draw_pile(state: &mut CombatState, count: usize) {
     }
 }
 
-fn apply_unceasing_top_after_hand_emptied(state: &mut CombatState) {
+fn apply_unceasing_top_after_hand_emptied(state: &mut CombatState) -> SimResult<()> {
     if state.relics.contains(&Relic::UnceasingTop) {
-        player_draw_cards(state, crate::relic::UNCEASING_TOP_DRAW);
+        player_draw_cards(state, crate::relic::UNCEASING_TOP_DRAW)?;
     }
+    Ok(())
 }
 
 fn add_card_to_pile(state: &mut CombatState, content_id: ContentId, to: CardPile) -> SimResult<()> {
@@ -2089,10 +2119,11 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) -> Si
     Ok(())
 }
 
-fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) {
+fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) -> SimResult<()> {
     if card_type == CardType::Attack && state.player.temp_rage_block > 0 {
-        apply_player_direct_block_gain(state, state.player.temp_rage_block);
+        apply_player_direct_block_gain(state, state.player.temp_rage_block)?;
     }
+    Ok(())
 }
 
 fn set_random_hand_card_cost_for_combat(state: &mut CombatState, amount: u8) {
@@ -2181,7 +2212,7 @@ fn apply_play_top_draw_card(
         if state.piles.discard_pile.is_empty() {
             return Ok(Vec::new());
         }
-        player_shuffle_discard_into_draw(state);
+        player_shuffle_discard_into_draw(state)?;
     }
 
     let card = state
@@ -2530,7 +2561,7 @@ fn move_delayed_played_source_with_strange_spoon(
     let destination = delayed_source_card_destination(state, definition);
     move_card(state, source_card_id, CardPile::Hand, destination)?;
     if destination == CardPile::ExhaustPile {
-        apply_on_exhaust_effects(state, source_card_id);
+        apply_on_exhaust_effects(state, source_card_id)?;
     }
     Ok(())
 }
@@ -2561,7 +2592,7 @@ pub fn close_discovery_source_card(
     match destination {
         CardPile::ExhaustPile => {
             state.piles.exhaust_pile.push(source);
-            apply_on_exhaust_effects(state, source_card_id);
+            apply_on_exhaust_effects(state, source_card_id)?;
         }
         CardPile::DiscardPile => state.piles.discard_pile.push(source),
         CardPile::Hand => state.piles.hand.push(source),
@@ -2911,7 +2942,7 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
     } else if let Some(source_card_id) = discard_select.source_card_id {
         move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
     }
-    flush_pending_monster_death_relics_if_ready(state);
+    flush_pending_monster_death_relics_if_ready(state)?;
     state.activate_next_queued_decision_if_idle();
     Ok(())
 }
@@ -3077,7 +3108,7 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
             for card in exhausted {
                 let card_id = card.id;
                 state.piles.exhaust_pile.push(card);
-                apply_on_exhaust_effects(state, card_id);
+                apply_on_exhaust_effects(state, card_id)?;
             }
         }
     }
@@ -3110,7 +3141,7 @@ fn confirm_true_grit_select(
         .ok_or(SimError::UnknownCard(target_card_id))?;
     let target_card = state.piles.hand.remove(target_position);
     state.piles.exhaust_pile.push(target_card);
-    apply_on_exhaust_effects(state, target_card_id);
+    apply_on_exhaust_effects(state, target_card_id)?;
 
     if let Some(source_card_id) = source_card_id {
         if let Some(source_position) = state
@@ -3161,8 +3192,8 @@ fn confirm_burning_pact_select(
     }
     state.piles.hand.remove(index);
     state.piles.exhaust_pile.push(card);
-    apply_on_exhaust_effects(state, card.id);
-    player_draw_cards(state, draw_count);
+    apply_on_exhaust_effects(state, card.id)?;
+    player_draw_cards(state, draw_count)?;
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.discard_pile.push(source_card);
     } else {
@@ -3213,14 +3244,14 @@ fn confirm_purity_select(
     }
     for card in exhausted {
         state.piles.exhaust_pile.push(card);
-        apply_on_exhaust_effects(state, card.id);
+        apply_on_exhaust_effects(state, card.id)?;
     }
     if let Some(source_card) = exhaust_select.source_card {
         let source_destination = purity_source_destination(state);
         let source_card_id = source_card.id;
         push_card_to_pile(state, source_card, source_destination);
         if source_destination == CardPile::ExhaustPile {
-            apply_on_exhaust_effects(state, source_card_id);
+            apply_on_exhaust_effects(state, source_card_id)?;
         }
     } else if state
         .piles
@@ -3231,7 +3262,7 @@ fn confirm_purity_select(
         let source_destination = purity_source_destination(state);
         move_card(state, source_card_id, CardPile::Hand, source_destination)?;
         if source_destination == CardPile::ExhaustPile {
-            apply_on_exhaust_effects(state, source_card_id);
+            apply_on_exhaust_effects(state, source_card_id)?;
         }
     }
     Ok(())
@@ -3326,7 +3357,7 @@ fn confirm_exhume_select(
     state.piles.hand.push(card);
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.exhaust_pile.push(source_card);
-        apply_on_exhaust_effects(state, source_card_id);
+        apply_on_exhaust_effects(state, source_card_id)?;
     } else {
         let source_is_already_exhausted = state
             .piles
@@ -3335,7 +3366,7 @@ fn confirm_exhume_select(
             .any(|card| card.id == source_card_id);
         if !source_is_already_exhausted {
             move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
-            apply_on_exhaust_effects(state, source_card_id);
+            apply_on_exhaust_effects(state, source_card_id)?;
         }
     }
     Ok(())
@@ -3361,7 +3392,7 @@ fn confirm_gambling_chip_select(
         state.piles.hand.remove(index);
     }
     state.piles.discard_pile.extend(discarded);
-    player_draw_cards(state, count);
+    player_draw_cards(state, count)?;
     Ok(())
 }
 
@@ -3803,9 +3834,86 @@ mod tests {
                 },
             ),
             Err(SimError::InvalidState(
-                "combat player block or energy is negative"
+                "combat integer addition overflows i32"
             ))
         );
+    }
+
+    #[test]
+    fn juggernaut_death_hook_failure_propagates_to_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = i32::MAX;
+        state.player.temp_rage_block = 1;
+        state.player.powers.juggernaut = 1;
+        state.relics.push(Relic::GremlinHorn);
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, MonsterId::new(1)),
+            monster_state(&FUNGI_BEAST_A0, MonsterId::new(2)),
+        ];
+        for monster in &mut state.monsters {
+            monster.hp = 1;
+        }
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), ANGER_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: Some(MonsterId::new(1)),
+                },
+            ),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+    }
+
+    #[test]
+    fn immediate_death_hook_failure_rolls_back_spore_cloud_and_relics() {
+        let fungi_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = i32::MAX;
+        state.relics.push(Relic::GremlinHorn);
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, fungi_id),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].alive = false;
+        state.monsters[0].hp = 0;
+        let before = state.clone();
+
+        assert_eq!(
+            apply_monster_death_hooks(&mut state, fungi_id),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+    }
+
+    #[test]
+    fn draw_failure_rolls_back_card_rng_fire_breathing_and_death_hooks() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = i32::MAX;
+        state.player.powers.fire_breathing = 1;
+        state.relics.push(Relic::GremlinHorn);
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, MonsterId::new(1)),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 1;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(1), BURN_ID)];
+        let before = state.clone();
+
+        assert_eq!(
+            player_draw_cards(&mut state, 1),
+            Err(SimError::InvalidState(
+                "combat integer addition overflows i32"
+            ))
+        );
+        assert_eq!(state, before);
     }
 
     #[test]
@@ -4004,7 +4112,7 @@ mod tests {
         ];
         state.monsters[0].alive = false;
 
-        apply_monster_death_hooks(&mut state, fungi_id);
+        apply_monster_death_hooks(&mut state, fungi_id).expect("death hooks resolve");
 
         assert_eq!(state.player.powers.vulnerable, 2);
 
@@ -4013,7 +4121,8 @@ mod tests {
         ending_state.monsters = vec![monster_state(&FUNGI_BEAST_A0, last_fungi_id)];
         ending_state.monsters[0].alive = false;
 
-        apply_monster_death_hooks(&mut ending_state, last_fungi_id);
+        apply_monster_death_hooks(&mut ending_state, last_fungi_id)
+            .expect("ending death hooks resolve");
 
         assert_eq!(ending_state.player.powers.vulnerable, 0);
     }

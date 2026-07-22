@@ -336,7 +336,7 @@ pub fn apply_discard_select_choice(run: &RunState, index: usize) -> SimResult<Ru
                 .is_some_and(|select| select.max_choices == 1))
     {
         confirm_discard_select(combat)?;
-        flush_pending_player_spikes_damage_if_ready(combat);
+        flush_pending_player_spikes_damage_if_ready(combat)?;
     }
     Ok(next)
 }
@@ -346,7 +346,7 @@ pub fn apply_discard_select_confirm(run: &RunState) -> SimResult<RunState> {
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
     confirm_discard_select(combat)?;
-    flush_pending_player_spikes_damage_if_ready(combat);
+    flush_pending_player_spikes_damage_if_ready(combat)?;
     Ok(next)
 }
 
@@ -636,7 +636,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         !monster.alive
                     };
                     if killed {
-                        apply_monster_death_hooks(combat, target);
+                        apply_monster_death_hooks(combat, target)?;
                     }
                     if combat.monsters.iter().all(|monster| !monster.alive) {
                         combat.phase = CombatPhase::Won;
@@ -745,7 +745,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                             !monster.alive
                         };
                         if killed {
-                            apply_monster_death_hooks(combat, target);
+                            apply_monster_death_hooks(combat, target)?;
                         }
                     }
                     if combat.monsters.iter().all(|monster| !monster.alive) {
@@ -801,12 +801,12 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::Swift => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    player_draw_cards(combat, SWIFT_POTION_DRAW * multiplier as usize);
+                    player_draw_cards(combat, SWIFT_POTION_DRAW * multiplier as usize)?;
                 }
                 Potion::SneckoOil => {
                     let mut rng = next.card_random_rng();
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    player_draw_cards(combat, SNECKO_OIL_DRAW * multiplier as usize);
+                    player_draw_cards(combat, SNECKO_OIL_DRAW * multiplier as usize)?;
                     randomize_playable_hand_costs_for_snecko_oil(combat, &mut rng);
                     next.card_random_rng_counter = rng.counter();
                 }
@@ -857,7 +857,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         if combat.piles.draw_pile.is_empty()
                             && !combat.piles.discard_pile.is_empty()
                         {
-                            player_shuffle_discard_into_draw(&mut combat);
+                            player_shuffle_discard_into_draw(&mut combat)?;
                         }
                         let Some(card) = combat.piles.draw_pile.pop() else {
                             break;
