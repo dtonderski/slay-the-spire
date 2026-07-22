@@ -798,6 +798,12 @@ fn execute_spawning_or_targeted_special_intent(
         }
         crate::MonsterIntent::SummonGremlins { count } => {
             let summoner_id = state.monsters[index].id;
+            let max_existing_monster_id = state
+                .monsters
+                .iter()
+                .map(|monster| monster.id.get())
+                .max()
+                .unwrap_or(0);
             if state.monsters[index].content_id == BRONZE_AUTOMATON_ID {
                 apply_bronze_automaton_orb_spawn(
                     &mut state.monsters,
@@ -860,6 +866,7 @@ fn execute_spawning_or_targeted_special_intent(
                     "summon intent is incompatible with monster content",
                 ));
             }
+            apply_spawn_relic_effects(&mut state.monsters, max_existing_monster_id, &state.relics)?;
             let mut summoner_alive = false;
             if let Some(monster) = state
                 .monsters
@@ -876,6 +883,12 @@ fn execute_spawning_or_targeted_special_intent(
         }
         crate::MonsterIntent::SummonCollectorTorchHeads { count } => {
             let summoner_id = state.monsters[index].id;
+            let max_existing_monster_id = state
+                .monsters
+                .iter()
+                .map(|monster| monster.id.get())
+                .max()
+                .unwrap_or(0);
             apply_collector_spawn_torch_heads(
                 &mut state.monsters,
                 count,
@@ -883,6 +896,7 @@ fn execute_spawning_or_targeted_special_intent(
                 &mut state.rng.monster_hp_rng,
                 ascension,
             )?;
+            apply_spawn_relic_effects(&mut state.monsters, max_existing_monster_id, &state.relics)?;
             if let Some(monster) = state
                 .monsters
                 .iter_mut()
@@ -949,6 +963,26 @@ fn execute_spawning_or_targeted_special_intent(
         }
         _ => Ok(false),
     }
+}
+
+fn apply_spawn_relic_effects(
+    monsters: &mut [crate::MonsterState],
+    max_existing_monster_id: u64,
+    relics: &[crate::Relic],
+) -> SimResult<()> {
+    if !relics.contains(&crate::Relic::PhilosophersStone) {
+        return Ok(());
+    }
+    for monster in monsters
+        .iter_mut()
+        .filter(|monster| monster.alive && monster.id.get() > max_existing_monster_id)
+    {
+        monster.powers.strength = checked_turn_add(
+            monster.powers.strength,
+            crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH,
+        )?;
+    }
+    Ok(())
 }
 
 fn finish_monster_turn_cleanup(
@@ -1886,12 +1920,13 @@ mod tests {
         target_gremlin_wizard_direct_next_intent_after_turn,
         target_looter_direct_next_intent_after_turn, target_nemesis_next_intent_from_roll,
         target_spheric_guardian_next_intent_from_roll, target_spire_growth_next_intent_from_roll,
-        transient_attack_damage, BOOK_OF_STABBING_A0, BRONZE_AUTOMATON_A0, BRONZE_ORB_A0, BYRD_A0,
-        CENTURION_A0, DAGGER_A0, DAGGER_ID, DARKLING_A0, EXPLODER_A0, GIANT_HEAD_A0, GIANT_HEAD_ID,
-        GREMLIN_NOB_A0, GREMLIN_THIEF_A0, GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0,
-        GREMLIN_WIZARD_A0, HEALER_A0, HEXAGHOST_A0, LAGAVULIN_A0, LOOTER_A0, LOOTER_ID, MAW_A0,
-        MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0, SPHERIC_GUARDIAN_A0,
-        SPHERIC_GUARDIAN_ID, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TRANSIENT_A0,
+        transient_attack_damage, ACID_SLIME_A0, BOOK_OF_STABBING_A0, BRONZE_AUTOMATON_A0,
+        BRONZE_ORB_A0, BYRD_A0, CENTURION_A0, DAGGER_A0, DAGGER_ID, DARKLING_A0, EXPLODER_A0,
+        GIANT_HEAD_A0, GIANT_HEAD_ID, GREMLIN_NOB_A0, GREMLIN_THIEF_A0, GREMLIN_TSUNDERE_A0,
+        GREMLIN_WARRIOR_A0, GREMLIN_WIZARD_A0, HEALER_A0, HEXAGHOST_A0, LAGAVULIN_A0, LOOTER_A0,
+        LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
+        SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID, SPIKE_SLIME_A0, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID,
+        TRANSIENT_A0,
     };
     use crate::{CardId, CardInstance, Relic};
 
@@ -3115,6 +3150,35 @@ mod tests {
         );
         assert_eq!(state.monsters[0].moves_executed, 1);
         assert_eq!(state.rng.monster_rng.counter(), expected_rng.counter());
+    }
+
+    #[test]
+    fn philosophers_stone_strength_applies_to_split_slimes_on_spawn() {
+        for definition in [&ACID_SLIME_A0, &SPIKE_SLIME_A0] {
+            let actor_id = MonsterId::new(1);
+            let mut state = CombatState::initial_fixture();
+            state.monsters = vec![monster_state_for_ascension(
+                definition,
+                actor_id,
+                state.ascension,
+            )];
+            state.monsters[0].hp = 20;
+            state.monsters[0].max_hp = 70;
+            state.monsters[0].slime_size = Some(SlimeSize::Large);
+            state.monsters[0].powers.strength = 1;
+            state.monsters[0].intent = crate::MonsterIntent::SummonGremlins { count: 2 };
+            state.relics.push(Relic::PhilosophersStone);
+
+            run_monster_turn(&mut state).expect("supported slime split");
+
+            let children = state
+                .monsters
+                .iter()
+                .filter(|monster| monster.alive && monster.id != actor_id)
+                .collect::<Vec<_>>();
+            assert_eq!(children.len(), 2);
+            assert!(children.iter().all(|monster| monster.powers.strength == 1));
+        }
     }
 
     #[test]
