@@ -159,6 +159,100 @@ fn seed_start_handle_bootstrap_phase(
     SeedStartPreDispatch::NotHandled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_neow_transform_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    deck_ids: &mut Vec<String>,
+    neow_leave_visible_deck_ids: &mut Option<Vec<String>>,
+    seed_sim: Option<&RunState>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase == SeedStartPhase::NeowOptions
+        && seed_start_selected_neow_option(start.numeric_seed, &action.command)
+            .is_some_and(|option| option.reward == NeowRewardType::TransformCard)
+    {
+        compare_subset(
+            report,
+            action,
+            "Neow transform grid",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "GRID",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
+                "choices": ["strike", "strike", "strike", "strike", "strike", "defend", "defend", "defend", "defend", "bash"],
+            }),
+        );
+        *phase = SeedStartPhase::NeowTransformGrid;
+        return SeedStartPreDispatch::Handled;
+    }
+    if *phase == SeedStartPhase::NeowTransformGrid && action.command.eq_ignore_ascii_case("PROCEED")
+    {
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: "captured trace sent PROCEED while Neow transform grid only accepted choose; classified as a trace-client command hiccup".to_owned(),
+        });
+        return SeedStartPreDispatch::Handled;
+    }
+    if *phase == SeedStartPhase::NeowTransformGrid && command_is_choose(&action.command, 0) {
+        compare_subset(
+            report,
+            action,
+            "Neow transform Strike select",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "GRID",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
+                "choices": [],
+            }),
+        );
+        *phase = SeedStartPhase::NeowTransformConfirm;
+        return SeedStartPreDispatch::Handled;
+    }
+    if *phase == SeedStartPhase::NeowTransformConfirm
+        && action.command.eq_ignore_ascii_case("CONFIRM")
+    {
+        let visible_deck_after_transform = ironclad_deck_after_transform_selection_keys();
+        compare_subset(
+            report,
+            action,
+            "Neow transform confirm",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": visible_deck_after_transform,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
+                "choices": ["leave"],
+            }),
+        );
+        *deck_ids = seed_start_deck_after_transform(start.numeric_seed);
+        *neow_leave_visible_deck_ids = Some(visible_deck_after_transform);
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+    SeedStartPreDispatch::NotHandled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -717,6 +811,20 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_neow_transform_phase(
+            action,
+            post,
+            start,
+            &mut deck_ids,
+            &mut neow_leave_visible_deck_ids,
+            seed_sim.as_ref(),
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
@@ -806,81 +914,6 @@ pub(super) fn verify_seed_start_transitions(
                         "choices": ["leave"],
                     }),
                 );
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(|option| option.reward == NeowRewardType::TransformCard) =>
-            {
-                compare_subset(
-                    report,
-                    action,
-                    "Neow transform grid",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "GRID",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["strike", "strike", "strike", "strike", "strike", "defend", "defend", "defend", "defend", "bash"],
-                    }),
-                );
-                phase = SeedStartPhase::NeowTransformGrid;
-            }
-            SeedStartPhase::NeowTransformGrid if action.command.eq_ignore_ascii_case("PROCEED") => {
-                report.unsupported.push(UnsupportedTransition {
-                    action_step: action.step,
-                    command: action.command.clone(),
-                    reason: "captured trace sent PROCEED while Neow transform grid only accepted choose; classified as a trace-client command hiccup".to_owned(),
-                });
-            }
-            SeedStartPhase::NeowTransformGrid if command_is_choose(&action.command, 0) => {
-                compare_subset(
-                    report,
-                    action,
-                    "Neow transform Strike select",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "GRID",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": [],
-                    }),
-                );
-                phase = SeedStartPhase::NeowTransformConfirm;
-            }
-            SeedStartPhase::NeowTransformConfirm
-                if action.command.eq_ignore_ascii_case("CONFIRM") =>
-            {
-                let visible_deck_after_transform = ironclad_deck_after_transform_selection_keys();
-                compare_subset(
-                    report,
-                    action,
-                    "Neow transform confirm",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": visible_deck_after_transform,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                deck_ids = seed_start_deck_after_transform(start.numeric_seed);
-                neow_leave_visible_deck_ids = Some(visible_deck_after_transform);
                 phase = SeedStartPhase::NeowLeave;
             }
             SeedStartPhase::NeowOptions
