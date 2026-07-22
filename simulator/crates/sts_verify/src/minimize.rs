@@ -224,7 +224,7 @@ mod tests {
             "Defend_R", "Defend_R", "Bash",
         ]
         .into_iter()
-        .map(|id| serde_json::json!({ "id": id }))
+        .map(|id| serde_json::json!({ "id": id, "upgrades": 0 }))
         .collect::<Vec<_>>();
         let lines = [
             serde_json::json!({

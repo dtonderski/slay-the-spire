@@ -73,6 +73,27 @@ pub(crate) fn add_cards_to_discard(
     Ok(())
 }
 
+pub(crate) fn add_upgraded_burns_to_discard(
+    piles: &mut CardPiles,
+    count: i32,
+    allocated_card_id_through: u64,
+) -> SimResult<()> {
+    let (count, generated_ids) =
+        validate_card_generation(piles, BURN_ID, count, allocated_card_id_through)?;
+    piles
+        .discard_pile
+        .try_reserve(count)
+        .map_err(|_| SimError::InvalidState("generated upgraded Burns cannot be allocated"))?;
+    if let Some((first_id, last_id)) = generated_ids {
+        for id in first_id..=last_id {
+            let mut burn = CardInstance::new(CardId::new(id), BURN_ID);
+            burn.upgrades = 1;
+            piles.discard_pile.push(burn);
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn add_cards_to_draw_random_spot(
     piles: &mut CardPiles,
     content_id: ContentId,

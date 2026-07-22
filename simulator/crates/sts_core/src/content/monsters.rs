@@ -3927,6 +3927,7 @@ pub fn monster_state_for_ascension(
         gremlin_leader_slot: None,
         stasis_card: None,
         initial_intent_locked: false,
+        burns_upgraded: false,
         intent: prepare_monster_intent_for_monster(
             definition,
             0,

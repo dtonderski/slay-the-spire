@@ -11,7 +11,7 @@ use crate::{
         },
         hand::{discard_end_of_turn_hand, resolve_end_of_turn_hand},
         piles::{
-            add_cards_to_discard, add_cards_to_draw_random_spot,
+            add_cards_to_discard, add_cards_to_draw_random_spot, add_upgraded_burns_to_discard,
             upgrade_burns_and_add_upgraded_to_discard,
         },
     },
@@ -573,6 +573,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     0,
                     0,
                     0,
+                    false,
                     0,
                 )?;
                 record_target_move(&mut state.monsters[index]);
@@ -743,6 +744,9 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             crate::MonsterIntent::AddBurnToDiscard { count, .. } => count,
             _ => 0,
         };
+        let deferred_burn_is_upgraded = deferred_burn_to_discard > 0
+            && state.monsters[index].content_id == HEXAGHOST_ID
+            && state.monsters[index].burns_upgraded;
         let deferred_upgrade_burns = match intent {
             crate::MonsterIntent::AttackMultipleUpgradeBurns { count, .. } => count,
             _ => 0,
@@ -819,8 +823,15 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 burn_to_discard_and_draw,
                 weak,
                 deferred_burn_to_discard,
+                deferred_burn_is_upgraded,
                 deferred_upgrade_burns,
             )?;
+        }
+        if state.player.hp > 0
+            && deferred_upgrade_burns > 0
+            && state.monsters[index].content_id == HEXAGHOST_ID
+        {
+            state.monsters[index].burns_upgraded = true;
         }
         if state.player.hp > 0 {
             if let crate::MonsterIntent::AttackAddSlimedToDiscard { count, .. } = intent {
@@ -993,6 +1004,7 @@ fn apply_monster_pending_effects(
     burn_to_discard_and_draw: i32,
     weak: i32,
     burn_to_discard: i32,
+    burn_to_discard_upgraded: bool,
     upgrade_burns: i32,
 ) -> SimResult<()> {
     let mut total_hp_damage = 0;
@@ -1036,12 +1048,20 @@ fn apply_monster_pending_effects(
     }
     if burn_to_discard > 0 {
         let allocated_card_id_through = state.max_authoritative_card_instance_id();
-        add_cards_to_discard(
-            &mut state.piles,
-            BURN_ID,
-            burn_to_discard,
-            allocated_card_id_through,
-        )?;
+        if burn_to_discard_upgraded {
+            add_upgraded_burns_to_discard(
+                &mut state.piles,
+                burn_to_discard,
+                allocated_card_id_through,
+            )?;
+        } else {
+            add_cards_to_discard(
+                &mut state.piles,
+                BURN_ID,
+                burn_to_discard,
+                allocated_card_id_through,
+            )?;
+        }
     }
     if upgrade_burns > 0 {
         let allocated_card_id_through = state.max_authoritative_card_instance_id();
@@ -1866,7 +1886,7 @@ mod tests {
         let before = state.clone();
 
         assert_eq!(
-            apply_monster_pending_effects(&mut state, 0, 1, 0, None, 0, 0, 1, 0, 0),
+            apply_monster_pending_effects(&mut state, 0, 1, 0, None, 0, 0, 1, 0, false, 0),
             Err(SimError::InvalidState(
                 "player Weak application overflows i32"
             ))
@@ -2038,6 +2058,7 @@ mod tests {
         assert_eq!(state.piles.draw_pile.len(), 1);
         assert_eq!(state.piles.discard_pile[0].upgrades, 0);
         assert_eq!(state.piles.draw_pile[0].upgrades, 0);
+        assert!(!state.monsters[0].burns_upgraded);
     }
 
     #[test]
@@ -2070,6 +2091,20 @@ mod tests {
             .iter()
             .chain(state.piles.draw_pile.iter())
             .all(|card| card.content_id == BURN_ID && card.upgrades == 1));
+        assert!(state.monsters[0].burns_upgraded);
+
+        let previous_discard_len = state.piles.discard_pile.len();
+        state.monsters[0].intent = crate::MonsterIntent::AddBurnToDiscard {
+            damage: 6,
+            count: 1,
+        };
+        run_monster_turn(&mut state).expect("post-Inferno Sear is supported");
+
+        assert_eq!(state.piles.discard_pile.len(), previous_discard_len + 1);
+        assert_eq!(
+            state.piles.discard_pile.last().map(|card| card.upgrades),
+            Some(1)
+        );
     }
 
     #[test]

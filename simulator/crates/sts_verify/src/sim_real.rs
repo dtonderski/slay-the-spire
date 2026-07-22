@@ -6346,9 +6346,9 @@ fn combat_card_ids(value: Option<&Value>) -> Vec<String> {
     };
     cards
         .iter()
-        .filter_map(|card| {
-            content_id_from_card_value(card)
-                .map(|content_id| deck_content_key(content_id).to_owned())
+        .map(|card| {
+            observed_card_projection_key(card)
+                .expect("trace combat card schema was validated before projection")
         })
         .collect()
 }
@@ -6358,8 +6358,23 @@ fn cards_to_comm_mod_visible_order<'a>(
 ) -> Vec<String> {
     cards
         .into_iter()
-        .map(|card| deck_content_key(card.content_id).to_owned())
+        .map(simulated_card_projection_key)
         .collect()
+}
+
+fn simulated_card_projection_key(card: &CardInstance) -> String {
+    let key = modeled_card_projection_key(card.content_id);
+    if card.searing_blow_upgrades > 1 {
+        return format!(
+            "{}+{}",
+            key.trim_end_matches('+'),
+            card.searing_blow_upgrades
+        );
+    }
+    if card.upgrades > 0 && !key.ends_with('+') {
+        return format!("{key}+");
+    }
+    key
 }
 
 #[cfg(test)]
@@ -8051,20 +8066,17 @@ fn card_reward_ids_from_value(value: Option<&Value>) -> Vec<Value> {
     };
     cards
         .iter()
-        .filter_map(|card| {
+        .map(|card| {
             if let Some(content_id) = content_id_from_card_value(card) {
-                return Some(json!(content_id.get()));
+                return json!(content_id.get());
             }
-            let upgrades = card.get("upgrades").and_then(Value::as_u64).unwrap_or(0);
-            let identity = if upgrades > 0 {
-                card.get("name").and_then(Value::as_str)
-            } else {
-                card.get("id").and_then(Value::as_str)
-            }?;
-            let identity = sts_core::run::reward::any_color_reward_card_key_from_identity(identity)
-                .map(normalize_card_identity)
-                .unwrap_or_else(|| identity.to_owned());
-            Some(json!(identity))
+            let identity = observed_display_card_identity(card)
+                .expect("trace card reward schema was validated before projection");
+            let identity =
+                sts_core::run::reward::any_color_reward_card_key_from_identity(&identity)
+                    .map(normalize_card_identity)
+                    .unwrap_or(identity);
+            json!(identity)
         })
         .collect()
 }
@@ -10810,28 +10822,68 @@ fn card_instances_from_array(value: Option<&Value>, base_id: u64) -> Vec<CardIns
         .filter_map(|(index, card)| {
             let content_id = content_id_from_card_value(card)?;
             let mut instance = CardInstance::new(CardId::new(base_id + index as u64), content_id);
-            instance.upgrades = card_upgrade_count(card);
+            instance.upgrades = card_upgrade_count(card)?;
             Some(instance)
         })
         .collect()
 }
 
-#[cfg(test)]
-fn card_upgrade_count(card: &Value) -> u8 {
+fn card_upgrade_count(card: &Value) -> Option<u8> {
     card.get("upgrades")
         .and_then(Value::as_u64)
         .and_then(|value| u8::try_from(value).ok())
-        .unwrap_or(0)
 }
 
 fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
     let id = card.get("id").and_then(Value::as_str)?;
-    let upgrades = card.get("upgrades").and_then(Value::as_u64).unwrap_or(0);
+    let upgrades = card_upgrade_count(card)?;
     let base = content_id_from_key(id)?;
-    if upgrades > 0 {
-        return upgrade_content_id(base).or(Some(base));
+    match upgrades {
+        0 => Some(base),
+        1 if card_content_id_is_upgraded(base) => Some(base),
+        1 => upgrade_content_id(base),
+        _ => None,
     }
-    Some(base)
+}
+
+fn card_content_id_is_upgraded(content_id: ContentId) -> bool {
+    sts_core::content::cards::ALL_CARDS
+        .iter()
+        .any(|definition| definition.upgrade == Some(content_id))
+}
+
+fn observed_card_projection_key(card: &Value) -> Option<String> {
+    content_id_from_card_value(card)
+        .map(modeled_card_projection_key)
+        .or_else(|| observed_display_card_identity(card))
+}
+
+fn modeled_card_projection_key(content_id: ContentId) -> String {
+    let key = deck_content_key(content_id);
+    if card_content_id_is_upgraded(content_id) && !key.ends_with('+') {
+        format!("{key}+")
+    } else {
+        key.to_owned()
+    }
+}
+
+fn observed_display_card_identity(card: &Value) -> Option<String> {
+    let id = card
+        .get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())?;
+    let upgrades = card_upgrade_count(card)?;
+    if upgrades == 0 {
+        return Some(id.to_owned());
+    }
+    if let Some(name) = card
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.trim().is_empty())
+    {
+        return Some(name.to_owned());
+    }
+    Some(format!("{id} [upgrades={upgrades}]"))
 }
 
 fn upgrade_content_id(base: ContentId) -> Option<ContentId> {
@@ -11272,18 +11324,15 @@ fn deck_keys_from_value(value: Option<&Value>) -> Vec<String> {
 
     cards
         .iter()
-        .filter_map(|card| {
-            content_id_from_card_value(card)
-                .map(|content_id| deck_content_key(content_id).to_owned())
-                .or_else(|| card.get("id").and_then(Value::as_str).map(str::to_owned))
+        .map(|card| {
+            observed_card_projection_key(card)
+                .expect("trace deck card schema was validated before projection")
         })
         .collect()
 }
 
 fn deck_content_keys(deck: &[CardInstance]) -> Vec<String> {
-    deck.iter()
-        .map(|card| deck_content_key(card.content_id).to_owned())
-        .collect()
+    deck.iter().map(simulated_card_projection_key).collect()
 }
 
 fn seed_start_deck_with_pending_neow_curse(deck: &[String], curse: &str) -> Vec<String> {
@@ -11559,6 +11608,26 @@ mod tests {
                 continue;
             };
             game.entry("potions").or_insert_with(|| json!([]));
+            if let Some(deck) = game.get_mut("deck").and_then(Value::as_array_mut) {
+                for card in deck {
+                    card.as_object_mut()
+                        .expect("test deck card is an object")
+                        .entry("upgrades")
+                        .or_insert_with(|| json!(0));
+                }
+            }
+            if let Some(combat) = game.get_mut("combat_state").and_then(Value::as_object_mut) {
+                for pile in ["hand", "draw_pile", "discard_pile"] {
+                    if let Some(cards) = combat.get_mut(pile).and_then(Value::as_array_mut) {
+                        for card in cards {
+                            card.as_object_mut()
+                                .expect("test combat card is an object")
+                                .entry("upgrades")
+                                .or_insert_with(|| json!(0));
+                        }
+                    }
+                }
+            }
             if let Some(act_boss) = &act_boss {
                 game.entry("act_boss").or_insert_with(|| json!(act_boss));
             }
@@ -11676,6 +11745,22 @@ mod tests {
             .map(|line| serde_json::to_string(&line).expect("trace line serializes"))
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    fn observed_deck_cards(cards: &[CardInstance]) -> Vec<Value> {
+        cards
+            .iter()
+            .map(|card| {
+                let upgrades = card
+                    .upgrades
+                    .max(card.searing_blow_upgrades)
+                    .max(u8::from(card_content_id_is_upgraded(card.content_id)));
+                json!({
+                    "id": deck_content_key(card.content_id),
+                    "upgrades": upgrades,
+                })
+            })
+            .collect()
     }
 
     fn forge_grid_observation(message: &mut Value) {
@@ -12293,7 +12378,7 @@ mod tests {
         run.combat = Some(combat);
         let projected = seed_start_simulated_combat_subset(&run, false, &[]);
 
-        assert_eq!(projected["hand_ids"], json!(["Pommel Strike", "Combust"]));
+        assert_eq!(projected["hand_ids"], json!(["Pommel Strike+", "Combust"]));
         assert_eq!(projected["screen_type"], json!("HAND_SELECT"));
     }
 
@@ -13128,7 +13213,7 @@ mod tests {
                 "gold": 99,
                 "current_hp": 80,
                 "max_hp": 80,
-                "deck": [{"id": "Strike_R"}],
+                "deck": [{"id": "Strike_R", "upgrades": 0}],
                 "relics": [],
                 "combat_state": {
                     "player": {
@@ -13229,9 +13314,18 @@ mod tests {
 {"type":"action","step":1,"command":"START IRONCLAD 0 VERIFY01"}
 {"type":"state","step":1,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"potions":[],"choice_list":["talk"],"screen_state":{"event_id":"Neow Event","options":[{"text":"talk"}]}}}}
 {"type":"action","step":2,"command":"CHOOSE nope"}
-{"type":"state","step":2,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"potions":[],"choice_list":["talk"],"screen_state":{"event_id":"Neow Event","options":[{"text":"talk"}]}}}}"#;
+{"type":"state","step":2,"message":{"game_state":{"screen_type":"EVENT","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Strike_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Defend_R"},{"id":"Bash"}],"relics":[{"name":"Burning Blood"}],"potions":[],"choice_list":["talk"],"screen_state":{"event_id":"Neow Event","options":[{"text":"talk"}]}}}}"#
+            .replace(
+                r#"{"id":"Strike_R"}"#,
+                r#"{"id":"Strike_R","upgrades":0}"#,
+            )
+            .replace(
+                r#"{"id":"Defend_R"}"#,
+                r#"{"id":"Defend_R","upgrades":0}"#,
+            )
+            .replace(r#"{"id":"Bash"}"#, r#"{"id":"Bash","upgrades":0}"#);
 
-        let error = verify_communication_mod_trace(content).expect_err("malformed trace rejected");
+        let error = verify_communication_mod_trace(&content).expect_err("malformed trace rejected");
         assert!(matches!(
             error,
             SimRealError::MalformedChooseCommand {
@@ -14222,7 +14316,7 @@ mod tests {
 
     #[test]
     fn dramatic_entrance_maps_from_observed_card_json() {
-        let card = json!({"id": "Dramatic Entrance", "name": "Dramatic Entrance"});
+        let card = json!({"id": "Dramatic Entrance", "name": "Dramatic Entrance", "upgrades": 0});
         assert_eq!(
             content_id_from_card_value(&card),
             Some(DRAMATIC_ENTRANCE_ID)
@@ -14242,7 +14336,7 @@ mod tests {
             ("Dark Shackles", DARK_SHACKLES_ID, "Dark Shackles"),
             ("Discovery", DISCOVERY_ID, "Discovery"),
         ] {
-            let card = json!({"id": id, "name": id});
+            let card = json!({"id": id, "name": id, "upgrades": 0});
 
             assert_eq!(content_id_from_card_value(&card), Some(expected));
             assert_eq!(content_key(expected), key);
@@ -14251,7 +14345,7 @@ mod tests {
 
     #[test]
     fn dropkick_maps_from_observed_card_json() {
-        let card = json!({"id": "Dropkick", "name": "Dropkick"});
+        let card = json!({"id": "Dropkick", "name": "Dropkick", "upgrades": 0});
 
         assert_eq!(content_id_from_card_value(&card), Some(DROPKICK_ID));
         assert_eq!(content_key(DROPKICK_ID), "Dropkick");
@@ -14259,7 +14353,7 @@ mod tests {
 
     #[test]
     fn burn_maps_from_observed_card_json() {
-        let card = json!({"id": "Burn", "name": "Burn"});
+        let card = json!({"id": "Burn", "name": "Burn", "upgrades": 0});
 
         assert_eq!(content_id_from_card_value(&card), Some(BURN_ID));
         assert_eq!(content_key(BURN_ID), "Burn");
@@ -14286,7 +14380,7 @@ mod tests {
             ("Rage", RAGE_ID, "Rage"),
             ("feelnopain", FEEL_NO_PAIN_ID, "Feel No Pain"),
         ] {
-            let card = json!({"id": id, "name": id});
+            let card = json!({"id": id, "name": id, "upgrades": 0});
 
             assert_eq!(content_id_from_card_value(&card), Some(expected));
             assert_eq!(content_key(expected), key);
@@ -14311,6 +14405,43 @@ mod tests {
                 json!("unknown-custom-card")
             ]
         );
+    }
+
+    #[test]
+    fn observed_combat_card_projection_preserves_unknown_identity() {
+        let cards = json!([
+            {"id": "Strike_R", "name": "Strike", "upgrades": 0},
+            {"id": "future-card", "name": "Future Card", "upgrades": 0}
+        ]);
+
+        assert_eq!(
+            combat_card_ids(Some(&cards)),
+            vec!["Strike_R".to_owned(), "future-card".to_owned()]
+        );
+    }
+
+    #[test]
+    fn observed_unmodeled_upgrade_retains_visible_upgrade_evidence() {
+        let named = json!({"id": "Burn", "name": "Burn+", "upgrades": 1});
+        assert_eq!(content_id_from_card_value(&named), None);
+        assert_eq!(
+            observed_card_projection_key(&named).as_deref(),
+            Some("Burn+")
+        );
+
+        let unnamed = json!({"id": "future-card", "upgrades": 2});
+        assert_eq!(
+            observed_card_projection_key(&unnamed).as_deref(),
+            Some("future-card [upgrades=2]")
+        );
+    }
+
+    #[test]
+    fn observed_card_mapping_does_not_default_missing_upgrades() {
+        let malformed = json!({"id": "Strike_R", "name": "Strike"});
+
+        assert_eq!(content_id_from_card_value(&malformed), None);
+        assert_eq!(observed_card_projection_key(&malformed), None);
     }
 
     #[test]
@@ -15573,6 +15704,32 @@ mod tests {
     }
 
     #[test]
+    fn visible_card_projection_preserves_modeled_and_instance_upgrades() {
+        use sts_core::content::cards::{BURN_ID, SEARING_BLOW_PLUS_ID, STRIKE_R_PLUS_ID};
+
+        let strike_plus = CardInstance::new(CardId::new(1), STRIKE_R_PLUS_ID);
+        assert_eq!(simulated_card_projection_key(&strike_plus), "Strike_R+");
+        assert_eq!(
+            observed_card_projection_key(
+                &json!({"id": "Strike_R", "name": "Strike+", "upgrades": 1})
+            )
+            .as_deref(),
+            Some("Strike_R+")
+        );
+
+        let mut burn_plus = CardInstance::new(CardId::new(2), BURN_ID);
+        burn_plus.upgrades = 1;
+        assert_eq!(simulated_card_projection_key(&burn_plus), "Burn+");
+
+        let mut searing_blow_plus_two = CardInstance::new(CardId::new(3), SEARING_BLOW_PLUS_ID);
+        searing_blow_plus_two.searing_blow_upgrades = 2;
+        assert_eq!(
+            simulated_card_projection_key(&searing_blow_plus_two),
+            "Searing Blow+2"
+        );
+    }
+
+    #[test]
     fn trace_relic_display_names_are_mapped() {
         for (key, name) in [
             (RelicKey::Akabeko, "Akabeko"),
@@ -15880,9 +16037,9 @@ mod tests {
                 "screen_type": "CARD_REWARD",
                 "screen_state": {
                     "cards": [
-                        {"id": "Strike_R"},
-                        {"id": "Defend_R"},
-                        {"id": "Bash"}
+                        {"id": "Strike_R", "upgrades": 0},
+                        {"id": "Defend_R", "upgrades": 0},
+                        {"id": "Bash", "upgrades": 0}
                     ]
                 }
             }
@@ -17870,8 +18027,16 @@ mod tests {
         assert_eq!(
             deck_content_keys(&run.deck),
             vec![
-                "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R",
-                "Defend_R", "Defend_R", "Bash",
+                "Strike_R+",
+                "Strike_R",
+                "Strike_R",
+                "Strike_R",
+                "Strike_R",
+                "Defend_R",
+                "Defend_R",
+                "Defend_R",
+                "Defend_R",
+                "Bash",
             ]
         );
     }
@@ -19204,7 +19369,7 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let tiny_house_deck = starting_deck.clone();
+        let tiny_house_deck = observed_deck_cards(&tiny_house_run.deck);
         let starting_relics = vec![json!({ "name": "Burning Blood" })];
         let tiny_house_relics: Vec<_> = seed_start_boss_swap_relic_ids(&tiny_house_run)
             .into_iter()
@@ -19359,7 +19524,7 @@ mod tests {
             .into_iter()
             .map(|id| json!({ "id": id }))
             .collect();
-        let tiny_house_deck = starting_deck.clone();
+        let tiny_house_deck = observed_deck_cards(&tiny_house_run.deck);
         let starting_relics = vec![json!({ "name": "Burning Blood" })];
         let tiny_house_relics: Vec<_> = seed_start_boss_swap_relic_ids(&tiny_house_run)
             .into_iter()

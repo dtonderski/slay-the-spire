@@ -325,6 +325,9 @@ pub struct MonsterState {
     pub stasis_card: Option<CardInstance>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub initial_intent_locked: bool,
+    /// A survived Hexaghost Inferno makes later Sear-generated Burns upgraded.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub burns_upgraded: bool,
     pub intent: MonsterIntent,
 }
 
@@ -902,6 +905,13 @@ impl CombatState {
                     "monster requires rolled attack damage",
                 ));
             }
+            if monster.burns_upgraded
+                && monster.content_id != crate::content::monsters::HEXAGHOST_ID
+            {
+                return Err(SimError::InvalidState(
+                    "non-Hexaghost monster carries upgraded Burn generation",
+                ));
+            }
             if matches!(monster.intent, MonsterIntent::PendingAiRoll) {
                 return Err(SimError::InvalidState(
                     "combat monster intent is pending AI roll",
@@ -1175,6 +1185,19 @@ mod tests {
             wrong_card.validate(),
             Err(SimError::InvalidState(
                 "non-Rampage card carries a Rampage damage bonus"
+            ))
+        );
+    }
+
+    #[test]
+    fn combat_validation_rejects_upgraded_burn_generation_on_non_hexaghost() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].burns_upgraded = true;
+
+        assert_eq!(
+            state.validate(),
+            Err(SimError::InvalidState(
+                "non-Hexaghost monster carries upgraded Burn generation"
             ))
         );
     }

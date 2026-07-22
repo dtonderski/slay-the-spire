@@ -285,7 +285,12 @@ fn validate_game_state_schema(step: u32, message: &Value) -> Result<(), serde_js
             )));
         }
     }
-    for field in ["deck", "relics", "potions"] {
+    validate_card_array(
+        step,
+        "game_state.deck",
+        game.get("deck").unwrap_or(&Value::Null),
+    )?;
+    for field in ["relics", "potions"] {
         let entries = game.get(field).and_then(Value::as_array).ok_or_else(|| {
             serde_json::Error::custom(format!(
                 "trace state at step {step} game_state.{field} must be an array"
@@ -354,7 +359,11 @@ fn validate_combat_card_array(
     pile: &str,
 ) -> Result<(), serde_json::Error> {
     let path = format!("game_state.combat_state.{pile}");
-    let cards = combat.get(pile).and_then(Value::as_array).ok_or_else(|| {
+    validate_card_array(step, &path, combat.get(pile).unwrap_or(&Value::Null))
+}
+
+fn validate_card_array(step: u32, path: &str, value: &Value) -> Result<(), serde_json::Error> {
+    let cards = value.as_array().ok_or_else(|| {
         serde_json::Error::custom(format!(
             "trace state at step {step} {path} must be an array"
         ))
@@ -374,16 +383,15 @@ fn validate_combat_card_array(
                 "trace state at step {step} {path} entries require a string id"
             )));
         }
-        if let Some(upgrades) = card.get("upgrades") {
-            let valid = upgrades
-                .as_u64()
-                .and_then(|upgrades| u8::try_from(upgrades).ok())
-                .is_some();
-            if !valid {
-                return Err(serde_json::Error::custom(format!(
-                    "trace state at step {step} {path} entry upgrades must be a non-negative u8"
-                )));
-            }
+        if card
+            .get("upgrades")
+            .and_then(Value::as_u64)
+            .and_then(|upgrades| u8::try_from(upgrades).ok())
+            .is_none()
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {path} entry upgrades must be a non-negative u8"
+            )));
         }
     }
     Ok(())
@@ -1312,7 +1320,7 @@ mod tests {
         let error = parse_trace_jsonl(content).expect_err("unnamed deck entry is invalid input");
         assert!(error
             .to_string()
-            .contains("trace state at step 8 game_state.deck entries must name an id or name"));
+            .contains("trace state at step 8 game_state.deck entries require a string id"));
     }
 
     #[test]
@@ -1362,6 +1370,26 @@ mod tests {
         let error = parse_trace_jsonl(content).expect_err("unprojectable combat card is invalid");
         assert!(error.to_string().contains(
             "trace state at step 13 game_state.combat_state.hand entries require a string id"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_deck_card_without_upgrade_authority() {
+        let content = r#"{"type":"state","step":37,"message":{"game_state":{"screen_type":"NONE","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[{"id":"Strike_R"}],"relics":[],"potions":[]}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing deck upgrades are invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 37 game_state.deck entry upgrades must be a non-negative u8"
+        ));
+    }
+
+    #[test]
+    fn parse_trace_rejects_combat_card_without_upgrade_authority() {
+        let content = r#"{"type":"state","step":38,"message":{"game_state":{"screen_type":"NONE","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"combat_state":{"hand":[{"id":"Strike_R"}],"draw_pile":[],"discard_pile":[],"player":{"current_hp":80,"block":0,"energy":3},"monsters":[]}}}}"#;
+
+        let error = parse_trace_jsonl(content).expect_err("missing combat upgrades are invalid");
+        assert!(error.to_string().contains(
+            "trace state at step 38 game_state.combat_state.hand entry upgrades must be a non-negative u8"
         ));
     }
 
