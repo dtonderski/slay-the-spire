@@ -364,6 +364,40 @@ fn smoke_bomb_trace_reconciles_queued_combat_command_at_stable_reward() {
 }
 
 #[test]
+fn smoke_bomb_trace_names_an_unreconciled_queued_command_endpoint() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-b51801b5fbe7f86b.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("unreconciled Smoke Bomb regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary,
+        SeedStartBoundary {
+            path: "$.actions[step=93].command".to_owned(),
+            category: "unreconciled_smoke_bomb_frame".to_owned(),
+            reason: "Smoke Bomb escape did not reach a captured stable reward frame".to_owned(),
+        }
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        2
+    );
+}
+
+#[test]
 fn recorded_action_input_drives_time_gated_run_state_without_gameplay_hydration() {
     let pre = TraceState {
         step: 10,

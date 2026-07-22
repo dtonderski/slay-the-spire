@@ -2826,6 +2826,7 @@ fn seed_start_handle_combat_phase(
                 *smoke_bomb_ui = Some(SmokeBombUiState::Escaping {
                     source: Box::new(source),
                     action: action.clone(),
+                    pending_commands: Vec::new(),
                     transient_matches,
                 });
                 return SeedStartPreDispatch::Handled;
@@ -4425,8 +4426,14 @@ pub(super) fn verify_seed_start_transitions(
             }
             if let Some(pending) = smoke_bomb_ui.as_ref() {
                 match pending {
-                    SmokeBombUiState::Escaping { action, .. } => {
+                    SmokeBombUiState::Escaping {
+                        action,
+                        pending_commands,
+                        ..
+                    } => {
                         unresolved_deferred_action_steps.push(action.step);
+                        unresolved_deferred_action_steps
+                            .extend(pending_commands.iter().map(|command| command.step));
                     }
                     SmokeBombUiState::Reward { pending_proceeds } => {
                         unresolved_deferred_action_steps
@@ -4684,6 +4691,31 @@ pub(super) fn verify_seed_start_transitions(
                 return finish_boundary!(boundary);
             }
         }
+        if !is_trace_observation_poll(action)
+            && screen_type(&post.message) == Some("NONE")
+            && post.message.pointer("/game_state/combat_state").is_some()
+        {
+            if let Some(SmokeBombUiState::Escaping {
+                source,
+                action: escape_action,
+                pending_commands,
+                transient_matches,
+            }) = smoke_bomb_ui.as_mut()
+            {
+                let destination = seed_sim
+                    .as_ref()
+                    .expect("Smoke Bomb escape keeps its core destination");
+                *transient_matches &= seed_start_compare_deferred_combat_subset(
+                    report,
+                    escape_action,
+                    "Smoke Bomb transient combat frame",
+                    seed_start_smoke_bomb_transient_observed_subset(&post.message),
+                    seed_start_smoke_bomb_transient_simulated_subset(source, destination),
+                );
+                pending_commands.push(action.clone());
+                continue;
+            }
+        }
         if matches!(smoke_bomb_ui, Some(SmokeBombUiState::Escaping { .. }))
             && !is_trace_observation_poll(action)
             && screen_type(&post.message) == Some("COMBAT_REWARD")
@@ -4696,6 +4728,7 @@ pub(super) fn verify_seed_start_transitions(
                 .expect("Smoke Bomb escape state checked above");
             let SmokeBombUiState::Escaping {
                 action: escape_action,
+                pending_commands,
                 transient_matches,
                 ..
             } = pending
@@ -4716,6 +4749,14 @@ pub(super) fn verify_seed_start_transitions(
                     label: "Smoke Bomb escape reconciled at empty reward".to_owned(),
                 });
                 reconciled_deferred_action_steps.push(escape_action.step);
+                for pending_command in pending_commands {
+                    report.verified.push(VerifiedTransition {
+                        action_step: pending_command.step,
+                        command: pending_command.command,
+                        label: "Smoke Bomb queued combat command reconciled at reward".to_owned(),
+                    });
+                    reconciled_deferred_action_steps.push(pending_command.step);
+                }
             }
             report.verified.push(VerifiedTransition {
                 action_step: action.step,
@@ -4822,6 +4863,7 @@ pub(super) fn verify_seed_start_transitions(
             if let Some(SmokeBombUiState::Escaping {
                 source,
                 action: escape_action,
+                pending_commands,
                 transient_matches,
             }) = smoke_bomb_ui.as_mut()
             {
@@ -4863,6 +4905,15 @@ pub(super) fn verify_seed_start_transitions(
                             label: "Smoke Bomb escape reconciled at empty reward".to_owned(),
                         });
                         reconciled_deferred_action_steps.push(escape_action.step);
+                        for pending_command in pending_commands.iter() {
+                            report.verified.push(VerifiedTransition {
+                                action_step: pending_command.step,
+                                command: pending_command.command.clone(),
+                                label: "Smoke Bomb queued combat command reconciled at reward"
+                                    .to_owned(),
+                            });
+                            reconciled_deferred_action_steps.push(pending_command.step);
+                        }
                     }
                     report.verified.push(VerifiedTransition {
                         action_step: action.step,
@@ -5277,9 +5328,25 @@ pub(super) fn verify_seed_start_transitions(
         }
     }
 
-    finish_boundary!(SeedStartBoundary {
-        path: "$.actions[verified]".to_owned(),
-        category: "none".to_owned(),
-        reason: "seed-start verifier checked every verifiable transition in the trace".to_owned(),
-    })
+    let boundary = if let Some(SmokeBombUiState::Escaping {
+        action,
+        pending_commands,
+        ..
+    }) = smoke_bomb_ui.as_ref()
+    {
+        let endpoint = pending_commands.last().unwrap_or(action);
+        SeedStartBoundary {
+            path: format!("$.actions[step={}].command", endpoint.step),
+            category: "unreconciled_smoke_bomb_frame".to_owned(),
+            reason: "Smoke Bomb escape did not reach a captured stable reward frame".to_owned(),
+        }
+    } else {
+        SeedStartBoundary {
+            path: "$.actions[verified]".to_owned(),
+            category: "none".to_owned(),
+            reason: "seed-start verifier checked every verifiable transition in the trace"
+                .to_owned(),
+        }
+    };
+    finish_boundary!(boundary)
 }

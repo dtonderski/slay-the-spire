@@ -1061,6 +1061,7 @@ enum SmokeBombUiState {
     Escaping {
         source: Box<RunState>,
         action: TraceAction,
+        pending_commands: Vec<TraceAction>,
         transient_matches: bool,
     },
     Reward {
