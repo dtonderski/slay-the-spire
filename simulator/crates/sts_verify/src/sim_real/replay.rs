@@ -253,6 +253,85 @@ fn seed_start_handle_neow_transform_phase(
     SeedStartPreDispatch::NotHandled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_neow_immediate_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    deck_ids: &[String],
+    neow_gold: &mut i32,
+    neow_current_hp: &mut i32,
+    neow_max_hp: &mut i32,
+    seed_sim: &mut Option<RunState>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::NeowOptions {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    let Some(option) = seed_start_selected_neow_option(start.numeric_seed, &action.command) else {
+        return SeedStartPreDispatch::NotHandled;
+    };
+
+    if let Some((gold, current_hp, max_hp)) = seed_start_apply_neow_simple_option(option.clone()) {
+        *neow_gold = gold;
+        *neow_current_hp = current_hp;
+        *neow_max_hp = max_hp;
+        compare_subset(
+            report,
+            action,
+            "Neow simple immediate reward",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": gold,
+                "current_hp": current_hp,
+                "max_hp": max_hp,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            }),
+        );
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if option.reward == NeowRewardType::ThreeEnemyKill {
+        let mut run = seed_start_carried_run(
+            seed_sim.as_ref(),
+            start.numeric_seed,
+            start.ascension,
+            &start.external_seed,
+            deck_ids,
+        );
+        apply_neow_lament_reward(&mut run);
+        *seed_sim = Some(run);
+        compare_subset(
+            report,
+            action,
+            "Neow's Lament",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            }),
+        );
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    SeedStartPreDispatch::NotHandled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -825,39 +904,23 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_neow_immediate_phase(
+            action,
+            post,
+            start,
+            &deck_ids,
+            &mut neow_gold,
+            &mut neow_current_hp,
+            &mut neow_max_hp,
+            &mut seed_sim,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .and_then(seed_start_apply_neow_simple_option)
-                    .is_some() =>
-            {
-                let (gold, current_hp, max_hp) = seed_start_apply_neow_simple_option(
-                    seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                        .expect("matched generated simple Neow option"),
-                )
-                .expect("matched generated simple Neow option");
-                neow_gold = gold;
-                neow_current_hp = current_hp;
-                neow_max_hp = max_hp;
-                compare_subset(
-                    report,
-                    action,
-                    "Neow simple immediate reward",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": gold,
-                        "current_hp": current_hp,
-                        "max_hp": max_hp,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                phase = SeedStartPhase::NeowLeave;
-            }
             SeedStartPhase::NeowOptions
                 if seed_start_selected_neow_option(start.numeric_seed, &action.command)
                     .is_some_and(seed_start_neow_option_is_supported_curse_simple) =>
@@ -909,38 +972,6 @@ pub(super) fn verify_seed_start_transitions(
                         "gold": neow_gold,
                         "current_hp": neow_current_hp,
                         "max_hp": neow_max_hp,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(|option| option.reward == NeowRewardType::ThreeEnemyKill) =>
-            {
-                let mut run = seed_start_carried_run(
-                    seed_sim.as_ref(),
-                    start.numeric_seed,
-                    start.ascension,
-                    &start.external_seed,
-                    &deck_ids,
-                );
-                apply_neow_lament_reward(&mut run);
-                seed_sim = Some(run);
-                compare_subset(
-                    report,
-                    action,
-                    "Neow's Lament",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
                         "deck_ids": deck_ids,
                         "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
