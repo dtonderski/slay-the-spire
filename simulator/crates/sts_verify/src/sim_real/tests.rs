@@ -434,6 +434,37 @@ fn smith_trace_names_an_unreconciled_deck_frame_before_proceed() {
 }
 
 #[test]
+fn purifier_direct_leave_reaches_its_terminal_leave_screen() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-f2676070173c3be6.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Purifier direct-leave regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+}
+
+#[test]
 fn combat_selection_endpoint_names_its_unreconciled_frame() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-b9c0db157d03167f.jsonl")

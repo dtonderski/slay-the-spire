@@ -5760,6 +5760,36 @@ mod tests {
     }
 
     #[test]
+    fn purifier_leave_requires_second_leave_click() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::Purifier));
+
+        let after_first_leave = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("first Purifier leave choice applies");
+        let screen = after_first_leave
+            .event
+            .as_ref()
+            .expect("Purifier remains open after first leave");
+        assert_eq!(after_first_leave.phase, RunPhase::Event);
+        assert_eq!(screen.stage, 2);
+        assert_eq!(
+            screen
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Leave"]
+        );
+
+        let completed =
+            apply_event_action(&after_first_leave, EventAction::Choose { choice_index: 0 })
+                .expect("second Purifier leave choice returns to the map");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert!(completed.event.is_none());
+    }
+
+    #[test]
     fn the_cleric_leave_requires_second_leave_click() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;

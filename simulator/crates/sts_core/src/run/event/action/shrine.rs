@@ -46,8 +46,11 @@ pub(super) fn apply_shrine_event_action(
             open_event_remove_return_to_event_grid(next, Event::Purifier);
         }
         Event::Purifier if screen.stage == 0 && choice_index == 1 => {
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            next.event = Some(make_event_screen(
+                Event::Purifier,
+                labeled_choices(&["Leave"]),
+                2,
+            ));
         }
         Event::Purifier if screen.stage > 0 && choice_index == 0 => {
             next.phase = RunPhase::Idle;
