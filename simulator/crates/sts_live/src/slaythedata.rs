@@ -26,6 +26,8 @@ use sts_verify::{
     SlayTheDataPreflightStep, SlayTheDataReplayStepKind, SLAYTHEDATA_NORMAL_MAX_FLOOR_REACHED,
 };
 
+mod binding;
+
 pub const SLAYTHEDATA_DB_ENV: &str = "STS_LIVE_SLAYTHEDATA_DB";
 pub const DEFAULT_SLAYTHEDATA_DB: &str = "slaythedata-chunks.sqlite3";
 const SLAYTHEDATA_SEARCH_BUILD_VERSION: &str = "2020-07-30";
@@ -2677,119 +2679,11 @@ fn bind_dynamic_guided_step_to_live_action<'a>(
             )),
         };
     }
-    if step.code == "guided_shop_purchase" {
-        let SlayTheDataReplayStepKind::ShopPurchase { item: purchase, .. } = intent else {
-            return Err("guided shop purchase has no concrete SlayTheData item".to_owned());
-        };
-        if state.phase == LivePhase::Map {
-            let matches = state
-                .legal_actions
-                .iter()
-                .filter(|action| action.enabled && action.kind == LegalActionKind::ChooseMapNode)
-                .filter(|action| map_action_matches_symbol(state, action, "$"))
-                .collect::<Vec<_>>();
-            return match matches.as_slice() {
-                [action] => Ok(action),
-                [] => Err("guided shop purchase has no live shop map node".to_owned()),
-                _ => Err("guided shop purchase matched multiple live shop map nodes".to_owned()),
-            };
-        }
-        if state.phase == LivePhase::Reward {
-            return reward_flush_action_before_high_level_step(state, "guided shop purchase");
-        }
-        if live_screen_type(state).is_some_and(|screen| screen == "SHOP_ROOM") {
-            let matches = state
-                .legal_actions
-                .iter()
-                .filter(|action| {
-                    action.enabled
-                        && action.kind == LegalActionKind::Confirm
-                        && action.label.eq_ignore_ascii_case("shop")
-                })
-                .collect::<Vec<_>>();
-            return match matches.as_slice() {
-                [action] => Ok(action),
-                [] => Err("guided shop purchase has no live shop entry action".to_owned()),
-                _ => Err("guided shop purchase matched multiple shop entry actions".to_owned()),
-            };
-        }
-        if state.phase == LivePhase::Shop {
-            let matches = state
-                .legal_actions
-                .iter()
-                .filter(|action| action.enabled && action.kind == LegalActionKind::ShopBuy)
-                .filter(|action| shop_label_matches_purchase(&action.label, purchase))
-                .collect::<Vec<_>>();
-            return match matches.as_slice() {
-                [action] => Ok(action),
-                [] => Err(format!(
-                    "guided shop purchase {purchase:?} has no enabled live shop label match"
-                )),
-                _ => Err(format!(
-                    "guided shop purchase {purchase:?} matched multiple live shop actions"
-                )),
-            };
-        }
-    }
-    if step.code == "guided_shop_purge" {
-        let SlayTheDataReplayStepKind::ShopPurge { card } = intent else {
-            return Err("guided shop purge has no concrete SlayTheData target".to_owned());
-        };
-        let target = card.raw.as_str();
-        if state.phase == LivePhase::Map {
-            let matches = state
-                .legal_actions
-                .iter()
-                .filter(|action| action.enabled && action.kind == LegalActionKind::ChooseMapNode)
-                .filter(|action| map_action_matches_symbol(state, action, "$"))
-                .collect::<Vec<_>>();
-            return match matches.as_slice() {
-                [action] => Ok(action),
-                [] => Err("guided shop purge has no live shop map node".to_owned()),
-                _ => Err("guided shop purge matched multiple live shop map nodes".to_owned()),
-            };
-        }
-        if live_screen_type(state).is_some_and(|screen| screen == "SHOP_ROOM") {
-            let matches = state
-                .legal_actions
-                .iter()
-                .filter(|action| {
-                    action.enabled
-                        && action.kind == LegalActionKind::Confirm
-                        && action.label.eq_ignore_ascii_case("shop")
-                })
-                .collect::<Vec<_>>();
-            return match matches.as_slice() {
-                [action] => Ok(action),
-                [] => Err("guided shop purge has no live shop entry action".to_owned()),
-                _ => Err("guided shop purge matched multiple shop entry actions".to_owned()),
-            };
-        }
-        if is_grid_screen(state) {
-            if grid_confirm_up(state) {
-                return bind_matching_live_action(state, "CONFIRM", |action| {
-                    action.kind == LegalActionKind::Confirm
-                        && action.label.eq_ignore_ascii_case("confirm")
-                });
-            }
-            return first_card_label_match(state, target).ok_or_else(|| {
-                format!("guided shop purge target {target:?} has no live grid label match")
-            });
-        }
-        if state.phase == LivePhase::Reward {
-            return reward_flush_action_before_high_level_step(state, "guided shop purge");
-        }
-        if state.phase == LivePhase::Shop {
-            return state
-                .legal_actions
-                .iter()
-                .find(|action| {
-                    action.enabled
-                        && action.kind == LegalActionKind::ShopBuy
-                        && action.label.eq_ignore_ascii_case("purge")
-                })
-                .ok_or_else(|| "guided shop purge has no enabled live purge action".to_owned());
-        }
+    if matches!(
+        step.code.as_str(),
+        "guided_shop_purchase" | "guided_shop_purge"
+    ) {
+        return binding::bind_guided_shop_step(state, step, intent);
     }
     if step.code == "guided_campfire" {
         if state.phase == LivePhase::Reward && !is_grid_screen(state) {
