@@ -146,6 +146,93 @@ pub(super) fn bind_pending_room_resolution<'a>(
     Err("SlayTheData guided step pending_room_resolution has no dynamic binding".to_owned())
 }
 
+pub(super) fn bind_dynamic_card_reward_step<'a>(
+    state: &'a LiveState,
+    step: &SlayTheDataPreflightStep,
+    intent: &SlayTheDataReplayStepKind,
+) -> Result<&'a LegalAction, String> {
+    let card_reward = match intent {
+        SlayTheDataReplayStepKind::CardReward { picked, skipped } => Some((picked, *skipped)),
+        _ => None,
+    };
+    if card_reward.is_some_and(|(_, skipped)| skipped) && state.phase == LivePhase::Reward {
+        return reward_flush_action_before_high_level_step(state, "pending skipped card reward");
+    }
+    if state.phase == LivePhase::Reward {
+        let Some(target) = card_reward
+            .and_then(|(picked, _)| picked.as_ref())
+            .map(|card| card.raw.as_str())
+        else {
+            return Err("pending card reward has no concrete SlayTheData pick".to_owned());
+        };
+        if is_card_reward_screen(state) {
+            if grid_confirm_up(state) {
+                return bind_matching_live_action(state, "CONFIRM", |action| {
+                    action.kind == LegalActionKind::Confirm
+                        && action.label.eq_ignore_ascii_case("confirm")
+                });
+            }
+            return first_card_label_match(state, target).ok_or_else(|| {
+                format!("pending card reward target {target:?} has no live grid label match")
+            });
+        }
+        if let Some(action) = reward_choice_by_label(state, "card") {
+            return Ok(action);
+        }
+        return reward_flush_action_before_high_level_step(state, "pending card reward");
+    }
+    Err(format!(
+        "SlayTheData guided step {} has no dynamic binding",
+        step.code
+    ))
+}
+
+pub(super) fn bind_neow_step<'a>(
+    state: &'a LiveState,
+    step: &SlayTheDataPreflightStep,
+) -> Result<&'a LegalAction, String> {
+    if step.code == "pending_neow_followup" && is_grid_screen(state) {
+        return bind_neow_followup_grid_action(state);
+    }
+    if step.code == "pending_neow_followup" && state.phase == LivePhase::Reward {
+        let matches = state
+            .legal_actions
+            .iter()
+            .filter(|action| action.enabled && action.kind == LegalActionKind::ChooseReward)
+            .collect::<Vec<_>>();
+        if let Some(action) = matches.into_iter().next() {
+            return Ok(action);
+        }
+        return reward_flush_action_before_high_level_step(state, "pending Neow follow-up");
+    }
+    if step.code == "pending_neow_followup" && state.phase == LivePhase::Neow {
+        let matches = state
+            .legal_actions
+            .iter()
+            .filter(|action| {
+                action.enabled
+                    && action.kind == LegalActionKind::ChooseNeow
+                    && action.label.eq_ignore_ascii_case("leave")
+            })
+            .collect::<Vec<_>>();
+        return match matches.as_slice() {
+            [action] => Ok(action),
+            [] => Err("pending Neow follow-up has no live Neow leave choice".to_owned()),
+            _ => Err("pending Neow follow-up has multiple live Neow leave choices".to_owned()),
+        };
+    }
+    if step.code == "legal_neow_leave" && state.phase == LivePhase::Reward {
+        if let Some(action) = first_enabled_reward_choice(state) {
+            return Ok(action);
+        }
+        return reward_flush_action_before_high_level_step(state, "legal Neow leave");
+    }
+    Err(format!(
+        "SlayTheData guided step {} has no dynamic binding",
+        step.code
+    ))
+}
+
 pub(super) fn bind_guided_shop_step<'a>(
     state: &'a LiveState,
     step: &SlayTheDataPreflightStep,

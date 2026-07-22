@@ -2265,78 +2265,17 @@ fn bind_dynamic_guided_step_to_live_action<'a>(
     if step.code == "pending_room_resolution" {
         return binding::bind_pending_room_resolution(state, step);
     }
-    let is_dynamic_card_reward = matches!(
+    if matches!(
         step.code.as_str(),
         "pending_card_reward" | "guided_card_reward" | "legal_card_reward"
-    );
-    let card_reward = match intent {
-        SlayTheDataReplayStepKind::CardReward { picked, skipped } => Some((picked, *skipped)),
-        _ => None,
-    };
-    if is_dynamic_card_reward
-        && card_reward.is_some_and(|(_, skipped)| skipped)
-        && state.phase == LivePhase::Reward
-    {
-        return reward_flush_action_before_high_level_step(state, "pending skipped card reward");
+    ) {
+        return binding::bind_dynamic_card_reward_step(state, step, intent);
     }
-    if is_dynamic_card_reward && state.phase == LivePhase::Reward {
-        let Some(target) = card_reward
-            .and_then(|(picked, _)| picked.as_ref())
-            .map(|card| card.raw.as_str())
-        else {
-            return Err("pending card reward has no concrete SlayTheData pick".to_owned());
-        };
-        if is_card_reward_screen(state) {
-            if grid_confirm_up(state) {
-                return bind_matching_live_action(state, "CONFIRM", |action| {
-                    action.kind == LegalActionKind::Confirm
-                        && action.label.eq_ignore_ascii_case("confirm")
-                });
-            }
-            return first_card_label_match(state, target).ok_or_else(|| {
-                format!("pending card reward target {target:?} has no live grid label match")
-            });
-        }
-        if let Some(action) = reward_choice_by_label(state, "card") {
-            return Ok(action);
-        }
-        return reward_flush_action_before_high_level_step(state, "pending card reward");
-    }
-    if step.code == "pending_neow_followup" && is_grid_screen(state) {
-        return bind_neow_followup_grid_action(state);
-    }
-    if step.code == "pending_neow_followup" && state.phase == LivePhase::Reward {
-        let matches = state
-            .legal_actions
-            .iter()
-            .filter(|action| action.enabled && action.kind == LegalActionKind::ChooseReward)
-            .collect::<Vec<_>>();
-        if let Some(action) = matches.into_iter().next() {
-            return Ok(action);
-        }
-        return reward_flush_action_before_high_level_step(state, "pending Neow follow-up");
-    }
-    if step.code == "pending_neow_followup" && state.phase == LivePhase::Neow {
-        let matches = state
-            .legal_actions
-            .iter()
-            .filter(|action| {
-                action.enabled
-                    && action.kind == LegalActionKind::ChooseNeow
-                    && action.label.eq_ignore_ascii_case("leave")
-            })
-            .collect::<Vec<_>>();
-        return match matches.as_slice() {
-            [action] => Ok(action),
-            [] => Err("pending Neow follow-up has no live Neow leave choice".to_owned()),
-            _ => Err("pending Neow follow-up has multiple live Neow leave choices".to_owned()),
-        };
-    }
-    if step.code == "legal_neow_leave" && state.phase == LivePhase::Reward {
-        if let Some(action) = first_enabled_reward_choice(state) {
-            return Ok(action);
-        }
-        return reward_flush_action_before_high_level_step(state, "legal Neow leave");
+    if matches!(
+        step.code.as_str(),
+        "pending_neow_followup" | "legal_neow_leave"
+    ) {
+        return binding::bind_neow_step(state, step);
     }
     if is_guided_event_step(&step.code) && is_grid_screen(state) {
         if grid_confirm_up(state) {
