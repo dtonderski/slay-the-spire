@@ -1695,6 +1695,246 @@ fn seed_start_handle_neow_leave_phase(
     SeedStartPreDispatch::Handled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_map_phase(
+    pre: &TraceState,
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    boss_unlocks: BossUnlockState,
+    pending_neow_room_entry_curse: &mut Option<String>,
+    pending_neow_room_entry_curse_advances_card_rng: &mut bool,
+    map_path_xs: &mut Vec<i32>,
+    event_room_index: &mut usize,
+    normal_combat_index: &mut usize,
+    seed_sim: &mut Option<RunState>,
+    pending_combat_assertion: &mut Option<PendingCombatAssertion>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::Map {
+        return SeedStartPreDispatch::NotHandled;
+    }
+    if screen_type(&pre.message) == Some("MAP") && command_choose_index(&action.command).is_some() {
+        if let Some(sim) = seed_sim.as_ref() {
+            let mut transition_base = sim.clone();
+            seed_start_apply_boss_unlocks(&mut transition_base, start.numeric_seed, boss_unlocks);
+            if let Some(curse) = pending_neow_room_entry_curse.take() {
+                let next_deck_ids = seed_start_deck_with_pending_neow_curse(
+                    &deck_content_keys(&transition_base.deck),
+                    &curse,
+                );
+                if *pending_neow_room_entry_curse_advances_card_rng {
+                    transition_base.card_rng_counter =
+                        transition_base.card_rng_counter.saturating_add(1);
+                }
+                *pending_neow_room_entry_curse_advances_card_rng = false;
+                transition_base.deck = deck_instances_from_keys(&next_deck_ids);
+            }
+            let legal_actions = match legal_map_decisions(&transition_base) {
+                Ok(actions) => actions,
+                Err(error) => {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_map_state".to_owned(),
+                        reason: format!("core legal-action boundary rejected map state: {error}"),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return SeedStartPreDispatch::Boundary(boundary);
+                }
+            };
+            if let Some(choice_index) = choose_index(&action.command) {
+                if let Some(map_action) = legal_actions.get(choice_index).copied() {
+                    let choice_x = transition_base.map.as_ref().and_then(|map_state| {
+                        let node_id = match map_action {
+                            sts_core::MapAction::ChooseNode { node_id } => node_id,
+                        };
+                        map_state.map.node(node_id).map(|node| {
+                            let (x, _) = seed_start_map_node_xy(node.id);
+                            x
+                        })
+                    });
+                    let Some(choice_x) = choice_x else {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "invalid_map_state".to_owned(),
+                            reason: "legal core map action references a missing node".to_owned(),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return SeedStartPreDispatch::Boundary(boundary);
+                    };
+                    map_path_xs.push(choice_x);
+                    let Ok(next) = apply_map_action_on_run(&transition_base, map_action) else {
+                        let boundary = SeedStartBoundary {
+                            path: format!("$.actions[step={}].command", action.step),
+                            category: "unsupported_map_path".to_owned(),
+                            reason: "core map simulation rejected transition".to_owned(),
+                        };
+                        report.unsupported.push(UnsupportedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            reason: boundary.reason.clone(),
+                        });
+                        return SeedStartPreDispatch::Boundary(boundary);
+                    };
+                    match next.phase {
+                        RunPhase::Event => {
+                            let label = format!("map event node {}", *event_room_index + 1);
+                            compare_subset(
+                                report,
+                                action,
+                                &label,
+                                seed_start_event_observed_subset(&post.message),
+                                seed_start_event_simulated_subset(&next),
+                            );
+                            *event_room_index += 1;
+                            *seed_sim = Some(next);
+                            *phase = SeedStartPhase::Event;
+                        }
+                        RunPhase::Combat => {
+                            let label = seed_start_map_label(*normal_combat_index);
+                            let observed = seed_start_encounter_observed_subset(&post.message);
+                            let simulated =
+                                seed_start_simulated_map_combat_subset(&next, *normal_combat_index);
+                            seed_start_compare_or_defer_combat_entry(
+                                report,
+                                action,
+                                &label,
+                                &post.message,
+                                observed,
+                                simulated,
+                                pending_combat_assertion,
+                            );
+                            *seed_sim = Some(next);
+                            *phase = SeedStartPhase::Combat;
+                            *normal_combat_index += 1;
+                        }
+                        RunPhase::Rest => {
+                            let label = format!("map rest node {}", map_path_xs.len());
+                            compare_subset(
+                                report,
+                                action,
+                                &label,
+                                seed_start_rest_observed_subset(&post.message),
+                                seed_start_rest_simulated_subset(&next),
+                            );
+                            *seed_sim = Some(next);
+                            *phase = SeedStartPhase::Rest;
+                        }
+                        RunPhase::Treasure => {
+                            let label = format!("map treasure node {}", map_path_xs.len());
+                            compare_subset(
+                                report,
+                                action,
+                                &label,
+                                seed_start_treasure_observed_subset(&post.message),
+                                seed_start_treasure_simulated_subset(&next),
+                            );
+                            *seed_sim = Some(next);
+                            *phase = SeedStartPhase::Treasure;
+                        }
+                        RunPhase::Shop => {
+                            let label = format!("map shop node {}", map_path_xs.len());
+                            compare_subset(
+                                report,
+                                action,
+                                &label,
+                                seed_start_shop_observed_subset(&post.message),
+                                seed_start_shop_room_simulated_subset(&next),
+                            );
+                            *seed_sim = Some(next);
+                            *phase = SeedStartPhase::Shop;
+                        }
+                        RunPhase::Idle => {
+                            let projection = match seed_start_simulated_map_return(&next) {
+                                Ok(projection) => projection,
+                                Err(reason) => {
+                                    let boundary = SeedStartBoundary {
+                                        path: format!("$.actions[step={}].command", action.step),
+                                        category: "invalid_map_projection".to_owned(),
+                                        reason,
+                                    };
+                                    report.unsupported.push(UnsupportedTransition {
+                                        action_step: action.step,
+                                        command: action.command.clone(),
+                                        reason: boundary.reason.clone(),
+                                    });
+                                    return SeedStartPreDispatch::Boundary(boundary);
+                                }
+                            };
+                            seed_start_compare_map_return(
+                                report,
+                                action,
+                                &post.message,
+                                projection,
+                            );
+                            *seed_sim = Some(next);
+                            *phase = SeedStartPhase::Map;
+                        }
+                        RunPhase::Reward => {
+                            compare_subset(
+                                report,
+                                action,
+                                "map reward",
+                                seed_start_reward_observed_subset(&post.message),
+                                seed_start_reward_simulated_subset(&next),
+                            );
+                            *seed_sim = Some(next);
+                            *phase = SeedStartPhase::Reward;
+                        }
+                        RunPhase::Complete => {
+                            let boundary = SeedStartBoundary {
+                                path: format!("$.actions[step={}].command", action.step),
+                                category: "unsupported_map_path".to_owned(),
+                                reason: "map choice unexpectedly completed the run".to_owned(),
+                            };
+                            report.unsupported.push(UnsupportedTransition {
+                                action_step: action.step,
+                                command: action.command.clone(),
+                                reason: boundary.reason.clone(),
+                            });
+                            return SeedStartPreDispatch::Boundary(boundary);
+                        }
+                    }
+                    return SeedStartPreDispatch::Handled;
+                }
+            }
+        }
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_map_path".to_owned(),
+            reason: "strict seed-start map transition could not be simulated; verifier refused to infer simulator state from the observed trace".to_owned(),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    }
+
+    let boundary = SeedStartBoundary {
+        path: format!("$.actions[step={}].command", action.step),
+        category: "unsupported_map_action".to_owned(),
+        reason: "seed-start verifier saw a map command that was not a visible generated map choice"
+            .to_owned(),
+    };
+    report.unsupported.push(UnsupportedTransition {
+        action_step: action.step,
+        command: action.command.clone(),
+        reason: boundary.reason.clone(),
+    });
+    SeedStartPreDispatch::Boundary(boundary)
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -2381,215 +2621,27 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_map_phase(
+            pre,
+            action,
+            post,
+            start,
+            boss_unlocks,
+            &mut pending_neow_room_entry_curse,
+            &mut pending_neow_room_entry_curse_advances_card_rng,
+            &mut map_path_xs,
+            &mut event_room_index,
+            &mut normal_combat_index,
+            &mut seed_sim,
+            &mut pending_combat_assertion,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
-            SeedStartPhase::Map
-                if screen_type(&pre.message) == Some("MAP")
-                    && command_choose_index(&action.command).is_some() =>
-            {
-                if let Some(sim) = seed_sim.as_ref() {
-                    let mut transition_base = sim.clone();
-                    seed_start_apply_boss_unlocks(
-                        &mut transition_base,
-                        start.numeric_seed,
-                        boss_unlocks,
-                    );
-                    if let Some(curse) = pending_neow_room_entry_curse.take() {
-                        let next_deck_ids = seed_start_deck_with_pending_neow_curse(
-                            &deck_content_keys(&transition_base.deck),
-                            &curse,
-                        );
-                        if pending_neow_room_entry_curse_advances_card_rng {
-                            transition_base.card_rng_counter =
-                                transition_base.card_rng_counter.saturating_add(1);
-                        }
-                        pending_neow_room_entry_curse_advances_card_rng = false;
-                        transition_base.deck = deck_instances_from_keys(&next_deck_ids);
-                    }
-                    let legal_actions = match legal_map_decisions(&transition_base) {
-                        Ok(actions) => actions,
-                        Err(error) => {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "invalid_map_state".to_owned(),
-                                reason: format!(
-                                    "core legal-action boundary rejected map state: {error}"
-                                ),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                    };
-                    if let Some(choice_index) = choose_index(&action.command) {
-                        if let Some(map_action) = legal_actions.get(choice_index).copied() {
-                            let choice_x = transition_base.map.as_ref().and_then(|map_state| {
-                                let node_id = match map_action {
-                                    sts_core::MapAction::ChooseNode { node_id } => node_id,
-                                };
-                                map_state.map.node(node_id).map(|node| {
-                                    let (x, _) = seed_start_map_node_xy(node.id);
-                                    x
-                                })
-                            });
-                            let Some(choice_x) = choice_x else {
-                                let boundary = SeedStartBoundary {
-                                    path: format!("$.actions[step={}].command", action.step),
-                                    category: "invalid_map_state".to_owned(),
-                                    reason: "legal core map action references a missing node"
-                                        .to_owned(),
-                                };
-                                report.unsupported.push(UnsupportedTransition {
-                                    action_step: action.step,
-                                    command: action.command.clone(),
-                                    reason: boundary.reason.clone(),
-                                });
-                                return finish_boundary!(boundary);
-                            };
-                            map_path_xs.push(choice_x);
-                            let Ok(next) = apply_map_action_on_run(&transition_base, map_action)
-                            else {
-                                let boundary = SeedStartBoundary {
-                                    path: format!("$.actions[step={}].command", action.step),
-                                    category: "unsupported_map_path".to_owned(),
-                                    reason: "core map simulation rejected transition".to_owned(),
-                                };
-                                report.unsupported.push(UnsupportedTransition {
-                                    action_step: action.step,
-                                    command: action.command.clone(),
-                                    reason: boundary.reason.clone(),
-                                });
-                                return finish_boundary!(boundary);
-                            };
-                            match next.phase {
-                                RunPhase::Event => {
-                                    let label = format!("map event node {}", event_room_index + 1);
-                                    compare_subset(
-                                        report,
-                                        action,
-                                        &label,
-                                        seed_start_event_observed_subset(&post.message),
-                                        seed_start_event_simulated_subset(&next),
-                                    );
-                                    event_room_index += 1;
-                                    seed_sim = Some(next);
-                                    phase = SeedStartPhase::Event;
-                                }
-                                RunPhase::Combat => {
-                                    let label = seed_start_map_label(normal_combat_index);
-                                    let observed =
-                                        seed_start_encounter_observed_subset(&post.message);
-                                    let simulated = seed_start_simulated_map_combat_subset(
-                                        &next,
-                                        normal_combat_index,
-                                    );
-                                    seed_start_compare_or_defer_combat_entry(
-                                        report,
-                                        action,
-                                        &label,
-                                        &post.message,
-                                        observed,
-                                        simulated,
-                                        &mut pending_combat_assertion,
-                                    );
-                                    seed_sim = Some(next);
-                                    phase = SeedStartPhase::Combat;
-                                    normal_combat_index += 1;
-                                }
-                                RunPhase::Rest => {
-                                    let label = format!("map rest node {}", map_path_xs.len());
-                                    compare_subset(
-                                        report,
-                                        action,
-                                        &label,
-                                        seed_start_rest_observed_subset(&post.message),
-                                        seed_start_rest_simulated_subset(&next),
-                                    );
-                                    seed_sim = Some(next);
-                                    phase = SeedStartPhase::Rest;
-                                }
-                                RunPhase::Treasure => {
-                                    let label = format!("map treasure node {}", map_path_xs.len());
-                                    compare_subset(
-                                        report,
-                                        action,
-                                        &label,
-                                        seed_start_treasure_observed_subset(&post.message),
-                                        seed_start_treasure_simulated_subset(&next),
-                                    );
-                                    seed_sim = Some(next);
-                                    phase = SeedStartPhase::Treasure;
-                                }
-                                RunPhase::Shop => {
-                                    let label = format!("map shop node {}", map_path_xs.len());
-                                    compare_subset(
-                                        report,
-                                        action,
-                                        &label,
-                                        seed_start_shop_observed_subset(&post.message),
-                                        seed_start_shop_room_simulated_subset(&next),
-                                    );
-                                    seed_sim = Some(next);
-                                    phase = SeedStartPhase::Shop;
-                                }
-                                RunPhase::Idle => {
-                                    seed_start_compare_map_return(
-                                        report,
-                                        action,
-                                        &post.message,
-                                        require_map_projection!(
-                                            &next,
-                                            action,
-                                            "invalid_map_projection"
-                                        ),
-                                    );
-                                    seed_sim = Some(next);
-                                    phase = SeedStartPhase::Map;
-                                }
-                                RunPhase::Reward => {
-                                    compare_subset(
-                                        report,
-                                        action,
-                                        "map reward",
-                                        seed_start_reward_observed_subset(&post.message),
-                                        seed_start_reward_simulated_subset(&next),
-                                    );
-                                    seed_sim = Some(next);
-                                    phase = SeedStartPhase::Reward;
-                                }
-                                RunPhase::Complete => {
-                                    let boundary = SeedStartBoundary {
-                                        path: format!("$.actions[step={}].command", action.step),
-                                        category: "unsupported_map_path".to_owned(),
-                                        reason: "map choice unexpectedly completed the run"
-                                            .to_owned(),
-                                    };
-                                    report.unsupported.push(UnsupportedTransition {
-                                        action_step: action.step,
-                                        command: action.command.clone(),
-                                        reason: boundary.reason.clone(),
-                                    });
-                                    return finish_boundary!(boundary);
-                                }
-                            }
-                            continue;
-                        }
-                    }
-                }
-                let boundary = SeedStartBoundary {
-                    path: format!("$.actions[step={}].command", action.step),
-                    category: "unsupported_map_path".to_owned(),
-                    reason: "strict seed-start map transition could not be simulated; verifier refused to infer simulator state from the observed trace".to_owned(),
-                };
-                report.unsupported.push(UnsupportedTransition {
-                    action_step: action.step,
-                    command: action.command.clone(),
-                    reason: boundary.reason.clone(),
-                });
-                return finish_boundary!(boundary);
-            }
             SeedStartPhase::Treasure if action.command.trim().eq_ignore_ascii_case("PROCEED") => {
                 let simulated_return = {
                     let Some(sim) = seed_sim.as_mut() else {
@@ -3177,19 +3229,6 @@ pub(super) fn verify_seed_start_transitions(
                 } else if next.phase == RunPhase::Reward {
                     phase = SeedStartPhase::Reward;
                 }
-            }
-            SeedStartPhase::Map => {
-                let boundary = SeedStartBoundary {
-                    path: format!("$.actions[step={}].command", action.step),
-                    category: "unsupported_map_action".to_owned(),
-                    reason: "seed-start verifier saw a map command that was not a visible generated map choice".to_owned(),
-                };
-                report.unsupported.push(UnsupportedTransition {
-                    action_step: action.step,
-                    command: action.command.clone(),
-                    reason: boundary.reason.clone(),
-                });
-                return finish_boundary!(boundary);
             }
             SeedStartPhase::Combat => {
                 let command = action.command.trim();
