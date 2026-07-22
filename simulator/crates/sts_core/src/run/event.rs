@@ -1289,6 +1289,13 @@ pub(super) fn validate_event_screen_authority(
                     "Dead Adventurer continuation has no completed search",
                 ));
             }
+            if screen.choices
+                != dead_adventurer_screen(run, screen.stage as u8, screen.event_data).choices
+            {
+                return Err(SimError::InvalidState(
+                    "Dead Adventurer choices do not match its state",
+                ));
+            }
         }
         Event::Nloth => {
             if screen.stage > 1 {
@@ -1363,6 +1370,11 @@ pub(super) fn validate_event_screen_authority(
             if screen.event_data > SCRAP_OOZE_MAX_FAILED_REACHES {
                 return Err(SimError::InvalidState(
                     "Scrap Ooze failed reach count exceeds reachable range",
+                ));
+            }
+            if screen.choices != scrap_ooze_choices(screen.stage) {
+                return Err(SimError::InvalidState(
+                    "Scrap Ooze choices do not match its stage",
                 ));
             }
         }
@@ -1499,6 +1511,11 @@ pub(super) fn validate_event_screen_authority(
             {
                 return Err(SimError::InvalidState(
                     "World of Goop retained loss is inconsistent with current gold",
+                ));
+            }
+            if screen.choices != world_of_goop_choices(screen.stage, screen.event_data as i32) {
+                return Err(SimError::InvalidState(
+                    "World of Goop choices do not match its state",
                 ));
             }
         }
@@ -6328,6 +6345,58 @@ mod tests {
                 "{event:?} accepts a noncanonical choice list"
             );
         }
+    }
+
+    #[test]
+    fn packed_act_one_events_reject_noncanonical_choices() {
+        let mut dead_adventurer = RunState::seeded_ironclad(1, 0);
+        dead_adventurer.phase = RunPhase::Event;
+        let event_data = dead_adventurer_event_data([0, 1, 2], 0, 0);
+        dead_adventurer.event = Some(dead_adventurer_screen(&dead_adventurer, 0, event_data));
+        dead_adventurer
+            .event
+            .as_mut()
+            .expect("Dead Adventurer screen")
+            .choices
+            .clear();
+        assert_eq!(
+            dead_adventurer.validate(),
+            Err(SimError::InvalidState(
+                "Dead Adventurer choices do not match its state"
+            ))
+        );
+
+        let mut scrap_ooze = RunState::seeded_ironclad(1, 0);
+        scrap_ooze.phase = RunPhase::Event;
+        scrap_ooze.event = Some(event_screen_for_run(&scrap_ooze, Event::ScrapOoze));
+        scrap_ooze
+            .event
+            .as_mut()
+            .expect("Scrap Ooze screen")
+            .choices
+            .clear();
+        assert_eq!(
+            scrap_ooze.validate(),
+            Err(SimError::InvalidState(
+                "Scrap Ooze choices do not match its stage"
+            ))
+        );
+
+        let mut world_of_goop = RunState::seeded_ironclad(1, 0);
+        world_of_goop.phase = RunPhase::Event;
+        world_of_goop.gold = 100;
+        world_of_goop.event = Some(EventScreen {
+            event: Event::WorldOfGoop,
+            choices: Vec::new(),
+            stage: 0,
+            event_data: 35,
+        });
+        assert_eq!(
+            world_of_goop.validate(),
+            Err(SimError::InvalidState(
+                "World of Goop choices do not match its state"
+            ))
+        );
     }
 
     #[test]
