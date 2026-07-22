@@ -3195,9 +3195,6 @@ impl RunState {
                 if !self.can_gain_potions() {
                     return Err(SimError::IllegalAction("potions cannot be obtained"));
                 }
-                if self.open_potion_slots() == 0 {
-                    return Err(SimError::IllegalAction("potion belt is full"));
-                }
                 Ok(())
             }
             RunAction::TakeRelicReward => {

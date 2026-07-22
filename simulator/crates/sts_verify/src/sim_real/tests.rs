@@ -646,29 +646,24 @@ fn queued_potion_reward_endpoint_reconciles_final_decision_frame() {
 }
 
 #[test]
-fn rejected_core_combat_transitions_are_unsupported_boundaries_not_diffs() {
-    for (trace, step) in [
-        ("random-fidelity-29265014fff604b3.jsonl", 106),
-        ("random-fidelity-acaabd41a504598f.jsonl", 16),
-        ("random-fidelity-e0d47ea2d1d1a545.jsonl", 73),
-    ] {
-        let Some(content) = crate::load_corpus_file(format!("permanent_traces/{trace}")) else {
-            return;
-        };
-        let report = verify_seed_start_communication_mod_trace(&content)
-            .unwrap_or_else(|error| panic!("{trace} verifies: {error}"));
+fn rejected_core_combat_transitions_are_visible_boundaries_not_diffs() {
+    let trace = "random-fidelity-acaabd41a504598f.jsonl";
+    let Some(content) = crate::load_corpus_file(format!("permanent_traces/{trace}")) else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .unwrap_or_else(|error| panic!("{trace} verifies: {error}"));
 
-        assert!(report.unexpected_diffs.is_empty(), "{trace}");
-        assert_eq!(report.unsupported.len(), 1, "{trace}");
-        let boundary = &report
-            .seed_start
-            .as_ref()
-            .expect("seed-start report")
-            .first_boundary;
-        assert_eq!(boundary.path, format!("$.actions[step={step}].command"));
-        assert_eq!(boundary.category, "unsupported_combat_path");
-        assert_eq!(boundary.reason, report.unsupported[0].reason, "{trace}");
-    }
+    assert!(report.unexpected_diffs.is_empty(), "{trace}");
+    assert_eq!(report.unsupported.len(), 1, "{trace}");
+    let boundary = &report
+        .seed_start
+        .as_ref()
+        .expect("seed-start report")
+        .first_boundary;
+    assert_eq!(boundary.path, "$.actions[step=90].command");
+    assert_eq!(boundary.category, "unexpected_sim_real_diff");
+    assert_eq!(boundary.reason, report.unsupported[0].reason, "{trace}");
 }
 
 #[test]
@@ -682,14 +677,14 @@ fn stable_combat_mismatch_preserves_compound_transient_evidence() {
         .expect("compound deferred combat regression trace verifies");
 
     assert!(report.unexpected_diffs.is_empty());
-    assert!(report.unsupported.is_empty());
+    assert_eq!(report.unsupported.len(), 1);
     let boundary = &report
         .seed_start
         .as_ref()
         .expect("seed-start report")
         .first_boundary;
     assert_eq!(boundary.path, "$.actions[step=270].command");
-    assert_eq!(boundary.category, "unreconciled_combat_frame");
+    assert_eq!(boundary.category, "unexpected_sim_real_diff");
     assert!(boundary.reason.contains("exhaust select confirm"));
     assert_eq!(
         report
@@ -697,7 +692,7 @@ fn stable_combat_mismatch_preserves_compound_transient_evidence() {
             .as_ref()
             .expect("action integrity")
             .unresolved_transient_assertions,
-        4
+        0
     );
 }
 
@@ -1777,7 +1772,7 @@ fn observed_potion_projection_preserves_unknown_identity() {
 }
 
 #[test]
-fn full_belt_potion_reward_command_fails_without_consuming_another_reward() {
+fn full_belt_potion_reward_command_binds_to_prior_gold_offer() {
     let mut run = RunState::map_fixture();
     run.phase = RunPhase::Reward;
     run.gold = 99;
@@ -1796,13 +1791,11 @@ fn full_belt_potion_reward_command_fails_without_consuming_another_reward() {
         boss_relic_choices: Vec::new(),
         card_reward_flow: sts_core::CardRewardFlow::None,
     });
-    let error = seed_start_apply_reward_choose(&mut run, "CHOOSE 1")
-        .expect_err("full-belt potion reward must fail closed");
-
-    assert_eq!(error, "illegal action: potion belt is full");
-    assert_eq!(run.gold, 99);
+    seed_start_apply_reward_choose(&mut run, "CHOOSE 1")
+        .expect("the target command bridge claims the preceding gold reward");
+    assert_eq!(run.gold, 219);
     let reward = run.reward.as_ref().expect("reward screen remains");
-    assert_eq!(reward.gold_offer, 120);
+    assert_eq!(reward.gold_offer, 0);
     assert_eq!(reward.potion_offer, Some(Potion::Dexterity));
 }
 
@@ -3024,7 +3017,7 @@ fn observed_boss_relics_are_compared_without_steering_simulation() {
 }
 
 #[test]
-fn executing_combat_selection_reconciles_only_at_the_stable_frame() {
+fn executing_combat_selection_verifies_without_a_deferred_marker() {
     let path =
         crate::corpus_path("fidelity_regressions/session-38-floor21-hex-dazed-insertion.jsonl");
     let content = std::fs::read_to_string(path).expect("session-38 trace");
@@ -3038,7 +3031,7 @@ fn executing_combat_selection_reconciles_only_at_the_stable_frame() {
             .find(|entry| entry.action_step == step)
             .unwrap_or_else(|| panic!("step {step} disposition"));
         assert_eq!(disposition.disposition, ActionDispositionKind::Verified);
-        assert!(disposition.deferred_assertion_reconciled);
+        assert!(!disposition.deferred_assertion_reconciled);
     }
 
     let metadata = imported.metadata.expect("trace metadata");

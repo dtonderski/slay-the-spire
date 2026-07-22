@@ -100,6 +100,24 @@ fn take_potion_reward_adds_to_belt_and_consumes_potion_offer() {
 }
 
 #[test]
+fn full_potion_belt_leaves_potion_reward_available_when_selected() {
+    let mut run = win_fixture_combat();
+    run.potions = vec![Potion::BlessingOfTheForge, Potion::Dexterity, Potion::Power];
+    run.reward.as_mut().expect("reward").potion_offer = Some(Potion::Fire);
+    let gold_before = run.gold;
+
+    let after = apply_run_action(&run, RunAction::TakePotionReward { index: 0 })
+        .expect("selecting a full-belt potion reward is a no-op");
+
+    assert_eq!(after.potions, run.potions);
+    assert_eq!(after.gold, gold_before);
+    assert_eq!(
+        after.reward.as_ref().expect("reward").potion_offer,
+        Some(Potion::Fire)
+    );
+}
+
+#[test]
 fn take_relic_reward_adds_oddly_smooth_stone_and_consumes_relic_offer() {
     let mut run = win_fixture_combat();
     run.reward.as_mut().expect("reward").relic_offer = Some(Relic::OddlySmoothStone);

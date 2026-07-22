@@ -2166,6 +2166,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             next.gain_gold(stolen_gold_offer)?;
         }
         RunAction::TakePotionReward { index } => {
+            if next.open_potion_slots() == 0 {
+                return Ok(next);
+            }
             let potion = {
                 let reward = next.reward.as_mut().expect("validated reward screen");
                 if !reward.potion_offers.is_empty() {
