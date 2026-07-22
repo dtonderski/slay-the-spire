@@ -501,35 +501,79 @@ fn seed_start_handle_neow_card_reward_phase(
                 start.starting_hp(),
             );
             *deck_ids = deck_content_keys(&run.deck);
+            let transient_deck = deck_ids.clone();
             *neow_gold = run.gold;
             *neow_current_hp = run.player_hp;
             *neow_max_hp = run.player_max_hp;
-            compare_subset(
-                report,
-                action,
-                seed_start_neow_card_reward_label(option.reward),
-                seed_start_observed_subset(&post.message),
-                json!({
-                    "screen_type": "EVENT",
-                    "ascension": start.ascension,
-                    "floor": 0,
-                    "gold": neow_gold,
-                    "current_hp": neow_current_hp,
-                    "max_hp": neow_max_hp,
-                    "deck_ids": deck_ids,
-                    "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                    "choices": ["leave"],
-                }),
-            );
             let reward = generate_neow_card_reward(start.numeric_seed, option.reward)
                 .expect("matched generated Neow card reward option");
-            *neow_leave_visible_deck_ids = Some(deck_ids.clone());
             for content_id in reward.cards {
                 run.gain_deck_card(content_id)
                     .expect("canonical seed-start deck has card ID allocation headroom");
             }
             *deck_ids = deck_content_keys(&run.deck);
             *seed_sim = Some(run);
+            *neow_leave_visible_deck_ids = None;
+            let label = seed_start_neow_card_reward_label(option.reward);
+            let mut observed = seed_start_observed_subset(&post.message);
+            let observed_deck = observed
+                .as_object_mut()
+                .and_then(|object| object.remove("deck_ids"))
+                .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                .unwrap_or_default();
+            let mut simulated = json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": neow_gold,
+                "current_hp": neow_current_hp,
+                "max_hp": neow_max_hp,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            });
+            let settled_deck = simulated
+                .as_object_mut()
+                .and_then(|object| object.remove("deck_ids"))
+                .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                .expect("Neow random rare projection contains a deck");
+            let mut diffs = subset_diffs(observed, simulated);
+            match classify_deferred_deck_observation(&observed_deck, &transient_deck, &settled_deck)
+            {
+                PendingDeckObservation::Settled if diffs.is_empty() => {
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: label.to_owned(),
+                    });
+                }
+                PendingDeckObservation::Deferred if diffs.is_empty() => {
+                    *pending_deck_assertion = Some(PendingDeckAssertion {
+                        action: action.clone(),
+                        label: label.to_owned(),
+                        related_actions: Vec::new(),
+                        transient_decks: vec![transient_deck],
+                        expected_deck: settled_deck,
+                    });
+                }
+                PendingDeckObservation::Diverged(deck_diffs) => {
+                    diffs.extend(deck_diffs);
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: label.to_owned(),
+                        diffs,
+                    });
+                }
+                PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: label.to_owned(),
+                        diffs,
+                    });
+                }
+            }
             *phase = SeedStartPhase::NeowLeave;
             return SeedStartPreDispatch::Handled;
         }
@@ -1720,12 +1764,14 @@ fn seed_start_handle_neow_leave_phase(
     pending_neow_room_entry_curse_advances_card_rng: &mut bool,
     seed_sim: &mut Option<RunState>,
     pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    reconciled_deferred_action_steps: &mut Vec<u32>,
     phase: &mut SeedStartPhase,
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
     if *phase != SeedStartPhase::NeowLeave || !command_is_choose(&action.command, 0) {
         return SeedStartPreDispatch::NotHandled;
     }
+    let pending_before_leave = pending_deck_assertion.take();
     if let Some(curse) = delayed_neow_curse.take() {
         *pending_neow_room_entry_curse = Some(curse);
         *pending_neow_room_entry_curse_advances_card_rng = true;
@@ -1763,6 +1809,9 @@ fn seed_start_handle_neow_leave_phase(
             transient_decks.push(seed_start_deck_with_pending_neow_curse(&lagged, curse));
         }
     }
+    if let Some(pending) = pending_before_leave.as_ref() {
+        transient_decks.extend(pending.transient_decks.iter().cloned());
+    }
     transient_decks.retain(|deck| deck != &settled_deck);
     transient_decks.sort();
     transient_decks.dedup();
@@ -1799,6 +1848,22 @@ fn seed_start_handle_neow_leave_phase(
     };
     match deck_observation {
         PendingDeckObservation::Settled if diffs.is_empty() => {
+            if let Some(pending) = pending_before_leave {
+                for (related_action, related_label) in pending.related_actions {
+                    reconciled_deferred_action_steps.push(related_action.step);
+                    report.verified.push(VerifiedTransition {
+                        action_step: related_action.step,
+                        command: related_action.command,
+                        label: related_label,
+                    });
+                }
+                reconciled_deferred_action_steps.push(pending.action.step);
+                report.verified.push(VerifiedTransition {
+                    action_step: pending.action.step,
+                    command: pending.action.command,
+                    label: pending.label,
+                });
+            }
             report.verified.push(VerifiedTransition {
                 action_step: action.step,
                 command: action.command.clone(),
@@ -1809,13 +1874,35 @@ fn seed_start_handle_neow_leave_phase(
             *pending_deck_assertion = Some(PendingDeckAssertion {
                 action: action.clone(),
                 label: "Neow leave".to_owned(),
-                related_actions: Vec::new(),
+                related_actions: pending_before_leave
+                    .map(|pending| {
+                        let mut related = pending.related_actions;
+                        related.push((pending.action, pending.label));
+                        related
+                    })
+                    .unwrap_or_default(),
                 transient_decks,
                 expected_deck: simulated_deck,
             });
         }
         PendingDeckObservation::Diverged(deck_diffs) => {
             diffs.extend(deck_diffs);
+            if let Some(pending) = pending_before_leave {
+                for (related_action, related_label) in pending.related_actions {
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: related_action.step,
+                        command: related_action.command,
+                        label: related_label,
+                        diffs: diffs.clone(),
+                    });
+                }
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: pending.action.step,
+                    command: pending.action.command,
+                    label: pending.label,
+                    diffs: diffs.clone(),
+                });
+            }
             report.unexpected_diffs.push(UnexpectedDiff {
                 action_step: action.step,
                 command: action.command.clone(),
@@ -1824,6 +1911,22 @@ fn seed_start_handle_neow_leave_phase(
             });
         }
         PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+            if let Some(pending) = pending_before_leave {
+                for (related_action, related_label) in pending.related_actions {
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: related_action.step,
+                        command: related_action.command,
+                        label: related_label,
+                        diffs: diffs.clone(),
+                    });
+                }
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: pending.action.step,
+                    command: pending.action.command,
+                    label: pending.label,
+                    diffs: diffs.clone(),
+                });
+            }
             report.unexpected_diffs.push(UnexpectedDiff {
                 action_step: action.step,
                 command: action.command.clone(),
@@ -4685,6 +4788,14 @@ pub(super) fn verify_seed_start_transitions(
                     &pending.expected_deck,
                 ) {
                     PendingDeckObservation::Settled => {
+                        for (related_action, related_label) in pending.related_actions {
+                            reconciled_deferred_action_steps.push(related_action.step);
+                            report.verified.push(VerifiedTransition {
+                                action_step: related_action.step,
+                                command: related_action.command,
+                                label: related_label,
+                            });
+                        }
                         report.verified.push(VerifiedTransition {
                             action_step: pending.action.step,
                             command: pending.action.command,
@@ -4693,13 +4804,16 @@ pub(super) fn verify_seed_start_transitions(
                         reconciled_deferred_action_steps.push(pending.action.step);
                     }
                     PendingDeckObservation::Deferred => {
-                        if phase == SeedStartPhase::NeowCardReward
+                        let continues_neow_deck_transition = (phase
+                            == SeedStartPhase::NeowCardReward
                             && seed_start_pick_neow_card_reward(
                                 &neow_card_reward_choices,
                                 &action.command,
                             )
-                            .is_some()
-                        {
+                            .is_some())
+                            || (phase == SeedStartPhase::NeowLeave
+                                && command_is_choose(&action.command, 0));
+                        if continues_neow_deck_transition {
                             pending_deck_assertion = Some(pending);
                         } else {
                             let observed_post_deck = seed_start_observed_deck(&post.message);
@@ -5384,6 +5498,7 @@ pub(super) fn verify_seed_start_transitions(
             &mut pending_neow_room_entry_curse_advances_card_rng,
             &mut seed_sim,
             &mut pending_deck_assertion,
+            &mut reconciled_deferred_action_steps,
             &mut phase,
             report,
         ) {

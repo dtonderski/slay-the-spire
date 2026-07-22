@@ -7817,6 +7817,8 @@ fn seed_start_neow_immediate_random_rare_leave_defers_when_visible_deck_lags() {
     let starting_relics = vec![json!({ "name": "Burning Blood" })];
     let run =
         seed_start_apply_neow_reward_drawback(numeric_seed, &ironclad_starter_deck_keys(), &option);
+    let mut settled_deck = starting_deck.clone();
+    settled_deck.push(json!({ "id": deck_content_key(BARRICADE_ID) }));
 
     let lines = vec![
         json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
@@ -7869,12 +7871,35 @@ fn seed_start_neow_immediate_random_rare_leave_defers_when_visible_deck_lags() {
             "relics": starting_relics,
             "choice_list": seed_start_first_map_choices(&external_seed)
         }}}),
+        json!({"type": "action", "step": 5, "command": "state"}),
+        json!({"type": "state", "step": 5, "message": {"game_state": {
+            "screen_type": "MAP",
+            "ascension_level": 0,
+            "floor": 0,
+            "gold": run.gold,
+            "current_hp": run.player_hp,
+            "max_hp": run.player_max_hp,
+            "deck": settled_deck,
+            "relics": starting_relics,
+            "choice_list": seed_start_first_map_choices(&external_seed)
+        }}}),
     ];
     let mut divergent_lines = lines.clone();
     divergent_lines
         .iter_mut()
         .find_map(|line| {
-            (line.get("step").and_then(Value::as_u64) == Some(4))
+            (line.get("step").and_then(Value::as_u64) == Some(5))
+                .then(|| line.pointer_mut("/message/game_state/deck"))
+                .flatten()
+        })
+        .and_then(Value::as_array_mut)
+        .expect("Neow leave deck")
+        .pop()
+        .expect("settled deck has a rare reward");
+    divergent_lines
+        .iter_mut()
+        .find_map(|line| {
+            (line.get("step").and_then(Value::as_u64) == Some(5))
                 .then(|| line.pointer_mut("/message/game_state/deck"))
                 .flatten()
         })
@@ -7890,7 +7915,13 @@ fn seed_start_neow_immediate_random_rare_leave_defers_when_visible_deck_lags() {
     assert!(report.verified.iter().any(|transition| {
         transition.action_step == 3 && transition.label == "Neow random rare card reward"
     }));
-    assert!(!report
+    let reward = report
+        .action_dispositions
+        .iter()
+        .find(|entry| entry.action_step == 3)
+        .expect("Neow random rare disposition");
+    assert!(reward.deferred_assertion_reconciled);
+    assert!(report
         .verified
         .iter()
         .any(|transition| transition.action_step == 4 && transition.label == "Neow leave"));
@@ -7899,15 +7930,15 @@ fn seed_start_neow_immediate_random_rare_leave_defers_when_visible_deck_lags() {
         .iter()
         .find(|entry| entry.action_step == 4 && entry.command == "CHOOSE 0")
         .expect("Neow leave disposition");
-    assert_eq!(leave.disposition, ActionDispositionKind::PendingTransient);
-    assert!(!leave.deferred_assertion_reconciled);
+    assert_eq!(leave.disposition, ActionDispositionKind::Verified);
+    assert!(leave.deferred_assertion_reconciled);
     assert_eq!(
         report
             .action_integrity
             .as_ref()
             .expect("action integrity")
             .unresolved_transient_assertions,
-        1
+        0
     );
     let carried = report
         .seed_start
@@ -7933,6 +7964,13 @@ fn seed_start_neow_immediate_random_rare_leave_defers_when_visible_deck_lags() {
     assert_eq!(
         divergent_leave.disposition,
         ActionDispositionKind::UnexpectedDiff
+    );
+    let divergent_integrity = divergent
+        .action_integrity
+        .expect("divergent action integrity");
+    assert_eq!(
+        divergent_integrity.applicable_actions,
+        divergent_integrity.disposed_actions
     );
 }
 
