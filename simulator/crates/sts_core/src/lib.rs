@@ -5,7 +5,6 @@ pub mod card;
 pub mod combat;
 pub mod content;
 pub mod error;
-pub mod fidelity;
 pub mod ids;
 pub mod power;
 pub mod rng;
@@ -32,7 +31,6 @@ pub use content::ascension::AscensionConfig;
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
 pub use content::deck::{ironclad_starter_deck, ironclad_starter_deck_for_ascension};
 pub use error::{SimError, SimResult};
-pub use fidelity::FidelityCategory;
 pub use ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
 pub use map::{
     apply_map_action, city_room_kinds_on_path, exordium_room_kinds_on_path,
