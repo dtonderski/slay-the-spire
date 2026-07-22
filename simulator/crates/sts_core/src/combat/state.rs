@@ -2,7 +2,8 @@ use crate::{
     action::InternalAction,
     card::CardInstance,
     content::cards::{
-        get_card_definition, BASH_ID, COMBUST_DAMAGE, COMBUST_PLUS_DAMAGE, DEFEND_R_ID, STRIKE_R_ID,
+        get_card_definition, BASH_ID, COMBUST_DAMAGE, COMBUST_PLUS_DAMAGE, DEFEND_R_ID, RAMPAGE_ID,
+        RAMPAGE_PLUS_ID, STRIKE_R_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
@@ -977,6 +978,19 @@ fn validate_combat_card(card: &CardInstance) -> SimResult<()> {
     if get_card_definition(card.content_id).is_none() {
         return Err(SimError::UnknownContent(card.content_id));
     }
+    if card.rampage_damage_bonus < 0 {
+        return Err(SimError::InvalidState(
+            "Rampage damage bonus cannot be negative",
+        ));
+    }
+    if card.rampage_damage_bonus != 0
+        && card.content_id != RAMPAGE_ID
+        && card.content_id != RAMPAGE_PLUS_ID
+    {
+        return Err(SimError::InvalidState(
+            "non-Rampage card carries a Rampage damage bonus",
+        ));
+    }
     Ok(())
 }
 
@@ -1135,6 +1149,28 @@ mod tests {
             state.validate(),
             Err(SimError::InvalidState(
                 "card instance ID is outside the supported allocation range"
+            ))
+        );
+    }
+
+    #[test]
+    fn combat_validation_rejects_invalid_rampage_metadata() {
+        let mut negative = CombatState::initial_fixture();
+        negative.piles.hand = vec![CardInstance::new(CardId::new(100), RAMPAGE_ID)];
+        negative.piles.hand[0].rampage_damage_bonus = -1;
+        assert_eq!(
+            negative.validate(),
+            Err(SimError::InvalidState(
+                "Rampage damage bonus cannot be negative"
+            ))
+        );
+
+        let mut wrong_card = CombatState::initial_fixture();
+        wrong_card.piles.hand[0].rampage_damage_bonus = 5;
+        assert_eq!(
+            wrong_card.validate(),
+            Err(SimError::InvalidState(
+                "non-Rampage card carries a Rampage damage bonus"
             ))
         );
     }

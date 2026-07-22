@@ -149,6 +149,19 @@ mod tests {
     }
 
     #[test]
+    fn run_validation_rejects_combat_local_rampage_metadata() {
+        let mut run = RunState::map_fixture();
+        run.deck[0].rampage_damage_bonus = 5;
+
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "run card retains a combat-local Rampage damage bonus"
+            ))
+        );
+    }
+
+    #[test]
     fn run_validation_rejects_rng_counters_outside_the_target_domain() {
         let mut run = RunState::map_fixture();
         run.monster_rng_counter = i32::MAX as u32 + 1;
@@ -956,6 +969,7 @@ impl RewardScreen {
 
 fn validate_run_card_content(card: &CardInstance) -> SimResult<()> {
     validate_run_card_instance_id(card)?;
+    validate_run_card_metadata(card)?;
     get_card_definition(card.content_id)
         .map(|_| ())
         .ok_or(SimError::UnknownContent(card.content_id))
@@ -963,6 +977,7 @@ fn validate_run_card_content(card: &CardInstance) -> SimResult<()> {
 
 fn validate_run_choice_card_content(card: &CardInstance) -> SimResult<()> {
     validate_run_card_instance_id(card)?;
+    validate_run_card_metadata(card)?;
     if get_card_definition(card.content_id).is_some()
         || ironclad_reward_card_rarity(card.content_id).is_some()
         || super::reward::any_color_reward_card_key(card.content_id).is_some()
@@ -971,6 +986,15 @@ fn validate_run_choice_card_content(card: &CardInstance) -> SimResult<()> {
     } else {
         Err(SimError::UnknownContent(card.content_id))
     }
+}
+
+fn validate_run_card_metadata(card: &CardInstance) -> SimResult<()> {
+    if card.rampage_damage_bonus != 0 {
+        return Err(SimError::InvalidState(
+            "run card retains a combat-local Rampage damage bonus",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_run_card_instance_id(card: &CardInstance) -> SimResult<()> {

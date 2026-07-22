@@ -508,6 +508,29 @@ fn rampage_plus_uses_and_increases_per_instance_damage_bonus() {
 }
 
 #[test]
+fn rampage_damage_overflow_fails_before_resolving_the_hit() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    let mut rampage = CardInstance::new(CardId::new(1), cards::RAMPAGE_ID);
+    rampage.rampage_damage_bonus = i32::MAX;
+    state.piles.hand = vec![rampage];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    assert_eq!(
+        apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(MonsterId::new(1)),
+            },
+        ),
+        Err(sts_core::SimError::InvalidState(
+            "Rampage damage overflows i32"
+        ))
+    );
+}
+
+#[test]
 fn reaper_plus_heals_for_unblocked_damage_and_exhausts() {
     let mut state = CombatState::initial_fixture();
     state.player.hp = 40;

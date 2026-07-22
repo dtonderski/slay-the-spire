@@ -1054,9 +1054,7 @@ fn apply_internal_action(
             Ok(Vec::new())
         }
         InternalAction::IncreaseRampageDamage { card_id, amount } => {
-            let card =
-                find_combat_card_mut(state, card_id).ok_or(SimError::UnknownCard(card_id))?;
-            checked_add_combat_value(&mut card.rampage_damage_bonus, amount)?;
+            add_rampage_damage_bonus(state, card_id, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainFeelNoPain { amount } => {
@@ -3460,6 +3458,26 @@ fn find_combat_card_mut(state: &mut CombatState, card_id: CardId) -> Option<&mut
         .find(|card| card.id == card_id)
 }
 
+fn add_rampage_damage_bonus(
+    state: &mut CombatState,
+    card_id: CardId,
+    amount: i32,
+) -> SimResult<()> {
+    let card = find_combat_card_mut(state, card_id).ok_or(SimError::UnknownCard(card_id))?;
+    if card.content_id != crate::content::cards::RAMPAGE_ID
+        && card.content_id != crate::content::cards::RAMPAGE_PLUS_ID
+    {
+        return Err(SimError::InvalidState(
+            "Rampage growth source is not Rampage",
+        ));
+    }
+    card.rampage_damage_bonus = card
+        .rampage_damage_bonus
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState("Rampage damage bonus overflows i32"))?;
+    Ok(())
+}
+
 fn add_ritual_dagger_damage_bonus(
     state: &mut CombatState,
     card_id: CardId,
@@ -3568,6 +3586,31 @@ mod tests {
         monster_state, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
     };
     use crate::rng::StsRng;
+
+    #[test]
+    fn rampage_growth_overflow_and_wrong_source_fail_closed() {
+        let mut state = CombatState::initial_fixture();
+        let mut rampage = CardInstance::new(CardId::new(1), RAMPAGE_ID);
+        rampage.rampage_damage_bonus = i32::MAX;
+        state.piles.hand = vec![rampage];
+        let before = state.clone();
+
+        assert_eq!(
+            add_rampage_damage_bonus(&mut state, CardId::new(1), 1),
+            Err(SimError::InvalidState("Rampage damage bonus overflows i32"))
+        );
+        assert_eq!(state, before);
+
+        state.piles.hand[0] = CardInstance::new(CardId::new(1), STRIKE_R_ID);
+        let wrong_source = state.clone();
+        assert_eq!(
+            add_rampage_damage_bonus(&mut state, CardId::new(1), 5),
+            Err(SimError::InvalidState(
+                "Rampage growth source is not Rampage"
+            ))
+        );
+        assert_eq!(state, wrong_source);
+    }
 
     #[test]
     fn ritual_dagger_growth_overflow_and_missing_source_fail_closed() {

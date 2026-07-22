@@ -1542,13 +1542,23 @@ fn rampage_queue(
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let bonus = state
+    let card = state
         .piles
         .hand
         .iter()
         .find(|card| card.id == card_id)
-        .map(|card| card.rampage_damage_bonus)
-        .unwrap_or(0);
+        .ok_or(SimError::IllegalAction("card is not in hand"))?;
+    if card.content_id != RAMPAGE_ID && card.content_id != RAMPAGE_PLUS_ID {
+        return Err(SimError::InvalidState(
+            "Rampage queue received a different card",
+        ));
+    }
+    let base_damage = definition.values.damage.ok_or(SimError::InvalidState(
+        "Rampage definition is missing damage",
+    ))?;
+    let damage = base_damage
+        .checked_add(card.rampage_damage_bonus)
+        .ok_or(SimError::InvalidState("Rampage damage overflows i32"))?;
 
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
@@ -1557,7 +1567,7 @@ fn rampage_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: definition.values.damage.unwrap_or(0) + bonus,
+                amount: damage,
             },
         },
         InternalAction::IncreaseRampageDamage {
