@@ -2612,6 +2612,411 @@ fn seed_start_handle_event_phase(
     SeedStartPreDispatch::Handled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_combat_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    seed_sim: &mut Option<RunState>,
+    pending_combat_assertion: &mut Option<PendingCombatAssertion>,
+    reconciled_deferred_action_steps: &mut Vec<u32>,
+    smoke_bomb_ui: &mut Option<SmokeBombUiState>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase != SeedStartPhase::Combat {
+        return SeedStartPreDispatch::NotHandled;
+    }
+
+    let command = action.command.trim();
+    let command_head = command.split_whitespace().next().unwrap_or("");
+    let is_play_command = command_head.eq_ignore_ascii_case("PLAY");
+    let combat_decision = match seed_sim
+        .as_ref()
+        .map(seed_start_active_combat_decision)
+        .transpose()
+    {
+        Ok(decision) => decision.flatten(),
+        Err(reason) => {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_combat_decision_state".to_owned(),
+                reason,
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+    };
+    let potion_use = parse_potion_use(command);
+    let Some(sim) = seed_sim.as_mut() else {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_combat_path".to_owned(),
+            reason: "seed-start combat action without initialized combat simulation".to_owned(),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    };
+
+    if let Some(decision) = combat_decision {
+        if command.eq_ignore_ascii_case("WAIT") {
+            seed_start_compare_or_defer_combat_transition(
+                report,
+                action,
+                "combat decision refresh",
+                &post.message,
+                seed_start_combat_observed_subset(&post.message),
+                seed_start_simulated_combat_subset(sim, false),
+                pending_combat_assertion,
+                reconciled_deferred_action_steps,
+            );
+            return SeedStartPreDispatch::Handled;
+        }
+        let (decision_action, label) =
+            match seed_start_bind_combat_decision_command(decision, command) {
+                Ok(bound) => bound,
+                Err(reason) => {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_combat_decision_command".to_owned(),
+                        reason,
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return SeedStartPreDispatch::Boundary(boundary);
+                }
+            };
+        let next = apply_run_action(sim, decision_action);
+        let Ok(next) = next else {
+            push_sim_error(report, action, label, next.err().unwrap());
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_combat_path".to_owned(),
+                reason: format!("seed-start {label} simulation failed"),
+            });
+        };
+        seed_start_compare_or_defer_combat_transition(
+            report,
+            action,
+            label,
+            &post.message,
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&next, false),
+            pending_combat_assertion,
+            reconciled_deferred_action_steps,
+        );
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if let Some(potion_use) = potion_use {
+        let is_smoke_bomb = sim.potion_at_slot(potion_use.slot) == Some(Potion::SmokeBomb);
+        let target = seed_start_potion_command_target(sim, &potion_use);
+        let next = apply_run_action(
+            sim,
+            RunAction::UsePotion {
+                slot: potion_use.slot,
+                target,
+            },
+        );
+        let Ok(next) = next else {
+            push_sim_error(report, action, "combat potion use", next.err().unwrap());
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_combat_path".to_owned(),
+                reason: "seed-start combat potion simulation failed".to_owned(),
+            });
+        };
+        if is_smoke_bomb {
+            if next.phase != RunPhase::Idle || next.combat.is_some() || next.reward.is_some() {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_smoke_bomb_core_destination".to_owned(),
+                    reason: format!(
+                        "Smoke Bomb core transition produced phase {:?}, combat={}, reward={}",
+                        next.phase,
+                        next.combat.is_some(),
+                        next.reward.is_some(),
+                    ),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+            if screen_type(&post.message) == Some("NONE")
+                && post.message.pointer("/game_state/combat_state").is_some()
+            {
+                let source = sim.clone();
+                let transient_matches = seed_start_compare_deferred_combat_subset(
+                    report,
+                    action,
+                    "Smoke Bomb escape queued",
+                    seed_start_smoke_bomb_transient_observed_subset(&post.message),
+                    seed_start_smoke_bomb_transient_simulated_subset(&source, &next),
+                );
+                *sim = next;
+                *smoke_bomb_ui = Some(SmokeBombUiState::Escaping {
+                    source: Box::new(source),
+                    action: action.clone(),
+                    transient_matches,
+                });
+                return SeedStartPreDispatch::Handled;
+            }
+            if screen_type(&post.message) == Some("COMBAT_REWARD") {
+                compare_subset(
+                    report,
+                    action,
+                    "Smoke Bomb escape settled to empty reward",
+                    seed_start_reward_observed_subset(&post.message),
+                    seed_start_reward_simulated_subset(&next),
+                );
+                *sim = next;
+                *phase = SeedStartPhase::Reward;
+                *smoke_bomb_ui = Some(SmokeBombUiState::Reward {
+                    pending_proceeds: Vec::new(),
+                });
+                return SeedStartPreDispatch::Handled;
+            }
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_smoke_bomb_ui_transition".to_owned(),
+                reason: format!(
+                    "Smoke Bomb command reached unsupported screen {:?}",
+                    screen_type(&post.message)
+                ),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        if seed_start_run_has_combat_card_reward(&next) {
+            seed_start_compare_or_defer_combat_transition(
+                report,
+                action,
+                "combat potion card reward",
+                &post.message,
+                seed_start_combat_observed_subset(&post.message),
+                seed_start_simulated_combat_subset(&next, false),
+                pending_combat_assertion,
+                reconciled_deferred_action_steps,
+            );
+            *sim = next;
+            return SeedStartPreDispatch::Handled;
+        }
+        if next.phase == RunPhase::Reward && next.reward.is_some() {
+            compare_subset(
+                report,
+                action,
+                "reward-screen potion use",
+                seed_start_reward_observed_subset(&post.message),
+                seed_start_reward_simulated_subset(&next),
+            );
+            *sim = next;
+            *phase = SeedStartPhase::Reward;
+            return SeedStartPreDispatch::Handled;
+        }
+        if next.phase != RunPhase::Combat || next.combat.is_none() {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_combat_potion_destination".to_owned(),
+                reason: format!(
+                    "combat potion produced phase {:?}, combat={}, reward={}",
+                    next.phase,
+                    next.combat.is_some(),
+                    next.reward.is_some(),
+                ),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        }
+        seed_start_compare_or_defer_combat_transition(
+            report,
+            action,
+            "combat potion use",
+            &post.message,
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&next, false),
+            pending_combat_assertion,
+            reconciled_deferred_action_steps,
+        );
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if command.eq_ignore_ascii_case("PROCEED")
+        && sim
+            .combat
+            .as_ref()
+            .is_some_and(|combat| combat.phase == CombatPhase::Lost)
+    {
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            label: "death screen proceed".to_owned(),
+        });
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if !(is_play_command || command_head.eq_ignore_ascii_case("END")) {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_combat_path".to_owned(),
+            reason: format!("seed-start verifier does not support combat command {command:?}"),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    }
+
+    let Some(combat) = sim.combat.as_ref() else {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "invalid_simulator_state".to_owned(),
+            reason: "seed-start verifier entered its combat phase without core combat state"
+                .to_owned(),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    };
+    if let Some(reason) = unsupported_seed_start_combat_command(combat, command) {
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason,
+        });
+        return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_combat_path".to_owned(),
+            reason: "unsupported card in seed-start combat".to_owned(),
+        });
+    }
+
+    let Some(combat_action) = combat_action_from_command(command, combat) else {
+        let boundary = SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_combat_path".to_owned(),
+            reason: format!("seed-start verifier could not parse combat command {command:?}"),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            reason: boundary.reason.clone(),
+        });
+        return SeedStartPreDispatch::Boundary(boundary);
+    };
+
+    if is_final_combat_blow(sim, combat_action) {
+        let next = apply_combat_action_on_run(sim, combat_action);
+        let Ok(next) = next else {
+            push_sim_error(
+                report,
+                action,
+                "seed-start combat victory",
+                next.err().unwrap(),
+            );
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_combat_path".to_owned(),
+                reason: "seed-start combat victory simulation failed".to_owned(),
+            });
+        };
+        let label = combat_label(command, sim);
+        compare_subset(
+            report,
+            action,
+            &label,
+            seed_start_victory_observed_subset(&post.message),
+            seed_start_victory_simulated_subset(&next),
+        );
+        let final_boss_complete = seed_start_is_final_boss_victory(&next);
+        *seed_sim = Some(next);
+        *phase = if final_boss_complete {
+            SeedStartPhase::Proceed
+        } else {
+            SeedStartPhase::Reward
+        };
+        return SeedStartPreDispatch::Handled;
+    }
+
+    let next = apply_combat_action_on_run(sim, combat_action);
+    let Ok(next) = next else {
+        push_sim_error(
+            report,
+            action,
+            "seed-start combat transition",
+            next.err().unwrap(),
+        );
+        return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+            path: format!("$.actions[step={}].command", action.step),
+            category: "unsupported_combat_path".to_owned(),
+            reason: "seed-start combat simulation rejected transition".to_owned(),
+        });
+    };
+    let label = combat_label(command, sim);
+    let observed = seed_start_combat_observed_subset(&post.message);
+    let simulated = seed_start_simulated_combat_subset(&next, false);
+    let copied_attack = seed_start_copied_attack_expectation(combat, combat_action);
+    let stable_projection_matches =
+        seed_start_combat_subsets_match(observed.clone(), simulated.clone());
+    if seed_start_classify_copied_attack_frame(
+        stable_projection_matches,
+        copied_attack,
+        &post.message,
+    ) == CopiedAttackFrame::Deferred
+    {
+        let transient_matches =
+            seed_start_compare_transient_combat_subset(report, action, &label, observed, simulated);
+        let pending = pending_combat_assertion.get_or_insert_default();
+        pending.requires_stable_frame_before_next_command = true;
+        pending.transitions.push(PendingCombatTransition {
+            action: action.clone(),
+            label,
+            transient_matches,
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+    seed_start_compare_or_defer_combat_transition(
+        report,
+        action,
+        &label,
+        &post.message,
+        observed,
+        simulated,
+        pending_combat_assertion,
+        reconciled_deferred_action_steps,
+    );
+    *sim = next;
+    SeedStartPreDispatch::Handled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -3352,407 +3757,21 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_combat_phase(
+            action,
+            post,
+            &mut seed_sim,
+            &mut pending_combat_assertion,
+            &mut reconciled_deferred_action_steps,
+            &mut smoke_bomb_ui,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
-            SeedStartPhase::Combat => {
-                let command = action.command.trim();
-                let command_head = command.split_whitespace().next().unwrap_or("");
-                let is_play_command = command_head.eq_ignore_ascii_case("PLAY");
-                let combat_decision = match seed_sim
-                    .as_ref()
-                    .map(seed_start_active_combat_decision)
-                    .transpose()
-                {
-                    Ok(decision) => decision.flatten(),
-                    Err(reason) => {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_combat_decision_state".to_owned(),
-                            reason,
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                };
-                let potion_use = parse_potion_use(command);
-                let Some(sim) = seed_sim.as_mut() else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_combat_path".to_owned(),
-                        reason: "seed-start combat action without initialized combat simulation"
-                            .to_owned(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-
-                if let Some(decision) = combat_decision {
-                    if command.eq_ignore_ascii_case("WAIT") {
-                        seed_start_compare_or_defer_combat_transition(
-                            report,
-                            action,
-                            "combat decision refresh",
-                            &post.message,
-                            seed_start_combat_observed_subset(&post.message),
-                            seed_start_simulated_combat_subset(sim, false),
-                            &mut pending_combat_assertion,
-                            &mut reconciled_deferred_action_steps,
-                        );
-                        continue;
-                    }
-                    let (decision_action, label) =
-                        match seed_start_bind_combat_decision_command(decision, command) {
-                            Ok(bound) => bound,
-                            Err(reason) => {
-                                let boundary = SeedStartBoundary {
-                                    path: format!("$.actions[step={}].command", action.step),
-                                    category: "unsupported_combat_decision_command".to_owned(),
-                                    reason,
-                                };
-                                report.unsupported.push(UnsupportedTransition {
-                                    action_step: action.step,
-                                    command: action.command.clone(),
-                                    reason: boundary.reason.clone(),
-                                });
-                                return finish_boundary!(boundary);
-                            }
-                        };
-                    let next = apply_run_action(sim, decision_action);
-                    let Ok(next) = next else {
-                        push_sim_error(report, action, label, next.err().unwrap());
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: format!("seed-start {label} simulation failed"),
-                        });
-                    };
-                    seed_start_compare_or_defer_combat_transition(
-                        report,
-                        action,
-                        label,
-                        &post.message,
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        &mut pending_combat_assertion,
-                        &mut reconciled_deferred_action_steps,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if let Some(potion_use) = potion_use {
-                    let is_smoke_bomb =
-                        sim.potion_at_slot(potion_use.slot) == Some(Potion::SmokeBomb);
-                    let target = seed_start_potion_command_target(sim, &potion_use);
-                    let next = apply_run_action(
-                        sim,
-                        RunAction::UsePotion {
-                            slot: potion_use.slot,
-                            target,
-                        },
-                    );
-                    let Ok(next) = next else {
-                        push_sim_error(report, action, "combat potion use", next.err().unwrap());
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat potion simulation failed".to_owned(),
-                        });
-                    };
-                    if is_smoke_bomb {
-                        if next.phase != RunPhase::Idle
-                            || next.combat.is_some()
-                            || next.reward.is_some()
-                        {
-                            let boundary = SeedStartBoundary {
-                                path: format!("$.actions[step={}].command", action.step),
-                                category: "invalid_smoke_bomb_core_destination".to_owned(),
-                                reason: format!(
-                                    "Smoke Bomb core transition produced phase {:?}, combat={}, reward={}",
-                                    next.phase,
-                                    next.combat.is_some(),
-                                    next.reward.is_some(),
-                                ),
-                            };
-                            report.unsupported.push(UnsupportedTransition {
-                                action_step: action.step,
-                                command: action.command.clone(),
-                                reason: boundary.reason.clone(),
-                            });
-                            return finish_boundary!(boundary);
-                        }
-                        if screen_type(&post.message) == Some("NONE")
-                            && post.message.pointer("/game_state/combat_state").is_some()
-                        {
-                            let source = sim.clone();
-                            let transient_matches = seed_start_compare_deferred_combat_subset(
-                                report,
-                                action,
-                                "Smoke Bomb escape queued",
-                                seed_start_smoke_bomb_transient_observed_subset(&post.message),
-                                seed_start_smoke_bomb_transient_simulated_subset(&source, &next),
-                            );
-                            *sim = next;
-                            smoke_bomb_ui = Some(SmokeBombUiState::Escaping {
-                                source: Box::new(source),
-                                action: action.clone(),
-                                transient_matches,
-                            });
-                            continue;
-                        }
-                        if screen_type(&post.message) == Some("COMBAT_REWARD") {
-                            compare_subset(
-                                report,
-                                action,
-                                "Smoke Bomb escape settled to empty reward",
-                                seed_start_reward_observed_subset(&post.message),
-                                seed_start_reward_simulated_subset(&next),
-                            );
-                            *sim = next;
-                            phase = SeedStartPhase::Reward;
-                            smoke_bomb_ui = Some(SmokeBombUiState::Reward {
-                                pending_proceeds: Vec::new(),
-                            });
-                            continue;
-                        }
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_smoke_bomb_ui_transition".to_owned(),
-                            reason: format!(
-                                "Smoke Bomb command reached unsupported screen {:?}",
-                                screen_type(&post.message)
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                    if seed_start_run_has_combat_card_reward(&next) {
-                        seed_start_compare_or_defer_combat_transition(
-                            report,
-                            action,
-                            "combat potion card reward",
-                            &post.message,
-                            seed_start_combat_observed_subset(&post.message),
-                            seed_start_simulated_combat_subset(&next, false),
-                            &mut pending_combat_assertion,
-                            &mut reconciled_deferred_action_steps,
-                        );
-                        *sim = next;
-                        continue;
-                    }
-                    if next.phase == RunPhase::Reward && next.reward.is_some() {
-                        compare_subset(
-                            report,
-                            action,
-                            "reward-screen potion use",
-                            seed_start_reward_observed_subset(&post.message),
-                            seed_start_reward_simulated_subset(&next),
-                        );
-                        *sim = next;
-                        phase = SeedStartPhase::Reward;
-                        continue;
-                    }
-                    if next.phase != RunPhase::Combat || next.combat.is_none() {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "invalid_combat_potion_destination".to_owned(),
-                            reason: format!(
-                                "combat potion produced phase {:?}, combat={}, reward={}",
-                                next.phase,
-                                next.combat.is_some(),
-                                next.reward.is_some(),
-                            ),
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                    seed_start_compare_or_defer_combat_transition(
-                        report,
-                        action,
-                        "combat potion use",
-                        &post.message,
-                        seed_start_combat_observed_subset(&post.message),
-                        seed_start_simulated_combat_subset(&next, false),
-                        &mut pending_combat_assertion,
-                        &mut reconciled_deferred_action_steps,
-                    );
-                    *sim = next;
-                    continue;
-                }
-
-                if command.eq_ignore_ascii_case("PROCEED")
-                    && sim
-                        .combat
-                        .as_ref()
-                        .is_some_and(|combat| combat.phase == CombatPhase::Lost)
-                {
-                    report.verified.push(VerifiedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        label: "death screen proceed".to_owned(),
-                    });
-                    continue;
-                }
-
-                if !(is_play_command || command_head.eq_ignore_ascii_case("END")) {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_combat_path".to_owned(),
-                        reason: format!(
-                            "seed-start verifier does not support combat command {command:?}"
-                        ),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                }
-
-                let Some(combat) = sim.combat.as_ref() else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "invalid_simulator_state".to_owned(),
-                        reason:
-                            "seed-start verifier entered its combat phase without core combat state"
-                                .to_owned(),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-                if let Some(reason) = unsupported_seed_start_combat_command(combat, command) {
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason,
-                    });
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_combat_path".to_owned(),
-                        reason: "unsupported card in seed-start combat".to_owned(),
-                    });
-                }
-
-                let Some(combat_action) = combat_action_from_command(command, combat) else {
-                    let boundary = SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_combat_path".to_owned(),
-                        reason: format!(
-                            "seed-start verifier could not parse combat command {command:?}"
-                        ),
-                    };
-                    report.unsupported.push(UnsupportedTransition {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        reason: boundary.reason.clone(),
-                    });
-                    return finish_boundary!(boundary);
-                };
-
-                if is_final_combat_blow(sim, combat_action) {
-                    let next = apply_combat_action_on_run(sim, combat_action);
-                    let Ok(next) = next else {
-                        push_sim_error(
-                            report,
-                            action,
-                            "seed-start combat victory",
-                            next.err().unwrap(),
-                        );
-                        return finish_boundary!(SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_combat_path".to_owned(),
-                            reason: "seed-start combat victory simulation failed".to_owned(),
-                        });
-                    };
-                    let label = combat_label(command, sim);
-                    compare_subset(
-                        report,
-                        action,
-                        &label,
-                        seed_start_victory_observed_subset(&post.message),
-                        seed_start_victory_simulated_subset(&next),
-                    );
-                    let final_boss_complete = seed_start_is_final_boss_victory(&next);
-                    seed_sim = Some(next);
-                    phase = if final_boss_complete {
-                        SeedStartPhase::Proceed
-                    } else {
-                        SeedStartPhase::Reward
-                    };
-                    continue;
-                }
-
-                let next = apply_combat_action_on_run(sim, combat_action);
-                let Ok(next) = next else {
-                    push_sim_error(
-                        report,
-                        action,
-                        "seed-start combat transition",
-                        next.err().unwrap(),
-                    );
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_combat_path".to_owned(),
-                        reason: "seed-start combat simulation rejected transition".to_owned(),
-                    });
-                };
-                let label = combat_label(command, sim);
-                let observed = seed_start_combat_observed_subset(&post.message);
-                let simulated = seed_start_simulated_combat_subset(&next, false);
-                let copied_attack = seed_start_copied_attack_expectation(combat, combat_action);
-                let stable_projection_matches =
-                    seed_start_combat_subsets_match(observed.clone(), simulated.clone());
-                if seed_start_classify_copied_attack_frame(
-                    stable_projection_matches,
-                    copied_attack,
-                    &post.message,
-                ) == CopiedAttackFrame::Deferred
-                {
-                    let transient_matches = seed_start_compare_transient_combat_subset(
-                        report, action, &label, observed, simulated,
-                    );
-                    let pending = pending_combat_assertion.get_or_insert_default();
-                    pending.requires_stable_frame_before_next_command = true;
-                    pending.transitions.push(PendingCombatTransition {
-                        action: action.clone(),
-                        label,
-                        transient_matches,
-                    });
-                    *sim = next;
-                    continue;
-                }
-                seed_start_compare_or_defer_combat_transition(
-                    report,
-                    action,
-                    &label,
-                    &post.message,
-                    observed,
-                    simulated,
-                    &mut pending_combat_assertion,
-                    &mut reconciled_deferred_action_steps,
-                );
-                *sim = next;
-            }
             SeedStartPhase::Reward => {
                 if matches!(smoke_bomb_ui, Some(SmokeBombUiState::Reward { .. }))
                     && action.command.eq_ignore_ascii_case("PROCEED")
