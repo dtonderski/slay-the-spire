@@ -26,6 +26,7 @@ pub enum DamageSource {
 pub struct AttackDamageResult {
     pub hp_damage: i32,
     pub broke_block: bool,
+    pub curl_up_block: Option<i32>,
     pub malleable_block: Option<i32>,
 }
 
@@ -81,10 +82,14 @@ fn deal_attack_damage_to_monster(
             monster.intent = crate::MonsterIntent::Attack { damage: 0 };
             monster.powers = Default::default();
         }
-    } else if hp_damage > 0 && monster.powers.curl_up > 0 {
-        monster.block += monster.powers.curl_up;
-        monster.powers.curl_up = 0;
     }
+    let curl_up_block = if monster.alive && hp_damage > 0 && monster.powers.curl_up > 0 {
+        let amount = monster.powers.curl_up;
+        monster.powers.curl_up = 0;
+        Some(amount)
+    } else {
+        None
+    };
     let malleable_block = if monster.alive && hp_damage > 0 && monster.powers.malleable > 0 {
         let amount = monster.powers.malleable;
         monster.powers.malleable += 1;
@@ -112,6 +117,7 @@ fn deal_attack_damage_to_monster(
     AttackDamageResult {
         hp_damage,
         broke_block: block_before > 0 && blocked == block_before,
+        curl_up_block,
         malleable_block,
     }
 }

@@ -732,7 +732,7 @@ fn deal_attack_damage_to_all_living(
     let mut follow_ups = Vec::new();
 
     for (target, monster_content_id, spikes) in targets {
-        let (hp_damage, still_alive, hand_drill_applies, malleable_block) = {
+        let (hp_damage, still_alive, hand_drill_applies, curl_up_block, malleable_block) = {
             let monster = living_monster_mut(state, target)?;
             let damage = deal_damage_info_to_monster_with_result(
                 monster,
@@ -751,15 +751,17 @@ fn deal_attack_damage_to_all_living(
                 damage.hp_damage,
                 monster.alive,
                 relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+                damage.curl_up_block,
                 damage.malleable_block,
             )
         };
-        push_malleable_block_follow_up(
+        push_attack_block_follow_ups(
             state,
             &mut follow_ups,
             target,
             monster_content_id,
             still_alive,
+            curl_up_block,
             malleable_block,
         );
         if still_alive && hand_drill_applies {
@@ -791,12 +793,13 @@ fn apply_or_queue_spikes_to_player(
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)
 }
 
-fn push_malleable_block_follow_up(
+fn push_attack_block_follow_ups(
     state: &mut CombatState,
     follow_ups: &mut Vec<InternalAction>,
     target: MonsterId,
     monster_content_id: ContentId,
     still_alive: bool,
+    curl_up_block: Option<i32>,
     malleable_block: Option<i32>,
 ) {
     if still_alive
@@ -806,6 +809,9 @@ fn push_malleable_block_follow_up(
         crate::combat::turn::reroll_writhing_mass_after_attack(state, target);
     }
     if still_alive {
+        if let Some(amount) = curl_up_block {
+            follow_ups.push(InternalAction::GainMonsterBlock { target, amount });
+        }
         if let Some(amount) = malleable_block {
             follow_ups.push(InternalAction::GainMonsterBlock { target, amount });
         }
@@ -3573,6 +3579,32 @@ mod tests {
         assert_eq!(next.monsters[0].hp, 50);
         assert_eq!(next.monsters[0].block, 5);
         assert_eq!(next.monsters[0].powers.malleable, 6);
+    }
+
+    #[test]
+    fn twin_strike_resolves_both_hits_before_curl_up_block() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::red_louse_fixture();
+        state.monsters[0].hp = 15;
+        state.monsters[0].max_hp = 15;
+        state.monsters[0].powers.curl_up = 3;
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), TWIN_STRIKE_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Twin Strike should play");
+
+        assert_eq!(next.monsters[0].hp, 5);
+        assert_eq!(next.monsters[0].block, 3);
+        assert_eq!(next.monsters[0].powers.curl_up, 0);
     }
 
     #[test]

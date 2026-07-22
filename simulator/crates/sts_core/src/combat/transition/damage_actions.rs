@@ -2,7 +2,7 @@ use super::{
     add_ritual_dagger_damage_bonus, apply_monster_death_hooks, apply_or_queue_spikes_to_player,
     apply_player_vulnerable_debuff, checked_add_combat_value, checked_combat_sum,
     deal_attack_damage_to_all_living, living_monster_mut, living_monster_mut_opt,
-    push_malleable_block_follow_up, queue_monster_death_hooks, random_living_monster_id,
+    push_attack_block_follow_ups, queue_monster_death_hooks, random_living_monster_id,
 };
 use crate::{
     action::InternalAction,
@@ -28,7 +28,14 @@ pub(super) fn deal_damage(
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
-    let (spikes, monster_content_id, still_alive, hand_drill_applies, malleable_block) = {
+    let (
+        spikes,
+        monster_content_id,
+        still_alive,
+        hand_drill_applies,
+        curl_up_block,
+        malleable_block,
+    ) = {
         let monster = living_monster_mut(state, info.target)?;
         let spikes = monster.powers.spikes;
         let monster_content_id = monster.content_id;
@@ -46,16 +53,18 @@ pub(super) fn deal_damage(
             monster_content_id,
             monster.alive,
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+            damage.curl_up_block,
             damage.malleable_block,
         )
     };
     let mut follow_ups = Vec::new();
-    push_malleable_block_follow_up(
+    push_attack_block_follow_ups(
         state,
         &mut follow_ups,
         info.target,
         monster_content_id,
         still_alive,
+        curl_up_block,
         malleable_block,
     );
     if still_alive && hand_drill_applies {
@@ -78,7 +87,14 @@ pub(super) fn deal_damage_random_enemy(
         let player_powers = state.player.powers;
         let temp_strength = state.player.temp_strength;
         let relics = state.relics.clone();
-        let (spikes, monster_content_id, still_alive, hand_drill_applies, malleable_block) = {
+        let (
+            spikes,
+            monster_content_id,
+            still_alive,
+            hand_drill_applies,
+            curl_up_block,
+            malleable_block,
+        ) = {
             let monster = living_monster_mut(state, target)?;
             let spikes = monster.powers.spikes;
             let monster_content_id = monster.content_id;
@@ -100,16 +116,18 @@ pub(super) fn deal_damage_random_enemy(
                 monster_content_id,
                 monster.alive,
                 relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+                damage.curl_up_block,
                 damage.malleable_block,
             )
         };
         let mut follow_ups = Vec::new();
-        push_malleable_block_follow_up(
+        push_attack_block_follow_ups(
             state,
             &mut follow_ups,
             target,
             monster_content_id,
             still_alive,
+            curl_up_block,
             malleable_block,
         );
         if still_alive && hand_drill_applies {
@@ -136,7 +154,15 @@ pub(super) fn deal_hand_of_greed_damage(
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
-    let (spikes, monster_content_id, still_alive, minion, hand_drill_applies, malleable_block) = {
+    let (
+        spikes,
+        monster_content_id,
+        still_alive,
+        minion,
+        hand_drill_applies,
+        curl_up_block,
+        malleable_block,
+    ) = {
         let monster = living_monster_mut(state, info.target)?;
         let spikes = monster.powers.spikes;
         let monster_content_id = monster.content_id;
@@ -155,16 +181,18 @@ pub(super) fn deal_hand_of_greed_damage(
             monster.alive,
             monster.powers.minion > 0,
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+            damage.curl_up_block,
             damage.malleable_block,
         )
     };
     let mut follow_ups = Vec::new();
-    push_malleable_block_follow_up(
+    push_attack_block_follow_ups(
         state,
         &mut follow_ups,
         info.target,
         monster_content_id,
         still_alive,
+        curl_up_block,
         malleable_block,
     );
     if still_alive && hand_drill_applies {
@@ -191,7 +219,15 @@ pub(super) fn deal_damage_and_heal_unblocked(
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
-    let (hp_damage, spikes, monster_content_id, still_alive, hand_drill_applies, malleable_block) = {
+    let (
+        hp_damage,
+        spikes,
+        monster_content_id,
+        still_alive,
+        hand_drill_applies,
+        curl_up_block,
+        malleable_block,
+    ) = {
         let monster = living_monster_mut(state, info.target)?;
         let spikes = monster.powers.spikes;
         let monster_content_id = monster.content_id;
@@ -210,16 +246,18 @@ pub(super) fn deal_damage_and_heal_unblocked(
             monster_content_id,
             monster.alive,
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+            damage.curl_up_block,
             damage.malleable_block,
         )
     };
     let mut follow_ups = Vec::new();
-    push_malleable_block_follow_up(
+    push_attack_block_follow_ups(
         state,
         &mut follow_ups,
         info.target,
         monster_content_id,
         still_alive,
+        curl_up_block,
         malleable_block,
     );
     crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
@@ -245,7 +283,15 @@ pub(super) fn deal_feed_damage(
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
-    let (spikes, monster_content_id, still_alive, minion, hand_drill_applies, malleable_block) = {
+    let (
+        spikes,
+        monster_content_id,
+        still_alive,
+        minion,
+        hand_drill_applies,
+        curl_up_block,
+        malleable_block,
+    ) = {
         let monster = living_monster_mut(state, info.target)?;
         let spikes = monster.powers.spikes;
         let monster_content_id = monster.content_id;
@@ -264,16 +310,18 @@ pub(super) fn deal_feed_damage(
             monster.alive,
             monster.powers.minion > 0,
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+            damage.curl_up_block,
             damage.malleable_block,
         )
     };
     let mut follow_ups = Vec::new();
-    push_malleable_block_follow_up(
+    push_attack_block_follow_ups(
         state,
         &mut follow_ups,
         info.target,
         monster_content_id,
         still_alive,
+        curl_up_block,
         malleable_block,
     );
     if still_alive && hand_drill_applies {
@@ -310,7 +358,15 @@ pub(super) fn deal_ritual_dagger_damage(
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
-    let (spikes, monster_content_id, still_alive, minion, hand_drill_applies, malleable_block) = {
+    let (
+        spikes,
+        monster_content_id,
+        still_alive,
+        minion,
+        hand_drill_applies,
+        curl_up_block,
+        malleable_block,
+    ) = {
         let monster = living_monster_mut(state, info.target)?;
         let spikes = monster.powers.spikes;
         let monster_content_id = monster.content_id;
@@ -329,16 +385,18 @@ pub(super) fn deal_ritual_dagger_damage(
             monster.alive,
             monster.powers.minion > 0,
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+            damage.curl_up_block,
             damage.malleable_block,
         )
     };
     let mut follow_ups = Vec::new();
-    push_malleable_block_follow_up(
+    push_attack_block_follow_ups(
         state,
         &mut follow_ups,
         info.target,
         monster_content_id,
         still_alive,
+        curl_up_block,
         malleable_block,
     );
     if still_alive && hand_drill_applies {
