@@ -6437,12 +6437,14 @@ fn push_sim_unsupported(
     action: &TraceAction,
     label: &str,
     err: sts_core::SimError,
-) {
+) -> String {
+    let reason = format!("{label}: simulator rejected transition: {err:?}");
     report.unsupported.push(UnsupportedTransition {
         action_step: action.step,
         command: action.command.clone(),
-        reason: format!("{label}: simulator rejected transition: {err:?}"),
+        reason: reason.clone(),
     });
+    reason
 }
 
 #[cfg(test)]

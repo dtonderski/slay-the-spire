@@ -2753,11 +2753,11 @@ fn seed_start_handle_combat_phase(
             };
         let next = apply_run_action(sim, decision_action);
         let Ok(next) = next else {
-            push_sim_unsupported(report, action, label, next.err().unwrap());
+            let reason = push_sim_unsupported(report, action, label, next.err().unwrap());
             return SeedStartPreDispatch::Boundary(SeedStartBoundary {
                 path: format!("$.actions[step={}].command", action.step),
                 category: "unsupported_combat_path".to_owned(),
-                reason: format!("seed-start {label} simulation failed"),
+                reason,
             });
         };
         seed_start_compare_or_defer_combat_transition(
@@ -2785,11 +2785,12 @@ fn seed_start_handle_combat_phase(
             },
         );
         let Ok(next) = next else {
-            push_sim_unsupported(report, action, "combat potion use", next.err().unwrap());
+            let reason =
+                push_sim_unsupported(report, action, "combat potion use", next.err().unwrap());
             return SeedStartPreDispatch::Boundary(SeedStartBoundary {
                 path: format!("$.actions[step={}].command", action.step),
                 category: "unsupported_combat_path".to_owned(),
-                reason: "seed-start combat potion simulation failed".to_owned(),
+                reason,
             });
         };
         if is_smoke_bomb {
@@ -2991,7 +2992,7 @@ fn seed_start_handle_combat_phase(
     if is_final_combat_blow(sim, combat_action) {
         let next = apply_combat_action_on_run(sim, combat_action);
         let Ok(next) = next else {
-            push_sim_unsupported(
+            let reason = push_sim_unsupported(
                 report,
                 action,
                 "seed-start combat victory",
@@ -3000,7 +3001,7 @@ fn seed_start_handle_combat_phase(
             return SeedStartPreDispatch::Boundary(SeedStartBoundary {
                 path: format!("$.actions[step={}].command", action.step),
                 category: "unsupported_combat_path".to_owned(),
-                reason: "seed-start combat victory simulation failed".to_owned(),
+                reason,
             });
         };
         let label = combat_label(command, sim);
@@ -3023,7 +3024,7 @@ fn seed_start_handle_combat_phase(
 
     let next = apply_combat_action_on_run(sim, combat_action);
     let Ok(next) = next else {
-        push_sim_unsupported(
+        let reason = push_sim_unsupported(
             report,
             action,
             "seed-start combat transition",
@@ -3032,7 +3033,7 @@ fn seed_start_handle_combat_phase(
         return SeedStartPreDispatch::Boundary(SeedStartBoundary {
             path: format!("$.actions[step={}].command", action.step),
             category: "unsupported_combat_path".to_owned(),
-            reason: "seed-start combat simulation rejected transition".to_owned(),
+            reason,
         });
     };
     let label = combat_label(command, sim);

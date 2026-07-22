@@ -518,6 +518,7 @@ fn rejected_core_combat_transitions_are_unsupported_boundaries_not_diffs() {
             .first_boundary;
         assert_eq!(boundary.path, format!("$.actions[step={step}].command"));
         assert_eq!(boundary.category, "unsupported_combat_path");
+        assert_eq!(boundary.reason, report.unsupported[0].reason, "{trace}");
     }
 }
 
