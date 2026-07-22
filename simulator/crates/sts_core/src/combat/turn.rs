@@ -1317,6 +1317,15 @@ fn prepare_next_intents_for_ids(
         .iter()
         .any(|monster| monster.powers.minion != 0 && !monster.alive);
     let missing_hp = living_monster_missing_hp(&state.monsters);
+    let rolled_context = RolledIntentContext {
+        ascension: state.ascension,
+        player_hp: state.player.hp,
+        player_constricted: state.player.powers.constricted > 0,
+        living_monster_count,
+        alive_gremlin_count,
+        collector_minion_dead,
+        missing_hp,
+    };
     for (monster_index, monster) in state.monsters.iter_mut().enumerate() {
         if only_ids.is_some_and(|ids| !ids.contains(&monster.id)) {
             continue;
@@ -1352,274 +1361,262 @@ fn prepare_next_intents_for_ids(
                 continue;
             }
             let roll = state.rng.monster_rng.random_int(99);
-            monster.intent = if monster.content_id == HEXAGHOST_ID && monster.moves_executed == 1 {
-                crate::MonsterIntent::AttackMultiple {
-                    damage: (state.player.hp / 12) + 1,
-                    hits: 6,
-                }
-            } else if monster.content_id == BRONZE_AUTOMATON_ID {
-                target_bronze_automaton_next_intent(
-                    monster.moves_executed,
-                    &monster.move_history,
-                    state.ascension,
-                )
-            } else if monster.content_id == EXPLODER_ID {
-                target_exploder_next_intent_from_roll(monster.moves_executed, state.ascension)
-            } else if monster.content_id == SPHERIC_GUARDIAN_ID {
-                target_spheric_guardian_next_intent_from_roll(
-                    monster.moves_executed,
-                    &monster.move_history,
-                    state.ascension,
-                )
-            } else if monster.content_id == MAW_ID {
-                target_maw_next_intent_from_roll(
-                    monster.moves_executed,
-                    &monster.move_history,
-                    roll,
-                    state.ascension,
-                )
-            } else if monster.content_id == SPIRE_GROWTH_ID {
-                target_spire_growth_next_intent_from_roll(
-                    monster.moves_executed,
-                    &monster.move_history,
-                    roll,
-                    state.player.powers.constricted > 0,
-                    state.ascension,
-                )
-            } else if monster.content_id == GIANT_HEAD_ID {
-                target_giant_head_next_intent_from_roll(
-                    monster.moves_executed,
-                    &monster.move_history,
-                    roll,
-                    state.ascension,
-                )
-            } else if monster.content_id == WRITHING_MASS_ID {
-                target_writhing_mass_next_intent_from_roll(
-                    false,
-                    &monster.move_history,
-                    monster.has_siphoned,
-                    roll,
-                    &mut state.rng.monster_rng,
-                    state.ascension,
-                )
-            } else if monster.content_id == NEMESIS_ID {
-                target_nemesis_next_intent_from_roll(
-                    monster.moves_executed,
-                    &monster.move_history,
-                    roll,
-                    &mut state.rng.monster_rng,
-                    state.ascension,
-                )
-            } else if monster.content_id == JAW_WORM_ID {
-                target_jaw_worm_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    &mut state.rng.monster_rng,
-                )
-            } else if monster.content_id == RED_LOUSE_ID {
-                let attack_damage =
-                    monster
-                        .rolled_attack_damage
-                        .ok_or(crate::SimError::InvalidState(
-                            "monster requires rolled attack damage",
-                        ))?;
-                target_louse_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    attack_damage,
-                    crate::MonsterIntent::StrengthAndBlock {
-                        strength: LOUSE_CURL_STRENGTH,
-                        block: 0,
-                    },
-                )
-            } else if monster.content_id == GREEN_LOUSE_ID {
-                let attack_damage =
-                    monster
-                        .rolled_attack_damage
-                        .ok_or(crate::SimError::InvalidState(
-                            "monster requires rolled attack damage",
-                        ))?;
-                target_louse_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    attack_damage,
-                    crate::MonsterIntent::ApplyPlayerWeak {
-                        amount: GREEN_LOUSE_WEAK,
-                    },
-                )
-            } else if monster.content_id == GREMLIN_NOB_ID {
-                target_gremlin_nob_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    state.ascension,
-                )
-            } else if monster.content_id == CHOSEN_ID {
-                target_chosen_next_intent_from_roll(&monster.move_history, roll, state.ascension)
-            } else if monster.content_id == CHAMP_ID {
-                target_champ_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    monster.hp,
-                    monster.max_hp,
-                    state.ascension,
-                )
-            } else if monster.content_id == BYRD_ID {
-                if monster.powers.flight <= 0 {
-                    target_grounded_byrd_next_intent()
-                } else {
-                    target_byrd_next_intent_from_roll(
-                        &monster.move_history,
-                        roll,
-                        &mut state.rng.monster_rng,
-                        state.ascension,
-                    )
-                }
-            } else if monster.content_id == ACID_SLIME_ID
-                && acid_slime_uses_large_move_table(monster)
-            {
-                target_large_acid_slime_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    &mut state.rng.monster_rng,
-                    state.ascension,
-                )
-            } else if monster.content_id == ACID_SLIME_ID
-                && acid_slime_uses_medium_move_table(monster)
-            {
-                target_medium_acid_slime_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    &mut state.rng.monster_rng,
-                    state.ascension,
-                )
-            } else if monster.content_id == SPIKE_SLIME_ID
-                && spike_slime_uses_medium_or_large_move_table(monster)
-            {
-                target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
-                    spike_slime_uses_large_move_table(monster),
-                    &monster.move_history,
-                    roll,
-                    state.ascension,
-                )
-            } else if monster.content_id == SENTRY_ID {
-                target_sentry_next_intent(&monster.move_history, monster_index, state.ascension)
-            } else if monster.content_id == SHELLED_PARASITE_ID {
-                target_shelled_parasite_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    &mut state.rng.monster_rng,
-                    state.ascension,
-                )
-            } else if monster.content_id == SNAKE_PLANT_ID {
-                target_snake_plant_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    state.ascension,
-                )
-            } else if monster.content_id == SNECKO_ID {
-                target_snecko_next_intent_from_roll(&monster.move_history, roll, state.ascension)
-            } else if monster.content_id == BOOK_OF_STABBING_ID {
-                let mut stab_count = monster.powers.book_stab_count.max(1);
-                let intent = target_book_of_stabbing_next_intent_from_roll_with_stab_count(
-                    &monster.move_history,
-                    &mut stab_count,
-                    roll,
-                    state.ascension,
-                );
-                monster.powers.book_stab_count = stab_count;
-                intent
-            } else if monster.content_id == CENTURION_ID {
-                target_centurion_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    living_monster_count,
-                    state.ascension,
-                )
-            } else if monster.content_id == HEALER_ID {
-                target_healer_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    missing_hp,
-                    state.ascension,
-                )
-            } else if monster.content_id == FUNGI_BEAST_ID {
-                target_fungi_beast_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    state.ascension,
-                )
-            } else if monster.content_id == SLAVER_BLUE_ID {
-                target_slaver_blue_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    state.ascension,
-                )
-            } else if monster.content_id == SLAVER_RED_ID {
-                target_slaver_red_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    state.ascension,
-                )
-            } else if monster.content_id == GREMLIN_LEADER_ID {
-                target_gremlin_leader_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    &mut state.rng.monster_rng,
-                    alive_gremlin_count,
-                    state.ascension,
-                )
-            } else if monster.content_id == THE_COLLECTOR_ID {
-                target_collector_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    collector_minion_dead,
-                )
-            } else if monster.content_id == BRONZE_ORB_ID {
-                target_bronze_orb_next_intent_from_roll(&monster.move_history, roll)
-            } else if monster.content_id == ORB_WALKER_ID {
-                target_orb_walker_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    state.ascension,
-                )
-            } else if monster.content_id == REPTOMANCER_ID {
-                target_reptomancer_next_intent_from_roll(
-                    &monster.move_history,
-                    roll,
-                    living_monster_count.saturating_sub(1) <= 3,
-                    &mut state.rng.monster_rng,
-                    state.ascension,
-                )
-            } else if monster.content_id == REPULSOR_ID {
-                target_repulsor_next_intent_from_roll(&monster.move_history, roll, state.ascension)
-            } else if monster.content_id == DARKLING_ID {
-                let attack_damage =
-                    monster
-                        .rolled_attack_damage
-                        .ok_or(crate::SimError::InvalidState(
-                            "monster requires rolled attack damage",
-                        ))?;
-                crate::content::monsters::target_darkling_next_intent_from_roll_with_rng(
-                    &monster.move_history,
-                    roll,
-                    monster_index,
-                    attack_damage,
-                    state.ascension,
-                    &mut state.rng.monster_rng,
-                )
-            } else if monster.content_id == SPIKER_ID {
-                target_spiker_next_intent_from_roll(
-                    &monster.move_history,
-                    monster.powers.spiker_thorns_buffs,
-                    roll,
-                    state.ascension,
-                )
-            } else {
-                prepare_monster_intent_for_ascension(monster, state.ascension)?
-            };
-            record_target_move(monster);
+            prepare_rolled_next_intent(
+                monster,
+                &mut state.rng.monster_rng,
+                monster_index,
+                roll,
+                rolled_context,
+            )?;
         }
     }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct RolledIntentContext {
+    ascension: u8,
+    player_hp: i32,
+    player_constricted: bool,
+    living_monster_count: usize,
+    alive_gremlin_count: usize,
+    collector_minion_dead: bool,
+    missing_hp: i32,
+}
+
+fn prepare_rolled_next_intent(
+    monster: &mut crate::MonsterState,
+    monster_rng: &mut StsRng,
+    monster_index: usize,
+    roll: i32,
+    context: RolledIntentContext,
+) -> SimResult<()> {
+    let RolledIntentContext {
+        ascension,
+        player_hp,
+        player_constricted,
+        living_monster_count,
+        alive_gremlin_count,
+        collector_minion_dead,
+        missing_hp,
+    } = context;
+    monster.intent = if monster.content_id == HEXAGHOST_ID && monster.moves_executed == 1 {
+        crate::MonsterIntent::AttackMultiple {
+            damage: (player_hp / 12) + 1,
+            hits: 6,
+        }
+    } else if monster.content_id == BRONZE_AUTOMATON_ID {
+        target_bronze_automaton_next_intent(
+            monster.moves_executed,
+            &monster.move_history,
+            ascension,
+        )
+    } else if monster.content_id == EXPLODER_ID {
+        target_exploder_next_intent_from_roll(monster.moves_executed, ascension)
+    } else if monster.content_id == SPHERIC_GUARDIAN_ID {
+        target_spheric_guardian_next_intent_from_roll(
+            monster.moves_executed,
+            &monster.move_history,
+            ascension,
+        )
+    } else if monster.content_id == MAW_ID {
+        target_maw_next_intent_from_roll(
+            monster.moves_executed,
+            &monster.move_history,
+            roll,
+            ascension,
+        )
+    } else if monster.content_id == SPIRE_GROWTH_ID {
+        target_spire_growth_next_intent_from_roll(
+            monster.moves_executed,
+            &monster.move_history,
+            roll,
+            player_constricted,
+            ascension,
+        )
+    } else if monster.content_id == GIANT_HEAD_ID {
+        target_giant_head_next_intent_from_roll(
+            monster.moves_executed,
+            &monster.move_history,
+            roll,
+            ascension,
+        )
+    } else if monster.content_id == WRITHING_MASS_ID {
+        target_writhing_mass_next_intent_from_roll(
+            false,
+            &monster.move_history,
+            monster.has_siphoned,
+            roll,
+            monster_rng,
+            ascension,
+        )
+    } else if monster.content_id == NEMESIS_ID {
+        target_nemesis_next_intent_from_roll(
+            monster.moves_executed,
+            &monster.move_history,
+            roll,
+            monster_rng,
+            ascension,
+        )
+    } else if monster.content_id == JAW_WORM_ID {
+        target_jaw_worm_next_intent_from_roll(&monster.move_history, roll, monster_rng)
+    } else if monster.content_id == RED_LOUSE_ID {
+        let attack_damage = monster
+            .rolled_attack_damage
+            .ok_or(crate::SimError::InvalidState(
+                "monster requires rolled attack damage",
+            ))?;
+        target_louse_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            attack_damage,
+            crate::MonsterIntent::StrengthAndBlock {
+                strength: LOUSE_CURL_STRENGTH,
+                block: 0,
+            },
+        )
+    } else if monster.content_id == GREEN_LOUSE_ID {
+        let attack_damage = monster
+            .rolled_attack_damage
+            .ok_or(crate::SimError::InvalidState(
+                "monster requires rolled attack damage",
+            ))?;
+        target_louse_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            attack_damage,
+            crate::MonsterIntent::ApplyPlayerWeak {
+                amount: GREEN_LOUSE_WEAK,
+            },
+        )
+    } else if monster.content_id == GREMLIN_NOB_ID {
+        target_gremlin_nob_next_intent_from_roll(&monster.move_history, roll, ascension)
+    } else if monster.content_id == CHOSEN_ID {
+        target_chosen_next_intent_from_roll(&monster.move_history, roll, ascension)
+    } else if monster.content_id == CHAMP_ID {
+        target_champ_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            monster.hp,
+            monster.max_hp,
+            ascension,
+        )
+    } else if monster.content_id == BYRD_ID {
+        if monster.powers.flight <= 0 {
+            target_grounded_byrd_next_intent()
+        } else {
+            target_byrd_next_intent_from_roll(&monster.move_history, roll, monster_rng, ascension)
+        }
+    } else if monster.content_id == ACID_SLIME_ID && acid_slime_uses_large_move_table(monster) {
+        target_large_acid_slime_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            monster_rng,
+            ascension,
+        )
+    } else if monster.content_id == ACID_SLIME_ID && acid_slime_uses_medium_move_table(monster) {
+        target_medium_acid_slime_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            monster_rng,
+            ascension,
+        )
+    } else if monster.content_id == SPIKE_SLIME_ID
+        && spike_slime_uses_medium_or_large_move_table(monster)
+    {
+        target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+            spike_slime_uses_large_move_table(monster),
+            &monster.move_history,
+            roll,
+            ascension,
+        )
+    } else if monster.content_id == SENTRY_ID {
+        target_sentry_next_intent(&monster.move_history, monster_index, ascension)
+    } else if monster.content_id == SHELLED_PARASITE_ID {
+        target_shelled_parasite_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            monster_rng,
+            ascension,
+        )
+    } else if monster.content_id == SNAKE_PLANT_ID {
+        target_snake_plant_next_intent_from_roll(&monster.move_history, roll, ascension)
+    } else if monster.content_id == SNECKO_ID {
+        target_snecko_next_intent_from_roll(&monster.move_history, roll, ascension)
+    } else if monster.content_id == BOOK_OF_STABBING_ID {
+        let mut stab_count = monster.powers.book_stab_count.max(1);
+        let intent = target_book_of_stabbing_next_intent_from_roll_with_stab_count(
+            &monster.move_history,
+            &mut stab_count,
+            roll,
+            ascension,
+        );
+        monster.powers.book_stab_count = stab_count;
+        intent
+    } else if monster.content_id == CENTURION_ID {
+        target_centurion_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            living_monster_count,
+            ascension,
+        )
+    } else if monster.content_id == HEALER_ID {
+        target_healer_next_intent_from_roll(&monster.move_history, roll, missing_hp, ascension)
+    } else if monster.content_id == FUNGI_BEAST_ID {
+        target_fungi_beast_next_intent_from_roll(&monster.move_history, roll, ascension)
+    } else if monster.content_id == SLAVER_BLUE_ID {
+        target_slaver_blue_next_intent_from_roll(&monster.move_history, roll, ascension)
+    } else if monster.content_id == SLAVER_RED_ID {
+        target_slaver_red_next_intent_from_roll(&monster.move_history, roll, ascension)
+    } else if monster.content_id == GREMLIN_LEADER_ID {
+        target_gremlin_leader_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            monster_rng,
+            alive_gremlin_count,
+            ascension,
+        )
+    } else if monster.content_id == THE_COLLECTOR_ID {
+        target_collector_next_intent_from_roll(&monster.move_history, roll, collector_minion_dead)
+    } else if monster.content_id == BRONZE_ORB_ID {
+        target_bronze_orb_next_intent_from_roll(&monster.move_history, roll)
+    } else if monster.content_id == ORB_WALKER_ID {
+        target_orb_walker_next_intent_from_roll(&monster.move_history, roll, ascension)
+    } else if monster.content_id == REPTOMANCER_ID {
+        target_reptomancer_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            living_monster_count.saturating_sub(1) <= 3,
+            monster_rng,
+            ascension,
+        )
+    } else if monster.content_id == REPULSOR_ID {
+        target_repulsor_next_intent_from_roll(&monster.move_history, roll, ascension)
+    } else if monster.content_id == DARKLING_ID {
+        let attack_damage = monster
+            .rolled_attack_damage
+            .ok_or(crate::SimError::InvalidState(
+                "monster requires rolled attack damage",
+            ))?;
+        crate::content::monsters::target_darkling_next_intent_from_roll_with_rng(
+            &monster.move_history,
+            roll,
+            monster_index,
+            attack_damage,
+            ascension,
+            monster_rng,
+        )
+    } else if monster.content_id == SPIKER_ID {
+        target_spiker_next_intent_from_roll(
+            &monster.move_history,
+            monster.powers.spiker_thorns_buffs,
+            roll,
+            ascension,
+        )
+    } else {
+        prepare_monster_intent_for_ascension(monster, ascension)?
+    };
+    record_target_move(monster);
     Ok(())
 }
 

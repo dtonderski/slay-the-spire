@@ -31,6 +31,16 @@ and Slime Boss. Return an explicit handled/not-handled result. Preserve the
 small Spike Slime discarded roll, Looter/Mugger source RNG, Gremlin Tsundere's
 living-monster projection, fallible Transient damage, and move recording.
 
+## Second slice: common-roll content dispatch
+
+Extract the complete rolled content table behind one helper while keeping the
+common `random_int(99)` draw visible in the scheduler. Capture ascension,
+player HP and Constricted state, living/minion counts, and aggregate missing HP
+once in an immutable context before iteration. Preserve table order, the
+already-consumed roll, all additional per-content RNG calls, mutable Book of
+Stabbing counters, required rolled-damage errors, the fail-closed generic
+content fallback, and the single final move-history record.
+
 ## Verification
 
 Review the moved bodies against the pre-extraction diff, then run formatting,
