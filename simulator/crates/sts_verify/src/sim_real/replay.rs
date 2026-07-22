@@ -1167,6 +1167,404 @@ fn seed_start_handle_neow_grid_phase(
     SeedStartPreDispatch::NotHandled
 }
 
+#[allow(clippy::too_many_arguments)]
+fn seed_start_handle_neow_boss_swap_phase(
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    deck_ids: &mut Vec<String>,
+    neow_gold: &mut i32,
+    neow_current_hp: &mut i32,
+    neow_max_hp: &mut i32,
+    seed_sim: &mut Option<RunState>,
+    phase: &mut SeedStartPhase,
+    report: &mut SimRealReport,
+) -> SeedStartPreDispatch {
+    if *phase == SeedStartPhase::NeowOptions {
+        let Some(option) = seed_start_selected_neow_option(start.numeric_seed, &action.command)
+        else {
+            return SeedStartPreDispatch::NotHandled;
+        };
+        if !seed_start_neow_option_is_supported_boss_swap(option) {
+            return SeedStartPreDispatch::NotHandled;
+        }
+        let run = seed_start_apply_neow_boss_swap(start.numeric_seed, deck_ids);
+        if seed_start_boss_swap_is_calling_bell_grid(&run) {
+            compare_subset(
+                report,
+                action,
+                "Neow boss swap Calling Bell grid",
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&run),
+            );
+            *seed_sim = Some(run);
+            *phase = SeedStartPhase::NeowBossSwapCallingBellGrid;
+            return SeedStartPreDispatch::Handled;
+        }
+        if seed_start_boss_swap_is_astrolabe_grid(&run) {
+            compare_subset(
+                report,
+                action,
+                "Neow boss swap Astrolabe grid",
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&run),
+            );
+            *seed_sim = Some(run);
+            *phase = SeedStartPhase::NeowBossSwapAstrolabeGrid;
+            return SeedStartPreDispatch::Handled;
+        }
+        if seed_start_boss_swap_is_pandoras_box_grid(&run) {
+            compare_subset(
+                report,
+                action,
+                "Neow boss swap Pandora's Box grid",
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&run),
+            );
+            *seed_sim = Some(run);
+            *phase = SeedStartPhase::NeowBossSwapPandorasBoxGrid;
+            return SeedStartPreDispatch::Handled;
+        }
+        if seed_start_boss_swap_is_empty_cage_grid(&run) {
+            compare_subset(
+                report,
+                action,
+                "Neow boss swap Empty Cage grid",
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&run),
+            );
+            *seed_sim = Some(run);
+            *phase = SeedStartPhase::NeowBossSwapEmptyCageGrid;
+            return SeedStartPreDispatch::Handled;
+        }
+        if seed_start_boss_swap_is_tiny_house_reward(&run) {
+            compare_subset(
+                report,
+                action,
+                "Neow boss swap Tiny House reward",
+                seed_start_reward_observed_subset(&post.message),
+                seed_start_reward_simulated_subset(&run),
+            );
+            *deck_ids = deck_content_keys(&run.deck);
+            *neow_gold = run.gold;
+            *neow_current_hp = run.player_hp;
+            *neow_max_hp = run.player_max_hp;
+            *seed_sim = Some(run);
+            *phase = SeedStartPhase::Reward;
+            return SeedStartPreDispatch::Handled;
+        }
+        if let Some(reason) = seed_start_unsupported_boss_swap_reason(&run) {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason,
+            });
+        }
+        let relic_ids = seed_start_boss_swap_relic_ids(&run);
+        let post_deck_ids = deck_content_keys(&run.deck);
+        compare_subset(
+            report,
+            action,
+            "Neow boss swap",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": post_deck_ids,
+                "relic_ids": relic_ids,
+                "choices": ["leave"],
+            }),
+        );
+        *deck_ids = post_deck_ids;
+        *seed_sim = Some(run);
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowBossSwapCallingBellGrid
+        && (action.command.eq_ignore_ascii_case("PROCEED")
+            || action.command.eq_ignore_ascii_case("CONFIRM"))
+    {
+        let Some(sim) = seed_sim.as_ref() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason: "seed-start Calling Bell boss-swap grid without initialized run simulation"
+                    .to_owned(),
+            });
+        };
+        let Ok(next) = confirm_grid(sim) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason: "seed-start Calling Bell boss-swap grid confirm failed".to_owned(),
+            });
+        };
+        *deck_ids = deck_content_keys(&next.deck);
+        compare_subset(
+            report,
+            action,
+            "Neow boss swap Calling Bell rewards",
+            seed_start_reward_observed_subset(&post.message),
+            seed_start_reward_simulated_subset(&next),
+        );
+        *seed_sim = Some(next);
+        *phase = SeedStartPhase::NeowBossSwapCallingBellReward;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowBossSwapCallingBellReward
+        && command_choose_index(&action.command).is_some()
+    {
+        let Some(sim) = seed_sim.as_mut() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason:
+                    "seed-start Calling Bell boss-swap reward without initialized run simulation"
+                        .to_owned(),
+            });
+        };
+        let label = match seed_start_apply_reward_choose(sim, &action.command) {
+            Ok(label) => label,
+            Err(reason) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_neow_boss_swap".to_owned(),
+                    reason,
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        *deck_ids = deck_content_keys(&sim.deck);
+        compare_subset(
+            report,
+            action,
+            &label,
+            seed_start_reward_observed_subset(&post.message),
+            seed_start_reward_simulated_subset(sim),
+        );
+        if seed_start_reward_sequence_complete(sim) {
+            *phase = SeedStartPhase::Reward;
+        }
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowBossSwapAstrolabeGrid
+        && command_choose_index(&action.command).is_some()
+    {
+        let Some(sim) = seed_sim.as_ref() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason: "seed-start Astrolabe boss-swap grid without initialized run simulation"
+                    .to_owned(),
+            });
+        };
+        let index = command_choose_index(&action.command).expect("matched choose command");
+        let Ok(next) = select_grid_card(sim, index) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason: "seed-start Astrolabe boss-swap grid choose failed".to_owned(),
+            });
+        };
+        *deck_ids = deck_content_keys(&next.deck);
+        if let Ok(confirmed) = confirm_grid(&next) {
+            *deck_ids = deck_content_keys(&confirmed.deck);
+            if confirmed.card_grid.is_none() {
+                compare_subset(
+                    report,
+                    action,
+                    "Neow boss swap Astrolabe transformed",
+                    seed_start_observed_subset(&post.message),
+                    json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": 80,
+                        "max_hp": 80,
+                        "deck_ids": deck_ids,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                        "choices": ["leave"],
+                    }),
+                );
+                *seed_sim = Some(confirmed);
+                *phase = SeedStartPhase::NeowLeave;
+                return SeedStartPreDispatch::Handled;
+            }
+        }
+        if next.card_grid.is_some() {
+            compare_subset(
+                report,
+                action,
+                "Neow boss swap Astrolabe grid select",
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&next),
+            );
+            *seed_sim = Some(next);
+            return SeedStartPreDispatch::Handled;
+        }
+        compare_subset(
+            report,
+            action,
+            "Neow boss swap Astrolabe transformed",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            }),
+        );
+        *seed_sim = Some(next);
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowBossSwapPandorasBoxGrid
+        && (action.command.eq_ignore_ascii_case("PROCEED")
+            || action.command.eq_ignore_ascii_case("CONFIRM"))
+    {
+        let Some(sim) = seed_sim.as_ref() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason:
+                    "seed-start Pandora's Box boss-swap grid without initialized run simulation"
+                        .to_owned(),
+            });
+        };
+        let Ok(next) = confirm_grid(sim) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason: "seed-start Pandora's Box boss-swap grid confirm failed".to_owned(),
+            });
+        };
+        *deck_ids = deck_content_keys(&next.deck);
+        compare_subset(
+            report,
+            action,
+            "Neow boss swap Pandora's Box confirm",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            }),
+        );
+        *seed_sim = Some(next);
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowBossSwapEmptyCageGrid
+        && command_choose_index(&action.command).is_some()
+    {
+        let Some(sim) = seed_sim.as_ref() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason: "seed-start Empty Cage boss-swap grid without initialized run simulation"
+                    .to_owned(),
+            });
+        };
+        let index = command_choose_index(&action.command).expect("matched choose command");
+        let Ok(next) = select_grid_card(sim, index) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason: "seed-start Empty Cage boss-swap grid choose failed".to_owned(),
+            });
+        };
+        compare_subset(
+            report,
+            action,
+            "Neow boss swap Empty Cage grid select",
+            seed_start_grid_observed_subset(&post.message),
+            seed_start_grid_simulated_subset(&next),
+        );
+        *seed_sim = Some(next);
+        return SeedStartPreDispatch::Handled;
+    }
+
+    if *phase == SeedStartPhase::NeowBossSwapEmptyCageGrid
+        && action.command.eq_ignore_ascii_case("CONFIRM")
+    {
+        let Some(sim) = seed_sim.as_ref() else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason: "seed-start Empty Cage boss-swap grid without initialized run simulation"
+                    .to_owned(),
+            });
+        };
+        let Ok(next) = confirm_grid(sim) else {
+            return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "unsupported_neow_boss_swap".to_owned(),
+                reason: "seed-start Empty Cage boss-swap grid confirm failed".to_owned(),
+            });
+        };
+        *deck_ids = deck_content_keys(&next.deck);
+        if next.card_grid.is_some() {
+            compare_subset(
+                report,
+                action,
+                "Neow boss swap Empty Cage grid confirm",
+                seed_start_grid_observed_subset(&post.message),
+                seed_start_grid_simulated_subset(&next),
+            );
+            *seed_sim = Some(next);
+            return SeedStartPreDispatch::Handled;
+        }
+        compare_subset(
+            report,
+            action,
+            "Neow boss swap Empty Cage confirm",
+            seed_start_observed_subset(&post.message),
+            json!({
+                "screen_type": "EVENT",
+                "ascension": start.ascension,
+                "floor": 0,
+                "gold": 99,
+                "current_hp": 80,
+                "max_hp": 80,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": ["leave"],
+            }),
+        );
+        *seed_sim = Some(next);
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    SeedStartPreDispatch::NotHandled
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -1816,383 +2214,23 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        match seed_start_handle_neow_boss_swap_phase(
+            action,
+            post,
+            start,
+            &mut deck_ids,
+            &mut neow_gold,
+            &mut neow_current_hp,
+            &mut neow_max_hp,
+            &mut seed_sim,
+            &mut phase,
+            report,
+        ) {
+            SeedStartPreDispatch::NotHandled => {}
+            SeedStartPreDispatch::Handled => continue,
+            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
+        }
         match phase {
-            SeedStartPhase::NeowOptions
-                if seed_start_selected_neow_option(start.numeric_seed, &action.command)
-                    .is_some_and(seed_start_neow_option_is_supported_boss_swap) =>
-            {
-                let run = seed_start_apply_neow_boss_swap(start.numeric_seed, &deck_ids);
-                if seed_start_boss_swap_is_calling_bell_grid(&run) {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow boss swap Calling Bell grid",
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&run),
-                    );
-                    seed_sim = Some(run);
-                    phase = SeedStartPhase::NeowBossSwapCallingBellGrid;
-                    continue;
-                }
-                if seed_start_boss_swap_is_astrolabe_grid(&run) {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow boss swap Astrolabe grid",
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&run),
-                    );
-                    seed_sim = Some(run);
-                    phase = SeedStartPhase::NeowBossSwapAstrolabeGrid;
-                    continue;
-                }
-                if seed_start_boss_swap_is_pandoras_box_grid(&run) {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow boss swap Pandora's Box grid",
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&run),
-                    );
-                    seed_sim = Some(run);
-                    phase = SeedStartPhase::NeowBossSwapPandorasBoxGrid;
-                    continue;
-                }
-                if seed_start_boss_swap_is_empty_cage_grid(&run) {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow boss swap Empty Cage grid",
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&run),
-                    );
-                    seed_sim = Some(run);
-                    phase = SeedStartPhase::NeowBossSwapEmptyCageGrid;
-                    continue;
-                }
-                if seed_start_boss_swap_is_tiny_house_reward(&run) {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow boss swap Tiny House reward",
-                        seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(&run),
-                    );
-                    deck_ids = deck_content_keys(&run.deck);
-                    neow_gold = run.gold;
-                    neow_current_hp = run.player_hp;
-                    neow_max_hp = run.player_max_hp;
-                    seed_sim = Some(run);
-                    phase = SeedStartPhase::Reward;
-                    continue;
-                }
-                if let Some(reason) = seed_start_unsupported_boss_swap_reason(&run) {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason,
-                    });
-                }
-                let relic_ids = seed_start_boss_swap_relic_ids(&run);
-                let post_deck_ids = deck_content_keys(&run.deck);
-                compare_subset(
-                    report,
-                    action,
-                    "Neow boss swap",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": post_deck_ids,
-                        "relic_ids": relic_ids,
-                        "choices": ["leave"],
-                    }),
-                );
-                deck_ids = post_deck_ids;
-                seed_sim = Some(run);
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowBossSwapCallingBellGrid
-                if action.command.eq_ignore_ascii_case("PROCEED")
-                    || action.command.eq_ignore_ascii_case("CONFIRM") =>
-            {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason:
-                            "seed-start Calling Bell boss-swap grid without initialized run simulation"
-                                .to_owned(),
-                    });
-                };
-                let Ok(next) = confirm_grid(sim) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason: "seed-start Calling Bell boss-swap grid confirm failed".to_owned(),
-                    });
-                };
-                deck_ids = deck_content_keys(&next.deck);
-                compare_subset(
-                    report,
-                    action,
-                    "Neow boss swap Calling Bell rewards",
-                    seed_start_reward_observed_subset(&post.message),
-                    seed_start_reward_simulated_subset(&next),
-                );
-                seed_sim = Some(next);
-                phase = SeedStartPhase::NeowBossSwapCallingBellReward;
-            }
-            SeedStartPhase::NeowBossSwapCallingBellReward
-                if command_choose_index(&action.command).is_some() =>
-            {
-                let Some(sim) = seed_sim.as_mut() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason:
-                            "seed-start Calling Bell boss-swap reward without initialized run simulation"
-                                .to_owned(),
-                    });
-                };
-                let label = match seed_start_apply_reward_choose(sim, &action.command) {
-                    Ok(label) => label,
-                    Err(reason) => {
-                        let boundary = SeedStartBoundary {
-                            path: format!("$.actions[step={}].command", action.step),
-                            category: "unsupported_neow_boss_swap".to_owned(),
-                            reason,
-                        };
-                        report.unsupported.push(UnsupportedTransition {
-                            action_step: action.step,
-                            command: action.command.clone(),
-                            reason: boundary.reason.clone(),
-                        });
-                        return finish_boundary!(boundary);
-                    }
-                };
-                deck_ids = deck_content_keys(&sim.deck);
-                if seed_start_reward_sequence_complete(sim) {
-                    compare_subset(
-                        report,
-                        action,
-                        &label,
-                        seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(sim),
-                    );
-                    phase = SeedStartPhase::Reward;
-                } else {
-                    compare_subset(
-                        report,
-                        action,
-                        &label,
-                        seed_start_reward_observed_subset(&post.message),
-                        seed_start_reward_simulated_subset(sim),
-                    );
-                }
-            }
-            SeedStartPhase::NeowBossSwapAstrolabeGrid
-                if command_choose_index(&action.command).is_some() =>
-            {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason:
-                            "seed-start Astrolabe boss-swap grid without initialized run simulation"
-                                .to_owned(),
-                    });
-                };
-                let index = command_choose_index(&action.command).expect("matched choose command");
-                let Ok(next) = select_grid_card(sim, index) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason: "seed-start Astrolabe boss-swap grid choose failed".to_owned(),
-                    });
-                };
-                deck_ids = deck_content_keys(&next.deck);
-                if let Ok(confirmed) = confirm_grid(&next) {
-                    deck_ids = deck_content_keys(&confirmed.deck);
-                    if confirmed.card_grid.is_none() {
-                        compare_subset(
-                            report,
-                            action,
-                            "Neow boss swap Astrolabe transformed",
-                            seed_start_observed_subset(&post.message),
-                            json!({
-                                "screen_type": "EVENT",
-                                "ascension": start.ascension,
-                                "floor": 0,
-                                "gold": 99,
-                                "current_hp": 80,
-                                "max_hp": 80,
-                                "deck_ids": deck_ids,
-                                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                                "choices": ["leave"],
-                            }),
-                        );
-                        seed_sim = Some(confirmed);
-                        phase = SeedStartPhase::NeowLeave;
-                        continue;
-                    }
-                }
-                if next.card_grid.is_some() {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow boss swap Astrolabe grid select",
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next),
-                    );
-                    seed_sim = Some(next);
-                    continue;
-                }
-                compare_subset(
-                    report,
-                    action,
-                    "Neow boss swap Astrolabe transformed",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                seed_sim = Some(next);
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowBossSwapPandorasBoxGrid
-                if action.command.eq_ignore_ascii_case("PROCEED")
-                    || action.command.eq_ignore_ascii_case("CONFIRM") =>
-            {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason:
-                            "seed-start Pandora's Box boss-swap grid without initialized run simulation"
-                                .to_owned(),
-                    });
-                };
-                let Ok(next) = confirm_grid(sim) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason: "seed-start Pandora's Box boss-swap grid confirm failed".to_owned(),
-                    });
-                };
-                deck_ids = deck_content_keys(&next.deck);
-                compare_subset(
-                    report,
-                    action,
-                    "Neow boss swap Pandora's Box confirm",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                seed_sim = Some(next);
-                phase = SeedStartPhase::NeowLeave;
-            }
-            SeedStartPhase::NeowBossSwapEmptyCageGrid
-                if command_choose_index(&action.command).is_some() =>
-            {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason:
-                            "seed-start Empty Cage boss-swap grid without initialized run simulation"
-                                .to_owned(),
-                    });
-                };
-                let index = command_choose_index(&action.command).expect("matched choose command");
-                let Ok(next) = select_grid_card(sim, index) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason: "seed-start Empty Cage boss-swap grid choose failed".to_owned(),
-                    });
-                };
-                compare_subset(
-                    report,
-                    action,
-                    "Neow boss swap Empty Cage grid select",
-                    seed_start_grid_observed_subset(&post.message),
-                    seed_start_grid_simulated_subset(&next),
-                );
-                seed_sim = Some(next);
-            }
-            SeedStartPhase::NeowBossSwapEmptyCageGrid
-                if action.command.eq_ignore_ascii_case("CONFIRM") =>
-            {
-                let Some(sim) = seed_sim.as_ref() else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason:
-                            "seed-start Empty Cage boss-swap grid without initialized run simulation"
-                                .to_owned(),
-                    });
-                };
-                let Ok(next) = confirm_grid(sim) else {
-                    return finish_boundary!(SeedStartBoundary {
-                        path: format!("$.actions[step={}].command", action.step),
-                        category: "unsupported_neow_boss_swap".to_owned(),
-                        reason: "seed-start Empty Cage boss-swap grid confirm failed".to_owned(),
-                    });
-                };
-                deck_ids = deck_content_keys(&next.deck);
-                if next.card_grid.is_some() {
-                    compare_subset(
-                        report,
-                        action,
-                        "Neow boss swap Empty Cage grid confirm",
-                        seed_start_grid_observed_subset(&post.message),
-                        seed_start_grid_simulated_subset(&next),
-                    );
-                    seed_sim = Some(next);
-                    continue;
-                }
-                compare_subset(
-                    report,
-                    action,
-                    "Neow boss swap Empty Cage confirm",
-                    seed_start_observed_subset(&post.message),
-                    json!({
-                        "screen_type": "EVENT",
-                        "ascension": start.ascension,
-                        "floor": 0,
-                        "gold": 99,
-                        "current_hp": 80,
-                        "max_hp": 80,
-                        "deck_ids": deck_ids,
-                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                        "choices": ["leave"],
-                    }),
-                );
-                seed_sim = Some(next);
-                phase = SeedStartPhase::NeowLeave;
-            }
             SeedStartPhase::NeowLeave if command_is_choose(&action.command, 0) => {
                 if let Some(curse) = delayed_neow_curse.take() {
                     pending_neow_room_entry_curse = Some(curse);
