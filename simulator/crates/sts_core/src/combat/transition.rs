@@ -1,4 +1,5 @@
 use super::card_effects;
+mod decision_actions;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
     card::{CardType, TargetRequirement},
@@ -1216,187 +1217,21 @@ fn apply_internal_action(
         InternalAction::AwaitHandSelect {
             source_card_id,
             purpose,
-        } => {
-            if purpose == HandSelectPurpose::WarcryPutOnDraw
-                && !state
-                    .piles
-                    .hand
-                    .iter()
-                    .any(|card| card.id != source_card_id)
-            {
-                finish_warcry_source(state, source_card_id)?;
-                return Ok(Vec::new());
-            }
-            state.decision = Some(CombatDecisionState::HandSelect {
-                state: crate::combat::HandSelectState {
-                    purpose,
-                    source_card_id,
-                    selected_hand_index: None,
-                    selected_hand_indices: Vec::new(),
-                },
-                pending_actions: VecDeque::new(),
-            });
-            Ok(Vec::new())
-        }
+        } => decision_actions::await_hand_select(state, source_card_id, purpose),
         InternalAction::AwaitDrawSelect {
             source_card_id,
             purpose,
-        } => {
-            state.decision = Some(CombatDecisionState::DrawSelect {
-                state: crate::combat::DrawSelectState {
-                    purpose,
-                    source_card_id,
-                    selected_draw_index: None,
-                },
-            });
-            Ok(Vec::new())
-        }
+        } => decision_actions::await_draw_select(state, source_card_id, purpose),
         InternalAction::AwaitDiscardSelect {
             source_card_id,
             purpose,
-        } => {
-            if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
-                let source_card = if let Some(index) = state
-                    .piles
-                    .hand
-                    .iter()
-                    .position(|card| card.id == source_card_id)
-                {
-                    Some(state.piles.hand.remove(index))
-                } else if let Some(index) = state
-                    .piles
-                    .discard_pile
-                    .iter()
-                    .position(|card| card.id == source_card_id)
-                {
-                    Some(state.piles.discard_pile.remove(index))
-                } else if state
-                    .piles
-                    .exhaust_pile
-                    .iter()
-                    .any(|card| card.id == source_card_id)
-                {
-                    None
-                } else {
-                    return Err(SimError::IllegalAction(
-                        "Headbutt source card is not in a playable destination",
-                    ));
-                };
-
-                if state.monsters.iter().all(|monster| !monster.alive) {
-                    if let Some(source_card) = source_card {
-                        state.piles.discard_pile.push(source_card);
-                    }
-                    return Ok(Vec::new());
-                }
-                if state.piles.discard_pile.is_empty() {
-                    if let Some(source_card) = source_card {
-                        state.piles.discard_pile.push(source_card);
-                    }
-                    return Ok(Vec::new());
-                }
-                if state.piles.discard_pile.len() == 1 {
-                    let selected = state.piles.discard_pile.remove(0);
-                    state.piles.draw_pile.push(selected);
-                    if let Some(source_card) = source_card {
-                        state.piles.discard_pile.push(source_card);
-                    }
-                    return Ok(Vec::new());
-                }
-                state.decision = Some(CombatDecisionState::DiscardSelect {
-                    state: crate::combat::DiscardSelectState {
-                        purpose,
-                        source_card_id: source_card.map(|_| source_card_id),
-                        source_card,
-                        selected_discard_indices: Vec::new(),
-                        max_choices: 1,
-                        selected_discard_index: None,
-                    },
-                });
-                return Ok(Vec::new());
-            }
-            state.decision = Some(CombatDecisionState::DiscardSelect {
-                state: crate::combat::DiscardSelectState {
-                    purpose,
-                    source_card_id: Some(source_card_id),
-                    source_card: None,
-                    selected_discard_indices: Vec::new(),
-                    max_choices: 1,
-                    selected_discard_index: None,
-                },
-            });
-            Ok(Vec::new())
-        }
+        } => decision_actions::await_discard_select(state, source_card_id, purpose),
         InternalAction::AwaitExhaustSelect {
             source_card_id,
             purpose,
-        } => {
-            let source_card = if matches!(
-                purpose,
-                crate::combat::ExhaustSelectPurpose::BurningPactDraw2
-                    | crate::combat::ExhaustSelectPurpose::BurningPactDraw3
-                    | crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand
-            ) {
-                if state
-                    .piles
-                    .hand
-                    .iter()
-                    .any(|card| card.id == source_card_id)
-                {
-                    Some(remove_card_from_pile(
-                        state,
-                        source_card_id,
-                        CardPile::Hand,
-                    )?)
-                } else if state
-                    .piles
-                    .discard_pile
-                    .iter()
-                    .chain(state.piles.exhaust_pile.iter())
-                    .any(|card| card.id == source_card_id)
-                {
-                    None
-                } else {
-                    return Err(SimError::UnknownCard(source_card_id));
-                }
-            } else if purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 {
-                state
-                    .piles
-                    .hand
-                    .iter()
-                    .position(|card| card.id == source_card_id)
-                    .map(|index| state.piles.hand.remove(index))
-            } else {
-                None
-            };
-            state.decision = Some(CombatDecisionState::ExhaustSelect {
-                state: crate::combat::ExhaustSelectState {
-                    purpose,
-                    source_card_id: Some(source_card_id),
-                    source_card,
-                    selected_hand_indices: Vec::new(),
-                },
-            });
-            Ok(Vec::new())
-        }
+        } => decision_actions::await_exhaust_select(state, source_card_id, purpose),
         InternalAction::OpenDiscoveryCardReward { source_card_id } => {
-            let source_card = state
-                .piles
-                .hand
-                .iter()
-                .position(|card| card.id == source_card_id)
-                .map(|index| state.piles.hand.remove(index));
-            let Some(CombatDecisionState::DiscoveryCardReward {
-                source_card: decision_source,
-                ..
-            }) = state.decision.as_mut()
-            else {
-                return Err(SimError::InvalidState(
-                    "Discovery source opened without its card reward",
-                ));
-            };
-            *decision_source = source_card;
-            Ok(Vec::new())
+            decision_actions::open_discovery_card_reward(state, source_card_id)
         }
     }
 }
