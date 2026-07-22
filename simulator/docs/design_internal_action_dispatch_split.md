@@ -83,3 +83,11 @@ Move Hand of Greed and damage-plus-heal into `damage_actions`. Preserve the
 non-minion gold condition and checked accumulation. For the healing variant,
 preserve healing immediately after Malleable follow-up creation and before Hand
 Drill, slime split, death hooks, and spike reflection.
+
+## Eighth slice: Feed and Ritual Dagger
+
+Move the final kill-growth variants into `damage_actions`. Preserve Feed's
+minion and Darkling exclusions, Magic Flower-adjusted healing, checked max-HP
+arithmetic, and Red Skull synchronization before death hooks. Preserve Ritual
+Dagger's non-minion source-card growth before death hooks. Both retain final
+spike reflection ordering.

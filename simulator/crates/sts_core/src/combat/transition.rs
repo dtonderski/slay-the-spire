@@ -25,8 +25,7 @@ use crate::{
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
         enter_guardian_defensive_mode, get_monster_definition, guardian_accumulate_hp_damage,
-        release_stasis_card_on_death, wake_lagavulin_on_damage, DARKLING_ID, GIANT_HEAD_ID,
-        GUARDIAN_ID,
+        release_stasis_card_on_death, wake_lagavulin_on_damage, GIANT_HEAD_ID, GUARDIAN_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -428,138 +427,10 @@ fn apply_internal_action(
             damage_actions::deal_damage_and_heal_unblocked(state, info)
         }
         InternalAction::DealFeedDamage { info, max_hp_gain } => {
-            if living_monster_mut_opt(state, info.target).is_none() {
-                return Ok(Vec::new());
-            }
-            let player_powers = state.player.powers;
-            let temp_strength = state.player.temp_strength;
-            let relics = state.relics.clone();
-            let (
-                spikes,
-                monster_content_id,
-                still_alive,
-                minion,
-                hand_drill_applies,
-                malleable_block,
-            ) = {
-                let monster = living_monster_mut(state, info.target)?;
-                let spikes = monster.powers.spikes;
-                let monster_content_id = monster.content_id;
-                let damage = deal_damage_info_to_monster_with_result(
-                    monster,
-                    info,
-                    player_powers,
-                    temp_strength,
-                    &relics,
-                );
-                wake_lagavulin_on_damage(monster, damage.hp_damage);
-                guardian_accumulate_hp_damage(monster, damage.hp_damage);
-                (
-                    spikes,
-                    monster_content_id,
-                    monster.alive,
-                    monster.powers.minion > 0,
-                    relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
-                    damage.malleable_block,
-                )
-            };
-            let mut follow_ups = Vec::new();
-            push_malleable_block_follow_up(
-                state,
-                &mut follow_ups,
-                info.target,
-                monster_content_id,
-                still_alive,
-                malleable_block,
-            );
-            if still_alive && hand_drill_applies {
-                apply_player_vulnerable_debuff(
-                    state,
-                    info.target,
-                    crate::relic::HAND_DRILL_VULNERABLE,
-                )?;
-            }
-            check_slime_boss_split(state, info.target);
-            if !still_alive {
-                if !minion && monster_content_id != DARKLING_ID {
-                    let hp_gain =
-                        crate::relic::combat_healing_amount_with_relics(max_hp_gain, &state.relics);
-                    let max_hp = checked_combat_sum(state.player.max_hp, max_hp_gain)?;
-                    let missing_hp = max_hp
-                        .checked_sub(state.player.hp)
-                        .ok_or(SimError::InvalidState("combat HP bounds overflow i32"))?;
-                    let hp = checked_combat_sum(state.player.hp, hp_gain.min(missing_hp))?;
-                    state.player.max_hp = max_hp;
-                    state.player.hp = hp;
-                    crate::relic::sync_red_skull_strength(state)?;
-                }
-                apply_monster_death_hooks(state, info.target)?;
-            }
-            apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
-            Ok(follow_ups)
+            damage_actions::deal_feed_damage(state, info, max_hp_gain)
         }
         InternalAction::DealRitualDaggerDamage { info, growth } => {
-            if living_monster_mut_opt(state, info.target).is_none() {
-                return Ok(Vec::new());
-            }
-            let player_powers = state.player.powers;
-            let temp_strength = state.player.temp_strength;
-            let relics = state.relics.clone();
-            let (
-                spikes,
-                monster_content_id,
-                still_alive,
-                minion,
-                hand_drill_applies,
-                malleable_block,
-            ) = {
-                let monster = living_monster_mut(state, info.target)?;
-                let spikes = monster.powers.spikes;
-                let monster_content_id = monster.content_id;
-                let damage = deal_damage_info_to_monster_with_result(
-                    monster,
-                    info,
-                    player_powers,
-                    temp_strength,
-                    &relics,
-                );
-                wake_lagavulin_on_damage(monster, damage.hp_damage);
-                guardian_accumulate_hp_damage(monster, damage.hp_damage);
-                (
-                    spikes,
-                    monster_content_id,
-                    monster.alive,
-                    monster.powers.minion > 0,
-                    relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
-                    damage.malleable_block,
-                )
-            };
-            let mut follow_ups = Vec::new();
-            push_malleable_block_follow_up(
-                state,
-                &mut follow_ups,
-                info.target,
-                monster_content_id,
-                still_alive,
-                malleable_block,
-            );
-            if still_alive && hand_drill_applies {
-                apply_player_vulnerable_debuff(
-                    state,
-                    info.target,
-                    crate::relic::HAND_DRILL_VULNERABLE,
-                )?;
-            }
-            check_slime_boss_split(state, info.target);
-            if !still_alive {
-                if !minion {
-                    let DamageSource::Card(source_card_id) = info.source;
-                    add_ritual_dagger_damage_bonus(state, source_card_id, growth)?;
-                }
-                apply_monster_death_hooks(state, info.target)?;
-            }
-            apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
-            Ok(follow_ups)
+            damage_actions::deal_ritual_dagger_damage(state, info, growth)
         }
         InternalAction::DealDamageAll { source, amount } => {
             damage_actions::deal_damage_all(state, source, amount)
