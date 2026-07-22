@@ -2595,8 +2595,7 @@ fn verify_seed_start_transitions(
                                 .to_owned(),
                     });
                 };
-                let label = match seed_start_apply_reward_choose(sim, &action.command, &pre.message)
-                {
+                let label = match seed_start_apply_reward_choose(sim, &action.command) {
                     Ok(label) => label,
                     Err(reason) => {
                         let boundary = SeedStartBoundary {
@@ -4740,7 +4739,7 @@ fn verify_seed_start_transitions(
                 }
 
                 let deck_before_reward_choice = deck_content_keys(&sim.deck);
-                match seed_start_apply_reward_choose(sim, &action.command, &pre.message) {
+                match seed_start_apply_reward_choose(sim, &action.command) {
                     Ok(label) => {
                         seed_start_update_carry_from_run(sim, &mut relics, &mut deck_ids);
                         let (mut observed, mut simulated) = if sim.card_grid.is_some() {
@@ -6146,6 +6145,11 @@ fn seed_start_reward_observed_subset(message: &Value) -> Value {
                         .iter()
                         .map(|reward_type| reward_type.to_ascii_lowercase())
                         .collect::<Vec<_>>(),
+                );
+                insert(
+                    map,
+                    "relic_offer_ids",
+                    observed_reward_relic_offer_ids(game),
                 );
                 let unobservable = if reward_types.is_empty() {
                     json!({
@@ -8942,11 +8946,7 @@ fn seed_start_apply_grid_command(sim: &RunState, command: &str) -> Result<RunSta
     }
 }
 
-fn seed_start_apply_reward_choose(
-    sim: &mut RunState,
-    command: &str,
-    pre: &Value,
-) -> Result<String, String> {
+fn seed_start_apply_reward_choose(sim: &mut RunState, command: &str) -> Result<String, String> {
     let choose_index = choose_index(command)
         .ok_or_else(|| format!("seed-start verifier could not parse reward command {command:?}"))?;
 
@@ -9009,40 +9009,12 @@ fn seed_start_apply_reward_choose(
                 index: potion_index,
             },
         ),
-        "relic" => {
-            if let Some(observed) = pre
-                .get("game_state")
-                .and_then(observed_reward_relic_key_offer)
-            {
-                verify_primary_relic_offer_matches_observed(sim, observed)?;
-            }
-            apply_run_action(sim, RunAction::TakeRelicReward)
-        }
+        "relic" => apply_run_action(sim, RunAction::TakeRelicReward),
         _ => return Err(format!("unknown reward choice {choice}")),
     }
     .map_err(|err| err.to_string())?;
     *sim = next;
     Ok(format!("{choice} reward"))
-}
-
-fn verify_primary_relic_offer_matches_observed(
-    run: &RunState,
-    observed: RelicKey,
-) -> Result<(), String> {
-    let predicted = run
-        .reward
-        .as_ref()
-        .and_then(|reward| reward.relic_offer.map(|relic| relic.key()))
-        .ok_or_else(|| "no relic reward offered".to_owned())?;
-    if predicted == observed {
-        return Ok(());
-    }
-    Err(format!(
-        "relic reward mismatch: observed {observed:?}, simulator predicted {predicted:?}; relic_rng_counter={} treasure_rng_counter={} treasure_room={:?}",
-        run.relic_rng_counter,
-        run.treasure_rng_counter,
-        run.treasure_room,
-    ))
 }
 
 fn seed_start_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> Value {
@@ -9089,6 +9061,17 @@ fn seed_start_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> V
 
     let reward = run.reward.as_ref();
     let combat_choices = reward.map(sim_reward_combat_choices).unwrap_or_default();
+    let relic_offer_ids = reward
+        .into_iter()
+        .flat_map(|reward| {
+            reward
+                .relic_offer
+                .iter()
+                .chain(reward.pending_relic_offer.iter())
+                .chain(reward.queued_relic_offers.iter())
+        })
+        .map(|relic| relic_key_trace_name(relic.key()))
+        .collect::<Vec<_>>();
     let reward_types: Vec<String> = combat_choices
         .iter()
         .map(|choice| match choice.as_str() {
@@ -9112,6 +9095,7 @@ fn seed_start_reward_simulated_subset(run: &RunState, relic_ids: &[String]) -> V
         "relic_ids": relic_ids,
         "choices": combat_choices,
         "reward_types": reward_types,
+        "relic_offer_ids": relic_offer_ids,
     });
 
     if let Value::Object(map) = &mut out {
@@ -10013,21 +9997,28 @@ fn observed_reward_potion_offer(game: &Value) -> Option<Potion> {
         .and_then(potion_from_trace_name)
 }
 
-fn observed_reward_relic_key_offer(game: &Value) -> Option<RelicKey> {
+fn observed_reward_relic_offer_ids(game: &Value) -> Vec<String> {
     game.get("screen_state")
         .and_then(|screen| screen.get("rewards"))
-        .and_then(Value::as_array)?
-        .iter()
-        .find(|reward| {
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|reward| {
             reward
                 .get("reward_type")
                 .and_then(Value::as_str)
                 .is_some_and(|kind| kind.eq_ignore_ascii_case("RELIC"))
         })
-        .and_then(|reward| reward.get("relic"))
-        .and_then(|relic| relic.get("name").or_else(|| relic.get("id")))
-        .and_then(Value::as_str)
-        .and_then(relic_key_from_trace_name)
+        .filter_map(|reward| reward.get("relic"))
+        .filter_map(|relic| relic.get("name").or_else(|| relic.get("id")))
+        .filter_map(Value::as_str)
+        .map(|identity| {
+            relic_key_from_trace_name(identity)
+                .map(relic_key_trace_name)
+                .unwrap_or(identity)
+                .to_owned()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -12822,17 +12813,7 @@ mod tests {
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::None,
         });
-        let pre = json!({
-            "game_state": {
-                "screen_state": {
-                    "rewards": [
-                        {"reward_type": "GOLD", "gold": 120},
-                        {"reward_type": "POTION", "potion": {"id": "Dexterity Potion", "name": "Dexterity Potion"}}
-                    ]
-                }
-            }
-        });
-        let error = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre)
+        let error = seed_start_apply_reward_choose(&mut run, "CHOOSE 1")
             .expect_err("full-belt potion reward must fail closed");
 
         assert_eq!(error, "illegal action: potion belt is full");
@@ -12861,17 +12842,7 @@ mod tests {
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::None,
         });
-        let pre = json!({
-            "game_state": {
-                "screen_state": {
-                    "rewards": [
-                        {"reward_type": "POTION", "potion": {"id": "Dexterity Potion", "name": "Dexterity Potion"}}
-                    ]
-                }
-            }
-        });
-
-        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 0", &pre)
+        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 0")
             .expect("available simulator potion reward is taken");
 
         assert_eq!(label, "potion reward");
@@ -12885,7 +12856,7 @@ mod tests {
     }
 
     #[test]
-    fn observed_reward_order_cannot_steer_simulated_choice() {
+    fn reward_command_uses_simulator_owned_order() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Reward;
         run.gold = 99;
@@ -12904,18 +12875,7 @@ mod tests {
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::None,
         });
-        let forged_pre = json!({
-            "game_state": {
-                "screen_state": {
-                    "rewards": [
-                        {"reward_type": "POTION", "potion": {"id": "Dexterity Potion"}},
-                        {"reward_type": "GOLD", "gold": 120}
-                    ]
-                }
-            }
-        });
-
-        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 0", &forged_pre)
+        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 0")
             .expect("simulator-owned first reward is taken");
 
         assert_eq!(label, "gold reward");
@@ -12954,9 +12914,8 @@ mod tests {
             Some(&json!("bowl"))
         );
 
-        let pre = json!({"game_state": {"choice_list": ["bowl", "strike"]}});
         let max_hp = run.player_max_hp;
-        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 1", &pre)
+        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 1")
             .expect("Singing Bowl choice applies");
         assert_eq!(label, "singing bowl card reward");
         assert!(run.player_max_hp > max_hp);
@@ -13009,12 +12968,8 @@ mod tests {
     }
 
     #[test]
-    fn relic_mismatch_is_reported_without_mutating_simulator_state() {
+    fn relic_mismatch_is_a_projection_diff_and_cannot_block_the_core_transition() {
         let mut run = RunState::map_fixture();
-        run.ensure_ironclad_relic_pools();
-        let pools = run.relic_pools.as_mut().unwrap();
-        pools.common.retain(|key| *key != RelicKey::TheBoot);
-        assert!(pools.uncommon.contains(&RelicKey::Pantograph));
         run.phase = RunPhase::Reward;
         run.reward = Some(RewardScreen {
             continuation: sts_core::RewardContinuation::None,
@@ -13030,15 +12985,50 @@ mod tests {
             boss_relic_choices: Vec::new(),
             card_reward_flow: sts_core::CardRewardFlow::None,
         });
+        let observed_message = json!({
+            "game_state": {
+                "screen_type": "COMBAT_REWARD",
+                "screen_state": {
+                    "rewards": [{
+                        "reward_type": "RELIC",
+                        "relic": {"id": "Pantograph", "name": "Pantograph"}
+                    }]
+                }
+            }
+        });
 
-        let before = run.clone();
-        let error = verify_primary_relic_offer_matches_observed(&run, RelicKey::Pantograph)
-            .expect_err("relic mismatch must stop deterministic replay");
-        assert!(error.contains("observed Pantograph"));
-        assert_eq!(run, before);
-        let pools = run.relic_pools.as_ref().unwrap();
-        assert_ne!(pools.common.first(), Some(&RelicKey::TheBoot));
-        assert!(pools.uncommon.contains(&RelicKey::Pantograph));
+        let observed = seed_start_reward_observed_subset(&observed_message);
+        let simulated = seed_start_reward_simulated_subset(&run, &[]);
+        assert_eq!(observed["relic_offer_ids"], json!(["Pantograph"]));
+        assert_eq!(simulated["relic_offer_ids"], json!(["The Boot"]));
+        assert!(subset_diffs(observed, simulated)
+            .iter()
+            .any(|diff| diff.starts_with("relic_offer_ids")));
+
+        let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 0")
+            .expect("observed mismatch cannot block simulator-owned transition");
+        assert_eq!(label, "relic reward");
+        assert!(run.relics.contains(&Relic::TheBoot));
+    }
+
+    #[test]
+    fn observed_reward_projection_preserves_unknown_relic_identity() {
+        let message = json!({
+            "game_state": {
+                "screen_type": "COMBAT_REWARD",
+                "screen_state": {
+                    "rewards": [{
+                        "reward_type": "RELIC",
+                        "relic": {"id": "FutureRelic", "name": "Future Relic"}
+                    }]
+                }
+            }
+        });
+
+        assert_eq!(
+            seed_start_reward_observed_subset(&message)["relic_offer_ids"],
+            json!(["Future Relic"])
+        );
     }
 
     #[test]
@@ -16992,6 +16982,24 @@ mod tests {
             apply_run_action(&after_common, RunAction::TakeRelicReward).expect("take uncommon");
         let after_rare =
             apply_run_action(&after_uncommon, RunAction::TakeRelicReward).expect("take rare");
+        let visible_relic_rewards = |run: &RunState| {
+            let reward = run.reward.as_ref().expect("Calling Bell reward screen");
+            reward
+                .relic_offer
+                .iter()
+                .chain(reward.pending_relic_offer.iter())
+                .chain(reward.queued_relic_offers.iter())
+                .map(|relic| {
+                    json!({
+                        "reward_type": "RELIC",
+                        "relic": {"name": relic_key_trace_name(relic.key())}
+                    })
+                })
+                .collect::<Vec<_>>()
+        };
+        let initial_relic_rewards = visible_relic_rewards(&after_confirm);
+        let post_common_relic_rewards = visible_relic_rewards(&after_common);
+        let post_uncommon_relic_rewards = visible_relic_rewards(&after_uncommon);
         let bell_deck: Vec<_> = deck_content_keys(&after_confirm.deck)
             .into_iter()
             .map(|id| json!({ "id": id }))
@@ -17065,7 +17073,7 @@ mod tests {
                 "relics": bell_relics,
                 "choice_list": ["relic", "relic", "relic"],
                 "screen_state": {
-                    "rewards": [{"reward_type": "RELIC"}, {"reward_type": "RELIC"}, {"reward_type": "RELIC"}]
+                    "rewards": initial_relic_rewards
                 }
             }}}),
             json!({"type": "action", "step": 5, "command": "CHOOSE 0"}),
@@ -17080,7 +17088,7 @@ mod tests {
                 "relics": common_relics,
                 "choice_list": ["relic", "relic"],
                 "screen_state": {
-                    "rewards": [{"reward_type": "RELIC"}, {"reward_type": "RELIC"}]
+                    "rewards": post_common_relic_rewards
                 }
             }}}),
             json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
@@ -17095,7 +17103,7 @@ mod tests {
                 "relics": uncommon_relics,
                 "choice_list": ["relic"],
                 "screen_state": {
-                    "rewards": [{"reward_type": "RELIC"}]
+                    "rewards": post_uncommon_relic_rewards
                 }
             }}}),
             json!({"type": "action", "step": 7, "command": "CHOOSE 0"}),
