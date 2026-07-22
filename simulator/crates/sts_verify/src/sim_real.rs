@@ -6432,17 +6432,16 @@ fn insert<T: Serialize>(map: &mut serde_json::Map<String, Value>, key: &str, val
     );
 }
 
-fn push_sim_error(
+fn push_sim_unsupported(
     report: &mut SimRealReport,
     action: &TraceAction,
     label: &str,
     err: sts_core::SimError,
 ) {
-    report.unexpected_diffs.push(UnexpectedDiff {
+    report.unsupported.push(UnsupportedTransition {
         action_step: action.step,
         command: action.command.clone(),
-        label: label.to_owned(),
-        diffs: vec![format!("simulator rejected transition: {err:?}")],
+        reason: format!("{label}: simulator rejected transition: {err:?}"),
     });
 }
 

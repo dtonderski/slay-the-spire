@@ -497,6 +497,31 @@ fn queued_potion_reward_endpoint_names_its_unreconciled_combat_frame() {
 }
 
 #[test]
+fn rejected_core_combat_transitions_are_unsupported_boundaries_not_diffs() {
+    for (trace, step) in [
+        ("random-fidelity-29265014fff604b3.jsonl", 106),
+        ("random-fidelity-acaabd41a504598f.jsonl", 16),
+        ("random-fidelity-e0d47ea2d1d1a545.jsonl", 73),
+    ] {
+        let Some(content) = crate::load_corpus_file(format!("permanent_traces/{trace}")) else {
+            return;
+        };
+        let report = verify_seed_start_communication_mod_trace(&content)
+            .unwrap_or_else(|error| panic!("{trace} verifies: {error}"));
+
+        assert!(report.unexpected_diffs.is_empty(), "{trace}");
+        assert_eq!(report.unsupported.len(), 1, "{trace}");
+        let boundary = &report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary;
+        assert_eq!(boundary.path, format!("$.actions[step={step}].command"));
+        assert_eq!(boundary.category, "unsupported_combat_path");
+    }
+}
+
+#[test]
 fn stable_combat_mismatch_preserves_compound_transient_evidence() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-c2aa19ad6556e10e.jsonl")

@@ -2753,7 +2753,7 @@ fn seed_start_handle_combat_phase(
             };
         let next = apply_run_action(sim, decision_action);
         let Ok(next) = next else {
-            push_sim_error(report, action, label, next.err().unwrap());
+            push_sim_unsupported(report, action, label, next.err().unwrap());
             return SeedStartPreDispatch::Boundary(SeedStartBoundary {
                 path: format!("$.actions[step={}].command", action.step),
                 category: "unsupported_combat_path".to_owned(),
@@ -2785,7 +2785,7 @@ fn seed_start_handle_combat_phase(
             },
         );
         let Ok(next) = next else {
-            push_sim_error(report, action, "combat potion use", next.err().unwrap());
+            push_sim_unsupported(report, action, "combat potion use", next.err().unwrap());
             return SeedStartPreDispatch::Boundary(SeedStartBoundary {
                 path: format!("$.actions[step={}].command", action.step),
                 category: "unsupported_combat_path".to_owned(),
@@ -2991,7 +2991,7 @@ fn seed_start_handle_combat_phase(
     if is_final_combat_blow(sim, combat_action) {
         let next = apply_combat_action_on_run(sim, combat_action);
         let Ok(next) = next else {
-            push_sim_error(
+            push_sim_unsupported(
                 report,
                 action,
                 "seed-start combat victory",
@@ -3023,7 +3023,7 @@ fn seed_start_handle_combat_phase(
 
     let next = apply_combat_action_on_run(sim, combat_action);
     let Ok(next) = next else {
-        push_sim_error(
+        push_sim_unsupported(
             report,
             action,
             "seed-start combat transition",
