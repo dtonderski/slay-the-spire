@@ -114,7 +114,10 @@ pub fn generate_neow_options_rng_counter(numeric_seed: i64, player_max_hp: i32) 
     rng.counter()
 }
 
-pub fn generate_neow_card_reward(numeric_seed: i64, reward: NeowRewardType) -> NeowCardReward {
+pub fn generate_neow_card_reward(
+    numeric_seed: i64,
+    reward: NeowRewardType,
+) -> SimResult<NeowCardReward> {
     let mut rng = StsRng::new(numeric_seed);
     for slot in 0..4 {
         generate_neow_option(slot, 80, &mut rng);
@@ -125,37 +128,44 @@ pub fn generate_neow_card_reward(numeric_seed: i64, reward: NeowRewardType) -> N
 pub fn generate_neow_card_reward_with_rng(
     rng: &mut StsRng,
     reward: NeowRewardType,
-) -> NeowCardReward {
+) -> SimResult<NeowCardReward> {
     let cards = match reward {
         NeowRewardType::ThreeCards => neow_unique_ironclad_cards_with_rolled_rarity(rng, 3),
         NeowRewardType::OneRandomRareCard => vec![neow_random_ironclad_card(rng, CardRarity::Rare)],
         NeowRewardType::ThreeRareCards => {
             neow_unique_ironclad_cards_with_forced_rarity(rng, CardRarity::Rare, 3)
         }
-        other => panic!("Neow reward {other:?} is not a card reward"),
+        _ => {
+            return Err(crate::SimError::IllegalAction(
+                "Neow reward is not a card reward",
+            ));
+        }
     };
 
-    NeowCardReward {
+    Ok(NeowCardReward {
         cards,
         neow_rng_counter: rng.counter(),
-    }
+    })
 }
 
-pub fn generate_neow_rare_card_reward(numeric_seed: i64, reward: NeowRewardType) -> NeowCardReward {
+pub fn generate_neow_rare_card_reward(
+    numeric_seed: i64,
+    reward: NeowRewardType,
+) -> SimResult<NeowCardReward> {
     generate_neow_card_reward(numeric_seed, reward)
 }
 
 pub fn generate_neow_rare_card_reward_with_rng(
     rng: &mut StsRng,
     reward: NeowRewardType,
-) -> NeowCardReward {
+) -> SimResult<NeowCardReward> {
     generate_neow_card_reward_with_rng(rng, reward)
 }
 
 pub fn generate_neow_colorless_reward(
     numeric_seed: i64,
     reward: NeowRewardType,
-) -> NeowColorlessReward {
+) -> SimResult<NeowColorlessReward> {
     let mut neow_rng = StsRng::new(numeric_seed);
     for slot in 0..4 {
         generate_neow_option(slot, 80, &mut neow_rng);
@@ -168,7 +178,7 @@ pub fn generate_neow_colorless_reward_with_card_rng_counter(
     numeric_seed: i64,
     reward: NeowRewardType,
     card_rng_counter: u32,
-) -> NeowColorlessReward {
+) -> SimResult<NeowColorlessReward> {
     let mut neow_rng = StsRng::new(numeric_seed);
     for slot in 0..4 {
         generate_neow_option(slot, 80, &mut neow_rng);
@@ -181,19 +191,23 @@ pub fn generate_neow_colorless_reward_with_rng(
     neow_rng: &mut StsRng,
     card_rng: &mut StsRng,
     reward: NeowRewardType,
-) -> NeowColorlessReward {
+) -> SimResult<NeowColorlessReward> {
     let force_rare = match reward {
         NeowRewardType::RandomColorless => false,
         NeowRewardType::RandomColorlessTwo => true,
-        other => panic!("Neow reward {other:?} is not a colorless reward"),
+        _ => {
+            return Err(crate::SimError::IllegalAction(
+                "Neow reward is not a colorless reward",
+            ));
+        }
     };
     let cards = neow_unique_colorless_cards(neow_rng, card_rng, force_rare, 3);
 
-    NeowColorlessReward {
+    Ok(NeowColorlessReward {
         cards,
         neow_rng_counter: neow_rng.counter(),
         card_rng_counter: card_rng.counter(),
-    }
+    })
 }
 
 pub fn generate_neow_three_potions(numeric_seed: i64) -> NeowPotionReward {
@@ -304,7 +318,11 @@ fn apply_neow_relic_reward_inner(
     let tier = match reward {
         NeowRewardType::RandomCommonRelic => RelicTier::Common,
         NeowRewardType::OneRareRelic => RelicTier::Rare,
-        other => panic!("Neow reward {other:?} is not a fixed-tier relic reward"),
+        _ => {
+            return Err(crate::SimError::IllegalAction(
+                "Neow reward is not a fixed-tier relic reward",
+            ));
+        }
     };
 
     run.ensure_ironclad_relic_pools();
@@ -349,16 +367,32 @@ pub fn apply_neow_lament_reward(run: &mut RunState) {
     run.neow_lament_combats_remaining = super::state::NEOW_LAMENT_COMBATS;
 }
 
-pub fn apply_neow_simple_drawback(run: &mut RunState, drawback: NeowDrawback) {
+pub fn apply_neow_simple_drawback(run: &mut RunState, drawback: NeowDrawback) -> SimResult<()> {
+    let mut next = run.clone();
     match drawback {
         NeowDrawback::None => {}
-        NeowDrawback::TenPercentHpLoss => lose_max_hp(run, ten_percent(run.player_max_hp)),
-        NeowDrawback::NoGold => run.gold = 0,
-        NeowDrawback::PercentDamage => {
-            run.player_hp = (run.player_hp - percent_damage(run.player_max_hp)).max(1);
+        NeowDrawback::TenPercentHpLoss => {
+            let amount = ten_percent(next.player_max_hp);
+            lose_max_hp(&mut next, amount)?;
         }
-        NeowDrawback::Curse => panic!("Neow curse drawback needs cardRng curse identity"),
+        NeowDrawback::NoGold => next.gold = 0,
+        NeowDrawback::PercentDamage => {
+            next.player_hp = next
+                .player_hp
+                .checked_sub(percent_damage(next.player_max_hp))
+                .ok_or(crate::SimError::InvalidState(
+                    "Neow damage subtraction overflows i32",
+                ))?
+                .max(1);
+        }
+        NeowDrawback::Curse => {
+            return Err(crate::SimError::IllegalAction(
+                "Neow curse drawback requires card RNG resolution",
+            ));
+        }
     }
+    *run = next;
+    Ok(())
 }
 
 pub fn apply_neow_curse_drawback(run: &mut RunState) -> SimResult<NeowCurseDrawback> {
@@ -374,20 +408,32 @@ pub fn apply_neow_curse_drawback(run: &mut RunState) -> SimResult<NeowCurseDrawb
     })
 }
 
-pub fn open_neow_reward_grid(run: &mut RunState, reward: NeowRewardType) {
+pub fn open_neow_reward_grid(run: &mut RunState, reward: NeowRewardType) -> SimResult<()> {
     match reward {
         NeowRewardType::RemoveCard => super::grid::open_neow_remove_grid(run, 1),
         NeowRewardType::RemoveTwo => super::grid::open_neow_remove_grid(run, 2),
         NeowRewardType::UpgradeCard => super::grid::open_neow_upgrade_grid(run),
         NeowRewardType::TransformCard => super::grid::open_neow_transform_grid(run, 1),
         NeowRewardType::TransformTwoCards => super::grid::open_neow_transform_grid(run, 2),
-        other => panic!("Neow reward {other:?} does not open a grid"),
+        _ => {
+            return Err(crate::SimError::IllegalAction(
+                "Neow reward does not open a grid",
+            ));
+        }
     }
+    Ok(())
 }
 
-fn lose_max_hp(run: &mut RunState, amount: i32) {
-    run.player_max_hp = (run.player_max_hp - amount).max(1);
+fn lose_max_hp(run: &mut RunState, amount: i32) -> SimResult<()> {
+    run.player_max_hp = run
+        .player_max_hp
+        .checked_sub(amount)
+        .ok_or(crate::SimError::InvalidState(
+            "Neow max HP loss subtraction overflows i32",
+        ))?
+        .max(1);
     run.player_hp = run.player_hp.min(run.player_max_hp);
+    Ok(())
 }
 
 fn generate_neow_option(slot: usize, player_max_hp: i32, rng: &mut StsRng) -> GeneratedNeowOption {
@@ -508,7 +554,7 @@ fn twenty_percent(player_max_hp: i32) -> i32 {
 }
 
 fn percent_damage(player_max_hp: i32) -> i32 {
-    player_max_hp * 3 / 10
+    ((i64::from(player_max_hp) * 3) / 10) as i32
 }
 
 fn neow_random_ironclad_card(rng: &mut StsRng, rarity: CardRarity) -> ContentId {
@@ -599,4 +645,76 @@ fn neow_random_potion(potion_rng: &mut StsRng) -> Potion {
 
 fn neow_modeled_random_curse(card_rng: &mut StsRng) -> ContentId {
     random_normal_curse(card_rng)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SimError;
+
+    #[test]
+    fn invalid_neow_dispatch_returns_typed_errors_without_mutation_or_rng_use() {
+        let mut run = RunState::map_fixture();
+        let before = run.clone();
+        assert_eq!(
+            apply_neow_simple_drawback(&mut run, NeowDrawback::Curse),
+            Err(SimError::IllegalAction(
+                "Neow curse drawback requires card RNG resolution"
+            ))
+        );
+        assert_eq!(run, before);
+        assert_eq!(
+            open_neow_reward_grid(&mut run, NeowRewardType::BossRelic),
+            Err(SimError::IllegalAction("Neow reward does not open a grid"))
+        );
+        assert_eq!(run, before);
+        assert_eq!(
+            apply_neow_relic_reward(&mut run, NeowRewardType::BossRelic),
+            Err(SimError::IllegalAction(
+                "Neow reward is not a fixed-tier relic reward"
+            ))
+        );
+        assert_eq!(run, before);
+
+        let mut card_rng = StsRng::new(1);
+        let card_counter = card_rng.counter();
+        assert_eq!(
+            generate_neow_card_reward_with_rng(&mut card_rng, NeowRewardType::BossRelic),
+            Err(SimError::IllegalAction("Neow reward is not a card reward"))
+        );
+        assert_eq!(card_rng.counter(), card_counter);
+
+        let mut neow_rng = StsRng::new(1);
+        let mut colorless_rng = StsRng::new(2);
+        let neow_counter = neow_rng.counter();
+        let colorless_counter = colorless_rng.counter();
+        assert_eq!(
+            generate_neow_colorless_reward_with_rng(
+                &mut neow_rng,
+                &mut colorless_rng,
+                NeowRewardType::BossRelic,
+            ),
+            Err(SimError::IllegalAction(
+                "Neow reward is not a colorless reward"
+            ))
+        );
+        assert_eq!(neow_rng.counter(), neow_counter);
+        assert_eq!(colorless_rng.counter(), colorless_counter);
+    }
+
+    #[test]
+    fn neow_drawback_arithmetic_failure_rolls_back_exactly() {
+        let mut run = RunState::map_fixture();
+        run.player_max_hp = i32::MIN;
+        run.player_hp = i32::MAX;
+        let before = run.clone();
+
+        assert_eq!(
+            apply_neow_simple_drawback(&mut run, NeowDrawback::PercentDamage),
+            Err(SimError::InvalidState(
+                "Neow damage subtraction overflows i32"
+            ))
+        );
+        assert_eq!(run, before);
+    }
 }

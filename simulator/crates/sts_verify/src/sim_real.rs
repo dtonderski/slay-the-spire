@@ -1966,7 +1966,8 @@ fn verify_seed_start_transitions(
                         "choices": ["leave"],
                     }),
                 );
-                let reward = generate_neow_card_reward(start.numeric_seed, option.reward);
+                let reward = generate_neow_card_reward(start.numeric_seed, option.reward)
+                    .expect("matched generated Neow card reward option");
                 neow_leave_visible_deck_ids = Some(deck_ids.clone());
                 for content_id in reward.cards {
                     run.gain_deck_card(content_id)
@@ -2007,6 +2008,7 @@ fn verify_seed_start_transitions(
                     let card_rng_counter = match option.reward {
                         NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
                             generate_neow_colorless_reward(start.numeric_seed, option.reward)
+                                .expect("matched generated Neow colorless reward option")
                                 .card_rng_counter
                         }
                         _ => 0,
@@ -6437,7 +6439,7 @@ fn seed_start_apply_neow_simple_option(option: GeneratedNeowOption) -> Option<(i
 
     let mut run = RunState::map_fixture();
     run.gold = 99;
-    apply_neow_simple_drawback(&mut run, option.drawback);
+    apply_neow_simple_drawback(&mut run, option.drawback).expect("matched simple Neow drawback");
     apply_neow_simple_reward(&mut run, option.reward)
         .expect("canonical seed-start immediate Neow reward is representable");
     Some((run.gold, run.player_hp, run.player_max_hp))
@@ -6571,7 +6573,9 @@ fn seed_start_apply_neow_reward_drawback_for_ascension(
     run.gold = 99;
     match option.drawback {
         NeowDrawback::Curse => {}
-        drawback => apply_neow_simple_drawback(&mut run, drawback),
+        drawback => {
+            apply_neow_simple_drawback(&mut run, drawback).expect("matched simple Neow drawback")
+        }
     }
     run
 }
@@ -6595,9 +6599,11 @@ fn seed_start_open_neow_grid_run_for_ascension(
     run.gold = 99;
     match option.drawback {
         NeowDrawback::Curse => {}
-        drawback => apply_neow_simple_drawback(&mut run, drawback),
+        drawback => {
+            apply_neow_simple_drawback(&mut run, drawback).expect("matched simple Neow drawback")
+        }
     }
-    open_neow_reward_grid(&mut run, option.reward);
+    open_neow_reward_grid(&mut run, option.reward).expect("matched grid-opening Neow reward");
     run
 }
 
@@ -6813,7 +6819,8 @@ fn seed_start_neow_card_reward_card_rng_counter(
                 )
             } else {
                 generate_neow_colorless_reward(numeric_seed, option.reward)
-            };
+            }
+            .expect("matched generated Neow colorless reward option");
             Some(generated.card_rng_counter)
         }
         _ => None,
@@ -6828,19 +6835,28 @@ fn seed_start_neow_card_reward_content_ids(
     match option.reward {
         NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
             if option.drawback == NeowDrawback::Curse {
-                generate_neow_colorless_reward(numeric_seed, option.reward).cards
+                generate_neow_colorless_reward(numeric_seed, option.reward)
+                    .expect("matched generated Neow colorless reward option")
+                    .cards
             } else if let Some(run) = run {
                 generate_neow_colorless_reward_with_card_rng_counter(
                     numeric_seed,
                     option.reward,
                     run.card_rng_counter,
                 )
+                .expect("matched generated Neow colorless reward option")
                 .cards
             } else {
-                generate_neow_colorless_reward(numeric_seed, option.reward).cards
+                generate_neow_colorless_reward(numeric_seed, option.reward)
+                    .expect("matched generated Neow colorless reward option")
+                    .cards
             }
         }
-        _ => generate_neow_card_reward(numeric_seed, option.reward).cards,
+        _ => {
+            generate_neow_card_reward(numeric_seed, option.reward)
+                .expect("matched generated Neow card reward option")
+                .cards
+        }
     }
 }
 
@@ -6876,7 +6892,9 @@ fn seed_start_apply_neow_relic_reward_for_ascension(
             apply_neow_curse_drawback(&mut run)
                 .expect("canonical seed-start deck has card ID allocation headroom");
         }
-        drawback => apply_neow_simple_drawback(&mut run, drawback),
+        drawback => {
+            apply_neow_simple_drawback(&mut run, drawback).expect("matched simple Neow drawback")
+        }
     }
     seed_start_prepare_neow_relic_equip(&mut run);
     apply_neow_relic_reward(&mut run, option.reward)
@@ -18696,7 +18714,8 @@ mod tests {
             "Neow rare colorless reward choices"
         );
 
-        let generated = generate_neow_colorless_reward(numeric_seed, option.reward);
+        let generated = generate_neow_colorless_reward(numeric_seed, option.reward)
+            .expect("matched generated Neow colorless reward option");
         assert_eq!(
             seed_start_neow_card_reward_content_ids(numeric_seed, &option, None),
             generated.cards
@@ -18714,7 +18733,8 @@ mod tests {
     #[test]
     fn seed_start_neow_random_colorless_uses_generated_card_reward_helper() {
         let generated =
-            generate_neow_colorless_reward(22_079_335_079, NeowRewardType::RandomColorless);
+            generate_neow_colorless_reward(22_079_335_079, NeowRewardType::RandomColorless)
+                .expect("RandomColorless is a colorless Neow reward");
         let option = GeneratedNeowOption {
             slot: 0,
             drawback: NeowDrawback::None,
@@ -18759,7 +18779,8 @@ mod tests {
             &ironclad_starter_deck_keys(),
             &option,
         );
-        let generated = generate_neow_colorless_reward(numeric_seed, option.reward);
+        let generated = generate_neow_colorless_reward(numeric_seed, option.reward)
+            .expect("matched generated Neow colorless reward option");
         let choices = seed_start_neow_card_reward_content_ids(numeric_seed, &option, Some(&run));
         let delayed_curse =
             seed_start_neow_curse_deck_key(numeric_seed, generated.card_rng_counter)
@@ -19004,7 +19025,8 @@ mod tests {
     #[test]
     fn seed_start_neow_boss_swap_classifies_grid_opening_relics() {
         let mut run = RunState::map_fixture();
-        open_neow_reward_grid(&mut run, NeowRewardType::RemoveCard);
+        open_neow_reward_grid(&mut run, NeowRewardType::RemoveCard)
+            .expect("RemoveCard opens a Neow grid");
 
         let reason = seed_start_unsupported_boss_swap_reason(&run)
             .expect("grid-opening boss relics are caveated");

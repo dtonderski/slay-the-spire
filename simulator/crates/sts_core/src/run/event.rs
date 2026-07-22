@@ -2789,12 +2789,12 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
         NeowDrawback::Curse => {
             apply_neow_curse_drawback(next)?;
         }
-        drawback => apply_neow_simple_drawback(next, drawback),
+        drawback => apply_neow_simple_drawback(next, drawback)?,
     }
 
     match option.reward {
         NeowRewardType::OneRandomRareCard => {
-            let reward = generate_neow_card_reward(next.event_rng_seed as i64, option.reward);
+            let reward = generate_neow_card_reward(next.event_rng_seed as i64, option.reward)?;
             for content_id in reward.cards {
                 next.gain_deck_card(content_id)?;
             }
@@ -2819,7 +2819,7 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
         | NeowRewardType::UpgradeCard
         | NeowRewardType::TransformCard
         | NeowRewardType::TransformTwoCards => {
-            open_neow_reward_grid(next, option.reward);
+            open_neow_reward_grid(next, option.reward)?;
             return Ok(());
         }
         NeowRewardType::ThreeCards | NeowRewardType::ThreeRareCards => {
@@ -2862,7 +2862,7 @@ fn open_neow_three_potion_reward(run: &mut RunState) -> SimResult<()> {
 }
 
 fn open_neow_card_reward(run: &mut RunState, reward_type: NeowRewardType) -> SimResult<()> {
-    let reward = generate_neow_card_reward(run.event_rng_seed as i64, reward_type);
+    let reward = generate_neow_card_reward(run.event_rng_seed as i64, reward_type)?;
     open_neow_card_reward_choices(run, reward.cards)?;
     run.event_rng_counter = reward.neow_rng_counter;
     Ok(())
@@ -2876,7 +2876,7 @@ fn open_neow_colorless_card_reward(
         run.event_rng_seed as i64,
         reward_type,
         run.card_rng_counter,
-    );
+    )?;
     open_neow_card_reward_choices(run, reward.cards)?;
     run.event_rng_counter = reward.neow_rng_counter;
     run.card_rng_counter = reward.card_rng_counter;

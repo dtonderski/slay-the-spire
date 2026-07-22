@@ -2515,7 +2515,8 @@ mod tests {
     fn test_seed_colorless_neow_carries_card_rng_through_first_two_combat_rewards() {
         let numeric_seed = 1_218_623_i64;
         let neow_reward =
-            generate_neow_colorless_reward(numeric_seed, NeowRewardType::RandomColorless);
+            generate_neow_colorless_reward(numeric_seed, NeowRewardType::RandomColorless)
+                .expect("RandomColorless is a colorless Neow reward");
 
         let mut run = RunState::seeded_ironclad(numeric_seed as u64, 0);
         run.card_rng_counter = neow_reward.card_rng_counter;
