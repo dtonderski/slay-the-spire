@@ -6,7 +6,10 @@ use crate::{
             card_instance_is_upgradeable, get_card_definition, is_pandoras_box_removed_starter,
             required_upgrade_content_id, upgrade_card_instance, CURSE_OF_THE_BELL_ID,
         },
-        reward_pool::{ironclad_transform_card_content_id, ironclad_truly_random_card_pool},
+        reward_pool::{
+            ironclad_transform_card_content_id, ironclad_truly_random_card_pool,
+            IRONCLAD_REWARD_ENTRIES,
+        },
     },
     rng::StsRng,
     RunPhase, RunState, SimError, SimResult,
@@ -116,6 +119,71 @@ pub(super) fn event_grid_has_authoritative_owner(run: &RunState, purpose: GridPu
         | GridPurpose::PandorasBox
         | GridPurpose::Astrolabe
         | GridPurpose::NeowTransform { .. } => false,
+    }
+}
+
+pub(super) fn validate_grid_payload_authority(
+    run: &RunState,
+    grid: &CardGridScreen,
+) -> SimResult<()> {
+    match grid.purpose {
+        GridPurpose::EventObtainCardReturnToEvent {
+            event: Event::TheLibrary,
+        } => validate_library_grid_payload(run, grid),
+        GridPurpose::EventObtainCardReturnToEvent {
+            event: Event::Duplicator,
+        } => validate_duplicator_grid_payload(run, grid),
+        _ => Ok(()),
+    }
+}
+
+fn validate_library_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimResult<()> {
+    let valid_selection = grid.selected.is_none() && grid.selected_indices.is_empty();
+    let valid_count = grid.cards.len() == super::event::THE_LIBRARY_READ_CARD_COUNT;
+    let first_id = run.reserve_card_instance_ids(super::event::THE_LIBRARY_READ_CARD_COUNT)?;
+    let mut content_ids = Vec::with_capacity(grid.cards.len());
+    let valid_cards = grid.cards.iter().enumerate().all(|(index, card)| {
+        let expected_id = first_id + (grid.cards.len() - 1 - index) as u64;
+        let canonical = CardInstance::new(card.id, card.content_id);
+        content_ids.push(card.content_id);
+        card.id == crate::ids::CardId::new(expected_id)
+            && *card == canonical
+            && IRONCLAD_REWARD_ENTRIES
+                .iter()
+                .any(|entry| entry.content_id == card.content_id)
+    });
+    content_ids.sort_unstable();
+    let unique_content = content_ids.windows(2).all(|pair| pair[0] != pair[1]);
+    if valid_selection && valid_count && valid_cards && unique_content {
+        Ok(())
+    } else {
+        Err(SimError::InvalidState(
+            "Library grid does not match generated offer authority",
+        ))
+    }
+}
+
+fn validate_duplicator_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimResult<()> {
+    let valid_selection = grid.selected.is_none() && grid.selected_indices.is_empty();
+    let first_id = run.reserve_card_instance_ids(run.deck.len())?;
+    let valid_cards = grid.cards.len() == run.deck.len()
+        && grid
+            .cards
+            .iter()
+            .zip(&run.deck)
+            .enumerate()
+            .all(|(index, (card, source))| {
+                let mut expected = *source;
+                expected.id = crate::ids::CardId::new(first_id + index as u64);
+                expected.bottled = false;
+                *card == expected
+            });
+    if valid_selection && valid_cards {
+        Ok(())
+    } else {
+        Err(SimError::InvalidState(
+            "Duplicator grid does not match deck-copy authority",
+        ))
     }
 }
 
@@ -592,7 +660,7 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
             | GridPurpose::EventObtainCard
             | GridPurpose::EventObtainCardReturnToEvent { .. }
     ) {
-        return confirm_grid(&next);
+        return apply_validated_grid_confirmation(&next);
     }
     Ok(next)
 }
@@ -678,6 +746,10 @@ pub(crate) fn validate_grid_confirm(run: &RunState) -> SimResult<()> {
 
 pub fn confirm_grid(run: &RunState) -> SimResult<RunState> {
     validate_grid_confirm(run)?;
+    apply_validated_grid_confirmation(run)
+}
+
+fn apply_validated_grid_confirmation(run: &RunState) -> SimResult<RunState> {
     let grid = run.card_grid.as_ref().expect("validated card grid");
 
     let mut next = run.clone();
@@ -1176,8 +1248,8 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{
-            upgrade_content_id, BITE_ID, BITE_PLUS_ID, CURSE_OF_THE_BELL_ID, RITUAL_DAGGER_ID,
-            STRIKE_R_ID,
+            upgrade_content_id, BASH_ID, BITE_ID, BITE_PLUS_ID, CURSE_OF_THE_BELL_ID,
+            RITUAL_DAGGER_ID, STRIKE_R_ID,
         },
         run::shop,
         RunState,
@@ -1265,6 +1337,82 @@ mod tests {
             transform.validate(),
             Err(SimError::InvalidState(
                 "card grid purpose has no authoritative phase owner"
+            ))
+        );
+    }
+
+    #[test]
+    fn generated_event_obtain_grids_require_authoritative_payloads() {
+        let mut library = RunState::seeded_ironclad(1, 0);
+        library.current_act = 2;
+        library.phase = RunPhase::Event;
+        library.event = Some(crate::run::event::event_screen_for_run(
+            &library,
+            Event::TheLibrary,
+        ));
+        let library = crate::run::event::apply_event_action(
+            &library,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Library opens its generated card grid");
+        library
+            .validate()
+            .expect("Library generated payload is authoritative");
+
+        let mut fabricated_library = library.clone();
+        fabricated_library
+            .card_grid
+            .as_mut()
+            .expect("Library grid")
+            .cards[0]
+            .content_id = STRIKE_R_ID;
+        assert_eq!(
+            fabricated_library.validate(),
+            Err(SimError::InvalidState(
+                "Library grid does not match generated offer authority"
+            ))
+        );
+
+        let mut selected_library = library;
+        selected_library
+            .card_grid
+            .as_mut()
+            .expect("Library grid")
+            .selected = Some(0);
+        assert_eq!(
+            selected_library.validate(),
+            Err(SimError::InvalidState(
+                "Library grid does not match generated offer authority"
+            ))
+        );
+
+        let mut duplicator = RunState::seeded_ironclad(1, 0);
+        duplicator.current_act = 2;
+        duplicator.phase = RunPhase::Event;
+        duplicator.event = Some(crate::run::event::event_screen_for_run(
+            &duplicator,
+            Event::Duplicator,
+        ));
+        let duplicator = crate::run::event::apply_event_action(
+            &duplicator,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Duplicator opens its copy grid");
+        duplicator
+            .validate()
+            .expect("Duplicator copies exactly the current deck");
+
+        let mut fabricated_copy = duplicator;
+        fabricated_copy
+            .card_grid
+            .as_mut()
+            .expect("Duplicator grid")
+            .cards[0]
+            .content_id = BASH_ID;
+        assert_eq!(
+            fabricated_copy.validate(),
+            Err(SimError::InvalidState(
+                "Duplicator grid does not match deck-copy authority"
             ))
         );
     }

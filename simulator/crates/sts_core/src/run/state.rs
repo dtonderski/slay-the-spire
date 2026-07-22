@@ -1780,6 +1780,7 @@ impl RunState {
                 ));
             }
             validate_run_choice_cards(&grid.cards)?;
+            super::grid::validate_grid_payload_authority(self, grid)?;
             let mut selected_indices = BTreeSet::new();
             if grid.selected.is_some_and(|index| index >= grid.cards.len())
                 || grid
