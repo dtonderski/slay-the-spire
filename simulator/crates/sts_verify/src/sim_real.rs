@@ -4224,10 +4224,12 @@ fn seed_start_compare_transient_combat_subset(
     mut expected: Value,
     mut actual: Value,
 ) -> bool {
+    let defer_queued_card_reward_ui = expected.get("screen_type").and_then(Value::as_str)
+        == Some("HAND_SELECT")
+        && actual.get("screen_type").and_then(Value::as_str) == Some("CARD_REWARD");
     for value in [&mut expected, &mut actual] {
         if let Some(object) = value.as_object_mut() {
             for key in [
-                "screen_type",
                 "current_hp",
                 "combat_player_hp",
                 "combat_player_block",
@@ -4236,13 +4238,12 @@ fn seed_start_compare_transient_combat_subset(
                 "draw_ids",
                 "discard_ids",
                 "monsters",
-                "choices",
-                "card_reward_ids",
-                "reward_types",
-                "gold_offer",
-                "relic_offer_ids",
             ] {
                 object.remove(key);
+            }
+            if defer_queued_card_reward_ui {
+                object.remove("screen_type");
+                object.remove("card_reward_ids");
             }
         }
     }
