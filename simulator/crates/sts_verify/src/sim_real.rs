@@ -1072,7 +1072,6 @@ fn verify_seed_start_transitions(
     let mut pending_neow_room_entry_curse: Option<String> = None;
     let mut pending_neow_room_entry_curse_advances_card_rng = false;
     let mut delayed_neow_transform_count = 0usize;
-    let mut relics = vec!["Burning Blood".to_owned()];
     let mut deck_ids = ironclad_starter_deck_keys();
     let mut seed_sim: Option<RunState> = None;
     let mut smoke_bomb_ui: Option<SmokeBombUiState> = None;
@@ -1541,7 +1540,6 @@ fn verify_seed_start_transitions(
                         &mut map_path_xs,
                         &mut seed_sim,
                         &mut pending_map_assertion,
-                        &mut relics,
                         &mut deck_ids,
                     ) {
                         return finish_boundary!(boundary);
@@ -1698,7 +1696,7 @@ fn verify_seed_start_transitions(
                         "current_hp": 80,
                         "max_hp": 80,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": seed_start_neow_choices(start.numeric_seed),
                     }),
                 );
@@ -1730,7 +1728,7 @@ fn verify_seed_start_transitions(
                         "current_hp": current_hp,
                         "max_hp": max_hp,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -1788,7 +1786,7 @@ fn verify_seed_start_transitions(
                         "current_hp": neow_current_hp,
                         "max_hp": neow_max_hp,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -1811,7 +1809,7 @@ fn verify_seed_start_transitions(
                         "current_hp": 80,
                         "max_hp": 80,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["strike", "strike", "strike", "strike", "strike", "defend", "defend", "defend", "defend", "bash"],
                     }),
                 );
@@ -1838,7 +1836,7 @@ fn verify_seed_start_transitions(
                         "current_hp": 80,
                         "max_hp": 80,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": [],
                     }),
                 );
@@ -1861,7 +1859,7 @@ fn verify_seed_start_transitions(
                         "current_hp": 80,
                         "max_hp": 80,
                         "deck_ids": visible_deck_after_transform,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -1882,7 +1880,6 @@ fn verify_seed_start_transitions(
                 );
                 apply_neow_lament_reward(&mut run);
                 seed_sim = Some(run);
-                relics.push("Neow's Lament".to_owned());
                 compare_subset(
                     report,
                     action,
@@ -1896,7 +1893,7 @@ fn verify_seed_start_transitions(
                         "current_hp": 80,
                         "max_hp": 80,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -1931,7 +1928,7 @@ fn verify_seed_start_transitions(
                         "current_hp": neow_current_hp,
                         "max_hp": neow_max_hp,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -1997,7 +1994,7 @@ fn verify_seed_start_transitions(
                         "current_hp": neow_current_hp,
                         "max_hp": neow_max_hp,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": seed_start_neow_card_reward_choice_names(start.numeric_seed, &option, Some(&run)),
                         "card_reward_ids": seed_start_neow_card_reward_id_values(start.numeric_seed, &option, Some(&run)),
                         "unobservable": {
@@ -2033,9 +2030,6 @@ fn verify_seed_start_transitions(
                 neow_current_hp = run.player_hp;
                 neow_max_hp = run.player_max_hp;
                 let relic = seed_start_newest_trace_relic_name(&run);
-                if !relics.contains(&relic) {
-                    relics.push(relic.clone());
-                }
                 compare_subset(
                     report,
                     action,
@@ -2049,7 +2043,7 @@ fn verify_seed_start_transitions(
                         "current_hp": neow_current_hp,
                         "max_hp": neow_max_hp,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": relic_ids_for_simulated_subset(&run),
                         "choices": ["leave"],
                     }),
                 );
@@ -2128,7 +2122,6 @@ fn verify_seed_start_transitions(
             {
                 let run = seed_start_apply_neow_boss_swap(start.numeric_seed, &deck_ids);
                 if seed_start_boss_swap_is_calling_bell_grid(&run) {
-                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
                     compare_subset(
                         report,
                         action,
@@ -2136,13 +2129,11 @@ fn verify_seed_start_transitions(
                         seed_start_grid_observed_subset(&post.message),
                         seed_start_grid_simulated_subset(&run),
                     );
-                    relics = relic_ids;
                     seed_sim = Some(run);
                     phase = SeedStartPhase::NeowBossSwapCallingBellGrid;
                     continue;
                 }
                 if seed_start_boss_swap_is_astrolabe_grid(&run) {
-                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
                     compare_subset(
                         report,
                         action,
@@ -2150,13 +2141,11 @@ fn verify_seed_start_transitions(
                         seed_start_grid_observed_subset(&post.message),
                         seed_start_grid_simulated_subset(&run),
                     );
-                    relics = relic_ids;
                     seed_sim = Some(run);
                     phase = SeedStartPhase::NeowBossSwapAstrolabeGrid;
                     continue;
                 }
                 if seed_start_boss_swap_is_pandoras_box_grid(&run) {
-                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
                     compare_subset(
                         report,
                         action,
@@ -2164,13 +2153,11 @@ fn verify_seed_start_transitions(
                         seed_start_grid_observed_subset(&post.message),
                         seed_start_grid_simulated_subset(&run),
                     );
-                    relics = relic_ids;
                     seed_sim = Some(run);
                     phase = SeedStartPhase::NeowBossSwapPandorasBoxGrid;
                     continue;
                 }
                 if seed_start_boss_swap_is_empty_cage_grid(&run) {
-                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
                     compare_subset(
                         report,
                         action,
@@ -2178,13 +2165,11 @@ fn verify_seed_start_transitions(
                         seed_start_grid_observed_subset(&post.message),
                         seed_start_grid_simulated_subset(&run),
                     );
-                    relics = relic_ids;
                     seed_sim = Some(run);
                     phase = SeedStartPhase::NeowBossSwapEmptyCageGrid;
                     continue;
                 }
                 if seed_start_boss_swap_is_tiny_house_reward(&run) {
-                    let relic_ids = seed_start_boss_swap_relic_ids(&run);
                     compare_subset(
                         report,
                         action,
@@ -2196,7 +2181,6 @@ fn verify_seed_start_transitions(
                     neow_gold = run.gold;
                     neow_current_hp = run.player_hp;
                     neow_max_hp = run.player_max_hp;
-                    relics = relic_ids;
                     seed_sim = Some(run);
                     phase = SeedStartPhase::Reward;
                     continue;
@@ -2228,7 +2212,6 @@ fn verify_seed_start_transitions(
                     }),
                 );
                 deck_ids = post_deck_ids;
-                relics = relic_ids;
                 seed_sim = Some(run);
                 phase = SeedStartPhase::NeowLeave;
             }
@@ -2376,7 +2359,7 @@ fn verify_seed_start_transitions(
                         "current_hp": neow_current_hp,
                         "max_hp": neow_max_hp,
                         "deck_ids": visible_deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -2439,7 +2422,7 @@ fn verify_seed_start_transitions(
                             "current_hp": neow_current_hp,
                             "max_hp": neow_max_hp,
                             "deck_ids": deck_ids,
-                            "relic_ids": relics,
+                            "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                             "choices": ["leave"],
                         }),
                     );
@@ -2541,7 +2524,7 @@ fn verify_seed_start_transitions(
                         "current_hp": neow_current_hp,
                         "max_hp": neow_max_hp,
                         "deck_ids": visible_deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -2607,7 +2590,7 @@ fn verify_seed_start_transitions(
                         return finish_boundary!(boundary);
                     }
                 };
-                seed_start_update_carry_from_run(sim, &mut relics, &mut deck_ids);
+                seed_start_update_deck_from_run(sim, &mut deck_ids);
                 if seed_start_reward_sequence_complete(sim) {
                     compare_subset(
                         report,
@@ -2664,7 +2647,7 @@ fn verify_seed_start_transitions(
                                 "current_hp": 80,
                                 "max_hp": 80,
                                 "deck_ids": deck_ids,
-                                "relic_ids": relics,
+                                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                                 "choices": ["leave"],
                             }),
                         );
@@ -2697,7 +2680,7 @@ fn verify_seed_start_transitions(
                         "current_hp": 80,
                         "max_hp": 80,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -2738,7 +2721,7 @@ fn verify_seed_start_transitions(
                         "current_hp": 80,
                         "max_hp": 80,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -2818,7 +2801,7 @@ fn verify_seed_start_transitions(
                         "current_hp": 80,
                         "max_hp": 80,
                         "deck_ids": deck_ids,
-                        "relic_ids": relics,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                         "choices": ["leave"],
                     }),
                 );
@@ -2891,7 +2874,7 @@ fn verify_seed_start_transitions(
                     "current_hp": neow_current_hp,
                     "max_hp": neow_max_hp,
                     "deck_ids": deck_ids,
-                    "relic_ids": relics,
+                    "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                     "choices": ["leave"],
                 });
                 let simulated_deck = simulated
@@ -3008,7 +2991,7 @@ fn verify_seed_start_transitions(
                     observed,
                     simulated,
                 );
-                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 seed_sim = Some(next);
                 phase = SeedStartPhase::Map;
             }
@@ -3072,7 +3055,7 @@ fn verify_seed_start_transitions(
                     "current_hp": neow_current_hp,
                     "max_hp": neow_max_hp,
                     "deck_ids": settled_deck,
-                    "relic_ids": relics,
+                    "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                     "choices": seed_start_first_map_choices(&start.external_seed),
                 });
                 let simulated_deck = simulated
@@ -3320,9 +3303,8 @@ fn verify_seed_start_transitions(
                                     return finish_boundary!(boundary);
                                 }
                             }
-                            seed_start_update_carry_from_run(
+                            seed_start_update_deck_from_run(
                                 seed_sim.as_ref().expect("map transition stored run"),
-                                &mut relics,
                                 &mut deck_ids,
                             );
                             continue;
@@ -3366,7 +3348,7 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     };
-                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     if next.current_act != previous_act {
                         map_path_xs.clear();
                         combat_index = 0;
@@ -3508,7 +3490,7 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 }
-                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 *sim = next;
             }
             SeedStartPhase::Rest if action.command.trim().eq_ignore_ascii_case("SKIP") => {
@@ -3552,7 +3534,7 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 }
-                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 compare_subset(
                     report,
                     action,
@@ -3585,7 +3567,7 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
-                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 compare_subset(
                     report,
                     action,
@@ -3687,7 +3669,7 @@ fn verify_seed_start_transitions(
                     }
                 };
                 compare_subset(report, action, label, observed, simulated);
-                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 *sim = next;
                 if sim.card_grid.is_some() {
                     phase = SeedStartPhase::Grid;
@@ -3791,7 +3773,7 @@ fn verify_seed_start_transitions(
                             seed_start_event_simulated_subset(&next),
                         );
                     }
-                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     phase = if next.phase == RunPhase::Complete {
                         SeedStartPhase::Complete
                     } else {
@@ -3827,7 +3809,7 @@ fn verify_seed_start_transitions(
                         simulated,
                         &mut pending_combat_assertion,
                     );
-                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     *sim = next;
                     phase = SeedStartPhase::Combat;
                     continue;
@@ -3927,7 +3909,7 @@ fn verify_seed_start_transitions(
                 } else {
                     compare_subset(report, action, "event choice", observed, simulated);
                 }
-                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 *sim = next.clone();
                 if next.card_grid.is_some() {
                     phase = SeedStartPhase::Grid;
@@ -4096,7 +4078,7 @@ fn verify_seed_start_transitions(
                                 seed_start_smoke_bomb_transient_observed_subset(&post.message),
                                 seed_start_smoke_bomb_transient_simulated_subset(&source, &next),
                             );
-                            seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                            seed_start_update_deck_from_run(&next, &mut deck_ids);
                             *sim = next;
                             smoke_bomb_ui = Some(SmokeBombUiState::Escaping {
                                 source: Box::new(source),
@@ -4106,7 +4088,7 @@ fn verify_seed_start_transitions(
                             continue;
                         }
                         if screen_type(&post.message) == Some("COMBAT_REWARD") {
-                            seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                            seed_start_update_deck_from_run(&next, &mut deck_ids);
                             compare_subset(
                                 report,
                                 action,
@@ -4151,7 +4133,7 @@ fn verify_seed_start_transitions(
                         continue;
                     }
                     if next.phase == RunPhase::Reward && next.reward.is_some() {
-                        seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         compare_subset(
                             report,
                             action,
@@ -4395,7 +4377,6 @@ fn verify_seed_start_transitions(
                             &mut map_path_xs,
                             &mut seed_sim,
                             &mut pending_map_assertion,
-                            &mut relics,
                             &mut deck_ids,
                         ) {
                             return finish_boundary!(boundary);
@@ -4498,7 +4479,7 @@ fn verify_seed_start_transitions(
                         }
                     };
                     compare_subset(report, action, label, observed, simulated);
-                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     *sim = next;
                     if seed_start_reward_sequence_complete(sim) {
                         phase = seed_start_phase_after_reward_completion(sim);
@@ -4534,7 +4515,7 @@ fn verify_seed_start_transitions(
                             seed_start_spire_heart_observed_subset(&post.message),
                             seed_start_spire_heart_simulated_subset(&next),
                         );
-                        seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         *sim = next;
                         phase = SeedStartPhase::Event;
                         continue;
@@ -4582,7 +4563,7 @@ fn verify_seed_start_transitions(
                             });
                             return finish_boundary!(boundary);
                         }
-                        seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         compare_subset(
                             report,
                             action,
@@ -4619,7 +4600,7 @@ fn verify_seed_start_transitions(
                             });
                             return finish_boundary!(boundary);
                         };
-                        seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         let (label, expected, next_phase) = if next.phase == RunPhase::Idle {
                             (
                                 "empty Neow reward proceed to map",
@@ -4631,7 +4612,7 @@ fn verify_seed_start_transitions(
                                     "current_hp": next.player_hp,
                                     "max_hp": next.player_max_hp,
                                     "deck_ids": deck_content_keys(&next.deck),
-                                    "relic_ids": relics,
+                                    "relic_ids": relic_ids_for_simulated_subset(&next),
                                     "choices": seed_start_first_map_choices(&start.external_seed),
                                 }),
                                 SeedStartPhase::Map,
@@ -4647,7 +4628,7 @@ fn verify_seed_start_transitions(
                                     "current_hp": next.player_hp,
                                     "max_hp": next.player_max_hp,
                                     "deck_ids": deck_content_keys(&next.deck),
-                                    "relic_ids": relics,
+                                    "relic_ids": relic_ids_for_simulated_subset(&next),
                                     "choices": ["leave"],
                                 }),
                                 SeedStartPhase::Event,
@@ -4674,7 +4655,6 @@ fn verify_seed_start_transitions(
                         &mut map_path_xs,
                         &mut seed_sim,
                         &mut pending_map_assertion,
-                        &mut relics,
                         &mut deck_ids,
                     ) {
                         return finish_boundary!(boundary);
@@ -4718,7 +4698,7 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     };
-                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     *sim = next;
                     compare_subset(
                         report,
@@ -4733,7 +4713,7 @@ fn verify_seed_start_transitions(
                 let deck_before_reward_choice = deck_content_keys(&sim.deck);
                 match seed_start_apply_reward_choose(sim, &action.command) {
                     Ok(label) => {
-                        seed_start_update_carry_from_run(sim, &mut relics, &mut deck_ids);
+                        seed_start_update_deck_from_run(sim, &mut deck_ids);
                         let (mut observed, mut simulated) = if sim.card_grid.is_some() {
                             (
                                 seed_start_grid_observed_subset(&post.message),
@@ -4904,10 +4884,10 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     };
-                    let visible_relics_before_pick = relics.clone();
+                    let visible_relics_before_pick = relic_ids_for_simulated_subset(sim);
                     let opened_master_deck_overlay =
                         seed_start_is_boss_relic_master_deck_overlay(&post.message);
-                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     if next.card_grid.is_some() {
                         compare_subset(
                             report,
@@ -4985,7 +4965,7 @@ fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 };
-                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 compare_subset(
                     report,
                     action,
@@ -5158,7 +5138,7 @@ fn verify_seed_start_transitions(
                 } else {
                     compare_subset(report, action, label, observed, simulated);
                 }
-                seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                seed_start_update_deck_from_run(&next, &mut deck_ids);
                 *sim = next;
                 phase = next_phase;
             }
@@ -5246,7 +5226,7 @@ fn verify_seed_start_transitions(
                         });
                         return finish_boundary!(boundary);
                     }
-                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     compare_subset(
                         report,
                         action,
@@ -5408,7 +5388,7 @@ fn verify_seed_start_transitions(
                             return finish_boundary!(boundary);
                         }
                     }
-                    seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                    seed_start_update_deck_from_run(&next, &mut deck_ids);
                     *sim = next;
                     phase = match destination {
                         SeedStartShopDestination::Grid => SeedStartPhase::Grid,
@@ -5462,7 +5442,7 @@ fn verify_seed_start_transitions(
                             seed_start_spire_heart_observed_subset(&post.message),
                             seed_start_spire_heart_simulated_subset(&next),
                         );
-                        seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         *sim = next;
                         phase = SeedStartPhase::Event;
                         continue;
@@ -5510,7 +5490,7 @@ fn verify_seed_start_transitions(
                             });
                             return finish_boundary!(boundary);
                         }
-                        seed_start_update_carry_from_run(&next, &mut relics, &mut deck_ids);
+                        seed_start_update_deck_from_run(&next, &mut deck_ids);
                         compare_subset(
                             report,
                             action,
@@ -5532,7 +5512,6 @@ fn verify_seed_start_transitions(
                         &mut map_path_xs,
                         &mut seed_sim,
                         &mut pending_map_assertion,
-                        &mut relics,
                         &mut deck_ids,
                     ) {
                         return finish_boundary!(boundary);
@@ -7481,7 +7460,6 @@ fn seed_start_handle_proceed_to_map(
     map_path_xs: &mut Vec<i32>,
     seed_sim: &mut Option<RunState>,
     pending_map_assertion: &mut Option<PendingMapAssertion>,
-    carried_relics: &mut Vec<String>,
     carried_deck_ids: &mut Vec<String>,
 ) -> Option<SeedStartBoundary> {
     let Some(sim) = seed_sim.as_ref() else {
@@ -7585,7 +7563,7 @@ fn seed_start_handle_proceed_to_map(
             seed_start_boss_act_transient_simulated_subset(),
         );
         if let Some(sim) = seed_sim.as_mut() {
-            seed_start_update_carry_from_run(sim, carried_relics, carried_deck_ids);
+            seed_start_update_deck_from_run(sim, carried_deck_ids);
         }
         map_path_xs.clear();
         let simulated_map = match seed_start_simulated_map_return(
@@ -7631,7 +7609,7 @@ fn seed_start_handle_proceed_to_map(
     };
     compare_subset(report, action, &label, observed, simulated);
     if let Some(sim) = seed_sim.as_mut() {
-        seed_start_update_carry_from_run(sim, carried_relics, carried_deck_ids);
+        seed_start_update_deck_from_run(sim, carried_deck_ids);
     }
     *combat_index += 1;
     *reward_step = 0;
@@ -8217,52 +8195,17 @@ fn relic_ids_for_simulated_subset(run: &RunState) -> Vec<String> {
         .collect()
 }
 
-fn remove_simulated_replaced_starter_relics(run: &RunState, relics: &mut Vec<String>) {
-    for (upgraded, starter) in [
-        (RelicKey::BlackBlood, "Burning Blood"),
-        (RelicKey::FrozenCore, "Cracked Core"),
-        (RelicKey::HolyWater, "Pure Water"),
-        (RelicKey::RingOfTheSerpent, "Ring of the Snake"),
-    ] {
-        if run_has_relic_key(run, upgraded) {
-            let upgraded_name = relic_key_trace_name(upgraded).to_owned();
-            if let Some(slot) = relics.iter_mut().find(|name| name.as_str() == starter) {
-                *slot = upgraded_name.clone();
-            }
-            let mut seen = false;
-            relics.retain(|name| {
-                if name == &upgraded_name {
-                    if seen {
-                        false
-                    } else {
-                        seen = true;
-                        true
-                    }
-                } else {
-                    true
-                }
-            });
-        }
-    }
+fn seed_start_relic_ids_for_inline_projection(run: Option<&RunState>) -> Vec<String> {
+    run.map(relic_ids_for_simulated_subset)
+        .unwrap_or_else(|| vec![relic_key_trace_name(RelicKey::BurningBlood).to_owned()])
 }
 
 fn run_has_relic_key(run: &RunState, key: RelicKey) -> bool {
     run.relics.iter().any(|relic| relic.key() == key)
 }
 
-fn seed_start_update_carry_from_run(
-    run: &RunState,
-    relics: &mut Vec<String>,
-    deck_ids: &mut Vec<String>,
-) {
+fn seed_start_update_deck_from_run(run: &RunState, deck_ids: &mut Vec<String>) {
     *deck_ids = deck_content_keys(&run.deck);
-    remove_simulated_replaced_starter_relics(run, relics);
-    for relic in &run.relics {
-        let name = relic_key_trace_name(relic.key()).to_owned();
-        if name != "Unknown Relic" && !relics.contains(&name) {
-            relics.push(name);
-        }
-    }
 }
 
 fn seed_start_carried_run(
@@ -16541,6 +16484,26 @@ mod tests {
         let relic_ids = relic_ids_for_simulated_subset(&run);
 
         assert!(relic_ids.contains(&"Neow's Lament".to_owned()));
+    }
+
+    #[test]
+    fn inline_relic_projection_uses_typed_start_then_core_state() {
+        assert_eq!(
+            seed_start_relic_ids_for_inline_projection(None),
+            vec!["Burning Blood".to_owned()]
+        );
+
+        let mut run = RunState::map_fixture();
+        run.relics = vec![Relic::BurningBlood, Relic::NeowsLament, Relic::Lantern];
+
+        assert_eq!(
+            seed_start_relic_ids_for_inline_projection(Some(&run)),
+            vec![
+                "Burning Blood".to_owned(),
+                "Neow's Lament".to_owned(),
+                "Lantern".to_owned(),
+            ]
+        );
     }
 
     #[test]

@@ -24,12 +24,10 @@ from `RunState::relics`. They do not accept an observed or verifier-carried
 relic list. Starter-relic replacement remains core behavior and therefore
 preserves the replaced slot without projection repair.
 
-The monolithic seed-start verifier still has legacy inline projections around
-Neow and transient boss-relic overlays. Those retain a simulator-derived local
-list until command binding and replay phases are extracted into typed state.
-That list is not accepted by the stable screen projectors changed here, and it
-must be removed with the remaining verifier state-machine work; this slice does
-not claim that all inline projection debt is gone.
+Inline Neow projections use the typed Ironclad starter identity until a core
+run state exists, then derive identity and order from that state. Transient
+boss-relic overlays snapshot the pre-command core relic projection explicitly;
+they do not maintain a second verifier-owned relic authority.
 
 ## Snapshot migration
 
@@ -45,5 +43,5 @@ counter reaches zero.
 
 Current-schema snapshots and raw states with a positive counter but no Neow's
 Lament identity fail validation. Duplicate identity remains invalid under the
-existing owned-relic invariant. Stable screen projection never invents,
-reorders, or carries relics to make an observation match.
+existing owned-relic invariant. Simulated projection never invents, reorders,
+or carries relics to make an observation match.
