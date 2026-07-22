@@ -1,5 +1,151 @@
 use super::*;
 
+pub(super) fn bind_pending_room_resolution<'a>(
+    state: &'a LiveState,
+    step: &SlayTheDataPreflightStep,
+) -> Result<&'a LegalAction, String> {
+    if state
+        .raw
+        .pointer("/summary/screen_name")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|screen| screen.eq_ignore_ascii_case("FTUE"))
+    {
+        return bind_matching_live_action(state, "CLICK LEFT 1080 700 250", |action| {
+            action.kind == LegalActionKind::Confirm
+                && action.label.eq_ignore_ascii_case("Dismiss tutorial")
+        });
+    }
+    if state.phase == LivePhase::Map {
+        if let Some(symbol) = route_symbol_from_step(step) {
+            if symbol.eq_ignore_ascii_case("B") {
+                let boss_actions = state
+                    .legal_actions
+                    .iter()
+                    .filter(|action| {
+                        action.enabled
+                            && action.kind == LegalActionKind::ChooseMapNode
+                            && action.label.eq_ignore_ascii_case("boss")
+                    })
+                    .collect::<Vec<_>>();
+                return match boss_actions.as_slice() {
+                    [action] => Ok(action),
+                    [] => Err("pending boss room has no enabled live boss action".to_owned()),
+                    _ => Err("pending boss room has multiple enabled live boss actions".to_owned()),
+                };
+            }
+            let matches = state
+                .legal_actions
+                .iter()
+                .filter(|action| action.enabled && action.kind == LegalActionKind::ChooseMapNode)
+                .filter(|action| map_action_matches_symbol(state, action, symbol))
+                .collect::<Vec<_>>();
+            if let Some(action) = matches.into_iter().next() {
+                return Ok(action);
+            }
+            return Err(format!(
+                "pending room resolution route symbol {symbol:?} has no live map match"
+            ));
+        }
+        let matches = state
+            .legal_actions
+            .iter()
+            .filter(|action| action.enabled && action.kind == LegalActionKind::ChooseMapNode)
+            .collect::<Vec<_>>();
+        return match matches.as_slice() {
+            [action] => Ok(action),
+            [] => Err("pending room resolution has no live map choices".to_owned()),
+            _ => Err("pending room resolution has multiple live map choices".to_owned()),
+        };
+    }
+    if state.phase == LivePhase::Event {
+        if current_event_name(state).is_some_and(|name| name == "Golden Idol") {
+            if let Some(action) = unique_event_choice_by_label(state, "outrun") {
+                return Ok(action);
+            }
+        }
+        if let Some(action) = unique_event_choice_by_label(state, "continue") {
+            return Ok(action);
+        }
+        if let Some(action) = unique_event_choice_by_label(state, "play") {
+            return Ok(action);
+        }
+        if let Some(action) = unique_event_choice_by_label(state, "spin") {
+            return Ok(action);
+        }
+        if current_event_name(state).is_some_and(|name| name == "Wheel of Change") {
+            if let Some(action) = unique_enabled_event_choice(state) {
+                return Ok(action);
+            }
+        }
+        let matches = state
+            .legal_actions
+            .iter()
+            .filter(|action| {
+                action.enabled
+                    && action.kind == LegalActionKind::EventChoice
+                    && action.label.eq_ignore_ascii_case("leave")
+            })
+            .collect::<Vec<_>>();
+        return match matches.as_slice() {
+            [action] => Ok(action),
+            [] => Err("pending room resolution has no live event leave choice".to_owned()),
+            _ => Err("pending room resolution has multiple live event leave choices".to_owned()),
+        };
+    }
+    if state.phase == LivePhase::Neow {
+        let matches = state
+            .legal_actions
+            .iter()
+            .filter(|action| {
+                action.enabled
+                    && action.kind == LegalActionKind::ChooseNeow
+                    && action.label.eq_ignore_ascii_case("leave")
+            })
+            .collect::<Vec<_>>();
+        return match matches.as_slice() {
+            [action] => Ok(action),
+            [] => Err("pending room resolution has no live Neow leave choice".to_owned()),
+            _ => Err("pending room resolution has multiple live Neow leave choices".to_owned()),
+        };
+    }
+    if state.phase == LivePhase::Reward && is_grid_screen(state) && grid_confirm_up(state) {
+        return bind_matching_live_action(state, "CONFIRM", |action| {
+            action.kind == LegalActionKind::Confirm && action.label.eq_ignore_ascii_case("confirm")
+        });
+    }
+    if state.phase == LivePhase::Reward {
+        return reward_flush_action_before_high_level_step(state, "pending room resolution");
+    }
+    if state.phase == LivePhase::Rest {
+        return bind_matching_live_action(state, "PROCEED", |action| {
+            action.kind == LegalActionKind::Confirm && action.label.eq_ignore_ascii_case("proceed")
+        });
+    }
+    if live_screen_type(state).is_some_and(|screen| screen == "CHEST") {
+        if let Ok(action) = bind_matching_live_action(state, "CHOOSE 0", |action| {
+            action.kind == LegalActionKind::Confirm && action.label.eq_ignore_ascii_case("open")
+        }) {
+            return Ok(action);
+        }
+        return bind_matching_live_action(state, "PROCEED", |action| {
+            action.kind == LegalActionKind::Confirm && action.label.eq_ignore_ascii_case("proceed")
+        });
+    }
+    if state.phase == LivePhase::Shop
+        || live_screen_type(state).is_some_and(|screen| screen == "SHOP_SCREEN")
+    {
+        return unique_leave_shop_action(state).ok_or_else(|| {
+            "pending room resolution has no unique live shop leave choice".to_owned()
+        });
+    }
+    if live_screen_type(state).is_some_and(|screen| screen == "SHOP_ROOM") {
+        return bind_matching_live_action(state, "PROCEED", |action| {
+            action.kind == LegalActionKind::Confirm && action.label.eq_ignore_ascii_case("proceed")
+        });
+    }
+    Err("SlayTheData guided step pending_room_resolution has no dynamic binding".to_owned())
+}
+
 pub(super) fn bind_guided_shop_step<'a>(
     state: &'a LiveState,
     step: &SlayTheDataPreflightStep,
