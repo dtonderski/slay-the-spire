@@ -1028,6 +1028,7 @@ struct SeedStartVerification {
 struct PendingDeckAssertion {
     action: TraceAction,
     label: String,
+    related_actions: Vec<(TraceAction, String)>,
     transient_decks: Vec<Vec<String>>,
     expected_deck: Vec<String>,
 }

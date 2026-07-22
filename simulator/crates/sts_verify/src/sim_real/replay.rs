@@ -477,9 +477,9 @@ fn seed_start_handle_neow_card_reward_phase(
     neow_card_reward_choices: &mut Option<Vec<String>>,
     neow_card_reward_card_rng_counter: &mut Option<u32>,
     neow_leave_visible_deck_ids: &mut Option<Vec<String>>,
-    delayed_neow_curse: &mut Option<String>,
     seed_sim: &mut Option<RunState>,
     pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    reconciled_deferred_action_steps: &mut Vec<u32>,
     phase: &mut SeedStartPhase,
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
@@ -535,7 +535,7 @@ fn seed_start_handle_neow_card_reward_phase(
         }
 
         if seed_start_neow_option_is_supported_card_reward(option.clone()) {
-            let run = seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
+            let mut run = seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
                 start.numeric_seed,
                 start.ascension,
                 deck_ids,
@@ -543,6 +543,7 @@ fn seed_start_handle_neow_card_reward_phase(
                 start.starting_hp(),
             );
             *deck_ids = deck_content_keys(&run.deck);
+            let transient_reward_deck = deck_ids.clone();
             *neow_gold = run.gold;
             *neow_current_hp = run.player_hp;
             *neow_max_hp = run.player_max_hp;
@@ -558,7 +559,7 @@ fn seed_start_handle_neow_card_reward_phase(
             );
             *neow_card_reward_option = Some(option.clone());
             if option.drawback == NeowDrawback::Curse {
-                let card_rng_counter = match option.reward {
+                let reward_card_rng_counter = match option.reward {
                     NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
                         generate_neow_colorless_reward(start.numeric_seed, option.reward)
                             .expect("matched generated Neow colorless reward option")
@@ -566,30 +567,88 @@ fn seed_start_handle_neow_card_reward_phase(
                     }
                     _ => 0,
                 };
-                *delayed_neow_curse =
-                    seed_start_neow_curse_deck_key(start.numeric_seed, card_rng_counter);
+                let curse =
+                    seed_start_neow_curse_deck_key(start.numeric_seed, reward_card_rng_counter)
+                        .expect("matched Neow curse drawback has a modeled curse");
+                deck_ids.push(curse);
+                run.deck = deck_instances_from_keys(deck_ids);
+                let settled_card_rng_counter = reward_card_rng_counter
+                    .checked_add(1)
+                    .expect("floor-zero Neow card RNG counter has headroom");
+                run.card_rng_counter = settled_card_rng_counter;
+                *neow_card_reward_card_rng_counter = Some(settled_card_rng_counter);
             }
-            compare_subset(
-                report,
-                action,
-                seed_start_neow_card_reward_label(option.reward),
-                seed_start_reward_observed_subset(&post.message),
-                json!({
-                    "screen_type": "CARD_REWARD",
-                    "floor": 0,
-                    "gold": neow_gold,
-                    "current_hp": neow_current_hp,
-                    "max_hp": neow_max_hp,
-                    "deck_ids": deck_ids,
-                    "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                    "choices": seed_start_neow_card_reward_choice_names(start.numeric_seed, &option, Some(&run)),
-                    "card_reward_ids": seed_start_neow_card_reward_id_values(start.numeric_seed, &option, Some(&run)),
-                    "unobservable": {
-                        "card_reward_rng_draws": true,
-                        "card_reward_uuids": true,
-                    },
-                }),
-            );
+            let label = seed_start_neow_card_reward_label(option.reward);
+            let mut observed = seed_start_reward_observed_subset(&post.message);
+            let mut simulated = json!({
+                "screen_type": "CARD_REWARD",
+                "floor": 0,
+                "gold": neow_gold,
+                "current_hp": neow_current_hp,
+                "max_hp": neow_max_hp,
+                "deck_ids": deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "choices": seed_start_neow_card_reward_choice_names(start.numeric_seed, &option, Some(&run)),
+                "card_reward_ids": seed_start_neow_card_reward_id_values(start.numeric_seed, &option, Some(&run)),
+                "unobservable": {
+                    "card_reward_rng_draws": true,
+                    "card_reward_uuids": true,
+                },
+            });
+            if option.drawback == NeowDrawback::Curse {
+                let observed_deck = observed
+                    .as_object_mut()
+                    .and_then(|object| object.remove("deck_ids"))
+                    .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                    .unwrap_or_default();
+                let settled_deck = simulated
+                    .as_object_mut()
+                    .and_then(|object| object.remove("deck_ids"))
+                    .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                    .expect("Neow card reward projection contains a deck");
+                let mut diffs = subset_diffs(observed, simulated);
+                match classify_deferred_deck_observation(
+                    &observed_deck,
+                    &transient_reward_deck,
+                    &settled_deck,
+                ) {
+                    PendingDeckObservation::Settled if diffs.is_empty() => {
+                        report.verified.push(VerifiedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: label.to_owned(),
+                        });
+                    }
+                    PendingDeckObservation::Deferred if diffs.is_empty() => {
+                        *pending_deck_assertion = Some(PendingDeckAssertion {
+                            action: action.clone(),
+                            label: label.to_owned(),
+                            related_actions: Vec::new(),
+                            transient_decks: vec![transient_reward_deck],
+                            expected_deck: settled_deck,
+                        });
+                    }
+                    PendingDeckObservation::Diverged(deck_diffs) => {
+                        diffs.extend(deck_diffs);
+                        report.unexpected_diffs.push(UnexpectedDiff {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: label.to_owned(),
+                            diffs,
+                        });
+                    }
+                    PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+                        report.unexpected_diffs.push(UnexpectedDiff {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: label.to_owned(),
+                            diffs,
+                        });
+                    }
+                }
+            } else {
+                compare_subset(report, action, label, observed, simulated);
+            }
             *phase = SeedStartPhase::NeowCardReward;
             return SeedStartPreDispatch::Handled;
         }
@@ -605,23 +664,13 @@ fn seed_start_handle_neow_card_reward_phase(
     else {
         return SeedStartPreDispatch::NotHandled;
     };
+    let pending_reward_open = pending_deck_assertion.take();
     let option = neow_card_reward_option
         .as_ref()
         .expect("Neow card reward option is carried");
     let pre_pick_deck_ids = deck_ids.clone();
     deck_ids.push(picked_card.clone());
-    let mut run = seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
-        start.numeric_seed,
-        start.ascension,
-        deck_ids,
-        option,
-        start.starting_hp(),
-    );
-    if let Some(card_rng_counter) = *neow_card_reward_card_rng_counter {
-        run.card_rng_counter = card_rng_counter;
-    }
-    let mut transient_deck = deck_ids.clone();
-    if let Some(curse) = delayed_neow_curse.take() {
+    if pending_reward_open.is_some() {
         let curse_order = match pending_neow_curse_order(pre, action) {
             Ok(order) => order,
             Err(reason) => {
@@ -632,23 +681,41 @@ fn seed_start_handle_neow_card_reward_phase(
                 });
             }
         };
-        // NeowReward.activate marks the curse pending before opening the reward. A target update can
-        // obtain it while that screen remains open; otherwise CardRewardScreen obtains the selected
-        // card first. The order is bound from pre-state/action timing, never post-state.
-        *deck_ids = pre_pick_deck_ids;
-        if curse_order == PendingNeowCurseOrder::BeforePickedCard {
-            deck_ids.push(curse);
-            deck_ids.push(picked_card);
-        } else {
-            deck_ids.push(picked_card);
-            deck_ids.push(curse);
+        if curse_order == PendingNeowCurseOrder::AfterPickedCard {
+            let picked_index = deck_ids
+                .len()
+                .checked_sub(1)
+                .expect("picked Neow card was appended");
+            let curse_index = picked_index
+                .checked_sub(1)
+                .expect("pending Neow curse follows the starter deck");
+            deck_ids.swap(curse_index, picked_index);
         }
-        if curse_order == PendingNeowCurseOrder::BeforePickedCard {
-            transient_deck = deck_ids.clone();
-        }
-        run.deck = deck_instances_from_keys(deck_ids);
-        run.card_rng_counter = run.card_rng_counter.saturating_add(1);
     }
+    let mut run = seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
+        start.numeric_seed,
+        start.ascension,
+        deck_ids,
+        option,
+        start.starting_hp(),
+    );
+    if let Some(card_rng_counter) = *neow_card_reward_card_rng_counter {
+        run.card_rng_counter = card_rng_counter;
+    }
+    let transient_deck = if pending_reward_open.is_some() {
+        let curse_index = pre_pick_deck_ids
+            .len()
+            .checked_sub(1)
+            .expect("pending Neow curse follows the starter deck");
+        let mut deck = pre_pick_deck_ids
+            .get(..curse_index)
+            .expect("pending Neow curse follows the starter deck")
+            .to_vec();
+        deck.push(picked_card.clone());
+        deck
+    } else {
+        deck_ids.clone()
+    };
     *seed_sim = Some(run);
     let mut observed = seed_start_observed_subset(&post.message);
     let observed_deck = observed
@@ -675,6 +742,22 @@ fn seed_start_handle_neow_card_reward_phase(
     let mut diffs = subset_diffs(observed, simulated);
     match classify_deferred_deck_observation(&observed_deck, &transient_deck, &simulated_deck) {
         PendingDeckObservation::Settled if diffs.is_empty() => {
+            if let Some(pending) = pending_reward_open {
+                for (related_action, related_label) in pending.related_actions {
+                    reconciled_deferred_action_steps.push(related_action.step);
+                    report.verified.push(VerifiedTransition {
+                        action_step: related_action.step,
+                        command: related_action.command,
+                        label: related_label,
+                    });
+                }
+                reconciled_deferred_action_steps.push(pending.action.step);
+                report.verified.push(VerifiedTransition {
+                    action_step: pending.action.step,
+                    command: pending.action.command,
+                    label: pending.label,
+                });
+            }
             report.verified.push(VerifiedTransition {
                 action_step: action.step,
                 command: action.command.clone(),
@@ -685,6 +768,13 @@ fn seed_start_handle_neow_card_reward_phase(
             *pending_deck_assertion = Some(PendingDeckAssertion {
                 action: action.clone(),
                 label: "Neow colorless pickup".to_owned(),
+                related_actions: pending_reward_open
+                    .map(|pending| {
+                        let mut related = pending.related_actions;
+                        related.push((pending.action, pending.label));
+                        related
+                    })
+                    .unwrap_or_default(),
                 transient_decks: vec![transient_deck],
                 expected_deck: simulated_deck,
             });
@@ -1719,6 +1809,7 @@ fn seed_start_handle_neow_leave_phase(
             *pending_deck_assertion = Some(PendingDeckAssertion {
                 action: action.clone(),
                 label: "Neow leave".to_owned(),
+                related_actions: Vec::new(),
                 transient_decks,
                 expected_deck: simulated_deck,
             });
@@ -2640,6 +2731,7 @@ fn seed_start_handle_event_phase(
                     *pending_deck_assertion = Some(PendingDeckAssertion {
                         action: action.clone(),
                         label: "event choice".to_owned(),
+                        related_actions: Vec::new(),
                         transient_decks: vec![simulated_deck],
                         expected_deck,
                     });
@@ -3554,6 +3646,7 @@ fn seed_start_handle_reward_phase(
                         *pending_deck_assertion = Some(PendingDeckAssertion {
                             action: action.clone(),
                             label: label.clone(),
+                            related_actions: Vec::new(),
                             transient_decks: vec![deck_before_reward_choice],
                             expected_deck: simulated_deck,
                         });
@@ -3882,6 +3975,7 @@ fn seed_start_handle_grid_phase(
                 *pending_deck_assertion = Some(PendingDeckAssertion {
                     action: action.clone(),
                     label: label.to_owned(),
+                    related_actions: Vec::new(),
                     transient_decks: vec![simulated_deck],
                     expected_deck,
                 });
@@ -3932,6 +4026,7 @@ fn seed_start_handle_grid_phase(
                 *pending_deck_assertion = Some(PendingDeckAssertion {
                     action: action.clone(),
                     label: label.to_owned(),
+                    related_actions: Vec::new(),
                     transient_decks: vec![pre_command_deck],
                     expected_deck: simulated_deck,
                 });
@@ -4178,6 +4273,7 @@ fn seed_start_handle_shop_phase(
                         *pending_deck_assertion = Some(PendingDeckAssertion {
                             action: action.clone(),
                             label: label.to_owned(),
+                            related_actions: Vec::new(),
                             transient_decks: vec![transient_deck],
                             expected_deck,
                         });
@@ -4468,6 +4564,12 @@ pub(super) fn verify_seed_start_transitions(
             let mut unresolved_deferred_action_steps = Vec::new();
             if let Some(pending) = pending_deck_assertion.as_ref() {
                 unresolved_deferred_action_steps.push(pending.action.step);
+                unresolved_deferred_action_steps.extend(
+                    pending
+                        .related_actions
+                        .iter()
+                        .map(|(action, _)| action.step),
+                );
             }
             if let Some(pending) = pending_map_assertion.as_ref() {
                 unresolved_deferred_action_steps.push(pending.action.step);
@@ -4534,6 +4636,14 @@ pub(super) fn verify_seed_start_transitions(
                     &pending.expected_deck,
                 ) {
                     PendingDeckObservation::Settled => {
+                        for (related_action, related_label) in pending.related_actions {
+                            reconciled_deferred_action_steps.push(related_action.step);
+                            report.verified.push(VerifiedTransition {
+                                action_step: related_action.step,
+                                command: related_action.command,
+                                label: related_label,
+                            });
+                        }
                         report.verified.push(VerifiedTransition {
                             action_step: pending.action.step,
                             command: pending.action.command,
@@ -4545,6 +4655,14 @@ pub(super) fn verify_seed_start_transitions(
                         pending_deck_assertion = Some(pending);
                     }
                     PendingDeckObservation::Diverged(diffs) => {
+                        for (related_action, related_label) in pending.related_actions {
+                            report.unexpected_diffs.push(UnexpectedDiff {
+                                action_step: related_action.step,
+                                command: related_action.command,
+                                label: related_label,
+                                diffs: diffs.clone(),
+                            });
+                        }
                         report.unexpected_diffs.push(UnexpectedDiff {
                             action_step: pending.action.step,
                             command: pending.action.command,
@@ -4575,43 +4693,77 @@ pub(super) fn verify_seed_start_transitions(
                         reconciled_deferred_action_steps.push(pending.action.step);
                     }
                     PendingDeckObservation::Deferred => {
-                        let observed_post_deck = seed_start_observed_deck(&post.message);
-                        match classify_deferred_deck_reconciliation(
-                            &observed_post_deck,
-                            &pending.transient_decks,
-                            &pending.expected_deck,
-                        ) {
-                            PendingDeckObservation::Settled => {
-                                report.verified.push(VerifiedTransition {
-                                    action_step: pending.action.step,
-                                    command: pending.action.command,
-                                    label: pending.label,
-                                });
-                                reconciled_deferred_action_steps.push(pending.action.step);
-                            }
-                            PendingDeckObservation::Deferred => {
-                                let boundary = SeedStartBoundary {
-                                    path: format!("$.actions[step={}].command", action.step),
-                                    category: "unreconciled_deck_frame".to_owned(),
-                                    reason: format!(
-                                        "command '{}' arrived before deferred deck mutation from step {} reconciled",
-                                        action.command, pending.action.step
-                                    ),
-                                };
-                                pending_deck_assertion = Some(pending);
-                                return finish_boundary!(boundary);
-                            }
-                            PendingDeckObservation::Diverged(diffs) => {
-                                report.unexpected_diffs.push(UnexpectedDiff {
-                                    action_step: pending.action.step,
-                                    command: pending.action.command,
-                                    label: pending.label,
-                                    diffs,
-                                });
+                        if phase == SeedStartPhase::NeowCardReward
+                            && seed_start_pick_neow_card_reward(
+                                &neow_card_reward_choices,
+                                &action.command,
+                            )
+                            .is_some()
+                        {
+                            pending_deck_assertion = Some(pending);
+                        } else {
+                            let observed_post_deck = seed_start_observed_deck(&post.message);
+                            match classify_deferred_deck_reconciliation(
+                                &observed_post_deck,
+                                &pending.transient_decks,
+                                &pending.expected_deck,
+                            ) {
+                                PendingDeckObservation::Settled => {
+                                    for (related_action, related_label) in pending.related_actions {
+                                        reconciled_deferred_action_steps.push(related_action.step);
+                                        report.verified.push(VerifiedTransition {
+                                            action_step: related_action.step,
+                                            command: related_action.command,
+                                            label: related_label,
+                                        });
+                                    }
+                                    report.verified.push(VerifiedTransition {
+                                        action_step: pending.action.step,
+                                        command: pending.action.command,
+                                        label: pending.label,
+                                    });
+                                    reconciled_deferred_action_steps.push(pending.action.step);
+                                }
+                                PendingDeckObservation::Deferred => {
+                                    let boundary = SeedStartBoundary {
+                                        path: format!("$.actions[step={}].command", action.step),
+                                        category: "unreconciled_deck_frame".to_owned(),
+                                        reason: format!(
+                                            "command '{}' arrived before deferred deck mutation from step {} reconciled",
+                                            action.command, pending.action.step
+                                        ),
+                                    };
+                                    pending_deck_assertion = Some(pending);
+                                    return finish_boundary!(boundary);
+                                }
+                                PendingDeckObservation::Diverged(diffs) => {
+                                    for (related_action, related_label) in pending.related_actions {
+                                        report.unexpected_diffs.push(UnexpectedDiff {
+                                            action_step: related_action.step,
+                                            command: related_action.command,
+                                            label: related_label,
+                                            diffs: diffs.clone(),
+                                        });
+                                    }
+                                    report.unexpected_diffs.push(UnexpectedDiff {
+                                        action_step: pending.action.step,
+                                        command: pending.action.command,
+                                        label: pending.label,
+                                        diffs,
+                                    });
+                                }
                             }
                         }
                     }
                     PendingDeckObservation::Diverged(diffs) => {
+                        for (related_action, related_label) in pending.related_actions {
+                            report.unexpected_diffs.push(UnexpectedDiff {
+                                action_step: related_action.step,
+                                command: related_action.command,
+                                label: related_label,
+                                diffs: diffs.clone(),
+                            });
+                        }
                         report.unexpected_diffs.push(UnexpectedDiff {
                             action_step: pending.action.step,
                             command: pending.action.command,
@@ -5156,9 +5308,9 @@ pub(super) fn verify_seed_start_transitions(
             &mut neow_card_reward_choices,
             &mut neow_card_reward_card_rng_counter,
             &mut neow_leave_visible_deck_ids,
-            &mut delayed_neow_curse,
             &mut seed_sim,
             &mut pending_deck_assertion,
+            &mut reconciled_deferred_action_steps,
             &mut phase,
             report,
         ) {

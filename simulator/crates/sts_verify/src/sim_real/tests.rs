@@ -7684,7 +7684,7 @@ fn seed_start_neow_three_rare_cards_can_pick_card_leave_and_reach_map() {
 }
 
 #[test]
-fn seed_start_neow_curse_three_rare_cards_obtains_picked_card_before_curse() {
+fn seed_start_neow_curse_three_rare_cards_settles_curse_before_pick() {
     let numeric_seed = 3_768_852_066_369_722_076;
     let external_seed = "1418KCQFMRQCW";
     let option = seed_start_selected_neow_option(numeric_seed, "CHOOSE 2")
@@ -7712,10 +7712,11 @@ fn seed_start_neow_curse_three_rare_cards_obtains_picked_card_before_curse() {
     let curse_key =
         seed_start_neow_curse_deck_key(numeric_seed, 0).expect("curse generated after leave");
 
+    let mut reward_deck = neow_deck.clone();
+    reward_deck.push(json!({ "id": curse_key }));
     let picked_card = reward_ids[0].clone();
-    let mut leave_deck = neow_deck.clone();
+    let mut leave_deck = reward_deck.clone();
     leave_deck.push(json!({ "id": picked_card }));
-    leave_deck.push(json!({ "id": curse_key }));
     let map_deck = leave_deck.clone();
 
     let lines = vec![
@@ -7753,7 +7754,7 @@ fn seed_start_neow_curse_three_rare_cards_obtains_picked_card_before_curse() {
             "gold": run.gold,
             "current_hp": run.player_hp,
             "max_hp": run.player_max_hp,
-            "deck": neow_deck,
+            "deck": reward_deck,
             "relics": starting_relics,
             "choice_list": reward_names,
             "screen_state": {
@@ -7999,7 +8000,7 @@ fn seed_start_neow_random_colorless_uses_generated_card_reward_helper() {
 }
 
 #[test]
-fn seed_start_neow_curse_rare_colorless_delays_curse_until_after_choices() {
+fn seed_start_neow_curse_rare_colorless_reconciles_chained_transient_decks() {
     let (numeric_seed, option) = (1_i64..100_000)
         .find_map(|seed| {
             generate_neow_options(seed, 80)
@@ -8021,14 +8022,13 @@ fn seed_start_neow_curse_rare_colorless_delays_curse_until_after_choices() {
     let generated = generate_neow_colorless_reward(numeric_seed, option.reward)
         .expect("matched generated Neow colorless reward option");
     let choices = seed_start_neow_card_reward_content_ids(numeric_seed, &option, Some(&run));
-    let delayed_curse = seed_start_neow_curse_deck_key(numeric_seed, generated.card_rng_counter)
-        .expect("delayed curse");
+    let curse = seed_start_neow_curse_deck_key(numeric_seed, generated.card_rng_counter)
+        .expect("Neow curse");
 
     assert_eq!(run.card_rng_counter, 0);
     assert_eq!(run.deck.len(), ironclad_starter_deck_keys().len());
     assert_eq!(choices, generated.cards);
-    assert!(content_id_from_key(&delayed_curse)
-        .is_some_and(sts_core::content::cards::is_curse_content_id));
+    assert!(content_id_from_key(&curse).is_some_and(sts_core::content::cards::is_curse_content_id));
 
     let external_seed = test_seed_string_from_long(numeric_seed);
     let starting_deck_keys = ironclad_starter_deck_keys();
@@ -8044,10 +8044,9 @@ fn seed_start_neow_curse_rare_colorless_delays_curse_until_after_choices() {
         .collect::<Vec<_>>();
     let picked_card = reward_ids[0].clone();
     let mut transient_pick_deck = starting_deck_keys.clone();
-    transient_pick_deck.push(picked_card.clone());
-    let mut settled_deck = starting_deck_keys.clone();
-    settled_deck.push(picked_card);
-    settled_deck.push(delayed_curse.clone());
+    transient_pick_deck.push(picked_card);
+    let mut settled_deck = transient_pick_deck.clone();
+    settled_deck.push(curse);
     let trace_deck = |keys: &[String]| {
         keys.iter()
             .map(|id| json!({ "id": id }))
@@ -8105,8 +8104,20 @@ fn seed_start_neow_curse_rare_colorless_delays_curse_until_after_choices() {
             "relics": [{"name": "Burning Blood"}],
             "choice_list": ["leave"]
         }}}),
-        json!({"type": "action", "step": 5, "command": "CHOOSE 0"}),
+        json!({"type": "action", "step": 5, "command": "STATE"}),
         json!({"type": "state", "step": 5, "message": {"game_state": {
+            "screen_type": "EVENT",
+            "ascension_level": 0,
+            "floor": 0,
+            "gold": run.gold,
+            "current_hp": run.player_hp,
+            "max_hp": run.player_max_hp,
+            "deck": trace_deck(&settled_deck),
+            "relics": [{"name": "Burning Blood"}],
+            "choice_list": ["leave"]
+        }}}),
+        json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
+        json!({"type": "state", "step": 6, "message": {"game_state": {
             "screen_type": "MAP",
             "ascension_level": 0,
             "floor": 0,
@@ -8118,61 +8129,30 @@ fn seed_start_neow_curse_rare_colorless_delays_curse_until_after_choices() {
             "choice_list": seed_start_first_map_choices(&external_seed)
         }}}),
     ];
-    let mut immediately_settled_lines = lines.clone();
-    *immediately_settled_lines
-        .iter_mut()
-        .find_map(|line| {
-            (line.get("step").and_then(Value::as_u64) == Some(4))
-                .then(|| line.pointer_mut("/message/game_state/deck"))
-                .flatten()
-        })
-        .expect("picked-card post deck") = json!(trace_deck(&settled_deck));
-
-    let lagged = verify_seed_start_communication_mod_trace(&serialize_trace_test_lines(lines))
-        .expect("lagged curse trace verifies");
-    let immediate = verify_seed_start_communication_mod_trace(&serialize_trace_test_lines(
-        immediately_settled_lines,
-    ))
-    .expect("immediately settled curse trace verifies");
-    assert!(lagged.unexpected_diffs.is_empty(), "{lagged:#?}");
-    assert!(immediate.unexpected_diffs.is_empty(), "{immediate:#?}");
-    let lagged_pick = lagged
+    let report = verify_seed_start_communication_mod_trace(&serialize_trace_test_lines(lines))
+        .expect("settled curse trace verifies");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    let pick = report
         .action_dispositions
         .iter()
         .find(|entry| entry.action_step == 4)
-        .expect("lagged pick disposition");
-    assert_eq!(lagged_pick.disposition, ActionDispositionKind::Verified);
-    assert!(lagged_pick.deferred_assertion_reconciled);
-    let immediate_pick = immediate
+        .expect("pick disposition");
+    assert_eq!(pick.disposition, ActionDispositionKind::Verified);
+    assert!(pick.deferred_assertion_reconciled);
+    let reward_open = report
         .action_dispositions
         .iter()
-        .find(|entry| entry.action_step == 4)
-        .expect("immediate pick disposition");
-    assert_eq!(immediate_pick.disposition, ActionDispositionKind::Verified);
-    assert!(!immediate_pick.deferred_assertion_reconciled);
-    let lagged_state = lagged
+        .find(|entry| entry.action_step == 3)
+        .expect("reward-open disposition");
+    assert_eq!(reward_open.disposition, ActionDispositionKind::Verified);
+    assert!(reward_open.deferred_assertion_reconciled);
+    let state = report
         .seed_start
         .as_ref()
         .and_then(|seed_start| seed_start.sim_run_state.as_ref())
-        .expect("lagged simulator state");
-    let immediate_state = immediate
-        .seed_start
-        .as_ref()
-        .and_then(|seed_start| seed_start.sim_run_state.as_ref())
-        .expect("immediate simulator state");
-    assert_eq!(deck_content_keys(&lagged_state.deck), settled_deck);
-    assert_eq!(
-        deck_content_keys(&lagged_state.deck),
-        deck_content_keys(&immediate_state.deck)
-    );
-    assert_eq!(
-        lagged_state.card_rng_counter,
-        generated.card_rng_counter + 1
-    );
-    assert_eq!(
-        lagged_state.card_rng_counter,
-        immediate_state.card_rng_counter
-    );
+        .expect("simulator state");
+    assert_eq!(deck_content_keys(&state.deck), settled_deck);
+    assert_eq!(state.card_rng_counter, generated.card_rng_counter + 1);
 }
 
 #[test]
