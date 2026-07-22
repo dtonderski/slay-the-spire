@@ -233,6 +233,212 @@ pub(super) fn bind_neow_step<'a>(
     ))
 }
 
+pub(super) fn bind_guided_event_step<'a>(
+    state: &'a LiveState,
+    step: &SlayTheDataPreflightStep,
+    intent: &SlayTheDataReplayStepKind,
+) -> Result<&'a LegalAction, String> {
+    if is_grid_screen(state) {
+        if grid_confirm_up(state) {
+            return bind_matching_live_action(state, "CONFIRM", |action| {
+                action.kind == LegalActionKind::Confirm
+                    && action.label.eq_ignore_ascii_case("confirm")
+            });
+        }
+        let targets = guided_event_grid_targets(intent);
+        if targets.is_empty() {
+            return Err("guided event grid has no target card".to_owned());
+        }
+        let selected_count = grid_selected_card_count(state);
+        if let Some(action) = targets
+            .iter()
+            .skip(selected_count)
+            .chain(targets.iter().take(selected_count))
+            .find_map(|target| first_card_label_match(state, target))
+        {
+            return Ok(action);
+        }
+        if drug_dealer_test_subject_step(intent) {
+            // SlayTheData records the two transformed outputs, not the two
+            // source cards removed from the deck. Prefer expendable starter
+            // cards while the two-card selection grid remains open. Selected
+            // cards remain clickable in CommunicationMod, so advance through
+            // the ordered candidates by the selected-card count instead of
+            // toggling the first card on and off.
+            let selected_count = grid_selected_card_count(state);
+            let starter_choices = state
+                .legal_actions
+                .iter()
+                .filter(|action| {
+                    action.enabled
+                        && action.kind == LegalActionKind::ChooseReward
+                        && ["strike", "defend"]
+                            .into_iter()
+                            .any(|target| campfire_grid_label_matches_target(&action.label, target))
+                })
+                .collect::<Vec<_>>();
+            let all_choices = state
+                .legal_actions
+                .iter()
+                .filter(|action| action.enabled && action.kind == LegalActionKind::ChooseReward)
+                .collect::<Vec<_>>();
+            if let Some(action) = starter_choices
+                .get(selected_count)
+                .or_else(|| all_choices.get(selected_count))
+                .copied()
+            {
+                return Ok(action);
+            }
+        }
+        return Err(format!(
+            "guided event grid targets {targets:?} have no enabled live grid label match"
+        ));
+    }
+    if state.phase == LivePhase::Reward {
+        return reward_flush_action_before_high_level_step(state, "guided event choice");
+    }
+    if state.phase == LivePhase::Event {
+        if let Some(action) = unique_event_choice_by_label(state, "continue") {
+            return Ok(action);
+        }
+        // Wheel of Change has no player-selected outcome: RNG has already
+        // chosen the recorded result, and each stage exposes exactly one
+        // button (Play, spin, prize!, then Leave). Bind that sole action even
+        // though SlayTheData names the result rather than the button label.
+        if current_event_name(state).is_some_and(|name| name == "Wheel of Change") {
+            if let Some(action) = unique_enabled_event_choice(state) {
+                return Ok(action);
+            }
+        }
+        let enabled_event_choices = state
+            .legal_actions
+            .iter()
+            .filter(|action| action.enabled && action.kind == LegalActionKind::EventChoice)
+            .collect::<Vec<_>>();
+        if let [action] = enabled_event_choices.as_slice() {
+            if action.label.eq_ignore_ascii_case("leave") {
+                return Ok(action);
+            }
+        }
+        if current_event_name(state).is_some_and(|name| name == "Golden Shrine") {
+            if let Some(action) = unique_event_choice_by_label(state, "leave") {
+                return Ok(action);
+            }
+        }
+        if current_event_name(state).is_some_and(|name| name == "Big Fish") {
+            if let Some(action) = unique_event_choice_by_label(state, "leave") {
+                return Ok(action);
+            }
+        }
+        let event_intent = match intent {
+            SlayTheDataReplayStepKind::EventChoice {
+                event_name,
+                player_choice,
+                relics_lost,
+                ..
+            } => Some((
+                event_name.as_deref(),
+                player_choice.as_deref(),
+                relics_lost.as_slice(),
+            )),
+            _ => None,
+        };
+        if event_intent
+            .and_then(|(event_name, _, _)| event_name)
+            .is_some_and(|event_name| event_name == "Match and Keep!")
+        {
+            if let Some(action) = unique_event_choice_by_label(state, "leave") {
+                return Ok(action);
+            }
+            if let Some(action) = unique_event_choice_by_label(state, "play") {
+                return Ok(action);
+            }
+            if let Some(action) = bind_match_and_keep_action(state, intent)? {
+                return Ok(action);
+            }
+        }
+        let Some(choice) = event_intent.and_then(|(_, choice, _)| choice) else {
+            return Err("guided event choice has no concrete SlayTheData choice".to_owned());
+        };
+        if current_event_name(state).is_some_and(|name| name == "Golden Idol") {
+            if let Some(action) = unique_event_choice_by_label(state, "take") {
+                return Ok(action);
+            }
+        }
+        if normalize_live_label(current_event_name(state).unwrap_or_default()).replace(' ', "")
+            == "nloth"
+            && normalize_live_label(choice).replace(' ', "") == "tradedrelic"
+        {
+            let Some(relic) = event_intent
+                .and_then(|(_, _, relics_lost)| relics_lost.first())
+                .map(String::as_str)
+            else {
+                return Err("N'loth trade has no recorded lost relic".to_owned());
+            };
+            let target = normalize_live_label(relic).replace(' ', "");
+            let matches = state
+                .legal_actions
+                .iter()
+                .filter(|action| {
+                    action.enabled
+                        && action.kind == LegalActionKind::EventChoice
+                        && normalize_live_label(&action.label)
+                            .replace(' ', "")
+                            .contains(&target)
+                })
+                .collect::<Vec<_>>();
+            return match matches.as_slice() {
+                [action] => Ok(action),
+                [] => Err(format!(
+                    "N'loth trade has no live action for lost relic {relic:?}"
+                )),
+                _ => Err(format!(
+                    "N'loth trade has multiple live actions for lost relic {relic:?}"
+                )),
+            };
+        }
+        let event_name = current_event_name(state)
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| event_intent.and_then(|(event_name, _, _)| event_name))
+            .unwrap_or_default();
+        let matches = state
+            .legal_actions
+            .iter()
+            .filter(|action| action.enabled && action.kind == LegalActionKind::EventChoice)
+            .filter(|action| {
+                event_label_matches_choice_for_event(event_name, &action.label, choice)
+            })
+            .collect::<Vec<_>>();
+        if matches.len() > 1 {
+            if let Some(preferred) = preferred_event_label(event_name, choice) {
+                let preferred_matches = matches
+                    .iter()
+                    .copied()
+                    .filter(|action| {
+                        normalize_live_label(&action.label).replace(' ', "") == preferred
+                    })
+                    .collect::<Vec<_>>();
+                if let [action] = preferred_matches.as_slice() {
+                    return Ok(action);
+                }
+            }
+        }
+        return match matches.as_slice() {
+            [action] => Ok(action),
+            [] => Err(format!(
+                "guided event choice {choice:?} has no live label match"
+            )),
+            _ => Err(format!(
+                "guided event choice {choice:?} matched multiple live actions"
+            )),
+        };
+    }
+    Err(format!(
+        "SlayTheData guided step {} has no dynamic binding",
+        step.code
+    ))
+}
+
 pub(super) fn bind_guided_shop_step<'a>(
     state: &'a LiveState,
     step: &SlayTheDataPreflightStep,
