@@ -1,14 +1,18 @@
 # Fair Belief Architecture
 
-Status: design-only. No simulator mechanics or RL code are implemented by this
-document. Last updated: 2026-07-09.
+Status: future-stage belief design. Belief/particle implementation is deferred;
+the active pre-belief contracts are
+[`fair_combat_api_design.md`](fair_combat_api_design.md) and
+[`combat_rl_architecture.md`](combat_rl_architecture.md).
+Last reconciled: 2026-07-23.
 
 This document designs a fair agent architecture for Ironclad combat and run
 play that handles hidden information without cheating. It consolidates and
 extends [`research_tree.md`](../../docs/literature_review/research_tree.md),
-[`combat_tree_search.md`](../../docs/literature_review/combat_tree_search.md), and the archived
-`rl_visibility_matrix.md` / `fair_action_schema.md` drafts, grounded in the
-current `sts_core` / `sts_verify` / `sts_live` / `py_sts` code.
+[`combat_tree_search.md`](../../docs/literature_review/combat_tree_search.md),
+grounded in the current `sts_core` / `sts_verify` / `sts_live` / `py_sts`
+code. Earlier visibility/action drafts were archived and removed; this document
+must not cite them as active specifications.
 
 Hard constraints restated:
 
@@ -24,6 +28,11 @@ Hard constraints restated:
 
 ## Summary Of Answers
 
+0. **What comes before belief search?** Implement the symbolic fair observation
+   and public player-choice boundary, then train a fair-input policy/value
+   network through AlphaZero-style Expert Iteration while privileged search
+   follows the one true simulator state. This deliberately postpones particles
+   while making the network and action/state encoders reusable for them.
 1. **Is a learned latent belief/world model feasible and useful compared with
    exact hidden-state particle search?** Feasible, yes: observations are
    symbolic and compact, the simulator generates unlimited labeled data, and a
@@ -49,15 +58,16 @@ Hard constraints restated:
 3. **What is the formal fair-observation boundary?** A pure projection
    function `fair_view(authoritative_state, public_history)` plus the
    observational non-interference invariant: states that differ only in
-   hidden fields must produce byte-identical fair observations, action
-   descriptors, masks, public errors, and info — until normal gameplay reveals
-   the difference. Seed/RNG-stream cryptanalysis from public history is
+   hidden fields must produce byte-identical fair observations, public choice
+   lists, public errors, and info — until normal gameplay reveals the
+   difference. Seed/RNG-stream cryptanalysis from public history is
    declared out of protocol for reported agents.
 4. **How do we test that fair observations never leak?** A layered invariance
    suite: type/serialization allowlisting, hidden-state mutation
    non-interference property tests, zero-RNG-draw guards, adversarial probes
    that try to predict hidden values from fair outputs, mutation testing of
-   the projection itself, and dataset channel audits. Details below.
+   the projection itself, and dataset channel audits. Observation, public
+   choices, list ordering, public errors, and metadata are all in scope.
 5. **What data should the exact simulator generate?** Combat roots (a new
    serialized format), paired-channel trajectories (fair channel vs hidden
    label channel), particle-posterior and analytic-distribution calibration
@@ -83,8 +93,9 @@ against current `sts_core` state types.
 Combat:
 
 - Player: current HP, max HP, block, energy, visible powers with amounts.
-- Hand: ordered visible slots with card name, upgrade level, current visible
-  cost, visible keywords/text-affecting state.
+- Hand: visible slots with card name, upgrade level, current visible cost, and
+  visible keywords/text-affecting state. Slots are public decision references,
+  but the neural architecture is permutation-equivariant to hand reordering.
 - Draw pile: count, and contents *as an unordered multiset* (the real pile
   viewer shows sorted contents, not order). Ordered prefix only under an
   explicit visibility rule (Frozen Eye; Headbutt-style placements the player
@@ -159,8 +170,7 @@ The boundary is a function, not a habit:
 
 ```text
 fair_view : (AuthoritativeState, PublicHistory) -> FairObservation
-fair_actions : (AuthoritativeState, PublicHistory) -> Vec<FairActionDescriptor>
-fair_mask : (AuthoritativeState, PublicHistory) -> FixedMask
+public_choices : (AuthoritativeState, PublicHistory) -> Vec<PlayerChoice>
 ```
 
 Requirements:
@@ -170,36 +180,32 @@ Requirements:
   order.
 - **Observational non-interference (the core invariant):** for any two
   authoritative states `s1`, `s2` with identical public history whose
-  differences are confined to hidden fields, `fair_view`, `fair_actions`,
-  `fair_mask`, every public error produced by rejected actions, and every
-  fair `info` field must be byte-identical, until normal gameplay reveals the
-  difference. This is stricter than "don't expose the draw pile": hidden
-  state can leak through descriptor ordering, mask shape, target lists, and
-  validation outcomes (the Havoc case in the archived fair action schema).
-- Fair action descriptors use visible slots (hand slot, monster slot, option
-  slot), never internal IDs. The descriptor taxonomy from the archived
-  `fair_action_schema.md` is adopted as-is; it does not need redesign, it
-  needs implementation and tests.
+  differences are confined to hidden fields, `fair_view`, `public_choices`,
+  every public error produced by rejected choices, and every fair `info` field
+  must be byte-identical until normal gameplay reveals the difference. This is
+  stricter than "don't expose the draw pile": hidden state can leak through
+  descriptor ordering, list shape, target lists, and validation outcomes.
+- There is one underlying game action. `PlayerChoice` uses visible slots (hand
+  slot, monster slot, option slot), never internal IDs, and Rust resolves it to
+  the existing authoritative action. There is no parallel fair legality engine.
 - The fair runtime surface offers no snapshot/restore, no state hashes, no
   event logs. Reproducibility in fair mode is seed/config plus the visible
   action log, replayed through the authoritative simulator.
 - Capability separation: fair APIs and omniscient/debug APIs live in visibly
-  different types/modules (today `py_sts::OmniCombatEnv` and
-  `sts_live::automation` are explicitly omniscient — they stay that way and
-  keep the `Omni` naming). The fair facade should be a new crate (working
-  name `sts_fair`) that depends on `sts_core` one-way, per the archived
-  first-slice plan.
+  different types within one eventual compiled Python module. Today
+  `py_sts::OmniCombatEnv` and `sts_live::automation` are explicitly privileged
+  and keep visible naming. Symbolic fair projection/mapping belongs in Rust near
+  the core boundary; do not create a separate `sts_fair` crate.
 
 Formally, the fair game is the belief MDP induced by: hidden state drawn from
 the game's generative distribution (source-backed RNG semantics with
 exchangeable unrealized outcomes), observation function `fair_view`, action
-set `fair_actions`. Fair planners may *internally* instantiate hidden states
+set `public_choices`. Fair planners may *internally* instantiate hidden states
 (particles) — the constraint binds the policy's runtime inputs and the
 information flow out of the facade, not the planner's internal machinery.
-This matches the existing rule in `rl_visibility_matrix.md`: belief systems
-may track hidden possibilities, but the policy network never inspects raw
-particle internals directly; it sees fair observations and belief *summaries
-computed only from fair inputs plus the sampler's declared prior*.
+Belief systems may track hidden possibilities, but the policy network never
+inspects raw particle internals directly; it sees fair observations and belief
+summaries computed only from fair inputs plus the sampler's declared prior.
 
 ## 3. Combat-First Fair Observation Schema
 
@@ -213,7 +219,7 @@ FairCombatObservation
   player
     hp, max_hp, block, energy
     powers: [ { power_kind, amount, secondary_amount_if_visible } ]
-  hand: [ { name_id, upgrades, visible_cost, playable_shape } ]   # ordered, visible slots
+  hand: [ { slot, name_id, upgrades, visible_cost, playable_shape } ]
   draw_pile
     count
     known_multiset: [ { name_id, upgrades, count } ]   # from card counting; equals true multiset
@@ -228,7 +234,7 @@ FairCombatObservation
   } ]
   potions: [ { slot, identity | empty } ]
   relics: [ { name_id, visible_counter? } ]
-  selection_view?            # SelectionView / GridSelectView per fair_action_schema.md
+  selection_view?            # visible hand/grid/option selection state
   public_counters            # cards played this turn, times attacked this combat if UI-derivable, etc.
 ```
 
@@ -243,6 +249,9 @@ Notes:
   absent.
 - No `CardId`/instance identity anywhere. Duplicate cards are
   indistinguishable in fair view, exactly as in the real UI.
+- Hand slots are public references, not semantic tensor positions. A future
+  policy must be permutation-equivariant when hand records and their choice
+  references are permuted together.
 - Public history is exposed to recurrent policies as a token stream of
   (fair observation delta, action, public events) — the facade emits the
   public event list per step so wrappers do not scrape it from diffs.
@@ -469,8 +478,8 @@ deck size, relic set, and floor; version and deduplicate.
 
 Per decision step, two physically separate channels:
 
-- **Fair channel** (model input): fair observation, fair descriptors, fixed
-  mask, chosen action, public event list, terminal outcome and public reward
+- **Fair channel** (model input): fair observation, public choice list, chosen
+  choice, public event list, terminal outcome and public reward
   signals.
 - **Hidden/label channel** (training targets and debugging only): full
   snapshot, RNG stream states, committed hidden values, next-draw identity,
@@ -500,7 +509,18 @@ that these ground-truth belief marginals are computable; use that.
 
 ## 8. Latent Tree-Search Design
 
-Adopt in two steps, cheapest risk first:
+The active pre-belief stage comes first:
+
+### Step 0: fair network inside privileged singleton-state search
+
+Train the policy/value network from fair observations and public choices while
+beam/PUCT search follows the one true authoritative hidden state. This is an
+AlphaZero-style Expert Iteration bootstrap, not a fair runtime planner. It
+builds the observation encoder, dynamic choice scorer, value heads, batching,
+and search loop before particle complexity is introduced. Hidden-equivalent
+public inputs may receive conflicting privileged targets; measure that gap.
+
+Belief work then proceeds in two steps, cheapest risk first:
 
 ### Step A (hybrid, recommended before pure latent search): learned priors
 and values inside particle POMCP
@@ -523,9 +543,9 @@ time and is the fallback if pure latent search fails.
 - Root action selection with Gumbel top-k (strong at small simulation
   budgets, which is the target regime — the point of latent search is small
   budgets).
-- Legality comes only from the fair mask at the root and from a
-  mask-prediction head in the tree (never from querying the simulator's
-  hidden state mid-tree).
+- Legality comes only from the public choice list at the root and from a
+  public-choice-set prediction head in the latent tree (never from querying
+  the simulator's hidden state mid-tree).
 - Sanity guards: reject/penalize latent rollouts whose predicted public
   events have near-zero probability under the analytic belief (D2 gives us
   this check almost for free at training and evaluation time).
@@ -536,8 +556,9 @@ time and is the fallback if pure latent search fails.
 
 Layered defenses; each catches leaks the previous layer misses.
 
-1. **Type and serialization boundary.** `FairObservation` and descriptors
-   live in the fair crate; construction only via `fair_view`. Serde output is
+1. **Type and serialization boundary.** `FairObservation` and `PlayerChoice`
+   live in the symbolic Rust boundary; construction only via the public
+   projection. Serde output is
    allowlisted field-by-field; a schema test walks the serialized form and
    fails on any key not in the allowlist. No `Debug`-format escape hatches in
    fair `info`/errors.
@@ -546,8 +567,8 @@ Layered defenses; each catches leaks the previous layer misses.
    RNG streams and perturb counters, replace committed-hidden values
    (Runic-Dome intent within the legal move set, unrevealed rolls), swap
    unrealized pools/pending rewards, renumber internal IDs. Assert
-   byte-identical `fair_view`, descriptor lists, fixed masks, and — via a
-   scripted probe that attempts every descriptor and a set of invalid ones —
+   byte-identical `fair_view`, public choice lists, and — via a scripted probe
+   that attempts every choice and a set of invalid ones —
    identical public errors and info. Run as property tests over randomly
    generated combats (AGENT_RULES already calls for property tests on
    randomly generatable state).
@@ -555,19 +576,18 @@ Layered defenses; each catches leaks the previous layer misses.
    diverge (the hidden difference becomes visible through a draw or move),
    assert the fair views differ — this catches an over-redacted facade that
    hides public information, which would silently cripple the agent.
-4. **RNG and mutation guards.** `fair_view`/`fair_actions`/`fair_mask`
-   consume zero RNG draws (assert all `StsRng.counter`s unchanged) and do not
+4. **RNG and mutation guards.** `fair_view`/`public_choices` consume zero RNG
+   draws (assert all `StsRng.counter`s unchanged) and do not
    mutate state (hash before/after on the authoritative snapshot — debug-mode
    only, since fair mode has no hashes).
 5. **Known-exception tests.** Frozen Eye exposes order and only then; Runic
-   Dome hides intent everywhere it appears (observation, descriptors, info);
-   Havoc masks are target-shape-invariant across hidden top cards, per the
-   archived schema's analysis.
+   Dome hides intent everywhere it appears (observation, choices, info);
+   Havoc choice shape is invariant across hidden top cards.
 6. **Adversarial probes (statistical).** Train a small classifier to predict
    a hidden bit (top-of-deck identity, Runic-Dome intent) from the fair
    channel of D1. Its accuracy must match the analytic belief baseline within
    confidence bounds; better-than-belief accuracy indicates a leak in the
-   observation, the mask, or dataset construction (for example ordering
+   observation, public choice list, or dataset construction (for example ordering
    artifacts). Run this as a dataset-release gate, not just once.
 7. **Mutation testing of the projection.** Deliberately introduce leaks
    (include one hidden field, sort a multiset by internal ID, expose an exact
@@ -585,7 +605,7 @@ are per-decision wall-clock on the laptop target.
 
 ### E1: Fair facade and invariance suite (foundation)
 
-Build `fair_view`, descriptors, masks over the existing combat fixture set;
+Build `fair_view` and public choices over the existing combat fixture set;
 implement suite layers 1–5.
 
 - Success: all invariance tests pass over randomly generated verified-content
@@ -694,9 +714,9 @@ each vs the raw POMCP teacher at matched wall-clock on held-out roots.
 
 ### Do not do yet
 
-- Do not implement any of this before Phase 2 omniscient collection and the
-  root corpus exist; the fair facade (E1) is the only piece with no
-  dependency on new data and may be scheduled first.
+- Do not implement particle sampling, POMCP, or latent dynamics before the
+  symbolic fair facade and privileged-search learning baseline exist. The fair
+  facade is active prerequisite work and does not depend on a root corpus.
 - Do not build the full-run fair facade beyond the schema sketch here until
   combat E1–E3 are done; run-level screens multiply surface area without
   advancing the core research question.
@@ -707,7 +727,7 @@ each vs the raw POMCP teacher at matched wall-clock on held-out roots.
   falsifier this project has — use it before spending GPU-weeks.
 - Do not add belief features for mechanics the simulator does not yet verify;
   no content brute-forcing to feed models.
-- Do not let the fair crate grow snapshot/restore "for tests" — test through
-  the omniscient side, keep the fair surface clean.
+- Do not let fair public types grow snapshot/restore "for tests" — test through
+  the privileged side and keep the fair surface clean.
 - Do not report any fair-agent result before the invariance suite and the
   adversarial probe gate pass on the exact model inputs used.

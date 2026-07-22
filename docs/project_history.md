@@ -88,8 +88,19 @@ workflow at once.
 The deterministic combat agent was built to automate trace collection and reach
 more states for simulator debugging. It was never intended as the final player.
 Its current role is pragmatic: it is good enough to execute combats while the
-data and learning loop develops, without committing the project to its search
-method.
+data and learning loop develops.
+
+The adopted learned-combat direction is AlphaZero-style Expert Iteration, but
+with a deliberate information split: policy/value networks receive only public
+observations and history, while the first teacher search follows the one true
+hidden simulator state. This keeps the learned representation reusable when the
+privileged root is later replaced by a particle belief. The existing beam search
+bootstraps policy/value training; it is scaffolding rather than a permanent
+teacher ceiling. Public choices reference visible slots and map back to the one
+authoritative action type, rather than creating parallel fair legality. Potion
+budgets were rejected as a learned-agent abstraction: provisional combat value
+scores resulting resources, and the eventual run-level value model evaluates
+the complete post-combat state.
 
 ## Run-Level RL Moved Ahead of Combat RL
 

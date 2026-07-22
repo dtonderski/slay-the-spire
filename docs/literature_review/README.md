@@ -7,3 +7,4 @@ Start here:
 
 - [Combat Tree Search](combat_tree_search.md)
 - [Research Tree](research_tree.md)
+- [Privileged-Search Combat RL Papers](papers/README.md)

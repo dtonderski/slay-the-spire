@@ -197,7 +197,8 @@ Core action enum:
 For RL:
 
 - Legal actions are generated from state.
-- The environment exposes an action mask and a compact action descriptor list.
+- The environment exposes a compact legal action descriptor list. A later
+  tensor adapter may pad variable-length lists and provide a padding mask.
 - Invalid actions are rejected with errors in simulator API. RL wrappers may map invalid discrete indices to no-op only in experimental adapters, never in core.
 
 Targets:
@@ -462,39 +463,50 @@ Snapshot classes:
 
 ## RL API
 
-The Rust core should expose a simple environment API:
+The authoritative Rust core exposes exact state transitions and legal actions.
+A fair facade projects an atomic symbolic decision without duplicating game
+legality:
 
-- `reset(config) -> Observation`
-- `legal_actions() -> Vec<ActionDescriptor>`
-- `step(action_index_or_action) -> StepResult`
-- `snapshot() -> bytes/json`
-- `restore(snapshot)`
-- `seed_info()`
+- `fair_decision() -> { FairObservation, Vec<PlayerChoice> }`
+- `step(player_choice) -> FairStepResult`
 
-`StepResult`:
+`PlayerChoice` uses public, decision-local slots and visible options. Rust maps
+it to the existing authoritative action. Internal card/monster IDs and hidden
+ordering never cross the fair boundary. Privileged planning/debug APIs may
+separately expose snapshots, restore, hashes, exact state JSON, and seed/RNG
+information, but those capabilities must not be reachable through fair objects.
+
+`FairStepResult`:
 
 - observation
-- legal action mask
-- reward
+- current public choice list
 - done
 - terminal reason
-- info containing state hash, floor, combat outcome, and optional debug diff
+- explicitly public info only
 
 Reward shaping belongs outside the simulator. The core can expose signals such as HP delta, floor, victory, death, card picked, boss defeated, but should not decide RL reward policy.
 
 Observation layers:
 
 - exact symbolic state for planning
-- masked/visible state approximating real player information
-- later tensor-friendly feature extraction in a separate crate
+- fair symbolic state matching player-visible or publicly inferable information
+- later tensor-friendly feature extraction outside simulator mechanics
+
+The combat policy is expected to score the variable-length public choice list
+dynamically. A global fixed action vocabulary and mask are not required;
+padding masks used for neural batching belong to the tensor layer, not the game
+API. See `simulator/docs/fair_combat_api_design.md` and
+`simulator/docs/combat_rl_architecture.md`.
 
 ## Python Binding Plan
 
 Use PyO3/maturin after the Rust API stabilizes.
 
-Bindings should expose:
+The eventual compiled Python package should expose both fair and explicitly
+privileged types from one module. Bindings should expose:
 
-- `Env`
+- `FairCombatEnv` / later `FairRunEnv`
+- visibly named privileged planning/debug environments
 - `Snapshot`
 - `Action`
 - `ActionDescriptor`

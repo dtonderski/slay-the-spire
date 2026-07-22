@@ -1,0 +1,240 @@
+# Combat RL Architecture
+
+Status: design contract; neural and tensor implementation is deferred.
+Last updated: 2026-07-23.
+
+The first learned combat agent uses AlphaZero-style Expert Iteration over
+collected combat roots. Its policy/value network receives only fair public
+information. During the bootstrap phase, tree search is privileged: it follows
+the one true authoritative simulator state, including hidden state and exact
+RNG. The network is therefore reusable when privileged singleton search is
+later replaced by particle-belief search.
+
+See [`fair_combat_api_design.md`](fair_combat_api_design.md) for the symbolic
+Rust boundary. This document specifies the later model and training direction;
+it does not authorize tensor code in the simulator.
+
+## Terminology
+
+- **Fair network:** policy and value inputs are `FairCombatObservation` plus
+  public history or summaries derived only from it.
+- **Privileged search:** search transitions one true full simulator state. This
+  is a teacher/planning tool, not a fair deployable agent.
+- **Fair search:** search acts over a belief or public history and cannot select
+  different root actions merely because hidden states differ.
+
+Calling the first learned agent "omniscient" refers only to its search tree.
+Raw hidden fields are not neural inputs.
+
+## Training Loop
+
+Combat roots are starting states, not the entire training set:
+
+```text
+sample training combat root
+  -> run neural-guided search
+  -> choose an action from root visits
+  -> continue to combat termination
+  -> store every visited (fair input, legal choices, search policy, outcome)
+  -> train policy/value network
+  -> repeat with the improved network
+```
+
+For network parameters `theta`:
+
+```text
+(p_theta, v_theta) = network(fair_information_state, public_choices)
+pi                  = improved root policy from search visits
+z                   = terminal proxy utility
+```
+
+The policy trains toward `pi`; the scalar value trains toward `z`. Combat has
+one decision-maker, so value backups never alternate or negate by tree depth.
+
+Split combat roots by source run/seed before generating examples. Descendant
+decisions from one combat must not cross train/development/test boundaries.
+Keep a sealed test split and a real-trace audit split in addition to the
+development split used for model and search tuning.
+
+## Beam-Search Bootstrap
+
+The existing beam planner is the initial expert:
+
+1. Search a training root with a versioned deterministic transition budget.
+2. Execute its first selected public choice and replan, at least at turn
+   boundaries; a cheaper initial corpus may also record validated plan suffixes.
+3. Store the fair input, legal public choices, selected teacher action, terminal
+   outcome vector, planner version, and budget.
+4. Pretrain the policy by behavior cloning and the value/auxiliary heads from
+   completed outcomes.
+5. Initialize PUCT with that network, then replace beam one-hot targets with
+   MCTS visit distributions.
+
+Beam examples are scaffolding. Reduce their replay weight after PUCT produces
+reliable targets so the learned agent is not capped by the handcrafted teacher.
+
+## State Encoder
+
+Do not use a sparse vector indexed by every possible card, relic, potion, or
+power. Encode the entities actually present as dense tokens:
+
+```text
+[STATE] [PLAYER]
+[PILE summaries] [one token per visible card record]
+[one token per monster]
+[one token per visible power]
+[one token per relic]
+[one token per potion/empty slot]
+[PUBLIC HISTORY summary]
+```
+
+A small Transformer or equivalent permutation-aware set encoder contextualizes
+the tokens. The `[STATE]` output feeds the value head; contextual entity outputs
+feed the action scorer.
+
+### Card tokens
+
+Start with a learned content embedding plus visible structured features:
+
+```text
+content/family embedding
+card type and target type
+upgrade level
+visible current cost
+zone/pile
+publicly known draw rank, if any
+visible instance counters and keyword flags
+```
+
+Embeddings begin random and learn end-to-end from beam/MCTS policy targets and
+value targets. Structured fields prevent the model from spending data to
+rediscover basic facts such as cost, card type, Exhaust, Ethereal, Retain, or
+X-cost. Do not encode English text or maintain a second handwritten mechanics
+database; static features come from authoritative content definitions and the
+fair projection.
+
+Hand, discard, exhaust, and ordinary draw contents are unordered collections
+for model semantics. Do not add generic sequence positions. Add positions only
+for publicly known draw order or event history. Include pile sizes and sum
+pooling so duplicate-card multiplicity is not erased by normalized attention.
+
+### Other entity tokens
+
+- Player: HP/max HP, block, energy, turn, and public counters.
+- Monster: identity, HP/max HP, block, targetability, visible intent, and
+  public status. Hidden intent is represented as unknown.
+- Power: identity, visible owner, visible amount/secondary state.
+- Relic: identity and explicitly public counter/state only.
+- Potion: identity and visible slot; represent empty capacity as well.
+
+Public slots are references used by choices, not semantic positions. Permuting
+an unordered entity collection and remapping its choice references must leave
+the value unchanged and permute the corresponding policy logits.
+
+## Dynamic Legal-Choice Scoring
+
+The policy does not need a global output neuron for every possible action.
+Encode and score only the current public choices:
+
+```text
+h_state  = state_encoder(observation)
+h_action = action_encoder(choice, contextual entity references)
+logit(a) = score(h_state, h_action)
+P(a|s)   = softmax over current choices
+```
+
+Examples:
+
+- `PlayHandSlot`: state token + referenced card token + optional monster token
+  + action-kind embedding.
+- `UsePotionSlot`: state token + potion token + optional monster token + kind.
+- `EndTurn`: state token + action-kind embedding + learned no-source/no-target
+  embeddings.
+
+For batching, either pad to the largest number of choices in a batch and mask
+padding, or pack all choices with a choice-to-state segment index. Search caches
+the resulting prior by serialized `PlayerChoice`.
+
+## Value and Temporary Combat Objective
+
+PUCT consumes one scalar value. Initially it predicts a versioned handcrafted
+terminal proxy in which survival dominates every resource preference. Within a
+win, the proxy may combine terminal HP, max HP, gold, and the exact remaining
+potion inventory. Exact weights are experiment configuration, not a permanent
+game rule.
+
+Store the full outcome vector even when search uses one scalar:
+
+```text
+won / lost / escaped
+terminal HP and max HP
+max-HP and gold changes
+remaining potion identities and slots
+relic/card counters changed by combat
+terminal / truncated status
+```
+
+Auxiliary heads may predict win probability, terminal HP, max-HP change, gold
+change, and potion inventory value. These improve diagnostics and preserve
+information for the future evaluator; only the configured scalar head/value is
+backed up by initial PUCT.
+
+There is no hard potion budget in the learned-agent architecture. Potion use is
+an ordinary legal choice. SlayTheData potion metadata may constrain guided
+trace collection, but it is not an RL policy input or simulator legality rule.
+
+## Run-Level Value Handoff
+
+The handcrafted combat utility is temporary. The final objective is A20 Heart
+run win rate. Once a calibrated run-level evaluator exists:
+
+```text
+terminal combat line
+  -> complete post-combat RunState
+  -> V_run(post-combat state)
+  -> value backed up through combat search
+```
+
+The combat value then approximates expected downstream run value, not merely
+HP preservation. The run-level network evaluates resulting potion inventory;
+it does not issue a pre-combat potion permission. Counterfactual post-combat
+states must be included in run-value training/evaluation to control
+out-of-distribution errors.
+
+## Transition to Fair Particle Search
+
+The privileged phase searches one true hidden root while its network sees fair
+inputs. Hidden-equivalent roots can produce conflicting search targets; the
+network learns their average, while privileged search resolves each using the
+true state. This is expected and must be measured.
+
+The later fair planner changes:
+
+```text
+one true hidden root
+        -> belief over hidden roots consistent with public history
+
+state-keyed privileged tree
+        -> public action-observation-history tree
+```
+
+The fair observation encoder, public choice encoder, policy/value heads,
+training record format, batching, and most PUCT infrastructure remain reusable.
+The fair planner must aggregate decisions across particles; independently
+optimizing each hidden state and averaging actions would leak information
+through strategy fusion.
+
+## Deferred Tensor Decisions
+
+The PyTorch session must specify and version:
+
+- exact token fields, vocabularies, normalization, and missing-value encoding;
+- padding/packing bounds and overflow behavior;
+- public-history sequence representation;
+- Transformer dimensions and pooling;
+- action descriptor tensors and entity-reference indices;
+- permutation invariance/equivariance tests;
+- scalar utility normalization and auxiliary loss weights.
+
+None of these choices belongs in simulator mechanics. The symbolic fair API is
+the prerequisite and is intentionally implemented first.

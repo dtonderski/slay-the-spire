@@ -100,12 +100,14 @@ Use this branch continuously. It governs all other branches.
 
 Core project docs:
 
-- `simulator/docs/rl_python_api_design.md`
-- `simulator/docs/rl_visibility_matrix.md`
+- `simulator/docs/fair_combat_api_design.md`
+- `simulator/docs/combat_rl_architecture.md`
+- `simulator/docs/fair_belief_architecture.md`
 
 Project questions:
 
-- Do action masks leak hidden top-deck or future-choice information?
+- Do public choice lists or their ordering leak hidden top-deck or
+  future-choice information?
 - Are policy/value inputs purely fair?
 - Are debug fields, hidden particles, RNG state, and simulator snapshots kept
   out of agent-observable outputs?

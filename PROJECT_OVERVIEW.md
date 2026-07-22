@@ -32,8 +32,10 @@ partially-observable A20H play.
   mostly implemented already.
 - Combat can be treated as the first learning/control problem, even though
   full-run optimal play eventually requires run-level decisions.
-- Omniscient combat agents are acceptable early because they are used to get
-  through combats and collect combat roots, not as the final fair policy.
+- Privileged combat search is acceptable early because it is used to get
+  through combats, collect roots, and teach a fair-input policy/value network.
+  Raw hidden state is not a neural-network input; the privilege is confined to
+  planning over the one true simulator state.
 - Once A0 works, the preferred next experiment is a direct jump to A20H. If that
   becomes too hard to debug, the fallback is incremental ascension gates.
 
@@ -42,7 +44,8 @@ partially-observable A20H play.
 - Rust simulator: authoritative game mechanics, deterministic state transition,
   legal action generation, snapshot/restore, and replay.
 - Trace tooling: CommunicationMod-based real-game traces for parity validation.
-- Combat agents: handcrafted search agent first, RL agent later.
+- Combat agents: handcrafted beam search first, then AlphaZero-style Expert
+  Iteration with a fair-input policy/value network and privileged search.
 - Live trace UI: a small operator console for collecting real-game traces,
   managing bridge sessions, and monitoring simulator fidelity. See
   `simulator/docs/live_trace_ui_design.md`.
@@ -61,8 +64,8 @@ partially-observable A20H play.
 | 3A | Strict automated parity replay | Validate real-game parity using automated traces. | Full-run replay reports, first-divergence categories, mismatch metrics. | Exact replay succeeds often enough that remaining failures are understood. | Full-run exactness may be harder than combat exactness. |
 | 3B | Guided trace and root collection | Use SlayTheData high-level choices and the combat agent to collect more complete runs. | Real-game traces and combat roots. | Illegal divergence rate is low enough for productive collection. | Legal-but-diverged runs may shift the root distribution. |
 | 4 | Simulator-only root collection | Move the Phase 3B process into the simulator for speed. | Large corpus of simulator-ready combat roots. | Root corpus is reproducible, versioned, and validated against prior traces. | Simulator-only bugs can amplify silently. |
-| 5 | Omniscient combat RL | Train an RL combat agent with fair inputs but omniscient search/planning. | Combat RL policy/value model, search loop, benchmark reports. | Beats human traces and strong handcrafted baselines on held-out roots. | Omniscient search may not transfer to fair play. |
-| 6 | Fair combat RL | Train/search using only the visible game state. | Fair observation/action API, belief or latent-state method, fair combat agent. | Improves over non-cheating baselines under fixed compute budget. | Partially-observable search is the core research problem. |
+| 5 | Privileged-search combat RL | Train an AlphaZero-style combat agent whose network consumes fair information while search follows the one true hidden simulator state. | Fair symbolic decision API, policy/value model, Expert Iteration loop, benchmark reports. | Network-guided search beats equal-budget handcrafted and unguided baselines on held-out roots. | Search targets may conflict across hidden-equivalent public states; privileged search is not a fair deployable planner. |
+| 6 | Fair particle-search combat RL | Replace the single hidden search root with a belief over hidden states and aggregate search by public action-observation history. | Particle/belief method, fair planner, calibrated information-gap reports. | Improves over visible-only and non-cheating baselines under a fixed compute budget. | Partial observability, particle quality, and strategy fusion are the core risks. |
 | 7+ | Run-level agents | Extend beyond combat into full-run card, relic, route, event, shop, and potion decisions. | Full-run RL system. | A20H Ironclad win rate under the final evaluation protocol. | Run-level credit assignment and compute requirements. |
 
 ## Parity vs Collection
@@ -105,18 +108,22 @@ well understood enough that root collection remains productive.
 
 ## Combat Objective
 
-Early combat agents optimize terminal combat outcome, not full-run value.
+Early combat agents optimize a versioned handcrafted terminal proxy because a
+run-level value network does not exist yet. Survival must dominate resource
+preferences. Within winning outcomes, the proxy may value terminal HP, max HP,
+gold, and exact remaining potion inventory. Store the full outcome vector even
+when search consumes one normalized scalar.
 
-The initial objective should be lexicographic:
+There is no hard potion budget in the learned-agent architecture. Potion use is
+an ordinary legal combat choice whose opportunity cost is represented by the
+resulting inventory. SlayTheData floor-level potion metadata may constrain
+guided trace collection, where matching source-run resource use is useful, but
+it is not an RL observation, policy command, or simulator legality rule.
 
-1. Win the combat.
-2. Maximize max HP gain.
-3. Maximize current HP after combat.
-4. Use potions according to the SlayTheData floor-level potion budget.
-
-SlayTheData tells whether a potion was used on a floor, not necessarily the
-exact combat action. Therefore the combat agent is responsible for potion timing
-and targets within the allowed budget.
+Eventually terminal combat states are evaluated by a run-level network:
+`V_run(post_combat_state)`. That evaluator, rather than fixed combat weights or
+a pre-combat permission, determines whether consuming a potion improves A20H
+run-win probability.
 
 The simulator must still track relic counters, potion inventory, card order,
 exhaust/discard/draw piles, powers, and all other gameplay state exactly. Early
@@ -156,18 +163,21 @@ boundary explicit.
 
 | State class | Examples | Allowed use |
 |---|---|---|
-| Fair-observable | Visible hand, HP, block, energy, relics, visible counters, monster HP and visible intent, potion slots, visible pile contents where the UI allows inspection. | Final fair policies, fair RL observations, fair action masks. |
-| Hidden real state | Draw order without Frozen Eye, RNG streams, future monster moves, private AI counters, future rewards, unrevealed potion/relic/card outcomes. | Simulator internals and belief-state inference only. |
-| Omniscient/debug state | Full snapshots, RNG state, exact pile order, private monster state, verifier diffs, trace metadata. | Parity validation, debugging, handcrafted omniscient search, omniscient RL search. |
+| Fair-observable | Visible hand, HP, block, energy, relics, visible counters, monster HP and visible intent, potion slots, visible pile contents where the UI allows inspection. | Final fair policies, fair RL observations, public player-choice lists. |
+| Hidden real state | Draw order without Frozen Eye, RNG streams, future monster moves, private AI counters, future rewards, unrevealed potion/relic/card outcomes. | Simulator internals, privileged teacher search, and belief-state inference only. |
+| Omniscient/debug state | Full snapshots, RNG state, exact pile order, private monster state, verifier diffs, trace metadata. | Parity validation, debugging, handcrafted search, and privileged RL planning; never policy/value input. |
 
 Detailed fair-observation schemas should be added as permanent project docs
 when the fair API is implemented.
 
 ## Omniscient vs Fair Agents
 
-An omniscient agent may search using hidden state, exact RNG, and future
-deterministic outcomes. Early omniscient agents exist to reduce engineering risk,
-validate the simulator, and bootstrap combat-root collection.
+The first learned combat system deliberately separates network information from
+planner information. The policy/value network consumes only a fair observation
+and public history. Its privileged teacher search may use hidden state, exact
+RNG, and future deterministic outcomes while following the one true simulator
+root. This reduces engineering risk and makes the network architecture reusable,
+but the resulting searched agent is still not fair at inference time.
 
 A fair agent must act only from information a player could see or infer from
 public history. Two candidate approaches for fair combat search are:
@@ -176,22 +186,35 @@ public history. Two candidate approaches for fair combat search are:
 - latent-state search constrained by predictions of real outcomes such as HP,
   enemy intent, hand damage, hand block, and other public quantities
 
-The project currently expects little guaranteed transfer from omniscient combat
-RL to fair combat RL. Possible transferable pieces include simulator APIs,
-search infrastructure, value/policy architecture, training loops, and root
-datasets, but not necessarily the final policy itself.
+The fair planner later replaces the singleton hidden root with particles
+consistent with public history and keys its tree by public histories. The fair
+observation encoder, dynamic public-choice scorer, policy/value heads, training
+loop, and root datasets should transfer. Search targets will change because the
+fair planner must choose one action across the belief rather than optimize each
+hidden state independently.
 
-## Omniscient RL Search Notes
+## Combat RL Search Notes
 
-For omniscient combat RL, the clean conceptual target is search to terminal
-combat outcome. This is valid because the full simulator state, including RNG,
-is available to the search.
+The learning loop is AlphaZero-style Expert Iteration: search is the expert;
+the policy/value network is the apprentice; root visit counts are policy
+targets; completed combat outcomes provide value targets. Combat roots seed
+episodes, and every visited decision state becomes an example. Roots and all
+their descendants must be split by source run/seed across train, development,
+and sealed test sets.
 
-However, terminal search may still be expensive because the branching factor
-includes card choices, targets, end turn, potion actions, and long stall lines.
-The first implementation should try terminal search on bounded combat roots and
-introduce depth limits or learned value cutoffs only if full search is
-impractical.
+Bootstrap the network from the existing beam planner, then use the network as a
+PUCT prior and leaf value. Gradually replace beam demonstrations with PUCT visit
+targets so the learned system can exceed its initial teacher. Terminal search
+may still be expensive because choices include cards, targets, potions,
+selection screens, end turn, and stall lines; introduce learned cutoffs only
+after terminal/beam baselines and fixed-budget benchmarks exist.
+
+The policy scores the current variable-length list of public player choices
+rather than allocating a global output neuron to every possible action. The
+state encoder consumes dense tokens for visible cards, piles, monsters, powers,
+relics, potions, and public history. Detailed contracts live in
+`simulator/docs/fair_combat_api_design.md` and
+`simulator/docs/combat_rl_architecture.md`.
 
 ## Final Evaluation Protocol
 
@@ -223,8 +246,8 @@ practical play mode, and laptop-iteration mode.
   tracked exactly by the simulator?
 - How should legal-but-diverged guided runs be tagged and analyzed?
 - What is the final per-decision or per-run time budget?
-- Can a fair combat agent use search at inference time, or should the final
-  agent eventually be a direct policy?
-- What is the first strong baseline for fair combat: heuristic search, particle
-  search, latent world model, or another approach?
+- What fixed simulation and wall-clock budgets should gate beam, PUCT, and
+  particle-search comparisons?
+- When is the run-level value model calibrated well enough to replace the
+  handcrafted terminal combat proxy?
 
