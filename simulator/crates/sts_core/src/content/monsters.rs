@@ -6048,6 +6048,7 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
             MonsterIntent::Attack { .. } | MonsterIntent::AttackApplyPlayerFrail { .. } => Some(1),
             MonsterIntent::AttackMultiple { .. } => Some(2),
             MonsterIntent::AttackHealSelf { .. } => Some(3),
+            MonsterIntent::Stun => Some(4),
             _ => None,
         };
     }
@@ -11301,6 +11302,10 @@ mod tests {
                 damage: SHELLED_PARASITE_FELL_DAMAGE,
                 frail: SHELLED_PARASITE_FELL_FRAIL,
             }
+        );
+        assert_eq!(
+            target_move_byte(SHELLED_PARASITE_ID, MonsterIntent::Stun),
+            Some(4)
         );
     }
 
