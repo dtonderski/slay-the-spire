@@ -889,6 +889,13 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
         }
     }
 
+    finish_monster_turn_cleanup(state, &skip_ritual_tick)
+}
+
+fn finish_monster_turn_cleanup(
+    state: &mut CombatState,
+    skip_ritual_tick: &[MonsterId],
+) -> SimResult<()> {
     for monster in &mut state.monsters {
         if monster.alive {
             if monster.powers.vulnerable > 0 {
