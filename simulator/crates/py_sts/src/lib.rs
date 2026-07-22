@@ -1421,6 +1421,12 @@ mod tests {
     #[test]
     fn reward_exact_actions_expose_fruit_juice_without_combat_state() {
         let mut env = PyOmniRunEnv::combat_fixture();
+        let combat = env.state.combat.as_mut().expect("combat fixture");
+        combat.phase = CombatPhase::Won;
+        for monster in &mut combat.monsters {
+            monster.hp = 0;
+            monster.alive = false;
+        }
         sts_core::enter_reward_screen(&mut env.state).expect("fixture reward entry succeeds");
         env.state.player_hp = 75;
         env.state.player_max_hp = 80;

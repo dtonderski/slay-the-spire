@@ -6919,6 +6919,16 @@ fn seed_start_colorless_neow_pick_carries_card_rng_to_first_combat_reward() {
     let mut deck_ids = deck_content_keys(&run.deck);
     deck_ids.push(reward_ids[1].clone());
     run.deck = deck_instances_from_keys(&deck_ids);
+    let mut combat = CombatState::initial_fixture();
+    combat.phase = CombatPhase::Won;
+    for monster in &mut combat.monsters {
+        monster.hp = 0;
+        monster.alive = false;
+    }
+    run.phase = RunPhase::Combat;
+    run.current_room_override = Some(RoomKind::Combat);
+    run.event = None;
+    run.combat = Some(combat);
 
     enter_normal_combat_reward_screen(&mut run).expect("normal reward entry succeeds");
 

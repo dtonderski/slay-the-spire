@@ -2,7 +2,9 @@ use sts_core::run::event::{Event, MatchAndKeepCard, MatchAndKeepState};
 use sts_core::{
     apply_combat_action,
     card::CardInstance,
-    combat::{CombatDecisionState, DrawSelectPurpose, DrawSelectState, HandSelectState},
+    combat::{
+        CombatDecisionState, CombatPhase, DrawSelectPurpose, DrawSelectState, HandSelectState,
+    },
     content::cards,
     content::monsters::{monster_state, AWAKENED_ONE_A0},
     content::shop_pool::shop_card_content_id,
@@ -441,6 +443,14 @@ fn known_generated_card_content_remains_valid() {
 #[test]
 fn known_unmodeled_reward_identity_is_valid_until_selected() {
     let mut run = RunState::map_fixture();
+    let mut combat = CombatState::initial_fixture();
+    combat.phase = CombatPhase::Won;
+    for monster in &mut combat.monsters {
+        monster.hp = 0;
+        monster.alive = false;
+    }
+    run.phase = RunPhase::Combat;
+    run.combat = Some(combat);
     enter_reward_screen(&mut run).expect("reward entry succeeds");
     let content_id = shop_card_content_id("REACH_HEAVEN");
     let reward_id = CardId::new(

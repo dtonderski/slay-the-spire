@@ -1245,6 +1245,7 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
 }
 
 fn enter_normal_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
+    validate_combat_reward_entry(run)?;
     let pending_card_reward_count = if run.relics.contains(&Relic::PrayerWheel) {
         2
     } else {
@@ -1339,18 +1340,19 @@ fn suppress_gold_for_all_escaped_monsters(monsters: &[MonsterState]) -> bool {
 }
 
 pub fn enter_reward_screen(run: &mut RunState) -> SimResult<()> {
+    validate_combat_reward_entry(run)?;
     let stolen_gold_offer = run
         .combat
         .as_ref()
-        .map(|combat| {
-            combat
-                .monsters
-                .iter()
-                .filter(|monster| !monster.escaped)
-                .map(|monster| monster.stolen_gold)
-                .sum()
-        })
-        .unwrap_or(0);
+        .expect("validated combat reward entry has combat state")
+        .monsters
+        .iter()
+        .filter(|monster| !monster.escaped)
+        .try_fold(0_i32, |total, monster| {
+            total
+                .checked_add(monster.stolen_gold)
+                .ok_or(SimError::InvalidState("stolen gold reward overflows i32"))
+        })?;
     enter_normal_combat_reward_screen(run)?;
     if let Some(reward) = run.reward.as_mut() {
         reward.stolen_gold_offer = stolen_gold_offer;
@@ -1366,6 +1368,7 @@ pub fn enter_elite_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
 }
 
 fn enter_elite_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
+    validate_combat_reward_entry(run)?;
     run.reserve_card_instance_ids(reward_card_choice_count(run))?;
     let continuation = combat_reward_continuation(run);
     let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
@@ -1428,6 +1431,7 @@ pub fn enter_boss_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
 }
 
 fn enter_boss_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
+    validate_combat_reward_entry(run)?;
     run.reserve_card_instance_ids(reward_card_choice_count(run))?;
     let continuation = combat_reward_continuation(run);
     let mut misc_rng = run.rng_for_stream(RunRngStream::Misc);
@@ -1468,6 +1472,39 @@ fn enter_boss_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
         card_reward_flow: crate::run::CardRewardFlow::pending(1),
     });
     roll_pending_card_reward_choices(run)?;
+    Ok(())
+}
+
+fn validate_combat_reward_entry(run: &RunState) -> SimResult<()> {
+    run.validate()?;
+    if run.phase != RunPhase::Combat {
+        return Err(SimError::InvalidState(
+            "combat reward entry requires combat phase",
+        ));
+    }
+    if run.reward.is_some() {
+        return Err(SimError::InvalidState(
+            "combat reward entry already has a reward screen",
+        ));
+    }
+    let combat = run.combat.as_ref().ok_or(SimError::InvalidState(
+        "combat reward entry requires combat state",
+    ))?;
+    if combat.phase != CombatPhase::Won {
+        return Err(SimError::InvalidState(
+            "combat reward entry requires won combat",
+        ));
+    }
+    if combat.player.hp <= 0 {
+        return Err(SimError::InvalidState(
+            "combat reward entry requires a living player",
+        ));
+    }
+    if combat.monsters.iter().any(|monster| monster.alive) {
+        return Err(SimError::InvalidState(
+            "combat reward entry requires no living monsters",
+        ));
+    }
     Ok(())
 }
 
@@ -2344,7 +2381,9 @@ mod tests {
             PARASITE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, SHOCKWAVE_PLUS_ID, SPOT_WEAKNESS_ID,
             STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID, WARCRY_ID, WHIRLWIND_ID,
         },
-        content::monsters::{monster_state, DARKLING_ID, WRITHING_MASS_A0},
+        content::monsters::{
+            monster_state, DARKLING_A0_NIP_DAMAGE_RANGE, DARKLING_ID, WRITHING_MASS_A0,
+        },
         run::{
             neow::{generate_neow_colorless_reward, NeowRewardType},
             RunState,
@@ -2361,6 +2400,28 @@ mod tests {
             .iter()
             .map(|choice| choice.content_id)
             .collect()
+    }
+
+    fn prepare_won_combat_reward_fixture(run: &mut RunState) {
+        let mut combat = run
+            .combat
+            .take()
+            .unwrap_or_else(CombatState::initial_fixture);
+        combat.phase = CombatPhase::Won;
+        combat.player.hp = run.player_hp;
+        combat.player.max_hp = run.player_max_hp;
+        combat.ascension = run.ascension;
+        combat.relics = run.relics.clone();
+        for monster in &mut combat.monsters {
+            monster.hp = 0;
+            monster.alive = false;
+        }
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.reward = None;
+        run.event = None;
+        run.card_grid = None;
+        run.combat = Some(combat);
     }
 
     #[test]
@@ -2538,7 +2599,7 @@ mod tests {
             .expect("hidden Neow reward succeeds");
         assert_eq!(duplicate_reroll_run.card_rng_counter, 10);
         assert_eq!(duplicate_reroll_run.card_rarity_factor, 5);
-        duplicate_reroll_run.current_room_override = Some(RoomKind::Combat);
+        prepare_won_combat_reward_fixture(&mut duplicate_reroll_run);
         enter_normal_combat_reward_screen(&mut duplicate_reroll_run)
             .expect("normal reward entry succeeds");
         assert_eq!(
@@ -2551,7 +2612,7 @@ mod tests {
             .expect("hidden Neow reward succeeds");
         assert_eq!(no_reroll_run.card_rng_counter, 9);
         assert_eq!(no_reroll_run.card_rarity_factor, 2);
-        no_reroll_run.current_room_override = Some(RoomKind::Combat);
+        prepare_won_combat_reward_fixture(&mut no_reroll_run);
         enter_normal_combat_reward_screen(&mut no_reroll_run)
             .expect("normal reward entry succeeds");
         assert_eq!(
@@ -2572,7 +2633,7 @@ mod tests {
         run.gain_deck_card(SWIFT_STRIKE_ID)
             .expect("Swift Strike gain succeeds");
         run.current_act = 1;
-        run.current_room_override = Some(RoomKind::Combat);
+        prepare_won_combat_reward_fixture(&mut run);
 
         enter_normal_combat_reward_screen(&mut run).expect("normal reward entry succeeds");
         assert_eq!(
@@ -2582,7 +2643,7 @@ mod tests {
 
         run.gain_deck_card(SPOT_WEAKNESS_ID)
             .expect("Spot Weakness gain succeeds");
-        run.current_room_override = Some(RoomKind::Combat);
+        prepare_won_combat_reward_fixture(&mut run);
         enter_normal_combat_reward_screen(&mut run).expect("normal reward entry succeeds");
         assert_eq!(
             reward_choice_ids(&run),
@@ -2598,6 +2659,7 @@ mod tests {
         run.card_rarity_factor = -1;
         run.relics.push(Relic::QuestionCard);
         run.relics.push(Relic::PrayerWheel);
+        prepare_won_combat_reward_fixture(&mut run);
 
         enter_normal_combat_reward_screen(&mut run).expect("normal reward entry succeeds");
 
@@ -2620,7 +2682,7 @@ mod tests {
     #[test]
     fn close_card_reward_preserves_choices_for_reopen() {
         let mut run = RunState::seeded_ironclad(1_260_350_191_924, 0);
-        run.current_room_override = Some(RoomKind::Combat);
+        prepare_won_combat_reward_fixture(&mut run);
         enter_normal_combat_reward_screen(&mut run).expect("normal reward entry succeeds");
 
         let opened = apply_run_action(&run, RunAction::OpenCardReward).expect("card reward opens");
@@ -2831,11 +2893,13 @@ mod tests {
         let mut combat = CombatState::initial_fixture();
         for monster in &mut combat.monsters {
             monster.content_id = DARKLING_ID;
+            monster.rolled_attack_damage = Some(DARKLING_A0_NIP_DAMAGE_RANGE.min);
             monster.hp = 0;
             monster.alive = false;
             monster.escaped = true;
         }
         run.combat = Some(combat);
+        prepare_won_combat_reward_fixture(&mut run);
 
         enter_normal_combat_reward_screen(&mut run).expect("normal reward entry succeeds");
 
@@ -2861,6 +2925,7 @@ mod tests {
             monster.escaped = true;
         }
         run.combat = Some(combat);
+        prepare_won_combat_reward_fixture(&mut run);
 
         enter_normal_combat_reward_screen(&mut run).expect("normal reward entry succeeds");
 
@@ -3098,11 +3163,77 @@ mod tests {
             monster.escaped = true;
         }
         run.combat = Some(combat);
+        prepare_won_combat_reward_fixture(&mut run);
         let before = run.clone();
 
         assert_eq!(
             enter_normal_combat_reward_screen(&mut run),
             Err(SimError::InvalidState("potion reward chance overflows i32"))
+        );
+        assert_eq!(run, before);
+    }
+
+    #[test]
+    fn combat_reward_entry_rejects_missing_or_unfinished_combat_atomically() {
+        let entries: [fn(&mut RunState) -> SimResult<()>; 4] = [
+            enter_normal_combat_reward_screen,
+            enter_reward_screen,
+            enter_elite_combat_reward_screen,
+            enter_boss_combat_reward_screen,
+        ];
+        for entry in entries {
+            let mut run = RunState::map_fixture();
+            let before = run.clone();
+            assert_eq!(
+                entry(&mut run),
+                Err(SimError::InvalidState(
+                    "combat reward entry requires combat phase"
+                ))
+            );
+            assert_eq!(run, before);
+        }
+
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.combat = Some(CombatState::initial_fixture());
+        let before = run.clone();
+        assert_eq!(
+            enter_normal_combat_reward_screen(&mut run),
+            Err(SimError::InvalidState(
+                "combat reward entry requires won combat"
+            ))
+        );
+        assert_eq!(run, before);
+
+        run.combat.as_mut().expect("combat fixture").phase = CombatPhase::Won;
+        let before = run.clone();
+        assert_eq!(
+            enter_normal_combat_reward_screen(&mut run),
+            Err(SimError::InvalidState(
+                "combat reward entry requires no living monsters"
+            ))
+        );
+        assert_eq!(run, before);
+    }
+
+    #[test]
+    fn stolen_gold_reward_overflow_fails_atomically() {
+        let mut run = RunState::map_fixture();
+        prepare_won_combat_reward_fixture(&mut run);
+        let combat = run.combat.as_mut().expect("won combat fixture");
+        let mut second = combat.monsters[0].clone();
+        second.id = MonsterId::new(2);
+        for monster in [&mut combat.monsters[0], &mut second] {
+            monster.stolen_gold = i32::MAX;
+            monster.escaped = false;
+        }
+        combat.monsters.push(second);
+        let before = run.clone();
+
+        assert_eq!(
+            enter_reward_screen(&mut run),
+            Err(SimError::InvalidState("stolen gold reward overflows i32"))
         );
         assert_eq!(run, before);
     }
