@@ -226,7 +226,7 @@ fn process_internal_queue(
         next.phase = CombatPhase::Lost;
     } else if next.monsters.iter().all(|monster| !monster.alive) {
         next.phase = CombatPhase::Won;
-        apply_burning_blood(&mut next);
+        apply_burning_blood(&mut next)?;
     } else {
         next.phase = CombatPhase::WaitingForPlayer;
     }
@@ -616,7 +616,7 @@ fn apply_internal_action(
                 still_alive,
                 malleable_block,
             );
-            crate::relic::heal_combat_player_with_relics(state, hp_damage);
+            crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
             if still_alive && hand_drill_applies {
                 apply_player_vulnerable_debuff(
                     state,
@@ -695,7 +695,7 @@ fn apply_internal_action(
                     let hp = checked_combat_sum(state.player.hp, hp_gain.min(missing_hp))?;
                     state.player.max_hp = max_hp;
                     state.player.hp = hp;
-                    crate::relic::sync_red_skull_strength(state);
+                    crate::relic::sync_red_skull_strength(state)?;
                 }
                 apply_monster_death_hooks(state, info.target)?;
             }
@@ -805,11 +805,11 @@ fn apply_internal_action(
         }
         InternalAction::DealDamageAllAndHealUnblocked { source, amount } => {
             let (hp_damage, follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
-            crate::relic::heal_combat_player_with_relics(state, hp_damage);
+            crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
             Ok(follow_ups)
         }
         InternalAction::HealPlayer { amount } => {
-            crate::relic::heal_combat_player_with_relics(state, amount);
+            crate::relic::heal_combat_player_with_relics(state, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainBlock { amount } => apply_player_card_block_gain(state, amount),
@@ -3576,6 +3576,29 @@ mod tests {
             ),
             Err(SimError::InvalidState(
                 "combat integer addition overflows i32"
+            ))
+        );
+    }
+
+    #[test]
+    fn red_skull_healing_failure_reaches_the_combat_action_boundary() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::RedSkull);
+        state.player.hp = state.player.max_hp / 2;
+        state.player.powers.strength = i32::MIN;
+        state.relic_counters.red_skull_active = true;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BANDAGE_UP_ID)];
+
+        assert_eq!(
+            apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(1),
+                    target: None,
+                },
+            ),
+            Err(SimError::InvalidState(
+                "Red Skull Strength removal underflows i32"
             ))
         );
     }

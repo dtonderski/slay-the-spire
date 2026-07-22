@@ -8313,7 +8313,8 @@ mod tests {
             .expect("combat initializes");
         assert!(combat.mark_of_bloom);
         let before = combat.player.hp;
-        crate::relic::heal_combat_player_with_relics(&mut combat, 30);
+        crate::relic::heal_combat_player_with_relics(&mut combat, 30)
+            .expect("Mark of the Bloom prevents healing without error");
         assert_eq!(combat.player.hp, before);
     }
 

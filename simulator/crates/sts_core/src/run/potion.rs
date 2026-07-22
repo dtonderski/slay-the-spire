@@ -445,7 +445,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // CommunicationMod exposes potion-generated cards after the cards that
             // were already in hand, unlike Toolbox and Discovery rewards.
             combat.piles.hand.push(card);
-            crate::relic::apply_potion_use_relics_to_combat(combat);
+            crate::relic::apply_potion_use_relics_to_combat(combat)?;
             next.player_hp = combat.player.hp;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
         }
@@ -502,7 +502,7 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
         ));
     };
     settle_potion_card_reward_rng(combat, reward_kind, false);
-    crate::relic::apply_potion_use_relics_to_combat(combat);
+    crate::relic::apply_potion_use_relics_to_combat(combat)?;
     next.player_hp = combat.player.hp;
     next.card_random_rng_counter = combat.rng.card_random_rng.counter();
     combat.activate_next_queued_decision_if_idle();
@@ -666,7 +666,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::Blood => {
                     if let Some(combat) = next.combat.as_mut() {
                         let heal = blood_potion_heal(combat.player.max_hp, multiplier)?;
-                        crate::relic::heal_combat_player_with_relics(combat, heal);
+                        crate::relic::heal_combat_player_with_relics(combat, heal)?;
                     } else {
                         let heal = blood_potion_heal(next.player_max_hp, multiplier)?;
                         next.heal_player(heal)?;
@@ -813,7 +813,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 Potion::SmokeBomb => {
                     let mut combat = next.combat.take().expect("validated combat state");
                     combat.phase = CombatPhase::Won;
-                    apply_burning_blood(&mut combat);
+                    apply_burning_blood(&mut combat)?;
                     next.player_hp = combat.player.hp;
                     next.player_max_hp = combat.player.max_hp;
                     next.reward = None;
@@ -989,7 +989,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     next.player_hp = combat.player.hp;
                 }
             } else if let Some(combat) = next.combat.as_mut() {
-                crate::relic::apply_potion_use_relics_to_combat(combat);
+                crate::relic::apply_potion_use_relics_to_combat(combat)?;
                 next.player_hp = combat.player.hp;
             } else {
                 crate::relic::apply_potion_use_relics_to_run_hp(
@@ -1005,7 +1005,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 .unwrap_or(false);
             if won {
                 if let Some(combat) = next.combat.as_mut() {
-                    apply_burning_blood(combat);
+                    apply_burning_blood(combat)?;
                     next.player_hp = combat.player.hp;
                     next.player_max_hp = combat.player.max_hp;
                 }

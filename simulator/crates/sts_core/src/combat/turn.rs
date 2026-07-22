@@ -95,11 +95,11 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         Vec::new()
     };
     resolve_end_of_turn_hand(&mut next)?;
-    if finish_combat_if_over(&mut next, started_with_living_monster) {
+    if finish_combat_if_over(&mut next, started_with_living_monster)? {
         return Ok(next);
     }
     crate::relic::apply_end_of_player_turn_relics(&mut next)?;
-    if finish_combat_if_over(&mut next, started_with_living_monster) {
+    if finish_combat_if_over(&mut next, started_with_living_monster)? {
         return Ok(next);
     }
     discard_end_of_turn_hand(&mut next);
@@ -121,7 +121,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         next.phase = CombatPhase::Lost;
         return Ok(next);
     }
-    if finish_combat_if_over(&mut next, started_with_living_monster) {
+    if finish_combat_if_over(&mut next, started_with_living_monster)? {
         return Ok(next);
     }
 
@@ -232,7 +232,7 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
         let was_already_won = state.phase == CombatPhase::Won;
         state.phase = CombatPhase::Won;
         if !was_already_won {
-            crate::combat::apply_burning_blood(state);
+            crate::combat::apply_burning_blood(state)?;
         }
         return Ok(());
     }
@@ -408,21 +408,24 @@ fn mayhem_random_living_target(state: &mut CombatState) -> Option<MonsterId> {
     living.get(index).copied()
 }
 
-fn finish_combat_if_over(state: &mut CombatState, started_with_living_monster: bool) -> bool {
+fn finish_combat_if_over(
+    state: &mut CombatState,
+    started_with_living_monster: bool,
+) -> SimResult<bool> {
     if state.player.hp <= 0 {
         state.player.hp = 0;
         state.player.block = 0;
         state.phase = CombatPhase::Lost;
-        return true;
+        return Ok(true);
     }
 
     if started_with_living_monster && state.monsters.iter().all(|monster| !monster.alive) {
         state.phase = CombatPhase::Won;
-        crate::combat::apply_burning_blood(state);
-        return true;
+        crate::combat::apply_burning_blood(state)?;
+        return Ok(true);
     }
 
-    false
+    Ok(false)
 }
 
 fn reset_turn_only_temp_costs(state: &mut CombatState) {

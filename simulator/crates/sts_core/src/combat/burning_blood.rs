@@ -2,20 +2,24 @@ use crate::{
     combat::{CombatPhase, CombatState},
     content::character::BURNING_BLOOD_HEAL_AMOUNT,
     relic::{heal_combat_player_with_relics, Relic, BLACK_BLOOD_HEAL, MEAT_ON_THE_BONE_HEAL},
+    SimResult,
 };
 
-pub fn apply_burning_blood(state: &mut CombatState) {
+pub fn apply_burning_blood(state: &mut CombatState) -> SimResult<()> {
     if state.phase != CombatPhase::Won {
-        return;
+        return Ok(());
     }
 
-    if state.relics.contains(&Relic::BlackBlood) {
-        heal_combat_player_with_relics(state, BLACK_BLOOD_HEAL);
-    } else if state.relics.contains(&Relic::BurningBlood) {
-        heal_combat_player_with_relics(state, BURNING_BLOOD_HEAL_AMOUNT);
+    let mut next = state.clone();
+    if next.relics.contains(&Relic::BlackBlood) {
+        heal_combat_player_with_relics(&mut next, BLACK_BLOOD_HEAL)?;
+    } else if next.relics.contains(&Relic::BurningBlood) {
+        heal_combat_player_with_relics(&mut next, BURNING_BLOOD_HEAL_AMOUNT)?;
     }
 
-    if state.relics.contains(&Relic::MeatOnTheBone) && state.player.hp * 2 <= state.player.max_hp {
-        heal_combat_player_with_relics(state, MEAT_ON_THE_BONE_HEAL);
+    if next.relics.contains(&Relic::MeatOnTheBone) && next.player.hp <= next.player.max_hp / 2 {
+        heal_combat_player_with_relics(&mut next, MEAT_ON_THE_BONE_HEAL)?;
     }
+    *state = next;
+    Ok(())
 }

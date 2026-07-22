@@ -2001,7 +2001,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 checked_add_relic_value(&mut combat.player.powers.buffer, FOSSILIZED_HELIX_BUFFER)?;
             }
             Relic::BloodVial => {
-                heal_combat_player_with_relics(combat, BLOOD_VIAL_HEAL);
+                heal_combat_player_with_relics(combat, BLOOD_VIAL_HEAL)?;
             }
             Relic::Vajra => {
                 checked_add_relic_value(&mut combat.player.powers.strength, VAJRA_STRENGTH)?;
@@ -2200,23 +2200,28 @@ pub fn heal_player_in_combat_with_relics(
     *hp = hp.saturating_add(heal).min(max_hp);
 }
 
-pub fn heal_combat_player_with_relics(state: &mut CombatState, base_heal: i32) {
+pub fn heal_combat_player_with_relics(state: &mut CombatState, base_heal: i32) -> SimResult<()> {
     if state.mark_of_bloom {
-        return;
+        return Ok(());
     }
+
+    let mut next = state.clone();
     heal_player_in_combat_with_relics(
-        &mut state.player.hp,
-        state.player.max_hp,
+        &mut next.player.hp,
+        next.player.max_hp,
         base_heal,
-        &state.relics,
+        &next.relics,
     );
-    sync_red_skull_strength(state);
+    sync_red_skull_strength(&mut next)?;
+    *state = next;
+    Ok(())
 }
 
-pub fn apply_potion_use_relics_to_combat(combat: &mut CombatState) {
+pub fn apply_potion_use_relics_to_combat(combat: &mut CombatState) -> SimResult<()> {
     if combat.relics.contains(&Relic::ToyOrnithopter) {
-        heal_combat_player_with_relics(combat, TOY_ORNITHOPTER_HEAL);
+        heal_combat_player_with_relics(combat, TOY_ORNITHOPTER_HEAL)?;
     }
+    Ok(())
 }
 
 pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> SimResult<()> {
@@ -2236,32 +2241,47 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> Sim
     if next.relics.contains(&Relic::RunicCube) {
         crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
     }
-    sync_red_skull_strength(&mut next);
+    sync_red_skull_strength(&mut next)?;
     *state = next;
     Ok(())
 }
 
-pub fn sync_red_skull_strength(state: &mut CombatState) {
-    sync_red_skull_strength_present(state, state.relics.contains(&Relic::RedSkull));
+pub fn sync_red_skull_strength(state: &mut CombatState) -> SimResult<()> {
+    sync_red_skull_strength_present(state, state.relics.contains(&Relic::RedSkull))
 }
 
-fn sync_red_skull_strength_present(state: &mut CombatState, has_red_skull: bool) {
+fn sync_red_skull_strength_present(state: &mut CombatState, has_red_skull: bool) -> SimResult<()> {
     if !has_red_skull {
-        return;
+        return Ok(());
     }
 
-    let should_be_active = state.player.hp * 2 <= state.player.max_hp;
+    let should_be_active = state.player.hp <= state.player.max_hp / 2;
     match (should_be_active, state.relic_counters.red_skull_active) {
         (true, false) => {
-            state.player.powers.strength += RED_SKULL_STRENGTH;
+            state.player.powers.strength = state
+                .player
+                .powers
+                .strength
+                .checked_add(RED_SKULL_STRENGTH)
+                .ok_or(SimError::InvalidState(
+                    "Red Skull Strength activation overflows i32",
+                ))?;
             state.relic_counters.red_skull_active = true;
         }
         (false, true) => {
-            state.player.powers.strength -= RED_SKULL_STRENGTH;
+            state.player.powers.strength = state
+                .player
+                .powers
+                .strength
+                .checked_sub(RED_SKULL_STRENGTH)
+                .ok_or(SimError::InvalidState(
+                    "Red Skull Strength removal underflows i32",
+                ))?;
             state.relic_counters.red_skull_active = false;
         }
         _ => {}
     }
+    Ok(())
 }
 
 pub fn apply_buffer_to_hp_loss(powers: &mut crate::power::PlayerPowers, hp_loss: i32) -> i32 {
@@ -2628,7 +2648,7 @@ pub fn apply_on_card_play_relics(
     }
 
     if state.relics.contains(&Relic::BirdFacedUrn) && card_type == CardType::Power {
-        heal_combat_player_with_relics(state, BIRD_FACED_URN_HEAL);
+        heal_combat_player_with_relics(state, BIRD_FACED_URN_HEAL)?;
     }
 
     apply_orange_pellets_on_card_play(state, card_type);
@@ -2735,6 +2755,56 @@ fn deal_unmodified_damage_to_living_monsters(
 mod tests {
     use super::*;
     use crate::power::{MonsterPowers, PlayerPowers};
+
+    #[test]
+    fn red_skull_activation_and_removal_fail_without_partial_state() {
+        let mut activation = CombatState::initial_fixture();
+        activation.relics.push(Relic::RedSkull);
+        activation.player.hp = activation.player.max_hp / 2;
+        activation.player.powers.strength = i32::MAX;
+        let activation_before = activation.clone();
+
+        assert_eq!(
+            sync_red_skull_strength(&mut activation),
+            Err(SimError::InvalidState(
+                "Red Skull Strength activation overflows i32"
+            ))
+        );
+        assert_eq!(activation, activation_before);
+
+        let mut removal = CombatState::initial_fixture();
+        removal.relics.push(Relic::RedSkull);
+        removal.player.hp = removal.player.max_hp;
+        removal.player.powers.strength = i32::MIN;
+        removal.relic_counters.red_skull_active = true;
+        let removal_before = removal.clone();
+
+        assert_eq!(
+            sync_red_skull_strength(&mut removal),
+            Err(SimError::InvalidState(
+                "Red Skull Strength removal underflows i32"
+            ))
+        );
+        assert_eq!(removal, removal_before);
+    }
+
+    #[test]
+    fn red_skull_removal_failure_rolls_back_direct_combat_healing() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::RedSkull);
+        state.player.hp = state.player.max_hp / 2;
+        state.player.powers.strength = i32::MIN;
+        state.relic_counters.red_skull_active = true;
+        let before = state.clone();
+
+        assert_eq!(
+            heal_combat_player_with_relics(&mut state, 1),
+            Err(SimError::InvalidState(
+                "Red Skull Strength removal underflows i32"
+            ))
+        );
+        assert_eq!(state, before);
+    }
 
     #[test]
     fn player_debuff_immunity_relics_do_not_consume_artifact() {

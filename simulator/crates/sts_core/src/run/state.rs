@@ -1495,7 +1495,7 @@ impl RunState {
         if self.current_room_kind() == Some(RoomKind::Boss)
             && self.relics.contains(&Relic::Pantograph)
         {
-            crate::relic::heal_combat_player_with_relics(&mut combat, PANTOGRAPH_HEAL);
+            crate::relic::heal_combat_player_with_relics(&mut combat, PANTOGRAPH_HEAL)?;
         }
         if self.current_room_kind() == Some(RoomKind::Elite)
             && self.relics.contains(&Relic::PreservedInsect)

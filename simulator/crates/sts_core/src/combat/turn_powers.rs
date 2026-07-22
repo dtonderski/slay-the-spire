@@ -44,7 +44,7 @@ fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) -> 
         )?;
     }
     if state.player.powers.regen > 0 {
-        heal_combat_player_with_relics(state, state.player.powers.regen);
+        heal_combat_player_with_relics(state, state.player.powers.regen)?;
         state.player.powers.regen -= 1;
     }
     if state.player.powers.weak > 0 {
