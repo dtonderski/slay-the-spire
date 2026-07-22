@@ -133,8 +133,82 @@ pub(super) fn validate_grid_payload_authority(
         GridPurpose::EventObtainCardReturnToEvent {
             event: Event::Duplicator,
         } => validate_duplicator_grid_payload(run, grid),
-        _ => Ok(()),
+        _ => validate_deck_derived_grid_payload(run, grid),
     }
+}
+
+fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimResult<()> {
+    let expected = match grid.purpose {
+        GridPurpose::RestSmith
+        | GridPurpose::NeowUpgrade
+        | GridPurpose::EventUpgrade
+        | GridPurpose::EventUpgradeReturnToEvent { .. } => Some(
+            run.deck
+                .iter()
+                .copied()
+                .filter(card_instance_is_upgradeable)
+                .collect::<Vec<_>>(),
+        ),
+        GridPurpose::RestRemove
+        | GridPurpose::EventRemove
+        | GridPurpose::EventTransform { .. }
+        | GridPurpose::EventTransformReturnToEvent { .. }
+        | GridPurpose::BonfireElementals
+        | GridPurpose::DesignerRemoveAndUpgrade => Some(
+            run.deck
+                .iter()
+                .copied()
+                .filter(|card| !card.bottled)
+                .collect::<Vec<_>>(),
+        ),
+        GridPurpose::EventRemoveReturnToEvent {
+            event: Event::Falling,
+        } => None,
+        GridPurpose::EventRemoveReturnToEvent { .. } => Some(
+            run.deck
+                .iter()
+                .copied()
+                .filter(|card| !card.bottled)
+                .collect::<Vec<_>>(),
+        ),
+        GridPurpose::ShopRemove => Some(
+            run.deck
+                .iter()
+                .copied()
+                .filter(|card| !card.bottled && card.content_id != CURSE_OF_THE_BELL_ID)
+                .collect::<Vec<_>>(),
+        ),
+        GridPurpose::EmptyCage { .. }
+        | GridPurpose::NeowRemove { .. }
+        | GridPurpose::NeowTransform { .. }
+        | GridPurpose::DollysMirror
+        | GridPurpose::Astrolabe => Some(run.deck.clone()),
+        GridPurpose::Bottle { card_type } => {
+            let mut cards = run
+                .deck
+                .iter()
+                .copied()
+                .filter(|card| {
+                    !card.bottled
+                        && get_card_definition(card.content_id)
+                            .is_some_and(|definition| definition.card_type == card_type)
+                })
+                .collect::<Vec<_>>();
+            cards.reverse();
+            Some(cards)
+        }
+        GridPurpose::EventObtainCard
+        | GridPurpose::EventObtainCardReturnToEvent { .. }
+        | GridPurpose::CallingBellCurse
+        | GridPurpose::PandorasBox => None,
+    };
+
+    if expected.as_ref().is_some_and(|cards| cards != &grid.cards) {
+        return Err(SimError::InvalidState(
+            "card grid payload does not match its deck-derived authority",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_library_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimResult<()> {
@@ -1413,6 +1487,87 @@ mod tests {
             fabricated_copy.validate(),
             Err(SimError::InvalidState(
                 "Duplicator grid does not match deck-copy authority"
+            ))
+        );
+    }
+
+    #[test]
+    fn deck_derived_grids_require_complete_canonical_payloads() {
+        let mut purifier = RunState::seeded_ironclad(1, 0);
+        purifier.deck[0].bottled = true;
+        let bottled = purifier.deck[0];
+        purifier.phase = RunPhase::Event;
+        purifier.event = Some(crate::run::event::event_screen_for_run(
+            &purifier,
+            Event::Purifier,
+        ));
+        let opened = crate::run::event::apply_event_action(
+            &purifier,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Purifier opens its remove grid");
+        opened
+            .validate()
+            .expect("Purifier grid excludes the bottled card");
+        assert!(!opened
+            .card_grid
+            .as_ref()
+            .expect("Purifier grid")
+            .cards
+            .contains(&bottled));
+
+        let mut forbidden = opened.clone();
+        forbidden
+            .card_grid
+            .as_mut()
+            .expect("Purifier grid")
+            .cards
+            .push(bottled);
+        assert_eq!(
+            forbidden.validate(),
+            Err(SimError::InvalidState(
+                "card grid payload does not match its deck-derived authority"
+            ))
+        );
+
+        let mut incomplete = opened;
+        incomplete
+            .card_grid
+            .as_mut()
+            .expect("Purifier grid")
+            .cards
+            .pop();
+        assert_eq!(
+            incomplete.validate(),
+            Err(SimError::InvalidState(
+                "card grid payload does not match its deck-derived authority"
+            ))
+        );
+
+        let mut shop_run = RunState::map_fixture();
+        shop_run
+            .gain_deck_card(CURSE_OF_THE_BELL_ID)
+            .expect("Curse of the Bell can be added to the deck");
+        let curse = *shop_run.deck.last().expect("added curse");
+        shop_run.phase = RunPhase::Shop;
+        let generated_shop = shop::generate_shop_screen(&mut shop_run).expect("shop generates");
+        shop_run.shop = Some(generated_shop);
+        shop_run.shop_merchant_open = true;
+        open_shop_remove_grid(&mut shop_run);
+        shop_run
+            .validate()
+            .expect("shop remove grid excludes Curse of the Bell");
+
+        shop_run
+            .card_grid
+            .as_mut()
+            .expect("shop remove grid")
+            .cards
+            .push(curse);
+        assert_eq!(
+            shop_run.validate(),
+            Err(SimError::InvalidState(
+                "card grid payload does not match its deck-derived authority"
             ))
         );
     }

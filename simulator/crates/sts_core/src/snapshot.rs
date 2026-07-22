@@ -1214,6 +1214,39 @@ mod tests {
     }
 
     #[test]
+    fn current_snapshot_rejects_incomplete_deck_derived_grid() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            crate::Event::Purifier,
+        ));
+        let mut opened = crate::run::event::apply_event_action(
+            &run,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Purifier opens its remove grid");
+        opened
+            .card_grid
+            .as_mut()
+            .expect("Purifier grid")
+            .cards
+            .pop();
+        let value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: opened,
+        })
+        .expect("run snapshot serializes");
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("deck-derived grid cannot hide an authoritative choice");
+
+        assert!(matches!(error, SnapshotRestoreError::InvalidState(_)));
+    }
+
+    #[test]
     fn historical_run_snapshots_migrate_pending_card_reward_counts() {
         for version in [
             LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,
