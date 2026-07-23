@@ -1033,6 +1033,16 @@ struct PendingDeckAssertion {
     expected_deck: Vec<String>,
 }
 
+/// `CampfireSmithEffect` upgrades the selected card from the target effect
+/// queue. The target keeps the pre-upgrade deck visible for 1.5 seconds while
+/// that effect runs, so a rapid trace can legitimately contain several stale
+/// deck frames without changing the authoritative settled result.
+struct PendingSmithEffect {
+    action: TraceAction,
+    transient_deck: Vec<String>,
+    settled_deck: Vec<String>,
+}
+
 struct PendingMapAssertion {
     action: TraceAction,
     label: String,
@@ -3057,7 +3067,12 @@ fn relic_keys_from_value(value: Option<&Value>) -> Vec<String> {
                 .get("name")
                 .or_else(|| relic.get("id"))
                 .and_then(Value::as_str)
-                .map(str::to_owned)
+                .map(|name| {
+                    relic_key_from_trace_name(name)
+                        .map(relic_key_trace_name)
+                        .unwrap_or(name)
+                        .to_owned()
+                })
         })
         .collect()
 }

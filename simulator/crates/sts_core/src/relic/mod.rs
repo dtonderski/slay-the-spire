@@ -1435,6 +1435,7 @@ impl Relic {
             Relic::CultistMask => &["Cultist Mask"],
             Relic::FaceOfCleric => &["Cleric Face", "Face of Cleric"],
             Relic::GremlinMask => &["Gremlin Visage", "Gremlin Mask"],
+            Relic::NlothsMask => &["N'loth's Hungry Face"],
             _ => &[],
         }
     }

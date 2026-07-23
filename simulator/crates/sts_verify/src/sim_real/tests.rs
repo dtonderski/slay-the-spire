@@ -399,14 +399,14 @@ fn smoke_bomb_trace_names_an_unreconciled_queued_command_endpoint() {
 }
 
 #[test]
-fn smith_trace_names_an_unreconciled_deck_frame_before_proceed() {
+fn smith_trace_models_in_flight_effect_before_proceed() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-619700a8aef6dadc.jsonl")
     else {
         return;
     };
     let report = verify_seed_start_communication_mod_trace(&content)
-        .expect("unreconciled Smith deck regression trace verifies");
+        .expect("Smith effect timing regression trace verifies");
 
     assert!(report.unexpected_diffs.is_empty());
     assert!(report.unsupported.is_empty());
@@ -417,21 +417,17 @@ fn smith_trace_names_an_unreconciled_deck_frame_before_proceed() {
             .expect("seed-start report")
             .first_boundary,
         SeedStartBoundary {
-            path: "$.actions[step=107].command".to_owned(),
-            category: "unreconciled_deck_frame".to_owned(),
-            reason:
-                "command 'PROCEED' arrived before deferred deck mutation from step 106 reconciled"
-                    .to_owned(),
+            path: "$.actions[verified]".to_owned(),
+            category: "none".to_owned(),
+            reason: "seed-start verifier checked every verifiable transition in the trace"
+                .to_owned(),
         }
     );
-    assert_eq!(
-        report
-            .action_integrity
-            .as_ref()
-            .expect("action integrity")
-            .unresolved_transient_assertions,
-        1
-    );
+    let integrity = report.action_integrity.as_ref().expect("action integrity");
+    assert_eq!(integrity.unresolved_transient_assertions, 0);
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 106 && transition.label == "rest smith effect queued"
+    }));
 }
 
 #[test]
@@ -4841,6 +4837,11 @@ fn trace_relic_display_names_are_mapped() {
             Some(key)
         );
     }
+
+    assert_eq!(
+        relic_key_from_trace_name("N'loth's Hungry Face"),
+        Some(RelicKey::NlothsMask)
+    );
 }
 
 #[test]

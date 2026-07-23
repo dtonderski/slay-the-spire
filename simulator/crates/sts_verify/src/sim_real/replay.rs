@@ -3950,6 +3950,7 @@ fn seed_start_handle_grid_phase(
     post: &TraceState,
     seed_sim: &mut Option<RunState>,
     pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    pending_smith_effect: &mut Option<PendingSmithEffect>,
     phase: &mut SeedStartPhase,
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
@@ -3965,6 +3966,11 @@ fn seed_start_handle_grid_phase(
     };
     let command = action.command.trim();
     let pre_command_deck = deck_content_keys(&sim.deck);
+    let rest_smith_transition = command.eq_ignore_ascii_case("CONFIRM")
+        && sim
+            .card_grid
+            .as_ref()
+            .is_some_and(|grid| matches!(grid.purpose, GridPurpose::RestSmith));
     let delayed_event_deck_append_count = (command_head_eq(command, "CHOOSE")
         || command.eq_ignore_ascii_case("CONFIRM"))
     .then(|| {
@@ -3979,7 +3985,7 @@ fn seed_start_handle_grid_phase(
     })
     .flatten();
     let next = seed_start_apply_grid_command(sim, command);
-    let Ok(next) = next else {
+    let Ok(mut next) = next else {
         let boundary = SeedStartBoundary {
             path: format!("$.actions[step={}].command", action.step),
             category: "unsupported_grid_path".to_owned(),
@@ -4031,7 +4037,11 @@ fn seed_start_handle_grid_phase(
             SeedStartPhase::Event,
         ),
         SeedStartGridDestination::Rest => (
-            "rest grid",
+            if rest_smith_transition {
+                "rest smith grid"
+            } else {
+                "rest grid"
+            },
             seed_start_rest_observed_subset(&post.message),
             seed_start_rest_simulated_subset(&next),
             SeedStartPhase::Rest,
@@ -4135,13 +4145,32 @@ fn seed_start_handle_grid_phase(
                 });
             }
             PendingDeckObservation::Deferred if diffs.is_empty() => {
-                *pending_deck_assertion = Some(PendingDeckAssertion {
-                    action: action.clone(),
-                    label: label.to_owned(),
-                    related_actions: Vec::new(),
-                    transient_decks: vec![pre_command_deck],
-                    expected_deck: simulated_deck,
-                });
+                if rest_smith_transition {
+                    *pending_smith_effect = Some(PendingSmithEffect {
+                        action: action.clone(),
+                        transient_deck: pre_command_deck,
+                        settled_deck: simulated_deck,
+                    });
+                    next.deck = deck_instances_from_keys(
+                        &pending_smith_effect
+                            .as_ref()
+                            .expect("pending Smith effect was recorded")
+                            .transient_deck,
+                    );
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "rest smith effect queued".to_owned(),
+                    });
+                } else {
+                    *pending_deck_assertion = Some(PendingDeckAssertion {
+                        action: action.clone(),
+                        label: label.to_owned(),
+                        related_actions: Vec::new(),
+                        transient_decks: vec![pre_command_deck],
+                        expected_deck: simulated_deck,
+                    });
+                }
             }
             PendingDeckObservation::Diverged(deck_diffs) => {
                 diffs.extend(deck_diffs);
@@ -4638,6 +4667,26 @@ fn seed_start_handle_complete_phase(
     SeedStartPreDispatch::Handled
 }
 
+const CAMPFIRE_SMITH_EFFECT_MILLIS: i64 = 1_500;
+
+fn smith_effect_elapsed_millis(
+    pending: &PendingSmithEffect,
+    timestamp: Option<&str>,
+) -> Option<i64> {
+    let sent = pending
+        .action
+        .sent_at
+        .as_deref()
+        .and_then(trace_timestamp_millis)?;
+    let received = timestamp.and_then(trace_timestamp_millis)?;
+    received.checked_sub(sent).filter(|elapsed| *elapsed >= 0)
+}
+
+fn smith_effect_is_in_flight(pending: &PendingSmithEffect, timestamp: Option<&str>) -> bool {
+    smith_effect_elapsed_millis(pending, timestamp)
+        .is_some_and(|elapsed| elapsed < CAMPFIRE_SMITH_EFFECT_MILLIS)
+}
+
 pub(super) fn verify_seed_start_transitions(
     transitions: &[(TraceState, TraceAction, TraceState)],
     start: &StartRunCommand,
@@ -4666,11 +4715,13 @@ pub(super) fn verify_seed_start_transitions(
     let mut seed_sim: Option<RunState> = None;
     let mut smoke_bomb_ui: Option<SmokeBombUiState> = None;
     let mut pending_deck_assertion: Option<PendingDeckAssertion> = None;
+    let mut pending_smith_effect: Option<PendingSmithEffect> = None;
     let mut pending_map_assertion: Option<PendingMapAssertion> = None;
     let mut pending_boss_relic_overlay: Option<PendingBossRelicOverlayAssertion> = None;
     let mut pending_combat_assertion: Option<PendingCombatAssertion> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
     let mut last_post_message: Option<Value> = None;
+    let mut last_post_received_at: Option<String> = None;
 
     macro_rules! finish_boundary {
         ($boundary:expr) => {{
@@ -4683,6 +4734,11 @@ pub(super) fn verify_seed_start_transitions(
                         .iter()
                         .map(|(action, _)| action.step),
                 );
+            }
+            if let Some(pending) = pending_smith_effect.as_ref() {
+                if !smith_effect_is_in_flight(pending, last_post_received_at.as_deref()) {
+                    unresolved_deferred_action_steps.push(pending.action.step);
+                }
             }
             if let Some(pending) = pending_map_assertion.as_ref() {
                 unresolved_deferred_action_steps.push(pending.action.step);
@@ -4730,6 +4786,7 @@ pub(super) fn verify_seed_start_transitions(
 
     for (pre, action, post) in transitions {
         last_post_message = Some(post.message.clone());
+        last_post_received_at = post.received_at.clone();
         if let Some(boundary) = pending_combat_assertion
             .as_ref()
             .and_then(|pending| pending.failed_reconciliation.clone())
@@ -4738,6 +4795,40 @@ pub(super) fn verify_seed_start_transitions(
         }
         if start.verification_starting_hp.is_some() {
             if let Some(boundary) = seed_start_take_first_diff_boundary(report) {
+                return finish_boundary!(boundary);
+            }
+        }
+        if let Some(pending) = pending_smith_effect.take() {
+            let observed_pre_deck = seed_start_observed_deck(&pre.message);
+            let elapsed = smith_effect_elapsed_millis(&pending, post.received_at.as_deref());
+            let settled = observed_pre_deck == pending.settled_deck
+                || elapsed.is_some_and(|elapsed| elapsed >= CAMPFIRE_SMITH_EFFECT_MILLIS);
+            if settled {
+                if observed_pre_deck != pending.settled_deck {
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "rest smith effect".to_owned(),
+                        diffs: subset_diffs(json!(observed_pre_deck), json!(pending.settled_deck)),
+                    });
+                    let boundary = seed_start_take_first_diff_boundary(report)
+                        .expect("Smith effect mismatch creates a diff");
+                    return finish_boundary!(boundary);
+                }
+                if let Some(sim) = seed_sim.as_mut() {
+                    sim.deck = deck_instances_from_keys(&pending.settled_deck);
+                }
+            } else if observed_pre_deck == pending.transient_deck {
+                pending_smith_effect = Some(pending);
+            } else {
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "rest smith effect".to_owned(),
+                    diffs: subset_diffs(json!(observed_pre_deck), json!(pending.settled_deck)),
+                });
+                let boundary = seed_start_take_first_diff_boundary(report)
+                    .expect("Smith effect mismatch creates a diff");
                 return finish_boundary!(boundary);
             }
         }
@@ -5633,6 +5724,7 @@ pub(super) fn verify_seed_start_transitions(
             post,
             &mut seed_sim,
             &mut pending_deck_assertion,
+            &mut pending_smith_effect,
             &mut phase,
             report,
         ) {
@@ -5743,6 +5835,15 @@ pub(super) fn verify_seed_start_transitions(
             path: format!("$.actions[step={}].command", endpoint.step),
             category: "unreconciled_smoke_bomb_frame".to_owned(),
             reason: "Smoke Bomb escape did not reach a captured stable reward frame".to_owned(),
+        }
+    } else if let Some(pending) = pending_smith_effect
+        .as_ref()
+        .filter(|pending| !smith_effect_is_in_flight(pending, last_post_received_at.as_deref()))
+    {
+        SeedStartBoundary {
+            path: format!("$.actions[step={}].command", pending.action.step),
+            category: "unreconciled_deck_frame".to_owned(),
+            reason: "Campfire Smith effect exceeded its target visibility window without a settled deck frame".to_owned(),
         }
     } else if let Some(pending) = pending_deck_assertion.as_ref() {
         SeedStartBoundary {
