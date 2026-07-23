@@ -30,8 +30,8 @@ use sts_core::{
     open_neow_reward_grid, shop_action_for_choice_index, CardGridScreen, CardId, CardInstance,
     CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventAction,
     GeneratedNeowOption, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState,
-    NeowDrawback, NeowRewardType, Relic, RelicKey, RestAction, RewardScreen, RoomKind, RunAction,
-    RunDecisionAction, RunPhase, RunState, ShopPick,
+    NeowDrawback, NeowRewardType, Relic, RelicKey, RestAction, RewardContinuation, RewardScreen,
+    RoomKind, RunAction, RunDecisionAction, RunPhase, RunState, ShopPick,
 };
 
 #[cfg(test)]

@@ -3652,7 +3652,12 @@ fn seed_start_handle_reward_phase(
             .is_some_and(|sim| sim.phase == RunPhase::Reward && sim.event.is_some())
         {
             let sim = seed_sim.as_mut().expect("reward simulation checked above");
-            let reward_action = if seed_start_reward_sequence_complete(sim) {
+            let reward_action = if sim
+                .reward
+                .as_ref()
+                .is_some_and(|reward| reward.continuation == RewardContinuation::Neow)
+                || seed_start_reward_sequence_complete(sim)
+            {
                 RunAction::Proceed
             } else {
                 RunAction::SkipReward

@@ -4358,6 +4358,12 @@ mod tests {
             crate::RewardContinuation::Neow
         );
 
+        let early_proceed = apply_run_action(&next, RunAction::Proceed)
+            .expect("non-empty Neow reward can be abandoned with proceed");
+        assert_eq!(early_proceed.phase, RunPhase::Idle);
+        assert!(early_proceed.reward.is_none());
+        assert!(early_proceed.event.is_none());
+
         for expected in generated.potions {
             next = apply_run_action(&next, RunAction::TakePotionReward { index: 0 })
                 .expect("offered potion can be taken");

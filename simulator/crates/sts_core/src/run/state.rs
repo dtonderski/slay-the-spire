@@ -3247,6 +3247,7 @@ impl RunState {
                 let final_boss_victory =
                     self.current_act == 3 && self.current_room_kind() == Some(RoomKind::Boss);
                 if final_boss_victory
+                    || reward.continuation == RewardContinuation::Neow
                     || (reward.continuation != RewardContinuation::None
                         && super::reward::reward_is_empty(reward))
                 {
