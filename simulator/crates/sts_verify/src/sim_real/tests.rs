@@ -6629,30 +6629,25 @@ fn seed_start_boss_swap_empty_cage_grid_removes_two_cards_to_neow_leave() {
         .map(|name| json!({ "name": name }))
         .collect();
     let after_first_select = select_grid_card(&empty_cage_run, 0).expect("select first");
-    let after_first_confirm = confirm_grid(&after_first_select).expect("remove first");
-    let after_second_select = select_grid_card(&after_first_confirm, 0).expect("select second");
-    let after_second_confirm = confirm_grid(&after_second_select).expect("remove second");
+    let after_second_select =
+        select_grid_card(&after_first_select, 1).expect("second selection resolves Empty Cage");
     let first_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&empty_cage_run)["choices"]
         .as_array()
         .expect("first grid choices")
         .clone();
-    let second_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&after_first_confirm)
+    let second_grid_choices: Vec<_> = seed_start_grid_simulated_subset(&after_first_select)
         ["choices"]
         .as_array()
         .expect("second grid choices")
         .clone();
-    let one_removed_deck: Vec<_> = deck_content_keys(&after_first_confirm.deck)
-        .into_iter()
-        .map(|id| json!({ "id": id }))
-        .collect();
-    let two_removed_deck: Vec<_> = deck_content_keys(&after_second_confirm.deck)
+    let two_removed_deck: Vec<_> = deck_content_keys(&after_second_select.deck)
         .into_iter()
         .map(|id| json!({ "id": id }))
         .collect();
 
     assert_eq!(empty_cage_run.deck.len(), 10);
-    assert_eq!(after_first_confirm.deck.len(), 9);
-    assert_eq!(after_second_confirm.deck.len(), 8);
+    assert_eq!(after_first_select.deck.len(), 10);
+    assert_eq!(after_second_select.deck.len(), 8);
 
     let lines = vec![
         json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
@@ -6703,34 +6698,10 @@ fn seed_start_boss_swap_empty_cage_grid_removes_two_cards_to_neow_leave() {
             "max_hp": 80,
             "deck": starting_deck,
             "relics": empty_cage_relics,
-            "choice_list": []
-        }}}),
-        json!({"type": "action", "step": 5, "command": "CONFIRM"}),
-        json!({"type": "state", "step": 5, "message": {"game_state": {
-            "screen_type": "GRID",
-            "ascension_level": 0,
-            "floor": 0,
-            "gold": 99,
-            "current_hp": 80,
-            "max_hp": 80,
-            "deck": one_removed_deck,
-            "relics": empty_cage_relics,
             "choice_list": second_grid_choices
         }}}),
-        json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
-        json!({"type": "state", "step": 6, "message": {"game_state": {
-            "screen_type": "GRID",
-            "ascension_level": 0,
-            "floor": 0,
-            "gold": 99,
-            "current_hp": 80,
-            "max_hp": 80,
-            "deck": one_removed_deck,
-            "relics": empty_cage_relics,
-            "choice_list": []
-        }}}),
-        json!({"type": "action", "step": 7, "command": "CONFIRM"}),
-        json!({"type": "state", "step": 7, "message": {"game_state": {
+        json!({"type": "action", "step": 5, "command": "CHOOSE 1"}),
+        json!({"type": "state", "step": 5, "message": {"game_state": {
             "screen_type": "EVENT",
             "ascension_level": 0,
             "floor": 0,
@@ -6751,7 +6722,7 @@ fn seed_start_boss_swap_empty_cage_grid_removes_two_cards_to_neow_leave() {
         transition.action_step == 3 && transition.label == "Neow boss swap Empty Cage grid"
     }));
     assert!(report.verified.iter().any(|transition| {
-        transition.action_step == 7 && transition.label == "Neow boss swap Empty Cage confirm"
+        transition.action_step == 5 && transition.label == "Neow boss swap Empty Cage confirm"
     }));
 }
 

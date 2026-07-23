@@ -847,11 +847,20 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_grid_select(run, index)?;
     let grid = run.card_grid.as_ref().expect("validated card grid");
 
-    if grid_multi_select_count(grid.purpose).is_some() {
+    if let Some(required) = grid_multi_select_count(grid.purpose) {
         let mut next = run.clone();
         let grid = next.card_grid.as_mut().expect("grid present");
         if !grid.selected_indices.contains(&index) {
             grid.selected_indices.push(index);
+        }
+        // Empty Cage's target implementation resolves as soon as the
+        // required cards have been selected; it does not expose a separate
+        // confirmation click. Other multi-select grids retain their
+        // selections until the explicit GridConfirm action.
+        if matches!(grid.purpose, GridPurpose::EmptyCage { .. })
+            && grid.selected_indices.len() >= required
+        {
+            return apply_validated_grid_confirmation(&next);
         }
         return Ok(next);
     }
@@ -1126,8 +1135,12 @@ fn apply_validated_grid_confirmation(run: &RunState) -> SimResult<RunState> {
             });
         }
         GridPurpose::EmptyCage { remaining } => {
-            let card = selected_grid_card(grid)?;
-            remove_grid_card(&mut next, card, GridPurpose::EmptyCage { remaining });
+            if remaining > 1 {
+                confirm_empty_cage_grid(&mut next, remaining)?;
+            } else {
+                let card = selected_grid_card(grid)?;
+                remove_grid_card(&mut next, card, GridPurpose::EmptyCage { remaining });
+            }
         }
         GridPurpose::NeowRemove { remaining } => {
             if remaining > 1 {
@@ -1180,12 +1193,38 @@ fn validate_grid_card_is_in_deck(run: &RunState, card: CardInstance) -> SimResul
 fn grid_multi_select_count(purpose: GridPurpose) -> Option<usize> {
     match purpose {
         GridPurpose::Astrolabe => Some(ASTROLABE_TRANSFORM_COUNT),
+        GridPurpose::EmptyCage { remaining } if remaining > 1 => Some(usize::from(remaining)),
         GridPurpose::NeowRemove { remaining } if remaining > 1 => Some(usize::from(remaining)),
         GridPurpose::NeowTransform { count } => Some(usize::from(count)),
         GridPurpose::EventTransform { count } => Some(usize::from(count)),
         GridPurpose::EventTransformReturnToEvent { count, .. } => Some(usize::from(count)),
         _ => None,
     }
+}
+
+fn confirm_empty_cage_grid(run: &mut RunState, remaining: u8) -> SimResult<()> {
+    let grid = run
+        .card_grid
+        .as_ref()
+        .ok_or(SimError::IllegalAction("no card grid is open"))?;
+    let required = usize::from(remaining);
+    let cards = grid
+        .selected_indices
+        .iter()
+        .take(required)
+        .map(|index| {
+            grid.cards
+                .get(*index)
+                .copied()
+                .ok_or(SimError::IllegalAction("grid index out of range"))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    for card in cards {
+        run.remove_deck_card(card.id)
+            .expect("Empty Cage selected a deck card");
+    }
+    run.card_grid = None;
+    Ok(())
 }
 
 fn selected_grid_card(grid: &CardGridScreen) -> SimResult<CardInstance> {
@@ -1997,7 +2036,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_cage_removes_one_selected_card_per_confirm() {
+    fn empty_cage_removes_two_cards_after_the_second_selection() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Treasure;
         run.current_room_override = Some(crate::RoomKind::Boss);
@@ -2007,15 +2046,22 @@ mod tests {
         let original_deck = run.deck.clone();
 
         let first_selected = select_grid_card(&run, 0).expect("first select");
-        let first_confirmed = confirm_grid(&first_selected).expect("confirm first removal");
-        assert_eq!(first_confirmed.deck.len(), original_deck.len() - 1);
-        let second_selected = select_grid_card(&first_confirmed, 0).expect("second select");
-        let second_confirmed = confirm_grid(&second_selected).expect("confirm second removal");
-
-        assert!(second_confirmed.card_grid.is_none());
-        assert_eq!(second_confirmed.deck.len(), original_deck.len() - 2);
+        assert_eq!(first_selected.deck, original_deck);
         assert_eq!(
-            second_confirmed
+            first_selected
+                .card_grid
+                .as_ref()
+                .expect("grid remains open")
+                .selected_indices,
+            vec![0]
+        );
+        let after_second_selection =
+            select_grid_card(&first_selected, 1).expect("second select resolves Empty Cage");
+
+        assert!(after_second_selection.card_grid.is_none());
+        assert_eq!(after_second_selection.deck.len(), original_deck.len() - 2);
+        assert_eq!(
+            after_second_selection
                 .deck
                 .iter()
                 .filter(|card| card.content_id == STRIKE_R_ID)

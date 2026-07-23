@@ -2406,6 +2406,7 @@ fn grid_selection_ready_for_confirm(grid: &CardGridScreen) -> bool {
     }
     let required = match grid.purpose {
         GridPurpose::Astrolabe => Some(3),
+        GridPurpose::EmptyCage { remaining } if remaining > 1 => Some(usize::from(remaining)),
         GridPurpose::NeowRemove { remaining } if remaining > 1 => Some(usize::from(remaining)),
         GridPurpose::NeowTransform { count }
         | GridPurpose::EventTransform { count }

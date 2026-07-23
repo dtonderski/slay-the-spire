@@ -1683,6 +1683,29 @@ fn seed_start_handle_neow_boss_swap_phase(
                 reason: "seed-start Empty Cage boss-swap grid choose failed".to_owned(),
             });
         };
+        if next.card_grid.is_none() {
+            *deck_ids = deck_content_keys(&next.deck);
+            compare_subset(
+                report,
+                action,
+                "Neow boss swap Empty Cage confirm",
+                seed_start_observed_subset(&post.message),
+                json!({
+                    "screen_type": "EVENT",
+                    "ascension": start.ascension,
+                    "floor": 0,
+                    "gold": 99,
+                    "current_hp": start.starting_hp(),
+                    "max_hp": start.starting_hp(),
+                    "deck_ids": deck_ids,
+                    "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                    "choices": ["leave"],
+                }),
+            );
+            *seed_sim = Some(next);
+            *phase = SeedStartPhase::NeowLeave;
+            return SeedStartPreDispatch::Handled;
+        }
         compare_subset(
             report,
             action,
