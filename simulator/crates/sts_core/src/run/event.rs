@@ -6368,9 +6368,8 @@ mod tests {
         ));
         assert_eq!(after_take.deck.len(), original_len + 1);
 
-        let selected = crate::run::grid::select_grid_card(&after_take, 0)
-            .expect("card can be selected for removal");
-        let completed = crate::run::grid::confirm_grid(&selected).expect("note removal confirms");
+        let completed = crate::run::grid::select_grid_card(&after_take, 0)
+            .expect("Note For Yourself consumes its one-card selection");
         assert_eq!(completed.deck.len(), original_len);
         assert_eq!(completed.event.as_ref().expect("leave screen").stage, 2);
     }

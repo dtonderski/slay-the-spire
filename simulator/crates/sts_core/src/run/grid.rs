@@ -867,6 +867,17 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     ) {
         return apply_validated_grid_confirmation(&next);
     }
+    // Note For Yourself opens a one-card GridCardSelectScreen without a
+    // confirm button. Its event update consumes the selected card immediately
+    // and then exposes the event's leave screen.
+    if matches!(
+        grid.purpose,
+        GridPurpose::EventRemoveReturnToEvent {
+            event: Event::NoteForYourself
+        }
+    ) {
+        return apply_validated_grid_confirmation(&next);
+    }
     Ok(next)
 }
 
