@@ -291,6 +291,10 @@ fn legal_reward_actions(run: &RunState) -> SimResult<Vec<RunAction>> {
                 .map(|index| RunAction::ChooseBossRelicReward { index }),
         );
         candidates.extend(
+            (0..reward.queued_card_rewards.len())
+                .map(|index| RunAction::OpenQueuedCardReward { index }),
+        );
+        candidates.extend(
             reward
                 .choices
                 .iter()

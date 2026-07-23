@@ -694,7 +694,7 @@ fn rejected_core_combat_transitions_are_visible_boundaries_not_diffs() {
 }
 
 #[test]
-fn stable_combat_mismatch_preserves_compound_transient_evidence() {
+fn stable_combat_trace_reconciles_compound_transient_evidence() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-c2aa19ad6556e10e.jsonl")
     else {
@@ -704,15 +704,13 @@ fn stable_combat_mismatch_preserves_compound_transient_evidence() {
         .expect("compound deferred combat regression trace verifies");
 
     assert!(report.unexpected_diffs.is_empty());
-    assert_eq!(report.unsupported.len(), 1);
+    assert!(report.unsupported.is_empty());
     let boundary = &report
         .seed_start
         .as_ref()
         .expect("seed-start report")
         .first_boundary;
-    assert_eq!(boundary.path, "$.actions[step=270].command");
-    assert_eq!(boundary.category, "unexpected_sim_real_diff");
-    assert!(boundary.reason.contains("exhaust select confirm"));
+    assert_eq!(boundary.category, "none");
     assert_eq!(
         report
             .action_integrity

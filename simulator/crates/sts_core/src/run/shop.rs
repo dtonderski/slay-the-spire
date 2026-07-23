@@ -984,7 +984,30 @@ mod tests {
         );
         assert!(next.shop_merchant_open);
 
-        for remaining in (0..crate::relic::ORRERY_CARD_REWARDS).rev() {
+        let fifth_reward = next
+            .reward
+            .as_ref()
+            .expect("Orrery reward screen")
+            .queued_card_rewards[4]
+            .clone();
+        next = crate::run::reward::apply_run_action(
+            &next,
+            RunAction::OpenQueuedCardReward { index: 4 },
+        )
+        .expect("Orrery can open the selected fifth reward");
+        assert_eq!(
+            next.reward.as_ref().expect("active reward").choices,
+            fifth_reward
+        );
+        let card_id = next.reward.as_ref().unwrap().choices[0].id;
+        next = crate::run::reward::apply_run_action(&next, RunAction::TakeCardReward { card_id })
+            .expect("selected Orrery reward can be taken");
+        assert_eq!(
+            next.reward.as_ref().unwrap().remaining_card_reward_count(),
+            crate::relic::ORRERY_CARD_REWARDS - 1
+        );
+
+        for remaining in (0..crate::relic::ORRERY_CARD_REWARDS - 1).rev() {
             next = crate::run::reward::apply_run_action(&next, RunAction::OpenCardReward)
                 .expect("Orrery card reward opens");
             let card_id = next.reward.as_ref().unwrap().choices[0].id;

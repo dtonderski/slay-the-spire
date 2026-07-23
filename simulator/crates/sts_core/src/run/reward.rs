@@ -2229,26 +2229,8 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
         RunAction::OpenChest => {
             unreachable!("validated reward action")
         }
-        RunAction::OpenCardReward => {
-            if next.reward.as_ref().is_some_and(|reward| {
-                reward.choices.is_empty() && reward.remaining_card_reward_count() > 0
-            }) {
-                let queued = next.reward.as_mut().and_then(|reward| {
-                    (!reward.queued_card_rewards.is_empty())
-                        .then(|| reward.queued_card_rewards.remove(0))
-                });
-                if let Some(choices) = queued {
-                    next.reward.as_mut().expect("reward screen present").choices = choices;
-                } else {
-                    roll_pending_card_reward_choices(&mut next)?;
-                }
-            }
-            preview_obtain_card_reward_choices(&mut next)?;
-            next.reward
-                .as_mut()
-                .expect("validated reward screen")
-                .open_card_reward()?;
-        }
+        RunAction::OpenCardReward => open_card_reward_at(&mut next, None)?,
+        RunAction::OpenQueuedCardReward { index } => open_card_reward_at(&mut next, Some(index))?,
         RunAction::SkipPotionReward => {
             let reward = next.reward.as_mut().expect("validated reward screen");
             reward.potion_offer = None;
@@ -2283,6 +2265,34 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
     }
 
     Ok(next)
+}
+
+fn open_card_reward_at(run: &mut RunState, queued_index: Option<usize>) -> SimResult<()> {
+    if run
+        .reward
+        .as_ref()
+        .is_some_and(|reward| reward.choices.is_empty() && reward.remaining_card_reward_count() > 0)
+    {
+        let queued = run.reward.as_mut().and_then(|reward| {
+            if reward.queued_card_rewards.is_empty() {
+                None
+            } else {
+                let index = queued_index.unwrap_or(0);
+                Some(reward.queued_card_rewards.remove(index))
+            }
+        });
+        if let Some(choices) = queued {
+            run.reward.as_mut().expect("reward screen present").choices = choices;
+        } else {
+            roll_pending_card_reward_choices(run)?;
+        }
+    }
+    preview_obtain_card_reward_choices(run)?;
+    run.reward
+        .as_mut()
+        .expect("validated reward screen")
+        .open_card_reward()?;
+    Ok(())
 }
 
 fn return_to_reward_continuation_if_empty(run: &mut RunState) {

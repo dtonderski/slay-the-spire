@@ -3897,6 +3897,10 @@ fn seed_start_apply_reward_choose(sim: &mut RunState, command: &str) -> Result<S
         .iter()
         .filter(|choice| choice.as_str() == "potion")
         .count();
+    let queued_card_index = simulated_choices[..choose_index]
+        .iter()
+        .filter(|choice| choice.as_str() == "card")
+        .count();
     // The target command bridge resolves the two-item [gold, potion] frame by
     // marking the preceding gold reward when the full-belt potion is clicked.
     // The potion claim itself still fails in vanilla and remains on screen.
@@ -3912,7 +3916,20 @@ fn seed_start_apply_reward_choose(sim: &mut RunState, command: &str) -> Result<S
     let next = match choice {
         "stolen_gold" => apply_run_action(sim, RunAction::TakeStolenGoldReward),
         "gold" => apply_run_action(sim, RunAction::TakeGoldReward),
-        "card" => apply_run_action(sim, RunAction::OpenCardReward),
+        "card" => {
+            let action = if sim
+                .reward
+                .as_ref()
+                .is_some_and(|reward| !reward.queued_card_rewards.is_empty())
+            {
+                RunAction::OpenQueuedCardReward {
+                    index: queued_card_index,
+                }
+            } else {
+                RunAction::OpenCardReward
+            };
+            apply_run_action(sim, action)
+        }
         "potion" => apply_run_action(
             sim,
             RunAction::TakePotionReward {

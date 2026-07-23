@@ -1202,6 +1202,9 @@ pub enum RunAction {
     Proceed,
     OpenChest,
     OpenCardReward,
+    OpenQueuedCardReward {
+        index: usize,
+    },
     SkipPotionReward,
     BuyShopCard {
         slot: usize,
@@ -3233,6 +3236,20 @@ impl RunState {
                 }
                 if reward.card_reward_is_active() {
                     return Err(SimError::IllegalAction("card reward already open"));
+                }
+                Ok(())
+            }
+            RunAction::OpenQueuedCardReward { index } => {
+                if reward.remaining_card_reward_count() == 0 {
+                    return Err(SimError::IllegalAction("no card reward offered"));
+                }
+                if reward.card_reward_is_active() {
+                    return Err(SimError::IllegalAction("card reward already open"));
+                }
+                if index >= reward.queued_card_rewards.len() {
+                    return Err(SimError::IllegalAction(
+                        "queued card reward index is not offered",
+                    ));
                 }
                 Ok(())
             }

@@ -1137,6 +1137,9 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Run(RunAction::Proceed) => "proceed",
         ExactRunActionKind::Run(RunAction::OpenChest) => "open_chest",
         ExactRunActionKind::Run(RunAction::OpenCardReward) => "open_card_reward",
+        ExactRunActionKind::Run(RunAction::OpenQueuedCardReward { .. }) => {
+            "open_queued_card_reward"
+        }
         ExactRunActionKind::Run(RunAction::SkipPotionReward) => "skip_potion_reward",
         ExactRunActionKind::Run(RunAction::BuyShopCard { .. }) => "buy_shop_card",
         ExactRunActionKind::Run(RunAction::BuyShopRelic { .. }) => "buy_shop_relic",
