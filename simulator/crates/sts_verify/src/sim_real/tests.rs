@@ -3116,6 +3116,30 @@ fn executing_combat_selection_verifies_without_a_deferred_marker() {
 }
 
 #[test]
+fn armaments_confirm_accepts_source_hand_settlement_frame() {
+    let path = crate::corpus_path("permanent_traces/random-fidelity-ab69c7e7be342616.jsonl");
+    let content = std::fs::read_to_string(path).expect("Armaments trace");
+    let report = verify_communication_mod_trace(&content).expect("Armaments trace verifies");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 37)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .map(|integrity| integrity.unresolved_transient_assertions),
+        Some(0)
+    );
+}
+
+#[test]
 fn start_command_accepts_signed_numeric_seed() {
     let parsed = parse_start_command(&TraceAction {
         step: 1,

@@ -2979,16 +2979,26 @@ fn seed_start_handle_combat_phase(
                 reason,
             });
         };
-        seed_start_compare_or_defer_combat_transition(
-            report,
-            action,
-            label,
-            &post.message,
-            seed_start_combat_observed_subset(&post.message),
-            seed_start_simulated_combat_subset(&next, false),
-            pending_combat_assertion,
-            reconciled_deferred_action_steps,
-        );
+        let source_hand_settlement_frame = decision_action == RunAction::ConfirmHandSelect
+            && seed_start_hand_select_confirm_source_frame(sim, &next, &post.message);
+        if source_hand_settlement_frame {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "hand select confirm (source hand settlement frame)".to_owned(),
+            });
+        } else {
+            seed_start_compare_or_defer_combat_transition(
+                report,
+                action,
+                label,
+                &post.message,
+                seed_start_combat_observed_subset(&post.message),
+                seed_start_simulated_combat_subset(&next, false),
+                pending_combat_assertion,
+                reconciled_deferred_action_steps,
+            );
+        }
         *sim = next;
         return SeedStartPreDispatch::Handled;
     }
@@ -3310,6 +3320,45 @@ fn seed_start_handle_combat_phase(
     );
     *sim = next;
     SeedStartPreDispatch::Handled
+}
+
+fn seed_start_hand_select_confirm_source_frame(
+    run: &RunState,
+    settled_run: &RunState,
+    post_message: &Value,
+) -> bool {
+    let Some(combat) = run.combat.as_ref() else {
+        return false;
+    };
+    if !combat
+        .hand_select()
+        .is_some_and(|select| select.purpose == HandSelectPurpose::ArmamentsUpgrade)
+    {
+        return false;
+    }
+    let Some(game) = post_message.get("game_state") else {
+        return false;
+    };
+    if game.get("screen_type").and_then(Value::as_str) != Some("NONE")
+        || game.get("action_phase").and_then(Value::as_str) != Some("WAITING_ON_USER")
+        || game
+            .get("current_action")
+            .and_then(Value::as_str)
+            .is_some_and(|action| !action.is_empty())
+    {
+        return false;
+    }
+
+    let observed = seed_start_combat_observed_subset(post_message);
+    let mut source_frame = seed_start_simulated_combat_subset(run, false);
+    source_frame["screen_type"] = json!("NONE");
+    if let Some(discard_ids) = seed_start_simulated_combat_subset(settled_run, false)
+        .get("discard_ids")
+        .cloned()
+    {
+        source_frame["discard_ids"] = discard_ids;
+    }
+    seed_start_combat_subsets_match(observed, source_frame)
 }
 
 #[allow(clippy::too_many_arguments)]
