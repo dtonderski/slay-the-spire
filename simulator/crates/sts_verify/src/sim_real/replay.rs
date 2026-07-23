@@ -3330,6 +3330,23 @@ fn seed_start_handle_combat_phase(
     let label = combat_label(command, sim);
     let observed = seed_start_combat_observed_subset(&post.message);
     let simulated = seed_start_simulated_combat_subset(&next, false);
+    let exhaust_as_discard = seed_start_simulated_combat_subset_with_exhaust_as_discard(&next);
+    if command.eq_ignore_ascii_case("END")
+        && next
+            .combat
+            .as_ref()
+            .is_some_and(|combat| !combat.piles.exhaust_pile.is_empty())
+        && !seed_start_combat_subsets_match(observed.clone(), simulated.clone())
+        && seed_start_combat_subsets_match(observed.clone(), exhaust_as_discard)
+    {
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            label: "end turn (exhaust pile settlement frame)".to_owned(),
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
     let copied_attack = seed_start_copied_attack_expectation(combat, combat_action);
     let stable_projection_matches =
         seed_start_combat_subsets_match(observed.clone(), simulated.clone());

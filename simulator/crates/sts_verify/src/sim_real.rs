@@ -3585,6 +3585,24 @@ fn seed_start_simulated_combat_subset_with_options(
     subset
 }
 
+fn seed_start_simulated_combat_subset_with_exhaust_as_discard(run: &RunState) -> Value {
+    let mut subset = seed_start_simulated_combat_subset(run, false);
+    let Some(combat) = run.combat.as_ref() else {
+        return subset;
+    };
+    if combat.piles.exhaust_pile.is_empty() {
+        return subset;
+    }
+    if let Some(discard_ids) = subset.get_mut("discard_ids").and_then(Value::as_array_mut) {
+        discard_ids.extend(
+            cards_to_comm_mod_visible_order(&combat.piles.exhaust_pile)
+                .into_iter()
+                .map(Value::String),
+        );
+    }
+    subset
+}
+
 fn seed_start_simulated_combat_screen_type(combat: &CombatState) -> &'static str {
     if combat.phase == CombatPhase::Lost {
         "GAME_OVER"
