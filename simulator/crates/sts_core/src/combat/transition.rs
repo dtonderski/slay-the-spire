@@ -2592,12 +2592,11 @@ fn confirm_exhume_select(
     Ok(())
 }
 
-fn confirm_gambling_chip_select(
-    state: &mut CombatState,
-    mut selected: Vec<usize>,
-) -> SimResult<()> {
-    selected.sort_unstable();
-    selected.dedup();
+fn confirm_gambling_chip_select(state: &mut CombatState, selected: Vec<usize>) -> SimResult<()> {
+    // The target appends discarded cards in the order they were selected in
+    // the UI, while removal from the hand must still proceed from the back so
+    // earlier indices remain valid.
+    let selected = unique_selected_indices_in_choice_order(selected);
     let count = selected.len();
     for index in &selected {
         if *index >= state.piles.hand.len() {
@@ -2608,7 +2607,9 @@ fn confirm_gambling_chip_select(
         .iter()
         .map(|index| state.piles.hand[*index])
         .collect::<Vec<_>>();
-    for index in selected.into_iter().rev() {
+    let mut removal_order = selected;
+    removal_order.sort_unstable();
+    for index in removal_order.into_iter().rev() {
         state.piles.hand.remove(index);
     }
     state.piles.discard_pile.extend(discarded);
@@ -2786,6 +2787,45 @@ mod tests {
         monster_state, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
     };
     use crate::rng::StsRng;
+
+    #[test]
+    fn gambling_chip_discards_in_selection_order() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), CLASH_ID),
+        ];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(99), ANGER_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+            CardInstance::new(CardId::new(6), DEFEND_R_ID),
+            CardInstance::new(CardId::new(7), BASH_ID),
+        ];
+
+        open_gambling_chip_select(&mut state).expect("Gambler's Brew opens selection");
+        choose_exhaust_select(&mut state, 0).expect("select first card");
+        choose_exhaust_select(&mut state, 1).expect("select second card in visible order");
+        choose_exhaust_select(&mut state, 0).expect("select third card in visible order");
+        confirm_exhaust_select(&mut state).expect("Gambler's Brew confirms selection");
+
+        let discarded = state
+            .piles
+            .discard_pile
+            .iter()
+            .map(|card| card.id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            discarded,
+            vec![
+                CardId::new(99),
+                CardId::new(1),
+                CardId::new(3),
+                CardId::new(2)
+            ]
+        );
+    }
 
     #[test]
     fn rampage_growth_overflow_and_wrong_source_fail_closed() {
