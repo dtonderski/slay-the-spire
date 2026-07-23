@@ -132,6 +132,11 @@ without inspecting hidden state.
 
 ## PlayerChoice V1
 
+Implementation status: the combat-only symbolic projection, resolution,
+revision token, and stable public errors are implemented in `sts_core`. See
+`player_choice_api.md` for the exact V1 API and mapping. Atomic combination
+with `FairCombatObservation` remains a separate integration step.
+
 Names are indicative. The descriptor family should cover the combat choices
 already supported by the authoritative decision boundary:
 
@@ -144,12 +149,16 @@ PlayerChoice
   ToggleVisibleCard { option_slot }
   ChooseVisibleOption { option_slot }
   ConfirmSelection
+  SkipSelection
   CancelSelection                 # only where the game exposes it
 ```
 
 Do not duplicate legality rules. Projection starts from the existing legal
 internal action list, converts IDs to visible decision-local slots, removes any
-public duplicates, and sorts using only serialized public descriptor fields.
+public duplicates, omits commands whose legality depends on hidden information
+not represented by the current public-knowledge contract, and sorts using only
+serialized public descriptor fields. The current V1 exception is Secret Weapon
+and Secret Technique card play; see `design_fair_public_legal_action_visibility.md`.
 
 Resolution performs the reverse mapping against the same decision revision.
 Errors are public and stable: they must not reveal whether failure came from a

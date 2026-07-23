@@ -475,6 +475,11 @@ it to the existing authoritative action. Internal card/monster IDs and hidden
 ordering never cross the fair boundary. Privileged planning/debug APIs may
 separately expose snapshots, restore, hashes, exact state JSON, and seed/RNG
 information, but those capabilities must not be reachable through fair objects.
+The implemented combat-only public action mapping is specified in
+`simulator/docs/player_choice_api.md`.
+The V1 public projection also withholds card plays whose legality depends on
+unmodeled hidden draw-pile composition; the authoritative internal action list
+remains unchanged.
 
 `FairStepResult`:
 

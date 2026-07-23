@@ -3,6 +3,7 @@ pub mod event;
 pub mod grid;
 pub mod map;
 pub mod neow;
+pub mod player_choice;
 pub mod potion;
 pub mod rest;
 pub mod reward;
@@ -37,6 +38,10 @@ pub use neow::{
     generate_neow_transform_reward_with_rng, open_neow_reward_grid, GeneratedNeowOption,
     NeowBossSwapReward, NeowCardReward, NeowColorlessReward, NeowDrawback, NeowPotionReward,
     NeowRelicReward, NeowRewardType, NeowTransformReward,
+};
+pub use player_choice::{
+    player_choices, resolve_player_choice, DecisionRevision, PlayerChoice, PlayerChoiceError,
+    PlayerChoiceRequest, PlayerChoiceSet, PLAYER_CHOICE_SCHEMA_VERSION,
 };
 pub use potion::{apply_potion_action, validate_potion_action};
 pub use rest::{

@@ -83,12 +83,13 @@ pub use run::{
     target_potion_reward_offer, target_random_combat_potion, target_random_potion,
     target_relic_tier, validate_event_action, validate_potion_action, validate_rest_action,
     validate_run_decision_action, validate_shop_action, Act1Boss, Act3Boss, CardGridScreen,
-    CardRewardFlow, CombatRewardKind, Event, EventChoice, EventScreen, GeneratedNeowOption,
-    GridPurpose, NeowBossSwapReward, NeowCardReward, NeowColorlessReward, NeowDrawback,
-    NeowPotionReward, NeowRelicReward, NeowRewardType, NeowTransformReward, RewardContinuation,
+    CardRewardFlow, CombatRewardKind, DecisionRevision, Event, EventChoice, EventScreen,
+    GeneratedNeowOption, GridPurpose, NeowBossSwapReward, NeowCardReward, NeowColorlessReward,
+    NeowDrawback, NeowPotionReward, NeowRelicReward, NeowRewardType, NeowTransformReward,
+    PlayerChoice, PlayerChoiceError, PlayerChoiceRequest, PlayerChoiceSet, RewardContinuation,
     RewardScreen, RunAction, RunDecisionAction, RunPhase, RunState, ShopCardSlot, ShopPick,
-    ShopPotionSlot, ShopRelicSlot, ShopScreen, GOLDEN_SHRINE_GOLD, REST_HEAL_PERCENT,
-    REWARD_GOLD_AMOUNT, STARTING_GOLD,
+    ShopPotionSlot, ShopRelicSlot, ShopScreen, GOLDEN_SHRINE_GOLD, PLAYER_CHOICE_SCHEMA_VERSION,
+    REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, STARTING_GOLD,
 };
 pub use snapshot::{
     restore_combat_snapshot_json, restore_run_snapshot_json, Snapshot, SnapshotHash,

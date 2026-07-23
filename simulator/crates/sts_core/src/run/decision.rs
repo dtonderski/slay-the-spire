@@ -313,7 +313,11 @@ fn legal_potion_actions_on_run(run: &RunState) -> SimResult<Vec<RunAction>> {
     let candidates = run
         .occupied_potion_slots()
         .into_iter()
-        .flat_map(|(slot, potion)| potion_use_candidates(slot, potion, run.combat.as_ref()))
+        .flat_map(|(slot, potion)| {
+            potion_use_candidates(slot, potion, run.combat.as_ref())
+                .into_iter()
+                .chain(std::iter::once(RunAction::DiscardPotion { slot }))
+        })
         .collect::<Vec<_>>();
     validated_run_action_candidates(run, candidates)
 }
@@ -344,7 +348,9 @@ fn potion_use_candidates(
 mod tests {
     use super::*;
     use crate::{
-        combat::{DrawSelectPurpose, DrawSelectState, HandSelectPurpose, HandSelectState},
+        combat::{
+            CombatPhase, DrawSelectPurpose, DrawSelectState, HandSelectPurpose, HandSelectState,
+        },
         content::cards::DEFEND_R_ID,
         legal_map_actions_on_run, CardGridScreen, CardId, CardInstance, GridPurpose,
     };
@@ -559,5 +565,104 @@ mod tests {
             }))
         );
         assert!(actions.contains(&RunDecisionAction::Run(RunAction::ConfirmDrawSelect)));
+    }
+
+    #[test]
+    fn top_level_legal_actions_omit_potions_outside_player_combat_phase() {
+        let use_potion = RunDecisionAction::Run(RunAction::UsePotion {
+            slot: 0,
+            target: None,
+        });
+        let discard_potion = RunDecisionAction::Run(RunAction::DiscardPotion { slot: 0 });
+        let phases = [
+            (CombatPhase::WaitingForPlayer, true),
+            (CombatPhase::MonsterTurn, false),
+            (CombatPhase::Won, false),
+            (CombatPhase::Lost, false),
+        ];
+
+        for (phase, player_can_act) in phases {
+            let mut run = RunState::combat_fixture();
+            run.potions = vec![Potion::Energy];
+            run.empty_potion_slots = vec![1, 2];
+            run.combat.as_mut().expect("combat fixture").phase = phase;
+            let actions = legal_run_decision_actions(&run).expect("legal actions enumerate");
+
+            assert_eq!(
+                actions.contains(&use_potion),
+                player_can_act,
+                "use-potion legality for {phase:?}"
+            );
+            assert_eq!(
+                actions.contains(&discard_potion),
+                player_can_act,
+                "discard-potion legality for {phase:?}"
+            );
+
+            if player_can_act {
+                assert_eq!(validate_run_decision_action(&run, use_potion), Ok(()));
+                assert_eq!(validate_run_decision_action(&run, discard_potion), Ok(()));
+                continue;
+            }
+
+            for action in [use_potion, discard_potion] {
+                assert_eq!(
+                    validate_run_decision_action(&run, action),
+                    Err(SimError::IllegalAction(
+                        "combat is not waiting for player input"
+                    )),
+                    "validation for {action:?} in {phase:?}"
+                );
+                let before = run.clone();
+                assert_eq!(
+                    apply_run_decision_action(&run, action),
+                    Err(SimError::IllegalAction(
+                        "combat is not waiting for player input"
+                    )),
+                    "application for {action:?} in {phase:?}"
+                );
+                assert_eq!(run, before, "failed {action:?} mutated {phase:?}");
+            }
+        }
+
+        let mut selecting = RunState::combat_fixture();
+        selecting.potions = vec![Potion::Energy];
+        selecting.empty_potion_slots = vec![1, 2];
+        let source_card_id = selecting
+            .combat
+            .as_ref()
+            .expect("combat fixture")
+            .piles
+            .hand[0]
+            .id;
+        selecting.combat.as_mut().expect("combat fixture").decision =
+            Some(CombatDecisionState::HandSelect {
+                state: HandSelectState {
+                    purpose: HandSelectPurpose::WarcryPutOnDraw,
+                    source_card_id,
+                    selected_hand_index: None,
+                    selected_hand_indices: Vec::new(),
+                },
+                pending_actions: Default::default(),
+            });
+        let selecting_actions = legal_run_decision_actions(&selecting).expect("selection actions");
+        assert!(
+            selecting_actions.contains(&RunDecisionAction::Run(RunAction::ChooseHandSelect {
+                index: 0
+            }))
+        );
+        assert!(selecting_actions.contains(&use_potion));
+        assert!(selecting_actions.contains(&discard_potion));
+
+        let selected = apply_run_decision_action(
+            &selecting,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { index: 0 }),
+        )
+        .expect("hand selection applies");
+        let selected_actions =
+            legal_run_decision_actions(&selected).expect("selected actions enumerate");
+        assert!(selected_actions.contains(&RunDecisionAction::Run(RunAction::ConfirmHandSelect)));
+        assert!(selected_actions.contains(&use_potion));
+        assert!(selected_actions.contains(&discard_potion));
     }
 }

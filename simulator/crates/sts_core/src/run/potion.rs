@@ -59,6 +59,18 @@ const POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
 pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()> {
     run.validate()?;
 
+    if run.phase == RunPhase::Combat {
+        let combat = run
+            .combat
+            .as_ref()
+            .ok_or(SimError::InvalidState("combat state is missing"))?;
+        if combat.phase != CombatPhase::WaitingForPlayer {
+            return Err(SimError::IllegalAction(
+                "combat is not waiting for player input",
+            ));
+        }
+    }
+
     match action {
         RunAction::UsePotion { slot, target } => {
             let potion = run
