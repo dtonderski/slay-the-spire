@@ -1315,6 +1315,35 @@ fn verify_permanent_trace_entry(dir: &Path, entry: &VerificationCorpusEntry) -> 
     Ok(())
 }
 
+#[test]
+fn random_fidelity_power_potion_settlement_preserves_later_sword_targets() {
+    let Some(content) = load_corpus_file("permanent_traces/random-fidelity-a741796d1b33e9a3.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("power-potion trace should replay");
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "power-potion settlement must not shift the later Sword Boomerang targets: {:?}",
+        report.unexpected_diffs
+    );
+    assert!(
+        report.unsupported.is_empty(),
+        "power-potion settlement must remain fully modeled: {:?}",
+        report.unsupported
+    );
+    let seed_start = report.seed_start.expect("seed-start report");
+    assert!(
+        !seed_start.failed,
+        "unexpected seed-start boundary: {seed_start:?}"
+    );
+    assert_eq!(seed_start.first_boundary.category, "none");
+    let integrity = report.action_integrity.expect("action-integrity report");
+    assert_eq!(integrity.unresolved_transient_assertions, 0);
+}
+
 fn summarize_diagnostic(reason: &str) -> String {
     let details = reason.split("; ").collect::<Vec<_>>();
     if details.len() <= 3 {

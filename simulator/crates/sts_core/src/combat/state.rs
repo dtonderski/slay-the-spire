@@ -98,6 +98,9 @@ pub struct CombatState {
     /// Gold gained by combat-only effects such as Hand of Greed before the run wrapper transfers it.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub combat_gold_gained: i32,
+    /// Deferred DiscoveryAction generations after a potion reward selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_potion_card_reward_settlement: Option<PendingPotionCardRewardSettlement>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +115,16 @@ pub enum PotionCardRewardKind {
     Skill,
     Power,
     Colorless,
+}
+
+/// DiscoveryAction choice generations that remain after a potion reward is
+/// selected. CommunicationMod can accept combat commands while that action is
+/// still settling, so its lifecycle is authoritative simulator state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingPotionCardRewardSettlement {
+    pub reward_kind: PotionCardRewardKind,
+    pub generations_remaining: u32,
+    pub end_turns_remaining: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -761,6 +774,7 @@ impl CombatState {
             pending_start_of_turn_relic_energy: 0,
             pending_monster_death_relic_triggers: 0,
             combat_gold_gained: 0,
+            pending_potion_card_reward_settlement: None,
         }
     }
 
@@ -976,6 +990,16 @@ impl CombatState {
             .any(|timer| timer.turns_remaining <= 0 || timer.damage < 0)
         {
             return Err(SimError::InvalidState("combat bomb timer is invalid"));
+        }
+        if let Some(pending) = self.pending_potion_card_reward_settlement {
+            if pending.generations_remaining == 0 || pending.end_turns_remaining == 0 {
+                return Err(SimError::InvalidState(
+                    "pending potion card reward settlement is empty",
+                ));
+            }
+            // DiscoveryAction remains on the action queue while CommunicationMod
+            // can expose a later card decision; the decision overlay is therefore
+            // allowed to coexist with this deferred internal lifecycle.
         }
 
         Ok(())
