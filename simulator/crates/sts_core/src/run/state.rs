@@ -1196,6 +1196,9 @@ pub enum RunAction {
         index: usize,
     },
     TakeRelicReward,
+    TakeRelicRewardAt {
+        index: usize,
+    },
     ChooseBossRelicReward {
         index: usize,
     },
@@ -3208,6 +3211,28 @@ impl RunState {
                     if self.relics.contains(&relic) {
                         return Err(SimError::IllegalAction("relic already owned"));
                     }
+                }
+                Ok(())
+            }
+            RunAction::TakeRelicRewardAt { index } => {
+                let relic_count = usize::from(reward.relic_offer.is_some())
+                    + usize::from(reward.pending_relic_offer.is_some())
+                    + reward.queued_relic_offers.len();
+                if index >= relic_count {
+                    return Err(SimError::IllegalAction("relic reward index is not offered"));
+                }
+                let relic = if index == 0 {
+                    reward.relic_offer
+                } else if reward.pending_relic_offer.is_some() && index == 1 {
+                    reward.pending_relic_offer
+                } else {
+                    let queued_index = index
+                        - usize::from(reward.relic_offer.is_some())
+                        - usize::from(reward.pending_relic_offer.is_some());
+                    reward.queued_relic_offers.get(queued_index).copied()
+                };
+                if relic.is_some_and(|relic| self.relics.contains(&relic)) {
+                    return Err(SimError::IllegalAction("relic already owned"));
                 }
                 Ok(())
             }

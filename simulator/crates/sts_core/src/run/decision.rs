@@ -290,6 +290,11 @@ fn legal_reward_actions(run: &RunState) -> SimResult<Vec<RunAction>> {
             (0..reward.boss_relic_choices.len())
                 .map(|index| RunAction::ChooseBossRelicReward { index }),
         );
+        let relic_offer_count = usize::from(reward.relic_offer.is_some())
+            + usize::from(reward.pending_relic_offer.is_some())
+            + reward.queued_relic_offers.len();
+        candidates
+            .extend((0..relic_offer_count).map(|index| RunAction::TakeRelicRewardAt { index }));
         candidates.extend(
             (0..reward.queued_card_rewards.len())
                 .map(|index| RunAction::OpenQueuedCardReward { index }),

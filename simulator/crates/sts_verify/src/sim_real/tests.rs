@@ -3156,6 +3156,23 @@ fn discovery_choose_accepts_source_hand_settlement_frame() {
 }
 
 #[test]
+fn calling_bell_indexed_relic_choice_reconciles_generated_offers() {
+    let path = crate::corpus_path("permanent_traces/random-fidelity-df31745cc7f48c21.jsonl");
+    let content = std::fs::read_to_string(path).expect("Calling Bell trace");
+    let report = verify_communication_mod_trace(&content).expect("Calling Bell trace verifies");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 10)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
 fn start_command_accepts_signed_numeric_seed() {
     let parsed = parse_start_command(&TraceAction {
         step: 1,

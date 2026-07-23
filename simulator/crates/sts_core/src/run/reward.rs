@@ -2207,6 +2207,37 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 next.reward = None;
             }
         }
+        RunAction::TakeRelicRewardAt { index } => {
+            let reward = next.reward.as_mut().expect("validated reward screen");
+            let active_count = usize::from(reward.relic_offer.is_some());
+            let pending_count = usize::from(reward.pending_relic_offer.is_some());
+            let queued_index = index.checked_sub(active_count + pending_count);
+            let selected = if index == 0 {
+                reward.relic_offer.take()
+            } else if index == active_count && pending_count == 1 {
+                reward.pending_relic_offer.take()
+            } else {
+                reward
+                    .queued_relic_offers
+                    .get(queued_index.expect("validated relic reward index"))
+                    .copied()
+            };
+            let selected = selected.expect("validated relic reward");
+            let mut remaining = Vec::with_capacity(
+                active_count + pending_count + reward.queued_relic_offers.len() - 1,
+            );
+            if let Some(relic) = reward.relic_offer.take() {
+                remaining.push(relic);
+            }
+            if let Some(relic) = reward.pending_relic_offer.take() {
+                remaining.push(relic);
+            }
+            remaining.append(&mut reward.queued_relic_offers);
+            remaining.retain(|relic| *relic != selected);
+            reward.relic_offer = Some(selected);
+            reward.queued_relic_offers = remaining;
+            next = apply_reward_action(&next, RunAction::TakeRelicReward)?;
+        }
         RunAction::ChooseBossRelicReward { index } => {
             let key = {
                 let reward = next.reward.as_mut().expect("validated reward screen");
@@ -2478,6 +2509,48 @@ mod tests {
 
         assert_eq!(run.phase, RunPhase::Treasure);
         assert!(run.reward.is_none());
+    }
+
+    #[test]
+    fn indexed_calling_bell_relic_selection_preserves_unselected_offer_order() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.current_room_override = Some(RoomKind::Boss);
+        run.event = None;
+        run.boss_chest_opened = true;
+        enter_calling_bell_reward_screen(&mut run);
+
+        let offered = {
+            let reward = run.reward.as_ref().expect("Calling Bell reward");
+            reward
+                .relic_offer
+                .iter()
+                .chain(reward.pending_relic_offer.iter())
+                .chain(reward.queued_relic_offers.iter())
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(offered.len(), 3);
+        let selected = offered[2];
+        let next = apply_run_action(&run, RunAction::TakeRelicRewardAt { index: 2 })
+            .expect("indexed Calling Bell relic can be collected");
+
+        assert!(next.relics.contains(&selected));
+        let remaining = next
+            .reward
+            .as_ref()
+            .expect("remaining Calling Bell reward")
+            .relic_offer
+            .iter()
+            .chain(
+                next.reward
+                    .as_ref()
+                    .expect("remaining Calling Bell reward")
+                    .queued_relic_offers
+                    .iter(),
+            )
+            .copied()
+            .collect::<Vec<_>>();
+        assert_eq!(remaining, offered[..2]);
     }
 
     #[test]

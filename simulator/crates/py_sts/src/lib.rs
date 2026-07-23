@@ -1131,6 +1131,7 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Run(RunAction::TakeStolenGoldReward) => "take_stolen_gold_reward",
         ExactRunActionKind::Run(RunAction::TakePotionReward { .. }) => "take_potion_reward",
         ExactRunActionKind::Run(RunAction::TakeRelicReward) => "take_relic_reward",
+        ExactRunActionKind::Run(RunAction::TakeRelicRewardAt { .. }) => "take_relic_reward_at",
         ExactRunActionKind::Run(RunAction::ChooseBossRelicReward { .. }) => {
             "choose_boss_relic_reward"
         }

@@ -3936,7 +3936,24 @@ fn seed_start_apply_reward_choose(sim: &mut RunState, command: &str) -> Result<S
                 index: potion_index,
             },
         ),
-        "relic" => apply_run_action(sim, RunAction::TakeRelicReward),
+        "relic" => apply_run_action(
+            sim,
+            if simulated_choices[..choose_index]
+                .iter()
+                .filter(|choice| choice.as_str() == "relic")
+                .count()
+                == 0
+            {
+                RunAction::TakeRelicReward
+            } else {
+                RunAction::TakeRelicRewardAt {
+                    index: simulated_choices[..choose_index]
+                        .iter()
+                        .filter(|choice| choice.as_str() == "relic")
+                        .count(),
+                }
+            },
+        ),
         _ => return Err(format!("unknown reward choice {choice}")),
     }
     .map_err(|err| err.to_string())?;
