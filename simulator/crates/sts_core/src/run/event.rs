@@ -1538,6 +1538,7 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             (Event::BigFish, 1) if screen.event_data == 0 => {
                 pending == [REGRET_ID] || (run.player_max_hp / 3 == 0 && pending.is_empty())
             }
+            (Event::TheSsssserpent, 2) => pending.is_empty() || pending == [DOUBT_ID],
             (Event::TheMausoleum, 1) => pending.is_empty() || pending == [WRITHE_ID],
             (Event::Nest, 2) => pending.is_empty() || pending == [RITUAL_DAGGER_ID],
             (Event::Ghosts, 1) => {
@@ -6679,6 +6680,55 @@ mod tests {
             Err(SimError::InvalidState(
                 "The Ssssserpent choices do not match its stage"
             ))
+        );
+    }
+
+    #[test]
+    fn ssssserpent_agree_settles_gold_and_doubt_before_continue_screen() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::TheSsssserpent,
+            choices: sssssserpent_choices(1),
+            stage: 1,
+            event_data: 0,
+        });
+        let starting_gold = run.gold;
+        let starting_doubt = run
+            .deck
+            .iter()
+            .filter(|card| card.content_id == DOUBT_ID)
+            .count();
+
+        let continue_screen = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Ssssserpent continue");
+        assert_eq!(continue_screen.gold, starting_gold + SSSSSERPENT_GOLD);
+        assert_eq!(
+            continue_screen
+                .deck
+                .iter()
+                .filter(|card| card.content_id == DOUBT_ID)
+                .count(),
+            starting_doubt
+        );
+        assert_eq!(continue_screen.pending_obtain_cards, vec![DOUBT_ID]);
+        assert_eq!(
+            continue_screen.event.as_ref().map(|event| event.stage),
+            Some(2)
+        );
+
+        let completed =
+            apply_event_action(&continue_screen, EventAction::Choose { choice_index: 0 })
+                .expect("Ssssserpent leave");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert!(completed.event.is_none());
+        assert_eq!(
+            completed
+                .deck
+                .iter()
+                .filter(|card| card.content_id == DOUBT_ID)
+                .count(),
+            starting_doubt + 1
         );
     }
 

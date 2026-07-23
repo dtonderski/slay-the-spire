@@ -466,6 +466,7 @@ pub(super) fn apply_act_one_event_action(
             }
             1 if choice_index == 0 => {
                 next.gain_gold(SSSSSERPENT_GOLD)?;
+                next.queue_pending_obtain_card(DOUBT_ID);
                 next.event = Some(EventScreen {
                     event: Event::TheSsssserpent,
                     choices: sssssserpent_choices(2),
@@ -474,7 +475,7 @@ pub(super) fn apply_act_one_event_action(
                 });
             }
             2 if choice_index == 0 => {
-                next.gain_deck_card(DOUBT_ID)?;
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }

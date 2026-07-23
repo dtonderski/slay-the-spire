@@ -3207,6 +3207,23 @@ fn evolve_does_not_draw_for_shame_curse() {
 }
 
 #[test]
+fn ssssserpent_settles_doubt_before_continue_screen() {
+    let path = crate::corpus_path("permanent_traces/random-fidelity-1429bd0063c30c94.jsonl");
+    let content = std::fs::read_to_string(path).expect("Ssssserpent trace");
+    let report = verify_communication_mod_trace(&content).expect("Ssssserpent trace verifies");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 117)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
 fn start_command_accepts_signed_numeric_seed() {
     let parsed = parse_start_command(&TraceAction {
         step: 1,
