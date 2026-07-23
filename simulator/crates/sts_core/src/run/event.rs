@@ -1053,7 +1053,7 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
             let expected_choices = if screen.stage == 0 {
-                labeled_choices(&["Duplicate", "Leave"])
+                labeled_choices(&["Pray", "Leave"])
             } else {
                 labeled_choices(&["Leave"])
             };
@@ -3450,7 +3450,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         }
         Event::BonfireElementals => make_event_screen(event, bonfire_elementals_choices(0), 0),
         Event::Designer => make_event_screen(event, labeled_choices(&["Continue"]), 0),
-        Event::Duplicator => make_event_screen(event, labeled_choices(&["Duplicate", "Leave"]), 0),
+        Event::Duplicator => make_event_screen(event, labeled_choices(&["Pray", "Leave"]), 0),
         Event::HypnotizingColoredMushrooms => {
             make_event_screen(event, hypnotizing_colored_mushrooms_choices(0), 0)
         }

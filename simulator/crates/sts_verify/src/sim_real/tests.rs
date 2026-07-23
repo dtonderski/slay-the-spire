@@ -3241,6 +3241,23 @@ fn neow_astrolabe_accepts_pre_transform_source_frame() {
 }
 
 #[test]
+fn duplicator_uses_source_pray_choice_label() {
+    let path = crate::corpus_path("permanent_traces/random-fidelity-83e76cac8d987cd3.jsonl");
+    let content = std::fs::read_to_string(path).expect("Duplicator trace");
+    let report = verify_communication_mod_trace(&content).expect("Duplicator trace verifies");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 696)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
 fn start_command_accepts_signed_numeric_seed() {
     let parsed = parse_start_command(&TraceAction {
         step: 1,
