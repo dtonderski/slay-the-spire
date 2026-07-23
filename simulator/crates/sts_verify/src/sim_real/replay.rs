@@ -2981,11 +2981,18 @@ fn seed_start_handle_combat_phase(
         };
         let source_hand_settlement_frame = decision_action == RunAction::ConfirmHandSelect
             && seed_start_hand_select_confirm_source_frame(sim, &next, &post.message);
-        if source_hand_settlement_frame {
+        let source_card_reward_frame =
+            matches!(&decision_action, RunAction::ChooseCombatCardReward { .. })
+                && seed_start_card_reward_choose_source_frame(sim, &post.message);
+        if source_hand_settlement_frame || source_card_reward_frame {
             report.verified.push(VerifiedTransition {
                 action_step: action.step,
                 command: action.command.clone(),
-                label: "hand select confirm (source hand settlement frame)".to_owned(),
+                label: if source_hand_settlement_frame {
+                    "hand select confirm (source hand settlement frame)".to_owned()
+                } else {
+                    "combat card reward choose (source hand settlement frame)".to_owned()
+                },
             });
         } else {
             seed_start_compare_or_defer_combat_transition(
@@ -3357,6 +3364,35 @@ fn seed_start_hand_select_confirm_source_frame(
         .cloned()
     {
         source_frame["discard_ids"] = discard_ids;
+    }
+    seed_start_combat_subsets_match(observed, source_frame)
+}
+
+fn seed_start_card_reward_choose_source_frame(run: &RunState, post_message: &Value) -> bool {
+    let Some(combat) = run.combat.as_ref() else {
+        return false;
+    };
+    if combat.combat_card_reward_choices().is_none() {
+        return false;
+    }
+    let Some(game) = post_message.get("game_state") else {
+        return false;
+    };
+    if game.get("screen_type").and_then(Value::as_str) != Some("NONE")
+        || game.get("action_phase").and_then(Value::as_str) != Some("WAITING_ON_USER")
+        || game
+            .get("current_action")
+            .and_then(Value::as_str)
+            .is_some_and(|action| !action.is_empty())
+    {
+        return false;
+    }
+
+    let observed = seed_start_combat_observed_subset(post_message);
+    let mut source_frame = seed_start_simulated_combat_subset(run, false);
+    source_frame["screen_type"] = json!("NONE");
+    if let Some(object) = source_frame.as_object_mut() {
+        object.remove("card_reward_ids");
     }
     seed_start_combat_subsets_match(observed, source_frame)
 }

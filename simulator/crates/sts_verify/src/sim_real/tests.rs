@@ -673,7 +673,7 @@ fn delayed_double_tap_copy_is_canceled_by_end_turn_command() {
 }
 
 #[test]
-fn rejected_core_combat_transitions_are_visible_boundaries_not_diffs() {
+fn combat_card_reward_source_frame_reconciles_without_boundary() {
     let trace = "random-fidelity-acaabd41a504598f.jsonl";
     let Some(content) = crate::load_corpus_file(format!("permanent_traces/{trace}")) else {
         return;
@@ -682,15 +682,14 @@ fn rejected_core_combat_transitions_are_visible_boundaries_not_diffs() {
         .unwrap_or_else(|error| panic!("{trace} verifies: {error}"));
 
     assert!(report.unexpected_diffs.is_empty(), "{trace}");
-    assert_eq!(report.unsupported.len(), 1, "{trace}");
+    assert!(report.unsupported.is_empty(), "{trace}: {report:#?}");
     let boundary = &report
         .seed_start
         .as_ref()
         .expect("seed-start report")
         .first_boundary;
-    assert_eq!(boundary.path, "$.actions[step=90].command");
-    assert_eq!(boundary.category, "unexpected_sim_real_diff");
-    assert_eq!(boundary.reason, report.unsupported[0].reason, "{trace}");
+    assert_eq!(boundary.path, "$.actions[verified]");
+    assert_eq!(boundary.category, "none");
 }
 
 #[test]
@@ -3136,6 +3135,23 @@ fn armaments_confirm_accepts_source_hand_settlement_frame() {
             .as_ref()
             .map(|integrity| integrity.unresolved_transient_assertions),
         Some(0)
+    );
+}
+
+#[test]
+fn discovery_choose_accepts_source_hand_settlement_frame() {
+    let path = crate::corpus_path("permanent_traces/random-fidelity-dfe4b19eed53a0f1.jsonl");
+    let content = std::fs::read_to_string(path).expect("Discovery trace");
+    let report = verify_communication_mod_trace(&content).expect("Discovery trace verifies");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 43)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
     );
 }
 
