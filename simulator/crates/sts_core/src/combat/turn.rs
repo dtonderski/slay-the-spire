@@ -1912,7 +1912,7 @@ fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize 
 mod tests {
     use super::*;
     use crate::content::cards::{
-        BURN_ID, DEMON_FORM_ID, DOUBT_ID, POMMEL_STRIKE_ID, SLIMED_ID, STRIKE_R_ID,
+        BURN_ID, DEMON_FORM_ID, DOUBT_ID, POMMEL_STRIKE_ID, SHAME_ID, SLIMED_ID, STRIKE_R_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -1963,6 +1963,31 @@ mod tests {
                 "combat integer addition overflows i32"
             ))
         );
+    }
+
+    #[test]
+    fn evolve_does_not_draw_for_curses() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.evolve = 1;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), SHAME_ID),
+        ];
+        state.piles.discard_pile.clear();
+
+        draw_next_hand_without_shuffle(&mut state).expect("draw with Evolve");
+
+        assert_eq!(
+            state
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![SHAME_ID, STRIKE_R_ID]
+        );
+        assert!(state.piles.draw_pile.is_empty());
     }
 
     #[test]

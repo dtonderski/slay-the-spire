@@ -129,9 +129,9 @@ pub(crate) fn evolve_extra_draw_count(state: &CombatState, content_id: ContentId
     if state.player.powers.evolve <= 0 {
         return 0;
     }
-    if get_card_definition(content_id)
-        .is_some_and(|definition| definition.card_type == CardType::Status)
-    {
+    if get_card_definition(content_id).is_some_and(|definition| {
+        definition.card_type == CardType::Status && !is_curse_content_id(content_id)
+    }) {
         state.player.powers.evolve as usize
     } else {
         0

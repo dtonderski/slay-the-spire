@@ -3190,6 +3190,23 @@ fn neow_proceed_discards_unclaimed_tiny_house_overlay_rewards() {
 }
 
 #[test]
+fn evolve_does_not_draw_for_shame_curse() {
+    let path = crate::corpus_path("permanent_traces/random-fidelity-a13717f0e4c2dd25.jsonl");
+    let content = std::fs::read_to_string(path).expect("Evolve curse trace");
+    let report = verify_communication_mod_trace(&content).expect("Evolve curse trace verifies");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 182)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
 fn start_command_accepts_signed_numeric_seed() {
     let parsed = parse_start_command(&TraceAction {
         step: 1,
