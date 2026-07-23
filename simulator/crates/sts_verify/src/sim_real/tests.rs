@@ -3224,6 +3224,23 @@ fn ssssserpent_settles_doubt_before_continue_screen() {
 }
 
 #[test]
+fn neow_astrolabe_accepts_pre_transform_source_frame() {
+    let path = crate::corpus_path("permanent_traces/random-fidelity-baa0bd2e49a54236.jsonl");
+    let content = std::fs::read_to_string(path).expect("Astrolabe trace");
+    let report = verify_communication_mod_trace(&content).expect("Astrolabe trace verifies");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 8)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
 fn start_command_accepts_signed_numeric_seed() {
     let parsed = parse_start_command(&TraceAction {
         step: 1,

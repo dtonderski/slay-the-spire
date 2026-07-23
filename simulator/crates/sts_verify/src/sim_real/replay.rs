@@ -1343,6 +1343,26 @@ fn seed_start_handle_neow_grid_phase(
     SeedStartPreDispatch::NotHandled
 }
 
+fn seed_start_astrolabe_source_deck(run: &RunState) -> Option<Vec<String>> {
+    let grid = run.card_grid.as_ref()?;
+    if !matches!(grid.purpose, GridPurpose::Astrolabe) || grid.selected_indices.len() < 3 {
+        return None;
+    }
+    let selected_ids = grid
+        .selected_indices
+        .iter()
+        .take(3)
+        .filter_map(|index| grid.cards.get(*index).map(|card| card.id))
+        .collect::<Vec<_>>();
+    Some(
+        run.deck
+            .iter()
+            .filter(|card| !selected_ids.contains(&card.id))
+            .map(simulated_card_projection_key)
+            .collect(),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn seed_start_handle_neow_boss_swap_phase(
     action: &TraceAction,
@@ -1566,6 +1586,30 @@ fn seed_start_handle_neow_boss_swap_phase(
         if let Ok(confirmed) = confirm_grid(&next) {
             *deck_ids = deck_content_keys(&confirmed.deck);
             if confirmed.card_grid.is_none() {
+                if let Some(source_deck) = seed_start_astrolabe_source_deck(&next) {
+                    let observed = seed_start_observed_subset(&post.message);
+                    let source_projection = json!({
+                        "screen_type": "EVENT",
+                        "ascension": start.ascension,
+                        "floor": 0,
+                        "gold": 99,
+                        "current_hp": start.starting_hp(),
+                        "max_hp": start.starting_hp(),
+                        "deck_ids": source_deck,
+                        "relic_ids": seed_start_relic_ids_for_inline_projection(Some(&confirmed)),
+                        "choices": ["leave"],
+                    });
+                    if subset_diffs(observed, source_projection).is_empty() {
+                        report.verified.push(VerifiedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: "Neow boss swap Astrolabe source transform frame".to_owned(),
+                        });
+                        *seed_sim = Some(confirmed);
+                        *phase = SeedStartPhase::NeowLeave;
+                        return SeedStartPreDispatch::Handled;
+                    }
+                }
                 compare_subset(
                     report,
                     action,
