@@ -1,16 +1,112 @@
+use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use sts_core::combat::ExhaustSelectPurpose;
 use sts_core::{
-    apply_combat_action_with_events, apply_run_decision_action, legal_combat_actions,
-    legal_run_decision_actions, restore_combat_snapshot_json, restore_run_snapshot_json, CardId,
-    CombatAction, CombatPhase, CombatState, EventAction, MapAction, MonsterId, MonsterIntent,
+    apply_combat_action_with_events, apply_run_decision_action, fair_combat_observation,
+    legal_combat_actions, legal_run_decision_actions, player_choices, resolve_player_choice,
+    restore_combat_snapshot_json, restore_run_snapshot_json, CardId, CombatAction, CombatPhase,
+    CombatState, DecisionRevision, EventAction, FairCombatObservation, FairObservationError,
+    MapAction, MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest,
     RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot,
     SNAPSHOT_SCHEMA_VERSION,
 };
 
 const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
 const AGENT_REWARD_HP_PER_POTION: f64 = 8.0;
+
+create_exception!(_native, NoActiveCombatError, PyValueError);
+create_exception!(_native, InvalidAuthoritativeStateError, PyValueError);
+create_exception!(_native, UnknownPublicContentError, PyValueError);
+create_exception!(_native, NotInCombatError, PyValueError);
+create_exception!(_native, DecisionUnavailableError, PyValueError);
+create_exception!(_native, StaleDecisionError, PyValueError);
+create_exception!(_native, InvalidChoiceError, PyValueError);
+
+#[derive(serde::Serialize)]
+struct FairDecisionWire {
+    schema_version: u32,
+    decision_revision: u64,
+    observation: FairCombatObservation,
+    choices: Vec<PlayerChoice>,
+}
+
+#[derive(serde::Serialize)]
+struct FairStepWire {
+    terminal: bool,
+    decision: Option<FairDecisionWire>,
+}
+
+#[pyclass(name = "FairCombatEnv")]
+#[derive(Clone)]
+pub struct PyFairCombatEnv {
+    state: RunState,
+    revision: DecisionRevision,
+}
+
+#[pymethods]
+impl PyFairCombatEnv {
+    #[staticmethod]
+    pub fn combat_fixture() -> Self {
+        Self {
+            state: RunState::combat_fixture(),
+            revision: DecisionRevision::new(0),
+        }
+    }
+
+    #[staticmethod]
+    pub fn from_snapshot_for_testing(json: &str) -> PyResult<Self> {
+        let snapshot = restore_run_snapshot_json(json).map_err(|error| {
+            PyValueError::new_err(format!("invalid fair combat snapshot: {error}"))
+        })?;
+        if snapshot.state.phase != RunPhase::Combat {
+            return Err(PyValueError::new_err(
+                "fair combat environment requires combat phase",
+            ));
+        }
+        Ok(Self {
+            state: snapshot.state,
+            revision: DecisionRevision::new(0),
+        })
+    }
+
+    #[pyo3(name = "clone")]
+    pub fn clone_env(&self) -> Self {
+        self.clone()
+    }
+
+    pub fn decision_json(&self) -> PyResult<String> {
+        to_json(&fair_decision_wire(&self.state, self.revision)?)
+    }
+
+    pub fn step_json(&mut self, request_json: &str) -> PyResult<String> {
+        let request: PlayerChoiceRequest = serde_json::from_str(request_json)
+            .map_err(|_| InvalidChoiceError::new_err("invalid public choice request"))?;
+        let action = resolve_player_choice(&self.state, self.revision, request)
+            .map_err(fair_choice_error)?;
+        let next = apply_run_decision_action(&self.state, action)
+            .map_err(|_| DecisionUnavailableError::new_err("public choice could not be applied"))?;
+        let revision = self
+            .revision
+            .checked_next()
+            .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
+
+        let terminal = fair_combat_terminal(&next);
+        let decision = if terminal {
+            None
+        } else {
+            Some(fair_decision_wire(&next, revision)?)
+        };
+        let result = to_json(&FairStepWire { terminal, decision })?;
+        self.state = next;
+        self.revision = revision;
+        Ok(result)
+    }
+
+    fn __repr__(&self) -> String {
+        format!("FairCombatEnv(revision={})", self.revision.get())
+    }
+}
 
 #[pyclass(name = "ExactCombatAction")]
 #[derive(Clone)]
@@ -469,14 +565,91 @@ impl PyOmniRunEnv {
     }
 }
 
+fn fair_decision_wire(state: &RunState, revision: DecisionRevision) -> PyResult<FairDecisionWire> {
+    let observation = fair_combat_observation(state).map_err(fair_observation_error)?;
+    let choice_set = player_choices(state, revision).map_err(fair_choice_error)?;
+    Ok(FairDecisionWire {
+        schema_version: choice_set.schema_version,
+        decision_revision: choice_set.decision_revision.get(),
+        observation,
+        choices: choice_set.choices,
+    })
+}
+
+fn fair_observation_error(error: FairObservationError) -> PyErr {
+    match error {
+        FairObservationError::NoActiveCombat => NoActiveCombatError::new_err("no active combat"),
+        FairObservationError::InvalidAuthoritativeState => {
+            InvalidAuthoritativeStateError::new_err("authoritative combat state is invalid")
+        }
+        FairObservationError::UnknownPublicContent => {
+            UnknownPublicContentError::new_err("public combat content is unknown")
+        }
+    }
+}
+
+fn fair_choice_error(error: PlayerChoiceError) -> PyErr {
+    match error {
+        PlayerChoiceError::NotInCombat => {
+            NotInCombatError::new_err("public choice requires combat")
+        }
+        PlayerChoiceError::DecisionUnavailable => {
+            DecisionUnavailableError::new_err("public combat decision is unavailable")
+        }
+        PlayerChoiceError::StaleDecision => {
+            StaleDecisionError::new_err("public combat decision is stale")
+        }
+        PlayerChoiceError::InvalidChoice => {
+            InvalidChoiceError::new_err("public combat choice is invalid")
+        }
+    }
+}
+
+fn fair_combat_terminal(state: &RunState) -> bool {
+    state.phase != RunPhase::Combat
+        || state
+            .combat
+            .as_ref()
+            .is_none_or(|combat| matches!(combat.phase, CombatPhase::Won | CombatPhase::Lost))
+}
+
 #[pymodule]
-fn sts_omni(module: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add(
+        "NoActiveCombatError",
+        module.py().get_type::<NoActiveCombatError>(),
+    )?;
+    module.add(
+        "InvalidAuthoritativeStateError",
+        module.py().get_type::<InvalidAuthoritativeStateError>(),
+    )?;
+    module.add(
+        "UnknownPublicContentError",
+        module.py().get_type::<UnknownPublicContentError>(),
+    )?;
+    module.add(
+        "NotInCombatError",
+        module.py().get_type::<NotInCombatError>(),
+    )?;
+    module.add(
+        "DecisionUnavailableError",
+        module.py().get_type::<DecisionUnavailableError>(),
+    )?;
+    module.add(
+        "StaleDecisionError",
+        module.py().get_type::<StaleDecisionError>(),
+    )?;
+    module.add(
+        "InvalidChoiceError",
+        module.py().get_type::<InvalidChoiceError>(),
+    )?;
     module.add_class::<PyExactCombatAction>()?;
     module.add_class::<PyExactRunAction>()?;
     module.add_class::<PyDebugTransition>()?;
     module.add_class::<PyExactStepResult>()?;
     module.add_class::<PyExactRunStepResult>()?;
     module.add_class::<PyRustSearchRecommendation>()?;
+    module.add_class::<PyFairCombatEnv>()?;
     module.add_class::<PyOmniCombatEnv>()?;
     module.add_class::<PyOmniRunEnv>()?;
     module.add_function(wrap_pyfunction!(slaythedata_preflight_json, module)?)?;

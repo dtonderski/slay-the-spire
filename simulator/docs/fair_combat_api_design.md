@@ -18,9 +18,9 @@ leakage-proof public representation of the same legal choices.
    public, stable way to describe what the player can select.
 2. `FairCombatObservation` and `PlayerChoice` are symbolic Rust data. Tensor
    extraction belongs outside simulator mechanics and is deliberately deferred.
-3. The compiled Python package will ultimately be one module (working public
-   name `sts_sim`) with a fair decision API and explicitly privileged
-   omniscient/debug APIs. Do not create a separate `sts_fair` crate.
+3. The Python package is `sts_sim`, with a fair decision API and explicitly
+   privileged omniscient/debug APIs. Its compiled implementation is private
+   `_native`; do not create a separate `sts_fair` crate.
 4. The first implementation is combat-only. Full-run screens are a later slice.
 5. Belief and particle planning are deferred. The same fair boundary will be
    reused when a singleton privileged search root is replaced by a belief over
@@ -59,39 +59,28 @@ never cross the fair boundary.
 
 ## FairCombatObservation V1
 
-Indicative symbolic schema; final Rust names may follow existing core naming:
+The implemented observation schema and visibility allowlists are specified in
+[`fair_combat_observation_v1.md`](fair_combat_observation_v1.md). This section
+remains the joint observation/action design rationale.
+
+For orientation, the implemented V1 observation has this top-level shape; the
+field-level contract is defined in the exact schema document linked above:
 
 ```text
 FairCombatObservation
   schema_version
-  turn
-  decision_phase
-  player
-    hp, max_hp, block, energy
-    visible powers
-  hand
-    visible slot
-    card content key, upgrade level, visible cost
-    visible dynamic card fields
-  draw_pile
-    count
-    known unordered card multiset
-    publicly known ordered prefix, if any
-  discard_pile
-    count, unordered visible contents
-  exhaust_pile
-    count, unordered visible contents
-  monsters
-    visible slot, kind, hp, max_hp, block
-    visible powers
-    visible intent category, damage, hit count
-    alive / escaped / minion / targetable flags
-  relics
-    identity and explicitly allowed public counter/state
-  potion_slots
-    visible slot and potion identity, or empty
-  current visible selection, if any
-  public counters needed at the decision boundary
+  context { ascension, act, floor, gold }
+  phase
+  player { hp, max_hp, block, energy, max_energy, powers[] }
+  hand[] { slot, card }
+  draw_pile { count, cards[], known_order[] }
+  discard_pile { count, cards[], known_order=[] }
+  exhaust_pile { count, cards[], known_order=[] }
+  monsters[]
+  relics[]
+  potion_slots[]
+  selection?
+  public_counters[]
 ```
 
 ### Cards and piles
@@ -134,8 +123,9 @@ without inspecting hidden state.
 
 Implementation status: the combat-only symbolic projection, resolution,
 revision token, and stable public errors are implemented in `sts_core`. See
-`player_choice_api.md` for the exact V1 API and mapping. Atomic combination
-with `FairCombatObservation` remains a separate integration step.
+`player_choice_api.md` for the exact V1 API and mapping. The `sts_sim` Python
+facade combines it atomically with `FairCombatObservation`; tensor extraction
+remains outside this boundary.
 
 Names are indicative. The descriptor family should cover the combat choices
 already supported by the authoritative decision boundary:
@@ -199,11 +189,11 @@ The symbolic types and pure projection/mapping logic should live near the
 authoritative Rust combat API so they can be tested without Python. They must
 not introduce tensor or training dependencies into `sts_core`.
 
-The existing extension is currently named `sts_omni`. A later integration slice
-will expose the fair decision API and privileged APIs from one compiled module;
-renaming/repackaging is not required for the two initial Rust worktrees. Fair
-Python objects must not offer snapshot, restore, raw state JSON, hashes, RNG
-details, or debug logs. Privileged objects must remain visibly named as such.
+The public Python package is named `sts_sim`. Its compiled implementation is a
+private `_native` extension, while typed Python objects expose the fair decision
+API. Privileged objects remain visibly named as `OmniCombatEnv` and
+`OmniRunEnv`. Fair Python objects must not offer snapshot, restore, raw state
+JSON, hashes, RNG details, or debug logs.
 
 ## Deferred Work
 
