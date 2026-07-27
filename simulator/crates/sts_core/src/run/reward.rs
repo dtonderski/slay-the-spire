@@ -2340,7 +2340,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .retain(|queued| *queued != choices);
             reward.choices.clear();
             reward.consume_active_card_reward()?;
-            next.increase_max_hp_without_healing(SINGING_BOWL_MAX_HP)?;
+            // Real Singing Bowl calls AbstractPlayer.increaseMaxHp(2, true), which
+            // raises max HP and heals the same amount (see AbstractCreature.increaseMaxHp).
+            next.gain_max_hp(SINGING_BOWL_MAX_HP)?;
             return_to_reward_continuation_if_empty(&mut next);
         }
         RunAction::TakeGoldReward => {

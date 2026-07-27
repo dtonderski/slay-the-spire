@@ -2728,10 +2728,13 @@ fn singing_bowl_is_exposed_and_applied_on_active_card_rewards() {
     );
 
     let max_hp = run.player_max_hp;
+    let hp = run.player_hp;
     let label =
         seed_start_apply_reward_choose(&mut run, "CHOOSE 1").expect("Singing Bowl choice applies");
     assert_eq!(label, "singing bowl card reward");
-    assert!(run.player_max_hp > max_hp);
+    assert_eq!(run.player_max_hp, max_hp + 2);
+    // Singing Bowl heals when raising max HP (AbstractPlayer.increaseMaxHp).
+    assert_eq!(run.player_hp, hp + 2);
 }
 
 #[test]
