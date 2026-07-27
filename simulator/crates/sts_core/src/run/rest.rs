@@ -46,6 +46,9 @@ pub fn legal_rest_actions(run: &RunState) -> SimResult<Vec<RestAction>> {
     }
 
     let mut actions = Vec::new();
+    // CampfireUI.initializeButtons: RestOption, then SmithOption, then each relic's
+    // addCampfireOption in player relic inventory order (CommunicationMod filters
+    // unusable buttons, preserving relative order among usable options).
     if !run.relics.contains(&Relic::CoffeeDripper) {
         actions.push(RestAction::Heal);
     }
@@ -53,17 +56,23 @@ pub fn legal_rest_actions(run: &RunState) -> SimResult<Vec<RestAction>> {
     if has_upgradeable && can_smith(run) {
         actions.push(RestAction::OpenSmith);
     }
-    if can_remove_at_rest(run) && run.deck.iter().any(|card| !card.bottled) {
-        actions.push(RestAction::OpenRemove);
-    }
-    if can_lift(run) {
-        actions.push(RestAction::Lift);
-    }
-    if can_dig(run) {
-        actions.push(RestAction::Dig);
+    let has_removable = run.deck.iter().any(|card| !card.bottled);
+    for relic in &run.relics {
+        match relic {
+            Relic::PeacePipe if has_removable => {
+                actions.push(RestAction::OpenRemove);
+            }
+            Relic::Girya if can_lift(run) => {
+                actions.push(RestAction::Lift);
+            }
+            Relic::Shovel => {
+                actions.push(RestAction::Dig);
+            }
+            _ => {}
+        }
     }
     for card in &run.deck {
-        if can_remove_at_rest(run) {
+        if can_remove_at_rest(run) && !card.bottled {
             actions.push(RestAction::RemoveCard { card_id: card.id });
         }
         if card_instance_is_upgradeable(card) && can_smith(run) {
@@ -323,6 +332,71 @@ mod tests {
         assert_eq!(settled.phase, RunPhase::Rest);
         assert!(settled.rest_room_complete);
         assert!(settled.reward.is_none());
+    }
+
+    #[test]
+    fn relic_campfire_options_follow_player_relic_inventory_order() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Rest;
+        run.current_room_override = Some(RoomKind::Rest);
+        run.event = None;
+        run.relics
+            .extend([Relic::Shovel, Relic::Girya, Relic::PeacePipe]);
+
+        let actions = legal_rest_actions(&run).expect("rest actions");
+        let screen: Vec<_> = actions
+            .into_iter()
+            .filter(|action| {
+                matches!(
+                    action,
+                    RestAction::Heal
+                        | RestAction::OpenSmith
+                        | RestAction::OpenRemove
+                        | RestAction::Lift
+                        | RestAction::Dig
+                )
+            })
+            .collect();
+        assert_eq!(
+            screen,
+            vec![
+                RestAction::Heal,
+                RestAction::OpenSmith,
+                RestAction::Dig,
+                RestAction::Lift,
+                RestAction::OpenRemove,
+            ]
+        );
+
+        // Reverse relic order must reverse dig/lift/toke relative order.
+        run.relics
+            .retain(|relic| !matches!(relic, Relic::Shovel | Relic::Girya | Relic::PeacePipe));
+        run.relics
+            .extend([Relic::PeacePipe, Relic::Girya, Relic::Shovel]);
+        let actions = legal_rest_actions(&run).expect("rest actions");
+        let screen: Vec<_> = actions
+            .into_iter()
+            .filter(|action| {
+                matches!(
+                    action,
+                    RestAction::Heal
+                        | RestAction::OpenSmith
+                        | RestAction::OpenRemove
+                        | RestAction::Lift
+                        | RestAction::Dig
+                )
+            })
+            .collect();
+        assert_eq!(
+            screen,
+            vec![
+                RestAction::Heal,
+                RestAction::OpenSmith,
+                RestAction::OpenRemove,
+                RestAction::Lift,
+                RestAction::Dig,
+            ]
+        );
     }
 
     #[test]

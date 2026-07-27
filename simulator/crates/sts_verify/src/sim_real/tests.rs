@@ -2516,6 +2516,25 @@ fn seed_start_rest_projection_uses_dynamic_relic_action_order() {
         seed_start_rest_simulated_subset(&run)["choices"],
         json!(["smith", "toke", "lift", "dig"])
     );
+
+    // Shovel before Girya (as in random-fidelity-b788a4e142c8fc26) yields dig then lift.
+    run.relics
+        .retain(|relic| !matches!(relic, Relic::PeacePipe | Relic::Girya | Relic::Shovel));
+    run.relics
+        .extend([Relic::Shovel, Relic::Girya, Relic::PeacePipe]);
+    assert_eq!(
+        seed_start_rest_screen_actions(&run).expect("valid rest decisions"),
+        vec![
+            RestAction::OpenSmith,
+            RestAction::Dig,
+            RestAction::Lift,
+            RestAction::OpenRemove,
+        ]
+    );
+    assert_eq!(
+        seed_start_rest_simulated_subset(&run)["choices"],
+        json!(["smith", "dig", "lift", "toke"])
+    );
 }
 
 #[test]
