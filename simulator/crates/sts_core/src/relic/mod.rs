@@ -2330,6 +2330,12 @@ pub fn reset_turn_relic_counters(state: &mut CombatState) {
     state.relic_counters.cards_played_this_turn = 0;
     state.relic_counters.attacks_played_this_turn = 0;
     state.relic_counters.necronomicon_used_this_turn = false;
+    // Orange Pellets only counts card types played during the current turn.
+    // Carrying Attack/Power flags into the next turn would falsely cleanse on
+    // the first Skill (trace FIDL00025 / end-turn HP mismatch vs Constricted).
+    state.relic_counters.orange_pellets_attack_played = false;
+    state.relic_counters.orange_pellets_skill_played = false;
+    state.relic_counters.orange_pellets_power_played = false;
 }
 
 pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<()> {
@@ -2812,6 +2818,47 @@ fn deal_unmodified_damage_to_living_monsters(
 mod tests {
     use super::*;
     use crate::power::{MonsterPowers, PlayerPowers};
+
+    #[test]
+    fn orange_pellets_type_flags_reset_each_turn_and_do_not_cross_cleanse() {
+        // Source rule: Orange Pellets requires Attack + Skill + Power in the
+        // *same* turn. Stale type flags from a prior turn must not complete a
+        // cleanse (FIDL00025: Attack+Power turn 1, Constricted applied, then
+        // Attack+Skill turn 2 must leave Constricted).
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::OrangePellets);
+        state.player.powers.constricted = 0;
+
+        apply_orange_pellets_on_card_play(&mut state, CardType::Attack);
+        apply_orange_pellets_on_card_play(&mut state, CardType::Power);
+        assert!(state.relic_counters.orange_pellets_attack_played);
+        assert!(state.relic_counters.orange_pellets_power_played);
+        assert!(!state.relic_counters.orange_pellets_skill_played);
+
+        // Monster applies Constricted after the incomplete turn.
+        state.player.powers.constricted = 10;
+
+        reset_turn_relic_counters(&mut state);
+        assert!(!state.relic_counters.orange_pellets_attack_played);
+        assert!(!state.relic_counters.orange_pellets_skill_played);
+        assert!(!state.relic_counters.orange_pellets_power_played);
+
+        apply_orange_pellets_on_card_play(&mut state, CardType::Attack);
+        apply_orange_pellets_on_card_play(&mut state, CardType::Skill);
+        assert_eq!(
+            state.player.powers.constricted, 10,
+            "Attack+Skill alone must not cleanse without a same-turn Power"
+        );
+
+        apply_orange_pellets_on_card_play(&mut state, CardType::Power);
+        assert_eq!(
+            state.player.powers.constricted, 0,
+            "same-turn Attack+Skill+Power cleanses Constricted"
+        );
+        assert!(!state.relic_counters.orange_pellets_attack_played);
+        assert!(!state.relic_counters.orange_pellets_skill_played);
+        assert!(!state.relic_counters.orange_pellets_power_played);
+    }
 
     #[test]
     fn red_skull_activation_and_removal_fail_without_partial_state() {
