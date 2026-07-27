@@ -4058,6 +4058,12 @@ fn seed_start_handle_combat_phase(
         }
         let event_combat_complete = next.phase == RunPhase::Event && next.event.is_some();
         *seed_sim = Some(next);
+        // Burning Pact / put-on-deck skipped-retrieval can leave a card in
+        // pending_hidden when combat ends on a lethal blow. The next combat's
+        // master-deck shuffle still contains that card, and the source also
+        // surfaces a residual discard slot that participates in the first
+        // mid-combat reshuffle (random-fidelity-6e6f4f8c Twin Strike+). Carry
+        // the residual across as a distinct instance for discard/shuffle parity.
         if pending_cross_combat_card.is_some() {
             *pending_cross_combat_discard = pending_cross_combat_card;
         }
@@ -4654,6 +4660,10 @@ fn seed_start_end_turn_source_pile_settlement_frame(
     let Some(simulated_combat) = next.combat.as_ref() else {
         return false;
     };
+    // Per-pile projections keep duplicate CM uuid listings (residual discard
+    // slots). Aggregating those piles without cross-pile collapsing matches the
+    // simulator when a cross-combat residual instance sits in discard while the
+    // master-deck copy remains in draw.
     let mut observed_cards = Vec::new();
     for pile in ["hand", "draw_pile", "discard_pile", "exhaust_pile"] {
         observed_cards.extend(combat_card_ids(source_combat.get(pile)));

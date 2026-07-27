@@ -1977,23 +1977,19 @@ fn combat_card_ids(value: Option<&Value>) -> Vec<String> {
     let Some(cards) = value.and_then(Value::as_array) else {
         return Vec::new();
     };
-    // CommunicationMod occasionally lists the same card instance twice in a
-    // pile snapshot (same uuid) after PutOnDeck-style moves. A single card
-    // instance cannot occupy two pile slots; keep the first occurrence.
-    let mut seen_uuids = std::collections::HashSet::new();
-    let mut ids = Vec::with_capacity(cards.len());
-    for card in cards {
-        if let Some(uuid) = card.get("uuid").and_then(Value::as_str) {
-            if !seen_uuids.insert(uuid) {
-                continue;
-            }
-        }
-        ids.push(
+    // CommunicationMod can list the same uuid more than once in a pile. For
+    // put-on-deck that is often a pure snapshot glitch, but after skipped-
+    // retrieval residuals that re-enter combat via master deck (e.g. Burning
+    // Pact Twin Strike+ on a lethal blow), the double listing tracks two
+    // discard slots that participate in later shuffles. Keep every entry so
+    // discard_ids length/order match the simulator's residual instance.
+    cards
+        .iter()
+        .map(|card| {
             observed_card_projection_key(card)
-                .expect("trace combat card schema was validated before projection"),
-        );
-    }
-    ids
+                .expect("trace combat card schema was validated before projection")
+        })
+        .collect()
 }
 
 fn cards_to_comm_mod_visible_order<'a>(
