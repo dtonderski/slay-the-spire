@@ -140,7 +140,8 @@ const SLIME_BOSS_SPLIT_HP_THRESHOLD: i32 = 70;
 const GUARDIAN_MODE_SHIFT_START: i32 = 30;
 const GUARDIAN_MODE_SHIFT_INCREASE: i32 = 10;
 const GUARDIAN_DEFENSIVE_SEQUENCE_TURNS: u32 = 3;
-const GUARDIAN_DEFENSIVE_BLOCK: i32 = 20;
+/// Block granted when Mode Shift enters defensive mode (source `DEFENSIVE_BLOCK`).
+pub const GUARDIAN_DEFENSIVE_BLOCK: i32 = 20;
 const GUARDIAN_DEFENSIVE_SPIKES: i32 = 3;
 pub const GUARDIAN_CHARGE_BLOCK: i32 = 9;
 const GUARDIAN_FIERCE_BASH_DAMAGE: i32 = 32;
@@ -9305,8 +9306,12 @@ pub fn guardian_on_hp_damage(monster: &mut MonsterState, hp_damage: i32) {
 ///
 /// Card effect queues use this so all hits (including copied multi-hit card
 /// effects) resolve before the queued card action finishes and Guardian gains
-/// its defensive block. Non-card damage paths can continue using
-/// [`guardian_on_hp_damage`] for immediate resolution.
+/// its defensive block. End-of-turn damage (Combust, bombs) also uses this so
+/// Mode Shift entry (and the 20 defensive block) can resolve after monster
+/// pre-turn block clear — matching the target action queue where
+/// `ChangeStateAction` → `GainBlockAction` lands after `MonsterStartTurnAction`.
+/// Mid-turn non-card paths can continue using [`guardian_on_hp_damage`] for
+/// immediate resolution.
 pub fn guardian_accumulate_hp_damage(monster: &mut MonsterState, hp_damage: i32) {
     if monster.content_id != GUARDIAN_ID
         || hp_damage <= 0
@@ -9316,6 +9321,27 @@ pub fn guardian_accumulate_hp_damage(monster: &mut MonsterState, hp_damage: i32)
         return;
     }
     monster.mode_shift -= hp_damage;
+}
+
+/// Resolves Mode Shift entry after monster pre-turn block clear.
+///
+/// Target `TheGuardian.damage` queues `ChangeStateAction("Defensive Mode")`,
+/// which itself queues `GainBlockAction(DEFENSIVE_BLOCK)`. When that damage is
+/// itself queued from end-of-turn powers (Combust, bombs) before
+/// `MonsterStartTurnAction`, GainBlock lands after `loseBlock`. Applying the
+/// defensive block here after [`crate::combat::turn`]'s pre-monster clear
+/// reproduces that ordering.
+pub fn resolve_deferred_guardian_mode_shifts(monsters: &mut [MonsterState]) {
+    for monster in monsters {
+        if monster.content_id != GUARDIAN_ID
+            || !monster.alive
+            || monster.in_defensive_mode
+            || monster.mode_shift > 0
+        {
+            continue;
+        }
+        enter_guardian_defensive_mode(monster);
+    }
 }
 
 pub fn large_acid_slime_on_hp_damage(monster: &mut MonsterState, hp_damage: i32) {

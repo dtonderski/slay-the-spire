@@ -155,6 +155,11 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         return Ok(next);
     }
     clear_living_monster_block(&mut next);
+    // Combust/bomb Mode Shift accumulates during end-of-turn powers; enter
+    // defensive mode (and grant 20 block) only after monster pre-turn clear so
+    // GainBlock survives into the next player turn — matching target queue order
+    // ChangeState → GainBlock after MonsterStartTurn loseBlock.
+    crate::content::monsters::resolve_deferred_guardian_mode_shifts(&mut next.monsters);
     next.phase = CombatPhase::MonsterTurn;
     run_monster_turn(&mut next)?;
 
@@ -2202,10 +2207,11 @@ mod tests {
         transient_attack_damage, ACID_SLIME_A0, BOOK_OF_STABBING_A0, BRONZE_AUTOMATON_A0,
         BRONZE_ORB_A0, BYRD_A0, CENTURION_A0, DAGGER_A0, DAGGER_ID, DARKLING_A0, EXPLODER_A0,
         FUNGI_BEAST_A0, GIANT_HEAD_A0, GIANT_HEAD_ID, GREMLIN_NOB_A0, GREMLIN_THIEF_A0,
-        GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0, GREMLIN_WIZARD_A0, HEALER_A0, HEXAGHOST_A0,
-        JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0, LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID,
-        NEMESIS_A0, NEMESIS_ID, SENTRY_A0, SLIME_BOSS_A0, SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID,
-        SPIKE_SLIME_A0, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TRANSIENT_A0,
+        GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0, GREMLIN_WIZARD_A0, GUARDIAN_A0,
+        GUARDIAN_DEFENSIVE_BLOCK, HEALER_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0,
+        LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
+        SLIME_BOSS_A0, SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID, SPIKE_SLIME_A0, SPIRE_GROWTH_A0,
+        SPIRE_GROWTH_ID, TRANSIENT_A0,
     };
     use crate::{CardId, CardInstance, MonsterIntent, Relic};
 
@@ -2811,6 +2817,41 @@ mod tests {
             state.piles.discard_pile.last().map(|card| card.upgrades),
             Some(1)
         );
+    }
+
+    #[test]
+    fn combust_mode_shift_block_survives_monster_pre_turn_clear() {
+        // Combust depleting Mode Shift must leave Guardian with 20 block after
+        // Close Up — GainBlock is after monster loseBlock in the target queue.
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state_for_ascension(
+            &GUARDIAN_A0,
+            MonsterId::new(1),
+            state.ascension,
+        )];
+        state.monsters[0].mode_shift = 4;
+        state.monsters[0].block = 1;
+        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 32 };
+        state.monsters[0].moves_executed = 1;
+        state.player.powers.combust = 1;
+        state.player.powers.combust_damage = 5;
+        state.player.hp = 200;
+        state.player.block = 50;
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+
+        let next = end_player_turn(&state).expect("end turn resolves");
+
+        assert!(next.monsters[0].in_defensive_mode);
+        assert_eq!(next.monsters[0].block, GUARDIAN_DEFENSIVE_BLOCK);
+        assert_eq!(next.monsters[0].powers.spikes, 3);
+        // Close Up consumed one defensive turn; next intent is Roll Attack.
+        assert_eq!(next.monsters[0].defensive_turns_remaining, 2);
+        assert!(matches!(
+            next.monsters[0].intent,
+            crate::MonsterIntent::Attack { damage: 9 }
+        ));
     }
 
     #[test]

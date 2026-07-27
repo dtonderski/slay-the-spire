@@ -2,7 +2,7 @@ use crate::combat::{CombatState, MonsterState, PlayerState};
 use crate::content::cards::COMBUST_HP_LOSS;
 use crate::content::monsters::{check_slime_boss_split, wake_lagavulin_on_damage};
 use crate::relic::{heal_combat_player_with_relics, heal_player_in_combat_with_relics, Relic};
-use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId, SimError, SimResult};
+use crate::{MonsterId, SimError, SimResult};
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()> {
     apply_player_end_of_turn_powers_for_combat_state(state, true)?;
@@ -194,7 +194,15 @@ fn deal_unmodified_damage_to_living_monsters(
                 .iter_mut()
                 .find(|monster| monster.id == target && monster.alive)
                 .expect("target was collected from living monsters");
-            let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
+            // End-of-turn damage (Combust, bombs) must not enter Guardian Mode
+            // Shift immediately: defensive block is queued after monster
+            // pre-turn loseBlock in the target action manager. Accumulate only
+            // here; `resolve_deferred_guardian_mode_shifts` runs after clear.
+            let hp_damage =
+                crate::combat::damage::deal_unmodified_damage_to_monster_deferred_guardian(
+                    monster, amount,
+                );
+            crate::content::monsters::guardian_accumulate_hp_damage(monster, hp_damage);
             wake_lagavulin_on_damage(monster, hp_damage);
             !monster.alive
         };
@@ -416,5 +424,46 @@ mod tests {
         assert_eq!(guardian.hp, 235);
         assert_eq!(guardian.mode_shift, 25);
         assert!(!guardian.in_defensive_mode);
+    }
+
+    #[test]
+    fn combust_mode_shift_defers_entry_until_after_monster_block_clear() {
+        // Target: Combust DamageAllEnemies queues ChangeState; GainBlock(20) is
+        // itself queued from changeState and lands after MonsterStartTurn
+        // loseBlock. End-of-turn powers alone must only accumulate Mode Shift.
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![crate::content::monsters::monster_state_for_ascension(
+            &crate::content::monsters::GUARDIAN_A0,
+            crate::MonsterId::new(1),
+            0,
+        )];
+        state.monsters[0].mode_shift = 4;
+        state.monsters[0].block = 1;
+        state.player.powers.combust = 1;
+        state.player.powers.combust_damage = 5;
+        state.player.hp = 100;
+        state.player.block = 0;
+
+        apply_end_of_player_turn_powers(&mut state).expect("end-turn powers resolve");
+
+        let guardian = &state.monsters[0];
+        // 5 damage: 1 absorbed by block, 4 HP → Mode Shift depleted, entry deferred.
+        assert_eq!(guardian.hp, 236);
+        assert_eq!(guardian.mode_shift, 0);
+        assert!(!guardian.in_defensive_mode);
+        assert_eq!(guardian.block, 0);
+
+        crate::content::monsters::resolve_deferred_guardian_mode_shifts(&mut state.monsters);
+        let guardian = &state.monsters[0];
+        assert!(guardian.in_defensive_mode);
+        assert_eq!(
+            guardian.block,
+            crate::content::monsters::GUARDIAN_DEFENSIVE_BLOCK
+        );
+        assert_eq!(guardian.defensive_turns_remaining, 3);
+        assert!(matches!(
+            guardian.intent,
+            crate::MonsterIntent::GuardianCloseUp { sharp_hide: 3 }
+        ));
     }
 }
