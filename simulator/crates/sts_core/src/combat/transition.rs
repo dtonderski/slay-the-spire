@@ -277,12 +277,24 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
             | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
     ) {
-        // HexPower queues its MakeTempCardInDrawPileAction with addToBot.
-        // Keep that queued draw-pile mutation ahead of an Ink Bottle draw
-        // already returned by the card-play relic hooks.
+        // HexPower.onUseCard queues MakeTempCardInDrawPileAction with addToBot
+        // after card.use() and before UseCardAction. That insert must land
+        // before the source MoveCard settlement so Dark Embrace / other
+        // on-exhaust draws still see the pre-exhaust draw pile (and consume
+        // cardRandomRng against the correct size).
+        //
+        // Keep it ahead of an Ink Bottle draw already returned by card-play
+        // relic hooks as well.
         if let Some(index) = queue
             .iter()
             .position(|action| matches!(action, InternalAction::DrawCardsFromInkBottle { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+        if let Some(index) = queue
+            .iter()
+            .rposition(|action| matches!(action, InternalAction::MoveCard { .. }))
         {
             queue.insert(index, follow_up);
             return;
@@ -4179,6 +4191,76 @@ mod tests {
             vec![BERSERK_ID, DAZED_ID, ARMAMENTS_ID, DEFEND_R_ID, COMBUST_ID]
         );
         assert_eq!(next.rng.card_random_rng.counter(), 2);
+    }
+
+    #[test]
+    fn hex_dazed_inserts_before_dark_embrace_draw_under_corruption() {
+        // HexPower.onUseCard queues MakeTempCardInDrawPileAction before
+        // UseCardAction. Under Corruption the skill exhausts and Dark Embrace
+        // draws afterward, so the random-spot roll uses the pre-draw pile size.
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 0;
+        state.player.powers.hex = 1;
+        state.player.powers.corruption = 1;
+        state.player.powers.dark_embrace = 1;
+        state.rng.card_random_rng = StsRng::new(7_141_693_325_691_831_207);
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), DEFEND_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), DEFEND_R_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+            CardInstance::new(CardId::new(6), PERFECTED_STRIKE_ID),
+            CardInstance::new(CardId::new(7), DEFEND_R_PLUS_ID),
+            CardInstance::new(CardId::new(8), STRIKE_R_ID),
+            CardInstance::new(CardId::new(9), HEAVY_BLADE_ID),
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut expected_rng = state.rng.card_random_rng.clone();
+        let mut expected_draw = state
+            .piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>();
+        let insert_index = expected_rng.random_int((expected_draw.len() - 1) as i32) as usize;
+        expected_draw.insert(insert_index, DAZED_ID);
+        let drawn = expected_draw
+            .pop()
+            .expect("Dark Embrace draws the top card after Hex insert");
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Defend under Hex/Corruption/Dark Embrace should resolve");
+
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            expected_draw,
+            "Hex must insert against the full pre-exhaust draw pile"
+        );
+        assert_eq!(
+            next.piles.hand.last().map(|card| card.content_id),
+            Some(drawn)
+        );
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1)));
+        assert_eq!(next.rng.card_random_rng.counter(), 1);
     }
 
     #[test]
