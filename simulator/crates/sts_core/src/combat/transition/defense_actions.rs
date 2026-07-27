@@ -62,14 +62,13 @@ pub(super) fn gain_temporary_thorns(
 }
 
 pub(super) fn double_player_block(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
-    state.player.block = state
-        .player
-        .block
-        .checked_mul(2)
-        .ok_or(SimError::InvalidState(
-            "combat integer multiplication overflows i32",
-        ))?;
-    Ok(Vec::new())
+    // Entrench doubles block; the added half is a block gain for Juggernaut.
+    let before = state.player.block;
+    state.player.block = before.checked_mul(2).ok_or(SimError::InvalidState(
+        "combat integer multiplication overflows i32",
+    ))?;
+    let gained = state.player.block - before;
+    Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
 }
 
 pub(super) fn apply_monster_vulnerable(
