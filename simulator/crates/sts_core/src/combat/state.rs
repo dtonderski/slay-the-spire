@@ -106,10 +106,8 @@ pub struct CombatState {
     /// appended to discard after the visible hand's end-turn cleanup.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_hidden_hand_card_until_end_turn: Option<CardInstance>,
-    /// Elixir's ExhaustAction can leave its selected cards outside the target's
-    /// visible piles for one complete subsequent turn before returning them to
-    /// discard. Keep the cards in exhaust for authoritative effects, then move
-    /// them to discard when this countdown reaches zero.
+    /// Legacy fields retained for snapshot deserialization compatibility.
+    /// Elixir permanently exhausts selected cards; these are no longer written.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_elixir_exhaust_card_ids: Vec<CardId>,
     #[serde(default, skip_serializing_if = "is_zero_u8")]

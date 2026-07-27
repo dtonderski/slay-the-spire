@@ -21,8 +21,8 @@ use crate::{
     content::cards::{
         card_instance_is_upgradeable, get_card_definition, required_upgrade_content_id,
         upgrade_card_instance, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID,
-        CLASH_PLUS_ID, DAZED_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, PAIN_ID,
-        PURITY_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
+        CLASH_PLUS_ID, DAZED_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID,
+        PAIN_ID, PURITY_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape,
@@ -1708,8 +1708,22 @@ fn apply_play_top_draw_card(
             get_card_definition(card.content_id)
                 .is_none_or(|definition| definition.card_type != CardType::Attack)
         });
+    // Dual Wield cannot open a selection when the hand has no Attack/Power.
+    // Normal hand play is blocked by legal.rs; forced top-draw plays (Havoc /
+    // Mayhem / Distilled Chaos) must still exhaust the card without effect,
+    // matching unplayable top-card handling rather than rejecting the play.
+    let dual_wield_is_unplayable = matches!(definition.id, DUAL_WIELD_ID | DUAL_WIELD_PLUS_ID)
+        && !state.piles.hand.iter().any(|hand_card| {
+            get_card_definition(hand_card.content_id).is_some_and(|hand_definition| {
+                matches!(
+                    hand_definition.card_type,
+                    CardType::Attack | CardType::Power
+                )
+            })
+        });
     if definition.keywords.unplayable
         || clash_is_unplayable
+        || dual_wield_is_unplayable
         || !crate::relic::can_play_card_with_relics(state)
     {
         let mut follow_ups = Vec::new();
@@ -2649,22 +2663,14 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
             for index in removal_order.into_iter().rev() {
                 state.piles.hand.remove(index);
             }
-            // Elixir multi-select exhaust settles to discard after one complete
-            // subsequent player turn in the target. Keep the cards in exhaust
-            // for on-exhaust effects, then surface them on discard when the
-            // countdown reaches zero (see settle_pending_elixir_exhaust_cards).
-            let mut pending_elixir_ids = Vec::with_capacity(exhausted.len());
+            // Elixir (and any other ExhaustSelectPurpose::Exhaust source) moves
+            // selected cards into the exhaust pile permanently for the rest of
+            // combat, matching ExhaustAction.moveToExhaustPile. On-exhaust
+            // effects (Feel No Pain, Dark Embrace, etc.) still fire here.
             for card in exhausted {
                 let card_id = card.id;
-                pending_elixir_ids.push(card_id);
                 state.piles.exhaust_pile.push(card);
                 apply_on_exhaust_effects(state, card_id)?;
-            }
-            if !pending_elixir_ids.is_empty() {
-                state.pending_elixir_exhaust_card_ids = pending_elixir_ids;
-                // Tick once on the end of the turn Elixir was used, then again
-                // on the following end turn where the cards reappear in discard.
-                state.pending_elixir_exhaust_turns_remaining = 2;
             }
         }
     }
@@ -5100,6 +5106,41 @@ mod tests {
     }
 
     #[test]
+    fn havoc_exhausts_dual_wield_without_targets_without_rejecting_play() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), DUAL_WIELD_PLUS_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ resolves Dual Wield+ with no attack/power targets");
+
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DUAL_WIELD_PLUS_ID);
+        assert!(next.piles.draw_pile.is_empty());
+        assert_eq!(next.decision, None);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|c| c.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID]
+        );
+    }
+
+    #[test]
     fn havoc_played_shrug_it_off_plus_draws_after_gaining_block() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 3;
@@ -5517,11 +5558,8 @@ mod tests {
 
         confirm_exhaust_select(&mut state).expect("confirm exhaust select");
 
-        assert_eq!(
-            state.pending_elixir_exhaust_card_ids,
-            vec![CardId::new(1), CardId::new(6), CardId::new(5)]
-        );
-        assert_eq!(state.pending_elixir_exhaust_turns_remaining, 2);
+        assert!(state.pending_elixir_exhaust_card_ids.is_empty());
+        assert_eq!(state.pending_elixir_exhaust_turns_remaining, 0);
         assert_eq!(
             state
                 .piles
