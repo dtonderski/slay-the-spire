@@ -4249,10 +4249,29 @@ fn seed_start_handle_combat_phase(
                 sim.combat.as_ref().map(|combat| combat.phase)
             );
         }
-        let pending_cross_combat_card = sim
-            .combat
-            .as_ref()
-            .and_then(|combat| combat.pending_hidden_hand_card_until_end_turn);
+        // Burning Pact deferred selection can leave a card in pending_hidden
+        // when combat ends on a lethal blow. The next combat's master-deck
+        // shuffle still contains that card, and the source also surfaces a
+        // residual discard slot that participates in the first mid-combat
+        // reshuffle (random-fidelity-6e6f4f8c Twin Strike+). Carry that
+        // residual across as a distinct instance for discard/shuffle parity.
+        //
+        // Do NOT residual a put-on-deck limbo card that was only promoted onto
+        // pending_hidden on this same END. End-of-turn powers (e.g. Combust)
+        // can win combat before hand discard settles that card; the real game
+        // does not keep an extra discard instance next combat
+        // (random-fidelity-f3c0d2bea83d9313 Dropkick after Warcry).
+        let pending_cross_combat_card = if deferred_put_on_deck_card.is_some() {
+            None
+        } else {
+            sim.combat
+                .as_ref()
+                .and_then(|combat| combat.pending_hidden_hand_card_until_end_turn)
+        };
+        // Drop any held put-on-deck limbo that never settled (empty-hand hold
+        // on a lethal END, or just-promoted card above). Master deck already
+        // supplies the live copy next combat.
+        *pending_put_on_deck_card = None;
         let next = apply_combat_action_on_run(sim, combat_action);
         let Ok(next) = next else {
             let reason = push_sim_unsupported(
@@ -4302,12 +4321,6 @@ fn seed_start_handle_combat_phase(
         }
         let event_combat_complete = next.phase == RunPhase::Event && next.event.is_some();
         *seed_sim = Some(next);
-        // Burning Pact / put-on-deck skipped-retrieval can leave a card in
-        // pending_hidden when combat ends on a lethal blow. The next combat's
-        // master-deck shuffle still contains that card, and the source also
-        // surfaces a residual discard slot that participates in the first
-        // mid-combat reshuffle (random-fidelity-6e6f4f8c Twin Strike+). Carry
-        // the residual across as a distinct instance for discard/shuffle parity.
         if pending_cross_combat_card.is_some() {
             *pending_cross_combat_discard = pending_cross_combat_card;
         }

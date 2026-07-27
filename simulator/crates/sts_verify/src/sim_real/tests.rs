@@ -1325,6 +1325,36 @@ fn random_fidelity_warcry_limbo_and_evolve_end_turn_draw_order() {
 }
 
 #[test]
+fn warcry_put_on_deck_lethal_end_does_not_residual_dropkick_next_combat() {
+    // Warcry put-on-deck skipped retrieval selects Dropkick; Combust then wins
+    // on the same END before hand discard. Must not inject a cross-combat
+    // residual Dropkick into the next combat's discard
+    // (end turn: discard_ids[N]: null != "Dropkick").
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-f3c0d2bea83d9313.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Warcry Dropkick lethal-END residual permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(
+        report.unsupported.iter().all(|entry| entry.action_step > 431),
+        "step 431 END must not fail with residual Dropkick: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 431)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "next-combat first END after Warcry limbo lethal must verify: {report:#?}"
+    );
+}
+
+#[test]
 fn random_fidelity_mark_of_pain_wounds_after_snecko_combat_entry() {
     // Mark of Pain inserts 2 Wounds via cardRandomRng after the opening hand
     // draw; Snecko Confusion cost rolls must advance that stream first.

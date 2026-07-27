@@ -58,6 +58,15 @@ The limbo card is re-introduced through the end-turn discard path
 Warcry, Thinking Ahead, and base Forethought share this settlement window. The
 master deck remains unchanged.
 
+If combat ends on that first END before hand discard (end-of-turn powers such
+as Combust kill the last enemy), the limbo card never enters discard and is
+not carried as a cross-combat residual discard instance. Master deck still
+supplies the live copy next combat. Injecting a residual here falsely
+lengthens the next combat's discard (`null != "Dropkick"` on
+`random-fidelity-f3c0d2bea83d9313`). Burning Pact deferred exhaust selection
+is different: its `pending_hidden` is set at CONFIRM and may legitimately
+need a residual after a mid-turn lethal blow (`random-fidelity-6e6f4f8c`).
+
 The supported single-card sources are Warcry, Thinking Ahead, and base
 Forethought. Forethought+ can select multiple cards and requires a separate
 projection because its selected-card multiplicity and destination ordering
