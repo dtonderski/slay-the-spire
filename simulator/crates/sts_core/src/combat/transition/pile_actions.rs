@@ -265,19 +265,12 @@ fn draw_cards_while_played_card_is_in_limbo_with_mode(
         player_draw_cards_without_evolve(state, count)?;
     }
     if let Some(played_card) = played_card {
-        // Corruption's onUseCard hook sets UseCardAction.exhaustCard for
-        // skills. Cards that draw before their final move remain in limbo
-        // through that draw, so they do not have an explicit MoveCard for
-        // the normal Corruption queue rewrite to retarget.
-        let definition = get_card_definition(played_card.content_id)
-            .ok_or(SimError::UnknownContent(played_card.content_id))?;
-        let should_exhaust = definition.keywords.exhaust
-            || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0);
-        if should_exhaust {
-            state.piles.exhaust_pile.push(played_card);
-            return Ok(vec![InternalAction::CardExhausted { card_id }]);
-        }
-        state.piles.discard_pile.push(played_card);
+        // Keep the source in hand after the limbo draw so later card effects
+        // (Battle Trance No Draw, Corruption exhaust via MoveCard rewrite,
+        // Havoc force-exhaust placement) settle after those effects. Returning
+        // the card here mirrors limbo occupying a non-hand slot only for the
+        // draw itself, then UseCardAction finishing afterward.
+        state.piles.hand.push(played_card);
     }
     Ok(Vec::new())
 }

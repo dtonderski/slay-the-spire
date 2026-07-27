@@ -154,8 +154,7 @@ fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) -> SimResult<EndOfTu
             state.piles.exhaust_pile.push(card);
             apply_on_exhaust_effects_without_dark_embrace(state, card_id)?;
             let generated_id = CardId::new(
-                first_dead_branch_id
-                    .expect("ethereal cards reserve a Dead Branch ID range")
+                first_dead_branch_id.expect("ethereal cards reserve a Dead Branch ID range")
                     + dead_branch_count,
             );
             if let Some(card) = dead_branch_card_for_end_turn(state, generated_id)? {

@@ -1776,24 +1776,27 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    let put_on_draw_card = match hand_select.purpose {
-        HandSelectPurpose::WarcryPutOnDraw => Some(confirm_warcry_select(
-            state,
-            hand_select.source_card_id,
-            required_hand_select_index(&hand_select)?,
-        )?),
-        HandSelectPurpose::ThinkingAheadPutOnDraw => Some(confirm_thinking_ahead_select(
-            state,
-            hand_select.source_card_id,
-            required_hand_select_index(&hand_select)?,
-        )?),
+    match hand_select.purpose {
+        HandSelectPurpose::WarcryPutOnDraw => {
+            confirm_warcry_select(
+                state,
+                hand_select.source_card_id,
+                required_hand_select_index(&hand_select)?,
+            )?;
+        }
+        HandSelectPurpose::ThinkingAheadPutOnDraw => {
+            confirm_thinking_ahead_select(
+                state,
+                hand_select.source_card_id,
+                required_hand_select_index(&hand_select)?,
+            )?;
+        }
         HandSelectPurpose::ArmamentsUpgrade => {
             confirm_armaments_select(
                 state,
                 hand_select.source_card_id,
                 required_hand_select_index(&hand_select)?,
             )?;
-            None
         }
         HandSelectPurpose::ForethoughtPutOnDraw => {
             confirm_forethought_select(
@@ -1801,7 +1804,6 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
                 hand_select.source_card_id,
                 required_hand_select_index(&hand_select)?,
             )?;
-            None
         }
         HandSelectPurpose::ForethoughtPutAnyOnDraw => {
             confirm_forethought_multi_select(
@@ -1809,7 +1811,6 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
                 hand_select.source_card_id,
                 hand_select.selected_hand_indices,
             )?;
-            None
         }
         HandSelectPurpose::DualWieldCopy => {
             confirm_dual_wield_select(
@@ -1817,12 +1818,8 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
                 hand_select.source_card_id,
                 required_hand_select_index(&hand_select)?,
             )?;
-            None
         }
     };
-    if let Some(card) = put_on_draw_card {
-        state.piles.draw_pile.push(card);
-    }
     resume_actions_after_hand_select(state, pending_actions)?;
     state.activate_next_queued_decision_if_idle();
     Ok(())
@@ -2006,11 +2003,14 @@ fn confirm_warcry_select(
     state: &mut CombatState,
     source_card_id: CardId,
     index: usize,
-) -> SimResult<CardInstance> {
+) -> SimResult<()> {
+    // PutOnDeckAction completes before UseCardAction exhausts Warcry. Dark
+    // Embrace (and any other on-exhaust draw) must therefore see the selected
+    // card already on top of the draw pile.
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
-    finish_warcry_source(state, source_card_id)?;
-    Ok(card)
+    state.piles.draw_pile.push(card);
+    finish_warcry_source(state, source_card_id)
 }
 
 fn finish_warcry_source(state: &mut CombatState, source_card_id: CardId) -> SimResult<()> {
@@ -2021,11 +2021,13 @@ fn confirm_thinking_ahead_select(
     state: &mut CombatState,
     source_card_id: CardId,
     index: usize,
-) -> SimResult<CardInstance> {
+) -> SimResult<()> {
+    // Same PutOnDeck-before-exhaust ordering as Warcry: the selected card is
+    // on top before the source settles into exhaust/discard.
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
-    move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
-    Ok(card)
+    state.piles.draw_pile.push(card);
+    move_delayed_played_source_with_strange_spoon(state, source_card_id)
 }
 
 fn move_delayed_played_source_with_strange_spoon(
@@ -5101,6 +5103,69 @@ mod tests {
         assert_eq!(next.piles.draw_pile[0].content_id, HAVOC_ID);
         assert_eq!(next.piles.exhaust_pile.len(), 1);
         assert_eq!(next.piles.exhaust_pile[0].content_id, HEADBUTT_ID);
+    }
+
+    #[test]
+    fn havoc_under_corruption_plays_top_card_before_dark_embrace_from_source_exhaust() {
+        // Corruption exhausts Havoc after its effect. Dark Embrace must not
+        // draw the forced top card (Bash) before that play resolves.
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 40;
+        state.player.energy = 3;
+        state.player.powers.corruption = 1;
+        state.player.powers.dark_embrace = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), BATTLE_TRANCE_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ under Corruption plays top Bash");
+
+        assert_eq!(
+            next.monsters[0].powers.vulnerable, 2,
+            "Bash must resolve as the forced top card"
+        );
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == BASH_ID),
+            "forced Bash is exhausted by Havoc"
+        );
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == HAVOC_PLUS_ID),
+            "Corruption exhausts Havoc after the forced play"
+        );
+        assert!(
+            next.piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == BATTLE_TRANCE_ID),
+            "Dark Embrace draws the card under Bash after Bash is exhausted, not Bash itself"
+        );
+        assert!(
+            !next
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == BASH_ID),
+            "Bash must not be drawn by premature Dark Embrace"
+        );
     }
 
     #[test]

@@ -3271,35 +3271,33 @@ fn havoc_queue(
         },
     ]);
 
-    // When the draw pile is empty, DrawCardAction reshuffles the discard pile
-    // before it removes Havoc from limbo. Keeping Havoc out of that shuffle is
-    // observable: the forced card must come from the pre-existing discard,
-    // while Havoc settles into discard after the forced play completes.
-    if state.piles.draw_pile.is_empty() {
-        queue.push_back(InternalAction::PlayTopDrawCard {
-            target,
-            exhaust_played_card: true,
-            random_living_target: true,
-        });
-        queue.push_back(InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: CardPile::DiscardPile,
-        });
+    // Havoc's source settlement is normally a discard MoveCard; Corruption
+    // rewrites that move to exhaust. Self-exhaust must finish after the forced
+    // top-card play: otherwise Dark Embrace (and similar on-exhaust draws)
+    // pulls the top card into hand before Havoc can play it.
+    //
+    // Empty draw pile also forces PlayTop-first so a reshuffle cannot include
+    // Havoc before the forced card is chosen. With a non-empty draw pile and a
+    // non-exhausting source, settle first so discard-sensitive forced cards
+    // (Headbutt) can return Havoc to the draw pile.
+    let source_exhausts = definition.keywords.exhaust
+        || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0);
+    let settle = InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    };
+    let play_top = InternalAction::PlayTopDrawCard {
+        target,
+        exhaust_played_card: true,
+        random_living_target: true,
+    };
+    if state.piles.draw_pile.is_empty() || source_exhausts {
+        queue.push_back(play_top);
+        queue.push_back(settle);
     } else {
-        // With a non-empty draw pile, the normal UseCardAction settlement
-        // happens before the forced top-card play. This also exposes Havoc to
-        // discard-sensitive cards such as Headbutt.
-        queue.push_back(InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: CardPile::DiscardPile,
-        });
-        queue.push_back(InternalAction::PlayTopDrawCard {
-            target,
-            exhaust_played_card: true,
-            random_living_target: true,
-        });
+        queue.push_back(settle);
+        queue.push_back(play_top);
     }
 
     Ok(queue)
@@ -3605,6 +3603,11 @@ fn shrug_it_off_queue(
             amount: required_block(definition)?,
         },
         InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count: 1 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
     ]))
 }
 
@@ -4075,6 +4078,11 @@ fn pommel_strike_queue(
             card_id,
             count: draw_count,
         },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
     ]))
 }
 
@@ -4150,7 +4158,14 @@ fn battle_trance_queue(
             card_id,
             count: battle_trance_draw_count(definition),
         },
+        // No Draw must be active before Corruption/exhaust settles the source,
+        // or Dark Embrace would draw after Battle Trance's own draws.
         InternalAction::SetCannotDraw,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
     ]))
 }
 

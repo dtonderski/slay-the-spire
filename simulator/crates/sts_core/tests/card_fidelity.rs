@@ -820,7 +820,7 @@ fn true_grit_random_exhaust_skips_rng_when_one_card_is_eligible() {
 }
 
 #[test]
-fn warcry_plus_can_draw_into_the_card_put_on_top() {
+fn warcry_plus_puts_selected_card_on_top_of_draw() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
     state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::WARCRY_PLUS_ID)];
@@ -860,6 +860,66 @@ fn warcry_plus_can_draw_into_the_card_put_on_top() {
         selected_content_id
     );
     assert_eq!(next.piles.exhaust_pile[0].content_id, cards::WARCRY_PLUS_ID);
+}
+
+#[test]
+fn warcry_with_dark_embrace_draws_the_card_put_on_top() {
+    // PutOnDeckAction finishes before Warcry exhausts. Dark Embrace must
+    // therefore draw the just-selected top card (e.g. Havoc) rather than the
+    // previous top of the draw pile.
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.player.powers.dark_embrace = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::WARCRY_ID),
+        CardInstance::new(CardId::new(2), cards::HAVOC_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(4), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(5), cards::BASH_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Warcry opens hand select after drawing");
+    // After the Warcry draw, hand is [Warcry, Havoc, Strike, Bash]; UI skips
+    // the source, so index 0 is Havoc.
+    choose_hand_select(&mut next, 0).expect("select Havoc");
+    confirm_hand_select(&mut next).expect("confirm Warcry selection");
+
+    assert!(
+        next.piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == cards::HAVOC_ID),
+        "Dark Embrace must draw the Warcry-selected top card: hand={:?}",
+        next.piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        !next
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.content_id == cards::HAVOC_ID),
+        "selected Havoc must not remain buried under a later put-on-deck"
+    );
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::WARCRY_ID);
+    assert_eq!(
+        next.piles.draw_pile.last().map(|card| card.content_id),
+        Some(cards::DEFEND_R_ID),
+        "only the pre-existing non-top cards remain in the draw pile"
+    );
 }
 
 #[test]
@@ -4077,6 +4137,52 @@ fn havoc_battle_trance_plus_draws_four_sets_no_draw_and_exhausts() {
         .exhaust_pile
         .iter()
         .any(|card| card.content_id == cards::BATTLE_TRANCE_PLUS_ID));
+}
+
+#[test]
+fn battle_trance_under_corruption_sets_no_draw_before_dark_embrace() {
+    // Battle Trance must apply No Draw before Corruption exhausts it, or
+    // Dark Embrace would draw a fourth card after the trance draws.
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.player.powers.corruption = 1;
+    state.player.powers.dark_embrace = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BATTLE_TRANCE_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+        CardInstance::new(CardId::new(5), cards::FLEX_ID),
+        CardInstance::new(CardId::new(6), cards::ANGER_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Battle Trance under Corruption");
+
+    assert!(next.player.cannot_draw);
+    assert_eq!(
+        next.piles.hand.len(),
+        3,
+        "exactly three draws; Dark Embrace must not add a fourth: {:?}",
+        next.piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>()
+    );
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::BATTLE_TRANCE_ID));
+    assert_eq!(next.piles.draw_pile.len(), 2);
 }
 
 #[test]
