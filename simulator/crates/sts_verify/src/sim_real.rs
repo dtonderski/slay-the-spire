@@ -3556,14 +3556,14 @@ fn seed_start_event_choice_index_for_communication_mod(
     //    label (cardN), which must bind by that label rather than by index on
     //    the longer settled list.
     // After the fifth attempt the sim publishes Leave; a stale card-grid CHOOSE
-    // index still advances that single Leave option.
+    // index still advances that single Leave option (Leave → map / idle).
     if event_context.is_some_and(|(event, stage)| event == Event::MatchAndKeep && stage == 3) {
         let labels = seed_start_event_visible_choice_labels(run);
         if labels.len() == 1 && labels[0] == "leave" {
             return Some(0);
         }
     }
-    // gameDone wait: any CHOOSE advances to Leave without selecting a card.
+    // Residual stage-2 gameDone board (legacy / non-CM paths): any CHOOSE opens Leave.
     if event_context.is_some_and(|(event, stage)| event == Event::MatchAndKeep && stage == 2)
         && run
             .match_and_keep
@@ -3687,6 +3687,21 @@ fn seed_start_event_visible_choice_labels(run: &RunState) -> Vec<String> {
             seed_start_visible_event_choice_label_for_event(event.event, event.stage, &choice.label)
         })
         .collect()
+}
+
+/// True when the pre-observation still shows a Match and Keep card grid rather
+/// than the post-gameDone Leave button. Used so a stale card-grid CHOOSE does
+/// not advance Leave → map while the capture is one frame behind Leave.
+fn seed_start_match_and_keep_pre_is_card_grid(pre_message: &Value) -> bool {
+    let labels = pre_message
+        .get("game_state")
+        .and_then(|game| game.get("choice_list"))
+        .map(|choices| choice_list_from_value(Some(choices)))
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|choice| seed_start_visible_event_choice_label(&choice))
+        .collect::<Vec<_>>();
+    !(labels.is_empty() || (labels.len() == 1 && labels[0] == "leave"))
 }
 
 /// CommunicationMod can publish Match and Keep choice lists one flip behind

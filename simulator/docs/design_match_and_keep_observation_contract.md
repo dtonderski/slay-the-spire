@@ -30,9 +30,15 @@ Command binding for stage-2 card picks follows CommunicationMod's
 2. Resolution-stale pre (mid-pair / pre-name) → bind by the pre list's cardN
    label when it uniquely identifies a sim slot.
 
-After the fifth attempt the target sets `gameDone` and waits before Leave;
-the discrete model keeps the card board one action longer, then any CHOOSE
-opens Leave.
+After the fifth attempt the target sets `gameDone` and a short `waitTimer`,
+then transitions to CLEAN_UP/Leave. CommunicationMod only reports ready after
+that wait, so the discrete post-state of the fifth attempt's second flip is
+already Leave. The simulator mirrors that ready-state (not an intermediate
+card-board hold).
+
+When choice-list lag leaves the pre-observation on a card grid while core is
+already on Leave, a CHOOSE index must not consume Leave → map; the verifier
+treats that click as leave-ack lag until the next pre-list is Leave.
 
 ## Regression
 

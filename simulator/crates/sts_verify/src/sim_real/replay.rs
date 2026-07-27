@@ -3145,6 +3145,55 @@ fn seed_start_handle_event_phase(
         .as_ref()
         .filter(|screen| screen.event == Event::SpireHeart)
         .map(|screen| screen.stage);
+    // Discrete fifth-attempt resolve already publishes Leave. When a lagging
+    // pre-list still shows the card board, the collector's CHOOSE index must
+    // not consume Leave → map; that click only acknowledges Leave.
+    if sim
+        .event
+        .as_ref()
+        .is_some_and(|screen| screen.event == Event::MatchAndKeep && screen.stage == 3)
+        && seed_start_match_and_keep_pre_is_card_grid(&pre.message)
+    {
+        let observed = seed_start_event_observed_subset(&post.message);
+        let simulated = seed_start_event_simulated_subset(sim);
+        let observed_is_leave = observed.get("choices") == Some(&json!(["leave"]));
+        if let Some(pending) = pending_event_choice.take() {
+            if subset_diffs(observed.clone(), pending.expected.clone()).is_empty()
+                || (pending.match_and_keep_game_done_board && observed_is_leave)
+                || (observed_is_leave && pending.expected.get("choices") == Some(&json!(["leave"])))
+            {
+                report.verified.push(VerifiedTransition {
+                    action_step: pending.action.step,
+                    command: pending.action.command,
+                    label: pending.label,
+                });
+                reconciled_deferred_action_steps.push(pending.action.step);
+            } else {
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: pending.action.step,
+                    command: pending.action.command,
+                    label: pending.label,
+                    diffs: subset_diffs(observed.clone(), pending.expected),
+                });
+            }
+        }
+        if subset_diffs(observed.clone(), simulated.clone()).is_empty() {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "event choice (Match and Keep leave lag)".to_owned(),
+            });
+        } else {
+            // Still waiting for Leave while pre was a stale card grid.
+            *pending_event_choice = Some(PendingEventChoiceAssertion {
+                action: action.clone(),
+                label: "event choice (Match and Keep leave lag)".to_owned(),
+                expected: simulated,
+                match_and_keep_game_done_board: false,
+            });
+        }
+        return SeedStartPreDispatch::Handled;
+    }
     let Ok(next) = apply_event_action(
         sim,
         EventAction::Choose {
@@ -3498,11 +3547,16 @@ fn seed_start_handle_event_phase(
                     action: action.clone(),
                     label: "event choice (Match and Keep choice lag)".to_owned(),
                     expected: simulated,
+                    // gameDone leave: stage 2 residual board or stage 3 Leave after
+                    // the fifth attempt; next observed Leave reconciles either.
                     match_and_keep_game_done_board: next
                         .match_and_keep
                         .as_ref()
                         .is_some_and(|state| state.game_done)
-                        && next.event.as_ref().is_some_and(|screen| screen.stage == 2),
+                        && next.event.as_ref().is_some_and(|screen| {
+                            screen.event == Event::MatchAndKeep
+                                && (screen.stage == 2 || screen.stage == 3)
+                        }),
                 });
             } else {
                 compare_subset(report, action, "event choice", observed, simulated);

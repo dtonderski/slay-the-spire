@@ -4105,15 +4105,17 @@ fn apply_match_and_keep_card_choice(run: &mut RunState, choice_index: usize) -> 
         .ok_or(SimError::InvalidState("Match and Keep state is missing"))?
         .attempts_remaining;
     if attempts_remaining == 0 {
-        // Mirror the target's gameDone + waitTimer pause: keep the card board
-        // published until the next CHOOSE advances to Leave.
+        // Target sets gameDone and waitTimer=1s, then CLEAN_UP/Leave. CommunicationMod
+        // only becomes ready after that wait, so the discrete post-state of the fifth
+        // attempt's second flip is already Leave (not a sticky card board).
         if let Some(state) = run.match_and_keep.as_mut() {
             state.game_done = true;
         }
+        run.flush_pending_obtain_cards()?;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
-            match_and_keep_card_choices(run)?,
-            2,
+            labeled_choices(&["Leave"]),
+            3,
         ));
     } else {
         run.event = Some(make_event_screen(
@@ -6050,14 +6052,10 @@ mod tests {
         assert!(state.game_done);
         assert_eq!(state.first_flipped_index, None);
         assert_eq!(state.second_flipped_index, None);
-        // Target holds the card board through the gameDone waitTimer before Leave.
-        assert_eq!(after_second.event.as_ref().expect("board").stage, 2);
-
-        let after_cleanup =
-            apply_event_action(&after_second, EventAction::Choose { choice_index: 0 })
-                .expect("post-gameDone choose opens Leave");
+        // Discrete CM ready-state folds gameDone waitTimer into Leave.
+        assert_eq!(after_second.event.as_ref().expect("leave").stage, 3);
         assert_eq!(
-            after_cleanup
+            after_second
                 .event
                 .as_ref()
                 .expect("leave screen")
@@ -6069,7 +6067,7 @@ mod tests {
         );
 
         let after_leave =
-            apply_event_action(&after_cleanup, EventAction::Choose { choice_index: 0 })
+            apply_event_action(&after_second, EventAction::Choose { choice_index: 0 })
                 .expect("leave closes the completed game");
         assert_eq!(after_leave.deck.len(), deck_len);
         assert_eq!(after_leave.phase, RunPhase::Idle);
