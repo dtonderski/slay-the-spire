@@ -30,7 +30,10 @@ use crate::{
             open_event_remove_return_to_event_grid, open_event_transform_return_to_event_grid,
             open_event_upgrade_return_to_event_grid, GridPurpose,
         },
-        map::{apply_initial_monster_ai_rolls, enter_secret_portal_boss_combat},
+        map::{
+            add_mark_of_pain_wounds_to_draw_pile, apply_initial_monster_ai_rolls,
+            enter_secret_portal_boss_combat,
+        },
         neow::{
             apply_neow_boss_swap, apply_neow_curse_drawback, apply_neow_lament_reward,
             apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
@@ -4229,7 +4232,9 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) ->
     combat.rng.monster_rng = monster_rng;
     run.phase = RunPhase::Combat;
     run.event = None;
-    let initialized = run.init_combat_consuming_relics(combat)?;
+    let mut initialized = run.init_combat_consuming_relics(combat)?;
+    // Same Mark of Pain / cardRandomRng ordering as map combat entry.
+    add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized)?;
     initialized.validate()?;
     run.combat = Some(initialized);
     Ok(())

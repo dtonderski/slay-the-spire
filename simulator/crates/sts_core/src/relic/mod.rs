@@ -101,7 +101,7 @@ pub const SUNDIAL_THRESHOLD: u32 = 3;
 pub const SUNDIAL_ENERGY: i32 = 2;
 /// Block granted by [Relic::SelfFormingClay] after HP loss.
 pub const SELF_FORMING_CLAY_BLOCK: i32 = 3;
-/// Wounds added to the deck by [Relic::MarkOfPain] on pickup.
+/// Temporary Wounds shuffled into the draw pile by [Relic::MarkOfPain] at battle start.
 pub const MARK_OF_PAIN_WOUNDS: usize = 2;
 /// Block granted by [Relic::Anchor] at combat start.
 pub const ANCHOR_BLOCK: i32 = 10;
@@ -2502,11 +2502,11 @@ pub fn apply_end_of_player_turn_relics(state: &mut CombatState) -> SimResult<()>
 
 /// Open Nilry's Codex 3-card combat reward (caller pauses end-of-turn until closed).
 pub fn open_nilrys_codex_card_reward(state: &mut CombatState) -> SimResult<()> {
+    use crate::combat::state::CombatDecisionState;
     use crate::content::cards::get_card_definition;
     use crate::content::shop_pool::ironclad_combat_discovery_pool;
     use crate::ids::CardId;
     use crate::CardInstance;
-    use crate::combat::state::CombatDecisionState;
 
     let pool: Vec<_> = ironclad_combat_discovery_pool()
         .iter()

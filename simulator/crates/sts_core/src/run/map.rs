@@ -286,7 +286,12 @@ fn record_initial_monster_moves(combat: &mut CombatState) {
     }
 }
 
-fn add_mark_of_pain_wounds_to_draw_pile(
+/// Mark of Pain `atBattleStart` queues `MakeTempCardInDrawPileAction(Wound, 2, true, true)`
+/// after the opening hand draw. Target `CardGroup.addToRandomSpot` draws from
+/// `cardRandomRng`, which has already been advanced by Confusion/Snecko cost rolls
+/// (and any other pre-draw consumers) on that same stream. Must not re-seed from a
+/// fresh run-level counter of 0.
+pub(crate) fn add_mark_of_pain_wounds_to_draw_pile(
     run: &mut RunState,
     combat: &mut CombatState,
 ) -> SimResult<()> {
@@ -294,19 +299,23 @@ fn add_mark_of_pain_wounds_to_draw_pile(
         return Ok(());
     }
     let first_id = combat.reserve_card_instance_ids(MARK_OF_PAIN_WOUNDS)?;
-    let mut rng = run.card_random_rng();
     for offset in 0..MARK_OF_PAIN_WOUNDS {
         let next_id = CardId::new(first_id + offset as u64);
-        let wound = CardInstance::new(next_id, WOUND_ID);
+        // MakeTempCardInDrawPileAction creates combat-only status cards.
+        let wound = CardInstance {
+            combat_only: true,
+            ..CardInstance::new(next_id, WOUND_ID)
+        };
         if combat.piles.draw_pile.is_empty() {
             combat.piles.draw_pile.push(wound);
         } else {
-            let index = rng.random_int((combat.piles.draw_pile.len() - 1) as i32) as usize;
+            // CardGroup.addToRandomSpot: random(group.size() - 1) then insert.
+            let bound = (combat.piles.draw_pile.len() - 1) as i32;
+            let index = combat.rng.card_random_rng.random_int(bound) as usize;
             combat.piles.draw_pile.insert(index, wound);
         }
     }
-    combat.rng.card_random_rng = rng.clone();
-    run.store_rng_counter(RunRngStream::CardRandom, &rng);
+    run.store_rng_counter(RunRngStream::CardRandom, &combat.rng.card_random_rng);
     Ok(())
 }
 
@@ -1182,6 +1191,104 @@ mod tests {
         },
         ContentId, MonsterIntent,
     };
+
+    #[test]
+    fn mark_of_pain_wounds_consume_card_random_rng_after_snecko_opening_costs() {
+        // Target order: opening hand draw (Snecko Confusion rolls cardRandomRng per
+        // playable card) then Mark of Pain addToRandomSpot insertions on the same stream.
+        let mut run = RunState::map_fixture();
+        run.current_floor = 1;
+        run.current_act = 1;
+        run.energy_per_turn = 4;
+        run.relics = vec![Relic::SneckoEye, Relic::MarkOfPain];
+        run.deck = crate::content::deck::ironclad_starter_deck_for_ascension(0);
+        // Enough non-innate cards that the draw pile is non-empty after a 7-card hand.
+        for (index, content_id) in [
+            crate::content::cards::CLEAVE_ID,
+            crate::content::cards::POMMEL_STRIKE_ID,
+            crate::content::cards::THUNDERCLAP_ID,
+            crate::content::cards::INFLAME_ID,
+            crate::content::cards::UPPERCUT_ID,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            run.deck.push(CardInstance::new(
+                CardId::new(100 + index as u64),
+                content_id,
+            ));
+        }
+        run.normal_encounter_list = vec!["Cultist".to_owned()];
+        run.normal_combat_count = 0;
+
+        enter_normal_combat(&mut run).expect("combat starts");
+        let combat = run.combat.as_ref().expect("combat present");
+
+        let wound_count = combat
+            .piles
+            .draw_pile
+            .iter()
+            .filter(|card| card.content_id == WOUND_ID)
+            .count();
+        assert_eq!(wound_count, MARK_OF_PAIN_WOUNDS);
+        assert!(combat
+            .piles
+            .draw_pile
+            .iter()
+            .filter(|card| card.content_id == WOUND_ID)
+            .all(|card| card.combat_only));
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id != WOUND_ID));
+        // Hand size is Snecko-expanded (5 + 2).
+        assert_eq!(combat.piles.hand.len(), 7);
+
+        // 7 opening costs (Snecko hand size) + 2 random-spot inserts.
+        assert_eq!(combat.rng.card_random_rng.counter(), 9);
+        assert_eq!(run.card_random_rng_counter, 9);
+
+        // Wounds must not match counter-0 insertion into the post-draw pile
+        // (the previous bug ignored Snecko's seven cardRandomRng advances).
+        let base_draw: Vec<ContentId> = combat
+            .piles
+            .draw_pile
+            .iter()
+            .filter(|card| card.content_id != WOUND_ID)
+            .map(|card| card.content_id)
+            .collect();
+        let seed = run.rng_stream_state(RunRngStream::CardRandom).seed as i64;
+        let mut buggy_rng = StsRng::with_counter(seed, 0);
+        let mut buggy_draw = base_draw.clone();
+        for _ in 0..MARK_OF_PAIN_WOUNDS {
+            let bound = (buggy_draw.len() - 1) as i32;
+            let index = buggy_rng.random_int(bound) as usize;
+            buggy_draw.insert(index, WOUND_ID);
+        }
+        let actual_ids: Vec<ContentId> = combat
+            .piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect();
+        assert_ne!(
+            actual_ids, buggy_draw,
+            "wound positions should advance past Snecko cost rolls, not reuse counter 0"
+        );
+
+        let mut expected_rng = StsRng::with_counter(seed, 0);
+        for _ in 0..7 {
+            let _ = expected_rng.random_int(3);
+        }
+        let mut expected_draw = base_draw;
+        for _ in 0..MARK_OF_PAIN_WOUNDS {
+            let bound = (expected_draw.len() - 1) as i32;
+            let index = expected_rng.random_int(bound) as usize;
+            expected_draw.insert(index, WOUND_ID);
+        }
+        assert_eq!(actual_ids, expected_draw);
+    }
 
     #[test]
     fn map_counter_overflow_fails_before_mutation() {

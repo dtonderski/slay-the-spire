@@ -1289,6 +1289,41 @@ fn random_fidelity_warcry_limbo_and_evolve_end_turn_draw_order() {
 }
 
 #[test]
+fn random_fidelity_mark_of_pain_wounds_after_snecko_combat_entry() {
+    // Mark of Pain inserts 2 Wounds via cardRandomRng after the opening hand
+    // draw; Snecko Confusion cost rolls must advance that stream first.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-56f5d5f2bad30be7.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Mark of Pain + Snecko combat-entry permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "map first monster node draw_ids Wound order must match: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 348)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "post-boss Mark of Pain combat entry must verify: {report:#?}"
+    );
+}
+
+#[test]
 fn forethought_skipped_put_on_deck_retrieval_frame_replays_source_transition() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-ded412a8f5a83ec0.jsonl")
