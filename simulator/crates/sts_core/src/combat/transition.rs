@@ -1708,6 +1708,14 @@ fn apply_play_top_draw_card(
     exhaust_played_card: bool,
     random_living_target: bool,
 ) -> SimResult<Vec<InternalAction>> {
+    // Havoc.use (and similar random-target PlayTop callers) draw a living
+    // monster from cardRandomRng when constructing PlayTopCardAction — even if
+    // the subsequent action no-ops because both draw and discard are empty.
+    // Consume that roll up front so later cardRandomRng uses stay aligned.
+    let preselected_random_target = random_living_target
+        .then(|| random_living_monster_id(state))
+        .flatten();
+
     if state.piles.draw_pile.is_empty() {
         if state.piles.discard_pile.is_empty() {
             return Ok(Vec::new());
@@ -1722,10 +1730,9 @@ fn apply_play_top_draw_card(
         .ok_or(SimError::IllegalAction("draw pile is empty"))?;
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
-    let random_target = random_living_target.then(|| random_living_monster_id(state));
     let target = target.or_else(|| {
         if definition.target == TargetRequirement::Enemy {
-            random_target.flatten()
+            preselected_random_target
         } else {
             None
         }
@@ -1749,9 +1756,17 @@ fn apply_play_top_draw_card(
                 )
             })
         });
+    // AbstractCard.canUse rejects Attack cards while Entangled. GameActionManager
+    // still removes the autoplayed card from limbo and, with exhaustOnUseOnce
+    // (Havoc / Mayhem PlayTopCard), settles it via UseCardAction without calling
+    // use() — exhaust without damage/debuffs. Match that rather than resolving
+    // the attack as a free forced play.
+    let entangled_blocks_attack =
+        state.player.powers.entangled > 0 && definition.card_type == CardType::Attack;
     if definition.keywords.unplayable
         || clash_is_unplayable
         || dual_wield_is_unplayable
+        || entangled_blocks_attack
         || !crate::relic::can_play_card_with_relics(state)
     {
         let mut follow_ups = Vec::new();
@@ -4844,6 +4859,58 @@ mod tests {
     }
 
     #[test]
+    fn havoc_exhausts_attack_without_effect_while_entangled() {
+        // Entangled makes AbstractCard.canUse reject Attacks. Havoc still
+        // force-exhausts the top attack (exhaustOnUseOnce) without resolving
+        // damage or apply-power effects — see GameActionManager autoplay fail
+        // path + UseCardAction(dontTriggerOnUseCard).
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].id = target;
+        state.monsters[0].hp = 40;
+        state.monsters[0].max_hp = 40;
+        state.monsters[0].powers.vulnerable = 0;
+        state.player.energy = 1;
+        state.player.powers.entangled = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), BASH_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc resolves while Entangled");
+
+        assert_eq!(
+            next.monsters[0].hp, 40,
+            "Entangled blocks Bash damage through Havoc"
+        );
+        assert_eq!(
+            next.monsters[0].powers.vulnerable, 0,
+            "Entangled blocks Bash Vulnerable through Havoc"
+        );
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == BASH_ID),
+            "Bash is still force-exhausted by Havoc"
+        );
+        assert!(
+            next.piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == HAVOC_ID),
+            "Havoc itself still settles to discard"
+        );
+    }
+
+    #[test]
     fn havoc_exhausts_slimed_after_its_explicit_no_effect_play() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 1;
@@ -5187,12 +5254,14 @@ mod tests {
         let mut staged = state;
         let queue = apply_play_top_draw_card(&mut staged, None, true, false)
             .expect("top-draw Dual Wield queue");
-        let mut next = process_internal_queue(&staged, queue.into())
-            .expect("top-draw Dual Wield opens hand selection")
+        let next = process_internal_queue(&staged, queue.into())
+            .expect("top-draw Dual Wield with a single eligible attack auto-confirms")
             .state;
-        choose_hand_select(&mut next, 0).expect("select Strike");
-        confirm_hand_select(&mut next).expect("resolve Dual Wield selection");
 
+        assert!(
+            next.hand_select().is_none(),
+            "single eligible Dual Wield target is auto-selected"
+        );
         assert_eq!(next.piles.hand.len(), 2);
         assert!(next
             .piles

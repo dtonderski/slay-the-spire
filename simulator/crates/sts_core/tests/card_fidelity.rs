@@ -4030,6 +4030,7 @@ fn havoc_empty_draw_and_discard_discards_source_without_top_card_effect() {
     state.piles.exhaust_pile.clear();
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
     let starting_hp = state.monsters[0].hp;
+    let rng_before = state.rng.card_random_rng.counter();
 
     let legal_actions = valid_legal_combat_actions(&state);
     assert!(legal_actions.contains(&CombatAction::PlayCard {
@@ -4052,6 +4053,13 @@ fn havoc_empty_draw_and_discard_discards_source_without_top_card_effect() {
     assert!(next.piles.exhaust_pile.is_empty());
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::HAVOC_ID);
+    // Havoc.use always draws a random living target via cardRandomRng before
+    // queuing PlayTopCardAction, even when that action later no-ops.
+    assert_eq!(
+        next.rng.card_random_rng.counter(),
+        rng_before + 1,
+        "empty Havoc still consumes the Havoc.use target roll"
+    );
 }
 
 #[test]
