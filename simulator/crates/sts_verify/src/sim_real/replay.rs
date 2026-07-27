@@ -6994,6 +6994,37 @@ fn smith_deck_matches_prefix(observed: &[String], expected_prefix: &[String]) ->
             .all(|(observed, expected)| observed == expected)
 }
 
+/// Master-deck projection while `CampfireSmithEffect` has pulled the upgrading
+/// card(s) out for the upgrade shine and has not yet reinserted them.
+fn smith_mid_effect_deck(transient: &[String], settled: &[String]) -> Option<Vec<String>> {
+    if transient.len() != settled.len() || transient == settled {
+        return None;
+    }
+    let mut mid = Vec::with_capacity(transient.len());
+    let mut removed = 0usize;
+    for (before, after) in transient.iter().zip(settled.iter()) {
+        if before == after {
+            mid.push(before.clone());
+        } else {
+            removed += 1;
+        }
+    }
+    if removed == 0 {
+        None
+    } else {
+        Some(mid)
+    }
+}
+
+fn smith_deck_matches_mid_effect(
+    observed: &[String],
+    transient: &[String],
+    settled: &[String],
+) -> bool {
+    smith_mid_effect_deck(transient, settled)
+        .is_some_and(|mid| smith_deck_matches_prefix(observed, &mid) || observed == mid)
+}
+
 fn settle_smith_simulation(sim: &mut RunState, pending: &PendingSmithEffect) {
     fn settle_cards(cards: &mut [CardInstance], pending: &PendingSmithEffect) {
         for card in cards {
@@ -7199,18 +7230,33 @@ pub(super) fn verify_seed_start_transitions(
         if let Some(pending) = pending_smith_effect.take() {
             let observed_pre_deck = seed_start_observed_deck(&pre.message);
             let elapsed = smith_effect_elapsed_millis(&pending, post.received_at.as_deref());
-            if smith_deck_matches_prefix(&observed_pre_deck, &pending.settled_deck) {
+            let past_effect_window =
+                elapsed.is_some_and(|elapsed| elapsed >= CAMPFIRE_SMITH_EFFECT_MILLIS);
+            let matches_settled =
+                smith_deck_matches_prefix(&observed_pre_deck, &pending.settled_deck);
+            let matches_transient =
+                smith_deck_matches_prefix(&observed_pre_deck, &pending.transient_deck);
+            let matches_mid = smith_deck_matches_mid_effect(
+                &observed_pre_deck,
+                &pending.transient_deck,
+                &pending.settled_deck,
+            );
+            if matches_settled {
                 if let Some(sim) = seed_sim.as_mut() {
                     settle_smith_simulation(sim, &pending);
                 }
-            } else if smith_deck_matches_prefix(&observed_pre_deck, &pending.transient_deck)
-                && elapsed.is_some_and(|elapsed| elapsed >= CAMPFIRE_SMITH_EFFECT_MILLIS)
-            {
+            } else if matches_transient || matches_mid {
                 let mut pending = pending;
-                pending.source_projection_stale = true;
+                if past_effect_window {
+                    pending.source_projection_stale = true;
+                }
                 pending_smith_effect = Some(pending);
-            } else if smith_deck_matches_prefix(&observed_pre_deck, &pending.transient_deck) {
-                pending_smith_effect = Some(pending);
+            } else if pending.source_projection_stale || past_effect_window {
+                // Capture moved on with a non-smith deck mutation (or never
+                // published the upgraded identity). Release the pending effect
+                // without treating the new deck as a smith identity failure.
+                // Simulator deck remains the rolled-back transient projection
+                // until a true settled frame is observed.
             } else {
                 report.unexpected_diffs.push(UnexpectedDiff {
                     action_step: action.step,

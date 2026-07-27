@@ -710,6 +710,56 @@ fn smith_trace_models_in_flight_effect_before_proceed() {
 }
 
 #[test]
+fn smith_mid_effect_and_stale_release_reconcile_vampires_after_multiple_smiths() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-597134b9957bd497.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("multi-smith + Vampires regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert!(report.verified.iter().any(|transition| {
+        transition.label == "rest smith effect queued"
+    }));
+}
+
+#[test]
+fn smith_mid_effect_deck_omission_does_not_fail_as_rest_smith_identity() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-814046a9628c9f89.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("smith mid-effect omission trace parses");
+
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 110 && transition.label == "rest smith effect queued"
+    }));
+    let failed_as_smith_identity = report.unsupported.iter().any(|entry| {
+        entry.action_step == 113 && entry.reason.contains("rest smith effect")
+    }) || report.unexpected_diffs.iter().any(|entry| {
+        entry.action_step == 113 && entry.label == "rest smith effect"
+    });
+    assert!(
+        !failed_as_smith_identity,
+        "step 113 must not fail as rest smith identity: {report:#?}"
+    );
+}
+
+#[test]
 fn purifier_direct_leave_reaches_its_terminal_leave_screen() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-f2676070173c3be6.jsonl")

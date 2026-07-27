@@ -1120,17 +1120,24 @@ struct PendingDeckAssertion {
 }
 
 /// `CampfireSmithEffect` upgrades the selected card from the target effect
-/// queue. The target keeps the pre-upgrade deck visible for 1.5 seconds while
-/// that effect runs, so a rapid trace can legitimately contain several stale
-/// deck frames without changing the authoritative settled result.
+/// queue. The target can expose several non-settled deck projections while
+/// that effect runs:
+/// - the pre-upgrade deck for ~1.5s
+/// - a mid-effect deck with the upgrading card temporarily removed from the
+///   master deck before it is reinserted upgraded
+///
+/// Some CommunicationMod captures also keep exposing the pre-upgrade deck
+/// after the animation window, or never publish the upgraded identity at all.
+/// Replay keeps the pending effect until a settled frame, a later non-smith
+/// deck mutation after the window, or end-of-trace.
 struct PendingSmithEffect {
     action: TraceAction,
     transient_deck: Vec<String>,
     settled_deck: Vec<String>,
-    /// Some CommunicationMod captures keep exposing the pre-upgrade deck
-    /// after the target animation has finished. Keep that observation
-    /// distinct from the simulator's authoritative settled deck so the
-    /// replay can diagnose it without treating it as a gameplay transition.
+    /// True once the capture is still on a non-settled smith projection after
+    /// the target animation window. Later unrelated deck mutations should
+    /// release the pending effect instead of failing as a smith identity
+    /// mismatch.
     source_projection_stale: bool,
 }
 
