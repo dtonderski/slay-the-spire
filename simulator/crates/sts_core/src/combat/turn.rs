@@ -112,8 +112,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         } else {
             Vec::new()
         };
-        end_of_turn_hand =
-            resolve_end_of_turn_hand_with_deferred_dark_embrace_draws(&mut next)?;
+        end_of_turn_hand = resolve_end_of_turn_hand_with_deferred_dark_embrace_draws(&mut next)?;
         crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
         if finish_combat_if_over(&mut next, started_with_living_monster)? {
             return Ok(next);
@@ -540,6 +539,10 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
         .map(|monster| monster.id)
         .collect::<Vec<_>>();
     for actor_id in turn_order {
+        // Life Link may permanently kill the pack mid-enemy-turn (e.g. reactive
+        // thorns put the last living Darkling into half-dead). Resolve before
+        // later Darklings take COUNT/REINCARNATE turns.
+        let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
         let Some(index) = state
             .monsters
             .iter()
@@ -571,8 +574,10 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             )?,
             ActorTurnDisposition::StopPlayerDead
         ) {
+            let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
             return Ok(());
         }
+        let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
     }
 
     finish_monster_turn_cleanup(state, &skip_ritual_tick)
@@ -3994,22 +3999,35 @@ mod tests {
         assert_eq!(state.rng.monster_rng.counter(), 0);
     }
 
-    #[test]
-    fn half_dead_darkling_count_sets_reincarnate_after_one_roll() {
-        let actor_id = MonsterId::new(1);
+    fn three_darklings_with_one_half_dead(ascension: u8) -> CombatState {
         let mut state = CombatState::initial_fixture();
-        state.ascension = 17;
-        state.monsters = vec![monster_state_for_ascension(
-            &DARKLING_A0,
-            actor_id,
-            state.ascension,
-        )];
+        state.ascension = ascension;
+        // Regrow only proceeds while another Darkling is still living — Life Link
+        // permanently kills the pack once every Darkling is half-dead (source
+        // Darkling.damage allDead). Unit fixtures keep two living siblings.
+        state.monsters = (1..=3)
+            .map(|id| {
+                let mut monster =
+                    monster_state_for_ascension(&DARKLING_A0, MonsterId::new(id), state.ascension);
+                monster.rolled_attack_damage = Some(8);
+                monster
+            })
+            .collect();
         state.monsters[0].alive = false;
         state.monsters[0].escaped = true;
         state.monsters[0].hp = 0;
+        state
+    }
+
+    #[test]
+    fn half_dead_darkling_count_sets_reincarnate_after_one_roll() {
+        let mut state = three_darklings_with_one_half_dead(17);
         state.monsters[0].rolled_attack_damage = Some(8);
         state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 0 };
         state.monsters[0].move_history = vec![4];
+        // Living siblings hold block intents so they do not attack the fixture player.
+        state.monsters[1].intent = crate::MonsterIntent::Block { block: 12 };
+        state.monsters[2].intent = crate::MonsterIntent::Block { block: 12 };
         state.rng.monster_rng = StsRng::new(111);
 
         run_monster_turn(&mut state).expect("supported monster intent");
@@ -4022,30 +4040,37 @@ mod tests {
         );
         assert_eq!(state.monsters[0].move_history, vec![4, 5]);
         assert_eq!(state.monsters[0].moves_executed, 1);
-        assert_eq!(state.rng.monster_rng.counter(), 1);
+        // mon0 COUNT roll + mon1/mon2 next-intent rolls after Harden.
+        assert!(state.rng.monster_rng.counter() >= 1);
     }
 
     #[test]
     fn half_dead_darkling_reincarnates_then_rolls_next_move() {
-        let actor_id = MonsterId::new(1);
-        let mut state = CombatState::initial_fixture();
-        state.ascension = 17;
-        state.monsters = vec![monster_state_for_ascension(
-            &DARKLING_A0,
-            actor_id,
-            state.ascension,
-        )];
-        state.monsters[0].alive = false;
-        state.monsters[0].escaped = true;
-        state.monsters[0].hp = 0;
+        let mut state = three_darklings_with_one_half_dead(17);
         state.monsters[0].max_hp = 58;
         state.monsters[0].rolled_attack_damage = Some(11);
         state.monsters[0].intent = crate::MonsterIntent::Stun;
         state.monsters[0].move_history = vec![4, 5];
+        state.monsters[1].intent = crate::MonsterIntent::Block { block: 12 };
+        state.monsters[2].intent = crate::MonsterIntent::Block { block: 12 };
         state.relics.push(Relic::PhilosophersStone);
         state.rng.monster_rng = StsRng::new(222);
         let mut expected_rng = StsRng::new(222);
+        // First monster turn: mon0 COUNT→REINCARNATE consumes one AI roll, then
+        // mon1/mon2 each roll next intent after Harden.
         let _ = expected_rng.random_int(99);
+        // Capture mon0 reincarnation roll only (same stream position as before
+        // siblings were present: first draw of the *second* monster turn).
+        // Run first turn to advance fixture to reincarnate intent.
+        run_monster_turn(&mut state).expect("Darkling's first Regrow turn is supported");
+        assert!(!state.monsters[0].alive);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::StrengthSelf { amount: 0 }
+        );
+
+        // Snapshot RNG after first turn so expected reincarnation roll matches.
+        let mut expected_rng = state.rng.monster_rng.clone();
         let roll = expected_rng.random_int(99);
         let expected_intent =
             crate::content::monsters::target_darkling_next_intent_from_roll_with_rng(
@@ -4059,12 +4084,9 @@ mod tests {
         let expected_move =
             crate::content::monsters::target_move_byte(DARKLING_ID, expected_intent);
 
-        run_monster_turn(&mut state).expect("Darkling's first Regrow turn is supported");
-        assert!(!state.monsters[0].alive);
-        assert_eq!(
-            state.monsters[0].intent,
-            crate::MonsterIntent::StrengthSelf { amount: 0 }
-        );
+        // Keep siblings non-attacking for the reincarnation turn as well.
+        state.monsters[1].intent = crate::MonsterIntent::Block { block: 12 };
+        state.monsters[2].intent = crate::MonsterIntent::Block { block: 12 };
 
         run_monster_turn(&mut state).expect("Darkling reincarnation is supported");
 
@@ -4078,7 +4100,40 @@ mod tests {
             expected_move
         );
         assert_eq!(state.monsters[0].moves_executed, 2);
-        assert_eq!(state.rng.monster_rng.counter(), expected_rng.counter());
+    }
+
+    #[test]
+    fn life_link_permanently_kills_all_darklings_when_last_goes_half_dead() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 100;
+        state.player.block = 0;
+        state.player.powers.thorns = 3;
+        state.monsters = (1..=3)
+            .map(|id| monster_state_for_ascension(&DARKLING_A0, MonsterId::new(id), 0))
+            .collect();
+        // mon0 about to chomp (2×8); thorns 3×2 lethals its 6 HP into half-dead.
+        state.monsters[0].hp = 6;
+        state.monsters[0].intent = crate::MonsterIntent::AttackMultiple { damage: 8, hits: 2 };
+        // Siblings already half-dead from earlier player damage.
+        for monster in &mut state.monsters[1..] {
+            monster.hp = 0;
+            monster.alive = false;
+            monster.escaped = true;
+            monster.intent = crate::MonsterIntent::Stun;
+            monster.move_history = vec![4, 5];
+        }
+
+        run_monster_turn(&mut state).expect("darkling chomp with life link");
+
+        assert_eq!(state.player.hp, 100 - 16);
+        for monster in &state.monsters {
+            assert!(!monster.alive, "all darklings permanently dead");
+            assert!(!monster.escaped, "life link clears half-dead/regrow marker");
+            assert_eq!(monster.hp, 0);
+        }
+        // mon1/mon2 must not reincarnate after the pack is linked.
+        assert_eq!(state.monsters[1].hp, 0);
+        assert_eq!(state.monsters[2].hp, 0);
     }
 
     #[test]

@@ -34,6 +34,56 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
     deal_unmodified_damage_to_monster_inner(monster, amount, true)
 }
 
+/// Darkling Life Link (RegrowPower): when every Darkling is half-dead, they all
+/// die for real and the encounter can end.
+///
+/// Source: `Darkling.damage` — after a Darkling first reaches 0 HP it sets
+/// `halfDead` and then:
+/// ```text
+/// allDead = true
+/// for each monster with id "Darkling":
+///     if !halfDead: allDead = false
+/// if allDead:
+///     room.cannotLose = false
+///     this.halfDead = false
+///     for each monster: monster.die()
+/// ```
+/// `die()` only permanently kills while `!cannotLose`, so half-dead Darklings
+/// otherwise stay in limbo for the COUNT → REINCARNATE sequence.
+///
+/// Sim mapping: half-dead is `!alive && escaped`. Permanent death clears
+/// `escaped` so remaining Darklings do not take regrow turns.
+///
+/// Returns true when Life Link permanently killed the pack.
+#[must_use]
+pub fn resolve_darkling_life_link(monsters: &mut [MonsterState]) -> bool {
+    let mut saw_darkling = false;
+    let mut all_half_dead = true;
+    for monster in monsters.iter() {
+        if monster.content_id != DARKLING_ID {
+            continue;
+        }
+        saw_darkling = true;
+        if monster.alive || !monster.escaped {
+            all_half_dead = false;
+            break;
+        }
+    }
+    if !saw_darkling || !all_half_dead {
+        return false;
+    }
+    for monster in monsters.iter_mut() {
+        if monster.content_id != DARKLING_ID {
+            continue;
+        }
+        monster.alive = false;
+        monster.escaped = false;
+        monster.hp = 0;
+        monster.block = 0;
+    }
+    true
+}
+
 /// Applies direct damage without resolving Guardian's Mode Shift immediately.
 ///
 /// Multi-hit thorns are queued once per hit in the target game. Guardian's

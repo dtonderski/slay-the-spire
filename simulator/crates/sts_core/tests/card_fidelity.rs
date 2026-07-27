@@ -3719,9 +3719,15 @@ fn ritual_dagger_does_not_grow_on_a_half_dead_darkling() {
     state.player.energy = 1;
     state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::RITUAL_DAGGER_ID)];
     state.piles.exhaust_pile.clear();
-    state.monsters = vec![monster_state(&DARKLING_A0, MonsterId::new(1))];
-    state.monsters[0].rolled_attack_damage = Some(8);
-    state.monsters[0].intent = MonsterIntent::Attack { damage: 8 };
+    // Living sibling keeps Life Link from permanently killing the pack.
+    state.monsters = vec![
+        monster_state(&DARKLING_A0, MonsterId::new(1)),
+        monster_state(&DARKLING_A0, MonsterId::new(2)),
+    ];
+    for monster in &mut state.monsters {
+        monster.rolled_attack_damage = Some(8);
+        monster.intent = MonsterIntent::Attack { damage: 8 };
+    }
     state.monsters[0].hp = 1;
     state.monsters[0].max_hp = 1;
 
@@ -3736,6 +3742,7 @@ fn ritual_dagger_does_not_grow_on_a_half_dead_darkling() {
 
     assert!(!next.monsters[0].alive);
     assert!(next.monsters[0].escaped);
+    assert!(next.monsters[1].alive);
     assert_eq!(next.piles.exhaust_pile[0].ritual_dagger_damage_bonus, 0);
 }
 

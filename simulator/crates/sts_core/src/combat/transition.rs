@@ -211,6 +211,10 @@ fn process_internal_queue(
     flush_pending_player_spikes_damage_if_ready(&mut next)?;
     flush_pending_monster_death_relics_if_ready(&mut next)?;
 
+    // Darkling Life Link: when card damage leaves every Darkling half-dead,
+    // permanently kill them so combat can end (source Darkling.damage allDead).
+    let _ = crate::combat::damage::resolve_darkling_life_link(&mut next.monsters);
+
     // Byrd's Grounded action is queued behind the complete card action. A
     // copied or multi-hit card therefore keeps Flight's reduction for every
     // hit, even when an earlier hit reduced Flight to zero.
@@ -4345,9 +4349,16 @@ mod tests {
     fn feed_does_not_gain_max_hp_from_a_half_dead_darkling() {
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
-        state.monsters = vec![monster_state(&DARKLING_A0, target)];
-        state.monsters[0].rolled_attack_damage = Some(8);
-        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 8 };
+        // Keep a living sibling so Life Link does not permanently kill the pack
+        // (source Darkling.damage allDead requires every Darkling half-dead).
+        state.monsters = vec![
+            monster_state(&DARKLING_A0, target),
+            monster_state(&DARKLING_A0, MonsterId::new(2)),
+        ];
+        for monster in &mut state.monsters {
+            monster.rolled_attack_damage = Some(8);
+            monster.intent = crate::MonsterIntent::Attack { damage: 8 };
+        }
         state.monsters[0].hp = 1;
         state.monsters[0].max_hp = 1;
         state.player.hp = 81;
@@ -4368,6 +4379,7 @@ mod tests {
         assert_eq!(next.player.hp, 81);
         assert!(!next.monsters[0].alive);
         assert!(next.monsters[0].escaped);
+        assert!(next.monsters[1].alive);
     }
 
     #[test]
