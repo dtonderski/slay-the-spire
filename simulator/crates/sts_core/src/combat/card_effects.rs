@@ -4096,12 +4096,17 @@ fn master_of_strategy_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
+    // Draw while the played card is in limbo (not occupying a hand slot). Plain
+    // DrawCards at max hand size skips every draw, then exhausts the source and
+    // leaves the hand one short (permanent_traces random-fidelity-809d00fe
+    // PLAY 10 after Master of Strategy under Runic Pyramid).
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DrawCards {
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo {
+            card_id,
             count: if definition.id == MASTER_OF_STRATEGY_PLUS_ID {
                 4
             } else {

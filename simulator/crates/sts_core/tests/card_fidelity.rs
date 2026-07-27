@@ -1942,6 +1942,51 @@ fn pommel_strike_draws_after_freeing_a_full_hand_slot() {
 }
 
 #[test]
+fn master_of_strategy_draws_after_freeing_a_full_hand_slot() {
+    // Master of Strategy draws 3 while the played card is in limbo. At max hand
+    // size the freed slot allows one draw before the remaining draws cap out;
+    // plain DrawCards would skip all three and leave the hand one short.
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = (1..=9)
+        .map(|id| CardInstance::new(CardId::new(id), cards::STRIKE_R_ID))
+        .chain(std::iter::once(CardInstance::new(
+            CardId::new(10),
+            cards::MASTER_OF_STRATEGY_ID,
+        )))
+        .collect();
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(13), cards::BASH_ID),
+        CardInstance::new(CardId::new(12), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(11), cards::POMMEL_STRIKE_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(10),
+            target: None,
+        },
+    )
+    .expect("Master of Strategy should play from a full hand");
+
+    assert_eq!(next.piles.hand.len(), 10);
+    assert_eq!(
+        next.piles.hand.last().map(|card| card.content_id),
+        Some(cards::POMMEL_STRIKE_ID),
+        "the single successful draw fills the freed hand slot"
+    );
+    assert_eq!(next.piles.draw_pile.len(), 2);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::MASTER_OF_STRATEGY_ID
+    );
+}
+
+#[test]
 fn pommel_strike_double_tap_keeps_source_available_for_copied_draw() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

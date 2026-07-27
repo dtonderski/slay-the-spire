@@ -1358,6 +1358,40 @@ fn warcry_put_on_deck_lethal_end_does_not_residual_dropkick_next_combat() {
 }
 
 #[test]
+fn random_fidelity_master_of_strategy_full_hand_draw_enables_play_ten() {
+    // Runic Pyramid + Snecko floor keeps a 10-card hand. Master of Strategy
+    // must limbo-draw into the freed slot (Pommel Strike) so PLAY 10 0 parses.
+    // Permanent tip: random-fidelity-809d00fe56ad6122 step 561.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-809d00fe56ad6122.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Master of Strategy full-hand draw permanent tip replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(
+        report
+            .unsupported
+            .iter()
+            .all(|entry| entry.action_step > 561),
+        "step 561 PLAY 10 0 must parse after Master of Strategy draw: {report:#?}"
+    );
+    for step in [560, 561] {
+        assert_eq!(
+            report
+                .action_dispositions
+                .iter()
+                .find(|entry| entry.action_step == step)
+                .map(|entry| entry.disposition),
+            Some(ActionDispositionKind::Verified),
+            "step {step} must verify after full-hand Master of Strategy draw: {report:#?}"
+        );
+    }
+}
+
+#[test]
 fn back_to_basics_elegance_grid_choose_removes_and_returns_to_leave() {
     // Ancient Writing / Back to Basics Elegance: CHOOSE on the remove grid
     // auto-confirms (no CONFIRM command) and lands on EVENT Leave with the
