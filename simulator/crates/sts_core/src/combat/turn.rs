@@ -1622,15 +1622,24 @@ fn prepare_next_intents_for_ids(
                     ACID_SLIME_ID | SPIKE_SLIME_ID | SLIME_BOSS_ID
                 )
             {
-                // Non-split takeTurns (Tackle / Corrosive Spit / Lick) still queue
-                // RollMoveAction. SplitPower may already have forced the SPLIT
-                // intent mid-turn (e.g. reactive thorns), but AbstractMonster
-                // still draws the common AI roll before getMove re-asserts SPLIT.
-                // Consume that draw so post-split child spawn rolls stay aligned.
-                // The SPLIT takeTurn itself does not queue RollMoveAction; when the
-                // parent is already dead after spawning children, skip without a draw.
+                // Acid/Spike non-split takeTurns (Tackle / Corrosive Spit / Lick)
+                // still queue RollMoveAction. SplitPower may already have forced
+                // the SPLIT intent mid-turn (e.g. reactive thorns), but
+                // AbstractMonster still draws the common AI roll before getMove
+                // re-asserts SPLIT. Consume that draw so post-split child spawn
+                // rolls stay aligned.
+                //
+                // SlimeBoss never queues RollMoveAction: its cycle setMoves the
+                // next intent inside takeTurn, and damage() interrupts to SPLIT
+                // without an AI draw. Do not consume monster_rng for the boss.
+                //
+                // The SPLIT takeTurn itself does not queue RollMoveAction; when
+                // the parent is already dead after spawning children, skip
+                // without a draw.
                 if monster.alive {
-                    let _ = state.rng.monster_rng.random_int(99);
+                    if matches!(monster.content_id, ACID_SLIME_ID | SPIKE_SLIME_ID) {
+                        let _ = state.rng.monster_rng.random_int(99);
+                    }
                     record_target_move(monster);
                 }
                 continue;
@@ -3069,6 +3078,8 @@ mod tests {
         boss.intent = crate::MonsterIntent::Attack { damage: 35 };
         boss.moves_executed = 5;
         state.monsters = vec![boss];
+        state.rng.monster_rng = StsRng::new(99);
+        let expected_counter = state.rng.monster_rng.counter();
 
         run_monster_turn(&mut state).expect("supported Slime Boss attack");
 
@@ -3078,6 +3089,59 @@ mod tests {
             crate::MonsterIntent::SummonGremlins { count: 2 }
         );
         assert!(state.monsters[0].split_triggered);
+        // SlimeBoss never queues RollMoveAction; thorns-forced SPLIT must not
+        // pull a common AI roll or child opening intents desync.
+        assert_eq!(state.rng.monster_rng.counter(), expected_counter);
+    }
+
+    #[test]
+    fn slime_boss_thorns_forced_split_child_rolls_skip_boss_ai_draw() {
+        // After a thorns-forced SPLIT intent, the next SPLIT takeTurn rolls
+        // Spike then Acid opening moves with no intervening boss AI draw.
+        let boss_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.thorns = 3;
+        let mut boss = monster_state_for_ascension(&SLIME_BOSS_A0, boss_id, state.ascension);
+        boss.hp = 72;
+        boss.intent = crate::MonsterIntent::Attack { damage: 35 };
+        boss.moves_executed = 5;
+        state.monsters = vec![boss];
+        state.rng.monster_rng = StsRng::new(12345);
+
+        run_monster_turn(&mut state).expect("Slam + thorns force SPLIT intent");
+        assert!(state.monsters[0].split_triggered);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::SummonGremlins { count: 2 }
+        );
+
+        let mut expected_rng = state.rng.monster_rng.clone();
+        let spike_roll = expected_rng.random_int(99);
+        let spike_intent =
+            crate::content::monsters::target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+                true, &[], spike_roll, 0,
+            );
+        let acid_roll = expected_rng.random_int(99);
+        let acid_intent = crate::content::monsters::target_large_acid_slime_next_intent_from_roll(
+            &[],
+            acid_roll,
+            &mut expected_rng,
+            0,
+        );
+
+        run_monster_turn(&mut state).expect("Slime Boss executes SPLIT");
+
+        let living: Vec<_> = state
+            .monsters
+            .iter()
+            .filter(|monster| monster.alive)
+            .collect();
+        assert_eq!(living.len(), 2);
+        assert_eq!(living[0].content_id, SPIKE_SLIME_ID);
+        assert_eq!(living[1].content_id, ACID_SLIME_ID);
+        assert_eq!(living[0].intent, spike_intent);
+        assert_eq!(living[1].intent, acid_intent);
+        assert_eq!(state.rng.monster_rng.counter(), expected_rng.counter());
     }
 
     #[test]
