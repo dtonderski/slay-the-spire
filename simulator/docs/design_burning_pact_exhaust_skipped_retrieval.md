@@ -37,10 +37,18 @@ candidate is accepted only when the stable observed subset matches it
 from the candidate so end-turn settlement of the pending card participates in
 discard→draw shuffle correctly.
 
+Core `end_player_turn` settles `pending_hidden_hand_card_until_end_turn` into
+discard only when the visible hand was non-empty at END (same leftover
+`selectedCards` window as put-on-deck skipped retrieval). Empty-hand ENDs hold
+the card outside every pile through the next refill so it does not contaminate
+the discard→draw shuffle (`random-fidelity-c60c2349aa8da68d` step 237).
+
 ## Evidence
 
 - `random-fidelity-46eca3ff50276214` / `131acce58bb62226` step 252 CONFIRM:
   selected Shrug UUID missing from all piles; hand gains only BP draws; after
-  END the UUID reappears via shuffle/draw.
+  non-empty-hand END the UUID reappears via shuffle/draw.
 - Same combat step 227 CONFIRM (earlier, lighter exhaust load): normal exhaust
   + Dark Embrace draw matches core.
+- `random-fidelity-c60c2349aa8da68d` step 234 deferred CONFIRM → spend hand →
+  empty-hand END 237: stuck Thunderclap stays out of hand/draw/discard.

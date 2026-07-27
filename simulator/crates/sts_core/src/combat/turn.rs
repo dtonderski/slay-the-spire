@@ -134,9 +134,19 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
             return Ok(next);
         }
     }
+    // Leftover HandCardSelectScreen.selectedCards re-enter discard via
+    // DiscardAction only when the visible hand was non-empty. Empty-hand ENDs
+    // hold the card outside every pile through the next refill (same window as
+    // put-on-deck skipped retrieval), otherwise the stuck card contaminates the
+    // discard→draw shuffle (Burning Pact deferred exhaust selection).
+    let settle_pending_hidden_into_discard = !next.piles.hand.is_empty();
     discard_end_of_turn_hand(&mut next);
     if let Some(card) = next.pending_hidden_hand_card_until_end_turn.take() {
-        next.piles.discard_pile.push(card);
+        if settle_pending_hidden_into_discard {
+            next.piles.discard_pile.push(card);
+        } else {
+            next.pending_hidden_hand_card_until_end_turn = Some(card);
+        }
     }
     // Dead Branch cards created while end-of-turn ethereal cards exhaust are
     // queued after the hand discard and remain at the front of the next hand.
@@ -2195,8 +2205,9 @@ mod tests {
     use super::*;
     use crate::combat::hand::resolve_end_of_turn_hand;
     use crate::content::cards::{
-        BASH_ID, BURN_ID, DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, POMMEL_STRIKE_ID,
-        REGRET_ID, SHAME_ID, SLIMED_ID, STRIKE_R_ID, VOID_ID, WOUND_ID,
+        BASH_ID, BURNING_PACT_ID, BURN_ID, DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID,
+        POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID, SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID,
+        WOUND_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -2312,6 +2323,46 @@ mod tests {
             vec![CardId::new(2), CardId::new(1), CardId::new(9)]
         );
         assert!(next.pending_hidden_hand_card_until_end_turn.is_none());
+    }
+
+    #[test]
+    fn empty_hand_end_holds_pending_hidden_card_out_of_shuffle() {
+        // Burning Pact deferred exhaust selection parks the stuck selected card
+        // in pending_hidden. When the rest of the hand is spent before END,
+        // empty-hand DiscardAction does not settle leftover selectedCards into
+        // discard — the card must not join the next draw shuffle.
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+        ];
+        state.pending_hidden_hand_card_until_end_turn =
+            Some(CardInstance::new(CardId::new(4), THUNDERCLAP_ID));
+
+        let next = end_player_turn(&state).expect("supported monster intent");
+
+        assert_eq!(
+            next.pending_hidden_hand_card_until_end_turn
+                .expect("empty-hand END holds pending card")
+                .content_id,
+            THUNDERCLAP_ID
+        );
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .chain(next.piles.draw_pile.iter())
+            .chain(next.piles.discard_pile.iter())
+            .all(|card| card.content_id != THUNDERCLAP_ID));
+        assert_eq!(next.piles.hand.len(), 3);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == BURNING_PACT_ID));
     }
 
     #[test]

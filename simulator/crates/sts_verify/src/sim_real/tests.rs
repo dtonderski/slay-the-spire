@@ -11743,6 +11743,39 @@ fn random_fidelity_burning_pact_end_turn_draw_ordering_after_deferred_selection(
 }
 
 #[test]
+fn random_fidelity_burning_pact_empty_hand_end_holds_deferred_selected_card() {
+    // Deferred ExhaustAction retrieval parks Thunderclap outside every pile.
+    // Spending the rest of the hand then END must not inject that card into
+    // the empty-hand discard→draw shuffle (hand_ids Burning Pact/Strike order
+    // and no Thunderclap at hand[3]).
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-c60c2349aa8da68d.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("empty-hand deferred Burning Pact permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(
+        report
+            .unsupported
+            .iter()
+            .all(|entry| entry.action_step > 237),
+        "step 237 END must not fail with deferred Thunderclap in hand: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 237)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "empty-hand END after deferred Burning Pact must verify: {report:#?}"
+    );
+}
+
+#[test]
 fn random_fidelity_champ_taunt_preserves_frail_for_following_defend() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-520f091a7b46a976.jsonl")
