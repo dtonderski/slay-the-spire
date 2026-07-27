@@ -547,6 +547,61 @@ mod tests {
     }
 
     #[test]
+    fn egg_on_equip_upgrades_matching_pending_combat_reward_cards() {
+        use crate::content::cards::{
+            ANGER_ID, ANGER_PLUS_ID, INFLAME_ID, LIMIT_BREAK_ID, LIMIT_BREAK_PLUS_ID, STRIKE_R_ID,
+            STRIKE_R_PLUS_ID,
+        };
+        use crate::run::{CardRewardFlow, RewardContinuation, RewardScreen};
+
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Reward;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: vec![
+                CardInstance::new(CardId::new(1), STRIKE_R_ID),
+                CardInstance::new(CardId::new(2), LIMIT_BREAK_ID),
+                CardInstance::new(CardId::new(3), INFLAME_ID),
+            ],
+            queued_card_rewards: vec![vec![
+                CardInstance::new(CardId::new(4), ANGER_ID),
+                CardInstance::new(CardId::new(5), LIMIT_BREAK_ID),
+            ]],
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: CardRewardFlow::pending(1),
+        });
+
+        run.gain_relic(Relic::ToxicEgg)
+            .expect("Toxic Egg equips while combat rewards are open");
+
+        let reward = run.reward.as_ref().expect("reward screen remains");
+        assert_eq!(reward.choices[0].content_id, STRIKE_R_ID);
+        assert_eq!(reward.choices[1].content_id, LIMIT_BREAK_PLUS_ID);
+        assert_eq!(reward.choices[2].content_id, INFLAME_ID);
+        assert_eq!(reward.queued_card_rewards[0][0].content_id, ANGER_ID);
+        assert_eq!(
+            reward.queued_card_rewards[0][1].content_id,
+            LIMIT_BREAK_PLUS_ID
+        );
+
+        run.gain_relic(Relic::MoltenEgg)
+            .expect("Molten Egg equips while combat rewards are open");
+        let reward = run.reward.as_ref().expect("reward screen remains");
+        assert_eq!(reward.choices[0].content_id, STRIKE_R_PLUS_ID);
+        assert_eq!(reward.queued_card_rewards[0][0].content_id, ANGER_PLUS_ID);
+        // Already-upgraded skill stays upgraded; power remains base without Frozen Egg.
+        assert_eq!(reward.choices[1].content_id, LIMIT_BREAK_PLUS_ID);
+        assert_eq!(reward.choices[2].content_id, INFLAME_ID);
+    }
+
+    #[test]
     fn deck_card_add_rejects_duplicate_ids_and_combat_metadata_atomically() {
         let mut duplicate = RunState::map_fixture();
         let duplicate_before = duplicate.clone();
@@ -2693,6 +2748,30 @@ impl RunState {
         Ok(card)
     }
 
+    /// Target egg `onEquip` upgrades matching cards already present on the open
+    /// combat reward screen (including closed-but-reopenable choices and Prayer
+    /// Wheel/Orrery queued card rewards).
+    fn upgrade_pending_combat_reward_cards_for_eggs(&mut self) -> SimResult<()> {
+        let Some(reward) = self.reward.as_ref() else {
+            return Ok(());
+        };
+        let mut choices = reward.choices.clone();
+        let mut queued_card_rewards = reward.queued_card_rewards.clone();
+        for choice in &mut choices {
+            *choice = self.card_after_card_add_relics(*choice)?;
+        }
+        for queued in &mut queued_card_rewards {
+            for choice in queued {
+                *choice = self.card_after_card_add_relics(*choice)?;
+            }
+        }
+        if let Some(reward) = self.reward.as_mut() {
+            reward.choices = choices;
+            reward.queued_card_rewards = queued_card_rewards;
+        }
+        Ok(())
+    }
+
     fn apply_card_added_relics(&mut self, content_id: ContentId) -> SimResult<()> {
         if self.relics.contains(&Relic::CeramicFish) {
             self.gain_gold(CERAMIC_FISH_GOLD)?;
@@ -3056,11 +3135,13 @@ impl RunState {
                     reward.set_card_reward_remaining(remaining);
                 }
             }
+            Relic::MoltenEgg | Relic::ToxicEgg | Relic::FrozenEgg => {
+                // Target egg onEquip walks CombatRewardScreen.rewards and upgrades
+                // matching preview cards already generated for this combat reward.
+                self.upgrade_pending_combat_reward_cards_for_eggs()?;
+            }
             Relic::BloodVial
             | Relic::ToyOrnithopter
-            | Relic::MoltenEgg
-            | Relic::ToxicEgg
-            | Relic::FrozenEgg
             | Relic::TheBoot
             | Relic::BirdFacedUrn
             | Relic::PrayerWheel

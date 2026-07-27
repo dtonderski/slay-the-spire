@@ -1227,7 +1227,6 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) -> SimResult<
     } else {
         None
     };
-    let card_rarity_factor_before = run.card_rarity_factor;
     let mut choices = target_card_reward_choices_with_count_and_pool(
         &mut card_rng,
         &mut run.card_rarity_factor,
@@ -1237,14 +1236,6 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) -> SimResult<
         rarity_chances,
         forced_requested_rarity,
         apply_card_rarity_factor,
-    );
-    eprintln!(
-        "DEBUG reward floor={} counter_start={} factor_before={} factor_after={} choices_before_upgrade={:?}",
-        run.current_floor,
-        run.card_rng_counter,
-        card_rarity_factor_before,
-        run.card_rarity_factor,
-        choices.iter().map(|choice| choice.content_id).collect::<Vec<_>>()
     );
     consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run))?;
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
