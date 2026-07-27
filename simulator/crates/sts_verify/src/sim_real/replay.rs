@@ -1149,22 +1149,18 @@ fn seed_start_handle_neow_grid_phase(
             carried_confirmed.deck = deck_instances_from_keys(deck_ids);
             *neow_leave_visible_deck_ids = Some(visible_deck_ids.clone());
         }
-        compare_subset(
+        seed_start_compare_neow_grid_confirm_deck(
             report,
             action,
-            "Neow grid confirm",
-            seed_start_observed_subset(&post.message),
-            json!({
-                "screen_type": "EVENT",
-                "ascension": start.ascension,
-                "floor": 0,
-                "gold": neow_gold,
-                "current_hp": neow_current_hp,
-                "max_hp": neow_max_hp,
-                "deck_ids": visible_deck_ids,
-                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                "choices": ["leave"],
-            }),
+            post,
+            start,
+            *neow_gold,
+            *neow_current_hp,
+            *neow_max_hp,
+            seed_sim.as_ref(),
+            transform_count_before_confirm,
+            &visible_deck_ids,
+            deck_ids,
         );
         *seed_sim = Some(carried_confirmed);
         *phase = SeedStartPhase::NeowLeave;
@@ -1232,22 +1228,18 @@ fn seed_start_handle_neow_grid_phase(
             *phase = SeedStartPhase::NeowGrid;
             return SeedStartPreDispatch::Handled;
         }
-        compare_subset(
+        seed_start_compare_neow_grid_confirm_deck(
             report,
             action,
-            "Neow grid confirm",
-            seed_start_observed_subset(&post.message),
-            json!({
-                "screen_type": "EVENT",
-                "ascension": start.ascension,
-                "floor": 0,
-                "gold": neow_gold,
-                "current_hp": neow_current_hp,
-                "max_hp": neow_max_hp,
-                "deck_ids": visible_deck_ids,
-                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                "choices": ["leave"],
-            }),
+            post,
+            start,
+            *neow_gold,
+            *neow_current_hp,
+            *neow_max_hp,
+            seed_sim.as_ref(),
+            transform_count_before_confirm,
+            &visible_deck_ids,
+            deck_ids,
         );
         *seed_sim = Some(carried_next);
         *phase = SeedStartPhase::NeowLeave;
@@ -1332,6 +1324,47 @@ fn seed_start_handle_neow_grid_phase(
             carried_confirmed.deck = deck_instances_from_keys(deck_ids);
             *neow_leave_visible_deck_ids = Some(visible_deck_ids.clone());
         }
+        seed_start_compare_neow_grid_confirm_deck(
+            report,
+            action,
+            post,
+            start,
+            *neow_gold,
+            *neow_current_hp,
+            *neow_max_hp,
+            seed_sim.as_ref(),
+            transform_count_before_confirm,
+            &visible_deck_ids,
+            deck_ids,
+        );
+        *seed_sim = Some(carried_confirmed);
+        *phase = SeedStartPhase::NeowLeave;
+        return SeedStartPreDispatch::Handled;
+    }
+
+    SeedStartPreDispatch::NotHandled
+}
+
+/// Compare the post-confirm Neow event frame after a grid reward.
+///
+/// Transform rewards are settled in core immediately, but CommunicationMod
+/// sometimes captures the pre-obtain deck (sources removed, replacements not
+/// yet visible) and sometimes the fully settled deck. Accept either lag frame
+/// without mutating sim authority from the observation.
+fn seed_start_compare_neow_grid_confirm_deck(
+    report: &mut SimRealReport,
+    action: &TraceAction,
+    post: &TraceState,
+    start: &StartRunCommand,
+    neow_gold: i32,
+    neow_current_hp: i32,
+    neow_max_hp: i32,
+    seed_sim: Option<&RunState>,
+    transform_count: usize,
+    transient_deck_ids: &[String],
+    settled_deck_ids: &[String],
+) {
+    if transform_count == 0 {
         compare_subset(
             report,
             action,
@@ -1344,17 +1377,61 @@ fn seed_start_handle_neow_grid_phase(
                 "gold": neow_gold,
                 "current_hp": neow_current_hp,
                 "max_hp": neow_max_hp,
-                "deck_ids": visible_deck_ids,
-                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+                "deck_ids": settled_deck_ids,
+                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
                 "choices": ["leave"],
             }),
         );
-        *seed_sim = Some(carried_confirmed);
-        *phase = SeedStartPhase::NeowLeave;
-        return SeedStartPreDispatch::Handled;
+        return;
     }
 
-    SeedStartPreDispatch::NotHandled
+    let mut observed = seed_start_observed_subset(&post.message);
+    let observed_deck = observed
+        .as_object_mut()
+        .and_then(|object| object.remove("deck_ids"))
+        .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+        .unwrap_or_default();
+    let mut simulated = json!({
+        "screen_type": "EVENT",
+        "ascension": start.ascension,
+        "floor": 0,
+        "gold": neow_gold,
+        "current_hp": neow_current_hp,
+        "max_hp": neow_max_hp,
+        "deck_ids": settled_deck_ids,
+        "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
+        "choices": ["leave"],
+    });
+    let _ = simulated
+        .as_object_mut()
+        .and_then(|object| object.remove("deck_ids"));
+    let mut diffs = subset_diffs(observed, simulated);
+    match classify_deferred_deck_observation(&observed_deck, transient_deck_ids, settled_deck_ids) {
+        PendingDeckObservation::Settled | PendingDeckObservation::Deferred if diffs.is_empty() => {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Neow grid confirm".to_owned(),
+            });
+        }
+        PendingDeckObservation::Diverged(deck_diffs) => {
+            diffs.extend(deck_diffs);
+            report.unexpected_diffs.push(UnexpectedDiff {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Neow grid confirm".to_owned(),
+                diffs,
+            });
+        }
+        PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+            report.unexpected_diffs.push(UnexpectedDiff {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Neow grid confirm".to_owned(),
+                diffs,
+            });
+        }
+    }
 }
 
 fn seed_start_astrolabe_source_deck(run: &RunState) -> Option<Vec<String>> {
@@ -3762,6 +3839,14 @@ fn seed_start_handle_combat_phase(
         let gambling_chip_source_settlement_frame =
             matches!(decision_action, RunAction::ConfirmExhaustSelect)
                 && seed_start_gambling_chip_source_settlement_frame_matches(sim, &post.message);
+        let headbutt_discard_select_source_settlement_frame =
+            matches!(decision_action, RunAction::ChooseDiscardSelect { .. })
+                && seed_start_headbutt_discard_select_source_settlement_frame(
+                    sim,
+                    &next,
+                    &post.message,
+                    &decision_action,
+                );
         let put_on_deck_selected_card_id = (decision_action == RunAction::ConfirmHandSelect)
             .then(|| seed_start_put_on_deck_selected_card_id(sim))
             .flatten();
@@ -3786,6 +3871,7 @@ fn seed_start_handle_combat_phase(
         } else if source_hand_settlement_frame
             || source_card_reward_frame
             || gambling_chip_source_settlement_frame
+            || headbutt_discard_select_source_settlement_frame
         {
             if source_card_reward_frame
                 && pending_combat_assertion.as_ref().is_some_and(|pending| {
@@ -3818,6 +3904,8 @@ fn seed_start_handle_combat_phase(
                     "hand select confirm (source hand settlement frame)".to_owned()
                 } else if source_card_reward_frame {
                     "combat card reward choose (source hand settlement frame)".to_owned()
+                } else if headbutt_discard_select_source_settlement_frame {
+                    "discard select (source put-on-draw settlement frame)".to_owned()
                 } else {
                     "Gambling Chip source settlement frame".to_owned()
                 },
@@ -4946,6 +5034,67 @@ fn seed_start_hand_select_confirm_source_frame(
         source_frame["discard_ids"] = discard_ids;
     }
     seed_start_combat_subsets_match(observed, source_frame)
+}
+
+/// Headbutt (and force-played Headbutt via Havoc / Mayhem) resolves put-on-draw
+/// on the grid CHOOSE click. CommunicationMod often publishes a stable
+/// WAITING_ON_USER frame where the Headbutt source has already settled into
+/// discard or exhaust, but the chosen discard card has not yet left discard
+/// for the top of the draw pile. The simulator applies both atomically.
+///
+/// Accept that source lag when the observed combat subset equals the settled
+/// sim subset with put-on-draw reversed (draw top restored into discard at the
+/// chosen index). Authoritative state remains the settled sim — no hydrate.
+fn seed_start_headbutt_discard_select_source_settlement_frame(
+    pre: &RunState,
+    settled: &RunState,
+    post_message: &Value,
+    decision_action: &RunAction,
+) -> bool {
+    let RunAction::ChooseDiscardSelect { index } = *decision_action else {
+        return false;
+    };
+    if !seed_start_is_stable_combat_post_state(post_message) {
+        return false;
+    }
+    let Some(pre_combat) = pre.combat.as_ref() else {
+        return false;
+    };
+    let Some(select) = pre_combat.discard_select() else {
+        return false;
+    };
+    if select.purpose != DiscardSelectPurpose::HeadbuttPutOnDraw {
+        return false;
+    }
+    if index >= pre_combat.piles.discard_pile.len() {
+        return false;
+    }
+    let Some(settled_combat) = settled.combat.as_ref() else {
+        return false;
+    };
+    if settled_combat.discard_select().is_some() {
+        return false;
+    }
+    let selected_key = simulated_card_projection_key(&pre_combat.piles.discard_pile[index]);
+    let mut lag = seed_start_simulated_combat_subset(settled, false);
+    let Some(draw_ids) = lag.get_mut("draw_ids").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    match draw_ids.last().and_then(Value::as_str) {
+        Some(top) if top == selected_key => {
+            draw_ids.pop();
+        }
+        _ => return false,
+    }
+    let Some(discard_ids) = lag.get_mut("discard_ids").and_then(Value::as_array_mut) else {
+        return false;
+    };
+    if index > discard_ids.len() {
+        return false;
+    }
+    discard_ids.insert(index, Value::String(selected_key));
+    let observed = seed_start_combat_observed_subset(post_message);
+    seed_start_combat_subsets_match(observed, lag)
 }
 
 fn seed_start_card_reward_choose_source_frame(run: &RunState, post_message: &Value) -> bool {

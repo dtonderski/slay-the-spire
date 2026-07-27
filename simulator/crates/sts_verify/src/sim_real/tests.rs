@@ -11478,6 +11478,53 @@ fn random_fidelity_havoc_headbutt_returns_source_to_draw() {
 }
 
 #[test]
+fn random_fidelity_headbutt_discard_select_accepts_put_on_draw_source_lag() {
+    // CHOOSE on DiscardPileToTopOfDeck can publish a stable frame where Headbutt
+    // has settled but the chosen discard card is still in discard. Sim applies
+    // put-on-draw atomically; reconcile the lag without hydrating.
+    for (name, step) in [
+        (
+            "permanent_traces/random-fidelity-1f14d6b99fbf0dc4.jsonl",
+            375,
+        ),
+        (
+            "permanent_traces/random-fidelity-8bbdfdd20e40ab31.jsonl",
+            315,
+        ),
+        (
+            "permanent_traces/random-fidelity-c706d6d8d55b13fe.jsonl",
+            807,
+        ),
+    ] {
+        let Some(content) = crate::load_corpus_file(name) else {
+            continue;
+        };
+        let report = verify_seed_start_communication_mod_trace(&content)
+            .unwrap_or_else(|error| panic!("{name} should replay: {error}"));
+        assert!(
+            report.unexpected_diffs.is_empty(),
+            "{name} unexpected diffs: {report:#?}"
+        );
+        assert!(
+            !report
+                .unsupported
+                .iter()
+                .any(|entry| entry.action_step == step),
+            "{name} step {step} must not be unsupported: {report:#?}"
+        );
+        assert_eq!(
+            report
+                .action_dispositions
+                .iter()
+                .find(|entry| entry.action_step == step)
+                .map(|entry| entry.disposition),
+            Some(ActionDispositionKind::Verified),
+            "{name} Headbutt discard-select CHOOSE must verify past put-on-draw lag: {report:#?}"
+        );
+    }
+}
+
+#[test]
 fn random_fidelity_havoc_empty_draw_shuffles_without_source() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-9c74b1b3157af014.jsonl")

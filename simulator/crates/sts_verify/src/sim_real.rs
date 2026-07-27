@@ -9,7 +9,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sts_core::card::CardType;
-use sts_core::combat::{ExhaustSelectPurpose, HandSelectPurpose};
+use sts_core::combat::{DiscardSelectPurpose, ExhaustSelectPurpose, HandSelectPurpose};
 use sts_core::content::cards::{card_type_and_rarity, STRIKE_R_ID};
 use sts_core::content::encounters::{
     target_exordium_act_one_boss_kind_with_unlocks, target_exordium_act_one_boss_with_unlocks,
