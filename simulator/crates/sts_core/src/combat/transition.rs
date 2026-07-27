@@ -483,6 +483,11 @@ fn apply_internal_action(
         InternalAction::DealDamageAllAndHealUnblocked { source, amount } => {
             damage_actions::deal_damage_all_and_heal_unblocked(state, source, amount)
         }
+        InternalAction::DealThornsDamageToPlayer { amount } => {
+            let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, amount);
+            crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
+            Ok(Vec::new())
+        }
         InternalAction::HealPlayer { amount } => defense_actions::heal_player(state, amount),
         InternalAction::GainBlock { amount } => defense_actions::gain_player_block(state, amount),
         InternalAction::GainBlockDirect { amount } => {
@@ -676,14 +681,18 @@ fn apply_internal_action(
         InternalAction::GainArtifact { amount } => player_actions::gain_artifact(state, amount),
         InternalAction::UpgradeCombatCards => player_actions::upgrade_all_combat_cards(state),
         InternalAction::CardExhausted { card_id } => {
-            apply_on_exhaust_effects(state, card_id)?;
-            Ok(dead_branch_follow_up(state).into_iter().collect())
+            // Feel No Pain queues GainBlockAction via addToBot (after remaining
+            // card.use / onUseCard actions such as Guardian Sharp Hide).
+            apply_on_exhaust_effects_except_feel_no_pain(state, card_id)?;
+            let mut follow_ups = feel_no_pain_block_follow_up(state);
+            follow_ups.extend(dead_branch_follow_up(state));
+            Ok(follow_ups)
         }
         InternalAction::HandCardExhausted { card_id } => {
-            apply_on_exhaust_effects(state, card_id)?;
-            Ok(dead_branch_follow_up_before_pending_draw(state)
-                .into_iter()
-                .collect())
+            apply_on_exhaust_effects_except_feel_no_pain(state, card_id)?;
+            let mut follow_ups = feel_no_pain_block_follow_up(state);
+            follow_ups.extend(dead_branch_follow_up_before_pending_draw(state));
+            Ok(follow_ups)
         }
         InternalAction::PlayTopDrawCard {
             target,
@@ -800,6 +809,9 @@ fn apply_on_card_play_powers(
     }
 
     if card_type == CardType::Attack {
+        // SharpHidePower.onUseCard addToBot's thorns DamageAction after card.use().
+        // Queue it as a PlayCard follow-up (push_back) so exhaust/Feel No Pain
+        // addToBot block from the same card resolves after Sharp Hide.
         let sharp_hide_damage: i32 = state
             .monsters
             .iter()
@@ -808,7 +820,11 @@ fn apply_on_card_play_powers(
             })
             .map(|monster| monster.powers.spikes)
             .try_fold(0, checked_combat_sum)?;
-        checked_add_combat_value(&mut state.pending_player_spikes_damage, sharp_hide_damage)?;
+        if sharp_hide_damage > 0 {
+            follow_ups.push(InternalAction::DealThornsDamageToPlayer {
+                amount: sharp_hide_damage,
+            });
+        }
     }
 
     if state.player.powers.hex > 0 && card_type != CardType::Attack {
@@ -1265,20 +1281,39 @@ fn dead_branch_card_pool() -> Vec<ContentId> {
 }
 
 pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
-    apply_on_exhaust_effects_inner(state, card_id, true)
+    apply_on_exhaust_effects_inner(state, card_id, true, true)
 }
 
 pub(crate) fn apply_on_exhaust_effects_without_dark_embrace(
     state: &mut CombatState,
     card_id: CardId,
 ) -> SimResult<()> {
-    apply_on_exhaust_effects_inner(state, card_id, false)
+    apply_on_exhaust_effects_inner(state, card_id, false, true)
+}
+
+fn apply_on_exhaust_effects_except_feel_no_pain(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<()> {
+    apply_on_exhaust_effects_inner(state, card_id, true, false)
+}
+
+/// STS FeelNoPainPower.onExhaust addToBot's GainBlockAction.
+fn feel_no_pain_block_follow_up(state: &CombatState) -> Vec<InternalAction> {
+    if state.player.powers.feel_no_pain > 0 {
+        vec![InternalAction::GainBlockDirect {
+            amount: state.player.powers.feel_no_pain,
+        }]
+    } else {
+        Vec::new()
+    }
 }
 
 fn apply_on_exhaust_effects_inner(
     state: &mut CombatState,
     card_id: CardId,
     draw_with_dark_embrace: bool,
+    apply_feel_no_pain: bool,
 ) -> SimResult<()> {
     match exhausted_card_content_id(state, card_id) {
         // Energy is nonnegative in every valid combat state, so signed target
@@ -1287,7 +1322,7 @@ fn apply_on_exhaust_effects_inner(
         Some(SENTINEL_ID) => state.player.energy = state.player.energy.wrapping_add(2),
         _ => {}
     }
-    if state.player.powers.feel_no_pain > 0 {
+    if apply_feel_no_pain && state.player.powers.feel_no_pain > 0 {
         let gained = state.player.powers.feel_no_pain;
         apply_player_direct_block_gain(state, gained)?;
     }
@@ -4455,6 +4490,50 @@ mod tests {
         .expect("Anger should resolve through Rage and Sharp Hide");
 
         assert_eq!(next.player.block, 7);
+    }
+
+    #[test]
+    fn sever_soul_feel_no_pain_block_resolves_after_guardian_sharp_hide() {
+        // STS order for Sever Soul with Sharp Hide + Feel No Pain:
+        // card.use exhaust + damage → SharpHide onUseCard damage → FNP GainBlock.
+        // Exhausting a non-attack must not absorb Sharp Hide with FNP block.
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+        state.monsters[0].powers.spikes = 3;
+        state.monsters[0].hp = 200;
+        state.monsters[0].max_hp = 240;
+        state.monsters[0].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 2;
+        state.player.powers.feel_no_pain = 3;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), SEVER_SOUL_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Sever Soul should resolve exhaust, damage, Sharp Hide, then FNP");
+
+        assert_eq!(next.player.hp, 77);
+        assert_eq!(next.player.block, 3);
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID]
+        );
     }
 
     #[test]

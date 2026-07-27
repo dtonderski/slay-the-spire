@@ -94,6 +94,11 @@ pub enum InternalAction {
         source: CardId,
         amount: i32,
     },
+    /// Guardian Sharp Hide (`onUseCard`) thorns damage to the player.
+    /// Queued after `card.use()` effects, like STS `addToBot(DamageAction)`.
+    DealThornsDamageToPlayer {
+        amount: i32,
+    },
     HealPlayer {
         amount: i32,
     },
