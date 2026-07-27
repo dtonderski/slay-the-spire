@@ -31,6 +31,8 @@ pub(super) fn apply_act_two_event_action(
             }
         }
         Event::TheLibrary if screen.stage > 0 && choice_index == 0 => {
+            // Flush deferred Read-path card obtain (Ceramic Fish) on Leave.
+            next.flush_pending_obtain_cards()?;
             next.phase = RunPhase::Idle;
             next.event = None;
         }

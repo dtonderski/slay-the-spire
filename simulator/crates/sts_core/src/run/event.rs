@@ -1591,6 +1591,8 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             (Event::ForgottenAltar, 1) => pending.is_empty() || pending == [DECAY_ID],
             (Event::DrugDealer, 1) => pending.is_empty() || pending == [JAX_ID],
             (Event::Addict, 1) => pending.is_empty() || pending == [SHAME_ID],
+            (Event::Duplicator, 2) => pending.is_empty() || pending.len() == 1,
+            (Event::TheLibrary, 1) => pending.is_empty() || pending.len() == 1,
             (Event::MatchAndKeep, 2) => {
                 pending.is_empty()
                     || (pending.len() == 1
@@ -5375,22 +5377,28 @@ mod tests {
             }
         ));
 
-        let completed = crate::run::grid::select_grid_card(&after_duplicate, 0)
+        let after_select = crate::run::grid::select_grid_card(&after_duplicate, 0)
             .expect("Duplicator selected card resolves");
-        assert_eq!(completed.deck.len(), original_len + 1);
+        // Deck/gold stay unchanged until Leave (Ceramic Fish deferred).
+        assert_eq!(after_select.deck.len(), original_len);
+        assert_eq!(after_select.pending_obtain_cards, vec![original_content]);
         assert_eq!(
-            completed.deck.last().expect("copied card").content_id,
-            original_content
-        );
-        assert!(!completed.deck.last().expect("copied card").bottled);
-        assert_eq!(
-            completed
+            after_select
                 .event
                 .as_ref()
                 .expect("Duplicator leave screen")
                 .stage,
             2
         );
+        let completed = apply_event_action(&after_select, EventAction::Choose { choice_index: 0 })
+            .expect("Duplicator leave flushes the copy");
+        assert_eq!(completed.deck.len(), original_len + 1);
+        assert_eq!(
+            completed.deck.last().expect("copied card").content_id,
+            original_content
+        );
+        assert!(!completed.deck.last().expect("copied card").bottled);
+        assert!(completed.pending_obtain_cards.is_empty());
     }
 
     #[test]

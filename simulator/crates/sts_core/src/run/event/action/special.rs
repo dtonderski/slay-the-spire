@@ -133,6 +133,8 @@ pub(super) fn apply_special_event_action(
                 ));
             }
             2 if choice_index == 0 => {
+                // Flush deferred Duplicator copy (and Ceramic Fish) on Leave.
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }

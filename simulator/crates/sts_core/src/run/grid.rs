@@ -1144,7 +1144,9 @@ fn apply_validated_grid_confirmation(run: &RunState) -> SimResult<RunState> {
         }
         GridPurpose::EventObtainCardReturnToEvent { event } => {
             let card = selected_grid_card(grid)?;
-            next.add_deck_card(card)?;
+            // Library / Duplicator: CM keeps deck and Ceramic Fish gold unchanged
+            // until Leave. Queue the obtain and flush on the leave choice.
+            next.queue_pending_obtain_card(card.content_id);
             next.card_grid = None;
             next.phase = RunPhase::Event;
             next.event = Some(EventScreen {
@@ -1152,7 +1154,8 @@ fn apply_validated_grid_confirmation(run: &RunState) -> SimResult<RunState> {
                 choices: vec![EventChoice {
                     label: "Leave".to_owned(),
                 }],
-                stage: 2,
+                // Duplicator leave is stage 2; Library leave is stage 1.
+                stage: if event == Event::Duplicator { 2 } else { 1 },
                 event_data: 0,
             });
         }
