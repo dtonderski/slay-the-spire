@@ -62,6 +62,38 @@ fn manual_milestone1_corpus_loads_if_present() {
 }
 
 #[test]
+fn random_fidelity_champ_face_slap_keeps_frail_for_shrug_it_off() {
+    let Some(content) = load_corpus_file("permanent_traces/random-fidelity-48c6b5b694cc546c.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Champ Face Slap/Shrug It Off permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "Face Slap must leave the source Frail power active for Shrug It Off: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 1136)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "the Shrug It Off block transition must verify: {report:#?}"
+    );
+}
+
+#[test]
 fn codex04_trace_records_first_three_map_and_encounter_targets() {
     let Some(content) = load_corpus_file("communication_mod/trace-2026-06-18T16-50-50-232Z.jsonl")
     else {
@@ -487,12 +519,9 @@ fn captured_trace_seed_start_mode_reports_expected_rng_boundary() {
         report.unsupported
     );
     assert!(
-        report
-            .unsupported
-            .iter()
-            .any(|entry| entry.reason.contains("Toy Ornithopter")
-                && entry.reason.contains("no potion-use transition")),
-        "Toy Ornithopter trace-only scope should be classified"
+        report.unsupported.is_empty(),
+        "generated Neow relic and downstream trace scope should be supported: {:?}",
+        report.unsupported
     );
 }
 
@@ -1241,7 +1270,11 @@ fn verify_permanent_trace_entry(dir: &Path, entry: &VerificationCorpusEntry) -> 
     if repeated_report != report {
         return Err("repeated deterministic replay produced a different report".to_owned());
     }
-    if !report.unexpected_diffs.is_empty() {
+    if !matches!(
+        entry.expectation,
+        sts_verify::VerificationExpectation::ExpectedBoundary { .. }
+    ) && !report.unexpected_diffs.is_empty()
+    {
         let first = &report.unexpected_diffs[0];
         let mut details = first.diffs.iter().take(3).cloned().collect::<Vec<_>>();
         if first.diffs.len() > details.len() {

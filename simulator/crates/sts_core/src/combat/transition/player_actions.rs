@@ -42,8 +42,9 @@ pub(super) fn gain_rage(state: &mut CombatState, amount: i32) -> SimResult<Vec<I
 pub(super) fn set_random_hand_card_cost(
     state: &mut CombatState,
     amount: u8,
+    excluded_card_id: CardId,
 ) -> SimResult<Vec<InternalAction>> {
-    set_random_hand_card_cost_for_combat(state, amount)?;
+    set_random_hand_card_cost_for_combat(state, amount, excluded_card_id)?;
     Ok(Vec::new())
 }
 

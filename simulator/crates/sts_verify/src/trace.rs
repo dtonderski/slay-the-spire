@@ -3,6 +3,7 @@
 use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use sts_core::content::encounters::BossUnlockState;
 
 /// One line from a CommunicationMod-style trace file.
@@ -78,6 +79,30 @@ pub struct TraceMetadata {
     /// function of the seed while a profile still has unseen bosses.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boss_unlocks: Option<BossUnlockState>,
+    /// Run inputs that are not derivable from the numeric seed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_config: Option<TraceRunConfig>,
+}
+
+/// Typed pre-run configuration emitted by the live bridge.
+///
+/// The flattened fields preserve bridge-owned run configuration that this
+/// verifier does not interpret yet, while `profile` carries authoritative
+/// persistent profile inputs used by deterministic simulation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceRunConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<TraceProfile>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
+/// Persistent profile values required to replay profile-backed mechanics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceProfile {
+    pub note_card: String,
+    #[serde(default)]
+    pub note_upgrades: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -125,7 +150,7 @@ pub fn parse_trace_jsonl(content: &str) -> Result<Vec<TraceLine>, serde_json::Er
         }
         let value: Value = serde_json::from_str(line)?;
         let parsed = match value.get("type").and_then(Value::as_str) {
-            Some("metadata") => TraceLine::Metadata(serde_json::from_value(value)?),
+            Some("metadata") => TraceLine::Metadata(parse_metadata_line(value)?),
             Some("state") => TraceLine::State(parse_state_line(value)?),
             Some("action") => TraceLine::Action(parse_action_line(value)?),
             Some("error") => TraceLine::Error(serde_json::from_value(value)?),
@@ -141,6 +166,22 @@ pub fn parse_trace_jsonl(content: &str) -> Result<Vec<TraceLine>, serde_json::Er
         lines.push(parsed);
     }
     Ok(lines)
+}
+
+fn parse_metadata_line(value: Value) -> Result<TraceMetadata, serde_json::Error> {
+    let metadata: TraceMetadata = serde_json::from_value(value)?;
+    if let Some(profile) = metadata
+        .run_config
+        .as_ref()
+        .and_then(|run_config| run_config.profile.as_ref())
+    {
+        if profile.note_card.trim().is_empty() {
+            return Err(serde_json::Error::custom(
+                "trace profile note_card must be a non-empty card key",
+            ));
+        }
+    }
+    Ok(metadata)
 }
 
 fn parse_command_accept_line(value: Value) -> Result<TraceCommandAccept, serde_json::Error> {
@@ -1659,6 +1700,32 @@ mod tests {
                     && action.command == "CHOOSE 0"
                     && action.playtime_seconds == Some(812)
         ));
+    }
+
+    #[test]
+    fn parse_trace_preserves_typed_profile_run_input() {
+        let lines = parse_trace_jsonl(
+            r#"{"type":"metadata","schema":2,"source":"live_trace","run_config":{"character":"ironclad","ascension":0,"seed":{"numeric":123},"profile":{"note_card":"Twin Strike","note_upgrades":1}}}"#,
+        )
+        .expect("profile metadata parses");
+        let TraceLine::Metadata(metadata) = &lines[0] else {
+            panic!("expected metadata line");
+        };
+        let run_config = metadata.run_config.as_ref().expect("run config");
+        let profile = run_config.profile.as_ref().expect("profile");
+        assert_eq!(profile.note_card, "Twin Strike");
+        assert_eq!(profile.note_upgrades, 1);
+        assert_eq!(run_config.extra["character"], "ironclad");
+        assert_eq!(run_config.extra["seed"]["numeric"], 123);
+    }
+
+    #[test]
+    fn parse_trace_rejects_empty_profile_note_card() {
+        let error = parse_trace_jsonl(
+            r#"{"type":"metadata","schema":2,"source":"live_trace","run_config":{"profile":{"note_card":"  "}}}"#,
+        )
+        .expect_err("empty profile card is invalid");
+        assert!(error.to_string().contains("profile note_card"));
     }
 
     #[test]

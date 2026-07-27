@@ -4,10 +4,11 @@ use crate::{
         add_cards_to_discard, add_cards_to_draw_random_spot,
         upgrade_burns_and_add_upgraded_to_discard,
     },
-    combat::turn_powers::monster_attack_damage,
     combat::{CardPiles, MonsterIntent, MonsterState, SlimeSize},
     content::ascension::AscensionConfig,
-    content::cards::{card_type_and_rarity, BURN_ID, DAZED_ID, SLIMED_ID},
+    content::cards::{
+        card_matches_stasis_rarity, get_card_definition, BURN_ID, DAZED_ID, SLIMED_ID, VOID_ID,
+    },
     ids::{ContentId, MonsterId},
     power::MonsterPowers,
     rng::{seed_for_floor, StsRng},
@@ -325,6 +326,7 @@ const BANDIT_LEADER_WEAK: i32 = 2;
 const CHAMP_HEAVY_SLASH_DAMAGE: i32 = 16;
 const CHAMP_A4_HEAVY_SLASH_DAMAGE: i32 = 18;
 pub const CHAMP_FACE_SLAP_DAMAGE: i32 = 12;
+pub const CHAMP_FACE_SLAP_FRAIL: i32 = 2;
 const CHAMP_A4_FACE_SLAP_DAMAGE: i32 = 14;
 const CHAMP_EXECUTE_DAMAGE: i32 = 10;
 const CHAMP_EXECUTE_HITS: i32 = 2;
@@ -335,6 +337,11 @@ const COLLECTOR_A4_FIREBALL_DAMAGE: i32 = 21;
 const COLLECTOR_BUFF_BLOCK: i32 = 35;
 const TORCH_HEAD_TACKLE_DAMAGE: i32 = 7;
 const AWAKENED_ONE_SLASH_DAMAGE: i32 = 20;
+const AWAKENED_ONE_SOUL_STRIKE_DAMAGE: i32 = 6;
+const AWAKENED_ONE_SOUL_STRIKE_HITS: i32 = 4;
+const AWAKENED_ONE_DARK_ECHO_DAMAGE: i32 = 40;
+const AWAKENED_ONE_TACKLE_DAMAGE: i32 = 10;
+const AWAKENED_ONE_TACKLE_HITS: i32 = 3;
 const DAGGER_WOUND_DAMAGE: i32 = 9;
 const DAGGER_EXPLODE_DAMAGE: i32 = 25;
 const DECA_BEAM_DAMAGE: i32 = 10;
@@ -347,6 +354,7 @@ const DONU_BEAM_HITS: i32 = 2;
 const EXPLODER_ATTACK_DAMAGE: i32 = 9;
 const EXPLODER_A2_ATTACK_DAMAGE: i32 = 11;
 const EXPLODER_EXPLOSIVE: i32 = 3;
+const EXPLODER_EXPLOSION_DAMAGE: i32 = 30;
 const GIANT_HEAD_HP: i32 = 500;
 const GIANT_HEAD_A8_HP: i32 = 520;
 const GIANT_HEAD_DEATH_DAMAGE: i32 = 30;
@@ -391,7 +399,11 @@ const MAW_ROAR_DEBUFF: i32 = 3;
 const MAW_A17_ROAR_DEBUFF: i32 = 5;
 const MAW_STRENGTH: i32 = 3;
 const MAW_A17_STRENGTH: i32 = 5;
+const TIME_EATER_REVERBERATE_DAMAGE: i32 = 7;
+const TIME_EATER_A4_REVERBERATE_DAMAGE: i32 = 8;
 const TIME_EATER_HEAD_SLAM_DAMAGE: i32 = 26;
+const TIME_EATER_A4_HEAD_SLAM_DAMAGE: i32 = 32;
+const TIME_EATER_RIPPLE_BLOCK: i32 = 20;
 const TRANSIENT_HP: i32 = 999;
 const TRANSIENT_ATTACK_DAMAGE: i32 = 30;
 const TRANSIENT_A4_ATTACK_DAMAGE: i32 = 40;
@@ -2332,16 +2344,6 @@ fn target_ancient_shape_spawn(
     } else {
         EXPLODER_ATTACK_DAMAGE
     };
-    let spiker_damage = if ascension >= 2 {
-        SPIKER_A2_ATTACK_DAMAGE
-    } else {
-        SPIKER_ATTACK_DAMAGE
-    };
-    let repulsor_damage = if ascension >= 2 {
-        REPULSOR_A2_ATTACK_DAMAGE
-    } else {
-        REPULSOR_ATTACK_DAMAGE
-    };
     let spiker_thorns = if ascension >= 2 {
         SPIKER_A2_THORNS
     } else {
@@ -2349,35 +2351,21 @@ fn target_ancient_shape_spawn(
     };
 
     match name {
-        "Spiker" => {
-            let mut spawn = target_combat_entry_spawn(
-                "Spiker",
-                spiker_hp_range.roll(hp_rng),
-                neow_lament,
-                vec![TargetSpawnPower {
-                    id: "Thorns",
-                    amount: spiker_thorns,
-                }],
-            );
-            spawn.intent = TargetSpawnIntent::Attack {
-                damage: spiker_damage,
-            };
-            spawn.rolled_attack_damage = Some(spiker_damage);
-            spawn
-        }
-        "Repulsor" => {
-            let mut spawn = target_combat_entry_spawn(
-                "Repulsor",
-                repulsor_hp_range.roll(hp_rng),
-                neow_lament,
-                Vec::new(),
-            );
-            spawn.intent = TargetSpawnIntent::AddDazedToDraw {
-                count: REPULSOR_DAZES,
-            };
-            spawn.rolled_attack_damage = Some(repulsor_damage);
-            spawn
-        }
+        "Spiker" => target_combat_entry_spawn(
+            "Spiker",
+            spiker_hp_range.roll(hp_rng),
+            neow_lament,
+            vec![TargetSpawnPower {
+                id: "Thorns",
+                amount: spiker_thorns,
+            }],
+        ),
+        "Repulsor" => target_combat_entry_spawn(
+            "Repulsor",
+            repulsor_hp_range.roll(hp_rng),
+            neow_lament,
+            Vec::new(),
+        ),
         "Exploder" => {
             let _constructor_hp_roll = hp_rng.random_int(0);
             let mut spawn = target_combat_entry_spawn(
@@ -3632,7 +3620,7 @@ pub fn content_id_from_game_monster_id(game_id: &str) -> Option<ContentId> {
         "SlimeBoss" => SLIME_BOSS_ID,
         "TheGuardian" => GUARDIAN_ID,
         "Looter" => LOOTER_ID,
-        "SphericGuardian" => SPHERIC_GUARDIAN_ID,
+        "SphericGuardian" | "Spheric Guardian" => SPHERIC_GUARDIAN_ID,
         "Mugger" => MUGGER_ID,
         "Chosen" => CHOSEN_ID,
         "SnakePlant" | "Snake Plant" => SNAKE_PLANT_ID,
@@ -3965,6 +3953,15 @@ pub fn prepare_monster_intent_for_ascension(
 ) -> SimResult<MonsterIntent> {
     let definition = get_monster_definition(monster.content_id)
         .ok_or(SimError::UnknownContent(monster.content_id))?;
+    if monster.content_id == TIME_EATER_ID {
+        // The normal encounter path supplies Time Eater's AI roll. This
+        // fallback is only used by callers that request a non-rolled intent;
+        // the source's opening move is Ripple.
+        return Ok(MonsterIntent::AttackAndBlock {
+            damage: 0,
+            block: TIME_EATER_RIPPLE_BLOCK,
+        });
+    }
     if is_unsupported_approximate_monster_intent(monster.content_id) {
         return Err(SimError::UnsupportedMechanic(monster.content_id));
     }
@@ -4065,6 +4062,17 @@ fn prepare_monster_intent_for_monster(
     mode_shift: i32,
     rolled_attack_damage: Option<i32>,
 ) -> MonsterIntent {
+    if definition.content_id == AWAKENED_ONE_ID {
+        return if mode_shift == 0 {
+            MonsterIntent::Attack {
+                damage: AWAKENED_ONE_SLASH_DAMAGE,
+            }
+        } else {
+            MonsterIntent::Attack {
+                damage: AWAKENED_ONE_DARK_ECHO_DAMAGE,
+            }
+        };
+    }
     if definition.content_id == LAGAVULIN_ID {
         return lagavulin_intent(sleep_turns_remaining, moves_executed, ascension);
     }
@@ -4179,6 +4187,13 @@ fn prepare_monster_intent_for(
     let source_backed_minion_intent =
         source_backed_gremlin_leader_minion_intent(definition.content_id, moves_executed, 0);
     match definition.content_id {
+        AWAKENED_ONE_ID => MonsterIntent::Attack {
+            damage: if moves_executed == 0 {
+                AWAKENED_ONE_SLASH_DAMAGE
+            } else {
+                AWAKENED_ONE_DARK_ECHO_DAMAGE
+            },
+        },
         CULTIST_ID if moves_executed == 0 => MonsterIntent::Ritual {
             amount: definition.ritual_amount,
         },
@@ -4534,11 +4549,7 @@ fn giant_head_death_damage(ascension: u8) -> i32 {
 }
 
 fn giant_head_it_is_time_damage(count_before: i32, ascension: u8) -> i32 {
-    let count_after = if count_before > -6 {
-        count_before - 1
-    } else {
-        count_before
-    };
+    let count_after = (count_before - 1).max(-6);
     giant_head_death_damage(ascension) - count_after * GIANT_HEAD_DAMAGE_INCREMENT
 }
 
@@ -5139,7 +5150,14 @@ pub fn target_champ_next_intent_from_roll(
         };
     }
     if turns_since_champ_taunt(move_history) >= 3 && !move_history.contains(&7) {
-        return MonsterIntent::ApplyPlayerWeak { amount: 2 };
+        // Champ's Taunt move (move 6) applies Weak 2 and Vulnerable 2.
+        // The zero-Frail form is also used for other source-backed combined
+        // debuffs, so preserve both player powers in the authoritative intent.
+        return MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+            frail: 0,
+            weak: 2,
+            vulnerable: 2,
+        };
     }
     if !last_move(move_history, 2) && champ_defensive_stance_count(move_history) < 2 && roll <= 15 {
         return MonsterIntent::StrengthAndBlock {
@@ -5170,13 +5188,14 @@ pub fn target_champ_next_intent_from_roll(
 }
 
 fn champ_face_slap_intent(ascension: u8) -> MonsterIntent {
-    MonsterIntent::AttackApplyPlayerVulnerable {
+    MonsterIntent::AttackApplyPlayerFrailAndVulnerable {
         damage: asc_damage(
             ascension,
             CHAMP_FACE_SLAP_DAMAGE,
             CHAMP_A4_FACE_SLAP_DAMAGE,
             4,
         ),
+        frail: CHAMP_FACE_SLAP_FRAIL,
         vulnerable: 2,
     }
 }
@@ -5264,6 +5283,106 @@ pub fn target_snake_plant_next_intent_from_roll(
         return snake_plant_chompy_intent(ascension);
     }
     snake_plant_spores_intent()
+}
+
+#[must_use]
+pub fn target_awakened_one_next_intent_from_roll(
+    move_history: &[u8],
+    roll: i32,
+    phase: i32,
+    _ascension: u8,
+) -> MonsterIntent {
+    if phase == 0 {
+        if move_history.is_empty() {
+            return MonsterIntent::Attack {
+                damage: AWAKENED_ONE_SLASH_DAMAGE,
+            };
+        }
+        if last_two_moves(move_history, 1) || (last_move(move_history, 1) && roll < 25) {
+            return MonsterIntent::AttackMultiple {
+                damage: AWAKENED_ONE_SOUL_STRIKE_DAMAGE,
+                hits: AWAKENED_ONE_SOUL_STRIKE_HITS,
+            };
+        }
+        return MonsterIntent::Attack {
+            damage: AWAKENED_ONE_SLASH_DAMAGE,
+        };
+    }
+
+    if move_history.is_empty() {
+        return MonsterIntent::Attack {
+            damage: AWAKENED_ONE_DARK_ECHO_DAMAGE,
+        };
+    }
+    // AwakenedOne.getMove uses AbstractMonster's common AI roll directly:
+    // below 50 prefers Sludge, while 50+ prefers Tackle. Each branch only
+    // changes when its preferred move was used twice consecutively.
+    if roll < 50 {
+        if last_two_moves(move_history, 6) {
+            MonsterIntent::AttackMultiple {
+                damage: AWAKENED_ONE_TACKLE_DAMAGE,
+                hits: AWAKENED_ONE_TACKLE_HITS,
+            }
+        } else {
+            MonsterIntent::AttackAddVoidToDraw {
+                damage: 18,
+                count: 1,
+            }
+        }
+    } else if last_two_moves(move_history, 8) {
+        MonsterIntent::AttackAddVoidToDraw {
+            damage: 18,
+            count: 1,
+        }
+    } else {
+        MonsterIntent::AttackMultiple {
+            damage: AWAKENED_ONE_TACKLE_DAMAGE,
+            hits: AWAKENED_ONE_TACKLE_HITS,
+        }
+    }
+}
+
+/// The Awakened One's first death is a delayed phase transition, not combat
+/// victory. The target leaves the monster in a half-dead state until its next
+/// monster turn, then revives with Regenerate and accumulated Strength and
+/// starts Dark Echo.
+pub fn awakened_one_is_half_dead(monster: &MonsterState) -> bool {
+    monster.content_id == AWAKENED_ONE_ID && !monster.alive && monster.mode_shift < 0
+}
+
+pub fn awaken_one_after_first_death(monster: &mut MonsterState) -> bool {
+    if !awakened_one_is_half_dead(monster) || !matches!(monster.intent, MonsterIntent::Stun) {
+        return false;
+    }
+
+    let strength = monster.powers.strength;
+    monster.alive = true;
+    monster.hp = monster.max_hp;
+    monster.mode_shift = 1;
+    monster.powers = MonsterPowers::default();
+    monster.powers.strength = strength;
+    monster.intent = MonsterIntent::Attack {
+        damage: AWAKENED_ONE_DARK_ECHO_DAMAGE,
+    };
+    record_target_move(monster);
+    true
+}
+
+pub fn mark_awakened_one_half_dead(monster: &mut MonsterState) -> bool {
+    if monster.content_id != AWAKENED_ONE_ID || monster.mode_shift != 0 {
+        return false;
+    }
+
+    monster.alive = false;
+    monster.hp = 0;
+    monster.block = 0;
+    monster.mode_shift = -1;
+    let strength = monster.powers.strength;
+    monster.powers = MonsterPowers::default();
+    monster.powers.strength = strength;
+    monster.intent = MonsterIntent::Stun;
+    record_target_move(monster);
+    true
 }
 
 #[must_use]
@@ -5926,6 +6045,36 @@ fn writhing_mass_attack_debuff_intent(ascension: u8) -> MonsterIntent {
 
 #[must_use]
 pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<u8> {
+    if content_id == TIME_EATER_ID {
+        return match intent {
+            MonsterIntent::AttackMultiple { .. } => Some(2),
+            MonsterIntent::AttackAndBlock { .. } => Some(3),
+            MonsterIntent::Attack { .. } => Some(4),
+            MonsterIntent::StrengthSelf { amount: 0 } => Some(5),
+            _ => None,
+        };
+    }
+    if content_id == AWAKENED_ONE_ID {
+        return match intent {
+            MonsterIntent::Attack {
+                damage: AWAKENED_ONE_SLASH_DAMAGE,
+            } => Some(1),
+            MonsterIntent::AttackMultiple {
+                damage: AWAKENED_ONE_SOUL_STRIKE_DAMAGE,
+                hits: AWAKENED_ONE_SOUL_STRIKE_HITS,
+            } => Some(2),
+            MonsterIntent::Stun => Some(3),
+            MonsterIntent::Attack {
+                damage: AWAKENED_ONE_DARK_ECHO_DAMAGE,
+            } => Some(5),
+            MonsterIntent::AttackMultiple {
+                damage: AWAKENED_ONE_TACKLE_DAMAGE,
+                hits: AWAKENED_ONE_TACKLE_HITS,
+            } => Some(8),
+            MonsterIntent::AttackAddVoidToDraw { .. } => Some(6),
+            _ => None,
+        };
+    }
     if content_id == CULTIST_ID {
         return match intent {
             MonsterIntent::Attack { .. } => Some(1),
@@ -6017,7 +6166,8 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
             MonsterIntent::Attack { .. } => Some(1),
             MonsterIntent::StrengthAndBlock { .. } => Some(2),
             MonsterIntent::AttackMultiple { .. } => Some(3),
-            MonsterIntent::AttackApplyPlayerVulnerable { .. } => Some(4),
+            MonsterIntent::AttackApplyPlayerVulnerable { .. }
+            | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { .. } => Some(4),
             MonsterIntent::StrengthSelf { amount } => {
                 if amount >= 6 {
                     Some(7)
@@ -6025,7 +6175,12 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
                     Some(5)
                 }
             }
-            MonsterIntent::ApplyPlayerWeak { .. } => Some(6),
+            MonsterIntent::ApplyPlayerWeak { .. }
+            | MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+                frail: 0,
+                weak: 2,
+                vulnerable: 2,
+            } => Some(6),
             _ => None,
         };
     }
@@ -6424,6 +6579,82 @@ pub fn record_target_move(monster: &mut MonsterState) {
     if let Some(move_byte) = target_move_byte_for_monster(monster) {
         monster.move_history.push(move_byte);
     }
+}
+
+/// Reproduces `TimeEater.getMove`, including the recursive AI rerolls which
+/// consume additional monster-RNG draws in the target game.
+#[must_use]
+pub fn target_time_eater_next_intent_from_roll(
+    move_history: &[u8],
+    roll: i32,
+    current_hp: i32,
+    max_hp: i32,
+    ascension: u8,
+    rng: &mut StsRng,
+) -> MonsterIntent {
+    if current_hp < max_hp / 2 && !move_history.contains(&5) {
+        return MonsterIntent::StrengthSelf { amount: 0 };
+    }
+
+    let reverb_damage = if ascension >= 4 {
+        TIME_EATER_A4_REVERBERATE_DAMAGE
+    } else {
+        TIME_EATER_REVERBERATE_DAMAGE
+    };
+    let head_slam_damage = if ascension >= 4 {
+        TIME_EATER_A4_HEAD_SLAM_DAMAGE
+    } else {
+        TIME_EATER_HEAD_SLAM_DAMAGE
+    };
+
+    if roll < 45 {
+        if !last_two_moves(move_history, 2) {
+            return MonsterIntent::AttackMultiple {
+                damage: reverb_damage,
+                hits: 3,
+            };
+        }
+        return target_time_eater_next_intent_from_roll(
+            move_history,
+            rng.random_int_range(50, 99),
+            current_hp,
+            max_hp,
+            ascension,
+            rng,
+        );
+    }
+    if roll < 80 {
+        if !last_move(move_history, 4) {
+            return MonsterIntent::Attack {
+                damage: head_slam_damage,
+            };
+        }
+        return if rng.random_float() < 0.66 {
+            MonsterIntent::AttackMultiple {
+                damage: reverb_damage,
+                hits: 3,
+            }
+        } else {
+            MonsterIntent::AttackAndBlock {
+                damage: 0,
+                block: TIME_EATER_RIPPLE_BLOCK,
+            }
+        };
+    }
+    if !last_move(move_history, 3) {
+        return MonsterIntent::AttackAndBlock {
+            damage: 0,
+            block: TIME_EATER_RIPPLE_BLOCK,
+        };
+    }
+    target_time_eater_next_intent_from_roll(
+        move_history,
+        rng.random_int(74),
+        current_hp,
+        max_hp,
+        ascension,
+        rng,
+    )
 }
 
 fn last_move(move_history: &[u8], move_byte: u8) -> bool {
@@ -6893,7 +7124,7 @@ pub fn target_gremlin_wizard_direct_next_intent_after_turn(
 pub(crate) fn is_unsupported_approximate_monster_intent(content_id: ContentId) -> bool {
     matches!(
         content_id,
-        AWAKENED_ONE_ID | TIME_EATER_ID | CORRUPT_HEART_ID | SPIRE_SHIELD_ID | SPIRE_SPEAR_ID
+        CORRUPT_HEART_ID | SPIRE_SHIELD_ID | SPIRE_SPEAR_ID
     )
 }
 
@@ -7254,12 +7485,6 @@ pub fn target_collector_next_intent_from_roll(
     roll: i32,
     minion_dead: bool,
 ) -> MonsterIntent {
-    if move_history == [1] {
-        return MonsterIntent::StrengthAndBlock {
-            strength: THE_COLLECTOR_STRENGTH,
-            block: THE_COLLECTOR_BLOCK,
-        };
-    }
     if move_history.len() >= 3 && !move_history.contains(&4) {
         return MonsterIntent::ApplyPlayerFrailWeakVulnerable {
             frail: 3,
@@ -7804,7 +8029,8 @@ fn apply_gremlin_leader_rally_target_inner(
     }
 
     for (slot, monster) in spawned {
-        monsters.insert(gremlin_leader_summon_insert_index(monsters, slot), monster);
+        let insert_index = gremlin_leader_summon_insert_index(monsters, slot, monster.content_id);
+        monsters.insert(insert_index, monster);
     }
     Ok(())
 }
@@ -7859,8 +8085,29 @@ fn apply_collector_spawn_torch_heads_inner(
     } else {
         TORCH_HEAD_A0_HP_RANGE
     };
-    let first_id = reserve_monster_spawn_ids(monsters, count)?;
-    let mut hp_values = (0..count)
+    // The Collector can have at most two living Torch Heads.  SpawnMonsterAction
+    // only creates the missing slots, while dead slot occupants remain in the
+    // MonsterGroup for observation and ordering.
+    let live_torch_heads = monsters
+        .iter()
+        .filter(|monster| monster.alive && monster.content_id == TORCH_HEAD_ID)
+        .count();
+    let spawn_count = count.min(2usize.saturating_sub(live_torch_heads));
+    if spawn_count == 0 {
+        return Ok(());
+    }
+    let slots = (1u8..=2)
+        .filter(|slot| {
+            !monsters.iter().any(|monster| {
+                monster.alive
+                    && monster.content_id == TORCH_HEAD_ID
+                    && monster.gremlin_leader_slot == Some(*slot)
+            })
+        })
+        .take(spawn_count)
+        .collect::<Vec<_>>();
+    let first_id = reserve_monster_spawn_ids(monsters, slots.len())?;
+    let mut hp_values = (0..slots.len())
         .map(|_| {
             // TorchHead rolls the A0 range for AbstractMonster's hp
             // argument, then its own setHp call rolls the active range.
@@ -7872,8 +8119,7 @@ fn apply_collector_spawn_torch_heads_inner(
     // inserts the farther-left slot 2 before slot 1 in MonsterGroup order.
     hp_values.reverse();
 
-    for (slot_index, max_hp) in hp_values.into_iter().enumerate() {
-        let slot = (slot_index + 1) as u8;
+    for (slot_index, (slot, max_hp)) in slots.into_iter().zip(hp_values).enumerate() {
         let mut monster = monster_state_for_ascension(
             &TORCH_HEAD_A0,
             MonsterId::new(first_id + slot_index as u64),
@@ -8267,16 +8513,16 @@ fn apply_large_spike_slime_split_inner(
     right.max_hp = split_hp;
     right.slime_size = Some(SlimeSize::Medium);
     let left_roll = rng.random_int(99);
-    left.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
-        left.hp,
+    left.intent = target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+        false,
         &left.move_history,
         left_roll,
         ascension,
     );
     record_target_move(&mut left);
     let right_roll = rng.random_int(99);
-    right.intent = target_medium_or_large_spike_slime_next_intent_from_roll(
-        right.hp,
+    right.intent = target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+        false,
         &right.move_history,
         right_roll,
         ascension,
@@ -8413,41 +8659,51 @@ fn gremlin_leader_current_slot_occupant(
     slot: usize,
 ) -> Option<&MonsterState> {
     let leader_index = gremlin_leader_representative_summon_index(monsters);
-    monsters.iter().take(leader_index).rev().find(|monster| {
-        is_gremlin_leader_minion_content_id(monster.content_id)
-            && monster.gremlin_leader_slot == Some(slot as u8)
-    })
+    monsters
+        .iter()
+        .take(leader_index)
+        .filter(|monster| {
+            is_gremlin_leader_minion_content_id(monster.content_id)
+                && monster.gremlin_leader_slot == Some(slot as u8)
+        })
+        // Gremlin Leader keeps the newest object in its source-side gremlins
+        // array. Spawn IDs are allocated monotonically, even though the
+        // MonsterGroup is spatially reordered when a summon is inserted.
+        .max_by_key(|monster| monster.id.get())
 }
 
-fn gremlin_leader_summon_insert_index(monsters: &[MonsterState], slot: usize) -> usize {
+fn gremlin_leader_summon_insert_index(
+    monsters: &[MonsterState],
+    slot: usize,
+    content_id: ContentId,
+) -> usize {
     let leader_index = gremlin_leader_representative_summon_index(monsters);
-    if slot == 0 {
-        let leading_slot_zero_corpses = monsters
-            .iter()
-            .take(leader_index)
-            .take_while(|monster| {
-                !monster.alive
-                    && is_gremlin_leader_minion_content_id(monster.content_id)
-                    && monster.gremlin_leader_slot == Some(0)
-            })
-            .count();
-        if leading_slot_zero_corpses >= 3 {
-            return 2;
-        }
-    }
-
-    let new_x = gremlin_leader_slot_draw_x(slot);
+    let new_x = gremlin_leader_monster_draw_x(content_id, slot);
     monsters
         .iter()
         .take(leader_index)
         .filter(|monster| {
             monster
                 .gremlin_leader_slot
-                .map(|existing_slot| gremlin_leader_slot_draw_x(existing_slot as usize) < new_x)
+                .map(|existing_slot| {
+                    gremlin_leader_monster_draw_x(monster.content_id, existing_slot as usize)
+                        < new_x
+                })
                 .unwrap_or(false)
         })
         .count()
         .min(leader_index)
+}
+
+fn gremlin_leader_monster_draw_x(content_id: ContentId, slot: usize) -> i32 {
+    // GremlinWizard's constructor shifts the supplied x coordinate left by
+    // 35; the other GremlinLeader summon constructors use it unchanged.
+    gremlin_leader_slot_draw_x(slot)
+        - if content_id == GREMLIN_WIZARD_ID {
+            35
+        } else {
+            0
+        }
 }
 
 fn gremlin_leader_slot_draw_x(slot: usize) -> i32 {
@@ -8469,6 +8725,21 @@ pub fn apply_gremlin_leader_death_escape(monsters: &mut [MonsterState], monster_
 
     for monster in monsters.iter_mut() {
         if monster.alive && is_gremlin_leader_minion_content_id(monster.content_id) {
+            monster.alive = false;
+        }
+    }
+}
+
+pub fn apply_reptomancer_death_escape(monsters: &mut [MonsterState], monster_id: MonsterId) {
+    let killed_reptomancer = monsters
+        .iter()
+        .any(|monster| monster.id == monster_id && monster.content_id == REPTOMANCER_ID);
+    if !killed_reptomancer {
+        return;
+    }
+
+    for monster in monsters.iter_mut() {
+        if monster.alive && monster.content_id == DAGGER_ID {
             monster.alive = false;
         }
     }
@@ -9537,6 +9808,31 @@ pub(crate) fn apply_monster_intent_with_card_rng(
     relics: &[crate::Relic],
     card_random_rng: &mut StsRng,
 ) -> SimResult<i32> {
+    apply_monster_intent_with_card_rng_and_revival(
+        monster,
+        player,
+        piles,
+        allocated_card_id_through,
+        ascension,
+        player_before,
+        relics,
+        true,
+        card_random_rng,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_monster_intent_with_card_rng_and_revival(
+    monster: &mut MonsterState,
+    player: &mut crate::PlayerState,
+    piles: &mut CardPiles,
+    allocated_card_id_through: u64,
+    ascension: u8,
+    player_before: &crate::PlayerState,
+    relics: &[crate::Relic],
+    player_can_revive: bool,
+    card_random_rng: &mut StsRng,
+) -> SimResult<i32> {
     let local_allocated_through = monster
         .stasis_card
         .as_ref()
@@ -9559,6 +9855,7 @@ pub(crate) fn apply_monster_intent_with_card_rng(
         ascension,
         player_before,
         relics,
+        player_can_revive,
         &mut next_card_random_rng,
     )?;
     *monster = next_monster;
@@ -9576,6 +9873,11 @@ fn checked_monster_intent_add(value: i32, amount: i32) -> SimResult<i32> {
 
 fn checked_add_monster_intent_value(value: &mut i32, amount: i32) -> SimResult<()> {
     *value = checked_monster_intent_add(*value, amount)?;
+    Ok(())
+}
+
+fn checked_add_monster_block_value(value: &mut i32, amount: i32) -> SimResult<()> {
+    *value = checked_monster_intent_add(*value, amount)?.min(999);
     Ok(())
 }
 
@@ -9603,9 +9905,10 @@ fn apply_player_vulnerable_from_monster(
 
 fn apply_player_frail_from_monster(
     powers: &mut crate::power::PlayerPowers,
+    relics: &[crate::Relic],
     amount: i32,
 ) -> SimResult<()> {
-    crate::power::apply_player_frail(powers, amount)?;
+    crate::relic::apply_player_frail_with_relics(powers, relics, amount)?;
     Ok(())
 }
 
@@ -9634,10 +9937,11 @@ fn apply_monster_intent_with_card_rng_inner(
     ascension: u8,
     player_before: &crate::PlayerState,
     relics: &[crate::Relic],
+    player_can_revive: bool,
     card_random_rng: &mut StsRng,
 ) -> SimResult<i32> {
     use crate::combat::damage::deal_unmodified_damage_to_monster;
-    use crate::combat::turn_powers::monster_damage_to_player;
+    use crate::combat::turn_powers::monster_damage_to_player_with_relics;
     use crate::power::{
         apply_player_confusion, apply_player_constricted, reduce_player_dexterity,
         reduce_player_strength,
@@ -9669,6 +9973,7 @@ fn apply_monster_intent_with_card_rng_inner(
             | SPIRE_GROWTH_ID
             | GIANT_HEAD_ID
             | NEMESIS_ID
+            | TIME_EATER_ID
     );
     let scale_damage = |damage: i32| -> SimResult<i32> {
         if source_scaled_damage {
@@ -9683,6 +9988,12 @@ fn apply_monster_intent_with_card_rng_inner(
     let mut block_after_thorns = 0;
     let total_thorns = checked_monster_intent_add(player.powers.thorns, player.temp_thorns)?;
     let mut thorns_already_applied = false;
+    let guardian_was_in_defensive_mode =
+        monster.content_id == GUARDIAN_ID && monster.in_defensive_mode;
+    let monster_damage_to_player =
+        |player: &crate::PlayerState, monster: &MonsterState, base: i32| {
+            monster_damage_to_player_with_relics(player, monster, base, relics)
+        };
     let (damage, thorns_hits) = match monster.intent {
         MonsterIntent::PendingAiRoll => {
             return Err(SimError::InvalidState(
@@ -9711,9 +10022,11 @@ fn apply_monster_intent_with_card_rng_inner(
             if monster.content_id == SPHERIC_GUARDIAN_ID {
                 // Target SphericGuardian move 3 queues GainBlockAction before
                 // DamageAction, so reactive thorns damage lands into the newly
-                // gained block. Other modeled AttackAndBlock users retain their
-                // source attack-then-block ordering.
-                checked_add_monster_intent_value(&mut monster.block, block)?;
+                // gained block. GainBlockAction delegates to addBlock, which
+                // caps creature block at the target's 999 maximum. Other
+                // modeled AttackAndBlock users retain their source
+                // attack-then-block ordering.
+                checked_add_monster_block_value(&mut monster.block, block)?;
             } else {
                 block_after_thorns = block;
             }
@@ -9783,12 +10096,28 @@ fn apply_monster_intent_with_card_rng_inner(
                 1,
             )
         }
+        MonsterIntent::AttackApplyPlayerFrailAndVulnerable {
+            damage,
+            frail,
+            vulnerable,
+        } => {
+            apply_player_frail_from_monster(&mut player.powers, relics, frail)?;
+            let had_no_vulnerable = player.powers.vulnerable == 0;
+            let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
+            if had_no_vulnerable && applied {
+                player.vulnerable_just_applied = true;
+            }
+            (
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
+                1,
+            )
+        }
         MonsterIntent::AttackApplyPlayerFrailAndWeak {
             damage,
             frail,
             weak,
         } => {
-            apply_player_frail_from_monster(&mut player.powers, frail)?;
+            apply_player_frail_from_monster(&mut player.powers, relics, frail)?;
             apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
             (
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
@@ -9796,7 +10125,7 @@ fn apply_monster_intent_with_card_rng_inner(
             )
         }
         MonsterIntent::AttackApplyPlayerFrail { damage, frail } => {
-            apply_player_frail_from_monster(&mut player.powers, frail)?;
+            apply_player_frail_from_monster(&mut player.powers, relics, frail)?;
             (
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
@@ -9823,7 +10152,7 @@ fn apply_monster_intent_with_card_rng_inner(
                 } else {
                     frail
                 };
-                apply_player_frail_from_monster(&mut player.powers, applied_frail)?;
+                apply_player_frail_from_monster(&mut player.powers, relics, applied_frail)?;
                 apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
             }
             (0, 0)
@@ -9833,7 +10162,7 @@ fn apply_monster_intent_with_card_rng_inner(
             weak,
             vulnerable,
         } => {
-            apply_player_frail_from_monster(&mut player.powers, frail)?;
+            apply_player_frail_from_monster(&mut player.powers, relics, frail)?;
             apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
             let had_no_vulnerable = player.powers.vulnerable == 0;
             let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
@@ -9868,6 +10197,20 @@ fn apply_monster_intent_with_card_rng_inner(
             monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
             1,
         ),
+        MonsterIntent::AttackAddVoidToDraw { damage, count } => {
+            let damage_taken =
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
+            if player.hp > 0 {
+                add_cards_to_draw_random_spot(
+                    piles,
+                    VOID_ID,
+                    count,
+                    card_random_rng,
+                    allocated_card_id_through,
+                )?;
+            }
+            (damage_taken, 1)
+        }
         MonsterIntent::AddSlimedToDiscard { count } => {
             add_cards_to_discard(piles, SLIMED_ID, count, allocated_card_id_through)?;
             (0, 0)
@@ -9907,8 +10250,11 @@ fn apply_monster_intent_with_card_rng_inner(
         }
         MonsterIntent::Stun => {
             if monster.content_id == EXPLODER_ID && monster.powers.explosive > 0 {
-                let damage_taken =
-                    monster_damage_to_player(player_before, monster, monster.powers.explosive)?;
+                // Exploder's death blast is a THORNS-type DamageAction in the
+                // target game: it ignores monster Strength/Weak and player
+                // Vulnerable, while the later player damage pipeline still
+                // applies block, Intangible, and Buffer.
+                let damage_taken = EXPLODER_EXPLOSION_DAMAGE;
                 monster.hp = 0;
                 monster.alive = false;
                 monster.block = 0;
@@ -9944,11 +10290,16 @@ fn apply_monster_intent_with_card_rng_inner(
         }
         MonsterIntent::AddBurnToDiscard { count, damage } => {
             add_cards_to_discard(piles, BURN_ID, count, allocated_card_id_through)?;
-            (monster_attack_damage(monster, scale_damage(damage)?)?, 1)
+            let thorns_hits = i32::from(damage > 0);
+            (
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
+                thorns_hits,
+            )
         }
-        MonsterIntent::AddBurnToDiscardAndDraw { damage, .. } => {
-            (monster_attack_damage(monster, scale_damage(damage)?)?, 1)
-        }
+        MonsterIntent::AddBurnToDiscardAndDraw { damage, .. } => (
+            monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
+            1,
+        ),
         MonsterIntent::AttackMultipleUpgradeBurns {
             damage,
             hits,
@@ -10034,7 +10385,15 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
     };
-    if total_thorns > 0 && thorns_hits > 0 && !thorns_already_applied {
+    // ThornsPower queues a separate DamageAction after the incoming attack.
+    // A lethal hit ends the combat action queue before that retaliation can
+    // resolve, so a single-hit attack must not damage the monster after the
+    // player would already be dead. Multi-hit attacks calculate this per hit
+    // in `apply_multi_hit_thorns` above.
+    let player_survives_single_hit =
+        player_can_revive || player_survives_monster_hit(player_before, damage, relics);
+    if total_thorns > 0 && thorns_hits > 0 && !thorns_already_applied && player_survives_single_hit
+    {
         deal_unmodified_damage_to_monster(
             monster,
             checked_monster_intent_mul(total_thorns, thorns_hits)?,
@@ -10046,7 +10405,10 @@ fn apply_monster_intent_with_card_rng_inner(
     if monster.alive && thorns_hits > 0 && monster.powers.strength_up > 0 {
         checked_add_monster_intent_value(&mut monster.powers.strength, monster.powers.strength_up)?;
     }
-    if monster.content_id == GUARDIAN_ID && monster.in_defensive_mode {
+    if monster.content_id == GUARDIAN_ID
+        && monster.in_defensive_mode
+        && guardian_was_in_defensive_mode
+    {
         finish_guardian_defensive_turn(monster);
     }
     if !lagavulin_sleep_or_stun(monster.content_id, monster.intent) {
@@ -10055,7 +10417,31 @@ fn apply_monster_intent_with_card_rng_inner(
             .checked_add(1)
             .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))?;
     }
+    if monster.content_id == GUARDIAN_ID
+        && monster.in_defensive_mode
+        && !guardian_was_in_defensive_mode
+    {
+        monster.intent = guardian_intent(
+            true,
+            monster.defensive_turns_remaining,
+            monster.moves_executed,
+            ascension,
+        );
+    }
     Ok(damage)
+}
+
+fn player_survives_monster_hit(
+    player: &crate::PlayerState,
+    damage: i32,
+    relics: &[crate::Relic],
+) -> bool {
+    let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(player, damage);
+    let blocked = player.block.min(incoming);
+    let mitigated = crate::relic::mitigate_unblocked_attack_damage(relics, incoming - blocked);
+    let mut powers = player.powers.clone();
+    let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut powers, mitigated);
+    player.hp > hp_damage
 }
 
 fn apply_multi_hit_thorns(
@@ -10083,8 +10469,22 @@ fn apply_multi_hit_thorns(
         remaining_hp -= hit_damage.saturating_sub(blocked);
         let player_survives_hit = hit_damage <= 0 || remaining_hp > 0;
         if player_survives_hit {
-            crate::combat::damage::deal_unmodified_damage_to_monster(monster, total_thorns);
+            let hp_damage =
+                crate::combat::damage::deal_unmodified_damage_to_monster_deferred_guardian(
+                    monster,
+                    total_thorns,
+                );
+            if monster.content_id == GUARDIAN_ID {
+                guardian_accumulate_hp_damage(monster, hp_damage);
+            }
         }
+    }
+    if monster.content_id == GUARDIAN_ID
+        && monster.alive
+        && !monster.in_defensive_mode
+        && monster.mode_shift <= 0
+    {
+        enter_guardian_defensive_mode(monster);
     }
     effective_hits
 }
@@ -10153,22 +10553,100 @@ fn take_random_card_of_rarity(
         .iter()
         .enumerate()
         .filter_map(|(index, card)| {
-            let (_, card_rarity) = card_type_and_rarity(card.content_id)?;
             let key = crate::content::cards::get_card_definition(card.content_id)?.key;
-            (card_rarity == rarity).then_some((index, key))
+            card_matches_stasis_rarity(card.content_id, rarity).then_some((index, key))
         })
         .collect::<Vec<_>>();
     if candidate_indices.is_empty() {
         return None;
     }
-    candidate_indices.sort_by_key(|(_, key)| *key);
+    // AbstractCard.compareTo sorts by the source cardID. The simulator's
+    // content keys are not always source IDs (for example, INTIMIDATE and
+    // SHOCKWAVE are internal uppercase keys), while the card name preserves
+    // the source ordering for these cards. Upgraded cards retain their base
+    // cardID, so remove the display-only '+' suffix before sorting.
+    candidate_indices.sort_by_key(|(index, _)| stasis_card_source_id(pile[*index].content_id));
     let pick = rng.random_int((candidate_indices.len() - 1) as i32) as usize;
     Some(pile.remove(candidate_indices[pick].0))
+}
+
+fn stasis_card_source_id(content_id: ContentId) -> &'static str {
+    get_card_definition(content_id)
+        .map(|definition| definition.name.trim_end_matches('+'))
+        .unwrap_or("")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::cards::{
+        APPARITION_ID, APPARITION_PLUS_ID, BARRICADE_ID, BERSERK_ID, BITE_ID, BITE_PLUS_ID, JAX_ID,
+        JAX_PLUS_ID, RITUAL_DAGGER_ID, WOUND_ID,
+    };
+    use crate::ids::CardId;
+
+    #[test]
+    fn stasis_uses_target_card_rarity() {
+        for id in [
+            APPARITION_ID,
+            APPARITION_PLUS_ID,
+            BITE_ID,
+            BITE_PLUS_ID,
+            RITUAL_DAGGER_ID,
+            JAX_ID,
+            JAX_PLUS_ID,
+        ] {
+            assert!(!card_matches_stasis_rarity(id, CardRarity::Rare));
+            assert!(!card_matches_stasis_rarity(id, CardRarity::Uncommon));
+            assert!(!card_matches_stasis_rarity(id, CardRarity::Common));
+        }
+        assert!(card_matches_stasis_rarity(WOUND_ID, CardRarity::Common));
+
+        let mut pile = vec![
+            CardInstance::new(CardId::new(1), APPARITION_ID),
+            CardInstance::new(CardId::new(2), BARRICADE_ID),
+            CardInstance::new(CardId::new(3), BERSERK_ID),
+        ];
+        let mut rng = StsRng::new(3);
+        let selected = take_random_card_of_rarity(&mut pile, &mut rng, CardRarity::Rare)
+            .expect("the rare Stasis pool contains Barricade and Berserk");
+
+        assert_eq!(selected.content_id, BARRICADE_ID);
+    }
+
+    #[test]
+    fn stasis_sorts_by_source_card_id_not_internal_content_key() {
+        use crate::content::cards::{
+            BATTLE_TRANCE_ID, ENTRENCH_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, RAMPAGE_ID,
+            SHOCKWAVE_ID, UPPERCUT_PLUS_ID, WHIRLWIND_ID,
+        };
+
+        let mut cards = [
+            INTIMIDATE_ID,
+            INFLAME_PLUS_ID,
+            UPPERCUT_PLUS_ID,
+            WHIRLWIND_ID,
+            SHOCKWAVE_ID,
+            RAMPAGE_ID,
+            ENTRENCH_ID,
+            BATTLE_TRANCE_ID,
+        ];
+        cards.sort_by_key(|content_id| stasis_card_source_id(*content_id));
+
+        assert_eq!(
+            cards,
+            [
+                BATTLE_TRANCE_ID,
+                ENTRENCH_ID,
+                INFLAME_PLUS_ID,
+                INTIMIDATE_ID,
+                RAMPAGE_ID,
+                SHOCKWAVE_ID,
+                UPPERCUT_PLUS_ID,
+                WHIRLWIND_ID,
+            ]
+        );
+    }
 
     #[test]
     fn target_hp_generation_wraps_floor_seed_like_java_long() {
@@ -10210,6 +10688,39 @@ mod tests {
             }]
         );
         assert_eq!(misc_rng.counter(), 2);
+    }
+
+    #[test]
+    fn ancient_shape_opening_intents_are_deferred_to_combat_ai_roll() {
+        let seed = 772_776_727_775_i64;
+        let floor = 41;
+        let mut misc_rng = StsRng::new(seed.wrapping_add(i64::from(floor)));
+
+        let spawns = target_beyond_encounter_spawn_for_key_with_misc_rng(
+            seed,
+            floor,
+            "3 Shapes",
+            0,
+            false,
+            &mut misc_rng,
+        )
+        .expect("encounter is implemented");
+
+        assert_eq!(spawns.len(), 3);
+        for spawn in spawns {
+            match spawn.name {
+                "Spiker" | "Repulsor" => {
+                    assert_eq!(spawn.intent, TargetSpawnIntent::PendingAiRoll)
+                }
+                "Exploder" => assert_eq!(
+                    spawn.intent,
+                    TargetSpawnIntent::Attack {
+                        damage: EXPLODER_ATTACK_DAMAGE
+                    }
+                ),
+                _ => unreachable!("3 Shapes contains only ancient shapes"),
+            }
+        }
     }
 
     #[test]
@@ -10269,6 +10780,97 @@ mod tests {
     }
 
     #[test]
+    fn guardian_thorns_enters_defensive_mode_without_consuming_first_turn() {
+        let mut state = crate::CombatState::initial_fixture();
+        state.player.powers.thorns = 3;
+        state.player.powers.vulnerable = 2;
+        let relics = [crate::Relic::OddMushroom];
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.moves_executed = 3;
+        monster.mode_shift = 12;
+        monster.intent = MonsterIntent::AttackMultiple {
+            damage: GUARDIAN_WHIRLWIND_DAMAGE,
+            hits: GUARDIAN_WHIRLWIND_HITS,
+        };
+        let mut player = state.player.clone();
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        let damage = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &relics,
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(24));
+        assert_eq!(monster.hp, 228);
+        assert!(monster.in_defensive_mode);
+        assert_eq!(monster.defensive_turns_remaining, 3);
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::GuardianCloseUp { sharp_hide: 3 }
+        );
+    }
+
+    #[test]
+    fn champ_taunt_applies_weak_and_vulnerable() {
+        assert_eq!(
+            target_champ_next_intent_from_roll(&[1, 2, 1], 99, 349, 420, 0),
+            MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+                frail: 0,
+                weak: 2,
+                vulnerable: 2,
+            }
+        );
+
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&CHAMP_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+            frail: 0,
+            weak: 2,
+            vulnerable: 2,
+        };
+        let mut player = state.player.clone();
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        let damage = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(0));
+        assert_eq!(player.powers.weak, 2);
+        assert_eq!(player.powers.vulnerable, 2);
+        assert!(player.vulnerable_just_applied);
+    }
+
+    #[test]
+    fn champ_face_slap_applies_frail_and_vulnerable() {
+        let intent = target_champ_next_intent_from_roll(&[], 31, 349, 420, 0);
+        assert_eq!(
+            intent,
+            MonsterIntent::AttackApplyPlayerFrailAndVulnerable {
+                damage: CHAMP_FACE_SLAP_DAMAGE,
+                frail: CHAMP_FACE_SLAP_FRAIL,
+                vulnerable: 2,
+            }
+        );
+        assert_eq!(target_move_byte(CHAMP_ID, intent), Some(4));
+    }
+
+    #[test]
     fn monster_intent_rejects_block_overflow_without_mutating_inputs() {
         let mut state = crate::CombatState::initial_fixture();
         let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
@@ -10300,6 +10902,34 @@ mod tests {
         assert_eq!(player, player_before);
         assert_eq!(state.piles, piles_before);
         assert_eq!(state.rng.card_random_rng, rng_before);
+    }
+
+    #[test]
+    fn spheric_guardian_gain_block_caps_at_creature_block_limit() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&SPHERIC_GUARDIAN_A0, MonsterId::new(1));
+        monster.block = 994;
+        monster.intent = MonsterIntent::AttackAndBlock {
+            damage: 10,
+            block: 15,
+        };
+        let mut player = state.player.clone();
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        let damage = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(10));
+        assert_eq!(monster.block, 999);
     }
 
     #[test]
@@ -10403,6 +11033,69 @@ mod tests {
         assert_eq!(damage, Ok(12));
         assert_eq!(monster.hp, 28);
         assert_eq!(player.hp, 11);
+    }
+
+    #[test]
+    fn guardian_multi_hit_thorns_defer_mode_shift_block_until_all_hits() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&GUARDIAN_A0, MonsterId::new(1));
+        monster.hp = 211;
+        monster.mode_shift = 1;
+        monster.intent = MonsterIntent::AttackMultiple {
+            damage: GUARDIAN_WHIRLWIND_DAMAGE,
+            hits: GUARDIAN_WHIRLWIND_HITS,
+        };
+        let mut player = state.player.clone();
+        player.hp = 100;
+        player.block = 15;
+        player.powers.thorns = 3;
+        player.temp_thorns = 4;
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        )
+        .expect("Guardian multi-hit attack should resolve");
+
+        assert_eq!(monster.hp, 183);
+        assert_eq!(monster.block, 20);
+        assert!(monster.in_defensive_mode);
+    }
+
+    #[test]
+    fn lethal_single_hit_does_not_apply_queued_thorns_damage() {
+        let mut state = crate::CombatState::initial_fixture();
+        state.player.hp = 1;
+        state.player.powers.thorns = 3;
+        let mut monster = monster_state(&CENTURION_A0, MonsterId::new(1));
+        monster.hp = 10;
+        monster.intent = MonsterIntent::Attack { damage: 2 };
+        let mut player = state.player.clone();
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        let damage = apply_monster_intent_with_card_rng_and_revival(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            false,
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(2));
+        assert_eq!(monster.hp, 10);
     }
 
     #[test]
@@ -10631,6 +11324,62 @@ mod tests {
             ),
             Some(4)
         );
+    }
+
+    #[test]
+    fn burn_attack_applies_player_vulnerable() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&HEXAGHOST_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::AddBurnToDiscard {
+            count: 1,
+            damage: HEXAGHOST_DIVIDER_DAMAGE,
+        };
+        let mut player = state.player.clone();
+        player.powers.vulnerable = 1;
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        let damage = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(9));
+        assert_eq!(state.piles.discard_pile.len(), 1);
+        assert_eq!(state.piles.discard_pile[0].content_id, BURN_ID);
+    }
+
+    #[test]
+    fn exploder_death_blast_ignores_player_vulnerable() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&EXPLODER_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::Stun;
+        monster.powers.explosive = 1;
+        let mut player = state.player.clone();
+        player.powers.vulnerable = 1;
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        let damage = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(EXPLODER_EXPLOSION_DAMAGE));
+        assert!(!monster.alive);
+        assert_eq!(monster.hp, 0);
     }
 
     #[test]
@@ -10909,6 +11658,55 @@ mod tests {
             .iter()
             .all(|monster| monster.slime_size == Some(SlimeSize::Medium)));
         assert_eq!(rng.counter(), 3);
+    }
+
+    #[test]
+    fn medium_spike_slime_split_uses_medium_intent_above_hp_threshold() {
+        let parent_id = MonsterId::new(1);
+        let mut parent = monster_state(&SPIKE_SLIME_A0, parent_id);
+        parent.hp = 35;
+        parent.max_hp = SPIKE_SLIME_L_A0_HP_RANGE.max;
+        let seed = (0..100)
+            .find(|seed| {
+                let mut rng = StsRng::new(*seed);
+                rng.random_int(99) < 30
+            })
+            .expect("test seed range should include a Spike Slime Spit roll");
+        let mut rng = StsRng::new(seed);
+        let mut monsters = vec![parent];
+        apply_large_spike_slime_split(&mut monsters, parent_id, 2, &mut rng, 0)
+            .expect("Spike Slime split is valid");
+
+        let mut expected_rng = StsRng::new(seed);
+        let left_roll = expected_rng.random_int(99);
+        let right_roll = expected_rng.random_int(99);
+        let expected_intents = [left_roll, right_roll].map(|roll| {
+            target_medium_or_large_spike_slime_next_intent_from_roll_with_profile(
+                false,
+                &[],
+                roll,
+                0,
+            )
+        });
+        let children = monsters
+            .iter()
+            .filter(|monster| monster.alive && monster.content_id == SPIKE_SLIME_ID)
+            .collect::<Vec<_>>();
+        assert_eq!(children.len(), 2);
+        assert_eq!(
+            children
+                .iter()
+                .map(|monster| monster.intent)
+                .collect::<Vec<_>>(),
+            expected_intents
+        );
+        assert_eq!(
+            children[0].intent,
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: SPIKE_SLIME_M_SPIT_DAMAGE,
+                count: 1,
+            }
+        );
     }
 
     #[test]
@@ -11225,6 +12023,63 @@ mod tests {
     }
 
     #[test]
+    fn awakened_one_phase_two_uses_sludge_after_two_tackles() {
+        let sludge = target_awakened_one_next_intent_from_roll(&[5, 8, 8], 91, 1, 0);
+        assert_eq!(
+            sludge,
+            MonsterIntent::AttackAddVoidToDraw {
+                damage: 18,
+                count: 1,
+            }
+        );
+        assert_eq!(target_move_byte(AWAKENED_ONE_ID, sludge), Some(6));
+
+        assert_eq!(
+            target_awakened_one_next_intent_from_roll(&[5, 8, 8, 6, 6], 91, 1, 0),
+            MonsterIntent::AttackMultiple {
+                damage: AWAKENED_ONE_TACKLE_DAMAGE,
+                hits: AWAKENED_ONE_TACKLE_HITS,
+            }
+        );
+    }
+
+    #[test]
+    fn awakened_one_phase_two_uses_common_ai_roll_and_move_constraints() {
+        assert_eq!(
+            target_awakened_one_next_intent_from_roll(&[5], 49, 1, 0),
+            MonsterIntent::AttackAddVoidToDraw {
+                damage: 18,
+                count: 1,
+            }
+        );
+        assert_eq!(
+            target_awakened_one_next_intent_from_roll(&[5], 50, 1, 0),
+            MonsterIntent::AttackMultiple {
+                damage: AWAKENED_ONE_TACKLE_DAMAGE,
+                hits: AWAKENED_ONE_TACKLE_HITS,
+            }
+        );
+        assert_eq!(
+            target_awakened_one_next_intent_from_roll(&[6, 6], 0, 1, 0),
+            MonsterIntent::AttackMultiple {
+                damage: AWAKENED_ONE_TACKLE_DAMAGE,
+                hits: AWAKENED_ONE_TACKLE_HITS,
+            }
+        );
+    }
+
+    #[test]
+    fn awakened_one_keeps_strength_through_first_death() {
+        let mut monster = monster_state(&AWAKENED_ONE_A0, crate::ids::MonsterId::new(1));
+        monster.powers.strength = 5;
+
+        assert!(mark_awakened_one_half_dead(&mut monster));
+        assert_eq!(monster.powers.strength, 5);
+        assert!(awaken_one_after_first_death(&mut monster));
+        assert_eq!(monster.powers.strength, 5);
+    }
+
+    #[test]
     fn orb_walker_laser_intent_adds_burn_to_discard_and_draw() {
         let laser = MonsterIntent::AddBurnToDiscardAndDraw {
             damage: ORB_WALKER_LASER_DAMAGE,
@@ -11474,6 +12329,35 @@ mod tests {
         assert_eq!(source_monster.powers.malleable_base, SNAKE_PLANT_MALLEABLE);
         assert_eq!(player.powers.frail, SNAKE_PLANT_SPORES_DEBUFF);
         assert_eq!(player.powers.weak, SNAKE_PLANT_SPORES_DEBUFF);
+    }
+
+    #[test]
+    fn turnip_blocks_frail_applied_by_monster_intents() {
+        let mut source_monster = monster_state(&SHELLED_PARASITE_A0, MonsterId::new(1));
+        source_monster.intent = MonsterIntent::AttackApplyPlayerFrail {
+            damage: SHELLED_PARASITE_FELL_DAMAGE,
+            frail: SHELLED_PARASITE_FELL_FRAIL,
+        };
+        let state = crate::CombatState::initial_fixture();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+        let mut player = state.player;
+        let player_before = player.clone();
+        let mut piles = state.piles;
+        let mut card_random_rng = StsRng::new(0);
+
+        let damage = apply_monster_intent_with_card_rng(
+            &mut source_monster,
+            &mut player,
+            &mut piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[crate::Relic::Turnip],
+            &mut card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(SHELLED_PARASITE_FELL_DAMAGE));
+        assert_eq!(player.powers.frail, 0);
     }
 
     #[test]
@@ -11856,6 +12740,49 @@ mod tests {
     }
 
     #[test]
+    fn gremlin_leader_rally_uses_source_slot_generation_and_draw_x_order() {
+        let mut old_slot_two = monster_state(&GREMLIN_TSUNDERE_A0, MonsterId::new(5));
+        old_slot_two.gremlin_leader_slot = Some(2);
+        old_slot_two.hp = 0;
+        old_slot_two.alive = false;
+
+        let mut live_slot_zero = monster_state(&GREMLIN_WARRIOR_A0, MonsterId::new(4));
+        live_slot_zero.gremlin_leader_slot = Some(0);
+
+        let mut old_slot_zero = monster_state(&GREMLIN_THIEF_A0, MonsterId::new(1));
+        old_slot_zero.gremlin_leader_slot = Some(0);
+        old_slot_zero.hp = 0;
+        old_slot_zero.alive = false;
+
+        let mut old_slot_one = monster_state(&GREMLIN_WIZARD_A0, MonsterId::new(2));
+        old_slot_one.gremlin_leader_slot = Some(1);
+        old_slot_one.hp = 0;
+        old_slot_one.alive = false;
+
+        let leader = monster_state(&GREMLIN_LEADER_A0, MonsterId::new(3));
+        let monsters = vec![
+            old_slot_two,
+            live_slot_zero,
+            old_slot_zero,
+            old_slot_one,
+            leader,
+        ];
+
+        assert_eq!(
+            gremlin_leader_first_available_slot_excluding(&monsters, &[]),
+            Some(1)
+        );
+        assert_eq!(
+            gremlin_leader_summon_insert_index(&monsters, 1, GREMLIN_WARRIOR_ID),
+            4
+        );
+        assert_eq!(
+            gremlin_leader_summon_insert_index(&monsters, 2, GREMLIN_TSUNDERE_ID),
+            0
+        );
+    }
+
+    #[test]
     fn gremlin_leader_rally_preserves_rolled_max_hp() {
         let leader = monster_state(&GREMLIN_LEADER_A0, MonsterId::new(1));
         let mut monsters = vec![leader];
@@ -11889,7 +12816,7 @@ mod tests {
     }
 
     #[test]
-    fn gremlin_leader_late_slot_zero_summon_follows_first_two_slot_zero_corpses() {
+    fn gremlin_leader_slot_zero_summon_uses_spatial_order_not_corpse_count() {
         let mut first_slot_zero = monster_state(&GREMLIN_WIZARD_A0, MonsterId::new(1));
         first_slot_zero.gremlin_leader_slot = Some(0);
         first_slot_zero.hp = 0;
@@ -11915,7 +12842,10 @@ mod tests {
             leader,
         ];
 
-        assert_eq!(gremlin_leader_summon_insert_index(&monsters, 0), 2);
+        assert_eq!(
+            gremlin_leader_summon_insert_index(&monsters, 0, GREMLIN_WIZARD_ID),
+            0
+        );
     }
 
     #[test]
@@ -11984,6 +12914,47 @@ mod tests {
         assert_eq!(ai_rng.counter(), 2);
         assert_eq!((monsters[0].hp, monsters[0].max_hp), (second_hp, second_hp));
         assert_eq!((monsters[1].hp, monsters[1].max_hp), (first_hp, first_hp));
+    }
+
+    #[test]
+    fn collector_replacement_only_fills_missing_torch_head_slot() {
+        let mut monsters = vec![monster_state(&THE_COLLECTOR_A0, MonsterId::new(1))];
+        let mut hp_rng = StsRng::new(2468);
+        let mut ai_rng = StsRng::new(1357);
+        let mut expected_hp_rng = StsRng::new(2468);
+        for _ in 0..2 {
+            let _constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
+            let _initial_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
+        }
+        let _constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
+        let replacement_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
+
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+            .expect("Collector initial summon is valid");
+        let dead = monsters
+            .iter_mut()
+            .find(|monster| monster.gremlin_leader_slot == Some(2))
+            .expect("second Torch Head exists");
+        dead.hp = 0;
+        dead.alive = false;
+
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+            .expect("Collector replacement summon is valid");
+
+        assert_eq!(hp_rng.counter(), 6);
+        assert_eq!(ai_rng.counter(), 3);
+        assert_eq!(monsters.len(), 4);
+        assert_eq!(monsters[0].gremlin_leader_slot, Some(1));
+        assert!(monsters[0].alive);
+        assert_eq!(monsters[1].gremlin_leader_slot, Some(2));
+        assert!(monsters[1].alive);
+        assert_eq!(
+            (monsters[1].hp, monsters[1].max_hp),
+            (replacement_hp, replacement_hp)
+        );
+        assert_eq!(monsters[2].gremlin_leader_slot, Some(2));
+        assert!(!monsters[2].alive);
+        assert_eq!(monsters[3].content_id, THE_COLLECTOR_ID);
     }
 
     #[test]
@@ -12086,7 +13057,6 @@ mod tests {
 
         for (definition, content_id) in [
             (&AWAKENED_ONE_A0, AWAKENED_ONE_ID),
-            (&TIME_EATER_A0, TIME_EATER_ID),
             (&CORRUPT_HEART_A0, CORRUPT_HEART_ID),
             (&SPIRE_SHIELD_A0, SPIRE_SHIELD_ID),
             (&SPIRE_SPEAR_A0, SPIRE_SPEAR_ID),
@@ -12097,6 +13067,15 @@ mod tests {
                 Err(SimError::UnsupportedMechanic(content_id))
             );
         }
+
+        let time_eater = monster_state(&TIME_EATER_A0, MonsterId::new(1));
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&time_eater, 0),
+            Ok(MonsterIntent::AttackAndBlock {
+                damage: 0,
+                block: TIME_EATER_RIPPLE_BLOCK,
+            })
+        );
 
         let mut transient = monster_state(&TRANSIENT_A0, MonsterId::new(1));
         transient.moves_executed = u32::MAX;

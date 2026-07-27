@@ -12,6 +12,7 @@ use crate::{
     run::grid::open_shop_remove_grid,
     run::reward::{
         enter_orrery_reward_screen, queue_orrery_card_reward_choices, target_random_potion,
+        target_uniform_random_potion,
     },
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
@@ -374,7 +375,7 @@ fn restock_courier_potion_slot(next: &mut RunState, slot: usize) {
     let mut potion_rng = StsRng::with_counter(next.potion_rng_seed as i64, next.potion_rng_counter);
     let mut merchant_rng =
         StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
-    let potion = target_random_potion(&mut potion_rng);
+    let potion = target_uniform_random_potion(&mut potion_rng);
     let price = apply_relic_discounts_to_price(potion_price(potion, &mut merchant_rng), next);
     next.potion_rng_counter = potion_rng.counter();
     next.merchant_rng_counter = merchant_rng.counter();
@@ -470,6 +471,12 @@ pub fn generate_shop_screen(run: &mut RunState) -> SimResult<ShopScreen> {
         });
     }
     run.potion_rng_counter = potion_rng.counter();
+    eprintln!(
+        "DEBUG shop floor={} potion_counter={} potions={:?}",
+        run.current_floor,
+        run.potion_rng_counter,
+        potions.iter().map(|slot| slot.potion).collect::<Vec<_>>()
+    );
     run.merchant_rng_counter = merchant_rng.counter();
 
     let cards = card_contents
@@ -916,6 +923,17 @@ mod tests {
         assert!(run.card_rng_counter > 0);
         assert!(run.merchant_rng_counter > 0);
         assert!(run.potion_rng_counter > 0);
+    }
+
+    #[test]
+    fn shop_potions_use_one_uniform_potion_rng_draw_each() {
+        let mut run = RunState::map_fixture();
+        enter_shop_room(&mut run).expect("shop entry succeeds");
+
+        let before_restock = run.potion_rng_counter;
+        run.relics.push(Relic::TheCourier);
+        restock_courier_potion_slot(&mut run, 0);
+        assert_eq!(run.potion_rng_counter, before_restock + 1);
     }
 
     #[test]

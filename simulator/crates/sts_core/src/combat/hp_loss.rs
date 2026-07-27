@@ -1,4 +1,5 @@
 use crate::{
+    card::CardInstance,
     combat::{CombatState, PlayerState},
     content::cards::{BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID},
     SimResult,
@@ -46,12 +47,23 @@ pub(crate) fn apply_player_card_hp_loss_hooks(
     state: &mut CombatState,
     hp_loss: i32,
 ) -> SimResult<()> {
+    let pending_hand: &mut [CardInstance] = &mut [];
+    apply_player_card_hp_loss_hooks_with_pending_hand(state, hp_loss, pending_hand)
+}
+
+pub(crate) fn apply_player_card_hp_loss_hooks_with_pending_hand(
+    state: &mut CombatState,
+    hp_loss: i32,
+    pending_hand: &mut [CardInstance],
+) -> SimResult<()> {
     if hp_loss <= 0 {
         return Ok(());
     }
 
     let mut next = state.clone();
+    let mut next_pending_hand = pending_hand.to_vec();
     apply_player_hp_loss_hooks_in_place(&mut next, hp_loss)?;
+    reduce_blood_for_blood_costs_in_cards(&mut next_pending_hand)?;
     next.player.powers.strength = next
         .player
         .powers
@@ -61,10 +73,18 @@ pub(crate) fn apply_player_card_hp_loss_hooks(
             "Rupture Strength gain overflows i32",
         ))?;
     *state = next;
+    pending_hand.copy_from_slice(&next_pending_hand);
     Ok(())
 }
 
 fn apply_player_hp_loss_hooks_in_place(state: &mut CombatState, hp_loss: i32) -> SimResult<()> {
+    state.player.damage_events_this_combat = state
+        .player
+        .damage_events_this_combat
+        .checked_add(1)
+        .ok_or(crate::SimError::InvalidState(
+            "player damage event counter overflows i32",
+        ))?;
     reduce_blood_for_blood_costs(state)?;
     crate::relic::apply_player_hp_loss_relics(state, hp_loss)
 }
@@ -76,14 +96,24 @@ fn reduce_blood_for_blood_costs(state: &mut CombatState) -> SimResult<()> {
         &mut state.piles.discard_pile,
         &mut state.piles.exhaust_pile,
     ] {
-        for card in pile {
-            if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
-                card.blood_for_blood_cost_reduction = card
-                    .blood_for_blood_cost_reduction
-                    .checked_add(1)
-                    .ok_or(crate::SimError::InvalidState(
-                        "Blood for Blood cost reduction overflows i32",
-                    ))?;
+        reduce_blood_for_blood_costs_in_cards(pile)?;
+    }
+    Ok(())
+}
+
+fn reduce_blood_for_blood_costs_in_cards(cards: &mut [CardInstance]) -> SimResult<()> {
+    for card in cards {
+        if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
+            card.blood_for_blood_cost_reduction =
+                card.blood_for_blood_cost_reduction.checked_add(1).ok_or(
+                    crate::SimError::InvalidState("Blood for Blood cost reduction overflows i32"),
+                )?;
+            // BloodForBlood.tookDamage calls AbstractCard.updateCost(-1).
+            // updateCost preserves the difference between the printed cost
+            // and costForTurn, so a card with a temporary current-turn
+            // cost must lower that value along with its combat reduction.
+            if let Some(temp_cost) = card.temp_cost.as_mut() {
+                *temp_cost = temp_cost.saturating_sub(1);
             }
         }
     }
@@ -113,6 +143,24 @@ mod tests {
             ))
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn blood_for_blood_damage_reduces_a_temporary_current_turn_cost() {
+        let mut state = CombatState::initial_fixture();
+        let mut card = CardInstance::new(CardId::new(100), BLOOD_FOR_BLOOD_ID);
+        card.temp_cost = Some(3);
+        state.piles.hand = vec![card];
+
+        apply_player_hp_loss_hooks(&mut state, 1).expect("Blood for Blood reduction succeeds");
+        apply_player_hp_loss_hooks(&mut state, 1).expect("Blood for Blood reduction succeeds");
+
+        assert_eq!(state.piles.hand[0].blood_for_blood_cost_reduction, 2);
+        assert_eq!(state.piles.hand[0].temp_cost, Some(1));
+        assert_eq!(
+            crate::combat::cost::effective_card_cost(&state.piles.hand[0]),
+            Ok(1)
+        );
     }
 
     #[test]

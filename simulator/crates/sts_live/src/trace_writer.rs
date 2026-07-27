@@ -52,8 +52,14 @@ impl TraceWriter {
 
     pub fn append(&mut self, record: &TraceRecord) -> LiveResult<u64> {
         let sequence = self.next_sequence;
-        serde_json::to_writer(&mut self.file, record)?;
-        self.file.write_all(b"\n")?;
+        // Serializing directly into File turns every small serde fragment into
+        // a separate write syscall. Live state records are large, and that is
+        // especially expensive on an NTFS workspace mounted through WSL.
+        // Build one complete JSONL record in memory and publish it with one
+        // write while retaining the existing per-record visibility guarantee.
+        let mut encoded = serde_json::to_vec(record)?;
+        encoded.push(b'\n');
+        self.file.write_all(&encoded)?;
         self.file.flush()?;
         self.next_sequence += 1;
         Ok(sequence)

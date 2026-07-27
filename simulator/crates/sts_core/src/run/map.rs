@@ -26,14 +26,15 @@ use crate::{
         target_slaver_blue_next_intent_from_roll, target_slaver_red_next_intent_from_roll,
         target_small_acid_slime_entry_intent_from_bool, target_snake_plant_next_intent_from_roll,
         target_snecko_next_intent_from_roll, target_spike_slime_entry_intent_from_roll,
-        target_spire_growth_next_intent_from_roll, target_writhing_mass_next_intent_from_roll,
-        TargetEncounterSpawn, TargetSpawnIntent, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
-        ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID,
-        CHAMP_ID, CHOSEN_ID, DAGGER_ID, DARKLING_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID,
+        target_spiker_next_intent_from_roll, target_spire_growth_next_intent_from_roll,
+        target_writhing_mass_next_intent_from_roll, TargetEncounterSpawn, TargetSpawnIntent,
+        ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE, AWAKENED_ONE_ID,
+        BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID, CULTIST_A0,
+        CULTIST_ID, DAGGER_ID, DARKLING_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID,
         GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GUARDIAN_ID, HEALER_ID, HEXAGHOST_ID,
         JAW_WORM_ID, LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID,
         SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID,
-        SNAKE_PLANT_ID, SNECKO_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID,
+        SNAKE_PLANT_ID, SNECKO_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID,
         WRITHING_MASS_ID,
     },
     ids::CardId,
@@ -233,7 +234,7 @@ fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -
         },
     )?;
     advance_monster_hp_rng_for_combat_entry(
-        &combat.monsters,
+        &mut combat.monsters,
         &mut combat.rng.monster_hp_rng,
         run.ascension,
     );
@@ -250,7 +251,7 @@ fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -
 }
 
 fn advance_monster_hp_rng_for_combat_entry(
-    monsters: &[MonsterState],
+    monsters: &mut [MonsterState],
     monster_hp_rng: &mut StsRng,
     ascension: u8,
 ) {
@@ -262,9 +263,16 @@ fn advance_monster_hp_rng_for_combat_entry(
         return;
     }
 
+    let awakened_one_encounter = monsters
+        .iter()
+        .any(|monster| monster.content_id == AWAKENED_ONE_ID);
     for monster in monsters {
         if let Some(range) = target_monster_hp_range_for_content_id(monster.content_id, ascension) {
-            range.roll(monster_hp_rng);
+            let hp = range.roll(monster_hp_rng);
+            if monster.content_id == CULTIST_ID && awakened_one_encounter {
+                monster.hp = hp;
+                monster.max_hp = hp;
+            }
         }
     }
 }
@@ -354,6 +362,22 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
                 roll,
                 rng,
                 combat.ascension,
+            );
+        } else if monster.content_id == AWAKENED_ONE_ID {
+            monster.intent = crate::content::monsters::target_awakened_one_next_intent_from_roll(
+                &monster.move_history,
+                roll,
+                monster.mode_shift,
+                combat.ascension,
+            );
+        } else if monster.content_id == crate::content::monsters::TIME_EATER_ID {
+            monster.intent = crate::content::monsters::target_time_eater_next_intent_from_roll(
+                &monster.move_history,
+                roll,
+                monster.hp,
+                monster.max_hp,
+                combat.ascension,
+                rng,
             );
         } else if monster.content_id == JAW_WORM_ID {
             monster.intent =
@@ -465,6 +489,13 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
         } else if monster.content_id == ORB_WALKER_ID {
             monster.intent = target_orb_walker_next_intent_from_roll(
                 &monster.move_history,
+                roll,
+                combat.ascension,
+            );
+        } else if monster.content_id == SPIKER_ID {
+            monster.intent = target_spiker_next_intent_from_roll(
+                &monster.move_history,
+                monster.powers.spiker_thorns_buffs,
                 roll,
                 combat.ascension,
             );
@@ -786,6 +817,17 @@ fn target_beyond_encounter_spawn_for_run(
 }
 
 fn boss_combat_monsters_for_run(run: &RunState) -> SimResult<Vec<MonsterState>> {
+    if run.current_act == 3 && run.act3_boss == crate::run::Act3Boss::AwakenedOne {
+        return Ok(vec![
+            monster_state_for_ascension(&CULTIST_A0, crate::MonsterId::new(1), run.ascension),
+            monster_state_for_ascension(&CULTIST_A0, crate::MonsterId::new(2), run.ascension),
+            monster_state_for_ascension(
+                get_monster_definition(AWAKENED_ONE_ID).expect("Awakened One definition"),
+                crate::MonsterId::new(3),
+                run.ascension,
+            ),
+        ]);
+    }
     let content_id = match run.current_act {
         1 => match run.act1_boss {
             crate::run::Act1Boss::Hexaghost => HEXAGHOST_ID,
@@ -801,7 +843,7 @@ fn boss_combat_monsters_for_run(run: &RunState) -> SimResult<Vec<MonsterState>> 
             ))?
         }
         3 => match run.act3_boss {
-            crate::run::Act3Boss::AwakenedOne => crate::content::monsters::AWAKENED_ONE_ID,
+            crate::run::Act3Boss::AwakenedOne => unreachable!("handled above"),
             crate::run::Act3Boss::TimeEater => crate::content::monsters::TIME_EATER_ID,
             crate::run::Act3Boss::DonuAndDeca => {
                 return Ok(donu_deca_boss_monsters_for_ascension(run.ascension));
@@ -926,7 +968,13 @@ fn spawn_monster_powers(
             // Thievery is represented by AttackStealGold intent rather than a
             // persistent core monster power.
             "Thievery" => {}
-            _ => return Err(SimError::UnsupportedMechanic(content_id)),
+            _ => {
+                eprintln!(
+                    "DEBUG unsupported spawn content={content_id:?} name={} power={:?}",
+                    spawn.name, power
+                );
+                return Err(SimError::UnsupportedMechanic(content_id));
+            }
         }
     }
     Ok(powers)
@@ -1127,9 +1175,10 @@ mod tests {
             target_exploder_next_intent_from_roll, target_giant_head_next_intent_from_roll,
             target_orb_walker_next_intent_from_roll, target_repulsor_next_intent_from_roll,
             target_sentry_next_intent, target_slaver_red_next_intent_from_roll,
-            target_snecko_next_intent_from_roll, TargetSpawnPower, BOOK_OF_STABBING_ID,
-            BRONZE_ORB_ID, CULTIST_ID, DECA_ID, DONU_ID, EXPLODER_ID, GIANT_HEAD_ID, ORB_WALKER_ID,
-            REPULSOR_ID, SENTRY_ID, SLAVER_RED_ID, SNECKO_ID, SPIKE_SLIME_ID, TASKMASTER_ID,
+            target_snecko_next_intent_from_roll, target_spiker_next_intent_from_roll,
+            TargetSpawnPower, BOOK_OF_STABBING_ID, BRONZE_ORB_ID, CULTIST_ID, DECA_ID, DONU_ID,
+            EXPLODER_ID, GIANT_HEAD_ID, ORB_WALKER_ID, REPULSOR_ID, SENTRY_ID, SLAVER_RED_ID,
+            SNECKO_ID, SPIKER_ID, SPIKE_SLIME_ID, TASKMASTER_ID,
         },
         ContentId, MonsterIntent,
     };
@@ -1698,6 +1747,23 @@ mod tests {
             combat.monsters[0].intent,
             MonsterIntent::Attack { damage: 5 }
         );
+    }
+
+    #[test]
+    fn spiker_entry_uses_the_common_ai_roll() {
+        let mut combat = CombatState::initial_fixture();
+        combat.monsters[0].content_id = SPIKER_ID;
+        combat.monsters[0].powers.spiker_thorns_buffs = 0;
+        let mut expected_rng = StsRng::new(34_961_238_615_630_i64.wrapping_add(37));
+        let roll = expected_rng.random_int(99);
+        let expected = target_spiker_next_intent_from_roll(&[], 0, roll, combat.ascension);
+        let mut actual_rng = StsRng::new(34_961_238_615_630_i64.wrapping_add(37));
+
+        apply_initial_monster_ai_rolls(&mut combat, &mut actual_rng)
+            .expect("supported monster intent");
+
+        assert_eq!(actual_rng.counter(), expected_rng.counter());
+        assert_eq!(combat.monsters[0].intent, expected);
     }
 
     #[test]

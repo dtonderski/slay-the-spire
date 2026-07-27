@@ -157,6 +157,7 @@ fn minimized_metadata(original: Option<&TraceMetadata>, failure_step: u32) -> Tr
         ended_at: None,
         event: None,
         boss_unlocks: None,
+        run_config: None,
     });
     metadata.event = Some(format!("minimized_to_step={failure_step}"));
     metadata

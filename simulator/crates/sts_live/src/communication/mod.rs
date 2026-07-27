@@ -302,7 +302,7 @@ impl CommunicationModBridgeManager {
             .next()
             .unwrap_or("")
             .to_ascii_lowercase();
-        if verb == "start"
+        if matches!(verb.as_str(), "start" | "start_verify")
             && files
                 .summary_age
                 .is_none_or(|age| age > self.config.stale_after)
@@ -317,6 +317,77 @@ impl CommunicationModBridgeManager {
             return fallback;
         }
         files.clone()
+    }
+
+    fn start_run_command(&self, bridge_id: &BridgeId, command: &str) -> LiveResult<LiveState> {
+        let files = self.require_bridge(bridge_id)?;
+        if let Some(control) = control_address(&files.status) {
+            let effective_files = self.effective_command_files(&files, command);
+            let control_files = match validate_ready_for_command(
+                &effective_files,
+                command,
+                None,
+                self.config.stale_after,
+            ) {
+                Ok(()) => effective_files,
+                Err(_) => {
+                    let mut control_files = request_control_files(
+                        &control,
+                        &files.status,
+                        self.config.command_timeout,
+                    )?;
+                    if validate_ready_for_command(
+                        &control_files,
+                        command,
+                        None,
+                        self.config.stale_after,
+                    )
+                    .is_err()
+                    {
+                        // An operator abandon can move the game to the menu one
+                        // frame after the bridge publishes its command response.
+                        // Force CommunicationMod to observe the current screen
+                        // before deciding that the start command is unavailable.
+                        send_control_command(
+                            &control,
+                            "STATE",
+                            &control_files,
+                            self.config.stale_after,
+                            self.config.command_timeout,
+                        )?;
+                        control_files = request_control_files(
+                            &control,
+                            &files.status,
+                            self.config.command_timeout,
+                        )?;
+                    }
+                    validate_ready_for_command(
+                        &control_files,
+                        command,
+                        None,
+                        self.config.stale_after,
+                    )?;
+                    control_files
+                }
+            };
+            let state = send_control_command(
+                &control,
+                command,
+                &control_files,
+                self.config.stale_after,
+                self.config.command_timeout,
+            )?;
+            return self.wait_for_start_completion(&control, &files.status, state);
+        }
+        let effective_files = self.effective_command_files(&files, command);
+        validate_ready_for_command(&effective_files, command, None, self.config.stale_after)?;
+        if !self.config.allow_file_commands {
+            return Err(LiveError::Bridge(
+                "TCP bridge control is unavailable; set STS_LIVE_ALLOW_FILE_COMMANDS=1 for legacy file commands".to_owned(),
+            ));
+        }
+        self.send_via_file(command, None)?;
+        self.state_from_files()
     }
 }
 
@@ -378,74 +449,29 @@ impl BridgeManager for CommunicationModBridgeManager {
         };
         let seed = config.seed.command_text();
         let command = format!("START {character} {} {seed}", config.ascension);
-        let files = self.require_bridge(bridge_id)?;
-        if let Some(control) = control_address(&files.status) {
-            let effective_files = self.effective_command_files(&files, &command);
-            let control_files = match validate_ready_for_command(
-                &effective_files,
-                &command,
-                None,
-                self.config.stale_after,
-            ) {
-                Ok(()) => effective_files,
-                Err(_) => {
-                    let mut control_files = request_control_files(
-                        &control,
-                        &files.status,
-                        self.config.command_timeout,
-                    )?;
-                    if validate_ready_for_command(
-                        &control_files,
-                        &command,
-                        None,
-                        self.config.stale_after,
-                    )
-                    .is_err()
-                    {
-                        // An operator abandon can move the game to the menu one
-                        // frame after the bridge publishes its command response.
-                        // Force CommunicationMod to observe the current screen
-                        // before deciding that START is unavailable.
-                        send_control_command(
-                            &control,
-                            "STATE",
-                            &control_files,
-                            self.config.stale_after,
-                            self.config.command_timeout,
-                        )?;
-                        control_files = request_control_files(
-                            &control,
-                            &files.status,
-                            self.config.command_timeout,
-                        )?;
-                    }
-                    validate_ready_for_command(
-                        &control_files,
-                        &command,
-                        None,
-                        self.config.stale_after,
-                    )?;
-                    control_files
-                }
-            };
-            let state = send_control_command(
-                &control,
-                &command,
-                &control_files,
-                self.config.stale_after,
-                self.config.command_timeout,
-            )?;
-            return self.wait_for_start_completion(&control, &files.status, state);
+        self.start_run_command(bridge_id, &command)
+    }
+
+    fn start_verification_run(
+        &mut self,
+        bridge_id: &BridgeId,
+        config: &RunConfig,
+        starting_hp: i32,
+    ) -> LiveResult<LiveState> {
+        if !(1..=1_000_000).contains(&starting_hp) {
+            return Err(LiveError::InvalidAction(format!(
+                "START_VERIFY starting HP must be between 1 and 1000000, got {starting_hp}"
+            )));
         }
-        let effective_files = self.effective_command_files(&files, &command);
-        validate_ready_for_command(&effective_files, &command, None, self.config.stale_after)?;
-        if !self.config.allow_file_commands {
-            return Err(LiveError::Bridge(
-                "TCP bridge control is unavailable; set STS_LIVE_ALLOW_FILE_COMMANDS=1 for legacy file commands".to_owned(),
-            ));
-        }
-        self.send_via_file(&command, None)?;
-        self.state_from_files()
+        let character = match config.character {
+            Character::Ironclad => "IRONCLAD",
+        };
+        let seed = config.seed.command_text();
+        let command = format!(
+            "START_VERIFY {character} {} {seed} {starting_hp}",
+            config.ascension
+        );
+        self.start_run_command(bridge_id, &command)
     }
 
     fn abandon_run(&mut self, bridge_id: &BridgeId) -> LiveResult<LiveState> {

@@ -441,7 +441,14 @@ pub fn ironclad_transform_card_content_id(source: ContentId, rng: &mut StsRng) -
 pub fn ironclad_transform_card_pool(source: ContentId) -> Vec<ContentId> {
     // AbstractDungeon.transformCard branches on card color. Curse transforms call
     // CardLibrary.getCurse(source, rng), which excludes the source and special curses.
-    // Non-curse Ironclad cards use the character transform pool below.
+    // Colorless cards use the colorless card library pool; non-curse Ironclad
+    // cards use the character transform pool below.
+    if crate::content::shop_pool::shop_card_is_colorless(source) {
+        return crate::content::shop_pool::colorless_transform_pool()
+            .into_iter()
+            .filter(|content_id| *content_id != source)
+            .collect();
+    }
     let pool = if is_curse_content_id(source) {
         NORMAL_CURSE_POOL
     } else {
@@ -481,7 +488,7 @@ pub fn ironclad_truly_random_card_pool() -> Vec<ContentId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::cards::CURSE_OF_THE_BELL_ID;
+    use crate::content::cards::{CHRYSALIS_ID, CURSE_OF_THE_BELL_ID, MASTER_OF_STRATEGY_ID};
 
     #[test]
     fn curse_transform_pool_uses_normal_curses_and_excludes_source() {
@@ -493,5 +500,13 @@ mod tests {
 
         let bell_pool = ironclad_transform_card_pool(CURSE_OF_THE_BELL_ID);
         assert_eq!(bell_pool, NORMAL_CURSE_POOL);
+    }
+
+    #[test]
+    fn colorless_transform_pool_stays_colorless() {
+        let pool = ironclad_transform_card_pool(MASTER_OF_STRATEGY_ID);
+        assert!(pool.contains(&CHRYSALIS_ID));
+        assert!(!pool.contains(&ANGER_ID));
+        assert!(!pool.contains(&MASTER_OF_STRATEGY_ID));
     }
 }

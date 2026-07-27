@@ -35,10 +35,13 @@ use crate::{
         SPEED_POTION_TEMP_DEXTERITY, STRENGTH_POTION_STRENGTH, SWIFT_POTION_DRAW, WEAK_POTION_WEAK,
     },
     power::{apply_monster_vulnerable, apply_monster_weak},
+    relic::Relic,
     rng::StsRng,
     run::reward::{
-        apply_dead_branch_for_exhaust_count, target_random_combat_potion, target_random_potion,
+        apply_dead_branch_for_exhaust_count, target_elite_combat_gold, target_normal_combat_gold,
+        target_potion_reward_offer, target_random_combat_potion, target_random_potion,
     },
+    run::state::RunRngStream,
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
@@ -137,11 +140,13 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
 }
 
 fn current_room_kind(run: &RunState) -> Option<RoomKind> {
-    run.map.as_ref().and_then(|map_state| {
-        map_state
-            .map
-            .node(map_state.current_node)
-            .map(|node| node.room_kind)
+    run.current_room_override.or_else(|| {
+        run.map.as_ref().and_then(|map_state| {
+            map_state
+                .map
+                .node(map_state.current_node)
+                .map(|node| node.room_kind)
+        })
     })
 }
 
@@ -680,7 +685,7 @@ fn randomize_playable_hand_costs_for_snecko_oil(combat: &mut CombatState, rng: &
         let Some(definition) = get_card_definition(card.content_id) else {
             continue;
         };
-        if definition.keywords.unplayable {
+        if definition.keywords.unplayable || definition.cost < 0 {
             continue;
         }
         card.temp_cost = Some(rng.random_int(3) as u8);
@@ -716,9 +721,22 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
     let mut next = run.clone();
     match action {
         RunAction::UsePotion { slot, target } => {
+            let entropic_brew_had_open_slot = next.potion_at_slot(slot)
+                == Some(Potion::EntropicBrew)
+                && next.open_potion_slots() > 0;
             let potion = next.take_potion_slot(slot)?;
+            if potion == Potion::Cultist {
+                if let Some(CombatDecisionState::ExhaustSelect { state, .. }) = next
+                    .combat
+                    .as_mut()
+                    .and_then(|combat| combat.decision.as_mut())
+                {
+                    state.interrupted_by_cultist_potion = true;
+                }
+            }
             let multiplier = potion_multiplier(&next);
             let mut defer_potion_use_relics = false;
+            let mut victory_healing_applied = false;
             match potion {
                 Potion::Fire => {
                     let target = target.expect("validated fire potion target");
@@ -909,14 +927,65 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     let combat = next.combat.as_mut().expect("validated combat state");
                     player_draw_cards(combat, SNECKO_OIL_DRAW * multiplier as usize)?;
                     randomize_playable_hand_costs_for_snecko_oil(combat, &mut rng);
+                    combat.rng.card_random_rng = rng.clone();
                     next.card_random_rng_counter = rng.counter();
                 }
                 Potion::SmokeBomb => {
+                    if matches!(
+                        current_room_kind(&next),
+                        Some(RoomKind::Combat | RoomKind::Elite)
+                    ) {
+                        // The target's normal room escape path constructs and
+                        // then hides the ordinary gold reward. Its amount is
+                        // not observable on the empty reward screen, but the
+                        // treasureRng draw affects the next combat reward.
+                        let mut treasure_rng = next.rng_for_stream(RunRngStream::Treasure);
+                        if current_room_kind(&next) == Some(RoomKind::Elite) {
+                            let _ = target_elite_combat_gold(&mut treasure_rng);
+                        } else {
+                            let _ = target_normal_combat_gold(&mut treasure_rng);
+                        }
+                        next.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
+
+                        // AbstractRoom.addPotionToRewards still performs the
+                        // ordinary drop roll before Smoke Bomb hides the
+                        // reward screen. A hit also selects a potion, even
+                        // though that potion is never displayed. Smoke Bomb
+                        // marks the room as smoked; it does not mark the
+                        // monsters as escaped, so the source's normal 40%
+                        // base chance still applies here.
+                    }
+
+                    if matches!(
+                        current_room_kind(&next),
+                        Some(RoomKind::Combat | RoomKind::Elite | RoomKind::Event)
+                    ) {
+                        let mut potion_rng = next.rng_for_stream(RunRngStream::Potion);
+                        let reward_count = if current_room_kind(&next) == Some(RoomKind::Elite) {
+                            2
+                        } else {
+                            1
+                        };
+                        let potion_count = next.potions.len();
+                        let potion_capacity = next.potion_capacity();
+                        let has_white_beast_statue = next.relics.contains(&Relic::WhiteBeastStatue);
+                        let _hidden_potion_offer = target_potion_reward_offer(
+                            &mut potion_rng,
+                            &mut next.potion_chance,
+                            reward_count,
+                            potion_count,
+                            potion_capacity,
+                            has_white_beast_statue,
+                        )?;
+                        next.store_rng_counter(RunRngStream::Potion, &potion_rng);
+                    }
                     let mut combat = next.combat.take().expect("validated combat state");
                     combat.phase = CombatPhase::Won;
                     apply_burning_blood(&mut combat)?;
                     next.player_hp = combat.player.hp;
                     next.player_max_hp = combat.player.max_hp;
+                    next.pending_event_combat_gold_offer = 0;
+                    next.pending_event_combat_relic_offer = None;
                     next.reward = None;
                     next.phase = RunPhase::Idle;
                 }
@@ -1004,6 +1073,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                             None
                         };
                         combat = apply_play_top_draw_card_action(&combat, target)?;
+                        victory_healing_applied |= combat.phase == CombatPhase::Won;
                         if let Some(CombatDecisionState::HandSelect {
                             pending_actions, ..
                         }) = combat.decision.as_mut()
@@ -1075,7 +1145,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                         next.potion_rng_seed as i64,
                         next.potion_rng_counter,
                     );
-                    if next.can_gain_potions() {
+                    if next.can_gain_potions() && entropic_brew_had_open_slot {
                         let capacity = next.potion_capacity();
                         let combat_fill = next.phase == RunPhase::Combat;
                         for _ in 0..capacity {
@@ -1156,10 +1226,12 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 .map(|combat| combat.phase == CombatPhase::Won)
                 .unwrap_or(false);
             if won {
-                if let Some(combat) = next.combat.as_mut() {
-                    apply_burning_blood(combat)?;
-                    next.player_hp = combat.player.hp;
-                    next.player_max_hp = combat.player.max_hp;
+                if !victory_healing_applied {
+                    if let Some(combat) = next.combat.as_mut() {
+                        apply_burning_blood(combat)?;
+                        next.player_hp = combat.player.hp;
+                        next.player_max_hp = combat.player.max_hp;
+                    }
                 }
                 enter_combat_reward_for_current_room(&mut next)?;
             }
@@ -1404,6 +1476,27 @@ mod tests {
     }
 
     #[test]
+    fn full_belt_entropic_brew_checks_capacity_before_consuming_itself() {
+        let mut run = RunState::map_fixture();
+        run.potions = vec![Potion::Swift, Potion::Elixir, Potion::EntropicBrew];
+        run.empty_potion_slots.clear();
+        let starting_rng_counter = run.potion_rng_counter;
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 2,
+                target: None,
+            },
+        )
+        .expect("full-belt Entropic Brew is consumed without generating a potion");
+
+        assert_eq!(next.potions, vec![Potion::Swift, Potion::Elixir]);
+        assert_eq!(next.empty_potion_slots, vec![2]);
+        assert_eq!(next.potion_rng_counter, starting_rng_counter);
+    }
+
+    #[test]
     fn resource_potion_overflow_fails_before_returning_partial_state() {
         let mut energy = RunState::combat_fixture();
         energy.potions = vec![Potion::Energy];
@@ -1500,6 +1593,44 @@ mod tests {
             .expect("end-turn powers resolve");
         assert_eq!(combat.player.hp, player_hp - 1);
         assert_eq!(combat.monsters[0].hp, monster_hp - 5);
+    }
+
+    #[test]
+    fn distilled_chaos_killing_last_monster_applies_victory_heal_once() {
+        use crate::content::cards::STRIKE_R_ID;
+        use crate::content::character::BURNING_BLOOD_HEAL_AMOUNT;
+
+        let mut run = RunState::combat_fixture_with_relics(vec![crate::relic::Relic::BurningBlood]);
+        run.potions = vec![Potion::DistilledChaos];
+        run.empty_potion_slots = vec![1, 2];
+        let before_hp;
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.player.hp -= 10;
+            before_hp = combat.player.hp;
+            for monster in &mut combat.monsters {
+                monster.alive = false;
+                monster.hp = 0;
+            }
+            combat.monsters[0].alive = true;
+            combat.monsters[0].hp = 1;
+            combat.piles.draw_pile = vec![CardInstance::new(CardId::new(101), STRIKE_R_ID)];
+        }
+        run.player_hp = before_hp;
+        let expected_hp = before_hp + BURNING_BLOOD_HEAL_AMOUNT;
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Distilled Chaos kills the last monster");
+
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert_eq!(next.player_hp, expected_hp);
+        assert!(next.combat.is_none());
     }
 
     #[test]
@@ -1604,6 +1735,88 @@ mod tests {
         assert!(next.combat.is_none());
         assert_eq!(next.phase, RunPhase::Idle);
         assert_eq!(next.potion_at_slot(0), None);
+    }
+
+    #[test]
+    fn smoke_bomb_normal_combat_consumes_hidden_gold_rng_draw() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::SmokeBomb];
+        run.empty_potion_slots = vec![1, 2];
+        run.treasure_rng_seed = 34_961_238_615_626;
+        run.treasure_rng_counter = 4;
+        // The target's Java RNG reference sequence returns 25 at counter 1,
+        // forcing the ordinary 40% hidden drop roll to hit. This makes the
+        // regression cover the subsequent hidden potion-selection draw too.
+        run.potion_rng_seed = 22_079_335_079;
+        run.potion_rng_counter = 1;
+        run.current_room_override = Some(RoomKind::Combat);
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Smoke Bomb escapes normal combat");
+
+        assert_eq!(next.treasure_rng_counter, 5);
+        let mut expected_potion_rng = run.rng_for_stream(RunRngStream::Potion);
+        let mut expected_potion_chance = run.potion_chance;
+        let hidden_potion_offer = target_potion_reward_offer(
+            &mut expected_potion_rng,
+            &mut expected_potion_chance,
+            1,
+            run.potions.len(),
+            run.potion_capacity(),
+            run.relics.contains(&crate::relic::Relic::WhiteBeastStatue),
+        )
+        .expect("Smoke Bomb hidden potion roll");
+        assert!(
+            hidden_potion_offer.is_some(),
+            "counter-1 reference roll must exercise hidden potion selection"
+        );
+        assert_eq!(next.potion_rng_counter, expected_potion_rng.counter());
+        assert_eq!(next.potion_chance, expected_potion_chance);
+        assert_eq!(next.phase, RunPhase::Idle);
+        assert!(next.reward.is_none());
+    }
+
+    #[test]
+    fn smoke_bomb_event_combat_discards_pending_event_reward() {
+        let mut run = RunState::combat_fixture();
+        run.current_room_override = Some(RoomKind::Event);
+        run.potions = vec![Potion::SmokeBomb];
+        run.empty_potion_slots = vec![1, 2];
+        run.pending_event_combat_gold_offer = 27;
+        run.pending_event_combat_relic_offer = Some(Relic::RedMask);
+
+        let mut expected_potion_rng = run.rng_for_stream(RunRngStream::Potion);
+        let mut expected_potion_chance = run.potion_chance;
+        let _ = target_potion_reward_offer(
+            &mut expected_potion_rng,
+            &mut expected_potion_chance,
+            1,
+            run.potions.len(),
+            run.potion_capacity(),
+            run.relics.contains(&Relic::WhiteBeastStatue),
+        )
+        .expect("event Smoke Bomb hidden potion roll");
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Smoke Bomb escapes event combat");
+
+        assert_eq!(next.pending_event_combat_gold_offer, 0);
+        assert_eq!(next.pending_event_combat_relic_offer, None);
+        assert_eq!(next.potion_rng_counter, expected_potion_rng.counter());
+        assert_eq!(next.potion_chance, expected_potion_chance);
+        next.validate().expect("escaped event combat is valid");
     }
 
     #[test]
@@ -1733,6 +1946,47 @@ mod tests {
         ));
         assert_eq!(combat.queued_decisions.len(), 1);
         assert!(combat.potion_card_reward_choices().is_none());
+    }
+
+    #[test]
+    fn snecko_oil_synchronizes_run_and_combat_card_random_rng() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::SneckoOil];
+        run.empty_potion_slots = vec![1, 2];
+
+        let next = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Snecko Oil applies");
+        let expected_rng = next.card_random_rng();
+        let combat = next.combat.expect("combat remains open");
+
+        assert_eq!(
+            combat.rng.card_random_rng, expected_rng,
+            "Snecko Oil's card-random draws must remain authoritative inside combat"
+        );
+    }
+
+    #[test]
+    fn snecko_oil_preserves_x_cost_cards_without_consuming_card_rng() {
+        use crate::content::cards::{STRIKE_R_ID, WHIRLWIND_ID};
+
+        let mut combat = CombatState::initial_fixture();
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), WHIRLWIND_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        let mut rng = StsRng::new(3);
+
+        randomize_playable_hand_costs_for_snecko_oil(&mut combat, &mut rng);
+
+        assert_eq!(combat.piles.hand[0].temp_cost, None);
+        assert_eq!(combat.piles.hand[1].temp_cost, Some(0));
+        assert_eq!(rng.counter(), 1);
     }
 
     #[test]

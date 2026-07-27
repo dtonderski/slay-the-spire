@@ -366,7 +366,7 @@ fn project_phase(phase: CombatPhase) -> FairCombatPhase {
     }
 }
 
-fn project_card(
+pub(crate) fn project_card(
     card: &CardInstance,
     corruption_active: bool,
 ) -> Result<FairCard, FairObservationError> {
@@ -469,8 +469,10 @@ fn intent_public_fields(monster: &MonsterState) -> (FairIntentCategory, Option<i
         I::Attack { damage } | I::AttackStealGold { damage, .. } => attack(C::Attack, damage),
         I::AttackAddSlimedToDiscard { damage, .. }
         | I::AttackAddWoundsToDiscard { damage, .. }
+        | I::AttackAddVoidToDraw { damage, .. }
         | I::AttackApplyPlayerFrail { damage, .. }
         | I::AttackApplyPlayerFrailAndWeak { damage, .. }
+        | I::AttackApplyPlayerFrailAndVulnerable { damage, .. }
         | I::AttackApplyPlayerWeak { damage, .. }
         | I::AttackApplyPlayerVulnerable { damage, .. }
         | I::AttackApplyPlayerWeakAndVulnerable { damage, .. }
@@ -1045,7 +1047,7 @@ fn exhaust_selection_kind(purpose: ExhaustSelectPurpose) -> FairSelectionKind {
     }
 }
 
-fn potion_key(potion: Potion) -> &'static str {
+pub(crate) fn potion_key(potion: Potion) -> &'static str {
     match potion {
         Potion::Fire => "fire",
         Potion::Block => "block",
@@ -1475,6 +1477,7 @@ mod tests {
             state: crate::combat::DrawSelectState {
                 purpose: DrawSelectPurpose::SecretWeaponAttackToHand,
                 source_card_id: CardId::new(777),
+                selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
             },
         });
@@ -1511,6 +1514,7 @@ mod tests {
             state: crate::combat::DrawSelectState {
                 purpose: DrawSelectPurpose::SecretWeaponAttackToHand,
                 source_card_id: CardId::new(777),
+                selectable_card_ids: Vec::new(),
                 selected_draw_index: Some(0),
             },
         });

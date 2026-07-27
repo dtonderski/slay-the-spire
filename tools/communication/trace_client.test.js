@@ -9,8 +9,14 @@ const path = require("path");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
 const traceClientPath = path.join(__dirname, "trace_client.js");
+let currentTest = "startup";
 
-function waitFor(predicate, timeoutMs = 3000) {
+function runTest(test) {
+  currentTest = test.name;
+  return test();
+}
+
+function waitFor(predicate, timeoutMs = 3000, label = "condition") {
   const started = Date.now();
   return new Promise((resolve, reject) => {
     function poll() {
@@ -25,7 +31,7 @@ function waitFor(predicate, timeoutMs = 3000) {
         return;
       }
       if (Date.now() - started > timeoutMs) {
-        reject(new Error("timed out waiting for condition"));
+        reject(new Error(`timed out waiting for ${label}`));
         return;
       }
       setTimeout(poll, 25);
@@ -102,7 +108,7 @@ async function testCommandMetadataIsPreservedInTraceActions() {
   });
 
   try {
-    await waitFor(() => stdout.includes("ready\n"));
+    await waitFor(() => stdout.includes("ready\n"), 3000, "bridge ready");
     child.stdin.write(`${JSON.stringify({
       in_game: true,
       ready_for_command: true,
@@ -115,7 +121,8 @@ async function testCommandMetadataIsPreservedInTraceActions() {
     })}\n`);
 
     await waitFor(() => fs.existsSync(path.join(sessionDir, "status.json"))
-      && JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8")).status === "waiting");
+      && JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8")).status === "waiting",
+    3000, "waiting status");
 
     const metadata = {
       command_id: "cmd-guided-1",
@@ -129,7 +136,7 @@ async function testCommandMetadataIsPreservedInTraceActions() {
     fs.writeFileSync(path.join(sessionDir, "next_command.json"), `${JSON.stringify(metadata)}\n`);
     fs.writeFileSync(path.join(sessionDir, "next_command.txt"), "CHOOSE 0\n");
 
-    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+    await waitFor(() => stdout.includes("CHOOSE 0\n"), 3000, "CHOOSE output");
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
 
@@ -175,7 +182,7 @@ async function testAutoStatePollsAreMarkedAsPassive() {
   });
 
   try {
-    await waitFor(() => stdout.includes("ready\n"));
+    await waitFor(() => stdout.includes("ready\n"), 3000, "passive bridge ready");
     child.stdin.write(`${JSON.stringify({
       in_game: true,
       ready_for_command: true,
@@ -185,7 +192,7 @@ async function testAutoStatePollsAreMarkedAsPassive() {
         floor: 1,
       },
     })}\n`);
-    await waitFor(() => stdout.includes("ready\nstate\n"), 3000);
+    await waitFor(() => stdout.includes("ready\nstate\n"), 3000, "passive STATE output");
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
 
@@ -646,6 +653,97 @@ async function testTcpControlRecordsObservedUpdateTimeout() {
   }
 }
 
+async function testTcpControlCancelsCommandQueuedBehindStalledGame() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-queued-timeout-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+      TRACE_AUTO_STATE_MS: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose", "state"],
+      game_state: { screen_type: "COMBAT_REWARD", floor: 13 },
+    })}\n`);
+
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const acquired = await controlRequest(status.control.port, {
+      type: "acquire",
+      owner_id: "test-controller",
+    });
+    const liveState = await controlRequest(status.control.port, { type: "state" });
+    const first = await controlRequest(status.control.port, {
+      type: "command",
+      command: "CHOOSE 0",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(first.ok, true);
+    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+
+    const abandon = await controlRequest(status.control.port, {
+      type: "abandon_run",
+      owner_token: acquired.owner_token,
+      wait_for_state_update: true,
+      update_timeout_ms: 50,
+    });
+    assert.strictEqual(abandon.ok, true);
+    assert.strictEqual(abandon.observed_update.application_status, "timeout");
+    const cleared = await controlRequest(status.control.port, { type: "state" });
+    assert.strictEqual(cleared.pending_command, false);
+
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose", "state"],
+      game_state: { screen_type: "COMBAT_REWARD", floor: 13 },
+    })}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.strictEqual(stdout.includes("ABANDON\n"), false);
+
+    const nextState = await controlRequest(status.control.port, { type: "state" });
+    const settle = await controlRequest(status.control.port, {
+      type: "command",
+      command: "STATE",
+      expected_state_id: nextState.state_id,
+      expected_state_seq: nextState.state_seq,
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(settle.ok, true);
+    child.stdin.end();
+    await new Promise((resolve) => child.on("exit", resolve));
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function testTcpControlAbandonRunBypassesAvailableCommands() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-abandon-"));
   const sessionDir = path.join(root, "session");
@@ -758,7 +856,7 @@ async function testTcpControlAcceptsAdvertisedStartFromUnreadyMenu() {
     child.stdin.write(`${JSON.stringify({
       in_game: false,
       ready_for_command: false,
-      available_commands: ["start", "state"],
+      available_commands: ["start", "start_verify", "state"],
     })}\n`);
     const status = await waitFor(() => {
       const statusPath = path.join(sessionDir, "status.json");
@@ -770,14 +868,14 @@ async function testTcpControlAcceptsAdvertisedStartFromUnreadyMenu() {
     const acquired = await controlRequest(status.control.port, { type: "acquire", owner_id: "test-controller" });
     const accepted = await controlRequest(status.control.port, {
       type: "command",
-      command: "START IRONCLAD 0 TESTSEED",
+      command: "START_VERIFY IRONCLAD 0 TESTSEED 10000",
       expected_state_id: liveState.state_id,
       expected_state_seq: liveState.state_seq,
       owner_token: acquired.owner_token,
       wait_for_state_update: false,
     });
     assert.strictEqual(accepted.ok, true, stderr);
-    await waitFor(() => stdout.includes("START IRONCLAD 0 TESTSEED\n"));
+    await waitFor(() => stdout.includes("START_VERIFY IRONCLAD 0 TESTSEED 10000\n"));
   } finally {
     if (!child.killed && child.exitCode === null) child.kill();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1036,21 +1134,22 @@ async function testTcpControlAllowsStartupStartBeforeObservedState() {
 }
 
 Promise.resolve()
-  .then(testCommandMetadataIsPreservedInTraceActions)
-  .then(testAutoStatePollsAreMarkedAsPassive)
-  .then(testTcpControlRejectsStaleAndAcceptsGuardedCommand)
-  .then(testTcpControlAllowsExplicitStaleControllerTakeover)
-  .then(testTcpControlDisablesLegacyFileCommandsByDefault)
-  .then(testTcpControlRecordsObservedUpdateTimeout)
-  .then(testTcpControlAbandonRunBypassesAvailableCommands)
-  .then(testTcpControlAcceptsAdvertisedStartFromUnreadyMenu)
-  .then(testTcpControlRejectsSecondCommandUntilStateUpdate)
-  .then(testTcpControlAllowsStartupStartBeforeObservedState)
-  .then(testTcpControlClearsInFlightAfterUnchangedCommandTimeout)
+  .then(() => runTest(testCommandMetadataIsPreservedInTraceActions))
+  .then(() => runTest(testAutoStatePollsAreMarkedAsPassive))
+  .then(() => runTest(testTcpControlRejectsStaleAndAcceptsGuardedCommand))
+  .then(() => runTest(testTcpControlAllowsExplicitStaleControllerTakeover))
+  .then(() => runTest(testTcpControlDisablesLegacyFileCommandsByDefault))
+  .then(() => runTest(testTcpControlRecordsObservedUpdateTimeout))
+  .then(() => runTest(testTcpControlCancelsCommandQueuedBehindStalledGame))
+  .then(() => runTest(testTcpControlAbandonRunBypassesAvailableCommands))
+  .then(() => runTest(testTcpControlAcceptsAdvertisedStartFromUnreadyMenu))
+  .then(() => runTest(testTcpControlRejectsSecondCommandUntilStateUpdate))
+  .then(() => runTest(testTcpControlAllowsStartupStartBeforeObservedState))
+  .then(() => runTest(testTcpControlClearsInFlightAfterUnchangedCommandTimeout))
   .then(() => {
     console.log("trace_client tests passed");
   })
   .catch((error) => {
-    console.error(error);
+    console.error(`${currentTest}:`, error);
     process.exitCode = 1;
   });

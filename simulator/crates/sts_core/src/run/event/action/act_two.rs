@@ -251,8 +251,12 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             0 if choice_index == 1 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(EventScreen {
+                    event: Event::Beggar,
+                    choices: beggar_choices(2),
+                    stage: 2,
+                    event_data: 0,
+                });
             }
             1 if choice_index == 0 => {
                 open_event_remove_grid(next);
@@ -278,7 +282,7 @@ pub(super) fn apply_act_two_event_action(
             }
         },
         Event::Addict => match screen.stage {
-            0 if choice_index == 0 => {
+            0 if choice_index == 0 && next.gold >= ADDICT_GOLD_COST => {
                 if next.gold < ADDICT_GOLD_COST {
                     return Err(SimError::IllegalAction("not enough gold"));
                 }
@@ -288,28 +292,35 @@ pub(super) fn apply_act_two_event_action(
                 next.gain_relic_key(key)?;
                 next.event = Some(EventScreen {
                     event: Event::Addict,
-                    choices: addict_choices(1),
+                    choices: addict_choices(1, next.gold),
                     stage: 1,
                     event_data: 0,
                 });
             }
-            0 if choice_index == 1 => {
-                next.gain_deck_card(SHAME_ID)?;
+            0 if (choice_index == 1 && next.gold >= ADDICT_GOLD_COST)
+                || (choice_index == 0 && next.gold < ADDICT_GOLD_COST) =>
+            {
+                // The real event uses ShowCardAndObtainEffect: the Leave screen
+                // is visible before Shame is committed to masterDeck.
+                next.queue_pending_obtain_card(SHAME_ID);
                 let act = next.current_act;
                 let key = super::super::super::reward::roll_event_relic_reward(next, act);
                 next.gain_relic_key(key)?;
                 next.event = Some(EventScreen {
                     event: Event::Addict,
-                    choices: addict_choices(1),
+                    choices: addict_choices(1, next.gold),
                     stage: 1,
                     event_data: 0,
                 });
             }
-            0 if choice_index == 2 => {
+            0 if (choice_index == 2 && next.gold >= ADDICT_GOLD_COST)
+                || (choice_index == 1 && next.gold < ADDICT_GOLD_COST) =>
+            {
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
             1 if choice_index == 0 => {
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -341,7 +352,7 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             0 if choice_index == usize::from(next.relics.contains(&Relic::GoldenIdol)) + 1 => {
-                next.gain_deck_card(DECAY_ID)?;
+                next.queue_pending_obtain_card(DECAY_ID);
                 next.event = Some(EventScreen {
                     event: Event::ForgottenAltar,
                     choices: forgotten_altar_choices(1, false),
@@ -350,6 +361,7 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             1 if choice_index == 0 => {
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
@@ -448,14 +460,17 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             1 if choice_index == 0 => {
-                enter_event_combat(next, &[&SLAVER_BLUE_A0, &TASKMASTER_A0, &SLAVER_RED_A0])?;
+                enter_event_combat(next, &[&SLAVER_BLUE_A0, &SLAVER_RED_A0])?;
             }
             2 if choice_index == 0 => {
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }
             2 if choice_index == 1 => {
-                enter_event_combat(next, &[&GREMLIN_NOB_A0])?;
+                let event_room_override = next.current_room_override;
+                next.current_room_override = Some(crate::map::RoomKind::Elite);
+                enter_event_combat(next, &[&TASKMASTER_A0, &GREMLIN_NOB_A0])?;
+                next.current_room_override = event_room_override;
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -465,7 +480,10 @@ pub(super) fn apply_act_two_event_action(
         },
         Event::DrugDealer => match screen.stage {
             0 if choice_index == 0 => {
-                next.gain_deck_card(JAX_ID)?;
+                // Drug Dealer uses ShowCardAndObtainEffect. The event advances
+                // to its Leave screen before the visual effect commits J.A.X.
+                // to masterDeck.
+                next.queue_pending_obtain_card(JAX_ID);
                 next.event = Some(EventScreen {
                     event: Event::DrugDealer,
                     choices: drug_dealer_choices(1, true),
@@ -503,6 +521,7 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             1 if choice_index == 0 => {
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }

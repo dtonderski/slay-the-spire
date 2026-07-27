@@ -328,7 +328,9 @@ pub fn colorless_pool_for_rarity(rarity: CardRarity) -> &'static [&'static str] 
     match rarity {
         CardRarity::Uncommon => COLORLESS_UNCOMMON,
         CardRarity::Rare => COLORLESS_RARE,
-        _ => COLORLESS_UNCOMMON,
+        // The target has no common colorless pool. A common reward roll falls
+        // through to the rare colorless pool in `returnColorlessCard`.
+        CardRarity::Common => COLORLESS_RARE,
     }
 }
 
@@ -677,6 +679,17 @@ pub fn colorless_match_and_keep_pool() -> Vec<ContentId> {
     // Technique. Discovery filters it because it has the HEALING tag, while
     // Match-and-Keep shuffles the unfiltered colorless pool.
     pool.insert(8, BANDAGE_UP_ID);
+    pool
+}
+
+/// Target `srcColorlessCardPool` order used by `AbstractDungeon.transformCard`.
+///
+/// Unlike discovery generation, transforms include Bandage Up even though its
+/// healing tag excludes it from `generateDiscoveryCards`.
+#[must_use]
+pub fn colorless_transform_pool() -> Vec<ContentId> {
+    let mut pool = colorless_match_and_keep_pool();
+    pool.reverse();
     pool
 }
 

@@ -10,29 +10,11 @@ pub(super) fn ironclad_starter_deck_keys() -> Vec<String> {
     .collect()
 }
 
-pub(super) fn ironclad_deck_after_transform_selection_keys() -> Vec<String> {
-    vec![
-        "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R", "Defend_R",
-        "Defend_R", "Bash",
-    ]
-    .into_iter()
-    .map(str::to_owned)
-    .collect()
-}
-
 pub(super) fn seed_start_generated_transform_card(numeric_seed: i64) -> Option<String> {
     generate_neow_transform_reward(numeric_seed, &[STRIKE_R_ID])
         .cards
         .first()
         .map(|card| deck_content_key(*card).to_owned())
-}
-
-pub(super) fn seed_start_deck_after_transform(numeric_seed: i64) -> Vec<String> {
-    let mut deck = ironclad_deck_after_transform_selection_keys();
-    if let Some(card) = seed_start_generated_transform_card(numeric_seed) {
-        deck.push(card);
-    }
-    deck
 }
 
 #[cfg(test)]
@@ -352,6 +334,10 @@ pub(super) fn seed_start_is_neow_multi_select_grid(run: &RunState) -> bool {
 
 pub(super) fn seed_start_neow_grid_auto_confirms_after_choose(run: &RunState) -> bool {
     seed_start_is_neow_multi_select_grid(run)
+        && !run
+            .card_grid
+            .as_ref()
+            .is_some_and(|grid| matches!(grid.purpose, GridPurpose::NeowTransform { count: 1 }))
         && run
             .card_grid
             .as_ref()

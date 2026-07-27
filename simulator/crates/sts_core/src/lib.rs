@@ -71,7 +71,7 @@ pub use run::{
     consume_neow_three_potions_hidden_card_reward, enter_boss_relic_reward_screen,
     enter_chest_relic_reward_screen, enter_elite_combat_reward_screen,
     enter_elite_relic_reward_screen, enter_event_screen, enter_normal_combat_reward_screen,
-    enter_reward_screen, enter_shop_room, enter_shop_screen, event_screen,
+    enter_reward_screen, enter_shop_room, enter_shop_screen, event_screen, fair_run_observation,
     generate_neow_card_reward, generate_neow_card_reward_with_rng, generate_neow_colorless_reward,
     generate_neow_colorless_reward_with_rng, generate_neow_options,
     generate_neow_options_rng_counter, generate_neow_rare_card_reward,
@@ -92,8 +92,9 @@ pub use run::{
     NeowColorlessReward, NeowDrawback, NeowPotionReward, NeowRelicReward, NeowRewardType,
     NeowTransformReward, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest, PlayerChoiceSet,
     RewardContinuation, RewardScreen, RunAction, RunDecisionAction, RunPhase, RunState,
-    ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen, GOLDEN_SHRINE_GOLD,
-    PLAYER_CHOICE_SCHEMA_VERSION, REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, STARTING_GOLD,
+    ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen,
+    FAIR_RUN_OBSERVATION_SCHEMA_VERSION, GOLDEN_SHRINE_GOLD, PLAYER_CHOICE_SCHEMA_VERSION,
+    REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, STARTING_GOLD,
 };
 pub use snapshot::{
     restore_combat_snapshot_json, restore_run_snapshot_json, Snapshot, SnapshotHash,

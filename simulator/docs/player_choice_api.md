@@ -128,10 +128,10 @@ and side-effect-free enumeration.
 
 ## Deferred Integration
 
-- combining `PlayerChoiceSet` with `FairCombatObservation` into one atomic
-  `FairDecision`;
-- a state-owning Rust/Python fair environment that advances revisions and
-  applies resolved actions;
+- moving the atomic `FairDecision` projection into `sts_core` itself (the
+  current `sts_sim` facade combines the two pure Rust projections);
+- extending the state-owning Python environment beyond combat and adding
+  privileged trace/replay constructors for production workflows;
 - PyTorch action descriptors and batching;
 - non-combat run screens;
 - particle or belief search.

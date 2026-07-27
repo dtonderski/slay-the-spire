@@ -1,8 +1,8 @@
 use crate::{
     combat::{MonsterState, PlayerState},
     content::monsters::{
-        guardian_on_hp_damage, large_acid_slime_on_hp_damage, DARKLING_ID, GREMLIN_WARRIOR_ID,
-        TRANSIENT_ID,
+        guardian_on_hp_damage, large_acid_slime_on_hp_damage, mark_awakened_one_half_dead,
+        DARKLING_ID, GREMLIN_WARRIOR_ID, TRANSIENT_ID,
     },
     ids::{CardId, MonsterId},
     power::PlayerPowers,
@@ -31,6 +31,26 @@ pub struct AttackDamageResult {
 }
 
 pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32) -> i32 {
+    deal_unmodified_damage_to_monster_inner(monster, amount, true)
+}
+
+/// Applies direct damage without resolving Guardian's Mode Shift immediately.
+///
+/// Multi-hit thorns are queued once per hit in the target game. Guardian's
+/// defensive block is queued after that complete attack, so a hit that reaches
+/// zero Mode Shift must not make the later thorns hits strike the new block.
+pub(crate) fn deal_unmodified_damage_to_monster_deferred_guardian(
+    monster: &mut MonsterState,
+    amount: i32,
+) -> i32 {
+    deal_unmodified_damage_to_monster_inner(monster, amount, false)
+}
+
+fn deal_unmodified_damage_to_monster_inner(
+    monster: &mut MonsterState,
+    amount: i32,
+    resolve_guardian_mode_shift: bool,
+) -> i32 {
     let amount = cap_monster_damage_with_intangible(monster, amount);
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
@@ -41,13 +61,17 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
         monster.hp = 0;
         monster.alive = false;
         monster.block = 0;
-        if monster.content_id == DARKLING_ID {
+        if mark_awakened_one_half_dead(monster) {
+            // The first death resolves on the Awakened One's next monster turn.
+        } else if monster.content_id == DARKLING_ID {
             monster.escaped = true;
             monster.intent = crate::MonsterIntent::Attack { damage: 0 };
             monster.powers = Default::default();
         }
     }
-    guardian_on_hp_damage(monster, hp_damage);
+    if resolve_guardian_mode_shift {
+        guardian_on_hp_damage(monster, hp_damage);
+    }
     large_acid_slime_on_hp_damage(monster, hp_damage);
     transient_shifting_on_hp_damage(monster, hp_damage);
 
@@ -77,7 +101,9 @@ fn deal_attack_damage_to_monster(
         monster.hp = 0;
         monster.alive = false;
         monster.block = 0;
-        if monster.content_id == DARKLING_ID {
+        if mark_awakened_one_half_dead(monster) {
+            // The first death resolves on the Awakened One's next monster turn.
+        } else if monster.content_id == DARKLING_ID {
             monster.escaped = true;
             monster.intent = crate::MonsterIntent::Attack { damage: 0 };
             monster.powers = Default::default();

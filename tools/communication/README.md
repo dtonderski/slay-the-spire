@@ -10,6 +10,7 @@ is replaced by a Rust executable, this directory is required for live runs.
 ## Bridge
 
 - `trace_client.js` is the stdin/stdout bridge used by CommunicationMod. By default it keeps only the current low-level bridge trace at `tools/communication/session/raw_bridge_current.jsonl` and publishes current state files alongside it. Set `TRACE_OUT_DIR` only when a persistent timestamped bridge-level capture is needed for protocol debugging.
+- `action_speed.js` reports non-`STATE` action gaps, settle-poll counts, and rolling APS. Run `node tools/communication/action_speed.js --watch --from-now` from the repository root while collecting.
 - `run_bridge.cmd` starts the interactive bridge.
 - `run_passive_bridge.cmd` starts the bridge in state-polling mode.
 - Fresh bridge launch scripts enable the optional localhost TCP JSONL control
@@ -29,7 +30,9 @@ Messages are newline-delimited JSON objects:
   single active controller. A competing controller may include
   `takeover_if_stale_after_ms` to replace the current owner only when that
   owner's lease is older than the supplied threshold; fresh competing owners
-  are rejected.
+  are rejected. An overnight controller may also provide
+  `cancel_orphaned_command_after_ms`; when no controller remains, queued
+  commands older than that threshold are cancelled before ownership is granted.
 - `{ "type": "state" }` returns the latest state, summary, trace path, step,
   and bridge-advertised `state_id`.
 - `{ "type": "command", "command": "CHOOSE 0", "expected_state_id": "...",

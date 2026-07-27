@@ -3,11 +3,11 @@ use crate::{
     combat::{initialize_combat_piles_with_relics, CombatRngState, PlayerState},
     content::cards::{
         card_instance_after_upgrades, card_instance_is_upgradeable, get_card_definition,
-        is_basic_starter_card, is_curse_content_id, upgrade_card_instance, APPARITION_ID,
-        ASCENDERS_BANE_ID, BASH_ID, BASH_PLUS_ID, BITE_ID, CURSE_OF_THE_BELL_ID, DECAY_ID,
-        DEFEND_R_ID, DEFEND_R_PLUS_ID, DOUBT_ID, INJURY_ID, JAX_ID, MADNESS_ID, NORMALITY_ID,
-        PAIN_ID, PARASITE_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
-        WRITHE_ID,
+        is_basic_starter_card, is_curse_content_id, is_purgeable_card, upgrade_card_instance,
+        APPARITION_ID, ASCENDERS_BANE_ID, BASH_ID, BASH_PLUS_ID, BITE_ID, CURSE_OF_THE_BELL_ID,
+        DECAY_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DOUBT_ID, INJURY_ID, JAX_ID, MADNESS_ID,
+        NORMALITY_ID, PAIN_ID, PARASITE_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID,
+        STRIKE_R_PLUS_ID, WRITHE_ID,
     },
     content::{
         monsters::{
@@ -28,7 +28,7 @@ use crate::{
             open_bonfire_elementals_grid, open_designer_remove_and_upgrade_grid,
             open_event_obtain_card_return_to_event_grid, open_event_remove_grid,
             open_event_remove_return_to_event_grid, open_event_transform_return_to_event_grid,
-            open_event_upgrade_return_to_event_grid, open_falling_card_grid,
+            open_event_upgrade_return_to_event_grid, GridPurpose,
         },
         map::{apply_initial_monster_ai_rolls, enter_secret_portal_boss_combat},
         neow::{
@@ -40,8 +40,8 @@ use crate::{
         },
         reward::{
             reward_card_choice_count, roll_event_relic_reward, roll_relic_reward,
-            target_colorless_card_reward_choices_with_count, target_elite_relic_tier,
-            target_library_card_choices, target_random_potion, target_uniform_random_potion,
+            target_colorless_event_card_reward_choices_with_count, target_elite_relic_tier,
+            target_library_card_choices, target_uniform_random_potion,
         },
         state::RunRngStream,
     },
@@ -170,7 +170,17 @@ fn open_the_library_read_grid(run: &mut RunState) -> SimResult<()> {
         run.card_rarity_factor,
         next_card_id,
         THE_LIBRARY_READ_CARD_COUNT,
-    );
+    )
+    .into_iter()
+    .map(|mut card| -> SimResult<CardInstance> {
+        // The target TheLibrary.buttonEffect calls each relic's
+        // onPreviewObtainCard before opening the grid. Molten/Toxic/Frozen
+        // Egg therefore changes the displayed copy, while the actual deck
+        // addition still goes through add_deck_card after selection.
+        card.content_id = run.content_id_after_card_add_relics(card.content_id)?;
+        Ok(card)
+    })
+    .collect::<SimResult<Vec<_>>>()?;
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
     open_event_obtain_card_return_to_event_grid(run, Event::TheLibrary, choices);
     Ok(())
@@ -292,17 +302,43 @@ fn nest_choices(stage: u8, ascension: u8) -> Vec<EventChoice> {
 
 fn beggar_choices(stage: u8) -> Vec<EventChoice> {
     match stage {
-        0 => labeled_choices(&["Give gold", "Leave"]),
+        0 => labeled_choices(&["Offer gold", "Leave"]),
         1 => labeled_choices(&["Choose a card"]),
         2 => labeled_choices(&["Leave"]),
         _ => Vec::new(),
     }
 }
 
-fn addict_choices(stage: u8) -> Vec<EventChoice> {
+fn addict_choices(stage: u8, gold: i32) -> Vec<EventChoice> {
     match stage {
-        0 => labeled_choices(&["Offer gold", "Rob", "Leave"]),
+        0 if gold >= ADDICT_GOLD_COST => labeled_choices(&["Offer gold", "Rob", "Leave"]),
+        0 => labeled_choices(&["Rob", "Leave"]),
         1 => labeled_choices(&["Leave"]),
+        _ => Vec::new(),
+    }
+}
+
+fn the_cleric_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
+    match stage {
+        0 if run.card_grid.as_ref().is_some_and(|grid| {
+            grid.purpose
+                == GridPurpose::EventRemoveReturnToEvent {
+                    event: Event::TheCleric,
+                }
+        }) =>
+        {
+            labeled_choices(&["Heal", "Purify", "Leave"])
+        }
+        0 => labeled_choices(&[
+            if run.gold >= 35 { "Heal" } else { "Locked" },
+            if run.gold >= cleric_purify_cost(run) {
+                "Purify"
+            } else {
+                "Locked"
+            },
+            "Leave",
+        ]),
+        1 | 2 => labeled_choices(&["Leave"]),
         _ => Vec::new(),
     }
 }
@@ -340,7 +376,7 @@ fn masked_bandits_choices(stage: u8) -> Vec<EventChoice> {
     }
 }
 
-fn colosseum_choices(stage: u8) -> Vec<EventChoice> {
+pub(crate) fn colosseum_choices(stage: u8) -> Vec<EventChoice> {
     match stage {
         0 => labeled_choices(&["Continue"]),
         1 => labeled_choices(&["Fight"]),
@@ -643,11 +679,7 @@ pub(super) fn validate_event_screen_authority(
                     "The Cleric retains unexpected event data",
                 ));
             }
-            let expected_choices = if screen.stage == 0 {
-                labeled_choices(&["Heal", "Purify", "Leave"])
-            } else {
-                labeled_choices(&["Leave"])
-            };
+            let expected_choices = the_cleric_choices(run, screen.stage);
             if screen.choices != expected_choices {
                 return Err(SimError::InvalidState(
                     "The Cleric choices do not match its stage",
@@ -811,7 +843,7 @@ pub(super) fn validate_event_screen_authority(
                     "Addict retains unexpected event data",
                 ));
             }
-            if screen.choices != addict_choices(screen.stage as u8) {
+            if screen.choices != addict_choices(screen.stage as u8, run.gold) {
                 return Err(SimError::InvalidState(
                     "Addict choices do not match its stage",
                 ));
@@ -1532,7 +1564,11 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                 let zero_hp_result_is_reachable =
                     golden_idol_hp_loss(run.player_max_hp, run.ascension) == 0
                         || golden_idol_max_hp_loss(run.player_max_hp, run.ascension) == 0;
-                pending == [INJURY_ID] || (zero_hp_result_is_reachable && pending.is_empty())
+                let omamori_blocked_result_is_reachable = run.relics.contains(&Relic::Omamori)
+                    && run.omamori_charges_used == crate::relic::OMAMORI_CHARGES;
+                pending == [INJURY_ID]
+                    || ((zero_hp_result_is_reachable || omamori_blocked_result_is_reachable)
+                        && pending.is_empty())
             }
             (Event::HypnotizingColoredMushrooms, 1) => pending == [PARASITE_ID],
             (Event::BigFish, 1) if screen.event_data == 0 => {
@@ -1552,6 +1588,9 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             }
             (Event::AccursedBlacksmith, 1) => pending.is_empty() || pending == [PAIN_ID],
             (Event::GoldenShrine, 1) => pending.is_empty() || pending == [REGRET_ID],
+            (Event::ForgottenAltar, 1) => pending.is_empty() || pending == [DECAY_ID],
+            (Event::DrugDealer, 1) => pending.is_empty() || pending == [JAX_ID],
+            (Event::Addict, 1) => pending.is_empty() || pending == [SHAME_ID],
             (Event::MatchAndKeep, 2) => {
                 pending.is_empty()
                     || (pending.len() == 1
@@ -1675,7 +1714,8 @@ fn vampires_choices(has_blood_vial: bool) -> Vec<EventChoice> {
 }
 
 fn lose_event_hp(run: &mut RunState, amount: i32) {
-    run.player_hp = (run.player_hp - amount).max(0);
+    let mitigated = crate::relic::mitigate_hp_loss(&run.relics, amount);
+    run.player_hp = (run.player_hp - mitigated).max(0);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1732,14 +1772,23 @@ fn knowing_skull_gain_random_potion(run: &mut RunState) {
         return;
     }
     let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
-    let potion = target_random_potion(&mut potion_rng);
+    // Knowing Skull calls PotionHelper.getRandomPotion(), not the
+    // rarity-first AbstractDungeon.returnRandomPotion() reward helper. The
+    // potion is still rolled before obtainPotion rejects a full belt, so this
+    // consumes exactly one potion-stream draw even when the reward is lost.
+    let potion = target_uniform_random_potion(&mut potion_rng);
     run.store_rng_counter(RunRngStream::Potion, &potion_rng);
-    run.gain_potion(potion)
-        .expect("potion gain validated before Knowing Skull potion reward");
+    if run.open_potion_slots() > 0 {
+        run.gain_potion(potion)
+            .expect("open potion slot validated before Knowing Skull potion reward");
+    }
 }
 
 fn purgeable_event_card_count(run: &RunState) -> usize {
-    run.deck.iter().filter(|card| !card.bottled).count()
+    run.deck
+        .iter()
+        .filter(|card| is_purgeable_card(card))
+        .count()
 }
 
 fn cleric_purify_cost(run: &RunState) -> i32 {
@@ -2169,14 +2218,75 @@ fn note_for_yourself_choices_for_run(run: &RunState, stage: u32) -> SimResult<Ve
 fn falling_card_types(run: &RunState) -> Vec<CardType> {
     [CardType::Skill, CardType::Power, CardType::Attack]
         .into_iter()
-        .filter(|card_type| {
-            run.deck.iter().any(|card| {
-                !card.bottled
-                    && get_card_definition(card.content_id)
-                        .is_some_and(|definition| definition.card_type == *card_type)
-            })
+        .filter(|card_type| !falling_cards(run, *card_type).is_empty())
+        .collect()
+}
+
+fn falling_card_roll_types(run: &RunState) -> Vec<CardType> {
+    [CardType::Attack, CardType::Skill, CardType::Power]
+        .into_iter()
+        .filter(|card_type| !falling_cards(run, *card_type).is_empty())
+        .collect()
+}
+
+fn falling_cards(run: &RunState, card_type: CardType) -> Vec<CardInstance> {
+    run.deck
+        .iter()
+        .copied()
+        .filter(|card| {
+            !card.bottled
+                && get_card_definition(card.content_id)
+                    .is_some_and(|definition| definition.card_type == card_type)
         })
         .collect()
+}
+
+fn roll_falling_card_choices(run: &mut RunState) -> SimResult<()> {
+    let card_types = falling_card_roll_types(run);
+    if card_types.is_empty() {
+        return Ok(());
+    }
+
+    let mut misc_rng = run.rng_for_stream(RunRngStream::Misc);
+    for card_type in card_types {
+        let cards = falling_cards(run, card_type);
+        let max_index = i32::try_from(cards.len() - 1)
+            .map_err(|_| SimError::InvalidState("Falling card pool is too large"))?;
+        let _ = misc_rng.random_int(max_index);
+    }
+    run.store_rng_counter(RunRngStream::Misc, &misc_rng);
+    Ok(())
+}
+
+fn falling_selected_card(run: &RunState, selected_type: CardType) -> SimResult<CardInstance> {
+    let card_types = falling_card_roll_types(run);
+    let draws = u32::try_from(card_types.len())
+        .map_err(|_| SimError::InvalidState("Falling card pool count overflows RNG counter"))?;
+    let previous_counter =
+        run.misc_rng_counter
+            .checked_sub(draws)
+            .ok_or(SimError::InvalidState(
+                "Falling choices have no preceding card rolls",
+            ))?;
+    let mut misc_rng = StsRng::with_counter(run.misc_rng_seed as i64, previous_counter);
+    let mut selected = None;
+    for card_type in card_types {
+        let cards = falling_cards(run, card_type);
+        let max_index = i32::try_from(cards.len() - 1)
+            .map_err(|_| SimError::InvalidState("Falling card pool is too large"))?;
+        let card = cards[misc_rng.random_int(max_index) as usize];
+        if card_type == selected_type {
+            selected = Some(card);
+        }
+    }
+    if misc_rng.counter() != run.misc_rng_counter {
+        return Err(SimError::InvalidState(
+            "Falling choices do not match their card rolls",
+        ));
+    }
+    selected.ok_or(SimError::InvalidState(
+        "Falling choice does not match an available card type",
+    ))
 }
 
 fn falling_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
@@ -2186,9 +2296,9 @@ fn falling_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
             let labels = falling_card_types(run)
                 .into_iter()
                 .map(|card_type| match card_type {
-                    CardType::Skill => "Remove a Skill",
-                    CardType::Power => "Remove a Power",
-                    CardType::Attack => "Remove an Attack",
+                    CardType::Skill => "Land",
+                    CardType::Power => "Channel",
+                    CardType::Attack => "Strike",
                     CardType::Status => "Leave",
                 })
                 .collect::<Vec<_>>();
@@ -2318,8 +2428,9 @@ fn roll_sensory_memory(run: &mut RunState) -> u32 {
 fn joust_choices(stage: u32) -> Vec<EventChoice> {
     match stage {
         0 => labeled_choices(&["Continue"]),
-        1 => labeled_choices(&["Bet against (50 gold)", "Bet for (50 gold)"]),
-        2 | 3 => labeled_choices(&["Continue"]),
+        1 => labeled_choices(&["Murderer", "Owner"]),
+        2 => labeled_choices(&["Watch"]),
+        3 => labeled_choices(&["Watch"]),
         _ => labeled_choices(&["Leave"]),
     }
 }
@@ -2713,11 +2824,14 @@ fn designer_costs(run: &RunState) -> (i32, i32, i32, i32) {
 }
 
 fn designer_has_purgeable_card(run: &RunState) -> bool {
-    run.deck.iter().any(|card| !card.bottled)
+    run.deck.iter().any(is_purgeable_card)
 }
 
 fn designer_purgeable_card_count(run: &RunState) -> usize {
-    run.deck.iter().filter(|card| !card.bottled).count()
+    run.deck
+        .iter()
+        .filter(|card| is_purgeable_card(card))
+        .count()
 }
 
 fn designer_has_upgradable_card(run: &RunState) -> bool {
@@ -3085,7 +3199,7 @@ fn special_one_time_event_is_available(run: &RunState, event: Event) -> bool {
         Event::Designer => run.current_act >= 2 && run.gold >= 75,
         Event::Duplicator => run.current_act >= 2,
         Event::FaceTrader => run.current_act == 1 || run.current_act == 2,
-        Event::FountainOfCleansing => deck_has_curse(&run.deck),
+        Event::FountainOfCleansing => deck_has_cleansable_curse(&run.deck),
         Event::KnowingSkull => run.current_act == 2 && run.player_hp > 12,
         Event::Nloth => run.current_act == 2 && run.relics.len() >= 2,
         Event::SecretPortal => run.current_act == 3 && run.playtime_seconds >= 800,
@@ -3095,8 +3209,9 @@ fn special_one_time_event_is_available(run: &RunState, event: Event) -> bool {
     }
 }
 
-fn deck_has_curse(deck: &[CardInstance]) -> bool {
-    deck.iter().any(|card| is_curse_content_id(card.content_id))
+fn deck_has_cleansable_curse(deck: &[CardInstance]) -> bool {
+    deck.iter()
+        .any(|card| fountain_removes_curse(card.content_id))
 }
 
 fn fountain_removes_curse(content_id: ContentId) -> bool {
@@ -3555,7 +3670,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::CursedTome => make_event_screen(event, cursed_tome_choices(0, 0), 0),
         Event::Nest => make_event_screen(event, nest_choices(0, 0), 0),
         Event::Beggar => make_event_screen(event, beggar_choices(0), 0),
-        Event::Addict => make_event_screen(event, addict_choices(0), 0),
+        Event::Addict => make_event_screen(event, addict_choices(0, ADDICT_GOLD_COST), 0),
         Event::ForgottenAltar => make_event_screen(event, forgotten_altar_choices(0, true), 0),
         Event::Ghosts => make_event_screen(event, ghosts_choices(0, 0), 0),
         Event::KnowingSkull => make_event_screen(event, knowing_skull_choices(0, 0), 0),
@@ -3607,6 +3722,7 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
             make_event_screen(event, tomb_of_lord_red_mask_choices(run, 0), 0)
         }
         Event::TheWomanInBlue => make_event_screen(event, woman_in_blue_choices(run), 0),
+        Event::Addict => make_event_screen(event, addict_choices(0, run.gold), 0),
         Event::ForgottenAltar => make_event_screen(
             event,
             forgotten_altar_choices(0, run.relics.contains(&Relic::GoldenIdol)),
@@ -3621,6 +3737,7 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
             ),
             0,
         ),
+        Event::TheCleric => make_event_screen(event, the_cleric_choices(run, 0), 0),
         Event::NoteForYourself => make_event_screen(event, note_for_yourself_choices(0), 0),
         Event::Falling => make_event_screen(event, falling_choices(run, 0), 0),
         Event::MoaiHead => make_event_screen(event, moai_choices(run, 0), 0),
@@ -4039,14 +4156,32 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
 }
 
 fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) -> SimResult<()> {
-    let mut shuffle_rng = StsRng::new(seed_for_floor(run.event_rng_seed as i64, run.current_floor));
-    let mut monster_hp_rng =
-        StsRng::new(seed_for_floor(run.event_rng_seed as i64, run.current_floor));
-    let mut monster_rng = StsRng::new(seed_for_floor(
-        run.monster_rng_seed as i64,
-        run.current_floor,
-    ));
-    let mut card_random_rng = run.card_random_rng();
+    let (mut shuffle_rng, mut monster_rng, mut monster_hp_rng, mut card_random_rng) =
+        if let Some(rng) = run.pending_event_combat_rng.take() {
+            // The target's chained Colosseum setup advances these two streams
+            // once between fights. The AI stream continues without an extra
+            // draw, which preserves the second fight's initial intents.
+            let mut shuffle_rng = rng.shuffle_rng;
+            shuffle_rng.random_long();
+            let mut monster_hp_rng = rng.monster_hp_rng;
+            monster_hp_rng.random_long();
+            (
+                shuffle_rng,
+                rng.monster_rng,
+                monster_hp_rng,
+                rng.card_random_rng,
+            )
+        } else {
+            (
+                StsRng::new(seed_for_floor(run.event_rng_seed as i64, run.current_floor)),
+                StsRng::new(seed_for_floor(
+                    run.monster_rng_seed as i64,
+                    run.current_floor,
+                )),
+                StsRng::new(seed_for_floor(run.event_rng_seed as i64, run.current_floor)),
+                run.card_random_rng(),
+            )
+        };
     let monsters = definitions
         .iter()
         .enumerate()
@@ -4218,6 +4353,73 @@ mod tests {
     }
 
     #[test]
+    fn beggar_uses_target_offer_gold_choice() {
+        let labels = event_screen(Event::Beggar)
+            .choices
+            .into_iter()
+            .map(|choice| choice.label)
+            .collect::<Vec<_>>();
+
+        assert_eq!(labels, vec!["Offer gold", "Leave"]);
+    }
+
+    #[test]
+    fn beggar_leave_stages_final_leave_before_returning_to_map() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 2;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::Beggar));
+
+        let leave_screen = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("Beggar Leave opens the final Leave screen");
+        assert_eq!(leave_screen.phase, RunPhase::Event);
+        assert_eq!(leave_screen.event.as_ref().expect("Leave screen").stage, 2);
+        assert_eq!(
+            leave_screen.event.as_ref().expect("Leave screen").choices[0].label,
+            "Leave"
+        );
+
+        let completed = apply_event_action(&leave_screen, EventAction::Choose { choice_index: 0 })
+            .expect("final Beggar Leave returns to the map");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert!(completed.event.is_none());
+    }
+
+    #[test]
+    fn addict_hides_unaffordable_gold_choice_and_maps_rob_to_visible_index_zero() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.gold = 1;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::Addict));
+
+        let labels = run
+            .event
+            .as_ref()
+            .expect("Addict event screen")
+            .choices
+            .iter()
+            .map(|choice| choice.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(labels, vec!["Rob", "Leave"]);
+
+        let robbed = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("visible Rob choice is legal without enough gold");
+        assert_eq!(robbed.gold, 1);
+        assert!(!robbed.deck.iter().any(|card| card.content_id == SHAME_ID));
+        assert_eq!(robbed.pending_obtain_cards, vec![SHAME_ID]);
+        assert_eq!(robbed.event.as_ref().expect("Addict leave stage").stage, 1);
+        robbed
+            .validate()
+            .expect("Addict pending Shame is authoritative");
+
+        let left = apply_event_action(&robbed, EventAction::Choose { choice_index: 0 })
+            .expect("Addict Leave settles the pending Shame");
+        assert!(left.pending_obtain_cards.is_empty());
+        assert!(left.deck.iter().any(|card| card.content_id == SHAME_ID));
+        assert!(left.event.is_none());
+    }
+
+    #[test]
     fn pending_obtain_imports_require_exact_event_authority() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
@@ -4233,6 +4435,7 @@ mod tests {
 
         let mut missing = injury.clone();
         missing.pending_obtain_cards.clear();
+        missing.pending_obtain_cards_bypass_omamori.clear();
         assert_eq!(
             missing.validate(),
             Err(SimError::InvalidState(
@@ -4242,6 +4445,7 @@ mod tests {
 
         let mut wrong = injury;
         wrong.pending_obtain_cards = vec![REGRET_ID];
+        wrong.pending_obtain_cards_bypass_omamori = vec![false];
         assert_eq!(
             wrong.validate(),
             Err(SimError::InvalidState(
@@ -4293,6 +4497,27 @@ mod tests {
         low_hp
             .validate()
             .expect("zero-sized Golden Idol HP loss may have no pending Injury");
+    }
+
+    #[test]
+    fn golden_idol_omamori_consumption_allows_empty_injury_obtain() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.relics = vec![Relic::Omamori, Relic::GoldenIdol];
+        run.omamori_charges_used = 1;
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::GoldenIdol,
+            choices: golden_idol_choices(1, run.player_max_hp, run.ascension),
+            stage: 1,
+            event_data: 0,
+        });
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Golden Idol Injury choice is legal when Omamori blocks it");
+        assert!(next.pending_obtain_cards.is_empty());
+        assert_eq!(next.omamori_charges_used, 2);
+        next.validate()
+            .expect("Golden Idol leave stage remains valid after Omamori blocks Injury");
     }
 
     #[test]
@@ -4468,6 +4693,59 @@ mod tests {
     }
 
     #[test]
+    fn wheel_of_change_relic_reward_returns_to_leave_screen() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::WheelOfChange,
+            choices: wheel_of_change_choices(2, 1),
+            stage: 2,
+            event_data: 1,
+        });
+
+        let reward = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("relic prize opens its reward screen");
+        assert_eq!(reward.phase, RunPhase::Reward);
+        assert_eq!(reward.event.as_ref().expect("event continuation").stage, 3);
+        assert_eq!(
+            reward
+                .event
+                .as_ref()
+                .expect("event continuation")
+                .event_data,
+            0
+        );
+        assert_eq!(
+            reward.reward.as_ref().expect("relic reward").continuation,
+            crate::RewardContinuation::Event
+        );
+
+        let claimed = crate::apply_run_action(&reward, crate::RunAction::TakeRelicReward)
+            .expect("Wheel of Change relic can be claimed");
+        assert_eq!(claimed.phase, RunPhase::Reward);
+        assert!(claimed.reward.is_some());
+        assert_eq!(
+            claimed
+                .event
+                .as_ref()
+                .expect("Wheel of Change leave screen")
+                .choices[0]
+                .label,
+            "Leave"
+        );
+
+        let leave = crate::apply_run_action(&claimed, crate::RunAction::Proceed)
+            .expect("relic reward proceeds back to Wheel of Change");
+        assert_eq!(leave.phase, RunPhase::Event);
+        assert!(leave.reward.is_none());
+
+        let completed = apply_event_action(&leave, EventAction::Choose { choice_index: 0 })
+            .expect("Wheel of Change leave can be selected");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert!(completed.event.is_none());
+    }
+
+    #[test]
     fn wheel_of_change_validation_accepts_only_reachable_stage_data_pairs() {
         for (stage, results) in [(0, 0..=0), (1, 0..=5), (2, 0..=5), (3, 0..=5)] {
             for event_data in results {
@@ -4614,6 +4892,29 @@ mod tests {
             state(0, 100, 2, 0).validate(),
             Err(SimError::InvalidState("World of Goop stage is invalid"))
         );
+    }
+
+    #[test]
+    fn world_of_goop_hp_loss_uses_tungsten_rod_mitigation() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.player_hp = 100;
+        run.player_max_hp = 100;
+        run.gold = 20;
+        run.relics.push(Relic::TungstenRod);
+        run.event = Some(EventScreen {
+            event: Event::WorldOfGoop,
+            choices: world_of_goop_choices(0, 20),
+            stage: 0,
+            event_data: 20,
+        });
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("gather gold transition");
+
+        assert_eq!(next.player_hp, 90, "Tungsten Rod reduces 11 HP loss to 10");
+        assert_eq!(next.gold, 95);
+        assert_eq!(next.event.as_ref().expect("final event screen").stage, 1);
     }
 
     #[test]
@@ -4791,6 +5092,29 @@ mod tests {
     }
 
     #[test]
+    fn cursed_tome_initial_read_and_leave_do_not_require_gold() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.gold = ADDICT_GOLD_COST - 1;
+        run.event = Some(EventScreen {
+            event: Event::CursedTome,
+            choices: cursed_tome_choices(0, run.ascension),
+            stage: 0,
+            event_data: 0,
+        });
+
+        let read = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Cursed Tome Read is legal without enough gold");
+        assert_eq!(read.event.as_ref().expect("first page").stage, 1);
+
+        let leave = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("Cursed Tome Leave is legal without enough gold");
+        assert_eq!(leave.event.as_ref().expect("leave screen").stage, 5);
+        assert_eq!(leave.player_hp, run.player_hp);
+        assert_eq!(leave.gold, run.gold);
+    }
+
+    #[test]
     fn drug_dealer_transform_returns_to_leave_after_two_cards() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
@@ -4839,6 +5163,36 @@ mod tests {
     }
 
     #[test]
+    fn drug_dealer_jax_obtain_is_pending_until_leave() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::DrugDealer,
+            choices: drug_dealer_choices(0, true),
+            stage: 0,
+            event_data: 0,
+        });
+        let original_deck_len = run.deck.len();
+
+        let leave_screen = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Test J.A.X. opens the Leave screen");
+        assert_eq!(leave_screen.deck.len(), original_deck_len);
+        assert_eq!(leave_screen.pending_obtain_cards, vec![JAX_ID]);
+        assert_eq!(leave_screen.event.as_ref().expect("Leave screen").stage, 1);
+
+        let left = apply_event_action(&leave_screen, EventAction::Choose { choice_index: 0 })
+            .expect("Leave settles the J.A.X. obtain effect");
+        assert_eq!(left.deck.len(), original_deck_len + 1);
+        assert_eq!(left.pending_obtain_cards, Vec::<ContentId>::new());
+        assert_eq!(left.phase, RunPhase::Idle);
+        assert!(left.event.is_none());
+        assert_eq!(
+            left.deck.last().expect("J.A.X. deck card").content_id,
+            JAX_ID
+        );
+    }
+
+    #[test]
     fn dead_adventurer_legacy_continue_returns_to_next_search_after_a_safe_attempt() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
@@ -4881,7 +5235,7 @@ mod tests {
         let fight = apply_event_action(&reveal, EventAction::Choose { choice_index: 0 })
             .expect("fight should enter combat");
         assert_eq!(fight.phase, RunPhase::Combat);
-        assert!((55..=65).contains(&fight.pending_event_combat_gold_offer));
+        assert!((25..=35).contains(&fight.pending_event_combat_gold_offer));
         assert_eq!(fight.misc_rng_counter, misc_counter_before_fight + 1);
         assert_eq!(fight.treasure_rng_counter, treasure_counter_before_fight);
         assert_eq!(fight.pending_event_combat_relic_offer, Some(expected_relic));
@@ -5903,6 +6257,38 @@ mod tests {
     }
 
     #[test]
+    fn the_cleric_marks_unaffordable_choices_locked() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.gold = 44;
+
+        let screen = event_screen_for_run(&run, Event::TheCleric);
+        assert_eq!(
+            screen.choices,
+            labeled_choices(&["Heal", "Locked", "Leave"])
+        );
+        validate_event_screen_authority(&run, &screen).expect("The Cleric screen is authoritative");
+
+        run.ascension = 15;
+        run.gold = 74;
+        let screen = event_screen_for_run(&run, Event::TheCleric);
+        assert_eq!(
+            screen.choices,
+            labeled_choices(&["Heal", "Locked", "Leave"])
+        );
+
+        let mut purify = RunState::seeded_ironclad(1, 0);
+        purify.phase = RunPhase::Event;
+        purify.gold = 77;
+        purify.event = Some(event_screen_for_run(&purify, Event::TheCleric));
+        let purify_grid = apply_event_action(&purify, EventAction::Choose { choice_index: 1 })
+            .expect("Purify opens its removal grid");
+        purify_grid
+            .validate()
+            .expect("The Cleric remains authoritative while its grid is open");
+    }
+
+    #[test]
     fn the_cleric_uses_a15_purify_cost_and_does_not_charge_empty_deck() {
         let mut run = RunState::seeded_ironclad(1, 15);
         run.phase = RunPhase::Event;
@@ -5943,6 +6329,26 @@ mod tests {
         let json = serde_json::to_string(&run).expect("Secret Portal state serializes");
         let restored: RunState = serde_json::from_str(&json).expect("Secret Portal state loads");
         assert_eq!(restored.playtime_seconds, 800);
+    }
+
+    #[test]
+    fn fountain_of_cleansing_requires_a_removable_curse() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.gain_deck_card(ASCENDERS_BANE_ID)
+            .expect("Ascender's Bane can be added");
+        run.gain_deck_card(CURSE_OF_THE_BELL_ID)
+            .expect("Curse of the Bell can be added");
+
+        assert!(!special_one_time_event_is_available(
+            &run,
+            Event::FountainOfCleansing
+        ));
+
+        run.gain_deck_card(INJURY_ID).expect("Injury can be added");
+        assert!(special_one_time_event_is_available(
+            &run,
+            Event::FountainOfCleansing
+        ));
     }
 
     #[test]
@@ -7600,6 +8006,35 @@ mod tests {
     }
 
     #[test]
+    fn the_library_preview_applies_molten_egg_before_opening_the_grid() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 2;
+        run.current_floor = 29;
+        run.relics.push(Relic::MoltenEgg);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::TheLibrary));
+
+        let after_read = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Library read choice opens a grid");
+        let grid = after_read.card_grid.as_ref().expect("Library card grid");
+        let has_upgraded_attack = grid.cards.iter().any(|card| {
+            get_card_definition(card.content_id).is_some_and(|definition| {
+                definition.card_type == CardType::Attack && definition.upgrade.is_none()
+            })
+        });
+
+        assert!(has_upgraded_attack);
+        assert!(grid.cards.iter().all(|card| {
+            get_card_definition(card.content_id).is_none_or(|definition| {
+                definition.card_type != CardType::Attack || card.content_id != STRIKE_R_ID
+            })
+        }));
+        after_read
+            .validate()
+            .expect("Library preview is authoritative");
+    }
+
+    #[test]
     fn vampires_accept_stages_leave_before_returning_to_map() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
@@ -7699,6 +8134,51 @@ mod tests {
             Err(SimError::InvalidState(
                 "Knowing Skull active costs are missing"
             ))
+        );
+    }
+
+    #[test]
+    fn knowing_skull_full_potion_belt_still_consumes_reward_rng() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        for potion in [Potion::Swift, Potion::Elixir, Potion::Fire] {
+            run.gain_potion(potion).expect("potion slot is open");
+        }
+        let event_data =
+            knowing_skull_event_data(knowing_skull_costs(0)).expect("starting costs are encodable");
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::KnowingSkull,
+            choices: knowing_skull_choices(1, event_data),
+            stage: 1,
+            event_data,
+        });
+        let initial_hp = run.player_hp;
+        let initial_potions = run.potions.clone();
+        let mut expected_potion_rng = run.rng_for_stream(RunRngStream::Potion);
+        let _discarded_potion = target_uniform_random_potion(&mut expected_potion_rng);
+
+        let after_reward = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Knowing Skull discards a potion reward when the belt is full");
+
+        assert_eq!(
+            after_reward.player_hp,
+            initial_hp - KNOWING_SKULL_STARTING_COST
+        );
+        assert_eq!(after_reward.potions, initial_potions);
+        assert_eq!(
+            after_reward.potion_rng_counter,
+            expected_potion_rng.counter()
+        );
+        assert_eq!(
+            knowing_skull_costs(
+                after_reward
+                    .event
+                    .as_ref()
+                    .expect("Knowing Skull remains open")
+                    .event_data
+            )
+            .potion,
+            KNOWING_SKULL_STARTING_COST + 1
         );
     }
 
@@ -7981,6 +8461,17 @@ mod tests {
 
         let after_halt = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("Joust explanation applies");
+        assert_eq!(
+            after_halt
+                .event
+                .as_ref()
+                .expect("Joust bet screen")
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Murderer", "Owner"]
+        );
         let after_bet = apply_event_action(&after_halt, EventAction::Choose { choice_index: 0 })
             .expect("Joust bet applies");
         assert_eq!(after_bet.gold, 0);
@@ -8078,6 +8569,30 @@ mod tests {
                 .len(),
             3
         );
+        assert_eq!(
+            after_buy
+                .reward
+                .as_ref()
+                .expect("potion reward")
+                .continuation,
+            crate::RewardContinuation::Event
+        );
+        assert_eq!(after_buy.event.as_ref().expect("result screen").stage, 1);
+
+        let mut after_rewards = after_buy;
+        for _ in 0..3 {
+            after_rewards =
+                apply_run_action(&after_rewards, RunAction::TakePotionReward { index: 0 })
+                    .expect("potion reward applies");
+        }
+        let after_proceed = apply_run_action(&after_rewards, RunAction::Proceed)
+            .expect("empty Woman in Blue reward proceeds to result screen");
+        assert_eq!(after_proceed.phase, RunPhase::Event);
+        assert!(after_proceed.reward.is_none());
+        assert_eq!(
+            after_proceed.event.as_ref().expect("result screen").stage,
+            1
+        );
 
         let mut punched = RunState::seeded_ironclad(1, 15);
         punched.phase = RunPhase::Event;
@@ -8101,34 +8616,21 @@ mod tests {
         run.event = Some(event_screen_for_run(&run, Event::Falling));
         let after_intro = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("Falling intro applies");
-        let skill_index = after_intro
-            .event
-            .as_ref()
-            .expect("Falling choices")
-            .choices
-            .iter()
-            .position(|choice| choice.label.contains("Skill"))
-            .expect("starter deck has a skill");
-        let after_choice = apply_event_action(
-            &after_intro,
-            EventAction::Choose {
-                choice_index: skill_index,
-            },
-        )
-        .expect("Falling card choice applies");
+        let choices = &after_intro.event.as_ref().expect("Falling choices").choices;
         assert_eq!(
-            after_choice
-                .card_grid
-                .as_ref()
-                .expect("card grid")
-                .cards
-                .len(),
-            1
+            choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Land", "Strike"]
         );
-        let selected = crate::run::grid::select_grid_card(&after_choice, 0)
-            .expect("Falling selects its displayed card");
-        let completed = crate::run::grid::confirm_grid(&selected).expect("Falling removes card");
-        assert_eq!(completed.event.as_ref().expect("leave screen").stage, 2);
+        let initial_deck = after_intro.deck.clone();
+        let after_choice =
+            apply_event_action(&after_intro, EventAction::Choose { choice_index: 0 })
+                .expect("Falling card choice applies");
+        assert!(after_choice.card_grid.is_none());
+        assert_eq!(after_choice.deck.len(), initial_deck.len() - 1);
+        assert_eq!(after_choice.event.as_ref().expect("leave screen").stage, 2);
     }
 
     #[test]
@@ -8224,6 +8726,34 @@ mod tests {
     }
 
     #[test]
+    fn forgotten_altar_desecrate_queues_decay_until_leave_stage() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.relics.push(Relic::CeramicFish);
+        run.event = Some(event_screen_for_run(&run, Event::ForgottenAltar));
+        let gold_before = run.gold;
+
+        let after_desecrate = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("Forgotten Altar desecration applies");
+        assert!(!after_desecrate
+            .deck
+            .iter()
+            .any(|card| card.content_id == DECAY_ID));
+        assert_eq!(after_desecrate.pending_obtain_cards, vec![DECAY_ID]);
+        assert_eq!(after_desecrate.gold, gold_before);
+
+        let after_leave =
+            apply_event_action(&after_desecrate, EventAction::Choose { choice_index: 0 })
+                .expect("Forgotten Altar leave applies");
+        assert!(after_leave.pending_obtain_cards.is_empty());
+        assert!(after_leave
+            .deck
+            .iter()
+            .any(|card| card.content_id == DECAY_ID));
+        assert_eq!(after_leave.gold, gold_before + CERAMIC_FISH_GOLD);
+    }
+
+    #[test]
     fn mind_bloom_third_choice_changes_after_floor_forty() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_floor = 39;
@@ -8294,6 +8824,8 @@ mod tests {
     #[test]
     fn sensory_stone_opens_colorless_reward_with_hp_cost() {
         let mut run = RunState::seeded_ironclad(1, 0);
+        run.gain_relic(Relic::ToxicEgg)
+            .expect("Toxic Egg pickup succeeds");
         run.phase = RunPhase::Event;
         run.player_hp = 50;
         run.event = Some(event_screen_for_run(&run, Event::SensoryStone));
@@ -8328,11 +8860,33 @@ mod tests {
             .queued_card_rewards
             .iter()
             .all(|choices| choices.len() == 3));
-        assert!(reward
+        assert!(reward.queued_card_rewards.iter().flatten().all(|card| {
+            let Some(definition) = crate::content::cards::get_card_definition(card.content_id)
+            else {
+                return false;
+            };
+            crate::content::shop_pool::shop_card_is_colorless(card.content_id)
+                || definition.key.strip_suffix('+').is_some_and(|base| {
+                    crate::content::shop_pool::shop_card_is_colorless(
+                        crate::content::shop_pool::shop_card_content_id(base),
+                    )
+                })
+        }));
+        let skill_choices = reward
             .queued_card_rewards
             .iter()
             .flatten()
-            .all(|card| crate::content::shop_pool::shop_card_is_colorless(card.content_id)));
+            .filter(|card| {
+                crate::content::cards::get_card_definition(card.content_id)
+                    .is_some_and(|definition| definition.card_type == CardType::Skill)
+            })
+            .count();
+        assert!(skill_choices > 0);
+        assert!(reward.queued_card_rewards.iter().flatten().all(|card| {
+            crate::content::cards::get_card_definition(card.content_id).is_some_and(|definition| {
+                definition.card_type != CardType::Skill || definition.upgrade.is_none()
+            })
+        }));
 
         let opened =
             crate::run::reward::apply_run_action(&after_memory, crate::RunAction::OpenCardReward)
@@ -8367,5 +8921,35 @@ mod tests {
                 .label,
             "Leave"
         );
+    }
+
+    #[test]
+    fn colosseum_victory_enters_taskmaster_and_gremlin_nob_combat() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 2;
+        run.current_floor = 30;
+        run.relics.push(Relic::PreservedInsect);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::Colosseum,
+            choices: colosseum_choices(2),
+            stage: 2,
+            event_data: 0,
+        });
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("Colosseum victory enters the second combat");
+        let monsters = &next.combat.expect("Colosseum combat").monsters;
+
+        assert_eq!(
+            monsters
+                .iter()
+                .map(|monster| monster.content_id)
+                .collect::<Vec<_>>(),
+            vec![TASKMASTER_A0.content_id, GREMLIN_NOB_A0.content_id]
+        );
+        assert!(monsters
+            .iter()
+            .all(|monster| monster.hp == monster.max_hp * 3 / 4));
     }
 }

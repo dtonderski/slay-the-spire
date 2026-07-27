@@ -7,6 +7,7 @@ use crate::{
         SessionSnapshot, SlayTheDataCollectionBlockerKind, SlayTheDataRepairPacket,
         SlayTheDataRunOutcome, SlayTheDataRunSummary, SlayTheDataSearchFilters,
     },
+    replay::{replay_existing_trace, ReplayRequest},
     session::SessionStore,
 };
 use serde_json::{json, Value};
@@ -45,6 +46,12 @@ where
 {
     let args: Vec<String> = args.into_iter().collect();
     match args.as_slice() {
+        [command, trace_path, rest @ ..] if command == "replay" => {
+            let request = parse_replay_args(trace_path, rest)?;
+            Ok(serde_json::to_value(replay_existing_trace(
+                store, request,
+            )?)?)
+        }
         [area, command] if area == "bridges" && command == "list" => {
             Ok(json!({"bridges": store.list_bridges()?}))
         }
@@ -57,6 +64,12 @@ where
             store.kill_bridge(&BridgeId(bridge_id.clone()))?;
             Ok(json!({"killed": 1, "bridge_id": bridge_id}))
         }
+        [area, command, bridge_id] if area == "bridges" && command == "state" => Ok(
+            serde_json::to_value(store.request_bridge_state(&BridgeId(bridge_id.clone()))?)?,
+        ),
+        [area, command, bridge_id] if area == "bridges" && command == "abandon" => Ok(
+            serde_json::to_value(store.abandon_bridge_run(&BridgeId(bridge_id.clone()))?)?,
+        ),
         [area, command] if area == "sessions" && command == "list" => {
             Ok(json!({"sessions": store.list_sessions()}))
         }
@@ -222,6 +235,42 @@ struct StartRequest {
     config: RunConfig,
 }
 
+fn parse_replay_args(trace_path: &str, args: &[String]) -> LiveResult<ReplayRequest> {
+    let mut bridge_id = BridgeId("communication-mod".to_owned());
+    let mut reset_bridge = false;
+    let mut max_actions = None;
+    let mut dry_run = false;
+    let mut action_template = false;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--bridge" => {
+                index += 1;
+                bridge_id = BridgeId(required(args, index, "--bridge")?.to_owned());
+            }
+            "--reset-bridge" => reset_bridge = true,
+            "--max-actions" => {
+                index += 1;
+                max_actions = Some(required(args, index, "--max-actions")?.parse().map_err(
+                    |err| LiveError::InvalidAction(format!("invalid --max-actions: {err}")),
+                )?);
+            }
+            "--dry-run" => dry_run = true,
+            "--action-template" => action_template = true,
+            other => return Err(LiveError::InvalidAction(format!("unknown flag {other}"))),
+        }
+        index += 1;
+    }
+    Ok(ReplayRequest {
+        source_path: PathBuf::from(trace_path),
+        bridge_id,
+        reset_bridge,
+        max_actions,
+        dry_run,
+        action_template,
+    })
+}
+
 fn parse_start_args(args: &[String]) -> LiveResult<StartRequest> {
     let mut bridge_id = BridgeId("fake-bridge-1".to_owned());
     let mut character = Character::Ironclad;
@@ -274,6 +323,7 @@ fn parse_start_args(args: &[String]) -> LiveResult<StartRequest> {
             character,
             ascension,
             seed,
+            profile: None,
         },
     })
 }
@@ -538,6 +588,7 @@ struct SlayTheDataCollectRequest {
     bridge_id: Option<BridgeId>,
     target_floor: u32,
     reset_bridge: bool,
+    starting_hp: Option<i32>,
     repair_packet_path: Option<PathBuf>,
     mark_illegal_source_path: Option<PathBuf>,
     retry_journaled: bool,
@@ -556,6 +607,7 @@ struct CollectionOutputOptions {
 struct SlayTheDataResumeRequest {
     session_id: SessionId,
     target_floor: u32,
+    automation_config: AutomationConfig,
     output: CollectionOutputOptions,
 }
 
@@ -567,6 +619,7 @@ struct TracePromoteRequest {
 #[derive(Clone, Copy)]
 struct SlayTheDataCollectContext<'a> {
     target_floor: u32,
+    starting_hp: Option<i32>,
     slaythedata_db_path: Option<&'a Path>,
     mark_illegal_source_path: Option<&'a Path>,
 }
@@ -576,6 +629,7 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
     let mut include_corpus = false;
     let mut target_floor = 60;
     let mut reset_bridge = true;
+    let mut starting_hp = None;
     let mut repair_packet_path = None;
     let mut mark_illegal_source_path = None;
     let mut retry_journaled = false;
@@ -602,6 +656,20 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
                     .map_err(|err| {
                         LiveError::InvalidAction(format!("invalid --target-floor: {err}"))
                     })?;
+            }
+            "--starting-hp" => {
+                index += 1;
+                let parsed = required(args, index, "--starting-hp")?
+                    .parse::<i32>()
+                    .map_err(|err| {
+                        LiveError::InvalidAction(format!("invalid --starting-hp: {err}"))
+                    })?;
+                if !(1..=1_000_000).contains(&parsed) {
+                    return Err(LiveError::InvalidAction(format!(
+                        "--starting-hp must be between 1 and 1000000, got {parsed}"
+                    )));
+                }
+                starting_hp = Some(parsed);
             }
             "--repair-packet" => {
                 index += 1;
@@ -676,6 +744,7 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
         bridge_id,
         target_floor,
         reset_bridge,
+        starting_hp,
         repair_packet_path,
         mark_illegal_source_path,
         retry_journaled,
@@ -698,6 +767,7 @@ fn parse_slaythedata_resume_args(
     args: &[String],
 ) -> LiveResult<SlayTheDataResumeRequest> {
     let mut target_floor = 60;
+    let mut automation_config = AutomationConfig::default();
     let mut output = default_collection_output_options();
     let mut index = 0;
     while index < args.len() {
@@ -709,6 +779,27 @@ fn parse_slaythedata_resume_args(
                     .map_err(|err| {
                         LiveError::InvalidAction(format!("invalid --target-floor: {err}"))
                     })?;
+            }
+            "--combat-search-transition-budget" => {
+                index += 1;
+                automation_config.search_transition_budget = parse_usize(
+                    required(args, index, "--combat-search-transition-budget")?,
+                    "--combat-search-transition-budget",
+                )?;
+            }
+            "--combat-search-time-budget-ms" => {
+                index += 1;
+                automation_config.search_time_budget_ms =
+                    required(args, index, "--combat-search-time-budget-ms")?
+                        .parse()
+                        .map_err(|err| {
+                            LiveError::InvalidAction(format!(
+                                "invalid --combat-search-time-budget-ms: {err}"
+                            ))
+                        })?;
+            }
+            "--combat-search-dedup" => {
+                automation_config.deduplicate_search_states = true;
             }
             "--journal" => {
                 index += 1;
@@ -739,6 +830,7 @@ fn parse_slaythedata_resume_args(
     Ok(SlayTheDataResumeRequest {
         session_id: SessionId(session_id.to_owned()),
         target_floor,
+        automation_config,
         output,
     })
 }
@@ -1132,8 +1224,35 @@ where
     let db_path = store.slaythedata_db_path().to_path_buf();
     let context = SlayTheDataCollectContext {
         target_floor: request.target_floor,
+        starting_hp: None,
         slaythedata_db_path: Some(&db_path),
         mark_illegal_source_path: None,
+    };
+    let snapshot = match store
+        .begin_fidelity_recheck(
+            &request.session_id,
+            "resume after verified simulator repair",
+        )
+        .and_then(|_| {
+            store.configure_automation(&request.session_id, request.automation_config.clone())?;
+            store.session_snapshot(&request.session_id)
+        }) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return finish_collection_attempt(
+                store,
+                collect_attempt_json(
+                    &run,
+                    Some(&snapshot),
+                    "blocked",
+                    "repair_resume_prepare_failed",
+                    Some(error),
+                    context,
+                ),
+                started_at.elapsed(),
+                &request.output,
+            );
+        }
     };
     emit_collection_progress(emit, "resume_started", &run, Some(&snapshot));
     let mut attempt =
@@ -1182,6 +1301,7 @@ where
     let slaythedata_db_path = store.slaythedata_db_path().to_path_buf();
     let collect_context = SlayTheDataCollectContext {
         target_floor: request.target_floor,
+        starting_hp: request.starting_hp,
         slaythedata_db_path: Some(&slaythedata_db_path),
         mark_illegal_source_path: request.mark_illegal_source_path.as_deref(),
     };
@@ -1581,6 +1701,7 @@ where
         seed: seed
             .parse::<i64>()
             .map_or_else(|_| RunSeed::External(seed.to_owned()), RunSeed::Numeric),
+        profile: None,
     };
     if reset_bridge {
         emit_collection_progress(emit, "bridge_reset_started", run, None);
@@ -1595,7 +1716,11 @@ where
             );
         }
     }
-    let started = match store.start_run(bridge_id.clone(), config) {
+    let started = match context.starting_hp {
+        Some(starting_hp) => store.start_verification_run(bridge_id.clone(), config, starting_hp),
+        None => store.start_run(bridge_id.clone(), config),
+    };
+    let started = match started {
         Ok(snapshot) => snapshot,
         Err(error) => {
             return collect_attempt_json(
@@ -1810,23 +1935,39 @@ where
     F: FidelityChecker,
 {
     for _ in 0..40 {
-        let state = store.request_bridge_state(bridge_id)?;
+        let state = match store.request_bridge_state(bridge_id) {
+            Ok(state) => state,
+            Err(error) if bridge_reset_error_is_retryable(&error) => {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         if start_command_available(&state) {
             return Ok(());
         }
         if command_available(&state, "proceed") {
-            store.send_bridge_command(
+            let sent = store.send_bridge_command(
                 bridge_id,
                 &state,
                 "PROCEED",
                 LegalActionKind::Confirm,
                 "Proceed",
-            )?;
+            );
+            if let Err(error) = sent {
+                if !bridge_reset_error_is_retryable(&error) {
+                    return Err(error);
+                }
+            }
             std::thread::sleep(std::time::Duration::from_millis(250));
             continue;
         }
         if command_available(&state, "abandon") {
-            store.abandon_bridge_run(bridge_id)?;
+            if let Err(error) = store.abandon_bridge_run(bridge_id) {
+                if !bridge_reset_error_is_retryable(&error) {
+                    return Err(error);
+                }
+            }
             std::thread::sleep(std::time::Duration::from_millis(250));
             continue;
         }
@@ -1835,6 +1976,15 @@ where
     Err(LiveError::Bridge(
         "bridge did not return to start-ready state after abandon".to_owned(),
     ))
+}
+
+fn bridge_reset_error_is_retryable(error: &LiveError) -> bool {
+    matches!(
+        error,
+        LiveError::Bridge(message)
+            if message.contains("bridge is not ready for a command")
+                || message.contains("stale bridge action rejected")
+    )
 }
 
 fn start_command_available(state: &LiveState) -> bool {
@@ -2333,7 +2483,7 @@ fn required<'a>(args: &'a [String], index: usize, flag: &str) -> LiveResult<&'a 
 }
 
 fn usage() -> String {
-    "usage: live-trace [--slaythedata-db PATH] bridges list|kill [--all|bridge-id]; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace slaythedata search [filters]|json RUN_ID|attach SESSION RUN_ID|send-next SESSION|skip-shop SESSION|auto-play SESSION|resume SESSION [--target-floor N] [--journal PATH] [--permanent-root PATH] [--promote-floor N] [--no-promote]|agent [collect options]|collect [filters] [--bridge ID] [--target-floor N] [--reset-bridge|--no-reset-bridge] [--journal PATH] [--retry-journaled] [--include-corpus] [--permanent-root PATH] [--promote-floor N] [--no-promote] [--repair-packet PATH] [--combat-search-transition-budget N] [--combat-search-time-budget-ms N] [--combat-search-dedup] [--mark-illegal|--mark-illegal-source PATH]|mark-broken RUN_ID [REASON]|unmark-broken RUN_ID|mark-illegal PACKET_JSON [--source PATH]; live-trace fidelity status SESSION; live-trace trace path|verify SESSION; live-trace trace promote SESSION [--permanent-root PATH] [--min-floor N]".to_owned()
+    "usage: live-trace [--slaythedata-db PATH] replay TRACE [--bridge ID] [--reset-bridge] [--max-actions N] [--dry-run] [--action-template]; live-trace bridges list|kill [--all|bridge-id]|state BRIDGE|abandon BRIDGE; live-trace sessions list|start|state|request-state|abandon; live-trace actions list SESSION; live-trace actions send SESSION ACTION; live-trace automation status|configure|plan|send-ready|step|run-one|auto-play|pause|resume|cancel SESSION; live-trace slaythedata search [filters]|json RUN_ID|attach SESSION RUN_ID|send-next SESSION|skip-shop SESSION|auto-play SESSION|resume SESSION [--target-floor N] [--journal PATH] [--permanent-root PATH] [--promote-floor N] [--no-promote] [--combat-search-transition-budget N] [--combat-search-time-budget-ms N] [--combat-search-dedup]|agent [collect options]|collect [filters] [--bridge ID] [--target-floor N] [--starting-hp N] [--reset-bridge|--no-reset-bridge] [--journal PATH] [--retry-journaled] [--include-corpus] [--permanent-root PATH] [--promote-floor N] [--no-promote] [--repair-packet PATH] [--combat-search-transition-budget N] [--combat-search-time-budget-ms N] [--combat-search-dedup] [--mark-illegal|--mark-illegal-source PATH]|mark-broken RUN_ID [REASON]|unmark-broken RUN_ID|mark-illegal PACKET_JSON [--source PATH]; live-trace fidelity status SESSION; live-trace trace path|verify SESSION; live-trace trace promote SESSION [--permanent-root PATH] [--min-floor N]".to_owned()
 }
 
 #[cfg(test)]
@@ -2545,6 +2695,77 @@ mod tests {
 
         let actions = run_cli(&mut store, strings(["actions", "list", "session-1"])).unwrap();
         assert!(!actions["legal_actions"].as_array().unwrap().is_empty());
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn cli_replay_dry_run_validates_without_a_bridge() {
+        let root = temp_dir("cli-replay-dry-run");
+        let mut store = fake_store(&root);
+        let trace = sts_verify::simulator_root()
+            .join("verification/corpus/permanent_traces/trace-2026-07-03T20-12-12-408Z.jsonl");
+
+        let replay = run_cli(
+            &mut store,
+            vec![
+                "replay".to_owned(),
+                trace.to_string_lossy().into_owned(),
+                "--dry-run".to_owned(),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(replay["status"], "validated");
+        assert_eq!(replay["source_actions"], 3);
+        assert_eq!(replay["planned_actions"], 2);
+        assert!(replay["session_id"].is_null());
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn cli_action_template_dry_run_accepts_quarantined_start_verify_trace() {
+        let root = temp_dir("cli-action-template-dry-run");
+        let mut store = fake_store(&root);
+        let trace = sts_verify::simulator_root().join(
+            "verification/corpus/quarantined_traces/note_profile_missing/\
+             random-fidelity-573e04950e8c3758.jsonl",
+        );
+
+        let replay = run_cli(
+            &mut store,
+            vec![
+                "replay".to_owned(),
+                trace.to_string_lossy().into_owned(),
+                "--dry-run".to_owned(),
+                "--action-template".to_owned(),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(replay["status"], "template_validated");
+        assert_eq!(replay["mode"], "action_template");
+        assert_eq!(replay["verification_starting_hp"], 10_000);
+        assert!(replay["captured_profile"].is_null());
+        assert!(replay["session_id"].is_null());
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn cli_reads_and_abandons_bridge_state_without_a_session() {
+        let root = temp_dir("cli-bridge-state");
+        let mut store = fake_store(&root);
+
+        let menu = run_cli(&mut store, strings(["bridges", "state", "fake-bridge-1"])).unwrap();
+        assert_eq!(menu["phase"], "menu");
+
+        run_cli(
+            &mut store,
+            strings(["sessions", "start", "--seed", "123", "--ascension", "0"]),
+        )
+        .unwrap();
+        let abandoned =
+            run_cli(&mut store, strings(["bridges", "abandon", "fake-bridge-1"])).unwrap();
+        assert_eq!(abandoned["phase"], "menu");
         fs::remove_dir_all(root).ok();
     }
 
@@ -2975,6 +3196,8 @@ mod tests {
             "--reset-bridge",
             "--target-floor",
             "17",
+            "--starting-hp",
+            "10000",
             "--repair-packet",
             "packet.json",
             "--mark-illegal",
@@ -2994,6 +3217,7 @@ mod tests {
 
         assert!(request.reset_bridge);
         assert_eq!(request.target_floor, 17);
+        assert_eq!(request.starting_hp, Some(10_000));
         assert_eq!(
             request.repair_packet_path,
             Some(PathBuf::from("packet.json"))
@@ -3012,6 +3236,42 @@ mod tests {
         assert!(request.automation_config.deduplicate_search_states);
         assert!(request.output.promote);
         assert_eq!(request.output.promote_floor, 11);
+    }
+
+    #[test]
+    fn slaythedata_collect_parser_rejects_invalid_starting_hp() {
+        let error = parse_slaythedata_collect_args(&strings(["--starting-hp", "1000001"]))
+            .err()
+            .expect("starting HP above the bridge limit must fail");
+
+        assert!(error
+            .to_string()
+            .contains("--starting-hp must be between 1 and 1000000"));
+    }
+
+    #[test]
+    fn slaythedata_resume_parser_preserves_fast_combat_budget() {
+        let request = parse_slaythedata_resume_args(
+            "session-7",
+            &strings([
+                "--target-floor",
+                "51",
+                "--combat-search-transition-budget",
+                "20000",
+                "--combat-search-time-budget-ms",
+                "1000",
+                "--combat-search-dedup",
+                "--no-promote",
+            ]),
+        )
+        .unwrap();
+
+        assert_eq!(request.session_id, SessionId("session-7".to_owned()));
+        assert_eq!(request.target_floor, 51);
+        assert_eq!(request.automation_config.search_transition_budget, 20_000);
+        assert_eq!(request.automation_config.search_time_budget_ms, 1_000);
+        assert!(request.automation_config.deduplicate_search_states);
+        assert!(!request.output.promote);
     }
 
     #[test]
@@ -3161,6 +3421,7 @@ mod tests {
             None,
             SlayTheDataCollectContext {
                 target_floor: 60,
+                starting_hp: None,
                 slaythedata_db_path: None,
                 mark_illegal_source_path: None,
             },
@@ -3273,6 +3534,7 @@ mod tests {
             None,
             SlayTheDataCollectContext {
                 target_floor: 60,
+                starting_hp: None,
                 slaythedata_db_path: None,
                 mark_illegal_source_path: None,
             },
@@ -3322,6 +3584,7 @@ mod tests {
             None,
             SlayTheDataCollectContext {
                 target_floor: 60,
+                starting_hp: None,
                 slaythedata_db_path: None,
                 mark_illegal_source_path: None,
             },
@@ -3777,5 +4040,18 @@ mod tests {
             legal_actions: Vec::new(),
             raw: json!({"summary": {"available_commands": ["play", "end", "abandon"]}}),
         }));
+    }
+
+    #[test]
+    fn bridge_reset_retries_transient_not_ready_error() {
+        assert!(bridge_reset_error_is_retryable(&LiveError::Bridge(
+            "bridge is not ready for a command".to_owned()
+        )));
+        assert!(bridge_reset_error_is_retryable(&LiveError::Bridge(
+            "stale bridge action rejected".to_owned()
+        )));
+        assert!(!bridge_reset_error_is_retryable(&LiveError::Bridge(
+            "CommunicationMod disconnected".to_owned()
+        )));
     }
 }

@@ -56,7 +56,16 @@ pub(crate) fn recover_session(path: &Path) -> LiveResult<SessionData> {
 }
 
 fn recovered_fidelity(records: &[TraceRecord]) -> FidelityStatus {
-    for (index, record) in records.iter().enumerate() {
+    let recheck_start = records
+        .iter()
+        .rposition(|record| {
+            matches!(
+                record,
+                TraceRecord::SlayTheData { event, .. } if event == "fidelity_recheck"
+            )
+        })
+        .map_or(0, |index| index + 1);
+    for (index, record) in records.iter().enumerate().skip(recheck_start) {
         if let TraceRecord::Error {
             reason_code,
             message,

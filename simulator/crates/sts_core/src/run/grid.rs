@@ -7,7 +7,8 @@ use crate::{
     content::{
         cards::{
             card_instance_is_upgradeable, get_card_definition, is_pandoras_box_removed_starter,
-            required_upgrade_content_id, upgrade_card_instance, CURSE_OF_THE_BELL_ID,
+            is_purgeable_card, required_upgrade_content_id, upgrade_card_instance,
+            CURSE_OF_THE_BELL_ID,
         },
         reward_pool::{
             ironclad_transform_card_content_id, ironclad_truly_random_card_pool,
@@ -217,10 +218,16 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
         ),
         GridPurpose::RestRemove
         | GridPurpose::EventRemove
-        | GridPurpose::EventTransform { .. }
-        | GridPurpose::EventTransformReturnToEvent { .. }
-        | GridPurpose::BonfireElementals
         | GridPurpose::DesignerRemoveAndUpgrade => Some(
+            run.deck
+                .iter()
+                .filter(|card| is_purgeable_card(card))
+                .copied()
+                .collect::<Vec<_>>(),
+        ),
+        GridPurpose::EventTransform { .. }
+        | GridPurpose::EventTransformReturnToEvent { .. }
+        | GridPurpose::BonfireElementals => Some(
             run.deck
                 .iter()
                 .copied()
@@ -233,15 +240,15 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
         GridPurpose::EventRemoveReturnToEvent { .. } => Some(
             run.deck
                 .iter()
+                .filter(|card| is_purgeable_card(card))
                 .copied()
-                .filter(|card| !card.bottled)
                 .collect::<Vec<_>>(),
         ),
         GridPurpose::ShopRemove => Some(
             run.deck
                 .iter()
+                .filter(|card| is_purgeable_card(card))
                 .copied()
-                .filter(|card| !card.bottled && card.content_id != CURSE_OF_THE_BELL_ID)
                 .collect::<Vec<_>>(),
         ),
         GridPurpose::EmptyCage { .. }
@@ -345,9 +352,12 @@ fn validate_library_grid_payload(run: &RunState, grid: &CardGridScreen) -> SimRe
         content_ids.push(card.content_id);
         card.id == crate::ids::CardId::new(expected_id)
             && *card == canonical
-            && IRONCLAD_REWARD_ENTRIES
-                .iter()
-                .any(|entry| entry.content_id == card.content_id)
+            && IRONCLAD_REWARD_ENTRIES.iter().any(|entry| {
+                entry.content_id == card.content_id
+                    || run
+                        .content_id_after_card_add_relics(entry.content_id)
+                        .is_ok_and(|content_id| content_id == card.content_id)
+            })
     });
     content_ids.sort_unstable();
     let unique_content = content_ids.windows(2).all(|pair| pair[0] != pair[1]);
@@ -407,8 +417,8 @@ pub fn open_rest_remove_grid(run: &mut RunState) {
     let cards = run
         .deck
         .iter()
+        .filter(|card| is_purgeable_card(card))
         .copied()
-        .filter(|card| !card.bottled)
         .collect::<Vec<_>>();
     if cards.is_empty() {
         return;
@@ -426,8 +436,8 @@ pub fn open_shop_remove_grid(run: &mut RunState) {
     let cards = run
         .deck
         .iter()
+        .filter(|card| is_purgeable_card(card))
         .copied()
-        .filter(|card| !card.bottled && card.content_id != CURSE_OF_THE_BELL_ID)
         .collect::<Vec<_>>();
 
     run.card_grid = Some(CardGridScreen {
@@ -442,8 +452,8 @@ pub fn open_event_remove_grid(run: &mut RunState) {
     let cards = run
         .deck
         .iter()
+        .filter(|card| is_purgeable_card(card))
         .copied()
-        .filter(|card| !card.bottled)
         .collect::<Vec<_>>();
     if cards.is_empty() {
         return;
@@ -480,8 +490,8 @@ pub fn open_designer_remove_and_upgrade_grid(run: &mut RunState) {
     let cards = run
         .deck
         .iter()
+        .filter(|card| is_purgeable_card(card))
         .copied()
-        .filter(|card| !card.bottled)
         .collect::<Vec<_>>();
     if cards.is_empty() {
         return;
@@ -499,8 +509,8 @@ pub fn open_event_remove_return_to_event_grid(run: &mut RunState, event: Event) 
     let cards = run
         .deck
         .iter()
+        .filter(|card| is_purgeable_card(card))
         .copied()
-        .filter(|card| !card.bottled)
         .collect::<Vec<_>>();
     if cards.is_empty() {
         return;
@@ -850,15 +860,27 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     if let Some(required) = grid_multi_select_count(grid.purpose) {
         let mut next = run.clone();
         let grid = next.card_grid.as_mut().expect("grid present");
-        if !grid.selected_indices.contains(&index) {
+        if let Some(selected_position) = grid
+            .selected_indices
+            .iter()
+            .position(|selected_index| *selected_index == index)
+        {
+            // CardGridSelectScreen toggles a selected card when it is clicked
+            // again. This matters for Astrolabe and the other multi-select
+            // grids because the target permits changing the selection before
+            // confirming it.
+            grid.selected_indices.remove(selected_position);
+        } else {
             grid.selected_indices.push(index);
         }
-        // Empty Cage's target implementation resolves as soon as the
-        // required cards have been selected; it does not expose a separate
-        // confirmation click. Other multi-select grids retain their
-        // selections until the explicit GridConfirm action.
-        if matches!(grid.purpose, GridPurpose::EmptyCage { .. })
-            && grid.selected_indices.len() >= required
+        // Empty Cage and Astrolabe resolve as soon as the required cards have
+        // been selected; neither target grid exposes a separate confirmation
+        // click. Other multi-select grids retain their selections until the
+        // explicit GridConfirm action.
+        if matches!(
+            grid.purpose,
+            GridPurpose::EmptyCage { .. } | GridPurpose::Astrolabe
+        ) && grid.selected_indices.len() >= required
         {
             return apply_validated_grid_confirmation(&next);
         }
@@ -1510,8 +1532,8 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{
-            upgrade_content_id, BASH_ID, BITE_ID, BITE_PLUS_ID, CURSE_OF_THE_BELL_ID,
-            RITUAL_DAGGER_ID, STRIKE_R_ID,
+            upgrade_content_id, ASCENDERS_BANE_ID, BASH_ID, BITE_ID, BITE_PLUS_ID,
+            CURSE_OF_THE_BELL_ID, RITUAL_DAGGER_ID, STRIKE_R_ID,
         },
         run::shop,
         RunState,
@@ -1761,7 +1783,39 @@ mod tests {
     }
 
     #[test]
-    fn falling_grid_requires_the_exact_prior_misc_rng_draw() {
+    fn event_purge_grid_excludes_target_non_purgeable_cards() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.gain_deck_card(ASCENDERS_BANE_ID)
+            .expect("Ascender's Bane can be added to the deck");
+        run.gain_deck_card(CURSE_OF_THE_BELL_ID)
+            .expect("Curse of the Bell can be added to the deck");
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            Event::WingStatue,
+        ));
+
+        let prayed = crate::run::event::apply_event_action(
+            &run,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Wing Statue prayer advances to the second screen");
+        let opened = crate::run::event::apply_event_action(
+            &prayed,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Wing Statue opens its purge grid");
+        let grid = opened.card_grid.as_ref().expect("purge grid");
+
+        assert!(grid
+            .cards
+            .iter()
+            .all(|card| !matches!(card.content_id, ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID)));
+        opened.validate().expect("purge grid is authoritative");
+    }
+
+    #[test]
+    fn falling_preselects_cards_before_the_choice() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.event = Some(crate::run::event::event_screen_for_run(
@@ -1773,54 +1827,17 @@ mod tests {
             crate::EventAction::Choose { choice_index: 0 },
         )
         .expect("Falling intro opens card-type choices");
-        let skill_index = intro
-            .event
-            .as_ref()
-            .expect("Falling choices")
-            .choices
-            .iter()
-            .position(|choice| choice.label.contains("Skill"))
-            .expect("starter deck offers a skill");
-        let opened = crate::run::event::apply_event_action(
+        assert!(intro.card_grid.is_none());
+        assert_eq!(intro.misc_rng_counter, run.misc_rng_counter + 2);
+        let completed = crate::run::event::apply_event_action(
             &intro,
-            crate::EventAction::Choose {
-                choice_index: skill_index,
-            },
+            crate::EventAction::Choose { choice_index: 0 },
         )
-        .expect("Falling opens its RNG-selected card grid");
-        opened
+        .expect("Falling removes its preselected card");
+        assert!(completed.card_grid.is_none());
+        completed
             .validate()
-            .expect("Falling payload matches the consumed misc RNG draw");
-
-        let shown = opened.card_grid.as_ref().expect("Falling grid").cards[0];
-        let alternate = opened
-            .deck
-            .iter()
-            .copied()
-            .find(|card| {
-                card.id != shown.id
-                    && !card.bottled
-                    && get_card_definition(card.content_id)
-                        .is_some_and(|definition| definition.card_type == CardType::Skill)
-            })
-            .expect("starter deck has another skill");
-        let mut forged = opened.clone();
-        forged.card_grid.as_mut().expect("Falling grid").cards[0] = alternate;
-        assert_eq!(
-            forged.validate(),
-            Err(SimError::InvalidState(
-                "Falling grid does not match its RNG-selected card authority"
-            ))
-        );
-
-        let mut missing_draw = opened;
-        missing_draw.misc_rng_counter = 0;
-        assert_eq!(
-            missing_draw.validate(),
-            Err(SimError::InvalidState(
-                "Falling grid has no preceding misc RNG draw"
-            ))
-        );
+            .expect("Falling preselection and removal are authoritative");
     }
 
     #[test]
@@ -2033,6 +2050,49 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn astrolabe_multi_select_toggles_a_selected_card() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen(crate::Event::Neow));
+        run.relics.push(crate::Relic::Astrolabe);
+        let original_deck = run.deck.clone();
+        open_astrolabe_grid(&mut run).expect("Astrolabe opens its grid");
+
+        let after_first = select_grid_card(&run, 0).expect("first selection");
+        let after_second = select_grid_card(&after_first, 1).expect("second selection");
+        let after_toggle = select_grid_card(&after_second, 0).expect("toggle first selection");
+
+        assert_eq!(
+            after_toggle
+                .card_grid
+                .as_ref()
+                .expect("Astrolabe grid remains open")
+                .selected_indices,
+            vec![1]
+        );
+        assert_eq!(after_toggle.deck, original_deck);
+        assert!(confirm_grid(&after_toggle).is_err());
+    }
+
+    #[test]
+    fn astrolabe_auto_confirms_after_the_third_selection() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::Astrolabe);
+        open_astrolabe_grid(&mut run).expect("Astrolabe opens its grid");
+
+        let after_first = select_grid_card(&run, 0).expect("first selection");
+        let after_second = select_grid_card(&after_first, 1).expect("second selection");
+        let after_third = select_grid_card(&after_second, 2).expect("third selection");
+
+        assert!(after_third.card_grid.is_none());
+        assert_eq!(after_third.deck.len(), run.deck.len());
+        assert!(after_third.misc_rng_counter > run.misc_rng_counter);
     }
 
     #[test]

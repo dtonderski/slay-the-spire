@@ -1,7 +1,7 @@
 use crate::{
     card::{CardInstance, CardType},
     combat::state::BASE_PLAYER_ENERGY,
-    combat::{CombatDecisionState, CombatState},
+    combat::{CombatDecisionState, CombatRngState, CombatState},
     content::cards::{
         card_instance_after_upgrades, card_instance_is_upgradeable, card_type_and_rarity,
         get_card_definition, is_basic_starter_card, is_curse_content_id, upgrade_card_instance,
@@ -31,8 +31,8 @@ use crate::{
         PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
         PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
         SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, SSSERPENT_HEAD_GOLD, STRAWBERRY_MAX_HP,
-        TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_HEAL, TINY_HOUSE_MAX_HP,
-        VELVET_CHOKER_ENERGY, WING_BOOTS_CHARGES,
+        TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
+        WING_BOOTS_CHARGES,
     },
     rng::{rng_counter_is_supported, JavaRng, StsRng},
     SimError, SimResult,
@@ -413,6 +413,19 @@ mod tests {
     }
 
     #[test]
+    fn max_hp_increase_without_healing_preserves_current_hp() {
+        let mut run = RunState::map_fixture();
+        run.player_hp = 10;
+        run.player_max_hp = 80;
+
+        run.increase_max_hp_without_healing(2)
+            .expect("max HP increase succeeds");
+
+        assert_eq!(run.player_hp, 10);
+        assert_eq!(run.player_max_hp, 82);
+    }
+
+    #[test]
     fn relic_integer_overflow_is_rejected_without_mutating_run() {
         let mut hp_run = RunState::map_fixture();
         hp_run.player_max_hp = i32::MAX;
@@ -514,6 +527,23 @@ mod tests {
             run.content_id_after_card_add_relics(crate::content::cards::STRIKE_R_PLUS_ID),
             Ok(crate::content::cards::STRIKE_R_PLUS_ID)
         );
+    }
+
+    #[test]
+    fn molten_egg_upgrades_special_attack_on_deferred_obtain_settlement() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.relics.push(Relic::MoltenEgg);
+        run.queue_pending_obtain_card(crate::content::cards::RITUAL_DAGGER_ID);
+
+        run.flush_pending_obtain_cards()
+            .expect("deferred card obtain settles");
+
+        let ritual_dagger = run
+            .deck
+            .iter()
+            .find(|card| card.content_id == crate::content::cards::RITUAL_DAGGER_ID)
+            .expect("Ritual Dagger was added");
+        assert_eq!(ritual_dagger.upgrades, 1);
     }
 
     #[test]
@@ -755,6 +785,11 @@ pub struct RunState {
     /// master deck in the canonical simulator state yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_obtain_cards: Vec<ContentId>,
+    /// Whether each pending visual obtain already passed the target's
+    /// construction-time Omamori check. Empty for legacy states that predate
+    /// this parallel metadata; those entries retain the old flush behavior.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_obtain_cards_bypass_omamori: Vec<bool>,
     #[serde(default)]
     pub event_rng_seed: u64,
     #[serde(default)]
@@ -839,6 +874,11 @@ pub struct RunState {
     pub pending_event_combat_gold_offer: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_event_combat_relic_offer: Option<Relic>,
+    /// Combat RNG continues across chained fights in events such as the
+    /// Colosseum. This carries the completed fight's streams to the next
+    /// event combat without conflating them with run-level RNG streams.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_event_combat_rng: Option<CombatRngState>,
     #[serde(default)]
     pub monster_rng_seed: u64,
     #[serde(default)]
@@ -1337,6 +1377,13 @@ impl RunState {
                 return Err(SimError::UnknownContent(*content_id));
             }
         }
+        if !self.pending_obtain_cards_bypass_omamori.is_empty()
+            && self.pending_obtain_cards_bypass_omamori.len() != self.pending_obtain_cards.len()
+        {
+            return Err(SimError::InvalidState(
+                "pending obtain Omamori metadata does not match pending cards",
+            ));
+        }
         if get_card_definition(self.note_card_content_id).is_none() {
             return Err(SimError::UnknownContent(self.note_card_content_id));
         }
@@ -1618,6 +1665,8 @@ impl RunState {
 
         if let Some(reward) = &self.reward {
             let retained_event = self.event.is_some();
+            let retained_event_map =
+                self.current_room_kind() == Some(RoomKind::Event) && !retained_event;
             let retained_shop = self.shop.is_some() && self.shop_merchant_open;
             let retained_rest =
                 self.rest_room_complete && self.current_room_kind() == Some(RoomKind::Rest);
@@ -1658,7 +1707,7 @@ impl RunState {
                     ));
                 }
                 RewardContinuation::Map
-                    if !retained_map_treasure
+                    if (!retained_map_treasure && !retained_event_map)
                         || retained_event
                         || retained_shop
                         || retained_rest
@@ -1967,6 +2016,14 @@ impl RunState {
     }
 
     pub fn store_rng_counter(&mut self, stream: RunRngStream, rng: &StsRng) {
+        if stream == RunRngStream::Potion && self.current_floor >= 31 {
+            eprintln!(
+                "DEBUG potion store floor={} phase={:?} counter={}",
+                self.current_floor,
+                self.phase,
+                rng.counter()
+            );
+        }
         self.set_rng_stream_counter(stream, rng.counter());
     }
 
@@ -2193,6 +2250,7 @@ impl RunState {
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
+            pending_obtain_cards_bypass_omamori: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
@@ -2235,6 +2293,7 @@ impl RunState {
             misc_rng_counter: 0,
             pending_event_combat_gold_offer: 0,
             pending_event_combat_relic_offer: None,
+            pending_event_combat_rng: None,
             monster_rng_seed: 0,
             monster_rng_counter: 0,
             normal_encounter_list: Vec::new(),
@@ -2291,6 +2350,7 @@ impl RunState {
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
+            pending_obtain_cards_bypass_omamori: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
@@ -2333,6 +2393,7 @@ impl RunState {
             misc_rng_counter: 0,
             pending_event_combat_gold_offer: 0,
             pending_event_combat_relic_offer: None,
+            pending_event_combat_rng: None,
             monster_rng_seed: 0,
             monster_rng_counter: 0,
             normal_encounter_list: Vec::new(),
@@ -2507,14 +2568,25 @@ impl RunState {
     }
 
     pub fn queue_pending_obtain_card(&mut self, content_id: ContentId) {
+        if self.should_omamori_prevent_card(content_id) {
+            self.omamori_charges_used += 1;
+            return;
+        }
         self.pending_obtain_cards.push(content_id);
+        self.pending_obtain_cards_bypass_omamori.push(true);
     }
 
     pub fn flush_pending_obtain_cards(&mut self) -> SimResult<()> {
         let mut next = self.clone();
         let pending = std::mem::take(&mut next.pending_obtain_cards);
-        for content_id in pending {
-            next.gain_deck_card(content_id)?;
+        let bypass_omamori = std::mem::take(&mut next.pending_obtain_cards_bypass_omamori);
+        for (index, content_id) in pending.into_iter().enumerate() {
+            if bypass_omamori.get(index).copied().unwrap_or(false) {
+                let id = CardId::new(next.next_card_instance_id()?);
+                next.add_deck_card_inner_with_omamori(CardInstance::new(id, content_id), false)?;
+            } else {
+                next.gain_deck_card(content_id)?;
+            }
         }
         *self = next;
         Ok(())
@@ -2527,21 +2599,29 @@ impl RunState {
         Ok(())
     }
 
-    fn add_deck_card_inner(&mut self, mut card: CardInstance) -> SimResult<()> {
+    fn add_deck_card_inner(&mut self, card: CardInstance) -> SimResult<()> {
+        self.add_deck_card_inner_with_omamori(card, true)
+    }
+
+    fn add_deck_card_inner_with_omamori(
+        &mut self,
+        mut card: CardInstance,
+        apply_omamori: bool,
+    ) -> SimResult<()> {
         validate_run_card_content(&card)?;
         if self.deck.iter().any(|existing| existing.id == card.id) {
             return Err(SimError::InvalidState(
                 "duplicate run deck card instance ID",
             ));
         }
-        if self.should_omamori_prevent_card(card.content_id) {
+        if apply_omamori && self.should_omamori_prevent_card(card.content_id) {
             self.omamori_charges_used = self
                 .omamori_charges_used
                 .checked_add(1)
                 .ok_or(SimError::InvalidState("Omamori charge usage overflows u32"))?;
             return Ok(());
         }
-        card.content_id = self.content_id_after_card_add_relics(card.content_id)?;
+        card = self.card_after_card_add_relics(card)?;
         let content_id = card.content_id;
         self.deck.push(card);
         self.apply_card_added_relics(content_id)
@@ -2589,6 +2669,28 @@ impl RunState {
         } else {
             content_id
         })
+    }
+
+    pub(crate) fn card_after_card_add_relics(
+        &self,
+        mut card: CardInstance,
+    ) -> SimResult<CardInstance> {
+        let content_id = self.content_id_after_card_add_relics(card.content_id)?;
+        let definition = get_card_definition(card.content_id)
+            .ok_or(SimError::UnknownContent(card.content_id))?;
+        let has_matching_egg = match definition.card_type {
+            CardType::Attack => self.relics.contains(&Relic::MoltenEgg),
+            CardType::Skill => self.relics.contains(&Relic::ToxicEgg),
+            CardType::Power => self.relics.contains(&Relic::FrozenEgg),
+            CardType::Status => false,
+        };
+        if has_matching_egg {
+            if let Some(upgraded) = upgrade_card_instance(card)? {
+                return Ok(upgraded);
+            }
+        }
+        card.content_id = content_id;
+        Ok(card)
     }
 
     fn apply_card_added_relics(&mut self, content_id: ContentId) -> SimResult<()> {
@@ -2727,6 +2829,14 @@ impl RunState {
         let player_hp = checked_run_add(self.player_hp, amount)?;
         self.player_max_hp = player_max_hp;
         self.player_hp = player_hp;
+        Ok(())
+    }
+
+    pub fn increase_max_hp_without_healing(&mut self, amount: i32) -> SimResult<()> {
+        if amount < 0 {
+            return Err(SimError::IllegalAction("max HP gain cannot be negative"));
+        }
+        self.player_max_hp = checked_run_add(self.player_max_hp, amount)?;
         Ok(())
     }
 
@@ -2909,8 +3019,12 @@ impl RunState {
             }
             Relic::TinyHouse => {
                 self.player_max_hp = checked_run_add(self.player_max_hp, TINY_HOUSE_MAX_HP)?;
-                self.heal_player(TINY_HOUSE_MAX_HP + TINY_HOUSE_HEAL)?;
+                // AbstractCreature.increaseMaxHp(5, true) raises current HP by
+                // the same amount as max HP; Tiny House does not add another
+                // independent heal on pickup.
+                self.heal_player(TINY_HOUSE_MAX_HP)?;
                 self.upgrade_random_deck_cards_matching(1, |_| true)?;
+                let mut eager_card_reward = false;
                 if let Some(reward) = self.reward.as_mut() {
                     reward.gold_offer = checked_run_add(reward.gold_offer, TINY_HOUSE_GOLD)?;
                     let mut misc_rng =
@@ -2924,6 +3038,13 @@ impl RunState {
                         .checked_add(1)
                         .ok_or(SimError::InvalidState("card reward count overflows u8"))?;
                     reward.set_card_reward_remaining(remaining);
+                    // TinyHouse.onEquip constructs its RewardItem immediately. The
+                    // card choices therefore consume card RNG even if the overlay is
+                    // skipped before the reward is opened.
+                    eager_card_reward = true;
+                }
+                if eager_card_reward {
+                    super::reward::roll_pending_card_reward_choices(self)?;
                 }
             }
             Relic::Orrery => {

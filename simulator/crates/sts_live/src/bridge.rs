@@ -12,6 +12,16 @@ use std::{
 pub trait BridgeManager {
     fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>>;
     fn start_run(&mut self, bridge_id: &BridgeId, config: &RunConfig) -> LiveResult<LiveState>;
+    fn start_verification_run(
+        &mut self,
+        _bridge_id: &BridgeId,
+        _config: &RunConfig,
+        _starting_hp: i32,
+    ) -> LiveResult<LiveState> {
+        Err(LiveError::InvalidAction(
+            "bridge does not support START_VERIFY".to_owned(),
+        ))
+    }
     fn abandon_run(&mut self, bridge_id: &BridgeId) -> LiveResult<LiveState>;
     fn request_state(&mut self, bridge_id: &BridgeId) -> LiveResult<LiveState>;
     fn send_action(&mut self, bridge_id: &BridgeId, action: &LegalAction) -> LiveResult<LiveState>;
@@ -112,6 +122,18 @@ impl BridgeManager for FakeBridgeManager {
         };
         bridge.status.last_heartbeat_ms = Some(now_ms());
         bridge.state = state.clone();
+        Ok(state)
+    }
+
+    fn start_verification_run(
+        &mut self,
+        bridge_id: &BridgeId,
+        config: &RunConfig,
+        starting_hp: i32,
+    ) -> LiveResult<LiveState> {
+        let mut state = self.start_run(bridge_id, config)?;
+        state.raw["verification_starting_hp"] = json!(starting_hp);
+        self.bridge_mut(bridge_id)?.state = state.clone();
         Ok(state)
     }
 
@@ -242,6 +264,7 @@ mod tests {
             character: Character::Ironclad,
             ascension: 0,
             seed: RunSeed::External("CODEX04".to_owned()),
+            profile: None,
         };
 
         let neow = bridge.start_run(&bridge_id, &config).unwrap();

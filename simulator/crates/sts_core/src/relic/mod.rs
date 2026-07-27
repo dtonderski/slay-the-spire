@@ -24,8 +24,6 @@ pub const LEES_WAFFLE_MAX_HP: i32 = 7;
 pub const OLD_COIN_GOLD: i32 = 300;
 /// Max HP granted by [Relic::TinyHouse] on pickup.
 pub const TINY_HOUSE_MAX_HP: i32 = 5;
-/// HP healed by [Relic::TinyHouse] on pickup.
-pub const TINY_HOUSE_HEAL: i32 = 7;
 /// Gold granted by [Relic::TinyHouse] on pickup.
 pub const TINY_HOUSE_GOLD: i32 = 50;
 /// Card reward screens granted by [Relic::Orrery] on pickup.
@@ -2615,7 +2613,7 @@ pub fn apply_on_card_play_relics(
         )?;
         if state.relic_counters.ornamental_fan_attacks_this_turn >= ORNAMENTAL_FAN_THRESHOLD {
             state.relic_counters.ornamental_fan_attacks_this_turn = 0;
-            follow_ups.push(InternalAction::GainBlock {
+            follow_ups.push(InternalAction::GainBlockDirect {
                 amount: ORNAMENTAL_FAN_BLOCK,
             });
         }

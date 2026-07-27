@@ -1125,11 +1125,13 @@ fn intent_damage(intent: MonsterIntent) -> i32 {
         | MonsterIntent::AttackApplyPlayerWeak { damage, .. }
         | MonsterIntent::AttackApplyPlayerVulnerable { damage, .. }
         | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { damage, .. }
+        | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { damage, .. }
         | MonsterIntent::AttackApplyPlayerFrailAndWeak { damage, .. }
         | MonsterIntent::AttackApplyPlayerFrail { damage, .. }
         | MonsterIntent::AttackHealSelf { damage }
         | MonsterIntent::AttackAddWoundsToDiscard { damage, .. }
         | MonsterIntent::AttackAddSlimedToDiscard { damage, .. }
+        | MonsterIntent::AttackAddVoidToDraw { damage, .. }
         | MonsterIntent::AttackStealGold { damage, .. } => damage,
         MonsterIntent::AttackMultiple { damage, hits } => damage * hits,
         MonsterIntent::AddBurnToDiscard { damage, .. }
@@ -2529,6 +2531,7 @@ mod tests {
             ended_at: None,
             event: None,
             boss_unlocks: None,
+            run_config: None,
         });
         let prefix = serialize_communication_mod_trace(&metadata, &trace.lines[..=line_index]);
         let report = verify_seed_start_communication_mod_trace(&prefix).ok()?;

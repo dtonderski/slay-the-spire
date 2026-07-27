@@ -22,6 +22,13 @@ typed start command, pre-command simulator state, deterministic mechanics, and
 recorded command timing. Observed post-state never selects or mutates a staged
 deck.
 
+The target `NeowReward` bytecode opens a grid and marks a curse pending in
+`activate()`. Its next `update()` obtains the curse while the grid is still
+open. Seed-start replay therefore projects that deterministic curse in the
+visible deck for a cursed Neow grid, while retaining the core grid's
+deck-derived selectable cards; the card is settled into the authoritative core
+deck when the typed grid transition completes.
+
 ## Transient frames
 
 A pre-command deck or action-frame deck may be retained only inside a named

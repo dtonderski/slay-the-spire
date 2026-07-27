@@ -2,14 +2,15 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use sts_core::combat::ExhaustSelectPurpose;
+use sts_core::potion::IRONCLAD_POTION_POOL;
 use sts_core::{
     apply_combat_action_with_events, apply_run_decision_action, fair_combat_observation,
-    legal_combat_actions, legal_run_decision_actions, player_choices, resolve_player_choice,
-    restore_combat_snapshot_json, restore_run_snapshot_json, CardId, CombatAction, CombatPhase,
-    CombatState, DecisionRevision, EventAction, FairCombatObservation, FairObservationError,
-    MapAction, MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest,
-    RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot,
-    SNAPSHOT_SCHEMA_VERSION,
+    fair_run_observation, legal_combat_actions, legal_run_decision_actions, player_choices,
+    resolve_player_choice, restore_combat_snapshot_json, restore_run_snapshot_json, CardId,
+    CombatAction, CombatPhase, CombatState, DecisionRevision, EventAction, FairCombatObservation,
+    FairObservationError, MapAction, MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError,
+    PlayerChoiceRequest, Potion, Relic, RestAction, RunAction, RunDecisionAction, RunPhase,
+    RunState, Snapshot, ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
 };
 
 const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
@@ -105,6 +106,55 @@ impl PyFairCombatEnv {
 
     fn __repr__(&self) -> String {
         format!("FairCombatEnv(revision={})", self.revision.get())
+    }
+}
+
+#[pyclass(name = "Action")]
+#[derive(Clone)]
+pub struct PyAction {
+    action: RunDecisionAction,
+    revision: DecisionRevision,
+    public_choice: Option<PlayerChoice>,
+    public_action_json: String,
+}
+
+#[pymethods]
+impl PyAction {
+    pub fn revision(&self) -> u64 {
+        self.revision.get()
+    }
+
+    pub fn family(&self) -> &'static str {
+        if self.public_choice.is_some() {
+            "combat"
+        } else {
+            run_action_family(&self.action)
+        }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        self.public_choice
+            .map(player_choice_kind)
+            .unwrap_or_else(|| run_action_kind(&self.action))
+    }
+
+    pub fn public_choice_json(&self) -> PyResult<Option<String>> {
+        self.public_choice.as_ref().map(to_json).transpose()
+    }
+
+    /// Serialized public descriptor for every action family, including the
+    /// non-combat actions that do not have a legacy `PlayerChoice` value.
+    pub fn public_action_json(&self) -> String {
+        self.public_action_json.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Action(revision={}, family='{}', kind='{}')",
+            self.revision(),
+            self.family(),
+            self.kind()
+        )
     }
 }
 
@@ -409,6 +459,7 @@ impl PyOmniCombatEnv {
 #[derive(Clone)]
 pub struct PyOmniRunEnv {
     state: RunState,
+    revision: DecisionRevision,
 }
 
 #[pymethods]
@@ -417,6 +468,7 @@ impl PyOmniRunEnv {
     pub fn combat_fixture() -> Self {
         Self {
             state: RunState::combat_fixture(),
+            revision: DecisionRevision::new(0),
         }
     }
 
@@ -424,6 +476,7 @@ impl PyOmniRunEnv {
     pub fn map_fixture() -> Self {
         Self {
             state: RunState::map_fixture(),
+            revision: DecisionRevision::new(0),
         }
     }
 
@@ -441,7 +494,10 @@ impl PyOmniRunEnv {
         state
             .validate()
             .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;
-        Ok(Self { state })
+        Ok(Self {
+            state,
+            revision: DecisionRevision::new(0),
+        })
     }
 
     #[staticmethod]
@@ -451,7 +507,10 @@ impl PyOmniRunEnv {
         state
             .validate()
             .map_err(|error| PyValueError::new_err(format!("invalid run state: {error}")))?;
-        Ok(Self { state })
+        Ok(Self {
+            state,
+            revision: DecisionRevision::new(0),
+        })
     }
 
     #[staticmethod]
@@ -461,6 +520,7 @@ impl PyOmniRunEnv {
         })?;
         Ok(Self {
             state: snapshot.state,
+            revision: DecisionRevision::new(0),
         })
     }
 
@@ -486,6 +546,10 @@ impl PyOmniRunEnv {
         run_snapshot_hash(&self.state)
     }
 
+    pub fn revision(&self) -> u64 {
+        self.revision.get()
+    }
+
     pub fn phase(&self) -> String {
         run_phase_name(self.state.phase).to_owned()
     }
@@ -502,6 +566,94 @@ impl PyOmniRunEnv {
         exact_run_legal_actions(&self.state)
     }
 
+    pub fn legal_actions(&self) -> PyResult<Vec<PyAction>> {
+        public_run_actions(&self.state, self.revision)
+    }
+
+    pub fn observation_json(&self) -> PyResult<String> {
+        to_json(
+            &fair_run_observation(&self.state)
+                .map_err(|error| DecisionUnavailableError::new_err(error.to_string()))?,
+        )
+    }
+
+    /// Debug-only state mutation seam for Python experimentation.
+    pub fn debug_add_card(&mut self, key: &str) -> PyResult<()> {
+        let content_id = sts_core::content::cards::ALL_CARDS
+            .iter()
+            .find(|definition| definition.key == key)
+            .map(|definition| definition.id)
+            .ok_or_else(|| UnknownPublicContentError::new_err("unknown card key"))?;
+        let mut next = self.state.clone();
+        next.gain_deck_card(content_id)
+            .map_err(|error| PyValueError::new_err(format!("could not add card: {error}")))?;
+        next.validate().map_err(|error| {
+            PyValueError::new_err(format!("added card invalidates run: {error}"))
+        })?;
+        self.state = next;
+        self.bump_debug_revision()?;
+        Ok(())
+    }
+
+    /// Debug-only state mutation seam for Python experimentation.
+    pub fn debug_add_relic(&mut self, name: &str) -> PyResult<()> {
+        let relic = Relic::from_trace_name(name)
+            .ok_or_else(|| UnknownPublicContentError::new_err("unknown relic name"))?;
+        let mut next = self.state.clone();
+        next.gain_relic_key(relic)
+            .map_err(|error| PyValueError::new_err(format!("could not add relic: {error}")))?;
+        next.validate().map_err(|error| {
+            PyValueError::new_err(format!("added relic invalidates run: {error}"))
+        })?;
+        self.state = next;
+        self.bump_debug_revision()?;
+        Ok(())
+    }
+
+    /// Debug-only state mutation seam for Python experimentation.
+    pub fn debug_add_potion(&mut self, name: &str) -> PyResult<()> {
+        let potion = potion_from_name(name)
+            .ok_or_else(|| UnknownPublicContentError::new_err("unknown potion name"))?;
+        let mut next = self.state.clone();
+        next.gain_potion(potion)
+            .map_err(|error| PyValueError::new_err(format!("could not add potion: {error}")))?;
+        next.validate().map_err(|error| {
+            PyValueError::new_err(format!("added potion invalidates run: {error}"))
+        })?;
+        self.state = next;
+        self.bump_debug_revision()?;
+        Ok(())
+    }
+
+    fn bump_debug_revision(&mut self) -> PyResult<()> {
+        self.revision = self
+            .revision
+            .checked_next()
+            .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
+        Ok(())
+    }
+
+    pub fn step_action(&mut self, action: &PyAction) -> PyResult<()> {
+        if action.revision != self.revision {
+            return Err(StaleDecisionError::new_err("public run decision is stale"));
+        }
+        let is_currently_legal = public_run_actions(&self.state, self.revision)?
+            .iter()
+            .any(|candidate| candidate.action == action.action);
+        if !is_currently_legal {
+            return Err(InvalidChoiceError::new_err("public run action is invalid"));
+        }
+        let next = apply_exact_run_action(&self.state, &action.action)
+            .map_err(|_| InvalidChoiceError::new_err("public run action is invalid"))?;
+        let revision = self
+            .revision
+            .checked_next()
+            .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
+        self.state = next;
+        self.revision = revision;
+        Ok(())
+    }
+
     pub fn step(&mut self, action: &PyExactRunAction) -> PyResult<PyExactRunStepResult> {
         let previous_hash = run_snapshot_hash(&self.state)?;
         let action_json = run_action_json(&action.action)?;
@@ -510,7 +662,12 @@ impl PyOmniRunEnv {
         })?;
         let resulting_hash = run_snapshot_hash(&next)?;
 
+        let revision = self
+            .revision
+            .checked_next()
+            .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
         self.state = next;
+        self.revision = revision;
 
         Ok(PyExactRunStepResult {
             state_json: self.state_json()?,
@@ -558,8 +715,9 @@ impl PyOmniRunEnv {
 
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
-            "OmniRunEnv(phase={}, snapshot_hash={})",
+            "RunEnv(phase={}, revision={}, snapshot_hash={})",
             self.phase(),
+            self.revision(),
             self.snapshot_hash()?
         ))
     }
@@ -645,6 +803,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?;
     module.add_class::<PyExactCombatAction>()?;
     module.add_class::<PyExactRunAction>()?;
+    module.add_class::<PyAction>()?;
     module.add_class::<PyDebugTransition>()?;
     module.add_class::<PyExactStepResult>()?;
     module.add_class::<PyExactRunStepResult>()?;
@@ -654,12 +813,81 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyOmniRunEnv>()?;
     module.add_function(wrap_pyfunction!(slaythedata_preflight_json, module)?)?;
     module.add_function(wrap_pyfunction!(sts_seed_long_to_string, module)?)?;
+    module.add_function(wrap_pyfunction!(card_keys, module)?)?;
+    module.add_function(wrap_pyfunction!(relic_names, module)?)?;
+    module.add_function(wrap_pyfunction!(potion_names, module)?)?;
     Ok(())
 }
 
 #[pyfunction]
 fn sts_seed_long_to_string(seed: i64) -> String {
     sts_verify::sts_seed_long_to_string(seed)
+}
+
+#[pyfunction]
+fn card_keys() -> Vec<&'static str> {
+    sts_core::content::cards::ALL_CARDS
+        .iter()
+        .map(|definition| definition.key)
+        .collect()
+}
+
+#[pyfunction]
+fn relic_names() -> Vec<&'static str> {
+    ALL_RELICS.iter().map(|relic| relic.trace_name()).collect()
+}
+
+#[pyfunction]
+fn potion_names() -> Vec<&'static str> {
+    IRONCLAD_POTION_POOL
+        .iter()
+        .map(|potion| potion_name(*potion))
+        .collect()
+}
+
+fn potion_name(potion: Potion) -> &'static str {
+    match potion {
+        Potion::Fire => "Fire",
+        Potion::Block => "Block",
+        Potion::Fear => "Fear",
+        Potion::GamblersBrew => "GamblersBrew",
+        Potion::Blood => "Blood",
+        Potion::Elixir => "Elixir",
+        Potion::HeartOfIron => "HeartOfIron",
+        Potion::Dexterity => "Dexterity",
+        Potion::Energy => "Energy",
+        Potion::Explosive => "Explosive",
+        Potion::Strength => "Strength",
+        Potion::Swift => "Swift",
+        Potion::Weak => "Weak",
+        Potion::Attack => "Attack",
+        Potion::Skill => "Skill",
+        Potion::Power => "Power",
+        Potion::Colorless => "Colorless",
+        Potion::Flex => "Flex",
+        Potion::Speed => "Speed",
+        Potion::BlessingOfTheForge => "BlessingOfTheForge",
+        Potion::Regen => "Regen",
+        Potion::Ancient => "Ancient",
+        Potion::LiquidBronze => "LiquidBronze",
+        Potion::EssenceOfSteel => "EssenceOfSteel",
+        Potion::Duplication => "Duplication",
+        Potion::DistilledChaos => "DistilledChaos",
+        Potion::LiquidMemories => "LiquidMemories",
+        Potion::Cultist => "Cultist",
+        Potion::FruitJuice => "FruitJuice",
+        Potion::SneckoOil => "SneckoOil",
+        Potion::Fairy => "Fairy",
+        Potion::SmokeBomb => "SmokeBomb",
+        Potion::EntropicBrew => "EntropicBrew",
+    }
+}
+
+fn potion_from_name(name: &str) -> Option<Potion> {
+    IRONCLAD_POTION_POOL
+        .iter()
+        .copied()
+        .find(|potion| potion_name(*potion) == name)
 }
 
 #[pyfunction]
@@ -722,6 +950,122 @@ fn exact_run_legal_actions(state: &RunState) -> PyResult<Vec<PyExactRunAction>> 
         .into_iter()
         .map(|action| PyExactRunAction { action })
         .collect())
+}
+
+fn public_run_actions(state: &RunState, revision: DecisionRevision) -> PyResult<Vec<PyAction>> {
+    if state.phase == RunPhase::Combat {
+        let choice_set = player_choices(state, revision).map_err(fair_choice_error)?;
+        return choice_set
+            .choices
+            .into_iter()
+            .map(|choice| {
+                let action = resolve_player_choice(
+                    state,
+                    revision,
+                    PlayerChoiceRequest {
+                        decision_revision: revision,
+                        choice,
+                    },
+                )
+                .map_err(fair_choice_error)?;
+                Ok(PyAction {
+                    action,
+                    revision,
+                    public_choice: Some(choice),
+                    public_action_json: to_json(&choice)?,
+                })
+            })
+            .collect();
+    }
+
+    exact_run_legal_action_kinds(state)?
+        .into_iter()
+        .map(|action| {
+            Ok(PyAction {
+                public_action_json: public_run_action_json(state, &action)?,
+                action,
+                revision,
+                public_choice: None,
+            })
+        })
+        .collect::<PyResult<Vec<_>>>()
+}
+
+fn public_run_action_json(state: &RunState, action: &RunDecisionAction) -> PyResult<String> {
+    let mut descriptor = serde_json::Map::new();
+    descriptor.insert(
+        "kind".to_owned(),
+        serde_json::Value::String(run_action_kind(action).to_owned()),
+    );
+    match action {
+        RunDecisionAction::Event(EventAction::Choose { choice_index }) => {
+            descriptor.insert("option_slot".to_owned(), (*choice_index).into());
+        }
+        RunDecisionAction::GridSelect { index }
+        | RunDecisionAction::Run(RunAction::ChooseCombatCardReward { index })
+        | RunDecisionAction::Run(RunAction::ChooseHandSelect { index })
+        | RunDecisionAction::Run(RunAction::ChooseDrawSelect { index })
+        | RunDecisionAction::Run(RunAction::ChooseDiscardSelect { index })
+        | RunDecisionAction::Run(RunAction::ChooseExhaustSelect { index }) => {
+            descriptor.insert("option_slot".to_owned(), (*index).into());
+        }
+        RunDecisionAction::Map(MapAction::ChooseNode { node_id }) => {
+            let map = state
+                .map
+                .as_ref()
+                .ok_or_else(|| PyValueError::new_err("map action has no map state"))?;
+            let node_slot = map
+                .map
+                .nodes
+                .iter()
+                .position(|node| node.id == *node_id)
+                .ok_or_else(|| PyValueError::new_err("map action references an unknown node"))?;
+            descriptor.insert("node_slot".to_owned(), node_slot.into());
+        }
+        RunDecisionAction::Rest(RestAction::Smith { card_id })
+        | RunDecisionAction::Rest(RestAction::RemoveCard { card_id }) => {
+            let card_slot = state
+                .deck
+                .iter()
+                .position(|card| card.id == *card_id)
+                .ok_or_else(|| PyValueError::new_err("rest action references an unknown card"))?;
+            descriptor.insert("card_slot".to_owned(), card_slot.into());
+        }
+        RunDecisionAction::Run(RunAction::TakeCardReward { card_id }) => {
+            let reward = state
+                .reward
+                .as_ref()
+                .ok_or_else(|| PyValueError::new_err("reward action has no reward state"))?;
+            let reward_slot = reward
+                .choices
+                .iter()
+                .position(|card| card.id == *card_id)
+                .ok_or_else(|| PyValueError::new_err("reward action references an unknown card"))?;
+            descriptor.insert("reward_slot".to_owned(), reward_slot.into());
+        }
+        RunDecisionAction::Run(action) => match action {
+            RunAction::TakePotionReward { index }
+            | RunAction::TakeRelicRewardAt { index }
+            | RunAction::ChooseBossRelicReward { index }
+            | RunAction::OpenQueuedCardReward { index } => {
+                descriptor.insert("reward_slot".to_owned(), (*index).into());
+            }
+            RunAction::BuyShopCard { slot }
+            | RunAction::BuyShopRelic { slot }
+            | RunAction::BuyShopPotion { slot } => {
+                descriptor.insert("shop_slot".to_owned(), (*slot).into());
+            }
+            RunAction::UsePotion { slot, .. } | RunAction::DiscardPotion { slot } => {
+                descriptor.insert("potion_slot".to_owned(), (*slot).into());
+            }
+            _ => {}
+        },
+        RunDecisionAction::Combat(_)
+        | RunDecisionAction::GridConfirm
+        | RunDecisionAction::GridCancel
+        | RunDecisionAction::Rest(_) => {}
+    }
+    to_json(&serde_json::Value::Object(descriptor))
 }
 
 fn exact_run_legal_action_kinds(state: &RunState) -> PyResult<Vec<ExactRunActionKind>> {
@@ -1231,11 +1575,13 @@ fn intent_damage(intent: MonsterIntent) -> i32 {
         | MonsterIntent::AttackApplyPlayerWeak { damage, .. }
         | MonsterIntent::AttackApplyPlayerVulnerable { damage, .. }
         | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { damage, .. }
+        | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { damage, .. }
         | MonsterIntent::AttackApplyPlayerFrailAndWeak { damage, .. }
         | MonsterIntent::AttackApplyPlayerFrail { damage, .. }
         | MonsterIntent::AttackHealSelf { damage }
         | MonsterIntent::AttackAddWoundsToDiscard { damage, .. }
         | MonsterIntent::AttackAddSlimedToDiscard { damage, .. }
+        | MonsterIntent::AttackAddVoidToDraw { damage, .. }
         | MonsterIntent::AttackStealGold { damage, .. } => damage,
         MonsterIntent::AttackMultiple { damage, hits } => damage * hits,
         MonsterIntent::AddBurnToDiscard { damage, .. }
@@ -1276,6 +1622,19 @@ fn run_action_family(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Map(_) => "map",
         ExactRunActionKind::Rest(_) => "rest",
         ExactRunActionKind::Run(_) => "run",
+    }
+}
+
+fn player_choice_kind(choice: PlayerChoice) -> &'static str {
+    match choice {
+        PlayerChoice::PlayHandSlot { .. } => "play_hand_slot",
+        PlayerChoice::EndTurn => "end_turn",
+        PlayerChoice::UsePotionSlot { .. } => "use_potion_slot",
+        PlayerChoice::DiscardPotionSlot { .. } => "discard_potion_slot",
+        PlayerChoice::ToggleVisibleCard { .. } => "toggle_visible_card",
+        PlayerChoice::ChooseVisibleOption { .. } => "choose_visible_option",
+        PlayerChoice::ConfirmSelection => "confirm_selection",
+        PlayerChoice::SkipSelection => "skip_selection",
     }
 }
 
@@ -1569,6 +1928,95 @@ mod tests {
         assert_eq!(result.transition.previous_hash, before);
         assert_ne!(result.snapshot_hash, before);
         assert_eq!(env.phase(), "combat");
+    }
+
+    #[test]
+    fn unified_run_actions_use_public_combat_descriptors_and_one_step_boundary() {
+        let mut env = PyOmniRunEnv::combat_fixture();
+        let actions = env.legal_actions().expect("public actions");
+        let strike = actions
+            .iter()
+            .find(|action| action.kind() == "play_hand_slot")
+            .expect("combat fixture has a public play action")
+            .clone();
+
+        assert_eq!(strike.family(), "combat");
+        assert_eq!(strike.revision(), 0);
+        assert!(strike
+            .public_choice_json()
+            .expect("public descriptor serializes")
+            .expect("combat action has a public descriptor")
+            .contains("hand_slot"));
+
+        env.step_action(&strike).expect("public action applies");
+
+        assert_eq!(env.revision(), 1);
+        assert_eq!(env.phase(), "combat");
+    }
+
+    #[test]
+    fn unified_run_action_rejects_a_stale_revision_before_reuse() {
+        pyo3::Python::initialize();
+        let mut env = PyOmniRunEnv::combat_fixture();
+        let end_turn = env
+            .legal_actions()
+            .expect("public actions")
+            .into_iter()
+            .find(|action| action.kind() == "end_turn")
+            .expect("combat fixture can end turn");
+
+        env.step_action(&end_turn).expect("first use applies");
+        let error = env
+            .step_action(&end_turn)
+            .expect_err("old action must be stale");
+
+        assert!(error.to_string().contains("public run decision is stale"));
+    }
+
+    #[test]
+    fn unified_run_actions_exist_outside_combat_without_a_second_action_type() {
+        let env = PyOmniRunEnv::map_fixture();
+        let actions = env.legal_actions().expect("map actions");
+
+        assert!(!actions.is_empty());
+        assert!(actions.iter().all(|action| action.family() == "map"));
+        assert!(actions.iter().all(|action| action
+            .public_choice_json()
+            .expect("optional JSON")
+            .is_none()));
+    }
+
+    #[test]
+    fn unified_run_observations_cover_event_and_map_screens() {
+        let event = PyOmniRunEnv::new_ironclad("ABC123", Some(0)).expect("seeded run");
+        let event_observation: serde_json::Value =
+            serde_json::from_str(&event.observation_json().expect("event observation"))
+                .expect("event JSON");
+        assert_eq!(event_observation["kind"], "event");
+        assert_eq!(event_observation["screen"]["event"], "Neow");
+        assert!(event_observation["context"]["player_hp"].is_number());
+        assert!(event_observation["screen"].get("event_data").is_none());
+
+        let map = PyOmniRunEnv::map_fixture();
+        let map_observation: serde_json::Value =
+            serde_json::from_str(&map.observation_json().expect("map observation"))
+                .expect("map JSON");
+        assert_eq!(map_observation["kind"], "map");
+        assert_eq!(
+            map_observation["screen"]["reachable_nodes"],
+            serde_json::json!([1, 2])
+        );
+        assert!(map_observation.to_string().find("card_id").is_none());
+        let action = map
+            .legal_actions()
+            .expect("map actions")
+            .into_iter()
+            .next()
+            .expect("map action");
+        let descriptor: serde_json::Value =
+            serde_json::from_str(&action.public_action_json()).expect("action descriptor");
+        assert_eq!(descriptor["kind"], "choose_map_node");
+        assert!(descriptor["node_slot"].is_number());
     }
 
     #[test]

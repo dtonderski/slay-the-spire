@@ -1,13 +1,11 @@
 use crate::combat::{CombatState, MonsterState, PlayerState};
 use crate::content::cards::COMBUST_HP_LOSS;
-use crate::content::monsters::{
-    check_slime_boss_split, guardian_on_hp_damage, wake_lagavulin_on_damage,
-};
+use crate::content::monsters::{check_slime_boss_split, wake_lagavulin_on_damage};
 use crate::relic::{heal_combat_player_with_relics, heal_player_in_combat_with_relics, Relic};
 use crate::{combat::damage::deal_unmodified_damage_to_monster, MonsterId, SimError, SimResult};
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()> {
-    apply_player_end_of_turn_powers_for_combat_state(state)?;
+    apply_player_end_of_turn_powers_for_combat_state(state, true)?;
     apply_end_of_turn_constricted(state)?;
     if state.player.hp <= 0 {
         return Ok(());
@@ -20,7 +18,34 @@ pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()>
     Ok(())
 }
 
-fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) -> SimResult<()> {
+pub(crate) fn apply_end_of_player_turn_powers_before_hand(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    apply_player_end_of_turn_powers_for_combat_state(state, false)?;
+    apply_end_of_turn_constricted(state)?;
+    if state.player.hp <= 0 {
+        return Ok(());
+    }
+    apply_end_of_turn_combust(state)?;
+    if state.player.hp <= 0 {
+        return Ok(());
+    }
+    apply_end_of_turn_bomb_timers(state)?;
+    Ok(())
+}
+
+pub(crate) fn apply_end_of_player_turn_regeneration(state: &mut CombatState) -> SimResult<()> {
+    if state.player.powers.regen > 0 {
+        heal_combat_player_with_relics(state, state.player.powers.regen)?;
+        state.player.powers.regen -= 1;
+    }
+    Ok(())
+}
+
+fn apply_player_end_of_turn_powers_for_combat_state(
+    state: &mut CombatState,
+    apply_regeneration: bool,
+) -> SimResult<()> {
     if state.player.powers.ritual > 0 {
         state.player.powers.strength = state
             .player
@@ -43,9 +68,8 @@ fn apply_player_end_of_turn_powers_for_combat_state(state: &mut CombatState) -> 
             state.player.powers.plated_armor,
         )?;
     }
-    if state.player.powers.regen > 0 {
-        heal_combat_player_with_relics(state, state.player.powers.regen)?;
-        state.player.powers.regen -= 1;
+    if apply_regeneration {
+        apply_end_of_player_turn_regeneration(state)?;
     }
     if state.player.powers.weak > 0 {
         state.player.powers.weak -= 1;
@@ -63,7 +87,10 @@ fn apply_end_of_turn_constricted(state: &mut CombatState) -> SimResult<()> {
     if state.player.powers.constricted <= 0 {
         return Ok(());
     }
-    let hp_loss = lose_player_hp(state, state.player.powers.constricted);
+    // Constricted queues a DamageAction with DamageType.THORNS in the target
+    // runtime. Unlike HP_LOSS, that damage consumes player block first.
+    let hp_loss =
+        crate::combat::hp_loss::lose_player_blockable_hp(state, state.player.powers.constricted);
     crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
     crate::combat::turn::revive_player_if_available(state)
 }
@@ -169,7 +196,6 @@ fn deal_unmodified_damage_to_living_monsters(
                 .expect("target was collected from living monsters");
             let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
             wake_lagavulin_on_damage(monster, hp_damage);
-            guardian_on_hp_damage(monster, hp_damage);
             !monster.alive
         };
         check_slime_boss_split(state, target);
@@ -246,6 +272,16 @@ pub fn monster_damage_to_player(
     monster: &MonsterState,
     base: i32,
 ) -> SimResult<i32> {
+    monster_damage_to_player_with_relics(player, monster, base, &[])
+}
+
+/// Monster attack damage after monster Weak, player Vulnerable, and relics.
+pub fn monster_damage_to_player_with_relics(
+    player: &PlayerState,
+    monster: &MonsterState,
+    base: i32,
+    relics: &[Relic],
+) -> SimResult<i32> {
     let damage = base
         .checked_add(monster.powers.strength)
         .ok_or(SimError::InvalidState(
@@ -259,8 +295,13 @@ pub fn monster_damage_to_player(
         denominator *= 4;
     }
     if player.powers.vulnerable > 0 {
-        numerator *= 3;
-        denominator *= 2;
+        if relics.contains(&Relic::OddMushroom) {
+            numerator *= 5;
+            denominator *= 4;
+        } else {
+            numerator *= 3;
+            denominator *= 2;
+        }
     }
     i32::try_from(numerator / denominator)
         .map_err(|_| SimError::InvalidState("monster attack damage arithmetic overflow"))
@@ -281,6 +322,22 @@ mod tests {
         assert_eq!(
             monster_damage_to_player(&state.player, &state.monsters[0], 18),
             Ok(23)
+        );
+    }
+
+    #[test]
+    fn monster_damage_to_player_respects_odd_mushroom() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.vulnerable = 2;
+
+        assert_eq!(
+            monster_damage_to_player_with_relics(
+                &state.player,
+                &state.monsters[0],
+                5,
+                &[Relic::OddMushroom],
+            ),
+            Ok(6)
         );
     }
 
@@ -325,5 +382,39 @@ mod tests {
         assert_eq!(state.player.hp, 18);
         assert_eq!(state.player.powers.strength, 2);
         assert_eq!(state.monsters[0].hp, monster_hp - 10);
+    }
+
+    #[test]
+    fn constricted_damage_consumes_block_before_hp_loss_hooks() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 100;
+        state.player.block = 11;
+        state.player.powers.constricted = 10;
+        state.relics = vec![Relic::SelfFormingClay];
+
+        apply_end_of_player_turn_powers(&mut state).expect("end-turn powers resolve");
+
+        assert_eq!(state.player.hp, 100);
+        assert_eq!(state.player.block, 1);
+        assert_eq!(state.relic_counters.self_forming_clay_next_turn_block, 0);
+    }
+
+    #[test]
+    fn combust_decrements_guardian_mode_shift_once_per_hp_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![crate::content::monsters::monster_state_for_ascension(
+            &crate::content::monsters::GUARDIAN_A0,
+            crate::MonsterId::new(1),
+            0,
+        )];
+        state.player.powers.combust = 1;
+        state.player.powers.combust_damage = 5;
+
+        apply_end_of_player_turn_powers(&mut state).expect("end-turn powers resolve");
+
+        let guardian = &state.monsters[0];
+        assert_eq!(guardian.hp, 235);
+        assert_eq!(guardian.mode_shift, 25);
+        assert!(!guardian.in_defensive_mode);
     }
 }

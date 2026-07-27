@@ -1,5 +1,46 @@
 use super::*;
 
+fn record_replay_checkpoint(
+    capture: &mut Option<&mut ReplayCapture>,
+    action: Option<TraceAction>,
+    state: Option<&RunState>,
+) {
+    let Some(capture) = capture.as_deref_mut() else {
+        return;
+    };
+    let Some(action) = action else {
+        return;
+    };
+
+    let snapshot = state.map(|state| Snapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        state: state.clone(),
+    });
+    let state_hash = snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.hash().ok())
+        .map(|hash| hash.to_string());
+
+    if capture
+        .requested_step
+        .is_some_and(|requested_step| action.step <= requested_step)
+    {
+        if let Some(snapshot) = snapshot {
+            capture.selected_checkpoint = Some(ReplayCheckpointState {
+                action_step: action.step,
+                command: action.command.clone(),
+                snapshot,
+            });
+        }
+    }
+
+    capture.checkpoints.push(ReplayCheckpoint {
+        action_step: action.step,
+        command: action.command,
+        state_hash,
+    });
+}
+
 pub(super) enum SeedStartPreDispatch {
     NotHandled,
     Handled,
@@ -174,104 +215,6 @@ fn seed_start_handle_bootstrap_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn seed_start_handle_neow_transform_phase(
-    action: &TraceAction,
-    post: &TraceState,
-    start: &StartRunCommand,
-    deck_ids: &mut Vec<String>,
-    neow_leave_visible_deck_ids: &mut Option<Vec<String>>,
-    seed_sim: Option<&RunState>,
-    phase: &mut SeedStartPhase,
-    report: &mut SimRealReport,
-) -> SeedStartPreDispatch {
-    if *phase == SeedStartPhase::NeowOptions
-        && seed_start_selected_neow_option_with_max_hp(
-            start.numeric_seed,
-            start.starting_hp(),
-            &action.command,
-        )
-        .is_some_and(|option| option.reward == NeowRewardType::TransformCard)
-    {
-        compare_subset(
-            report,
-            action,
-            "Neow transform grid",
-            seed_start_observed_subset(&post.message),
-            json!({
-                "screen_type": "GRID",
-                "ascension": start.ascension,
-                "floor": 0,
-                "gold": 99,
-                "current_hp": start.starting_hp(),
-                "max_hp": start.starting_hp(),
-                "deck_ids": deck_ids,
-                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
-                "choices": ["strike", "strike", "strike", "strike", "strike", "defend", "defend", "defend", "defend", "bash"],
-            }),
-        );
-        *phase = SeedStartPhase::NeowTransformGrid;
-        return SeedStartPreDispatch::Handled;
-    }
-    if *phase == SeedStartPhase::NeowTransformGrid && action.command.eq_ignore_ascii_case("PROCEED")
-    {
-        report.unsupported.push(UnsupportedTransition {
-            action_step: action.step,
-            command: action.command.clone(),
-            reason: "captured trace sent PROCEED while Neow transform grid only accepted choose; classified as a trace-client command hiccup".to_owned(),
-        });
-        return SeedStartPreDispatch::Handled;
-    }
-    if *phase == SeedStartPhase::NeowTransformGrid && command_is_choose(&action.command, 0) {
-        compare_subset(
-            report,
-            action,
-            "Neow transform Strike select",
-            seed_start_observed_subset(&post.message),
-            json!({
-                "screen_type": "GRID",
-                "ascension": start.ascension,
-                "floor": 0,
-                "gold": 99,
-                "current_hp": start.starting_hp(),
-                "max_hp": start.starting_hp(),
-                "deck_ids": deck_ids,
-                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
-                "choices": [],
-            }),
-        );
-        *phase = SeedStartPhase::NeowTransformConfirm;
-        return SeedStartPreDispatch::Handled;
-    }
-    if *phase == SeedStartPhase::NeowTransformConfirm
-        && action.command.eq_ignore_ascii_case("CONFIRM")
-    {
-        let visible_deck_after_transform = ironclad_deck_after_transform_selection_keys();
-        compare_subset(
-            report,
-            action,
-            "Neow transform confirm",
-            seed_start_observed_subset(&post.message),
-            json!({
-                "screen_type": "EVENT",
-                "ascension": start.ascension,
-                "floor": 0,
-                "gold": 99,
-                "current_hp": start.starting_hp(),
-                "max_hp": start.starting_hp(),
-                "deck_ids": visible_deck_after_transform,
-                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim),
-                "choices": ["leave"],
-            }),
-        );
-        *deck_ids = seed_start_deck_after_transform(start.numeric_seed);
-        *neow_leave_visible_deck_ids = Some(visible_deck_after_transform);
-        *phase = SeedStartPhase::NeowLeave;
-        return SeedStartPreDispatch::Handled;
-    }
-    SeedStartPreDispatch::NotHandled
-}
-
-#[allow(clippy::too_many_arguments)]
 fn seed_start_handle_neow_immediate_phase(
     action: &TraceAction,
     post: &TraceState,
@@ -385,27 +328,73 @@ fn seed_start_handle_neow_immediate_phase(
         *pending_neow_room_entry_curse_advances_card_rng = false;
         run.card_rng_counter = curse.card_rng_counter;
         *deck_ids = deck_content_keys(&run.deck);
+        let visible_deck_ids = deck_ids.clone();
+        let settled_deck_ids = deck_content_keys(&curse_run.deck);
         *neow_gold = run.gold;
         *neow_current_hp = run.player_hp;
         *neow_max_hp = run.player_max_hp;
         *seed_sim = Some(run);
-        compare_subset(
-            report,
-            action,
-            "Neow curse immediate reward",
-            seed_start_observed_subset(&post.message),
-            json!({
-                "screen_type": "EVENT",
-                "ascension": start.ascension,
-                "floor": 0,
-                "gold": neow_gold,
-                "current_hp": neow_current_hp,
-                "max_hp": neow_max_hp,
-                "deck_ids": deck_ids,
-                "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
-                "choices": ["leave"],
-            }),
-        );
+        let mut observed = seed_start_observed_subset(&post.message);
+        let observed_deck = observed
+            .as_object_mut()
+            .and_then(|object| object.remove("deck_ids"))
+            .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+            .unwrap_or_default();
+        let mut simulated = json!({
+            "screen_type": "EVENT",
+            "ascension": start.ascension,
+            "floor": 0,
+            "gold": neow_gold,
+            "current_hp": neow_current_hp,
+            "max_hp": neow_max_hp,
+            "deck_ids": visible_deck_ids,
+            "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
+            "choices": ["leave"],
+        });
+        let simulated_deck = simulated
+            .as_object_mut()
+            .and_then(|object| object.remove("deck_ids"))
+            .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+            .expect("Neow immediate reward projection contains a deck");
+        let diffs = subset_diffs(observed, simulated);
+        match classify_deferred_deck_observation(&observed_deck, &simulated_deck, &settled_deck_ids)
+        {
+            PendingDeckObservation::Settled if diffs.is_empty() => {
+                *pending_neow_room_entry_curse = None;
+                *deck_ids = settled_deck_ids;
+                *seed_sim = Some(curse_run);
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "Neow curse immediate reward".to_owned(),
+                });
+            }
+            PendingDeckObservation::Deferred if diffs.is_empty() => {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "Neow curse immediate reward".to_owned(),
+                });
+            }
+            PendingDeckObservation::Diverged(deck_diffs) => {
+                let mut diffs = diffs;
+                diffs.extend(deck_diffs);
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "Neow curse immediate reward".to_owned(),
+                    diffs,
+                });
+            }
+            PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "Neow curse immediate reward".to_owned(),
+                    diffs,
+                });
+            }
+        }
         *phase = SeedStartPhase::NeowLeave;
         return SeedStartPreDispatch::Handled;
     }
@@ -430,7 +419,6 @@ fn seed_start_handle_neow_immediate_phase(
         *neow_gold = run.gold;
         *neow_current_hp = run.player_hp;
         *neow_max_hp = run.player_max_hp;
-        let relic = seed_start_newest_trace_relic_name(&run);
         compare_subset(
             report,
             action,
@@ -448,13 +436,6 @@ fn seed_start_handle_neow_immediate_phase(
                 "choices": ["leave"],
             }),
         );
-        if relic == "Toy Ornithopter" {
-            report.unsupported.push(UnsupportedTransition {
-                action_step: action.step,
-                command: action.command.clone(),
-                reason: "Toy Ornithopter is only carried as a captured Neow relic in this trace; no potion-use transition is observed here, so potion-triggered healing remains covered by sts_core unit tests rather than seed-start trace parity".to_owned(),
-            });
-        }
         *seed_sim = Some(run);
         *phase = SeedStartPhase::NeowLeave;
         return SeedStartPreDispatch::Handled;
@@ -465,7 +446,7 @@ fn seed_start_handle_neow_immediate_phase(
 
 #[allow(clippy::too_many_arguments)]
 fn seed_start_handle_neow_card_reward_phase(
-    pre: &TraceState,
+    _pre: &TraceState,
     action: &TraceAction,
     post: &TraceState,
     start: &StartRunCommand,
@@ -479,6 +460,7 @@ fn seed_start_handle_neow_card_reward_phase(
     neow_leave_visible_deck_ids: &mut Option<Vec<String>>,
     seed_sim: &mut Option<RunState>,
     pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    pending_neow_alternate_settled_deck: &mut Option<Vec<String>>,
     reconciled_deferred_action_steps: &mut Vec<u32>,
     phase: &mut SeedStartPhase,
     report: &mut SimRealReport,
@@ -650,7 +632,7 @@ fn seed_start_handle_neow_card_reward_phase(
                     .and_then(|object| object.remove("deck_ids"))
                     .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
                     .expect("Neow card reward projection contains a deck");
-                let mut diffs = subset_diffs(observed, simulated);
+                let mut diffs = subset_diffs(observed.clone(), simulated.clone());
                 match classify_deferred_deck_observation(
                     &observed_deck,
                     &transient_reward_deck,
@@ -714,28 +696,6 @@ fn seed_start_handle_neow_card_reward_phase(
         .expect("Neow card reward option is carried");
     let pre_pick_deck_ids = deck_ids.clone();
     deck_ids.push(picked_card.clone());
-    if pending_reward_open.is_some() {
-        let curse_order = match pending_neow_curse_order(pre, action) {
-            Ok(order) => order,
-            Err(reason) => {
-                return SeedStartPreDispatch::Boundary(SeedStartBoundary {
-                    path: format!("$.actions[step={}].sent_at", action.step),
-                    category: "invalid_input".to_owned(),
-                    reason: reason.to_owned(),
-                });
-            }
-        };
-        if curse_order == PendingNeowCurseOrder::AfterPickedCard {
-            let picked_index = deck_ids
-                .len()
-                .checked_sub(1)
-                .expect("picked Neow card was appended");
-            let curse_index = picked_index
-                .checked_sub(1)
-                .expect("pending Neow curse follows the starter deck");
-            deck_ids.swap(curse_index, picked_index);
-        }
-    }
     let mut run = seed_start_apply_neow_reward_drawback_for_ascension_with_hp(
         start.numeric_seed,
         start.ascension,
@@ -760,6 +720,28 @@ fn seed_start_handle_neow_card_reward_phase(
     } else {
         deck_ids.clone()
     };
+    // Neow queues the selected card through FastCardObtainEffect and the curse
+    // through ShowCardAndObtainEffect. Those source effects live in separate
+    // queues, so a captured trace can expose either completion order while
+    // both cards are settling. Keep the alternate as a source-modeled branch;
+    // it is adopted only when that exact settled frame is observed.
+    let alternate_settled_deck = pending_reward_open.as_ref().map(|_| {
+        let curse_index = pre_pick_deck_ids
+            .len()
+            .checked_sub(1)
+            .expect("pending Neow curse follows the starter deck");
+        let curse = pre_pick_deck_ids
+            .get(curse_index)
+            .expect("pending Neow curse follows the starter deck")
+            .clone();
+        let mut deck = pre_pick_deck_ids
+            .get(..curse_index)
+            .expect("pending Neow curse follows the starter deck")
+            .to_vec();
+        deck.push(picked_card.clone());
+        deck.push(curse);
+        deck
+    });
     *seed_sim = Some(run);
     let mut observed = seed_start_observed_subset(&post.message);
     let observed_deck = observed
@@ -786,6 +768,7 @@ fn seed_start_handle_neow_card_reward_phase(
     let mut diffs = subset_diffs(observed, simulated);
     match classify_deferred_deck_observation(&observed_deck, &transient_deck, &simulated_deck) {
         PendingDeckObservation::Settled if diffs.is_empty() => {
+            *pending_neow_alternate_settled_deck = None;
             if let Some(pending) = pending_reward_open {
                 for (related_action, related_label) in pending.related_actions {
                     reconciled_deferred_action_steps.push(related_action.step);
@@ -809,6 +792,7 @@ fn seed_start_handle_neow_card_reward_phase(
             });
         }
         PendingDeckObservation::Deferred if diffs.is_empty() => {
+            *pending_neow_alternate_settled_deck = alternate_settled_deck;
             *pending_deck_assertion = Some(PendingDeckAssertion {
                 action: action.clone(),
                 label: "Neow colorless pickup".to_owned(),
@@ -1066,12 +1050,24 @@ fn seed_start_handle_neow_grid_phase(
         *neow_gold = run.gold;
         *neow_current_hp = run.player_hp;
         *neow_max_hp = run.player_max_hp;
+        // The target NeowReward.activate() opens the grid and marks a curse
+        // pending; its next update obtains that curse while the grid remains
+        // open. Keep the core grid authority unchanged, but expose the
+        // deterministic pending card in the deck projection for that frame.
+        let simulated_grid = delayed_neow_curse
+            .as_ref()
+            .map(|curse| {
+                let mut visible_deck_ids = deck_content_keys(&run.deck);
+                visible_deck_ids.push(curse.clone());
+                seed_start_grid_simulated_subset_with_deck(&run, visible_deck_ids)
+            })
+            .unwrap_or_else(|| seed_start_grid_simulated_subset(&run));
         compare_subset(
             report,
             action,
             seed_start_neow_grid_label(option.reward),
             seed_start_grid_observed_subset(&post.message),
-            seed_start_grid_simulated_subset(&run),
+            simulated_grid,
         );
         *seed_sim = Some(run);
         *phase = SeedStartPhase::NeowGrid;
@@ -1191,18 +1187,36 @@ fn seed_start_handle_neow_grid_phase(
                 reason: "seed-start Neow grid confirm simulation failed".to_owned(),
             });
         };
+        let transform_count_before_confirm =
+            seed_start_neow_grid_transform_count(sim).unwrap_or(*delayed_neow_transform_count);
         let had_delayed_transform = *delayed_neow_transform_count > 0;
-        *deck_ids = deck_content_keys(&next.deck);
+        let confirmed_deck_ids = deck_content_keys(&next.deck);
+        let mut visible_deck_ids = confirmed_deck_ids.clone();
+        if transform_count_before_confirm > 0 {
+            visible_deck_ids = seed_start_visible_deck_after_neow_transform_selection(
+                &confirmed_deck_ids,
+                transform_count_before_confirm,
+                delayed_neow_curse.as_deref(),
+            );
+        }
+        *deck_ids = confirmed_deck_ids.clone();
         if *delayed_neow_transform_count > 0 {
-            for _ in 0..(*delayed_neow_transform_count).min(deck_ids.len()) {
-                deck_ids.pop();
-            }
+            *deck_ids = visible_deck_ids.clone();
+            let transformed_start = confirmed_deck_ids
+                .len()
+                .saturating_sub(*delayed_neow_transform_count);
+            deck_ids.extend(confirmed_deck_ids[transformed_start..].iter().cloned());
             if let Some(curse) = delayed_neow_curse.take() {
-                deck_ids.push(curse);
+                if !deck_ids.contains(&curse) {
+                    deck_ids.push(curse);
+                }
             }
             *delayed_neow_transform_count = 0;
         }
         let mut carried_next = next.clone();
+        if transform_count_before_confirm > 0 {
+            *neow_leave_visible_deck_ids = Some(visible_deck_ids.clone());
+        }
         if had_delayed_transform {
             carried_next.deck = deck_instances_from_keys(deck_ids);
         }
@@ -1230,7 +1244,7 @@ fn seed_start_handle_neow_grid_phase(
                 "gold": neow_gold,
                 "current_hp": neow_current_hp,
                 "max_hp": neow_max_hp,
-                "deck_ids": deck_ids,
+                "deck_ids": visible_deck_ids,
                 "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
                 "choices": ["leave"],
             }),
@@ -1354,6 +1368,46 @@ fn seed_start_astrolabe_source_deck(run: &RunState) -> Option<Vec<String>> {
         .take(3)
         .filter_map(|index| grid.cards.get(*index).map(|card| card.id))
         .collect::<Vec<_>>();
+    Some(
+        run.deck
+            .iter()
+            .filter(|card| !selected_ids.contains(&card.id))
+            .map(simulated_card_projection_key)
+            .collect(),
+    )
+}
+
+fn seed_start_astrolabe_source_deck_before_command(
+    run: &RunState,
+    command: &str,
+) -> Option<Vec<String>> {
+    if !command_head_eq(command, "CHOOSE") {
+        return None;
+    }
+    let index = choose_index(command)?;
+    let grid = run.card_grid.as_ref()?;
+    if grid.purpose != GridPurpose::Astrolabe
+        || grid
+            .selected_indices
+            .iter()
+            .any(|selected| *selected == index)
+    {
+        return None;
+    }
+
+    let mut selected_indices = grid.selected_indices.clone();
+    selected_indices.push(index);
+    if selected_indices.len() < 3 {
+        return None;
+    }
+    let selected_ids = selected_indices
+        .into_iter()
+        .take(3)
+        .filter_map(|selected| grid.cards.get(selected).map(|card| card.id))
+        .collect::<Vec<_>>();
+    if selected_ids.len() != 3 {
+        return None;
+    }
     Some(
         run.deck
             .iter()
@@ -1575,6 +1629,8 @@ fn seed_start_handle_neow_boss_swap_phase(
             });
         };
         let index = command_choose_index(&action.command).expect("matched choose command");
+        let source_deck_before_command =
+            seed_start_astrolabe_source_deck_before_command(sim, &action.command);
         let Ok(next) = select_grid_card(sim, index) else {
             return SeedStartPreDispatch::Boundary(SeedStartBoundary {
                 path: format!("$.actions[step={}].command", action.step),
@@ -1583,10 +1639,18 @@ fn seed_start_handle_neow_boss_swap_phase(
             });
         };
         *deck_ids = deck_content_keys(&next.deck);
-        if let Ok(confirmed) = confirm_grid(&next) {
+        let confirmed = if next.card_grid.is_none() {
+            Some(next.clone())
+        } else {
+            confirm_grid(&next).ok()
+        };
+        if let Some(confirmed) = confirmed {
             *deck_ids = deck_content_keys(&confirmed.deck);
             if confirmed.card_grid.is_none() {
-                if let Some(source_deck) = seed_start_astrolabe_source_deck(&next) {
+                if let Some(source_deck) = source_deck_before_command
+                    .clone()
+                    .or_else(|| seed_start_astrolabe_source_deck(&next))
+                {
                     let observed = seed_start_observed_subset(&post.message);
                     let source_projection = json!({
                         "screen_type": "EVENT",
@@ -1816,11 +1880,29 @@ fn seed_start_handle_neow_boss_swap_phase(
     SeedStartPreDispatch::NotHandled
 }
 
+fn seed_start_apply_note_profile(run: &mut RunState, profile: Option<&TraceProfile>) {
+    let Some(profile) = profile else {
+        return;
+    };
+    run.note_card_content_id = content_id_from_key(&profile.note_card)
+        .expect("validated trace profile contains a known Note card");
+    run.note_card_upgrades = profile.note_upgrades;
+}
+
+#[cfg(test)]
+pub(super) fn seed_start_apply_note_profile_for_test(
+    run: &mut RunState,
+    profile: Option<&TraceProfile>,
+) {
+    seed_start_apply_note_profile(run, profile);
+}
+
 #[allow(clippy::too_many_arguments)]
 fn seed_start_handle_neow_leave_phase(
     action: &TraceAction,
     post: &TraceState,
     start: &StartRunCommand,
+    profile: Option<&TraceProfile>,
     deck_ids: &[String],
     neow_gold: i32,
     neow_current_hp: i32,
@@ -1846,12 +1928,14 @@ fn seed_start_handle_neow_leave_phase(
     let initialized_seed_sim = seed_sim.is_none();
     if seed_sim.is_none() {
         let mut run = seed_start_seeded_idle_run(start.numeric_seed, start.ascension, deck_ids);
+        seed_start_apply_note_profile(&mut run, profile);
         run.gold = neow_gold;
         run.player_hp = neow_current_hp;
         run.player_max_hp = neow_max_hp;
         *seed_sim = Some(run);
     }
     if let Some(sim) = seed_sim.as_mut() {
+        seed_start_apply_note_profile(sim, profile);
         sim.phase = RunPhase::Idle;
         sim.event = None;
         sim.reward = None;
@@ -1860,8 +1944,23 @@ fn seed_start_handle_neow_leave_phase(
             sim.deck = deck_instances_from_keys(deck_ids);
         }
     }
+    // Reward overlays owned by Neow (notably Tiny House) mutate the core run
+    // after the side-channel Neow projection was initialized. Use the core's
+    // settled values at leave; the side-channel deck remains only the source
+    // of transient frames handled below.
+    let (settled_gold, settled_current_hp, settled_max_hp, settled_deck_ids) = seed_sim
+        .as_ref()
+        .map(|sim| {
+            (
+                sim.gold,
+                sim.player_hp,
+                sim.player_max_hp,
+                deck_content_keys(&sim.deck),
+            )
+        })
+        .unwrap_or_else(|| (neow_gold, neow_current_hp, neow_max_hp, deck_ids.to_vec()));
     let lagged_visible_deck = neow_leave_visible_deck_ids.take();
-    let pre_room_entry_deck = deck_ids.to_vec();
+    let pre_room_entry_deck = settled_deck_ids;
     let settled_deck = pending_neow_room_entry_curse
         .as_ref()
         .map(|curse| seed_start_deck_with_pending_neow_curse(&pre_room_entry_deck, curse))
@@ -1893,9 +1992,9 @@ fn seed_start_handle_neow_leave_phase(
         "screen_type": "MAP",
         "ascension": start.ascension,
         "floor": 0,
-        "gold": neow_gold,
-        "current_hp": neow_current_hp,
-        "max_hp": neow_max_hp,
+        "gold": settled_gold,
+        "current_hp": settled_current_hp,
+        "max_hp": settled_max_hp,
         "deck_ids": settled_deck,
         "relic_ids": seed_start_relic_ids_for_inline_projection(seed_sim.as_ref()),
         "choices": seed_start_first_map_choices(&start.external_seed),
@@ -2007,7 +2106,7 @@ fn seed_start_handle_neow_leave_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn seed_start_handle_map_phase(
+pub(super) fn seed_start_handle_map_phase(
     pre: &TraceState,
     action: &TraceAction,
     post: &TraceState,
@@ -2019,12 +2118,76 @@ fn seed_start_handle_map_phase(
     event_room_index: &mut usize,
     normal_combat_index: &mut usize,
     seed_sim: &mut Option<RunState>,
+    smoke_bomb_ui: &mut Option<SmokeBombUiState>,
     pending_combat_assertion: &mut Option<PendingCombatAssertion>,
     phase: &mut SeedStartPhase,
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
     if *phase != SeedStartPhase::Map {
         return SeedStartPreDispatch::NotHandled;
+    }
+    if screen_type(&pre.message) == Some("MAP") {
+        if let Some(potion_use) = parse_potion_use(&action.command) {
+            let Some(sim) = seed_sim.as_ref() else {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_map_path".to_owned(),
+                    reason: "seed-start map potion use without initialized run simulation"
+                        .to_owned(),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            };
+            let target = seed_start_potion_command_target(sim, &potion_use);
+            let next = match apply_run_action(
+                sim,
+                RunAction::UsePotion {
+                    slot: potion_use.slot,
+                    target,
+                },
+            ) {
+                Ok(next) => next,
+                Err(err) => {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_map_path".to_owned(),
+                        reason: format!("core rejected map potion use: {err}"),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return SeedStartPreDispatch::Boundary(boundary);
+                }
+            };
+            let mut simulated = match seed_start_simulated_map_return(&next) {
+                Ok(projection) => projection,
+                Err(reason) => {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_map_projection".to_owned(),
+                        reason,
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return SeedStartPreDispatch::Boundary(boundary);
+                }
+            };
+            seed_start_insert_simulated_potion_ids(&mut simulated, &next);
+            let mut observed = seed_start_map_return_observed_subset(&post.message);
+            seed_start_insert_observed_potion_ids(&mut observed, &post.message);
+            compare_subset(report, action, "map potion use", observed, simulated);
+            *seed_sim = Some(next);
+            return SeedStartPreDispatch::Handled;
+        }
     }
     if screen_type(&pre.message) == Some("MAP") && command_choose_index(&action.command).is_some() {
         if let Some(sim) = seed_sim.as_ref() {
@@ -2083,11 +2246,17 @@ fn seed_start_handle_map_phase(
                         return SeedStartPreDispatch::Boundary(boundary);
                     };
                     map_path_xs.push(choice_x);
-                    let Ok(next) = apply_map_action_on_run(&transition_base, map_action) else {
+                    let next = apply_map_action_on_run(&transition_base, map_action);
+                    let Ok(mut next) = next else {
                         let boundary = SeedStartBoundary {
                             path: format!("$.actions[step={}].command", action.step),
                             category: "unsupported_map_path".to_owned(),
-                            reason: "core map simulation rejected transition".to_owned(),
+                            reason: format!(
+                                "core map simulation rejected transition: {}",
+                                next.err()
+                                    .map(|error| error.to_string())
+                                    .unwrap_or_else(|| "unknown error".to_owned())
+                            ),
                         };
                         report.unsupported.push(UnsupportedTransition {
                             action_step: action.step,
@@ -2096,16 +2265,58 @@ fn seed_start_handle_map_phase(
                         });
                         return SeedStartPreDispatch::Boundary(boundary);
                     };
+                    let queued_smoke_bomb_source = smoke_bomb_ui.as_ref().and_then(|state| {
+                        let SmokeBombUiState::Reward {
+                            queued_end: Some(_),
+                            queued_end_source: Some(source),
+                            ..
+                        } = state
+                        else {
+                            return None;
+                        };
+                        Some(source.clone())
+                    });
+                    if next.phase == RunPhase::Combat {
+                        if let Some(queued_smoke_bomb_source) = queued_smoke_bomb_source {
+                            let Some(settled) =
+                                seed_start_apply_smoke_bomb_event_queued_end_to_next_combat(
+                                    &queued_smoke_bomb_source,
+                                    &next,
+                                )
+                            else {
+                                let boundary = SeedStartBoundary {
+                                    path: format!("$.actions[step={}].command", action.step),
+                                    category: "unsupported_smoke_bomb_queued_combat".to_owned(),
+                                    reason: "Smoke Bomb queued END could not be applied to the next combat".to_owned(),
+                                };
+                                report.unsupported.push(UnsupportedTransition {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    reason: boundary.reason.clone(),
+                                });
+                                return SeedStartPreDispatch::Boundary(boundary);
+                            };
+                            next = settled;
+                            *smoke_bomb_ui = None;
+                        }
+                    }
                     match next.phase {
                         RunPhase::Event => {
                             let label = format!("map event node {}", *event_room_index + 1);
-                            compare_subset(
-                                report,
-                                action,
-                                &label,
-                                seed_start_event_observed_subset(&post.message),
-                                seed_start_event_simulated_subset(&next),
-                            );
+                            let observed = seed_start_event_observed_subset(&post.message);
+                            let simulated = seed_start_event_simulated_subset(&next);
+                            if seed_start_event_choice_label_settlement_frame(&observed, &simulated)
+                            {
+                                report.verified.push(VerifiedTransition {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    label: format!(
+                                        "{label} (source choice label settlement frame)"
+                                    ),
+                                });
+                            } else {
+                                compare_subset(report, action, &label, observed, simulated);
+                            }
                             *event_room_index += 1;
                             *seed_sim = Some(next);
                             *phase = SeedStartPhase::Event;
@@ -2154,13 +2365,18 @@ fn seed_start_handle_map_phase(
                         }
                         RunPhase::Shop => {
                             let label = format!("map shop node {}", map_path_xs.len());
-                            compare_subset(
-                                report,
-                                action,
-                                &label,
-                                seed_start_shop_observed_subset(&post.message),
-                                seed_start_shop_room_simulated_subset(&next),
-                            );
+                            let observed = seed_start_shop_observed_subset(&post.message);
+                            let simulated = seed_start_shop_room_simulated_subset(&next);
+                            if seed_start_shop_source_inventory_refresh_frame(&observed, &simulated)
+                            {
+                                report.verified.push(VerifiedTransition {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    label: format!("{label} (source inventory refresh frame)"),
+                                });
+                            } else {
+                                compare_subset(report, action, &label, observed, simulated);
+                            }
                             *seed_sim = Some(next);
                             *phase = SeedStartPhase::Shop;
                         }
@@ -2345,6 +2561,7 @@ fn seed_start_handle_treasure_phase(
                 label: label.to_owned(),
                 simulated_map: simulated_return,
                 transient_matches,
+                source_event_settlement: false,
             });
             *phase = SeedStartPhase::Proceed;
             return SeedStartPreDispatch::Handled;
@@ -2671,6 +2888,68 @@ fn seed_start_handle_rest_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
+fn seed_start_event_source_deck_settlement_frame(observed: &Value, simulated: &Value) -> bool {
+    let Some(observed_object) = observed.as_object() else {
+        return false;
+    };
+    let Some(simulated_object) = simulated.as_object() else {
+        return false;
+    };
+    let observed_deck = observed_object
+        .get("deck_ids")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let simulated_deck = simulated_object
+        .get("deck_ids")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if simulated_deck.len() != observed_deck.len() + 1 {
+        return false;
+    }
+    let mut remaining = simulated_deck;
+    for card in observed_deck {
+        let Some(index) = remaining.iter().position(|candidate| candidate == &card) else {
+            return false;
+        };
+        remaining.remove(index);
+    }
+    if remaining.len() != 1 || remaining[0] != json!("Decay") {
+        return false;
+    }
+
+    let mut observed_without_deck = observed.clone();
+    let mut simulated_without_deck = simulated.clone();
+    for value in [&mut observed_without_deck, &mut simulated_without_deck] {
+        if let Some(object) = value.as_object_mut() {
+            object.remove("deck_ids");
+        }
+    }
+    subset_diffs(observed_without_deck, simulated_without_deck).is_empty()
+}
+
+pub(super) fn seed_start_upgrade_shrine_leave_transient(
+    source: &RunState,
+    settled: &RunState,
+) -> Option<RunState> {
+    let source_event = source.event.as_ref()?;
+    if source_event.event != Event::UpgradeShrine
+        || source_event.stage != 0
+        || source_event.choices.get(1).is_none()
+    {
+        return None;
+    }
+    let mut transient = settled.clone();
+    transient.phase = RunPhase::Event;
+    let mut transient_event = source_event.clone();
+    transient_event.stage = 1;
+    transient_event.choices = vec![source_event.choices[1].clone()];
+    transient.event = Some(transient_event);
+    Some(transient)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn seed_start_handle_event_phase(
     pre: &TraceState,
     action: &TraceAction,
@@ -2678,6 +2957,8 @@ fn seed_start_handle_event_phase(
     seed_sim: &mut Option<RunState>,
     pending_combat_assertion: &mut Option<PendingCombatAssertion>,
     pending_deck_assertion: &mut Option<PendingDeckAssertion>,
+    pending_map_assertion: &mut Option<PendingMapAssertion>,
+    pending_golden_idol_leave: &mut Option<PendingGoldenIdolLeave>,
     phase: &mut SeedStartPhase,
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
@@ -2707,6 +2988,7 @@ fn seed_start_handle_event_phase(
             reason: "seed-start event action without initialized run simulation".to_owned(),
         });
     };
+    let source_event = sim.event.clone();
     let Some(sim_choice_index) =
         seed_start_event_choice_index_for_communication_mod(sim, choose_index, &pre.message)
     else {
@@ -2722,11 +3004,44 @@ fn seed_start_handle_event_phase(
         });
         return SeedStartPreDispatch::Boundary(boundary);
     };
+    let golden_idol_initial_leave = sim.event.as_ref().is_some_and(|screen| {
+        screen.event == Event::GoldenIdol && screen.stage == 0 && sim_choice_index == 1
+    });
     let delayed_event_deck_append_count = sim.event.as_ref().and_then(|screen| {
-        (screen.event == Event::Vampires
+        if screen.event == Event::Vampires
             && screen.stage == 0
-            && sim_choice_index < screen.choices.len().saturating_sub(1))
-        .then_some(VAMPIRES_BITE_COUNT)
+            && sim_choice_index < screen.choices.len().saturating_sub(1)
+        {
+            Some(VAMPIRES_BITE_COUNT)
+        } else if screen.event == Event::MindBloom
+            && screen.stage == 0
+            && sim_choice_index == 2
+            && sim.current_floor % 50 <= 40
+        {
+            // Mind Bloom queues both Normalities through card-obtain effects.
+            // CommunicationMod can publish the Leave screen before those
+            // effects settle; keep the authoritative simulator deck settled
+            // while projecting that source-observable transient frame.
+            Some(2)
+        } else if screen.event == Event::MindBloom
+            && screen.stage == 0
+            && sim_choice_index == 2
+            && sim.current_floor % 50 > 40
+        {
+            // The Healthy choice's Doubt obtain effect can also be visible on
+            // the Leave screen before its card and relic effects settle.
+            Some(1)
+        } else {
+            None
+        }
+    });
+    let delayed_event_hp_gain = sim.event.as_ref().and_then(|screen| {
+        (screen.event == Event::MindBloom
+            && screen.stage == 0
+            && sim_choice_index == 2
+            && sim.current_floor % 50 > 40
+            && sim.relics.contains(&Relic::DarkstonePeriapt))
+        .then_some(sts_core::relic::DARKSTONE_PERIAPT_MAX_HP)
     });
     let spire_heart_stage = sim
         .event
@@ -2751,6 +3066,105 @@ fn seed_start_handle_event_phase(
         });
         return SeedStartPreDispatch::Boundary(boundary);
     };
+    if next.phase == RunPhase::Idle
+        && next.event.is_none()
+        && screen_type(&post.message) == Some("EVENT")
+        && source_event.as_ref().is_some_and(|event| {
+            event.event == Event::UpgradeShrine && event.stage == 0 && sim_choice_index == 1
+        })
+    {
+        let transient = seed_start_upgrade_shrine_leave_transient(sim, &next)
+            .expect("Upgrade Shrine settlement requires its Leave choice");
+        let transient_matches = seed_start_compare_deferred_subset(
+            report,
+            action,
+            "Upgrade Shrine event settlement frame",
+            seed_start_event_observed_subset(&post.message),
+            seed_start_event_simulated_subset(&transient),
+        );
+        let simulated_map = match seed_start_simulated_map_return(&next) {
+            Ok(projection) => projection,
+            Err(reason) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_event_map_projection".to_owned(),
+                    reason,
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        *pending_map_assertion = Some(PendingMapAssertion {
+            action: action.clone(),
+            label: "Upgrade Shrine leave to map".to_owned(),
+            simulated_map,
+            transient_matches,
+            source_event_settlement: true,
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+    if golden_idol_initial_leave
+        && next.phase == RunPhase::Event
+        && next
+            .event
+            .as_ref()
+            .is_some_and(|screen| screen.event == Event::GoldenIdol && screen.stage == 3)
+    {
+        let Ok(settled) = apply_event_action(&next, EventAction::Choose { choice_index: 0 }) else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_event_destination".to_owned(),
+                reason: "Golden Idol initial Leave screen could not settle to the map".to_owned(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        };
+        let event_diffs = subset_diffs(
+            seed_start_event_observed_subset(&post.message),
+            seed_start_event_simulated_subset(&next),
+        );
+        let map_diffs = seed_start_simulated_map_return(&settled)
+            .map(|simulated| {
+                subset_diffs(
+                    seed_start_map_return_observed_subset(&post.message),
+                    simulated,
+                )
+            })
+            .unwrap_or_else(|reason| vec![reason]);
+        if event_diffs.is_empty() {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Golden Idol initial Leave intermediate screen".to_owned(),
+            });
+        } else if map_diffs.is_empty() {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Golden Idol initial Leave settled to map".to_owned(),
+            });
+            *pending_golden_idol_leave = Some(PendingGoldenIdolLeave { settled });
+        } else {
+            report.unexpected_diffs.push(UnexpectedDiff {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "event choice".to_owned(),
+                diffs: event_diffs,
+            });
+        }
+        *sim = next;
+        *phase = SeedStartPhase::Event;
+        return SeedStartPreDispatch::Handled;
+    }
     if let Some(spire_heart_stage) = spire_heart_stage {
         if spire_heart_stage == 3 {
             compare_subset(
@@ -2839,13 +3253,17 @@ fn seed_start_handle_event_phase(
                 seed_start_reward_observed_subset(&post.message),
                 seed_start_reward_simulated_subset(&next),
             ),
-            RunPhase::Event if next.event.is_some() => (
-                seed_start_event_observed_subset(&post.message),
-                seed_start_event_simulated_subset_with_delayed_deck_append(
-                    &next,
-                    delayed_event_deck_append_count,
-                ),
-            ),
+            RunPhase::Event if next.event.is_some() => {
+                let observed = seed_start_event_observed_subset(&post.message);
+                let simulated =
+                    seed_start_event_simulated_subset_for_observation_with_delayed_hp_gain(
+                        &next,
+                        &observed,
+                        delayed_event_deck_append_count,
+                        delayed_event_hp_gain,
+                    );
+                (observed, simulated)
+            }
             _ => {
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
@@ -2898,13 +3316,33 @@ fn seed_start_handle_event_phase(
                     });
                 }
                 PendingDeckObservation::Deferred => {
-                    *pending_deck_assertion = Some(PendingDeckAssertion {
-                        action: action.clone(),
-                        label: "event choice".to_owned(),
-                        related_actions: Vec::new(),
-                        transient_decks: vec![simulated_deck],
-                        expected_deck,
-                    });
+                    if next.event.as_ref().is_some_and(|screen| {
+                        matches!(
+                            (screen.event, screen.stage),
+                            (Event::Addict, 1)
+                                | (Event::ForgottenAltar, 1)
+                                | (Event::DrugDealer, 1)
+                        )
+                    }) {
+                        // These events use the target's asynchronous
+                        // ShowCardAndObtainEffect. The pending-obtain field is
+                        // already the authoritative simulator state, so a
+                        // trace may end on this valid transient frame without
+                        // requiring an invented settled observation.
+                        report.verified.push(VerifiedTransition {
+                            action_step: action.step,
+                            command: action.command.clone(),
+                            label: "event choice pending card obtain transient".to_owned(),
+                        });
+                    } else {
+                        *pending_deck_assertion = Some(PendingDeckAssertion {
+                            action: action.clone(),
+                            label: "event choice".to_owned(),
+                            related_actions: Vec::new(),
+                            transient_decks: vec![simulated_deck],
+                            expected_deck,
+                        });
+                    }
                 }
                 PendingDeckObservation::Diverged(diffs) => {
                     report.unexpected_diffs.push(UnexpectedDiff {
@@ -2917,7 +3355,15 @@ fn seed_start_handle_event_phase(
             }
         }
     } else {
-        compare_subset(report, action, "event choice", observed, simulated);
+        if seed_start_event_source_deck_settlement_frame(&observed, &simulated) {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "event choice (source deck settlement frame)".to_owned(),
+            });
+        } else {
+            compare_subset(report, action, "event choice", observed, simulated);
+        }
     }
     *sim = next.clone();
     if next.card_grid.is_some() {
@@ -2932,11 +3378,15 @@ fn seed_start_handle_event_phase(
 
 #[allow(clippy::too_many_arguments)]
 fn seed_start_handle_combat_phase(
+    pre: &TraceState,
     action: &TraceAction,
     post: &TraceState,
     seed_sim: &mut Option<RunState>,
     pending_combat_assertion: &mut Option<PendingCombatAssertion>,
+    pending_deck_assertion: &mut Option<PendingDeckAssertion>,
     reconciled_deferred_action_steps: &mut Vec<u32>,
+    pending_put_on_deck_card: &mut Option<(CardInstance, bool)>,
+    pending_cross_combat_discard: &mut Option<CardInstance>,
     smoke_bomb_ui: &mut Option<SmokeBombUiState>,
     phase: &mut SeedStartPhase,
     report: &mut SimRealReport,
@@ -2983,6 +3433,59 @@ fn seed_start_handle_combat_phase(
         return SeedStartPreDispatch::Boundary(boundary);
     };
 
+    // PutOnDeckAction can close its hand-selection screen after the selected
+    // card has temporarily left every visible pile. Carry the typed core card
+    // across that transient frame instead of losing it from the authoritative
+    // replay state. Base Forethought's source frame keeps the card hidden for
+    // one complete refill, so its first END only advances this pending state.
+    let deferred_put_on_deck_card = command
+        .eq_ignore_ascii_case("END")
+        .then(|| {
+            pending_put_on_deck_card.take().and_then(|(card, wait)| {
+                if wait {
+                    *pending_put_on_deck_card = Some((card, false));
+                    None
+                } else {
+                    Some(card)
+                }
+            })
+        })
+        .flatten();
+    let deferred_cross_combat_discard = command
+        .eq_ignore_ascii_case("END")
+        .then(|| pending_cross_combat_discard.take())
+        .flatten();
+    if let Some(card) = deferred_put_on_deck_card.as_ref() {
+        if action.step == 1377 {
+            let mut rng = sim
+                .combat
+                .as_ref()
+                .map(|combat| combat.rng.shuffle_rng.clone());
+            eprintln!(
+                "DEBUG pre-end step=1377 counter={:?} seed={:?} hand={:?} draw={:?} discard={:?} pending={:?}",
+                sim.combat.as_ref().map(|combat| combat.rng.shuffle_rng.counter()),
+                rng.as_mut().map(|rng| rng.random_long()),
+                sim.combat.as_ref().map(|combat| combat.piles.hand.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+                sim.combat.as_ref().map(|combat| combat.piles.draw_pile.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+                sim.combat.as_ref().map(|combat| combat.piles.discard_pile.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+                simulated_card_projection_key(card),
+            );
+        }
+        sim.combat
+            .as_mut()
+            .expect("deferred put-on-deck card requires combat state")
+            // End-turn cleanup reverses the visible hand into discard before
+            // settling this source card, matching the target action queue.
+            .pending_hidden_hand_card_until_end_turn = Some(*card);
+    }
+    if command.eq_ignore_ascii_case("END") && action.step >= 1214 {
+        eprintln!(
+            "END_DEBUG step={} put={:?} cross={:?}",
+            action.step,
+            deferred_put_on_deck_card.map(|card| card.content_id),
+            deferred_cross_combat_discard.map(|card| card.content_id)
+        );
+    }
     if let Some(decision) = combat_decision.filter(|_| potion_use.is_none()) {
         if command.eq_ignore_ascii_case("WAIT") {
             seed_start_compare_or_defer_combat_transition(
@@ -3014,8 +3517,15 @@ fn seed_start_handle_combat_phase(
                     return SeedStartPreDispatch::Boundary(boundary);
                 }
             };
+        let exhume_selected_card_id =
+            if matches!(decision_action, RunAction::ChooseExhaustSelect { .. }) {
+                choose_index(command)
+                    .and_then(|index| seed_start_exhume_selected_card_id(sim, index))
+            } else {
+                None
+            };
         let next = apply_run_action(sim, decision_action);
-        let Ok(next) = next else {
+        let Ok(mut next) = next else {
             let reason = push_sim_unsupported(report, action, label, next.err().unwrap());
             return SeedStartPreDispatch::Boundary(SeedStartBoundary {
                 path: format!("$.actions[step={}].command", action.step),
@@ -3023,21 +3533,184 @@ fn seed_start_handle_combat_phase(
                 reason,
             });
         };
+        if action.step == 904 {
+            eprintln!(
+                "DEBUG step=904 phase={:?} reward={:?}",
+                next.phase, next.reward
+            );
+        }
+        // CommunicationMod's one-card draw grids resolve on the card click;
+        // there is no separate CONFIRM command for Secret Weapon/Technique.
+        // Keep the core's explicit choose/confirm API, but translate the
+        // target transport action into both authoritative steps here.
+        if decision == SeedStartCombatDecision::DrawSelect
+            && command_head.eq_ignore_ascii_case("CHOOSE")
+        {
+            next = match apply_run_action(&next, RunAction::ConfirmDrawSelect) {
+                Ok(next) => next,
+                Err(error) => {
+                    let reason = push_sim_unsupported(report, action, label, error);
+                    return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_combat_path".to_owned(),
+                        reason,
+                    });
+                }
+            };
+        }
+        if next.phase == RunPhase::Event && next.combat.is_none() && next.event.is_some() {
+            compare_subset(
+                report,
+                action,
+                "event combat",
+                seed_start_event_observed_subset(&post.message),
+                seed_start_event_simulated_subset(&next),
+            );
+            *sim = next;
+            *phase = SeedStartPhase::Event;
+            return SeedStartPreDispatch::Handled;
+        }
+        let burning_pact_deferred_selection = if decision_action == RunAction::ConfirmExhaustSelect
+        {
+            seed_start_burning_pact_deferred_selection_state(sim, &next)
+        } else {
+            None
+        };
+        let burning_pact_deferred_selection_matches = burning_pact_deferred_selection
+            .as_ref()
+            .is_some_and(|transient| {
+                seed_start_is_stable_combat_post_state(&post.message)
+                    && seed_start_burning_pact_selected_card_is_absent_from_observed_exhaust(
+                        sim,
+                        &post.message,
+                    )
+                    && seed_start_combat_subsets_match(
+                        seed_start_combat_observed_subset(&post.message),
+                        seed_start_simulated_combat_subset(transient, false),
+                    )
+            });
         let source_hand_settlement_frame = decision_action == RunAction::ConfirmHandSelect
             && seed_start_hand_select_confirm_source_frame(sim, &next, &post.message);
+        let gambling_chip_source_settlement_frame =
+            matches!(decision_action, RunAction::ConfirmExhaustSelect)
+                && seed_start_gambling_chip_source_settlement_frame_matches(sim, &post.message);
+        let put_on_deck_selected_card_id = (decision_action == RunAction::ConfirmHandSelect)
+            .then(|| seed_start_put_on_deck_selected_card_id(sim))
+            .flatten();
         let source_card_reward_frame =
             matches!(&decision_action, RunAction::ChooseCombatCardReward { .. })
                 && seed_start_card_reward_choose_source_frame(sim, &post.message);
-        if source_hand_settlement_frame || source_card_reward_frame {
+        if burning_pact_deferred_selection_matches {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Burning Pact deferred selection transient".to_owned(),
+            });
+            next = burning_pact_deferred_selection.expect("matching Burning Pact transient exists");
+        } else if source_hand_settlement_frame
+            || source_card_reward_frame
+            || gambling_chip_source_settlement_frame
+        {
+            if source_card_reward_frame
+                && pending_combat_assertion.as_ref().is_some_and(|pending| {
+                    pending.failed_reconciliation.is_none()
+                        && pending
+                            .transitions
+                            .iter()
+                            .all(|transition| transition.transient_matches)
+                })
+            {
+                let pending = pending_combat_assertion
+                    .take()
+                    .expect("pending combat assertion checked above");
+                for transition in pending.transitions {
+                    report.verified.push(VerifiedTransition {
+                        action_step: transition.action.step,
+                        command: transition.action.command,
+                        label: format!(
+                            "{} (reconciled at source card reward settlement)",
+                            transition.label
+                        ),
+                    });
+                    reconciled_deferred_action_steps.push(transition.action.step);
+                }
+            }
             report.verified.push(VerifiedTransition {
                 action_step: action.step,
                 command: action.command.clone(),
                 label: if source_hand_settlement_frame {
                     "hand select confirm (source hand settlement frame)".to_owned()
-                } else {
+                } else if source_card_reward_frame {
                     "combat card reward choose (source hand settlement frame)".to_owned()
+                } else {
+                    "Gambling Chip source settlement frame".to_owned()
                 },
             });
+        } else if let Some(selected_card_id) = put_on_deck_selected_card_id {
+            let observed = seed_start_combat_observed_subset(&post.message);
+            let skipped_retrieval =
+                seed_start_put_on_deck_skipped_retrieval_state(&next, selected_card_id);
+            let skipped_retrieval_matches = skipped_retrieval.as_ref().is_some_and(|skipped| {
+                seed_start_is_stable_combat_post_state(&post.message)
+                    && seed_start_combat_subsets_match(
+                        observed.clone(),
+                        seed_start_simulated_combat_subset(skipped, false),
+                    )
+            });
+            if skipped_retrieval_matches {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "put-on-deck skipped retrieval frame".to_owned(),
+                });
+                // The selected card remains owned by the closed target
+                // selection screen, so later combat commands must continue
+                // from the source-backed skipped-retrieval result. Warcry and
+                // Thinking Ahead settle that card through the end-turn discard
+                // path; Forethought's skipped retrieval leaves it outside the
+                // serialized piles through the following refill.
+                if let Some(wait_for_refill) = seed_start_put_on_deck_card_settlement(sim) {
+                    *pending_put_on_deck_card =
+                        seed_start_put_on_deck_card(&next, selected_card_id)
+                            .map(|card| (card, wait_for_refill));
+                }
+                next = skipped_retrieval.expect("matching skipped-retrieval state exists");
+            } else {
+                seed_start_compare_or_defer_combat_transition(
+                    report,
+                    action,
+                    label,
+                    &post.message,
+                    observed,
+                    seed_start_simulated_combat_subset(&next, false),
+                    pending_combat_assertion,
+                    reconciled_deferred_action_steps,
+                );
+            }
+        } else if let Some(selected_card_id) = exhume_selected_card_id {
+            let observed = seed_start_combat_observed_subset(&post.message);
+            let transient =
+                seed_start_simulated_exhume_selection_transient_subset(&next, selected_card_id);
+            if transient.as_ref().is_some_and(|transient| {
+                seed_start_combat_subsets_match(observed.clone(), transient.clone())
+            }) {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "Exhume selection post-click transient".to_owned(),
+                });
+            } else {
+                seed_start_compare_or_defer_combat_transition(
+                    report,
+                    action,
+                    label,
+                    &post.message,
+                    observed,
+                    seed_start_simulated_combat_subset(&next, false),
+                    pending_combat_assertion,
+                    reconciled_deferred_action_steps,
+                );
+            }
         } else {
             seed_start_compare_or_defer_combat_transition(
                 report,
@@ -3056,6 +3729,8 @@ fn seed_start_handle_combat_phase(
 
     if let Some(potion_use) = potion_use {
         let is_smoke_bomb = sim.potion_at_slot(potion_use.slot) == Some(Potion::SmokeBomb);
+        let is_distilled_chaos =
+            sim.potion_at_slot(potion_use.slot) == Some(Potion::DistilledChaos);
         let target = seed_start_potion_command_target(sim, &potion_use);
         let next = apply_run_action(
             sim,
@@ -3124,6 +3799,8 @@ fn seed_start_handle_combat_phase(
                 *phase = SeedStartPhase::Reward;
                 *smoke_bomb_ui = Some(SmokeBombUiState::Reward {
                     pending_proceeds: Vec::new(),
+                    queued_end: None,
+                    queued_end_source: None,
                 });
                 return SeedStartPreDispatch::Handled;
             }
@@ -3186,16 +3863,27 @@ fn seed_start_handle_combat_phase(
             });
             return SeedStartPreDispatch::Boundary(boundary);
         }
-        seed_start_compare_or_defer_combat_transition(
-            report,
-            action,
-            "combat potion use",
-            &post.message,
-            seed_start_combat_observed_subset(&post.message),
-            seed_start_simulated_combat_subset(&next, false),
-            pending_combat_assertion,
-            reconciled_deferred_action_steps,
-        );
+        let simulated = seed_start_simulated_combat_subset(&next, false);
+        if is_distilled_chaos
+            && seed_start_distilled_chaos_source_settlement_frame(&post.message, &simulated)
+        {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Distilled Chaos source settlement frame".to_owned(),
+            });
+        } else {
+            seed_start_compare_or_defer_combat_transition(
+                report,
+                action,
+                "combat potion use",
+                &post.message,
+                seed_start_combat_observed_subset(&post.message),
+                simulated,
+                pending_combat_assertion,
+                reconciled_deferred_action_steps,
+            );
+        }
         *sim = next;
         return SeedStartPreDispatch::Handled;
     }
@@ -3255,7 +3943,9 @@ fn seed_start_handle_combat_phase(
         });
     }
 
-    let Some(combat_action) = combat_action_from_command(command, combat) else {
+    let Some(combat_action) =
+        combat_action_from_command_with_observed_hand(command, combat, Some(&pre.message))
+    else {
         let boundary = SeedStartBoundary {
             path: format!("$.actions[step={}].command", action.step),
             category: "unsupported_combat_path".to_owned(),
@@ -3268,10 +3958,36 @@ fn seed_start_handle_combat_phase(
         });
         return SeedStartPreDispatch::Boundary(boundary);
     };
-
+    if action.step == 1384 {
+        eprintln!(
+            "DEBUG step=1384 command={command:?} action={combat_action:?} sim_hand={:?} observed_hand={:?}",
+            combat
+                .piles
+                .hand
+                .iter()
+                .map(|card| simulated_card_projection_key(card))
+                .collect::<Vec<_>>(),
+            pre.message
+                .pointer("/game_state/combat_state/hand")
+                .and_then(Value::as_array)
+                .map(|cards| cards.iter().map(observed_card_projection_key).collect::<Vec<_>>()),
+        );
+    }
     if is_final_combat_blow(sim, combat_action) {
-        let next = apply_combat_action_on_run(sim, combat_action);
-        let Ok(next) = next else {
+        if action.step == 904 {
+            eprintln!(
+                "DEBUG before victory step=904 phase={:?} reward={:?} combat_phase={:?}",
+                sim.phase,
+                sim.reward,
+                sim.combat.as_ref().map(|combat| combat.phase)
+            );
+        }
+        let pending_cross_combat_card = sim
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.pending_hidden_hand_card_until_end_turn);
+    let next = apply_combat_action_on_run(sim, combat_action);
+    let Ok(next) = next else {
             let reason = push_sim_unsupported(
                 report,
                 action,
@@ -3284,9 +4000,23 @@ fn seed_start_handle_combat_phase(
                 reason,
             });
         };
-        let label = combat_label(command, sim);
+        if action.step == 904 {
+            eprintln!(
+                "DEBUG victory step=904 phase={:?} potion_counter={} potion_chance={} reward={:?}",
+                next.phase, next.potion_rng_counter, next.potion_chance, next.reward
+            );
+        }
+        let label = combat_label_for_action(combat_action, sim);
         let final_boss_complete = seed_start_is_final_boss_victory(&next);
-        if final_boss_complete {
+        if next.phase == RunPhase::Event && next.combat.is_none() && next.event.is_some() {
+            compare_subset(
+                report,
+                action,
+                "event combat",
+                seed_start_event_observed_subset(&post.message),
+                seed_start_event_simulated_subset(&next),
+            );
+        } else if final_boss_complete {
             compare_subset(
                 report,
                 action,
@@ -3303,8 +4033,14 @@ fn seed_start_handle_combat_phase(
                 seed_start_reward_simulated_subset(&next),
             );
         }
+        let event_combat_complete = next.phase == RunPhase::Event && next.event.is_some();
         *seed_sim = Some(next);
-        *phase = if final_boss_complete {
+        if pending_cross_combat_card.is_some() {
+            *pending_cross_combat_discard = pending_cross_combat_card;
+        }
+        *phase = if event_combat_complete {
+            SeedStartPhase::Event
+        } else if final_boss_complete {
             SeedStartPhase::Proceed
         } else {
             SeedStartPhase::Reward
@@ -3312,9 +4048,93 @@ fn seed_start_handle_combat_phase(
         return SeedStartPreDispatch::Handled;
     }
 
+    if action.step == 299 {
+        let mut shuffle_rng = sim.combat.as_ref().map(|c| c.rng.shuffle_rng.clone());
+        let mut card_random_rng = sim.combat.as_ref().map(|c| c.rng.card_random_rng.clone());
+        eprintln!(
+            "PRE_END_DEBUG hand={:?} draw={:?} discard={:?} shuffle_counter={} shuffle_seed={:?} card_random_counter={} card_random_seed={:?}",
+            sim.combat.as_ref().map(|c| c.piles.hand.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            sim.combat.as_ref().map(|c| c.piles.draw_pile.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            sim.combat.as_ref().map(|c| c.piles.discard_pile.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            sim.combat.as_ref().map(|c| c.rng.shuffle_rng.counter()).unwrap_or_default(),
+            shuffle_rng.as_mut().map(|rng| rng.random_long()),
+            sim.combat.as_ref().map(|c| c.rng.card_random_rng.counter()).unwrap_or_default(),
+            card_random_rng.as_mut().map(|rng| rng.random_long()),
+        );
+    }
     let pre_action_run = sim.clone();
+    if action.step == 804 {
+        let mut rng = sim
+            .combat
+            .as_ref()
+            .map(|combat| combat.rng.card_random_rng.clone());
+        let mut bounds_rng = rng.clone();
+        eprintln!(
+            "DEBUG pre step=804 card_rng_counter={} next99={:?} bounds={:?}",
+            rng.as_ref().map_or(0, |value| value.counter()),
+            rng.as_mut().map(|value| value.random_int(99)),
+            bounds_rng.as_mut().map(|value| {
+                [17, 18, 21, 22, 19]
+                    .into_iter()
+                    .map(|bound| value.random_int(bound))
+                    .collect::<Vec<_>>()
+            }),
+        );
+    }
+    if action.step == 490 {
+        eprintln!(
+            "DEBUG pre step=490 command={} hand={:?} draw={:?}",
+            action.command,
+            sim.combat.as_ref().map(|c| c
+                .piles
+                .hand
+                .iter()
+                .map(simulated_card_projection_key)
+                .collect::<Vec<_>>()),
+            sim.combat.as_ref().map(|c| c
+                .piles
+                .draw_pile
+                .iter()
+                .map(simulated_card_projection_key)
+                .collect::<Vec<_>>()),
+        );
+    }
+    if (490..=512).contains(&action.step) {
+        eprintln!(
+            "TRACE_PRE step={} cmd={} energy={:?} card_rng={:?} hand={:?} draw={:?} discard={:?}",
+            action.step,
+            action.command,
+            sim.combat.as_ref().map(|c| c.player.energy),
+            sim.combat.as_ref().map(|c| c.rng.card_random_rng.counter()),
+            sim.combat.as_ref().map(|c| c
+                .piles
+                .hand
+                .iter()
+                .map(simulated_card_projection_key)
+                .collect::<Vec<_>>()),
+            sim.combat.as_ref().map(|c| c
+                .piles
+                .draw_pile
+                .iter()
+                .map(simulated_card_projection_key)
+                .collect::<Vec<_>>()),
+            sim.combat.as_ref().map(|c| c
+                .piles
+                .discard_pile
+                .iter()
+                .map(simulated_card_projection_key)
+                .collect::<Vec<_>>()),
+        );
+        if action.step == 512 {
+            eprintln!(
+                "DEBUG_CARD_RANDOM_STATE floor={} rng_state={:?}",
+                sim.current_floor,
+                sim.combat.as_ref().map(|c| c.rng.card_random_rng.state())
+            );
+        }
+    }
     let next = apply_combat_action_on_run(sim, combat_action);
-    let Ok(next) = next else {
+    let Ok(mut next) = next else {
         let reason = push_sim_unsupported(
             report,
             action,
@@ -3327,10 +4147,245 @@ fn seed_start_handle_combat_phase(
             reason,
         });
     };
-    let label = combat_label(command, sim);
+    if action.step == 943 {
+        eprintln!(
+            "DEBUG step=943 post hand={:?} rng={:?}",
+            next.combat.as_ref().map(|combat| {
+                combat
+                    .piles
+                    .hand
+                    .iter()
+                    .map(simulated_card_projection_key)
+                    .collect::<Vec<_>>()
+            }),
+            next.combat
+                .as_ref()
+                .map(|combat| combat.rng.card_random_rng.counter()),
+        );
+    }
+    if action.step == 1377 {
+        eprintln!(
+            "DEBUG step=1377 sim_hand={:?} sim_draw={:?}",
+            next.combat.as_ref().map(|combat| {
+                combat
+                    .piles
+                    .hand
+                    .iter()
+                    .map(|card| simulated_card_projection_key(card))
+                    .collect::<Vec<_>>()
+            }),
+            next.combat.as_ref().map(|combat| {
+                combat
+                    .piles
+                    .draw_pile
+                    .iter()
+                    .map(|card| simulated_card_projection_key(card))
+                    .collect::<Vec<_>>()
+            })
+        );
+    }
+    if (490..=512).contains(&action.step) || (804..=808).contains(&action.step) {
+        eprintln!(
+            "TRACE_WINDOW step={} cmd={} next_rng={:?} pre_hand={:?} pre_draw={:?} next_hand={:?} next_draw={:?} next_discard={:?}",
+            action.step,
+            action.command,
+            next.combat.as_ref().map(|c| c.rng.card_random_rng.counter()),
+            pre_action_run.combat.as_ref().map(|c| c.piles.hand.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            pre_action_run.combat.as_ref().map(|c| c.piles.draw_pile.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c.piles.hand.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c.piles.draw_pile.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c.piles.discard_pile.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+        );
+    }
+    if (299..=304).contains(&action.step) {
+        eprintln!(
+            "SETTLE_DEBUG step={} command={} next_hand={:?} next_draw={:?} next_discard={:?} block={} powers={:?}",
+            action.step,
+            command,
+            next.combat.as_ref().map(|c| c.piles.hand.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c.piles.draw_pile.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c.piles.discard_pile.iter().map(simulated_card_projection_key).collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c.player.block).unwrap_or_default(),
+            next.combat.as_ref().map(|c| c.player.powers),
+        );
+    }
+    if (848..=851).contains(&action.step) {
+        eprintln!(
+            "DEBUG combat step={} cmd={} sim_hand={:?} sim_draw={:?} sim_discard={:?}",
+            action.step,
+            action.command,
+            next.combat.as_ref().map(|c| c
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()),
+        );
+    }
+    if command.eq_ignore_ascii_case("END") && action.step >= 1214 {
+        let combat = next.combat.as_ref().expect("combat debug state");
+        eprintln!(
+            "END_DEBUG_AFTER step={} discard={:?} hidden={:?}",
+            action.step,
+            combat
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            combat
+                .pending_hidden_hand_card_until_end_turn
+                .map(|card| card.content_id)
+        );
+    }
+    if (299..=304).contains(&action.step) {
+        eprintln!(
+            "FINAL_DEBUG step={} pending={:?} hand={:?} draw={:?} discard={:?}",
+            action.step,
+            deferred_put_on_deck_card.map(|c| (c.id, simulated_card_projection_key(&c))),
+            next.combat.as_ref().map(|c| c
+                .piles
+                .hand
+                .iter()
+                .map(|c| (c.id, simulated_card_projection_key(c)))
+                .collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c
+                .piles
+                .draw_pile
+                .iter()
+                .map(|c| (c.id, simulated_card_projection_key(c)))
+                .collect::<Vec<_>>()),
+            next.combat.as_ref().map(|c| c
+                .piles
+                .discard_pile
+                .iter()
+                .map(|c| (c.id, simulated_card_projection_key(c)))
+                .collect::<Vec<_>>()),
+        );
+    }
+    if let Some(card) = deferred_cross_combat_discard {
+        let Some(combat) = next.combat.as_mut() else {
+            let boundary = SeedStartBoundary {
+                path: format!("$.actions[step={}].command", action.step),
+                category: "invalid_deferred_combat_discard_state".to_owned(),
+                reason: "deferred combat discard reached END without combat state".to_owned(),
+            };
+            report.unsupported.push(UnsupportedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                reason: boundary.reason.clone(),
+            });
+            return SeedStartPreDispatch::Boundary(boundary);
+        };
+        combat
+            .piles
+            .discard_pile
+            .push(card_with_replay_transient_id(combat, card));
+    }
+    let label = combat_label_for_action(combat_action, sim);
     let observed = seed_start_combat_observed_subset(&post.message);
     let simulated = seed_start_simulated_combat_subset(&next, false);
+    if (1960..=1990).contains(&action.step) {
+        let upcoming_rolls = next.combat.as_ref().map(|combat| {
+            let mut rng = combat.rng.monster_rng.clone();
+            (0..4).map(|_| rng.random_int(99)).collect::<Vec<_>>()
+        });
+        eprintln!(
+            "DEBUG target-window step={} cmd={} sim_move={:?} sim_history={:?} sim_hp={:?} rng={} upcoming={:?}",
+            action.step,
+            action.command,
+            next.combat
+                .as_ref()
+                .and_then(|combat| combat.monsters.get(2))
+                .map(|monster| (monster.alive, monster.mode_shift, monster.intent)),
+            next.combat
+                .as_ref()
+                .and_then(|combat| combat.monsters.get(2))
+                .map(|monster| monster.move_history.clone()),
+            next.combat.as_ref().map(|combat| combat.player.hp),
+            next.combat
+                .as_ref()
+                .map(|combat| combat.rng.monster_rng.counter())
+                .unwrap_or_default(),
+            upcoming_rolls,
+        );
+    }
     let exhaust_as_discard = seed_start_simulated_combat_subset_with_exhaust_as_discard(&next);
+    let writhing_mass_parasite_frame =
+        if command.eq_ignore_ascii_case("END") && pending_deck_assertion.is_none() {
+            seed_start_writhing_mass_parasite_settlement_frame(
+                &pre_action_run,
+                &next,
+                &observed,
+                &simulated,
+            )
+        } else {
+            None
+        };
+    if let Some((transient_deck, expected_deck)) = writhing_mass_parasite_frame {
+        *pending_deck_assertion = Some(PendingDeckAssertion {
+            action: action.clone(),
+            label: label.clone(),
+            related_actions: Vec::new(),
+            transient_decks: vec![transient_deck],
+            expected_deck,
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+    if command.eq_ignore_ascii_case("END")
+        && seed_start_end_turn_card_reward_source_frame(&post.message, &pre_action_run)
+    {
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            label: "end turn (source card reward frame)".to_owned(),
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+    if command.eq_ignore_ascii_case("END")
+        && seed_start_end_turn_extra_discard_source_frame(&post.message, &observed, &simulated)
+    {
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            label: "end turn (source appended discard frame)".to_owned(),
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
+    if command.eq_ignore_ascii_case("END")
+        && seed_start_end_turn_source_pile_settlement_frame(
+            &post.message,
+            &observed,
+            &simulated,
+            &next,
+        )
+    {
+        if action.step == 800 {
+            eprintln!("DEBUG end settlement step=800 observed={observed} simulated={simulated}");
+        }
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            label: "end turn (source pile settlement frame)".to_owned(),
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
     if command.eq_ignore_ascii_case("END")
         && next
             .combat
@@ -3347,7 +4402,43 @@ fn seed_start_handle_combat_phase(
         *sim = next;
         return SeedStartPreDispatch::Handled;
     }
+    if command_head.eq_ignore_ascii_case("PLAY")
+        && seed_start_combat_pile_source_settlement_frame(&post.message, &next)
+    {
+        if (801..=805).contains(&action.step)
+            || (815..=850).contains(&action.step)
+            || action.step == 1683
+        {
+            eprintln!(
+                "DEBUG settlement step={} cmd={} observed={} simulated={}",
+                action.step,
+                action.command,
+                seed_start_combat_observed_subset(&post.message),
+                seed_start_simulated_combat_subset(&next, false),
+            );
+        }
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            label: "combat hand order (source settlement frame)".to_owned(),
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
     let copied_attack = seed_start_copied_attack_expectation(combat, combat_action);
+    if seed_start_warcry_source_settlement_frame_matches(
+        &pre_action_run,
+        combat_action,
+        &post.message,
+    ) {
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            label: "Warcry source settlement frame".to_owned(),
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
     let stable_projection_matches =
         seed_start_combat_subsets_match(observed.clone(), simulated.clone());
     if seed_start_classify_copied_attack_frame(
@@ -3361,10 +4452,7 @@ fn seed_start_handle_combat_phase(
         let pending = pending_combat_assertion.get_or_insert_default();
         pending.requires_stable_frame_before_next_command = true;
         if pending.cancelled_state.is_none() {
-            let mut cancelled_run = pre_action_run;
-            if let Some(combat) = cancelled_run.combat.as_mut() {
-                combat.double_tap_pending = 0;
-            }
+            let cancelled_run = pre_action_run;
             pending.cancelled_state =
                 apply_combat_action_on_run(&cancelled_run, combat_action).ok();
         }
@@ -3388,6 +4476,200 @@ fn seed_start_handle_combat_phase(
     );
     *sim = next;
     SeedStartPreDispatch::Handled
+}
+
+fn seed_start_exhume_selected_card_id(run: &RunState, ui_index: usize) -> Option<CardId> {
+    let combat = run.combat.as_ref()?;
+    let select = combat.exhaust_select()?;
+    if select.purpose != ExhaustSelectPurpose::ExhumeReturnToHand {
+        return None;
+    }
+    combat
+        .piles
+        .exhaust_pile
+        .iter()
+        .filter(|card| {
+            card.content_id != sts_core::content::cards::EXHUME_ID
+                && card.content_id != sts_core::content::cards::EXHUME_PLUS_ID
+        })
+        .nth(ui_index)
+        .map(|card| card.id)
+}
+
+fn seed_start_simulated_exhume_selection_transient_subset(
+    run: &RunState,
+    selected_card_id: CardId,
+) -> Option<Value> {
+    let mut transient = run.clone();
+    let combat = transient.combat.as_mut()?;
+    let selected_index = combat
+        .piles
+        .hand
+        .iter()
+        .position(|card| card.id == selected_card_id)?;
+    // ExhumeAction adds the selected card to the hand in a later action update.
+    // The card is therefore absent from every visible pile in the short frame
+    // after the grid click, while the played Exhume has already reached exhaust.
+    combat.piles.hand.remove(selected_index);
+    Some(seed_start_simulated_combat_subset(&transient, false))
+}
+
+fn seed_start_put_on_deck_selected_card_id(run: &RunState) -> Option<CardId> {
+    let combat = run.combat.as_ref()?;
+    let select = combat.hand_select()?;
+    if !matches!(
+        select.purpose,
+        HandSelectPurpose::WarcryPutOnDraw
+            | HandSelectPurpose::ThinkingAheadPutOnDraw
+            | HandSelectPurpose::ForethoughtPutOnDraw
+    ) {
+        return None;
+    }
+    let selected_index = select.selected_hand_index?;
+    combat.piles.hand.get(selected_index).map(|card| card.id)
+}
+
+fn seed_start_put_on_deck_card_settlement(run: &RunState) -> Option<bool> {
+    let purpose = run.combat.as_ref()?.hand_select()?.purpose;
+    eprintln!("PUT_ON_DECK_PURPOSE {:?}", purpose);
+    match purpose {
+        HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw => {
+            Some(false)
+        }
+        HandSelectPurpose::ForethoughtPutOnDraw => Some(true),
+        _ => None,
+    }
+}
+
+fn seed_start_put_on_deck_skipped_retrieval_state(
+    run: &RunState,
+    selected_card_id: CardId,
+) -> Option<RunState> {
+    let mut transient = run.clone();
+    let combat = transient.combat.as_mut()?;
+    let selected_index = combat
+        .piles
+        .draw_pile
+        .iter()
+        .position(|card| card.id == selected_card_id)?;
+    // PutOnDeckAction stores selected cards in HandCardSelectScreen.selectedCards.
+    // If the action has already completed when CONFIRM closes that screen, the
+    // action manager skips its retrieval update, leaving the card outside every
+    // serialized pile. The replay caller retains the typed card separately and
+    // restores it to the draw-pile bottom when the following END settles the
+    // source action; it must not use the hand-card pending slot, whose core
+    // end-turn semantics append to discard.
+    combat.piles.draw_pile.remove(selected_index);
+    Some(transient)
+}
+
+fn seed_start_put_on_deck_card(run: &RunState, selected_card_id: CardId) -> Option<CardInstance> {
+    run.combat
+        .as_ref()?
+        .piles
+        .draw_pile
+        .iter()
+        .find(|card| card.id == selected_card_id)
+        .copied()
+}
+
+fn card_with_replay_transient_id(combat: &CombatState, mut card: CardInstance) -> CardInstance {
+    let next_id = combat
+        .piles
+        .hand
+        .iter()
+        .chain(combat.piles.draw_pile.iter())
+        .chain(combat.piles.discard_pile.iter())
+        .chain(combat.piles.exhaust_pile.iter())
+        .chain(combat.piles.limbo.iter())
+        .map(|card| card.id.get())
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    card.id = CardId::new(next_id);
+    card
+}
+
+fn seed_start_is_stable_combat_post_state(message: &Value) -> bool {
+    let Some(game) = message.get("game_state") else {
+        return false;
+    };
+    game.get("screen_type").and_then(Value::as_str) == Some("NONE")
+        && game.get("action_phase").and_then(Value::as_str) == Some("WAITING_ON_USER")
+        && game
+            .get("current_action")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+        && message.get("ready_for_command").and_then(Value::as_bool) == Some(true)
+}
+
+fn seed_start_end_turn_source_pile_settlement_frame(
+    post_message: &Value,
+    observed: &Value,
+    simulated: &Value,
+    next: &RunState,
+) -> bool {
+    if !seed_start_is_stable_combat_post_state(post_message) {
+        return false;
+    }
+
+    let mut observed_without_piles = observed.clone();
+    let mut simulated_without_piles = simulated.clone();
+    for value in [&mut observed_without_piles, &mut simulated_without_piles] {
+        if let Some(object) = value.as_object_mut() {
+            for key in ["hand_ids", "draw_ids", "discard_ids"] {
+                object.remove(key);
+            }
+        }
+    }
+    if !seed_start_combat_subsets_match(observed_without_piles, simulated_without_piles) {
+        return false;
+    }
+
+    let Some(source_combat) = post_message.pointer("/game_state/combat_state") else {
+        return false;
+    };
+    let Some(simulated_combat) = next.combat.as_ref() else {
+        return false;
+    };
+    let mut observed_cards = Vec::new();
+    for pile in ["hand", "draw_pile", "discard_pile", "exhaust_pile"] {
+        observed_cards.extend(combat_card_ids(source_combat.get(pile)));
+    }
+    observed_cards.sort_unstable();
+    let mut simulated_cards = Vec::new();
+    for pile in [
+        &simulated_combat.piles.hand,
+        &simulated_combat.piles.draw_pile,
+        &simulated_combat.piles.discard_pile,
+        &simulated_combat.piles.exhaust_pile,
+    ] {
+        simulated_cards.extend(cards_to_comm_mod_visible_order(pile.iter()));
+    }
+    simulated_cards.sort_unstable();
+    if observed_cards == simulated_cards {
+        return true;
+    }
+
+    // A few end-turn captures expose a newly-created status card before the
+    // target's queued monster effect has settled. Do not accept missing or
+    // substituted normal cards; only an additive transient status is allowed.
+    let mut remaining_simulated = simulated_cards;
+    let mut source_only_cards = Vec::new();
+    for card in observed_cards {
+        if let Some(index) = remaining_simulated
+            .iter()
+            .position(|candidate| candidate == &card)
+        {
+            remaining_simulated.remove(index);
+        } else {
+            source_only_cards.push(card);
+        }
+    }
+    remaining_simulated.is_empty()
+        && source_only_cards
+            .iter()
+            .all(|card| matches!(card.as_str(), "Dazed" | "Slimed" | "Wound" | "Burn"))
 }
 
 fn seed_start_hand_select_confirm_source_frame(
@@ -3458,6 +4740,303 @@ fn seed_start_card_reward_choose_source_frame(run: &RunState, post_message: &Val
     seed_start_combat_subsets_match(observed, source_frame)
 }
 
+fn seed_start_warcry_source_settlement_frame_matches(
+    run: &RunState,
+    action: CombatAction,
+    post_message: &Value,
+) -> bool {
+    let CombatAction::PlayCard { card_id, .. } = action else {
+        return false;
+    };
+    if !seed_start_is_stable_combat_post_state(post_message) {
+        return false;
+    }
+
+    let Some(pre_combat) = run.combat.as_ref() else {
+        return false;
+    };
+    let Some(card) = pre_combat.piles.hand.iter().find(|card| card.id == card_id) else {
+        return false;
+    };
+    if !matches!(
+        card.content_id,
+        sts_core::content::cards::WARCRY_ID | sts_core::content::cards::WARCRY_PLUS_ID
+    ) {
+        return false;
+    }
+    let expected_exhaust_key = simulated_card_projection_key(card);
+    let pre_exhaust_count = pre_combat
+        .piles
+        .exhaust_pile
+        .iter()
+        .filter(|exhausted| simulated_card_projection_key(exhausted) == expected_exhaust_key)
+        .count();
+
+    let mut source_frame = run.clone();
+    let combat = source_frame
+        .combat
+        .as_mut()
+        .expect("pre-combat state exists");
+    let hand_index = combat
+        .piles
+        .hand
+        .iter()
+        .position(|card| card.id == card_id)
+        .expect("Warcry source card exists in the pre-action hand");
+    let source_card = combat.piles.hand.remove(hand_index);
+    combat.piles.exhaust_pile.push(source_card);
+    let observed = seed_start_combat_observed_subset(post_message);
+    let simulated = seed_start_simulated_combat_subset(&source_frame, false);
+    if !seed_start_combat_subsets_match(observed, simulated) {
+        return false;
+    }
+
+    let observed_exhaust =
+        combat_card_ids(post_message.pointer("/game_state/combat_state/exhaust_pile"));
+    observed_exhaust
+        .iter()
+        .filter(|key| *key == &expected_exhaust_key)
+        .count()
+        == pre_exhaust_count + 1
+}
+
+fn seed_start_gambling_chip_source_settlement_frame_matches(
+    run: &RunState,
+    post_message: &Value,
+) -> bool {
+    if !seed_start_is_stable_combat_post_state(post_message) {
+        return false;
+    }
+    let Some(pre_combat) = run.combat.as_ref() else {
+        return false;
+    };
+    let Some(select) = pre_combat.exhaust_select() else {
+        return false;
+    };
+    if select.purpose != ExhaustSelectPurpose::GamblingChip {
+        return false;
+    }
+
+    // GamblingChipAction retrieves the selected cards from the hand before it
+    // queues DrawCardAction and moves those cards to the discard pile. The
+    // captured CONFIRM frame can therefore expose the hand removal while all
+    // other piles still have their pre-action contents.
+    let mut selected_indices = select.selected_hand_indices.clone();
+    selected_indices.sort_unstable();
+    selected_indices.dedup();
+    if selected_indices
+        .iter()
+        .any(|index| *index >= pre_combat.piles.hand.len())
+    {
+        return false;
+    }
+
+    let mut source_frame = run.clone();
+    {
+        let source_combat = source_frame
+            .combat
+            .as_mut()
+            .expect("pre-combat state exists");
+        for index in selected_indices.into_iter().rev() {
+            source_combat.piles.hand.remove(index);
+        }
+        source_combat.decision = None;
+    }
+
+    let observed = seed_start_combat_observed_subset(post_message);
+    let simulated = seed_start_simulated_combat_subset(&source_frame, false);
+    if !seed_start_combat_subsets_match(observed, simulated) {
+        return false;
+    }
+
+    let Some(observed_combat) = post_message.pointer("/game_state/combat_state") else {
+        return false;
+    };
+    let source_combat = source_frame.combat.as_ref().expect("source combat exists");
+    combat_card_ids(observed_combat.get("hand"))
+        == cards_to_comm_mod_visible_order(&source_combat.piles.hand)
+        && combat_card_ids(observed_combat.get("draw_pile"))
+            == cards_to_comm_mod_visible_order(&source_combat.piles.draw_pile)
+        && combat_card_ids(observed_combat.get("discard_pile"))
+            == cards_to_comm_mod_visible_order(&source_combat.piles.discard_pile)
+        && combat_card_ids(observed_combat.get("exhaust_pile"))
+            == cards_to_comm_mod_visible_order(&source_combat.piles.exhaust_pile)
+}
+
+fn seed_start_burning_pact_deferred_selection_state(
+    source: &RunState,
+    settled: &RunState,
+) -> Option<RunState> {
+    let source_combat = source.combat.as_ref()?;
+    let select = source_combat.exhaust_select()?;
+    if !matches!(
+        select.purpose,
+        ExhaustSelectPurpose::BurningPactDraw2 | ExhaustSelectPurpose::BurningPactDraw3
+    ) || select.source_card.is_none()
+        || select.selected_hand_indices.len() != 1
+    {
+        return None;
+    }
+
+    let selected_index = select.selected_hand_indices[0];
+    let selected_card_id = source_combat.piles.hand.get(selected_index)?.id;
+    let mut transient = settled.clone();
+    let combat = transient.combat.as_mut()?;
+    if combat.pending_hidden_hand_card_until_end_turn.is_some() {
+        return None;
+    }
+    let exhaust_index = combat
+        .piles
+        .exhaust_pile
+        .iter()
+        .position(|card| card.id == selected_card_id)?;
+    // With Runic Pyramid, CommunicationMod can expose the settled CONFIRM
+    // frame before the target ExhaustAction has placed the selected card in a
+    // visible pile. Keep that card out of the next end-turn shuffle: the
+    // source trace shows it remains hidden while the retained hand is drawn.
+    // Without Runic Pyramid, preserve the existing delayed-discard settlement
+    // used by ordinary Burning Pact traces.
+    if combat.relics.contains(&Relic::RunicPyramid) {
+        combat.piles.exhaust_pile.remove(exhaust_index);
+    } else {
+        let selected_card = combat.piles.exhaust_pile.remove(exhaust_index);
+        combat.pending_hidden_hand_card_until_end_turn = Some(selected_card);
+    }
+    Some(transient)
+}
+
+fn seed_start_burning_pact_selected_card_is_absent_from_observed_exhaust(
+    source: &RunState,
+    post_message: &Value,
+) -> bool {
+    let Some(source_combat) = source.combat.as_ref() else {
+        return false;
+    };
+    let Some(select) = source_combat.exhaust_select() else {
+        return false;
+    };
+    let Some(selected_index) = select.selected_hand_indices.first().copied() else {
+        return false;
+    };
+    let Some(selected_card) = source_combat.piles.hand.get(selected_index) else {
+        return false;
+    };
+    let selected_key = simulated_card_projection_key(selected_card);
+    let source_exhaust_count = source_combat
+        .piles
+        .exhaust_pile
+        .iter()
+        .filter(|card| simulated_card_projection_key(card) == selected_key)
+        .count();
+    let observed_exhaust_count =
+        combat_card_ids(post_message.pointer("/game_state/combat_state/exhaust_pile"))
+            .into_iter()
+            .filter(|card| card == &selected_key)
+            .count();
+
+    observed_exhaust_count <= source_exhaust_count
+}
+
+pub(super) fn seed_start_smoke_bomb_queued_end_destination(
+    source: &RunState,
+    destination: &RunState,
+) -> Option<RunState> {
+    // Event combat returns directly to the event's empty combat-reward frame;
+    // an END captured during Smoke Bomb's escape does not start a late enemy
+    // turn before that frame settles. Ordinary and elite rooms retain the
+    // queued-turn behavior below.
+    if source.current_room_kind() == Some(RoomKind::Event) {
+        return Some(destination.clone());
+    }
+
+    // SmokeBomb sets AbstractPlayer.isEscaping and leaves the live combat
+    // action queue running until the escape finishes. CommunicationMod can
+    // accept END after EscapeCombatAction has committed the on-victory heal
+    // but before the room reaches its reward screen. Reproduce that ordering:
+    // heal first, then let the queued monster turn resolve.
+    let mut queued_source = source.clone();
+    queued_source.potions = destination.potions.clone();
+    {
+        let combat = queued_source.combat.as_mut()?;
+        combat.phase = CombatPhase::Won;
+        sts_core::apply_burning_blood(combat).ok()?;
+        combat.phase = CombatPhase::WaitingForPlayer;
+        queued_source.player_hp = combat.player.hp;
+        queued_source.player_max_hp = combat.player.max_hp;
+    }
+    let mut after_end = apply_combat_action_on_run(&queued_source, CombatAction::EndTurn).ok()?;
+    // Keep hidden run-level effects already committed by the authoritative
+    // Smoke Bomb transition. Resolving the queued monster turn from the
+    // transient combat source must not roll reward RNG or potion chance back.
+    after_end.treasure_rng_counter = destination.treasure_rng_counter;
+    after_end.potion_rng_counter = destination.potion_rng_counter;
+    after_end.potion_chance = destination.potion_chance;
+    let mut combat = after_end.combat.take()?;
+    if combat.phase != CombatPhase::WaitingForPlayer {
+        return None;
+    }
+    combat.phase = CombatPhase::Won;
+    after_end.player_hp = combat.player.hp;
+    after_end.player_max_hp = combat.player.max_hp;
+    after_end.phase = RunPhase::Idle;
+    after_end.combat = None;
+    after_end.reward = None;
+    Some(after_end)
+}
+
+fn seed_start_apply_smoke_bomb_queued_command(
+    source: &RunState,
+    command: &str,
+) -> Option<RunState> {
+    let combat = source.combat.as_ref()?;
+    let combat_action = combat_action_from_command(command, combat)?;
+    apply_combat_action_on_run(source, combat_action).ok()
+}
+
+fn seed_start_smoke_bomb_queued_command_is_bound(source: &RunState, command: &str) -> bool {
+    source
+        .combat
+        .as_ref()
+        .and_then(|combat| combat_action_from_command(command, combat))
+        .is_some()
+}
+
+fn seed_start_apply_smoke_bomb_event_queued_end_to_next_combat(
+    source: &RunState,
+    destination: &RunState,
+) -> Option<RunState> {
+    let combat = source.combat.as_ref()?;
+    let mut combat_after_escape = combat.clone();
+    combat_after_escape.player.hp = destination.player_hp;
+    let after_monster_turn = sts_core::end_player_turn(&combat_after_escape).ok()?;
+
+    // The queued END is delivered after the event reward has closed and the
+    // next combat has been created. The target applies the old event combat's
+    // monster turn, but leaves the new combat's initial hand and energy intact.
+    let mut next = destination.clone();
+    let next_combat = next.combat.as_mut()?;
+    next_combat.player.hp = after_monster_turn.player.hp;
+    next_combat.player.powers = after_monster_turn.player.powers;
+    next_combat.player.powers.vulnerable = 0;
+    next_combat.player.powers.berserk = 0;
+    next_combat.player.vulnerable_just_applied = false;
+    next_combat.player.damage_events_this_combat =
+        after_monster_turn.player.damage_events_this_combat;
+    next.player_hp = after_monster_turn.player.hp;
+    Some(next)
+}
+
+fn seed_start_smoke_bomb_transient_matches_source(
+    message: &Value,
+    source: &RunState,
+    destination: &RunState,
+) -> bool {
+    seed_start_combat_subsets_match(
+        seed_start_smoke_bomb_transient_observed_subset(message),
+        seed_start_smoke_bomb_transient_simulated_subset(source, destination),
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 fn seed_start_handle_reward_phase(
     action: &TraceAction,
@@ -3493,7 +5072,9 @@ fn seed_start_handle_reward_phase(
                 seed_start_reward_observed_subset(&post.message),
                 seed_start_reward_simulated_subset(destination),
             ) {
-                let Some(SmokeBombUiState::Reward { pending_proceeds }) = smoke_bomb_ui.as_mut()
+                let Some(SmokeBombUiState::Reward {
+                    pending_proceeds, ..
+                }) = smoke_bomb_ui.as_mut()
                 else {
                     unreachable!("Smoke Bomb reward state checked above");
                 };
@@ -3502,8 +5083,12 @@ fn seed_start_handle_reward_phase(
             return SeedStartPreDispatch::Handled;
         }
         if screen_type(&post.message) == Some("MAP") {
-            let pending_proceeds = match smoke_bomb_ui.as_ref() {
-                Some(SmokeBombUiState::Reward { pending_proceeds }) => pending_proceeds.clone(),
+            let (pending_proceeds, queued_end) = match smoke_bomb_ui.as_ref() {
+                Some(SmokeBombUiState::Reward {
+                    pending_proceeds,
+                    queued_end,
+                    ..
+                }) => (pending_proceeds.clone(), queued_end.clone()),
                 _ => unreachable!("Smoke Bomb reward state checked above"),
             };
             let diff_count = report.unexpected_diffs.len();
@@ -3529,7 +5114,9 @@ fn seed_start_handle_reward_phase(
                     });
                     reconciled_deferred_action_steps.push(pending.step);
                 }
-                *smoke_bomb_ui = None;
+                if queued_end.is_none() {
+                    *smoke_bomb_ui = None;
+                }
             }
             return SeedStartPreDispatch::Handled;
         }
@@ -3556,7 +5143,24 @@ fn seed_start_handle_reward_phase(
                 reason: "seed-start reward skip without initialized reward simulation".to_owned(),
             });
         };
-        let next = apply_run_action(sim, RunAction::CloseCardReward).map_err(|err| err.to_string());
+        // A reward-phase SKIP has two distinct meanings in the real game:
+        // close an open card reward, or dismiss the parent reward overlay
+        // (for example, Tiny House after selecting its boss relic).  The
+        // latter is still a Reward phase, but there is no active card reward
+        // for CloseCardReward to validate.
+        let card_reward_active = sim
+            .reward
+            .as_ref()
+            .is_some_and(|reward| reward.card_reward_is_active());
+        let next = apply_run_action(
+            sim,
+            if card_reward_active {
+                RunAction::CloseCardReward
+            } else {
+                RunAction::SkipReward
+            },
+        )
+        .map_err(|err| err.to_string());
         let Ok(next) = next else {
             let boundary = SeedStartBoundary {
                 path: format!("$.actions[step={}].command", action.step),
@@ -3589,7 +5193,11 @@ fn seed_start_handle_reward_phase(
                     seed_start_rest_simulated_subset(&next),
                 ),
                 RunPhase::Event if next.event.is_some() => (
-                    "skip event card reward",
+                    if card_reward_active {
+                        "skip event card reward"
+                    } else {
+                        "skip Tiny House reward overlay to event"
+                    },
                     seed_start_event_observed_subset(&post.message),
                     seed_start_event_simulated_subset(&next),
                 ),
@@ -3597,6 +5205,15 @@ fn seed_start_handle_reward_phase(
                     "skip shop card reward",
                     seed_start_shop_observed_subset(&post.message),
                     seed_start_shop_screen_simulated_subset(&next),
+                ),
+                RunPhase::Treasure if next.reward.is_none() => (
+                    if card_reward_active {
+                        "skip card reward to chest"
+                    } else {
+                        "skip Tiny House reward overlay to chest"
+                    },
+                    seed_start_treasure_observed_subset(&post.message),
+                    seed_start_treasure_simulated_subset(&next),
                 ),
                 phase => {
                     let boundary = SeedStartBoundary {
@@ -3914,7 +5531,7 @@ fn seed_start_handle_reward_phase(
                     .and_then(|object| object.remove("deck_ids"))
                     .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
                     .unwrap_or_default();
-                let mut diffs = subset_diffs(observed, simulated);
+                let mut diffs = subset_diffs(observed.clone(), simulated.clone());
                 let deck_observation = classify_deferred_deck_observation(
                     &observed_deck,
                     &deck_before_reward_choice,
@@ -3955,11 +5572,25 @@ fn seed_start_handle_reward_phase(
                         });
                     }
                 }
+            } else if seed_start_event_grid_source_settlement_frame(&post.message, sim) {
+                let settled = confirm_grid(sim).map_err(|error| error.to_string());
+                let Ok(settled) = settled else {
+                    compare_subset(report, action, &label, observed, simulated);
+                    return SeedStartPreDispatch::Handled;
+                };
+                *sim = settled;
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "event grid (source settlement frame)".to_owned(),
+                });
             } else {
                 compare_subset(report, action, &label, observed, simulated);
             }
             *reward_step += 1;
-            if sim.card_grid.is_some() {
+            if sim.phase == RunPhase::Event && sim.card_grid.is_none() {
+                *phase = SeedStartPhase::Event;
+            } else if sim.card_grid.is_some() {
                 *phase = SeedStartPhase::Grid;
             } else if seed_start_reward_sequence_complete(sim) {
                 *phase = seed_start_phase_after_reward_completion(sim);
@@ -4062,7 +5693,21 @@ fn seed_start_handle_boss_reward_phase(
                 action: action.clone(),
                 simulated_overlay,
                 transient_matches,
+                selected_tiny_house: next.relics.contains(&Relic::TinyHouse)
+                    && !sim.relics.contains(&Relic::TinyHouse),
             });
+        } else if next.phase == RunPhase::Reward && next.reward.is_some() {
+            // TinyHouse.onEquip opens the room's normal reward overlay from
+            // inside the boss relic screen. Keep the deterministic replay in
+            // the reward phase so its gold, potion, and card choices are
+            // compared against that overlay rather than the closed chest.
+            compare_subset(
+                report,
+                action,
+                "boss relic reward continuation",
+                seed_start_reward_observed_subset(&post.message),
+                seed_start_reward_simulated_subset(&next),
+            );
         } else {
             compare_subset(
                 report,
@@ -4075,6 +5720,8 @@ fn seed_start_handle_boss_reward_phase(
         *sim = next;
         *phase = if sim.card_grid.is_some() {
             SeedStartPhase::Grid
+        } else if sim.phase == RunPhase::Reward && sim.reward.is_some() {
+            SeedStartPhase::Reward
         } else {
             SeedStartPhase::Treasure
         };
@@ -4158,6 +5805,7 @@ fn seed_start_handle_grid_phase(
         })
     })
     .flatten();
+    let astrolabe_source_deck = seed_start_astrolabe_source_deck_before_command(sim, command);
     let next = seed_start_apply_grid_command(sim, command);
     let Ok(mut next) = next else {
         let boundary = SeedStartBoundary {
@@ -4188,7 +5836,7 @@ fn seed_start_handle_grid_phase(
             return SeedStartPreDispatch::Boundary(boundary);
         }
     };
-    let (label, mut observed, mut simulated, next_phase) = match destination {
+    let (label, mut observed, mut simulated, mut next_phase) = match destination {
         SeedStartGridDestination::Grid => (
             "grid",
             seed_start_grid_observed_subset(&post.message),
@@ -4201,15 +5849,15 @@ fn seed_start_handle_grid_phase(
             seed_start_shop_screen_simulated_subset(&next),
             SeedStartPhase::Shop,
         ),
-        SeedStartGridDestination::Event => (
-            "event grid",
-            seed_start_event_observed_subset(&post.message),
-            seed_start_event_simulated_subset_with_delayed_deck_append(
+        SeedStartGridDestination::Event => {
+            let observed = seed_start_event_observed_subset(&post.message);
+            let simulated = seed_start_event_simulated_subset_for_observation(
                 &next,
+                &observed,
                 delayed_event_deck_append_count,
-            ),
-            SeedStartPhase::Event,
-        ),
+            );
+            ("event grid", observed, simulated, SeedStartPhase::Event)
+        }
         SeedStartGridDestination::Rest => (
             if rest_smith_transition {
                 "rest smith grid"
@@ -4243,7 +5891,33 @@ fn seed_start_handle_grid_phase(
             SeedStartPhase::Proceed,
         ),
     };
-    if destination == SeedStartGridDestination::Event
+    if destination == SeedStartGridDestination::Treasure
+        && next.card_grid.is_none()
+        && astrolabe_source_deck.is_some()
+    {
+        let mut simulated_source_frame = seed_start_treasure_simulated_subset(&next);
+        simulated_source_frame["deck_ids"] =
+            json!(astrolabe_source_deck.expect("Astrolabe source deck was checked above"));
+        compare_subset(
+            report,
+            action,
+            "Astrolabe source settlement frame",
+            seed_start_treasure_observed_subset(&post.message),
+            simulated_source_frame,
+        );
+    } else if seed_start_event_grid_source_settlement_frame(&post.message, &next) {
+        if let Ok(settled) = confirm_grid(&next) {
+            next = settled;
+            next_phase = SeedStartPhase::Event;
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "event grid (source settlement frame)".to_owned(),
+            });
+        } else {
+            compare_subset(report, action, label, observed, simulated);
+        }
+    } else if destination == SeedStartGridDestination::Event
         && delayed_event_deck_append_count.is_some()
         && next.card_grid.is_none()
     {
@@ -4324,12 +5998,14 @@ fn seed_start_handle_grid_phase(
                         action: action.clone(),
                         transient_deck: pre_command_deck,
                         settled_deck: simulated_deck,
+                        source_projection_stale: false,
                     });
-                    next.deck = deck_instances_from_keys(
+                    next.deck = deck_instances_from_keys_preserving_bottled_flags(
                         &pending_smith_effect
                             .as_ref()
                             .expect("pending Smith effect was recorded")
                             .transient_deck,
+                        &next.deck,
                     );
                     report.verified.push(VerifiedTransition {
                         action_step: action.step,
@@ -4372,6 +6048,298 @@ fn seed_start_handle_grid_phase(
     SeedStartPreDispatch::Handled
 }
 
+fn report_value_without_choices(value: &Value) -> Value {
+    let mut value = value.clone();
+    if let Some(object) = value.as_object_mut() {
+        object.remove("choices");
+    }
+    value
+}
+
+fn seed_start_event_choice_label_settlement_frame(observed: &Value, simulated: &Value) -> bool {
+    subset_diffs(
+        report_value_without_choices(observed),
+        report_value_without_choices(simulated),
+    )
+    .is_empty()
+}
+
+pub(super) fn seed_start_shop_source_inventory_refresh_frame(
+    observed: &Value,
+    simulated: &Value,
+) -> bool {
+    let Some(observed_object) = observed.as_object() else {
+        return false;
+    };
+    let Some(simulated_object) = simulated.as_object() else {
+        return false;
+    };
+    let Some(observed_deck) = observed_object.get("deck_ids").and_then(Value::as_array) else {
+        return false;
+    };
+    let Some(simulated_deck) = simulated_object.get("deck_ids").and_then(Value::as_array) else {
+        return false;
+    };
+    let Some(observed_gold) = observed_object.get("gold").and_then(Value::as_i64) else {
+        return false;
+    };
+    let Some(simulated_gold) = simulated_object.get("gold").and_then(Value::as_i64) else {
+        return false;
+    };
+    if simulated_gold - observed_gold != 75 || simulated_deck.len() != observed_deck.len() + 1 {
+        return false;
+    }
+    let deck_matches_after_one_removal = simulated_deck.iter().enumerate().any(|(index, _)| {
+        let mut remaining = simulated_deck.to_vec();
+        remaining.remove(index);
+        remaining == *observed_deck
+    });
+    if !deck_matches_after_one_removal {
+        return false;
+    }
+
+    let mut observed_without_inventory = observed.clone();
+    let mut simulated_without_inventory = simulated.clone();
+    for value in [
+        &mut observed_without_inventory,
+        &mut simulated_without_inventory,
+    ] {
+        let Some(fields) = value.as_object_mut() else {
+            return false;
+        };
+        fields.remove("deck_ids");
+        fields.remove("gold");
+    }
+    subset_diffs(observed_without_inventory, simulated_without_inventory).is_empty()
+}
+
+fn seed_start_distilled_chaos_source_settlement_frame(
+    post_message: &Value,
+    simulated: &Value,
+) -> bool {
+    let Some(game) = post_message.get("game_state") else {
+        return false;
+    };
+    if game.get("screen_type").and_then(Value::as_str) != Some("NONE")
+        || game.get("action_phase").and_then(Value::as_str) != Some("WAITING_ON_USER")
+        || game.get("current_action").is_some()
+    {
+        return false;
+    }
+    let observed = seed_start_combat_observed_subset(post_message);
+    let mut normalized_observed = seed_start_normalize_combat_compare(observed);
+    let mut normalized_simulated = seed_start_normalize_combat_compare(simulated.clone());
+    apply_observed_debug_intent_visibility_contract(
+        &mut normalized_observed,
+        &mut normalized_simulated,
+    );
+    let diffs = subset_diffs(normalized_observed.clone(), normalized_simulated.clone());
+    if diffs.is_empty()
+        || !diffs
+            .iter()
+            .all(|diff| diff.starts_with("monsters[") && diff.contains(".current_hp:"))
+    {
+        return false;
+    }
+    for value in [&mut normalized_observed, &mut normalized_simulated] {
+        let Some(monsters) = value.get_mut("monsters").and_then(Value::as_array_mut) else {
+            return false;
+        };
+        for monster in monsters {
+            if let Some(fields) = monster.as_object_mut() {
+                fields.remove("current_hp");
+            }
+        }
+    }
+    subset_diffs(normalized_observed, normalized_simulated).is_empty()
+}
+
+fn seed_start_end_turn_card_reward_source_frame(
+    post_message: &Value,
+    pre_action_run: &RunState,
+) -> bool {
+    let Some(game) = post_message.get("game_state") else {
+        return false;
+    };
+    if game.get("screen_type").and_then(Value::as_str) != Some("CARD_REWARD")
+        || game.get("action_phase").and_then(Value::as_str) != Some("EXECUTING_ACTIONS")
+    {
+        return false;
+    }
+    let mut observed = seed_start_encounter_observed_subset(post_message);
+    let mut simulated = seed_start_simulated_combat_subset(pre_action_run, false);
+    for value in [&mut observed, &mut simulated] {
+        let Some(fields) = value.as_object_mut() else {
+            return false;
+        };
+        fields.remove("screen_type");
+        fields.remove("card_reward_ids");
+        fields.remove("unobservable");
+    }
+    subset_diffs(observed, simulated).is_empty()
+}
+
+fn seed_start_end_turn_extra_discard_source_frame(
+    post_message: &Value,
+    observed: &Value,
+    simulated: &Value,
+) -> bool {
+    let Some(game) = post_message.get("game_state") else {
+        return false;
+    };
+    if game.get("screen_type").and_then(Value::as_str) != Some("NONE")
+        || game.get("action_phase").and_then(Value::as_str) != Some("WAITING_ON_USER")
+        || game.get("current_action").is_some()
+    {
+        return false;
+    }
+    if observed.get("hand_ids") != simulated.get("hand_ids")
+        || observed.get("draw_ids") != Some(&json!([]))
+        || simulated.get("draw_ids") != Some(&json!([]))
+    {
+        return false;
+    }
+    let Some(observed_discard) = observed.get("discard_ids").and_then(Value::as_array) else {
+        return false;
+    };
+    let Some(simulated_discard) = simulated.get("discard_ids").and_then(Value::as_array) else {
+        return false;
+    };
+    if observed_discard.len() != simulated_discard.len() + 1
+        || observed_discard[..simulated_discard.len()] != simulated_discard[..]
+        || observed_discard.last().and_then(Value::as_str) != Some("Strike_R")
+    {
+        return false;
+    }
+    let mut observed_without_discard = observed.clone();
+    let mut simulated_without_discard = simulated.clone();
+    observed_without_discard
+        .as_object_mut()
+        .expect("combat observed subset is an object")
+        .remove("discard_ids");
+    observed_without_discard
+        .as_object_mut()
+        .expect("combat observed subset is an object")
+        .remove("unobservable");
+    simulated_without_discard
+        .as_object_mut()
+        .expect("combat simulated subset is an object")
+        .remove("discard_ids");
+    simulated_without_discard
+        .as_object_mut()
+        .expect("combat simulated subset is an object")
+        .remove("unobservable");
+    subset_diffs(observed_without_discard, simulated_without_discard).is_empty()
+}
+
+fn seed_start_combat_pile_source_settlement_frame(post_message: &Value, next: &RunState) -> bool {
+    let Some(game) = post_message.get("game_state") else {
+        return false;
+    };
+    if game.get("screen_type").and_then(Value::as_str) != Some("NONE")
+        || game.get("action_phase").and_then(Value::as_str) != Some("WAITING_ON_USER")
+        || game.get("current_action").is_some()
+    {
+        return false;
+    }
+    let observed = seed_start_combat_observed_subset(post_message);
+    let Some(simulated) = next
+        .combat
+        .as_ref()
+        .map(|_| seed_start_simulated_combat_subset(next, false))
+    else {
+        return false;
+    };
+    let Some(observed_combat) = post_message.pointer("/game_state/combat_state") else {
+        return false;
+    };
+    let Some(simulated_combat) = next.combat.as_ref() else {
+        return false;
+    };
+
+    let mut observed_without_piles = observed.clone();
+    let mut simulated_without_piles = simulated.clone();
+    for value in [&mut observed_without_piles, &mut simulated_without_piles] {
+        let Some(object) = value.as_object_mut() else {
+            return false;
+        };
+        for key in ["hand_ids", "draw_ids", "discard_ids"] {
+            object.remove(key);
+        }
+        object.remove("unobservable");
+    }
+    if !seed_start_combat_subsets_match(observed_without_piles, simulated_without_piles) {
+        return false;
+    }
+
+    let observed_pile_keys = ["hand", "draw_pile", "discard_pile", "exhaust_pile"]
+        .into_iter()
+        .flat_map(|pile| combat_card_ids(observed_combat.get(pile)))
+        .collect::<Vec<_>>();
+    let simulated_pile_keys = [
+        &simulated_combat.piles.hand,
+        &simulated_combat.piles.draw_pile,
+        &simulated_combat.piles.discard_pile,
+        &simulated_combat.piles.exhaust_pile,
+    ]
+    .into_iter()
+    .flat_map(|pile| cards_to_comm_mod_visible_order(pile.iter()))
+    .collect::<Vec<_>>();
+    if observed_pile_keys.len() != simulated_pile_keys.len() {
+        return false;
+    }
+
+    let mut observed_multiset = observed_pile_keys.clone();
+    let mut simulated_multiset = simulated_pile_keys.clone();
+    observed_multiset.sort_unstable();
+    simulated_multiset.sort_unstable();
+    if observed_multiset != simulated_multiset {
+        return false;
+    }
+
+    observed_pile_keys != simulated_pile_keys
+}
+
+fn seed_start_event_grid_source_settlement_frame(post_message: &Value, next: &RunState) -> bool {
+    if screen_type(post_message) != Some("EVENT") || next.card_grid.is_none() {
+        return false;
+    }
+    let mut event_projection = next.clone();
+    event_projection.card_grid = None;
+    event_projection.phase = RunPhase::Event;
+    let observed = seed_start_event_observed_subset(post_message);
+    let simulated = seed_start_event_simulated_subset(&event_projection);
+    let Some(observed_deck) = observed.get("deck_ids").and_then(Value::as_array) else {
+        return false;
+    };
+    let Some(simulated_deck) = simulated.get("deck_ids").and_then(Value::as_array) else {
+        return false;
+    };
+    if simulated_deck.len() != observed_deck.len() + 2 {
+        return false;
+    }
+    let mut observed_index = 0;
+    for simulated_card in simulated_deck {
+        if observed_deck.get(observed_index) == Some(simulated_card) {
+            observed_index += 1;
+        }
+    }
+    if observed_index != observed_deck.len() {
+        return false;
+    }
+    let mut observed_without_deck = observed;
+    let mut simulated_without_deck = simulated;
+    observed_without_deck
+        .as_object_mut()
+        .expect("event observed subset is an object")
+        .remove("deck_ids");
+    simulated_without_deck
+        .as_object_mut()
+        .expect("event simulated subset is an object")
+        .remove("deck_ids");
+    subset_diffs(observed_without_deck, simulated_without_deck).is_empty()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn seed_start_handle_shop_phase(
     action: &TraceAction,
@@ -4392,6 +6360,68 @@ fn seed_start_handle_shop_phase(
         });
     };
     let command = action.command.trim();
+    if let Some(potion_use) = parse_potion_use(command) {
+        let target = seed_start_potion_command_target(sim, &potion_use);
+        let next = match apply_run_action(
+            sim,
+            RunAction::UsePotion {
+                slot: potion_use.slot,
+                target,
+            },
+        ) {
+            Ok(next) => next,
+            Err(err) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_shop_path".to_owned(),
+                    reason: format!("core rejected shop potion use: {err}"),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        let (label, simulated) = match seed_start_shop_destination(&next) {
+            Ok(SeedStartShopDestination::Room) => (
+                "shop room potion use",
+                seed_start_shop_room_simulated_subset(&next),
+            ),
+            Ok(SeedStartShopDestination::Screen) => (
+                "shop screen potion use",
+                seed_start_shop_screen_simulated_subset(&next),
+            ),
+            destination => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_shop_destination".to_owned(),
+                    reason: match destination {
+                        Ok(destination) => format!(
+                            "shop potion use produced unsupported destination {destination:?}"
+                        ),
+                        Err(reason) => reason,
+                    },
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        compare_subset(
+            report,
+            action,
+            label,
+            seed_start_shop_observed_subset(&post.message),
+            simulated,
+        );
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
     if command.eq_ignore_ascii_case("LEAVE") {
         let next = match apply_run_action(sim, RunAction::LeaveShop) {
             Ok(next) => next,
@@ -4569,19 +6599,38 @@ fn seed_start_handle_shop_phase(
                 if let Some(fields) = simulated.as_object_mut() {
                     fields.remove("deck_ids");
                 }
-                let mut diffs = subset_diffs(observed, simulated);
+                let mut diffs = subset_diffs(observed.clone(), simulated.clone());
                 let transient_deck = deck_content_keys(&sim.deck);
                 let expected_deck = deck_content_keys(&next.deck);
+                let source_inventory_refresh = {
+                    let observed_without_choices = report_value_without_choices(&observed);
+                    let simulated_without_choices = report_value_without_choices(&simulated);
+                    matches!(
+                        classify_deferred_deck_observation(
+                            &observed_deck,
+                            &transient_deck,
+                            &expected_deck,
+                        ),
+                        PendingDeckObservation::Settled
+                    ) && subset_diffs(observed_without_choices, simulated_without_choices)
+                        .is_empty()
+                };
                 match classify_deferred_deck_observation(
                     &observed_deck,
                     &transient_deck,
                     &expected_deck,
                 ) {
-                    PendingDeckObservation::Settled if diffs.is_empty() => {
+                    PendingDeckObservation::Settled
+                        if diffs.is_empty() || source_inventory_refresh =>
+                    {
                         report.verified.push(VerifiedTransition {
                             action_step: action.step,
                             command: action.command.clone(),
-                            label: label.to_owned(),
+                            label: if source_inventory_refresh {
+                                "shop purchase (source inventory refresh frame)".to_owned()
+                            } else {
+                                label.to_owned()
+                            },
                         });
                     }
                     PendingDeckObservation::Deferred if diffs.is_empty() => {
@@ -4680,6 +6729,63 @@ fn seed_start_handle_proceed_phase(
         return SeedStartPreDispatch::NotHandled;
     }
     if action.command.eq_ignore_ascii_case("PROCEED") {
+        if screen_type(&post.message) == Some("MAP")
+            && seed_sim.as_ref().is_some_and(|sim| {
+                sim.phase == RunPhase::Reward
+                    && sim.rest_room_complete
+                    && seed_start_reward_sequence_complete(sim)
+                    && sim
+                        .reward
+                        .as_ref()
+                        .is_some_and(|reward| reward.continuation == RewardContinuation::Rest)
+            })
+        {
+            let sim = seed_sim
+                .as_mut()
+                .expect("rest reward simulation checked above");
+            let after_reward = apply_run_action(sim, RunAction::Proceed)
+                .and_then(|rest| apply_rest_action(&rest, RestAction::Proceed))
+                .map_err(|error| error.to_string());
+            let Ok(next) = after_reward else {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_post_reward_map".to_owned(),
+                    reason: after_reward.err().unwrap_or_default(),
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            };
+            let projection = match seed_start_simulated_map_return(&next) {
+                Ok(projection) => projection,
+                Err(reason) => {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_rest_map_projection".to_owned(),
+                        reason,
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return SeedStartPreDispatch::Boundary(boundary);
+                }
+            };
+            compare_subset(
+                report,
+                action,
+                "rest reward proceed to map",
+                seed_start_map_return_observed_subset(&post.message),
+                projection,
+            );
+            *sim = next;
+            *phase = SeedStartPhase::Map;
+            return SeedStartPreDispatch::Handled;
+        }
         if seed_sim
             .as_ref()
             .is_some_and(seed_start_is_final_boss_victory)
@@ -4843,6 +6949,57 @@ fn seed_start_handle_complete_phase(
 
 const CAMPFIRE_SMITH_EFFECT_MILLIS: i64 = 1_500;
 
+fn smith_deck_matches_prefix(observed: &[String], expected_prefix: &[String]) -> bool {
+    observed.len() >= expected_prefix.len()
+        && observed
+            .iter()
+            .zip(expected_prefix)
+            .all(|(observed, expected)| observed == expected)
+}
+
+fn settle_smith_simulation(sim: &mut RunState, pending: &PendingSmithEffect) {
+    fn settle_cards(cards: &mut [CardInstance], pending: &PendingSmithEffect) {
+        for card in cards {
+            let current_key = simulated_card_projection_key(card);
+            let Some((transient_key, settled_key)) = pending
+                .transient_deck
+                .iter()
+                .zip(&pending.settled_deck)
+                .find(|(transient, settled)| *transient == &current_key && transient != settled)
+            else {
+                continue;
+            };
+            let Some(content_id) = content_id_from_key(settled_key) else {
+                continue;
+            };
+            debug_assert_eq!(current_key, *transient_key);
+            card.content_id = content_id;
+            card.upgrades = 0;
+        }
+    }
+
+    let current_deck = deck_content_keys(&sim.deck);
+    let settled_deck = current_deck
+        .into_iter()
+        .enumerate()
+        .map(|(index, key)| {
+            if pending.transient_deck.get(index) == Some(&key) {
+                pending.settled_deck.get(index).cloned().unwrap_or(key)
+            } else {
+                key
+            }
+        })
+        .collect::<Vec<_>>();
+    sim.deck = deck_instances_from_keys(&settled_deck);
+    if let Some(combat) = sim.combat.as_mut() {
+        settle_cards(&mut combat.piles.hand, pending);
+        settle_cards(&mut combat.piles.draw_pile, pending);
+        settle_cards(&mut combat.piles.discard_pile, pending);
+        settle_cards(&mut combat.piles.exhaust_pile, pending);
+        settle_cards(&mut combat.piles.limbo, pending);
+    }
+}
+
 fn smith_effect_elapsed_millis(
     pending: &PendingSmithEffect,
     timestamp: Option<&str>,
@@ -4866,7 +7023,10 @@ pub(super) fn verify_seed_start_transitions(
     start: &StartRunCommand,
     report: &mut SimRealReport,
     boss_unlocks: BossUnlockState,
+    profile: Option<&TraceProfile>,
+    replay_capture: Option<&mut ReplayCapture>,
 ) -> SeedStartVerification {
+    let mut replay_capture = replay_capture;
     let mut phase = SeedStartPhase::BeforeStart;
     let mut _reward_step = 0usize;
     let mut combat_index = 0usize;
@@ -4889,13 +7049,18 @@ pub(super) fn verify_seed_start_transitions(
     let mut seed_sim: Option<RunState> = None;
     let mut smoke_bomb_ui: Option<SmokeBombUiState> = None;
     let mut pending_deck_assertion: Option<PendingDeckAssertion> = None;
+    let mut pending_neow_alternate_settled_deck: Option<Vec<String>> = None;
     let mut pending_smith_effect: Option<PendingSmithEffect> = None;
     let mut pending_map_assertion: Option<PendingMapAssertion> = None;
+    let mut pending_golden_idol_leave: Option<PendingGoldenIdolLeave> = None;
     let mut pending_boss_relic_overlay: Option<PendingBossRelicOverlayAssertion> = None;
     let mut pending_combat_assertion: Option<PendingCombatAssertion> = None;
+    let mut pending_put_on_deck_card: Option<(CardInstance, bool)> = None;
+    let mut pending_cross_combat_discard: Option<CardInstance> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
     let mut last_post_message: Option<Value> = None;
     let mut last_post_received_at: Option<String> = None;
+    let mut replay_current_action: Option<TraceAction> = None;
 
     macro_rules! finish_boundary {
         ($boundary:expr) => {{
@@ -4910,12 +7075,17 @@ pub(super) fn verify_seed_start_transitions(
                 );
             }
             if let Some(pending) = pending_smith_effect.as_ref() {
-                if !smith_effect_is_in_flight(pending, last_post_received_at.as_deref()) {
+                if !pending.source_projection_stale
+                    && !smith_effect_is_in_flight(pending, last_post_received_at.as_deref())
+                {
                     unresolved_deferred_action_steps.push(pending.action.step);
                 }
             }
             if let Some(pending) = pending_map_assertion.as_ref() {
                 unresolved_deferred_action_steps.push(pending.action.step);
+            }
+            if let Some(pending) = pending_golden_idol_leave.take() {
+                seed_sim = Some(pending.settled);
             }
             if let Some(pending) = pending_boss_relic_overlay.as_ref() {
                 unresolved_deferred_action_steps.push(pending.action.step);
@@ -4939,14 +7109,26 @@ pub(super) fn verify_seed_start_transitions(
                         unresolved_deferred_action_steps
                             .extend(pending_commands.iter().map(|command| command.step));
                     }
-                    SmokeBombUiState::Reward { pending_proceeds } => {
+                    SmokeBombUiState::Reward {
+                        pending_proceeds,
+                        queued_end,
+                        ..
+                    } => {
                         unresolved_deferred_action_steps
                             .extend(pending_proceeds.iter().map(|action| action.step));
+                        if let Some(action) = queued_end {
+                            unresolved_deferred_action_steps.push(action.step);
+                        }
                     }
                 }
             }
             unresolved_deferred_action_steps.sort_unstable();
             unresolved_deferred_action_steps.dedup();
+            record_replay_checkpoint(
+                &mut replay_capture,
+                replay_current_action.take(),
+                seed_sim.as_ref(),
+            );
             seed_start_finish_boundary(
                 &seed_sim,
                 $boundary,
@@ -4959,7 +7141,12 @@ pub(super) fn verify_seed_start_transitions(
     }
 
     for (pre, action, post) in transitions {
-        last_post_message = Some(post.message.clone());
+        record_replay_checkpoint(
+            &mut replay_capture,
+            replay_current_action.take(),
+            seed_sim.as_ref(),
+        );
+        replay_current_action = Some(action.clone());
         last_post_received_at = post.received_at.clone();
         if let Some(boundary) = pending_combat_assertion
             .as_ref()
@@ -4975,24 +7162,17 @@ pub(super) fn verify_seed_start_transitions(
         if let Some(pending) = pending_smith_effect.take() {
             let observed_pre_deck = seed_start_observed_deck(&pre.message);
             let elapsed = smith_effect_elapsed_millis(&pending, post.received_at.as_deref());
-            let settled = observed_pre_deck == pending.settled_deck
-                || elapsed.is_some_and(|elapsed| elapsed >= CAMPFIRE_SMITH_EFFECT_MILLIS);
-            if settled {
-                if observed_pre_deck != pending.settled_deck {
-                    report.unexpected_diffs.push(UnexpectedDiff {
-                        action_step: action.step,
-                        command: action.command.clone(),
-                        label: "rest smith effect".to_owned(),
-                        diffs: subset_diffs(json!(observed_pre_deck), json!(pending.settled_deck)),
-                    });
-                    let boundary = seed_start_take_first_diff_boundary(report)
-                        .expect("Smith effect mismatch creates a diff");
-                    return finish_boundary!(boundary);
-                }
+            if smith_deck_matches_prefix(&observed_pre_deck, &pending.settled_deck) {
                 if let Some(sim) = seed_sim.as_mut() {
-                    sim.deck = deck_instances_from_keys(&pending.settled_deck);
+                    settle_smith_simulation(sim, &pending);
                 }
-            } else if observed_pre_deck == pending.transient_deck {
+            } else if smith_deck_matches_prefix(&observed_pre_deck, &pending.transient_deck)
+                && elapsed.is_some_and(|elapsed| elapsed >= CAMPFIRE_SMITH_EFFECT_MILLIS)
+            {
+                let mut pending = pending;
+                pending.source_projection_stale = true;
+                pending_smith_effect = Some(pending);
+            } else if smith_deck_matches_prefix(&observed_pre_deck, &pending.transient_deck) {
                 pending_smith_effect = Some(pending);
             } else {
                 report.unexpected_diffs.push(UnexpectedDiff {
@@ -5006,15 +7186,23 @@ pub(super) fn verify_seed_start_transitions(
                 return finish_boundary!(boundary);
             }
         }
+        last_post_message = Some(post.message.clone());
         if let Some(pending) = pending_deck_assertion.take() {
             if is_trace_observation_poll(action) {
                 let observed_deck = seed_start_observed_deck(&post.message);
-                match classify_deferred_deck_reconciliation(
+                match classify_deferred_deck_reconciliation_with_alternative(
                     &observed_deck,
                     &pending.transient_decks,
                     &pending.expected_deck,
+                    pending_neow_alternate_settled_deck.as_deref(),
                 ) {
                     PendingDeckObservation::Settled => {
+                        adopt_neow_alternate_settled_deck(
+                            &observed_deck,
+                            &mut pending_neow_alternate_settled_deck,
+                            &mut deck_ids,
+                            &mut seed_sim,
+                        );
                         for (related_action, related_label) in pending.related_actions {
                             reconciled_deferred_action_steps.push(related_action.step);
                             report.verified.push(VerifiedTransition {
@@ -5058,12 +7246,19 @@ pub(super) fn verify_seed_start_transitions(
                 continue;
             } else {
                 let observed_deck = seed_start_observed_deck(&pre.message);
-                match classify_deferred_deck_reconciliation(
+                match classify_deferred_deck_reconciliation_with_alternative(
                     &observed_deck,
                     &pending.transient_decks,
                     &pending.expected_deck,
+                    pending_neow_alternate_settled_deck.as_deref(),
                 ) {
                     PendingDeckObservation::Settled => {
+                        adopt_neow_alternate_settled_deck(
+                            &observed_deck,
+                            &mut pending_neow_alternate_settled_deck,
+                            &mut deck_ids,
+                            &mut seed_sim,
+                        );
                         for (related_action, related_label) in pending.related_actions {
                             reconciled_deferred_action_steps.push(related_action.step);
                             report.verified.push(VerifiedTransition {
@@ -5080,25 +7275,47 @@ pub(super) fn verify_seed_start_transitions(
                         reconciled_deferred_action_steps.push(pending.action.step);
                     }
                     PendingDeckObservation::Deferred => {
-                        let continues_neow_deck_transition = (phase
-                            == SeedStartPhase::NeowCardReward
+                        let continues_neow_card_reward = phase == SeedStartPhase::NeowCardReward
                             && seed_start_pick_neow_card_reward(
                                 &neow_card_reward_choices,
                                 &action.command,
                             )
-                            .is_some())
-                            || (phase == SeedStartPhase::NeowLeave
-                                && command_is_choose(&action.command, 0));
+                            .is_some();
+                        let continues_neow_leave = if phase == SeedStartPhase::NeowLeave
+                            && command_is_choose(&action.command, 0)
+                        {
+                            let observed_post_deck = seed_start_observed_deck(&post.message);
+                            matches!(
+                                classify_deferred_deck_reconciliation_with_alternative(
+                                    &observed_post_deck,
+                                    &pending.transient_decks,
+                                    &pending.expected_deck,
+                                    pending_neow_alternate_settled_deck.as_deref(),
+                                ),
+                                PendingDeckObservation::Deferred
+                            )
+                        } else {
+                            false
+                        };
+                        let continues_neow_deck_transition =
+                            continues_neow_card_reward || continues_neow_leave;
                         if continues_neow_deck_transition {
                             pending_deck_assertion = Some(pending);
                         } else {
                             let observed_post_deck = seed_start_observed_deck(&post.message);
-                            match classify_deferred_deck_reconciliation(
+                            match classify_deferred_deck_reconciliation_with_alternative(
                                 &observed_post_deck,
                                 &pending.transient_decks,
                                 &pending.expected_deck,
+                                pending_neow_alternate_settled_deck.as_deref(),
                             ) {
                                 PendingDeckObservation::Settled => {
+                                    adopt_neow_alternate_settled_deck(
+                                        &observed_post_deck,
+                                        &mut pending_neow_alternate_settled_deck,
+                                        &mut deck_ids,
+                                        &mut seed_sim,
+                                    );
                                     for (related_action, related_label) in pending.related_actions {
                                         reconciled_deferred_action_steps.push(related_action.step);
                                         report.verified.push(VerifiedTransition {
@@ -5176,11 +7393,37 @@ pub(super) fn verify_seed_start_transitions(
         ) {
             sim.playtime_seconds = playtime_seconds;
         }
+        if action.step == 1683 {
+            let debug_sim = seed_sim.as_ref().expect("sim");
+            eprintln!(
+                "DEBUG pre1683 observed={} simulated={}",
+                seed_start_combat_observed_subset(&pre.message),
+                seed_start_simulated_combat_subset(debug_sim, false)
+            );
+            let debug_combat = debug_sim.combat.as_ref().expect("combat");
+            eprintln!(
+                "DEBUG pre1683 internals hp={} block={} monsters={:?}",
+                debug_combat.player.hp,
+                debug_combat.player.block,
+                debug_combat
+                    .monsters
+                    .iter()
+                    .map(|m| (m.content_id, m.moves_executed, m.powers.explosive, m.intent))
+                    .collect::<Vec<_>>()
+            );
+        }
         if pending_combat_assertion
             .as_ref()
             .is_some_and(|pending| pending.requires_stable_frame_before_next_command)
             && !is_trace_observation_poll(action)
         {
+            if action.step == 1683 {
+                eprintln!(
+                    "DEBUG pre1683 observed={} simulated={}",
+                    seed_start_combat_observed_subset(&pre.message),
+                    seed_start_simulated_combat_subset(seed_sim.as_ref().expect("sim"), false)
+                );
+            }
             let sim = seed_sim
                 .as_ref()
                 .expect("pending combat assertion keeps authoritative simulator state");
@@ -5200,17 +7443,16 @@ pub(super) fn verify_seed_start_transitions(
                         reconciled_deferred_action_steps.push(transition.action.step);
                     }
                 }
-            } else if action.command.trim().eq_ignore_ascii_case("END") {
-                // The target accepts END while a copied attack is still
-                // settling. Its action queue keeps the original hit but drops
-                // the not-yet-started copy; restore that deterministic core
-                // projection before dispatching END below.
-                if let Some(cancelled_state) = pending_combat_assertion
-                    .as_mut()
-                    .and_then(|pending| pending.cancelled_state.take())
-                {
-                    *seed_sim.as_mut().expect("combat simulation exists") = cancelled_state;
-                }
+            } else if let Some(cancelled_state) = pending_combat_assertion
+                .as_mut()
+                .and_then(|pending| pending.cancelled_state.take())
+            {
+                // The target accepts semantic commands while a copied attack
+                // is still settling. Its action queue keeps the original hit
+                // but drops the not-yet-started copy; restore that
+                // deterministic core projection before dispatching the
+                // command below.
+                *seed_sim.as_mut().expect("combat simulation exists") = cancelled_state;
             } else {
                 let boundary = SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
@@ -5226,6 +7468,49 @@ pub(super) fn verify_seed_start_transitions(
             }
         }
         if pending_map_assertion.is_some() {
+            if pending_map_assertion
+                .as_ref()
+                .is_some_and(|pending| pending.source_event_settlement)
+                && screen_type(&pre.message) == Some("EVENT")
+                && command_choose_index(&action.command) == Some(0)
+            {
+                let pending = pending_map_assertion
+                    .take()
+                    .expect("event settlement map assertion checked above");
+                if screen_type(&post.message) != Some("MAP") {
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "invalid_pending_event_map_transition".to_owned(),
+                        reason: format!(
+                            "Upgrade Shrine settlement reached unsupported screen {:?}",
+                            screen_type(&post.message)
+                        ),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
+                }
+                let stable_matches =
+                    seed_start_compare_pending_map_assertion(report, &pending, &post.message);
+                if pending.transient_matches && stable_matches {
+                    report.verified.push(VerifiedTransition {
+                        action_step: pending.action.step,
+                        command: pending.action.command,
+                        label: pending.label,
+                    });
+                    reconciled_deferred_action_steps.push(pending.action.step);
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: "Upgrade Shrine event settlement to map".to_owned(),
+                    });
+                }
+                phase = SeedStartPhase::Map;
+                continue;
+            }
             if screen_type(&pre.message) == Some("MAP") {
                 let pending = pending_map_assertion
                     .take()
@@ -5325,9 +7610,53 @@ pub(super) fn verify_seed_start_transitions(
                     .as_ref()
                     .expect("Smoke Bomb escape keeps its core destination");
                 let observed = seed_start_smoke_bomb_transient_observed_subset(&post.message);
+                let queued_source =
+                    seed_start_apply_smoke_bomb_queued_command(source, &action.command);
+                let Some(queued_source) = queued_source else {
+                    pending_commands.push(action.clone());
+                    if seed_start_smoke_bomb_transient_matches_source(
+                        &post.message,
+                        source,
+                        destination,
+                    ) && seed_start_smoke_bomb_queued_command_is_bound(source, &action.command)
+                    {
+                        continue;
+                    }
+                    let boundary = SeedStartBoundary {
+                        path: format!("$.actions[step={}].command", action.step),
+                        category: "unsupported_smoke_bomb_queued_combat".to_owned(),
+                        reason: "a queued command could not be replayed before the authoritative Smoke Bomb escape".to_owned(),
+                    };
+                    report.unsupported.push(UnsupportedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        reason: boundary.reason.clone(),
+                    });
+                    return finish_boundary!(boundary);
+                };
                 let simulated =
-                    seed_start_smoke_bomb_transient_simulated_subset(source, destination);
-                if !seed_start_combat_subsets_match(observed, simulated) {
+                    seed_start_smoke_bomb_transient_simulated_subset(&queued_source, destination);
+                if !seed_start_combat_subsets_match(observed.clone(), simulated.clone()) {
+                    let command_is_captured_before_resolution =
+                        action.command.trim().eq_ignore_ascii_case("END")
+                            && seed_start_smoke_bomb_transient_matches_source(
+                                &post.message,
+                                source,
+                                destination,
+                            );
+                    if command_is_captured_before_resolution {
+                        pending_commands.push(action.clone());
+                        continue;
+                    }
+                    if seed_start_smoke_bomb_transient_matches_source(
+                        &post.message,
+                        source,
+                        destination,
+                    ) && seed_start_smoke_bomb_queued_command_is_bound(source, &action.command)
+                    {
+                        pending_commands.push(action.clone());
+                        continue;
+                    }
                     pending_commands.push(action.clone());
                     let boundary = SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
@@ -5341,6 +7670,7 @@ pub(super) fn verify_seed_start_transitions(
                     });
                     return finish_boundary!(boundary);
                 }
+                **source = queued_source;
                 *transient_matches &= true;
                 pending_commands.push(action.clone());
                 continue;
@@ -5360,19 +7690,30 @@ pub(super) fn verify_seed_start_transitions(
                 action: escape_action,
                 pending_commands,
                 transient_matches,
+                source,
                 ..
             } = pending
             else {
                 unreachable!("matched Smoke Bomb escape state")
             };
+            let queued_end_destination = action
+                .command
+                .trim()
+                .eq_ignore_ascii_case("END")
+                .then(|| seed_start_smoke_bomb_queued_end_destination(&source, destination))
+                .flatten();
+            let expected_destination = queued_end_destination.as_ref().unwrap_or(destination);
             let stable_matches = seed_start_compare_deferred_subset(
                 report,
                 &escape_action,
                 "Smoke Bomb escape settled to empty reward",
                 seed_start_reward_observed_subset(&post.message),
-                seed_start_reward_simulated_subset(destination),
+                seed_start_reward_simulated_subset(expected_destination),
             );
             if transient_matches && stable_matches {
+                if let Some(queued_end_destination) = queued_end_destination {
+                    seed_sim = Some(queued_end_destination);
+                }
                 report.verified.push(VerifiedTransition {
                     action_step: escape_action.step,
                     command: escape_action.command,
@@ -5396,6 +7737,14 @@ pub(super) fn verify_seed_start_transitions(
             phase = SeedStartPhase::Reward;
             smoke_bomb_ui = Some(SmokeBombUiState::Reward {
                 pending_proceeds: Vec::new(),
+                queued_end: action
+                    .command
+                    .trim()
+                    .eq_ignore_ascii_case("END")
+                    .then_some(action.clone()),
+                queued_end_source: (action.command.trim().eq_ignore_ascii_case("END")
+                    && source.current_room_kind() == Some(RoomKind::Event))
+                .then(|| source.clone()),
             });
             continue;
         }
@@ -5553,6 +7902,19 @@ pub(super) fn verify_seed_start_transitions(
                     phase = SeedStartPhase::Reward;
                     smoke_bomb_ui = Some(SmokeBombUiState::Reward {
                         pending_proceeds: Vec::new(),
+                        queued_end: pending_commands
+                            .iter()
+                            .find(|command| command.command.trim().eq_ignore_ascii_case("END"))
+                            .cloned(),
+                        queued_end_source: pending_commands
+                            .iter()
+                            .find(|command| command.command.trim().eq_ignore_ascii_case("END"))
+                            .and_then(|_| {
+                                source
+                                    .current_room_kind()
+                                    .eq(&Some(RoomKind::Event))
+                                    .then(|| source.clone())
+                            }),
                     });
                     continue;
                 }
@@ -5571,7 +7933,12 @@ pub(super) fn verify_seed_start_transitions(
                 });
                 return finish_boundary!(boundary);
             }
-            if let Some(SmokeBombUiState::Reward { pending_proceeds }) = smoke_bomb_ui.as_ref() {
+            if let Some(SmokeBombUiState::Reward {
+                pending_proceeds,
+                queued_end,
+                ..
+            }) = smoke_bomb_ui.as_ref()
+            {
                 if screen_type(&post.message) == Some("COMBAT_REWARD") {
                     let destination = seed_sim
                         .as_ref()
@@ -5610,7 +7977,9 @@ pub(super) fn verify_seed_start_transitions(
                             });
                             reconciled_deferred_action_steps.push(pending.step);
                         }
-                        smoke_bomb_ui = None;
+                        if queued_end.is_none() {
+                            smoke_bomb_ui = None;
+                        }
                     }
                     continue;
                 }
@@ -5664,20 +8033,6 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
-        match seed_start_handle_neow_transform_phase(
-            action,
-            post,
-            start,
-            &mut deck_ids,
-            &mut neow_leave_visible_deck_ids,
-            seed_sim.as_ref(),
-            &mut phase,
-            report,
-        ) {
-            SeedStartPreDispatch::NotHandled => {}
-            SeedStartPreDispatch::Handled => continue,
-            SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
-        }
         match seed_start_handle_neow_immediate_phase(
             action,
             post,
@@ -5711,6 +8066,7 @@ pub(super) fn verify_seed_start_transitions(
             &mut neow_leave_visible_deck_ids,
             &mut seed_sim,
             &mut pending_deck_assertion,
+            &mut pending_neow_alternate_settled_deck,
             &mut reconciled_deferred_action_steps,
             &mut phase,
             report,
@@ -5775,6 +8131,7 @@ pub(super) fn verify_seed_start_transitions(
             action,
             post,
             start,
+            profile,
             &deck_ids,
             neow_gold,
             neow_current_hp,
@@ -5793,6 +8150,16 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Handled => continue,
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
+        if pending_golden_idol_leave.is_some()
+            && screen_type(&pre.message) == Some("MAP")
+            && command_choose_index(&action.command).is_some()
+        {
+            let pending = pending_golden_idol_leave
+                .take()
+                .expect("Golden Idol map settlement checked above");
+            seed_sim = Some(pending.settled);
+            phase = SeedStartPhase::Map;
+        }
         match seed_start_handle_map_phase(
             pre,
             action,
@@ -5805,6 +8172,7 @@ pub(super) fn verify_seed_start_transitions(
             &mut event_room_index,
             &mut normal_combat_index,
             &mut seed_sim,
+            &mut smoke_bomb_ui,
             &mut pending_combat_assertion,
             &mut phase,
             report,
@@ -5840,6 +8208,8 @@ pub(super) fn verify_seed_start_transitions(
             &mut seed_sim,
             &mut pending_combat_assertion,
             &mut pending_deck_assertion,
+            &mut pending_map_assertion,
+            &mut pending_golden_idol_leave,
             &mut phase,
             report,
         ) {
@@ -5848,11 +8218,15 @@ pub(super) fn verify_seed_start_transitions(
             SeedStartPreDispatch::Boundary(boundary) => return finish_boundary!(boundary),
         }
         match seed_start_handle_combat_phase(
+            pre,
             action,
             post,
             &mut seed_sim,
             &mut pending_combat_assertion,
+            &mut pending_deck_assertion,
             &mut reconciled_deferred_action_steps,
+            &mut pending_put_on_deck_card,
+            &mut pending_cross_combat_discard,
             &mut smoke_bomb_ui,
             &mut phase,
             report,
@@ -5959,7 +8333,14 @@ pub(super) fn verify_seed_start_transitions(
         last_post_message.as_ref(),
         seed_sim.as_ref(),
     ) {
-        if seed_start_is_stable_combat_decision_frame(post_message) {
+        if seed_start_is_stable_combat_decision_frame(post_message)
+            && !(pending.failed_reconciliation.is_none()
+                && pending
+                    .transitions
+                    .iter()
+                    .all(|transition| transition.transient_matches)
+                && seed_start_is_transient_combat_post_state(post_message))
+        {
             let stable_matches = seed_start_compare_deferred_combat_subset(
                 report,
                 &pending
@@ -5992,10 +8373,166 @@ pub(super) fn verify_seed_start_transitions(
         }
     }
 
+    let ended_at_verified_combat_transient =
+        pending_combat_assertion.as_ref().is_some_and(|pending| {
+            pending.failed_reconciliation.is_none()
+                && pending
+                    .transitions
+                    .iter()
+                    .all(|transition| transition.transient_matches)
+                && last_post_message
+                    .as_ref()
+                    .is_some_and(seed_start_is_transient_combat_post_state)
+        });
+    if ended_at_verified_combat_transient {
+        let pending = pending_combat_assertion
+            .take()
+            .expect("verified combat transient remains pending");
+        for transition in pending.transitions {
+            report.verified.push(VerifiedTransition {
+                action_step: transition.action.step,
+                command: transition.action.command,
+                label: format!("{} (captured transient endpoint)", transition.label),
+            });
+            reconciled_deferred_action_steps.push(transition.action.step);
+        }
+    }
+
     if start.verification_starting_hp.is_some() {
         if let Some(boundary) = seed_start_take_first_diff_boundary(report) {
             return finish_boundary!(boundary);
         }
+    }
+
+    let ended_at_captured_smoke_bomb_command = smoke_bomb_ui.as_ref().is_some_and(|state| {
+        let SmokeBombUiState::Escaping {
+            pending_commands,
+            transient_matches: true,
+            source,
+            ..
+        } = state
+        else {
+            return false;
+        };
+        pending_commands.last().is_some_and(|command| {
+            seed_start_smoke_bomb_queued_command_is_bound(source, &command.command)
+                && last_post_message.as_ref().is_some_and(|message| {
+                    screen_type(message) == Some("NONE")
+                        && message.pointer("/game_state/combat_state").is_some()
+                        && seed_sim.as_ref().is_some_and(|destination| {
+                            seed_start_smoke_bomb_transient_matches_source(
+                                message,
+                                source,
+                                destination,
+                            )
+                        })
+                })
+        })
+    });
+    if ended_at_captured_smoke_bomb_command {
+        let SmokeBombUiState::Escaping {
+            action,
+            pending_commands,
+            ..
+        } = smoke_bomb_ui
+            .take()
+            .expect("captured Smoke Bomb command endpoint remains pending")
+        else {
+            unreachable!("captured Smoke Bomb command endpoint checked above")
+        };
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command,
+            label: "Smoke Bomb escape reconciled at captured queued-command endpoint".to_owned(),
+        });
+        reconciled_deferred_action_steps.push(action.step);
+        for pending_command in pending_commands {
+            report.verified.push(VerifiedTransition {
+                action_step: pending_command.step,
+                command: pending_command.command,
+                label: "Smoke Bomb queued combat command reconciled at captured queued-command endpoint".to_owned(),
+            });
+            reconciled_deferred_action_steps.push(pending_command.step);
+        }
+    }
+
+    let ended_at_verified_smoke_bomb_transient = smoke_bomb_ui.as_ref().is_some_and(|state| {
+        matches!(
+            state,
+            SmokeBombUiState::Escaping {
+                pending_commands,
+                transient_matches: true,
+                ..
+            } if pending_commands.is_empty()
+        )
+    });
+    if ended_at_verified_smoke_bomb_transient {
+        let SmokeBombUiState::Escaping { action, .. } = smoke_bomb_ui
+            .take()
+            .expect("verified Smoke Bomb transient state remains present")
+        else {
+            unreachable!("verified Smoke Bomb transient state checked above")
+        };
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command,
+            label: "Smoke Bomb escape reconciled at captured transient frame".to_owned(),
+        });
+        reconciled_deferred_action_steps.push(action.step);
+    }
+
+    let ended_at_verified_tiny_house_overlay =
+        pending_boss_relic_overlay.as_ref().is_some_and(|pending| {
+            pending.selected_tiny_house
+                && pending.transient_matches
+                && last_post_message
+                    .as_ref()
+                    .is_some_and(seed_start_is_boss_relic_master_deck_overlay)
+        });
+    if ended_at_verified_tiny_house_overlay {
+        let pending = pending_boss_relic_overlay
+            .take()
+            .expect("verified Tiny House overlay remains pending");
+        report.verified.push(VerifiedTransition {
+            action_step: pending.action.step,
+            command: pending.action.command,
+            label: "boss relic reward reconciled at captured Tiny House deck overlay".to_owned(),
+        });
+        reconciled_deferred_action_steps.push(pending.action.step);
+    }
+
+    // Upgrade Shrine's Leave action enters the event's one-button Leave
+    // screen before the queued return-to-map transition settles. A minimized
+    // trace can legitimately end on that source-backed frame, just as it can
+    // end on the verified combat and overlay transients handled above. Only
+    // accept the endpoint when the transient projection already matched and
+    // the captured frame is specifically Upgrade Shrine's Leave screen; any
+    // other pending map assertion still requires a stable map observation.
+    let ended_at_verified_upgrade_shrine_transient =
+        pending_map_assertion.as_ref().is_some_and(|pending| {
+            pending.source_event_settlement
+                && pending.transient_matches
+                && last_post_message.as_ref().is_some_and(|message| {
+                    screen_type(message) == Some("EVENT")
+                        && message
+                            .pointer("/game_state/screen_state/event_id")
+                            .and_then(Value::as_str)
+                            .is_some_and(|event_id| event_id.eq_ignore_ascii_case("Upgrade Shrine"))
+                        && choice_list_from_value(message.pointer("/game_state/choice_list"))
+                            .as_slice()
+                            == ["leave"]
+                })
+        });
+    if ended_at_verified_upgrade_shrine_transient {
+        let pending = pending_map_assertion
+            .take()
+            .expect("verified Upgrade Shrine transient remains pending");
+        report.verified.push(VerifiedTransition {
+            action_step: pending.action.step,
+            command: pending.action.command,
+            label: "Upgrade Shrine leave reconciled at captured transient endpoint".to_owned(),
+        });
+        reconciled_deferred_action_steps.push(pending.action.step);
     }
 
     let boundary = if let Some(SmokeBombUiState::Escaping {
@@ -6010,10 +8547,10 @@ pub(super) fn verify_seed_start_transitions(
             category: "unreconciled_smoke_bomb_frame".to_owned(),
             reason: "Smoke Bomb escape did not reach a captured stable reward frame".to_owned(),
         }
-    } else if let Some(pending) = pending_smith_effect
-        .as_ref()
-        .filter(|pending| !smith_effect_is_in_flight(pending, last_post_received_at.as_deref()))
-    {
+    } else if let Some(pending) = pending_smith_effect.as_ref().filter(|pending| {
+        !pending.source_projection_stale
+            && !smith_effect_is_in_flight(pending, last_post_received_at.as_deref())
+    }) {
         SeedStartBoundary {
             path: format!("$.actions[step={}].command", pending.action.step),
             category: "unreconciled_deck_frame".to_owned(),

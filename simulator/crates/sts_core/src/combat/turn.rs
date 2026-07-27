@@ -1,15 +1,17 @@
 use crate::{
     combat::turn_powers::{
         apply_end_of_monster_turn_powers, apply_end_of_monster_turn_powers_without_ritual,
-        apply_end_of_player_turn_powers,
     },
     combat::{
         draw::{
             apply_confusion_cost_randomization, apply_fire_breathing_on_draw,
-            draw_cards_with_combat_rng, evolve_extra_draw_count,
-            shuffle_discard_into_draw_with_combat_rng, MAX_HAND_SIZE,
+            consume_empty_deck_shuffle_with_combat_rng, draw_cards_with_combat_rng,
+            evolve_extra_draw_count, shuffle_discard_into_draw_with_combat_rng, MAX_HAND_SIZE,
         },
-        hand::{discard_end_of_turn_hand, resolve_end_of_turn_hand},
+        hand::{
+            discard_end_of_turn_hand, resolve_deferred_dark_embrace_draws,
+            resolve_end_of_turn_hand_with_deferred_dark_embrace_draws,
+        },
         piles::{
             add_cards_to_discard, add_cards_to_draw_random_spot, add_upgraded_burns_to_discard,
             upgrade_burns_and_add_upgraded_to_discard,
@@ -21,10 +23,11 @@ use crate::{
         apply_bronze_automaton_orb_spawn, apply_collector_spawn_torch_heads,
         apply_gremlin_leader_encourage, apply_gremlin_leader_rally_target, apply_heal_all_monsters,
         apply_large_acid_slime_split, apply_large_spike_slime_split,
-        apply_monster_intent_with_card_rng, apply_reptomancer_dagger_spawn, apply_slime_boss_split,
-        apply_strength_all_monsters, champ_strength_amount, clear_lagavulin_metallicize_if_awake,
-        heal_monster_to_stored_cap, living_monster_missing_hp,
-        prepare_monster_intent_for_ascension, record_target_move,
+        apply_monster_intent_with_card_rng_and_revival, apply_reptomancer_dagger_spawn,
+        apply_slime_boss_split, apply_strength_all_monsters, awaken_one_after_first_death,
+        awakened_one_is_half_dead, champ_strength_amount, check_slime_boss_split,
+        clear_lagavulin_metallicize_if_awake, heal_monster_to_stored_cap,
+        living_monster_missing_hp, prepare_monster_intent_for_ascension, record_target_move,
         source_backed_gremlin_leader_minion_intent,
         target_book_of_stabbing_next_intent_from_roll_with_stab_count,
         target_bronze_automaton_next_intent, target_bronze_orb_next_intent_from_roll,
@@ -89,14 +92,17 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     // Metallicize resolve. Both block grants therefore apply when the player
     // clicks End Turn with zero block.
     crate::relic::apply_orichalcum_end_of_player_turn(&mut next)?;
-    apply_end_of_player_turn_powers(&mut next)?;
+    crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand(&mut next)?;
+    expire_unused_duplication_potion_stack(&mut next);
     resolve_player_temp_strength(&mut next)?;
     let deferred_stasis_cards = if next.monsters.iter().any(|monster| monster.alive) {
         take_released_stasis_cards_from_piles(&mut next, &stasis_cards_before_end_powers)
     } else {
         Vec::new()
     };
-    resolve_end_of_turn_hand(&mut next)?;
+    let end_of_turn_hand =
+        resolve_end_of_turn_hand_with_deferred_dark_embrace_draws(&mut next)?;
+    crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
     if finish_combat_if_over(&mut next, started_with_living_monster)? {
         return Ok(next);
     }
@@ -105,6 +111,20 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         return Ok(next);
     }
     discard_end_of_turn_hand(&mut next);
+    if let Some(card) = next.pending_hidden_hand_card_until_end_turn.take() {
+        next.piles.discard_pile.push(card);
+    }
+    // Dead Branch cards created while end-of-turn ethereal cards exhaust are
+    // queued after the hand discard and remain at the front of the next hand.
+    next.piles.hand.extend(end_of_turn_hand.dead_branch_cards);
+    // Battle Trance's No Draw power expires with the player turn.  Deferred
+    // Dark Embrace draws from ethereal cards resolve after that expiration,
+    // before the monster turn begins.
+    next.player.cannot_draw = false;
+    resolve_deferred_dark_embrace_draws(
+        &mut next,
+        end_of_turn_hand.deferred_dark_embrace_draws,
+    )?;
     next.piles.hand.extend(deferred_stasis_cards);
     apply_pending_player_spikes_damage(&mut next)?;
     if next.player.hp <= 0 {
@@ -129,6 +149,17 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
 
     start_player_turn(&mut next)?;
     Ok(next)
+}
+
+fn expire_unused_duplication_potion_stack(state: &mut CombatState) {
+    // DuplicationPower.atEndOfRound reduces one unused stack, or removes the
+    // power when its last stack expires.
+    if state.duplication_potion_stacks > 0 {
+        state.duplication_potion_stacks -= 1;
+    }
+    if state.duplication_potion_stacks == 0 {
+        state.duplication_potion_pending = false;
+    }
 }
 
 fn take_released_stasis_cards_from_piles(
@@ -177,6 +208,14 @@ pub fn start_player_turn(state: &mut CombatState) -> SimResult<()> {
 }
 
 fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
+    if state.player.powers.evolve == 2 {
+        eprintln!(
+            "DEBUG_START before hand={} draw={} discard={}",
+            state.piles.hand.len(),
+            state.piles.draw_pile.len(),
+            state.piles.discard_pile.len()
+        );
+    }
     crate::relic::reset_turn_relic_counters(state);
     reset_turn_only_temp_costs(state);
     if crate::relic::preserves_energy_between_turns(&state.relics) {
@@ -222,6 +261,22 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
     }
     apply_start_of_turn_magnetism(state)?;
     draw_next_hand_without_shuffle(state)?;
+    if state.player.powers.evolve == 2 {
+        eprintln!(
+            "DEBUG_START after hand={} draw={} discard={}",
+            state.piles.hand.len(),
+            state.piles.draw_pile.len(),
+            state.piles.discard_pile.len()
+        );
+    }
+    if state.player.powers.draw_reduction > 0 {
+        if state.player.powers.draw_reduction_first_draw_seen {
+            state.player.powers.draw_reduction = 0;
+            state.player.powers.draw_reduction_first_draw_seen = false;
+        } else {
+            state.player.powers.draw_reduction_first_draw_seen = true;
+        }
+    }
     crate::relic::apply_start_of_player_turn_post_draw_relics(state)?;
     apply_start_of_turn_mayhem(state)?;
     if state.player.hp <= 0 {
@@ -230,7 +285,11 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
         state.phase = CombatPhase::Lost;
         return Ok(());
     }
-    if state.monsters.iter().all(|monster| !monster.alive) {
+    if state
+        .monsters
+        .iter()
+        .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+    {
         let was_already_won = state.phase == CombatPhase::Won;
         state.phase = CombatPhase::Won;
         if !was_already_won {
@@ -337,7 +396,11 @@ fn apply_start_of_turn_brutality(state: &mut CombatState) -> SimResult<()> {
 }
 
 fn apply_start_of_turn_magnetism(state: &mut CombatState) -> SimResult<()> {
-    if state.monsters.iter().all(|monster| !monster.alive) {
+    if state
+        .monsters
+        .iter()
+        .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+    {
         return Ok(());
     }
 
@@ -365,6 +428,11 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) -> SimResult<()> {
 fn apply_start_of_turn_mayhem(state: &mut CombatState) -> SimResult<()> {
     for _ in 0..state.player.powers.mayhem.max(0) {
         let random_target = mayhem_random_living_target(state);
+        if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
+            // PlayTopCardAction queues EmptyDeckShuffleAction when its draw
+            // pile is empty, then plays the newly exposed top card.
+            crate::combat::transition::player_shuffle_discard_into_draw(state)?;
+        }
         let Some(top_card) = state.piles.draw_pile.last() else {
             return Ok(());
         };
@@ -386,7 +454,12 @@ fn apply_start_of_turn_mayhem(state: &mut CombatState) -> SimResult<()> {
             None
         };
         crate::combat::transition::apply_play_top_draw_card_to_state(state, target)?;
-        if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
+        if state.player.hp <= 0
+            || state
+                .monsters
+                .iter()
+                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+        {
             return Ok(());
         }
     }
@@ -421,7 +494,12 @@ fn finish_combat_if_over(
         return Ok(true);
     }
 
-    if started_with_living_monster && state.monsters.iter().all(|monster| !monster.alive) {
+    if started_with_living_monster
+        && state
+            .monsters
+            .iter()
+            .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+    {
         state.phase = CombatPhase::Won;
         crate::combat::apply_burning_blood(state)?;
         return Ok(true);
@@ -463,7 +541,10 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
         else {
             continue;
         };
-        if !state.monsters[index].alive && !is_half_dead_darkling(&state.monsters[index]) {
+        if !state.monsters[index].alive
+            && !is_half_dead_darkling(&state.monsters[index])
+            && !awakened_one_is_half_dead(&state.monsters[index])
+        {
             continue;
         }
         clear_lagavulin_metallicize_if_awake(&mut state.monsters[index]);
@@ -496,6 +577,14 @@ enum ActorTurnDisposition {
     StopPlayerDead,
 }
 
+fn player_can_revive_after_monster_hit(state: &CombatState) -> bool {
+    if state.mark_of_bloom {
+        return false;
+    }
+    (state.relics.contains(&crate::Relic::LizardTail) && state.relic_counters.lizard_tail_available)
+        || state.relic_counters.fairy_heal_percent > 0
+}
+
 fn execute_generic_monster_intent(
     state: &mut CombatState,
     actor_id: MonsterId,
@@ -504,6 +593,7 @@ fn execute_generic_monster_intent(
     relics: &[crate::Relic],
     skip_ritual_tick: &mut Vec<MonsterId>,
 ) -> SimResult<ActorTurnDisposition> {
+    let actor_was_alive = state.monsters[index].alive;
     let player_snapshot = state.player.clone();
     let intent = state.monsters[index].intent;
     let nemesis_had_intangible = state.monsters[index].content_id == NEMESIS_ID
@@ -532,7 +622,8 @@ fn execute_generic_monster_intent(
     let piles_before_post_damage_effects =
         (deferred_burn_to_discard > 0 || deferred_upgrade_burns > 0).then(|| state.piles.clone());
     let allocated_card_id_through = state.max_authoritative_card_instance_id();
-    let damage = apply_monster_intent_with_card_rng(
+    let player_can_revive = player_can_revive_after_monster_hit(state);
+    let damage = apply_monster_intent_with_card_rng_and_revival(
         &mut state.monsters[index],
         &mut state.player,
         &mut state.piles,
@@ -540,8 +631,24 @@ fn execute_generic_monster_intent(
         ascension,
         &player_snapshot,
         relics,
+        player_can_revive,
         &mut state.rng.card_random_rng,
     )?;
+    if state.monsters[index].content_id == crate::content::monsters::TIME_EATER_ID
+        && matches!(intent, crate::MonsterIntent::Attack { damage: 26 | 32 })
+    {
+        // Head Slam applies DrawReductionPower after its attack.
+        state.player.powers.draw_reduction = 1;
+        state.player.powers.draw_reduction_first_draw_seen = false;
+    }
+    let died_during_intent =
+        actor_was_alive && !state.monsters[index].alive && !state.monsters[index].escaped;
+    if died_during_intent {
+        crate::combat::transition::apply_monster_death_hooks(state, actor_id)?;
+    }
+    // Reactive thorns damage is applied inside the monster intent resolver.
+    // Slime Boss checks its split threshold after that queued damage resolves.
+    check_slime_boss_split(state, actor_id);
     if let Some(piles) = piles_before_post_damage_effects {
         // CommunicationMod observes Hexaghost/Nemesis status cards only
         // after attack damage resolves. In particular, a lethal Inferno
@@ -652,8 +759,24 @@ fn execute_generic_monster_intent(
             state.monsters[index].intent = target_shelled_parasite_shell_break_roll_move(ascension);
             record_target_move(&mut state.monsters[index]);
         }
+    }
+    // Every modeled target monster queues RollMoveAction at the end of its
+    // takeTurn. That action still runs when reactive thorns kill the monster
+    // during its own attack, as long as the combat continues for another
+    // living monster. Preserve that queued AI draw even though the attacker
+    // is no longer alive by the time its damage resolves.
+    let should_roll_queued_next_intent = actor_was_alive
+        && state.player.hp > 0
+        && (state.monsters[index].alive
+            || state
+                .monsters
+                .iter()
+                .any(|monster| monster.id != actor_id && monster.alive));
+    if should_roll_queued_next_intent {
         prepare_next_intent_for_actor(state, actor_id)?;
-        apply_transient_fading_after_turn(&mut state.monsters, actor_id);
+        if state.monsters[index].alive {
+            apply_transient_fading_after_turn(&mut state.monsters, actor_id);
+        }
     }
     revive_with_lizard_tail_if_available(state)?;
     if state.player.hp <= 0 {
@@ -670,14 +793,73 @@ fn execute_state_oriented_special_intent(
     ascension: u8,
 ) -> SimResult<bool> {
     match state.monsters[index].intent {
-        crate::MonsterIntent::Attack { damage }
-            if is_half_dead_darkling(&state.monsters[index]) && damage == 0 =>
+        crate::MonsterIntent::StrengthSelf { amount: 0 }
+            if state.monsters[index].content_id == crate::content::monsters::TIME_EATER_ID =>
         {
+            // Time Eater's Haste clears its debuffs and heals to half of its
+            // stored maximum HP. At A19 it also gains the source's block.
+            state.monsters[index].powers.vulnerable = 0;
+            state.monsters[index].powers.weak = 0;
+            state.monsters[index].temp_strength_down = 0;
+            let target_hp = state.monsters[index].max_hp / 2;
+            if state.monsters[index].hp < target_hp {
+                state.monsters[index].hp = target_hp;
+            }
+            if ascension >= 19 {
+                state.monsters[index].block = checked_turn_add(state.monsters[index].block, 32)?;
+            }
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             prepare_next_intent_for_actor(state, actor_id)?;
             Ok(true)
         }
-        crate::MonsterIntent::Stun if is_half_dead_darkling(&state.monsters[index]) => {
+        crate::MonsterIntent::AttackAndBlock {
+            damage: 0,
+            block: 20,
+        } if state.monsters[index].content_id == crate::content::monsters::TIME_EATER_ID => {
+            state.monsters[index].block =
+                checked_turn_add(state.monsters[index].block, 20)?.min(999);
+            crate::relic::apply_player_weak_with_relics(
+                &mut state.player.powers,
+                &state.relics,
+                1,
+            )?;
+            let had_no_vulnerable = state.player.powers.vulnerable == 0;
+            let applied = crate::power::apply_player_vulnerable(&mut state.player.powers, 1)?;
+            if had_no_vulnerable && applied {
+                state.player.vulnerable_just_applied = true;
+            }
+            if ascension >= 19 {
+                crate::relic::apply_player_frail_with_relics(
+                    &mut state.player.powers,
+                    &state.relics,
+                    1,
+                )?;
+            }
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::Stun if awakened_one_is_half_dead(&state.monsters[index]) => {
+            // Rebirth queues the inherited RollMoveAction.  AwakenedOne's
+            // first phase-two move is fixed to Dark Echo, but AbstractMonster
+            // still consumes the common AI roll before getMove ignores it.
+            let _ = state.rng.monster_rng.random_int(99);
+            awaken_one_after_first_death(&mut state.monsters[index]);
+            Ok(true)
+        }
+        crate::MonsterIntent::Attack { damage }
+            if is_half_dead_darkling(&state.monsters[index]) && damage == 0 =>
+        {
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            let _ = state.rng.monster_rng.random_int(99);
+            state.monsters[index].intent = crate::MonsterIntent::Stun;
+            record_target_move(&mut state.monsters[index]);
+            state.monsters[index].intent = crate::MonsterIntent::StrengthSelf { amount: 0 };
+            Ok(true)
+        }
+        crate::MonsterIntent::StrengthSelf { amount: 0 }
+            if is_half_dead_darkling(&state.monsters[index]) =>
+        {
             state.monsters[index].alive = true;
             state.monsters[index].escaped = false;
             state.monsters[index].hp = state.monsters[index].max_hp / 2;
@@ -689,6 +871,17 @@ fn execute_state_oriented_special_intent(
             }
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             prepare_next_intent_for_actor(state, actor_id)?;
+            Ok(true)
+        }
+        crate::MonsterIntent::Stun if is_half_dead_darkling(&state.monsters[index]) => {
+            // The first Regrow turn only advances the Darkling's hidden move;
+            // reincarnation happens on the following monster turn.  The
+            // target still consumes AbstractMonster's common AI roll before
+            // the Regrow move resolves.
+            checked_turn_increment(&mut state.monsters[index].moves_executed)?;
+            let _ = state.rng.monster_rng.random_int(99);
+            record_target_move(&mut state.monsters[index]);
+            state.monsters[index].intent = crate::MonsterIntent::StrengthSelf { amount: 0 };
             Ok(true)
         }
         crate::MonsterIntent::HealAllMonsters { amount } => {
@@ -767,7 +960,8 @@ fn execute_spawning_or_targeted_special_intent(
         {
             let player_snapshot = state.player.clone();
             let allocated_card_id_through = state.max_authoritative_card_instance_id();
-            let damage = apply_monster_intent_with_card_rng(
+            let player_can_revive = player_can_revive_after_monster_hit(state);
+            let damage = apply_monster_intent_with_card_rng_and_revival(
                 &mut state.monsters[index],
                 &mut state.player,
                 &mut state.piles,
@@ -775,6 +969,7 @@ fn execute_spawning_or_targeted_special_intent(
                 ascension,
                 &player_snapshot,
                 &state.relics,
+                player_can_revive,
                 &mut state.rng.card_random_rng,
             )?;
             let painful_stabs = state.monsters[index].powers.painful_stabs;
@@ -1004,6 +1199,10 @@ fn finish_monster_turn_cleanup(
                 apply_end_of_monster_turn_powers_without_ritual(monster)?;
             } else {
                 apply_end_of_monster_turn_powers(monster)?;
+            }
+            if monster.content_id == crate::content::monsters::AWAKENED_ONE_ID {
+                let regeneration = if state.ascension >= 19 { 15 } else { 10 };
+                monster.hp = monster.hp.saturating_add(regeneration).min(monster.max_hp);
             }
             if monster.content_id == BYRD_ID && monster.powers.flight > 0 {
                 monster.powers.flight = target_byrd_flight_amount(state.ascension);
@@ -1306,13 +1505,24 @@ fn apply_attack_heal_self_thorns_after_heal(
 }
 
 fn draw_next_hand_without_shuffle(state: &mut CombatState) -> SimResult<()> {
+    let had_cards_at_start =
+        !state.piles.draw_pile.is_empty() || !state.piles.discard_pile.is_empty();
     for _ in 0..next_hand_draw_count(state) {
-        if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
-            shuffle_discard_into_draw_with_combat_rng(state)?;
-        }
-
-        if state.piles.draw_pile.is_empty() {
+        // Evolve queues its extra DrawCardAction after the current turn-draw
+        // action. The simulator resolves that extra draw recursively, so the
+        // outer loop must re-check the target hand limit before drawing its
+        // next base card.
+        if state.piles.hand.len() >= MAX_HAND_SIZE {
             break;
+        }
+        if state.piles.draw_pile.is_empty() {
+            if state.piles.discard_pile.is_empty() {
+                if had_cards_at_start {
+                    consume_empty_deck_shuffle_with_combat_rng(state)?;
+                }
+                break;
+            }
+            shuffle_discard_into_draw_with_combat_rng(state)?;
         }
 
         if let Some(mut card) = state.piles.draw_pile.pop() {
@@ -1320,6 +1530,9 @@ fn draw_next_hand_without_shuffle(state: &mut CombatState) -> SimResult<()> {
             let extra_draws = evolve_extra_draw_count(state, content_id);
             apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
+            if content_id == crate::content::cards::VOID_ID {
+                state.player.energy = state.player.energy.saturating_sub(1);
+            }
             apply_fire_breathing_on_draw(state, content_id)?;
             draw_cards_with_combat_rng(state, extra_draws)?;
         }
@@ -1337,7 +1550,9 @@ pub(crate) fn target_hand_size(state: &CombatState) -> usize {
 }
 
 fn next_hand_draw_count(state: &CombatState) -> usize {
-    target_hand_size(state).min(MAX_HAND_SIZE.saturating_sub(state.piles.hand.len()))
+    target_hand_size(state)
+        .saturating_sub(state.player.powers.draw_reduction.max(0) as usize)
+        .min(MAX_HAND_SIZE.saturating_sub(state.piles.hand.len()))
 }
 
 fn prepare_next_intent_for_actor(state: &mut CombatState, actor_id: MonsterId) -> SimResult<()> {
@@ -1357,7 +1572,9 @@ fn prepare_next_intents_for_ids(
     let collector_minion_dead = state
         .monsters
         .iter()
-        .any(|monster| monster.powers.minion != 0 && !monster.alive);
+        .filter(|monster| monster.powers.minion != 0 && monster.alive)
+        .count()
+        < 2;
     let missing_hp = living_monster_missing_hp(&state.monsters);
     let rolled_context = RolledIntentContext {
         ascension: state.ascension,
@@ -1392,6 +1609,36 @@ fn prepare_next_intents_for_ids(
                     ACID_SLIME_ID | SPIKE_SLIME_ID | SLIME_BOSS_ID
                 )
             {
+                continue;
+            }
+            if monster.content_id == crate::content::monsters::AWAKENED_ONE_ID
+                && monster.mode_shift == 1
+                && !monster.move_history.is_empty()
+            {
+                // AbstractMonster.rollMove supplies the common AI roll to
+                // AwakenedOne.getMove; phase two uses that roll directly.
+                let roll = state.rng.monster_rng.random_int(99);
+                monster.intent =
+                    crate::content::monsters::target_awakened_one_next_intent_from_roll(
+                        &monster.move_history,
+                        roll,
+                        monster.mode_shift,
+                        state.ascension,
+                    );
+                record_target_move(monster);
+                continue;
+            }
+            if monster.content_id == crate::content::monsters::TIME_EATER_ID {
+                let roll = state.rng.monster_rng.random_int(99);
+                monster.intent = crate::content::monsters::target_time_eater_next_intent_from_roll(
+                    &monster.move_history,
+                    roll,
+                    monster.hp,
+                    monster.max_hp,
+                    state.ascension,
+                    &mut state.rng.monster_rng,
+                );
+                record_target_move(monster);
                 continue;
             }
             if prepare_direct_next_intent(
@@ -1452,6 +1699,22 @@ fn prepare_rolled_next_intent(
             monster.moves_executed,
             &monster.move_history,
             ascension,
+        )
+    } else if monster.content_id == crate::content::monsters::AWAKENED_ONE_ID {
+        crate::content::monsters::target_awakened_one_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            monster.mode_shift,
+            ascension,
+        )
+    } else if monster.content_id == crate::content::monsters::TIME_EATER_ID {
+        crate::content::monsters::target_time_eater_next_intent_from_roll(
+            &monster.move_history,
+            roll,
+            monster.hp,
+            monster.max_hp,
+            ascension,
+            monster_rng,
         )
     } else if monster.content_id == EXPLODER_ID {
         target_exploder_next_intent_from_roll(monster.moves_executed, ascension)
@@ -1837,6 +2100,11 @@ fn spike_slime_uses_medium_or_large_move_table(monster: &crate::MonsterState) ->
 }
 
 fn spike_slime_uses_large_move_table(monster: &crate::MonsterState) -> bool {
+    match monster.slime_size {
+        Some(SlimeSize::Small | SlimeSize::Medium) => return false,
+        Some(SlimeSize::Large) => return true,
+        None => {}
+    }
     monster.max_hp > crate::content::monsters::SPIKE_SLIME_M_A7_HP_RANGE.max
         || matches!(
             monster.rolled_attack_damage,
@@ -1911,8 +2179,10 @@ fn gremlin_leader_alive_minion_count(monsters: &[crate::MonsterState]) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::hand::resolve_end_of_turn_hand;
     use crate::content::cards::{
-        BURN_ID, DEMON_FORM_ID, DOUBT_ID, POMMEL_STRIKE_ID, SHAME_ID, SLIMED_ID, STRIKE_R_ID,
+        BURN_ID, DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, POMMEL_STRIKE_ID, REGRET_ID,
+        SHAME_ID, SLIMED_ID, STRIKE_R_ID, VOID_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -1922,13 +2192,65 @@ mod tests {
         target_spheric_guardian_next_intent_from_roll, target_spire_growth_next_intent_from_roll,
         transient_attack_damage, ACID_SLIME_A0, BOOK_OF_STABBING_A0, BRONZE_AUTOMATON_A0,
         BRONZE_ORB_A0, BYRD_A0, CENTURION_A0, DAGGER_A0, DAGGER_ID, DARKLING_A0, EXPLODER_A0,
-        GIANT_HEAD_A0, GIANT_HEAD_ID, GREMLIN_NOB_A0, GREMLIN_THIEF_A0, GREMLIN_TSUNDERE_A0,
-        GREMLIN_WARRIOR_A0, GREMLIN_WIZARD_A0, HEALER_A0, HEXAGHOST_A0, LAGAVULIN_A0, LOOTER_A0,
-        LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
-        SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID, SPIKE_SLIME_A0, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID,
-        TRANSIENT_A0,
+        FUNGI_BEAST_A0, GIANT_HEAD_A0, GIANT_HEAD_ID, GREMLIN_NOB_A0, GREMLIN_THIEF_A0,
+        GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0, GREMLIN_WIZARD_A0, HEALER_A0, HEXAGHOST_A0,
+        JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0, LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID,
+        NEMESIS_A0, NEMESIS_ID, SENTRY_A0, SLIME_BOSS_A0, SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID,
+        SPIKE_SLIME_A0, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TRANSIENT_A0,
     };
-    use crate::{CardId, CardInstance, Relic};
+    use crate::{CardId, CardInstance, MonsterIntent, Relic};
+
+    #[test]
+    fn explicit_medium_spike_slime_profile_wins_over_split_hp_threshold() {
+        let mut monster = monster_state_for_ascension(&SPIKE_SLIME_A0, MonsterId::new(1), 0);
+        monster.hp = 35;
+        monster.max_hp = 35;
+        monster.slime_size = Some(crate::combat::SlimeSize::Medium);
+        let mut monster_rng = StsRng::new(0);
+
+        prepare_rolled_next_intent(
+            &mut monster,
+            &mut monster_rng,
+            0,
+            0,
+            RolledIntentContext {
+                ascension: 0,
+                player_hp: 100,
+                player_constricted: false,
+                living_monster_count: 1,
+                alive_gremlin_count: 0,
+                collector_minion_dead: false,
+                missing_hp: 0,
+            },
+        )
+        .expect("medium Spike Slime intent is supported");
+
+        assert_eq!(
+            monster.intent,
+            MonsterIntent::AttackAddSlimedToDiscard {
+                damage: 8,
+                count: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn regeneration_resolves_after_regret_end_turn_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 90;
+        state.player.max_hp = 100;
+        state.player.powers.regen = 4;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), REGRET_ID)];
+
+        crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand(&mut state)
+            .expect("end-turn powers resolve");
+        resolve_end_of_turn_hand(&mut state).expect("Regret resolves");
+        crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut state)
+            .expect("Regeneration resolves");
+
+        assert_eq!(state.player.hp, 93);
+        assert_eq!(state.player.powers.regen, 3);
+    }
 
     #[test]
     fn orichalcum_checks_zero_block_before_metallicize_resolves() {
@@ -1948,6 +2270,70 @@ mod tests {
 
         // Orichalcum (6) and Metallicize (3) both block the 36-damage hit.
         assert_eq!(next.player.hp, 53);
+    }
+
+    #[test]
+    fn interrupted_burning_pact_card_enters_discard_after_visible_hand_cleanup() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = (3..=8)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        state.pending_hidden_hand_card_until_end_turn =
+            Some(CardInstance::new(CardId::new(9), STRIKE_R_ID));
+
+        let next = end_player_turn(&state).expect("supported monster intent");
+
+        assert_eq!(
+            next.piles
+                .discard_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(2), CardId::new(1), CardId::new(9)]
+        );
+        assert!(next.pending_hidden_hand_card_until_end_turn.is_none());
+    }
+
+    #[test]
+    fn dead_branch_ethereal_exhaust_enters_next_hand_before_draw() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::DeadBranch];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), DAZED_ID),
+            CardInstance::new(CardId::new(2), DAZED_ID),
+        ];
+        state.piles.draw_pile = (3..=7)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = end_player_turn(&state).expect("Dead Branch end turn resolves");
+
+        assert_eq!(next.piles.hand.len(), 7);
+        assert!(next.piles.hand[0].combat_only);
+        assert!(next.piles.hand[1].combat_only);
+        assert_ne!(next.piles.hand[0].id, next.piles.hand[1].id);
+        assert_eq!(
+            next.piles.hand[2..]
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_ID; 5]
+        );
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .filter(|card| card.content_id == DAZED_ID)
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -1988,6 +2374,62 @@ mod tests {
             vec![SHAME_ID, STRIKE_R_ID]
         );
         assert!(state.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn turn_draw_stops_base_draws_after_evolve_fills_hand() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.evolve = 1;
+        state.piles.hand.clear();
+        state.piles.draw_pile = (1..=11)
+            .map(|id| CardInstance::new(CardId::new(id), SLIMED_ID))
+            .collect();
+
+        draw_next_hand_without_shuffle(&mut state).expect("turn draw with Evolve");
+
+        assert_eq!(state.piles.hand.len(), MAX_HAND_SIZE);
+        assert_eq!(state.piles.draw_pile.len(), 1);
+    }
+
+    #[test]
+    fn evolve_recursive_draw_respects_hand_capacity() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.evolve = 2;
+        state.piles.hand = (1..=8)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(9), STRIKE_R_ID),
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), DAZED_ID),
+        ];
+        state.piles.discard_pile.clear();
+
+        draw_cards_with_combat_rng(&mut state, 2).expect("recursive draw with Evolve");
+
+        assert_eq!(state.piles.hand.len(), MAX_HAND_SIZE);
+        assert_eq!(state.piles.draw_pile.len(), 1);
+        assert_eq!(state.piles.draw_pile[0].id, CardId::new(9));
+    }
+
+    #[test]
+    fn confusion_preserves_x_cost_cards_without_consuming_card_rng() {
+        use crate::content::cards::{STRIKE_R_ID, WHIRLWIND_ID};
+
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.confusion = 1;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), WHIRLWIND_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        state.rng.card_random_rng = StsRng::new(3);
+
+        draw_cards_with_combat_rng(&mut state, 2).expect("draw under Confusion");
+
+        assert_eq!(state.piles.hand[0].temp_cost, Some(0));
+        assert_eq!(state.piles.hand[1].temp_cost, None);
+        assert_eq!(state.rng.card_random_rng.counter(), 1);
     }
 
     #[test]
@@ -2408,6 +2850,118 @@ mod tests {
     }
 
     #[test]
+    fn slime_boss_queues_split_after_reactive_thorns_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.thorns = 3;
+        let mut boss =
+            monster_state_for_ascension(&SLIME_BOSS_A0, MonsterId::new(1), state.ascension);
+        boss.hp = 72;
+        boss.intent = crate::MonsterIntent::Attack { damage: 35 };
+        boss.moves_executed = 5;
+        state.monsters = vec![boss];
+
+        run_monster_turn(&mut state).expect("supported Slime Boss attack");
+
+        assert_eq!(state.monsters[0].hp, 69);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::SummonGremlins { count: 2 }
+        );
+        assert!(state.monsters[0].split_triggered);
+    }
+
+    #[test]
+    fn queued_monster_roll_survives_reactive_thorns_death() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.thorns = 3;
+
+        let mut attacker = monster_state_for_ascension(&JAW_WORM_A0, actor_id, state.ascension);
+        attacker.hp = 1;
+        attacker.intent = crate::MonsterIntent::Attack { damage: 1 };
+        attacker.move_history = vec![1];
+        let survivor =
+            monster_state_for_ascension(&JAW_WORM_A0, MonsterId::new(2), state.ascension);
+        state.monsters = vec![attacker, survivor];
+        state.rng.monster_rng = StsRng::new(123);
+
+        let ascension = state.ascension;
+        let relics = state.relics.clone();
+        let mut skip_ritual_tick = Vec::new();
+        execute_generic_monster_intent(
+            &mut state,
+            actor_id,
+            0,
+            ascension,
+            &relics,
+            &mut skip_ritual_tick,
+        )
+        .expect("supported monster intent");
+
+        assert!(!state.monsters[0].alive);
+        assert_eq!(state.rng.monster_rng.counter(), 1);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::StrengthAndBlock {
+                strength: 3,
+                block: 6,
+            }
+        );
+    }
+
+    #[test]
+    fn awakened_one_phase_two_rolls_common_ai_value_before_move_choice() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        let mut monster = monster_state_for_ascension(
+            &crate::content::monsters::AWAKENED_ONE_A0,
+            actor_id,
+            state.ascension,
+        );
+        monster.mode_shift = 1;
+        monster.move_history = vec![5, 6, 8];
+        monster.intent = crate::MonsterIntent::AttackMultiple {
+            damage: 10,
+            hits: 3,
+        };
+        state.monsters = vec![monster];
+        state.rng.monster_rng = StsRng::new(123);
+
+        prepare_next_intent_for_actor(&mut state, actor_id)
+            .expect("Awakened One phase-two intent is supported");
+
+        assert_eq!(state.rng.monster_rng.counter(), 1);
+        assert_eq!(state.monsters[0].move_history, vec![5, 6, 8, 8]);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::AttackMultiple {
+                damage: 10,
+                hits: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn reactive_thorns_trigger_fungi_spore_cloud_death_hook() {
+        let mut state = CombatState::initial_fixture();
+        state.player.block = 20;
+        state.player.powers.thorns = 4;
+        state.player.powers.vulnerable = 1;
+
+        let mut fungi = monster_state_for_ascension(&FUNGI_BEAST_A0, MonsterId::new(1), 0);
+        fungi.hp = 3;
+        fungi.intent = crate::MonsterIntent::Attack { damage: 6 };
+        let mut survivor = monster_state_for_ascension(&JAW_WORM_A0, MonsterId::new(2), 0);
+        survivor.intent = crate::MonsterIntent::Block { block: 0 };
+        state.monsters = vec![fungi, survivor];
+
+        run_monster_turn(&mut state).expect("supported monster intents");
+
+        assert!(!state.monsters[0].alive);
+        assert_eq!(state.player.powers.vulnerable, 2);
+    }
+
+    #[test]
     fn current_move_hits_ignore_next_intent_for_single_hit_cleanup() {
         assert_eq!(
             effective_current_move_hits(
@@ -2514,6 +3068,52 @@ mod tests {
     }
 
     #[test]
+    fn time_eater_draw_reduction_expires_after_two_opening_draws() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand.clear();
+        state.piles.draw_pile = (1..=6)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        state.player.powers.draw_reduction = 1;
+        state.monsters = vec![monster_state_for_ascension(
+            &GREMLIN_NOB_A0,
+            MonsterId::new(1),
+            state.ascension,
+        )];
+
+        start_player_turn(&mut state).expect("first reduced player turn starts");
+        assert_eq!(state.piles.hand.len(), 4);
+        assert_eq!(state.player.powers.draw_reduction, 1);
+        assert!(state.player.powers.draw_reduction_first_draw_seen);
+
+        state.piles.hand.clear();
+        state.piles.draw_pile = (7..=12)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        start_player_turn(&mut state).expect("second reduced player turn starts");
+        assert_eq!(state.piles.hand.len(), 4);
+        assert_eq!(state.player.powers.draw_reduction, 0);
+        assert!(!state.player.powers.draw_reduction_first_draw_seen);
+    }
+
+    #[test]
+    fn start_player_turn_loses_energy_when_void_is_drawn() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), VOID_ID),
+        ];
+        state.piles.discard_pile.clear();
+
+        start_player_turn(&mut state).expect("player turn starts");
+
+        assert_eq!(state.player.energy, 2);
+        assert_eq!(state.piles.hand[0].content_id, VOID_ID);
+    }
+
+    #[test]
     fn centennial_puzzle_draws_before_attack_generated_slimed_enters_discard() {
         let mut state = CombatState::initial_fixture();
         state.relics = vec![Relic::CentennialPuzzle];
@@ -2551,6 +3151,46 @@ mod tests {
             .draw_pile
             .iter()
             .any(|card| card.content_id == SLIMED_ID));
+    }
+
+    #[test]
+    fn centennial_puzzle_draws_during_end_turn_cleanup_are_discarded() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::CentennialPuzzle];
+        state.relic_counters.centennial_puzzle_triggers = 0;
+        state.piles.hand = vec![CardInstance::new(
+            CardId::new(1),
+            crate::content::cards::REGRET_ID,
+        )];
+        state.piles.draw_pile = (2..=9)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        state.monsters = vec![monster_state_for_ascension(
+            &crate::content::monsters::ACID_SLIME_A0,
+            MonsterId::new(1),
+            state.ascension,
+        )];
+        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 0 };
+
+        let next = end_player_turn(&state).expect("supported monster intent");
+
+        assert_eq!(next.relic_counters.centennial_puzzle_triggers, 1);
+        assert_eq!(next.piles.hand.len(), 5);
+        assert_eq!(next.piles.draw_pile.len(), 0);
+        assert_eq!(
+            next.piles
+                .discard_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![
+                CardId::new(1),
+                CardId::new(7),
+                CardId::new(8),
+                CardId::new(9)
+            ]
+        );
     }
 
     #[test]
@@ -3123,7 +3763,10 @@ mod tests {
 
         assert!(!state.monsters[0].alive);
         assert!(state.monsters[0].escaped);
-        assert_eq!(state.monsters[0].intent, crate::MonsterIntent::Stun);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::StrengthSelf { amount: 0 }
+        );
         assert_eq!(state.monsters[0].move_history, vec![4, 5]);
         assert_eq!(state.monsters[0].moves_executed, 1);
         assert_eq!(state.rng.monster_rng.counter(), 1);
@@ -3149,6 +3792,7 @@ mod tests {
         state.relics.push(Relic::PhilosophersStone);
         state.rng.monster_rng = StsRng::new(222);
         let mut expected_rng = StsRng::new(222);
+        let _ = expected_rng.random_int(99);
         let roll = expected_rng.random_int(99);
         let expected_intent =
             crate::content::monsters::target_darkling_next_intent_from_roll_with_rng(
@@ -3162,7 +3806,14 @@ mod tests {
         let expected_move =
             crate::content::monsters::target_move_byte(DARKLING_ID, expected_intent);
 
-        run_monster_turn(&mut state).expect("supported monster intent");
+        run_monster_turn(&mut state).expect("Darkling's first Regrow turn is supported");
+        assert!(!state.monsters[0].alive);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::StrengthSelf { amount: 0 }
+        );
+
+        run_monster_turn(&mut state).expect("Darkling reincarnation is supported");
 
         assert!(state.monsters[0].alive);
         assert!(!state.monsters[0].escaped);
@@ -3173,7 +3824,7 @@ mod tests {
             state.monsters[0].move_history.last().copied(),
             expected_move
         );
-        assert_eq!(state.monsters[0].moves_executed, 1);
+        assert_eq!(state.monsters[0].moves_executed, 2);
         assert_eq!(state.rng.monster_rng.counter(), expected_rng.counter());
     }
 
@@ -3364,7 +4015,7 @@ mod tests {
     }
 
     #[test]
-    fn mayhem_discards_unplayable_top_card_exposed_after_normal_draw() {
+    fn mayhem_discards_unplayable_top_card_after_normal_draw() {
         let mut state = CombatState::initial_fixture();
         state.player.powers.mayhem = 1;
         state.piles.hand.clear();
@@ -3384,6 +4035,30 @@ mod tests {
         assert!(state.piles.draw_pile.is_empty());
         assert_eq!(state.piles.discard_pile.len(), 1);
         assert_eq!(state.piles.discard_pile[0].content_id, DOUBT_ID);
+    }
+
+    #[test]
+    fn mayhem_shuffles_discard_before_playing_when_draw_is_empty() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.piles.hand.clear();
+        state.piles.draw_pile = (1..=5)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(6), DEFEND_R_ID)];
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+
+        start_player_turn(&mut state).expect("player turn starts");
+
+        assert_eq!(state.player.block, 5);
+        assert_eq!(state.piles.hand.len(), 5);
+        assert!(state.piles.draw_pile.is_empty());
+        assert_eq!(state.piles.discard_pile.len(), 1);
+        assert_eq!(state.piles.discard_pile[0].content_id, DEFEND_R_ID);
     }
 
     #[test]
@@ -3565,6 +4240,10 @@ mod tests {
             target_giant_head_next_intent_from_roll(10, &[2, 2, 2], 0, 18),
             crate::MonsterIntent::Attack { damage: 70 }
         );
+        assert_eq!(
+            target_giant_head_next_intent_from_roll(12, &[2; 12], 0, 0),
+            crate::MonsterIntent::Attack { damage: 60 }
+        );
 
         let source_monster = monster_state_for_ascension(&GIANT_HEAD_A0, MonsterId::new(1), 18);
         assert_eq!((source_monster.hp, source_monster.max_hp), (520, 520));
@@ -3653,9 +4332,12 @@ mod tests {
         };
         state.monsters[0].moves_executed = 0;
         state.monsters[0].move_history.clear();
+        state.player.temp_thorns = 4;
+        let monster_hp_before_burn = state.monsters[0].hp;
         run_monster_turn(&mut state).expect("supported monster intent");
 
         assert_eq!(state.monsters[0].powers.intangible, 1);
+        assert_eq!(state.monsters[0].hp, monster_hp_before_burn);
         assert_eq!(
             state
                 .piles
@@ -3734,7 +4416,7 @@ mod tests {
 
         run_monster_turn(&mut state).expect("supported monster intent");
 
-        assert_eq!(state.player.hp, player_hp - 3);
+        assert_eq!(state.player.hp, player_hp - 30);
         assert_eq!(state.monsters[0].hp, 0);
         assert!(!state.monsters[0].alive);
         assert_eq!(state.monsters[0].block, 0);

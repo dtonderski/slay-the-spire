@@ -22,12 +22,19 @@ pub struct VerificationCorpusEntry {
 pub enum VerificationExpectation {
     Complete,
     RetainedPrefix { endpoint: RetainedPrefixEndpoint },
+    ExpectedBoundary { boundary: ExpectedBoundary },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RetainedPrefixEndpoint {
     pub action_step: u32,
     pub label: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpectedBoundary {
+    pub path: String,
+    pub category: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,13 +52,19 @@ pub struct VerificationIntegrity {
 pub enum VerificationOutcome {
     CompletePass,
     RetainedPrefixPass { endpoint: RetainedPrefixEndpoint },
+    ExpectedBoundaryPass { boundary: ExpectedBoundary },
     InvalidInput { reason: String },
     Failed { failures: Vec<VerificationFailure> },
 }
 
 impl VerificationOutcome {
     pub fn is_success(&self) -> bool {
-        matches!(self, Self::CompletePass | Self::RetainedPrefixPass { .. })
+        matches!(
+            self,
+            Self::CompletePass
+                | Self::RetainedPrefixPass { .. }
+                | Self::ExpectedBoundaryPass { .. }
+        )
     }
 }
 
@@ -74,6 +87,10 @@ pub enum VerificationFailure {
     },
     UnexpectedBoundary {
         boundary: SeedStartBoundary,
+    },
+    ExpectedBoundaryMismatch {
+        expected: ExpectedBoundary,
+        actual: Option<SeedStartBoundary>,
     },
     CompleteTraceNotTerminal,
     CompleteTraceHasRejectedActions {
@@ -111,7 +128,11 @@ pub fn assess_verification(
     };
 
     let mut failures = Vec::new();
-    if !report.unexpected_diffs.is_empty() {
+    let expected_boundary = match expectation {
+        VerificationExpectation::ExpectedBoundary { boundary } => Some(boundary),
+        _ => None,
+    };
+    if expected_boundary.is_none() && !report.unexpected_diffs.is_empty() {
         failures.push(VerificationFailure::UnexpectedDiffs {
             count: report.unexpected_diffs.len(),
         });
@@ -152,13 +173,23 @@ pub fn assess_verification(
         }
     }
 
-    if !report.unsupported.is_empty() {
+    if expected_boundary.is_none() && !report.unsupported.is_empty() {
         failures.push(VerificationFailure::UnsupportedTransitions {
             count: report.unsupported.len(),
         });
     }
 
-    if let Some(actual) = actual_boundary
+    if let Some(expected) = expected_boundary {
+        let matches = actual_boundary.as_ref().is_some_and(|actual| {
+            actual.path == expected.path && actual.category == expected.category
+        });
+        if !matches {
+            failures.push(VerificationFailure::ExpectedBoundaryMismatch {
+                expected: expected.clone(),
+                actual: actual_boundary.clone(),
+            });
+        }
+    } else if let Some(actual) = actual_boundary
         .as_ref()
         .filter(|boundary| boundary.category != "none")
     {
@@ -225,6 +256,11 @@ pub fn assess_verification(
         VerificationExpectation::RetainedPrefix { endpoint } => {
             VerificationOutcome::RetainedPrefixPass {
                 endpoint: endpoint.clone(),
+            }
+        }
+        VerificationExpectation::ExpectedBoundary { boundary } => {
+            VerificationOutcome::ExpectedBoundaryPass {
+                boundary: boundary.clone(),
             }
         }
     }
@@ -353,6 +389,38 @@ mod tests {
             panic!("replay boundary unexpectedly passed: {outcome:?}");
         };
         assert!(failures.contains(&VerificationFailure::UnexpectedBoundary { boundary }));
+    }
+
+    #[test]
+    fn expected_boundary_pass_requires_the_exact_path_and_category() {
+        let expected = ExpectedBoundary {
+            path: "$.actions[step=12].command".to_owned(),
+            category: "unsupported_mechanic".to_owned(),
+        };
+        let mut report = report();
+        let seed_start = report.seed_start.as_mut().expect("seed-start report");
+        seed_start.failed = true;
+        seed_start.first_boundary = SeedStartBoundary {
+            path: expected.path.clone(),
+            category: expected.category.clone(),
+            reason: "mechanic is not implemented".to_owned(),
+        };
+        report.unsupported.push(UnsupportedTransition {
+            action_step: 12,
+            command: "CHOOSE 0".to_owned(),
+            reason: "mechanic is not implemented".to_owned(),
+        });
+
+        assert_eq!(
+            assess_verification(
+                Ok(&report),
+                &VerificationExpectation::ExpectedBoundary {
+                    boundary: expected.clone(),
+                },
+                Some(&complete_integrity()),
+            ),
+            VerificationOutcome::ExpectedBoundaryPass { boundary: expected }
+        );
     }
 
     #[test]

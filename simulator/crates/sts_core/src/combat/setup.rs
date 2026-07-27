@@ -64,7 +64,10 @@ pub fn initialize_combat_piles_with_relics(
     opening_draw.reverse();
 
     for (mut card, unplayable) in opening_draw {
-        if relics.contains(&Relic::SneckoEye) && !unplayable {
+        if relics.contains(&Relic::SneckoEye)
+            && !unplayable
+            && get_card_definition(card.content_id).is_some_and(|definition| definition.cost >= 0)
+        {
             card.temp_cost = Some(card_random_rng.random_int(3) as u8);
         }
         hand.push(card);
@@ -136,5 +139,35 @@ mod tests {
             starter_only_deck(&deck),
             Err(SimError::UnknownContent(unknown_id))
         );
+    }
+
+    #[test]
+    fn snecko_eye_leaves_x_cost_opening_cards_unchanged_without_rng_draw() {
+        let whirlwind = CardInstance::new(CardId::new(1), crate::content::cards::WHIRLWIND_ID);
+        let strike = CardInstance::new(CardId::new(2), crate::content::cards::STRIKE_R_ID);
+        let mut shuffle_rng = StsRng::new(11);
+        let mut card_random_rng = StsRng::new(12);
+
+        let piles = initialize_combat_piles_with_relics(
+            &[whirlwind, strike],
+            &mut shuffle_rng,
+            &mut card_random_rng,
+            &[Relic::SneckoEye],
+        )
+        .expect("combat piles initialize");
+
+        let x_cost = piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == crate::content::cards::WHIRLWIND_ID)
+            .expect("Whirlwind remains in the opening hand");
+        let ordinary = piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == crate::content::cards::STRIKE_R_ID)
+            .expect("Strike remains in the opening hand");
+        assert_eq!(x_cost.temp_cost, None);
+        assert!(ordinary.temp_cost.is_some());
+        assert_eq!(card_random_rng.counter(), 1);
     }
 }

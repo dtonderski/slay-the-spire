@@ -288,6 +288,7 @@ fn combat_decisions_have_one_active_value_and_an_ordered_queue() {
             state: DrawSelectState {
                 purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
                 source_card_id,
+                selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
             },
         });
@@ -309,6 +310,7 @@ fn queued_combat_decision_without_active_predecessor_fails_validation() {
             state: DrawSelectState {
                 purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
                 source_card_id,
+                selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
             },
         });

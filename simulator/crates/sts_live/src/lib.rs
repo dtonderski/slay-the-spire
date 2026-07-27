@@ -14,6 +14,7 @@ mod fidelity_status;
 pub mod http;
 pub mod model;
 mod operator_actions;
+pub mod replay;
 pub mod session;
 mod session_blocking;
 mod session_recovery;

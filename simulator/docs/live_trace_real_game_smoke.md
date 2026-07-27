@@ -15,7 +15,18 @@ replay tests.
 - Use a throwaway game/profile state. The smoke should not depend on a
   particular save file.
 
-Optional environment:
+From WSL, set the shared Windows/WSL session path and a Linux trace root:
+
+```bash
+cd /mnt/d/dev/slay-the-spire/simulator
+export STS_LIVE_TRACE_ROOT=/mnt/d/dev/slay-the-spire/live_traces_smoke
+export STS_LIVE_BRIDGE_SESSION_DIR=/mnt/d/dev/slay-the-spire/tools/communication/session
+```
+
+If the game launched CommunicationMod from another worktree, use that
+worktree's mounted `tools/communication/session` path instead.
+
+Equivalent Windows environment:
 
 ```powershell
 $env:STS_LIVE_TRACE_ROOT = "D:\dev\slay-the-spire\live_traces_smoke"
@@ -30,16 +41,15 @@ control.
 
 Build and start the backend:
 
-```powershell
-cd D:\dev\slay-the-spire\simulator
+```bash
 cargo run -p sts_live --bin live-trace -- serve --addr 127.0.0.1:8799
 ```
 
 In another shell, inspect bridges without using the browser:
 
-```powershell
-cd D:\dev\slay-the-spire\simulator
+```bash
 cargo run -p sts_live --bin live-trace -- bridges list
+cargo run -p sts_live --bin live-trace -- bridges state communication-mod
 ```
 
 Expected evidence:
@@ -75,13 +85,22 @@ Expected evidence:
 
 The same smoke must be possible without browser automation:
 
-```powershell
+```bash
 cargo run -p sts_live --bin live-trace -- sessions list
 cargo run -p sts_live --bin live-trace -- actions list session-1
 cargo run -p sts_live --bin live-trace -- actions send session-1 <action-id>
 cargo run -p sts_live --bin live-trace -- sessions request-state session-1
 cargo run -p sts_live --bin live-trace -- fidelity status session-1
 cargo run -p sts_live --bin live-trace -- trace path session-1
+```
+
+If a throwaway run exists without a `live-trace` session, reset it through the
+same Linux CLI before starting a tracked session:
+
+```bash
+cargo run -p sts_live --bin live-trace -- bridges abandon communication-mod
+cargo run -p sts_live --bin live-trace -- sessions start \
+  --bridge communication-mod --character ironclad --ascension 0 --seed CODEX04
 ```
 
 Expected evidence:
@@ -91,14 +110,55 @@ Expected evidence:
   invocation.
 - Action ids, not labels, are used for `actions send`.
 
+## Existing-Trace Replay
+
+Validate a source trace without changing the game:
+
+```bash
+cargo run -p sts_live --bin live-trace -- replay <source-trace.jsonl> --dry-run
+```
+
+Replay a bounded prefix into a start-ready game:
+
+```bash
+cargo run -p sts_live --bin live-trace -- replay <source-trace.jsonl> \
+  --bridge communication-mod --max-actions 1
+```
+
+If a throwaway run may already be active, explicitly authorize resetting only
+that bridge:
+
+```bash
+cargo run -p sts_live --bin live-trace -- replay <source-trace.jsonl> \
+  --bridge communication-mod --reset-bridge --max-actions 1
+```
+
+Expected evidence:
+
+- `--dry-run` returns `status: validated` and no session id.
+- A live replay creates a new append-only trace rather than modifying the
+  source.
+- `replayed_actions` counts commands after the recorded `START`.
+- `status` is `completed` when the source endpoint is reached or `action_limit`
+  when `--max-actions` stops a valid prefix.
+- Replay stops before sending if the recorded command is not a unique enabled
+  legal action.
+- Replay stops immediately if the new session's fidelity is not `ok`.
+- A captured source profile must match the profile reported by the live game.
+- An active run is rejected unless `--reset-bridge` is present.
+
+Only normal `START` traces are live-replayable. `START_VERIFY` changes test-only
+starting HP and is rejected by the normal game launcher. Traces with explicit
+boss-unlock inputs are also rejected because the live bridge cannot assert that
+persistent profile state.
+
 ## Trace Validation
 
 The verifier has one strict replay contract: reconstruct from `START`, typed
 commands, and simulator state. For a trace containing enough history for that
 contract, run:
 
-```powershell
-cd D:\dev\slay-the-spire\simulator
+```bash
 uv run -- cargo run -p sts_verify --bin sts_verify -- parity <trace-path>
 ```
 

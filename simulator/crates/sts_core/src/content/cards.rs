@@ -15,6 +15,7 @@ pub const WOUND_ID: ContentId = ContentId::new(4);
 pub const DAZED_ID: ContentId = ContentId::new(5);
 pub const BURN_ID: ContentId = ContentId::new(6);
 pub const SLIMED_ID: ContentId = ContentId::new(7);
+pub const VOID_ID: ContentId = ContentId::new(73);
 pub const REGRET_ID: ContentId = ContentId::new(62);
 pub const DOUBT_ID: ContentId = ContentId::new(63);
 pub const CURSE_OF_THE_BELL_ID: ContentId = ContentId::new(64);
@@ -426,7 +427,6 @@ pub const DAZED: CardDefinition = CardDefinition {
 
 /// Burn status deals this much HP loss per copy in hand at end of turn.
 pub const BURN_END_TURN_DAMAGE: i32 = 2;
-
 /// Combust loses this much player HP per stack at end of turn.
 pub const COMBUST_HP_LOSS: i32 = 1;
 /// Combust deals this much damage to all living enemies per stack at end of turn.
@@ -588,6 +588,29 @@ pub const SLIMED: CardDefinition = CardDefinition {
         exhaust: true,
         retain: false,
         unplayable: false,
+    },
+};
+
+pub const VOID: CardDefinition = CardDefinition {
+    id: VOID_ID,
+    key: "Void",
+    name: "Void",
+    cost: 0,
+    card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        unplayable: true,
+        ethereal: true,
+        exhaust: false,
+        retain: false,
     },
 };
 
@@ -4687,7 +4710,7 @@ pub const UPPERCUT_PLUS: CardDefinition = CardDefinition {
 };
 
 pub const IRONCLAD_STARTER_CARDS: [CardDefinition; 3] = [STRIKE_R, DEFEND_R, BASH];
-pub const STATUS_CARDS: [CardDefinition; 5] = [WOUND, DAZED, BURN, SLIMED, ASCENDERS_BANE];
+pub const STATUS_CARDS: [CardDefinition; 6] = [WOUND, DAZED, BURN, SLIMED, VOID, ASCENDERS_BANE];
 pub const MECHANIC_TEST_CARDS: [CardDefinition; 2] = [ETHEREAL_STRIKE, RETAIN_DEFEND];
 pub const MILESTONE5_ATTACK_CARDS: [CardDefinition; 10] = [
     ANGER,
@@ -4728,7 +4751,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub static ALL_CARDS: [CardDefinition; 245] = [
+pub static ALL_CARDS: [CardDefinition; 246] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -4739,6 +4762,7 @@ pub static ALL_CARDS: [CardDefinition; 245] = [
     DAZED,
     BURN,
     SLIMED,
+    VOID,
     REGRET,
     DOUBT,
     CURSE_OF_THE_BELL,
@@ -5000,6 +5024,13 @@ pub fn is_curse_content_id(id: ContentId) -> bool {
     )
 }
 
+/// Whether the target's `CardGroup.getPurgeableCards` includes this card
+/// before its separate bottled-card filter is applied.
+#[must_use]
+pub fn is_purgeable_card(card: &CardInstance) -> bool {
+    !card.bottled && !matches!(card.content_id, ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID)
+}
+
 #[must_use]
 pub fn is_basic_starter_card(id: ContentId) -> bool {
     matches!(
@@ -5022,6 +5053,21 @@ pub fn is_pandoras_box_removed_starter(id: ContentId) -> bool {
 pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
     let definition = get_card_definition(id)?;
     Some((definition.card_type, definition.rarity?))
+}
+
+/// Returns whether a card belongs to the requested `AbstractCard.CardRarity`
+/// bucket used by Bronze Orb's Stasis action.
+///
+/// `CardDefinition::rarity` deliberately models reward rarity, which does not
+/// represent status cards or colorless event cards with `SPECIAL` rarity.
+#[must_use]
+pub(crate) fn card_matches_stasis_rarity(id: ContentId, rarity: CardRarity) -> bool {
+    match id {
+        WOUND_ID | DAZED_ID | BURN_ID | SLIMED_ID | VOID_ID => rarity == CardRarity::Common,
+        BITE_ID | BITE_PLUS_ID | RITUAL_DAGGER_ID | APPARITION_ID | APPARITION_PLUS_ID | JAX_ID
+        | JAX_PLUS_ID => false,
+        _ => card_type_and_rarity(id).is_some_and(|(_, card_rarity)| card_rarity == rarity),
+    }
 }
 
 /// Maps a base card content id to its upgraded (+) version, if one exists.

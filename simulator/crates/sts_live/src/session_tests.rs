@@ -8,6 +8,7 @@ use crate::{
     },
     session::{
         combat_state_is_actionable, is_cursed_key_chest_curse_pending,
+        is_hand_selection_confirm_still_pending, is_play_card_still_pending,
         is_unsettled_action_transition, persist_verified_trace, refreshed_equivalent_action,
         slaythedata_reward_binding_is_pending, slaythedata_state_is_temporarily_actionless,
         slaythedata_step_advances, trace_has_completed_shop_purge, SessionStore,
@@ -36,6 +37,7 @@ fn start_run_creates_recording_session_and_trace() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -49,6 +51,86 @@ fn start_run_creates_recording_session_and_trace() {
     assert!(trace.contains("\"type\":\"response\""));
     assert!(trace.contains("\"command\":\"start_run\""));
     assert!(trace.contains("START IRONCLAD 0 CODEX04"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn start_run_records_communication_mod_profile_in_initial_metadata() {
+    let root = temp_dir("profile-metadata");
+    fs::create_dir_all(&root).unwrap();
+    let mut store = SessionStore::new(ProfileStartBridge, AlwaysOkFidelity, &root);
+    let snapshot = store
+        .start_run(
+            BridgeId("profile-bridge".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("PROFILE01".to_owned()),
+                profile: None,
+            },
+        )
+        .unwrap();
+
+    let profile = snapshot
+        .run_config
+        .as_ref()
+        .and_then(|config| config.profile.as_ref())
+        .expect("profile is attached to the recorded run config");
+    assert_eq!(profile.note_card, "Twin Strike");
+    assert_eq!(profile.note_upgrades, 1);
+
+    let content = fs::read_to_string(&snapshot.trace_path).unwrap();
+    let metadata: serde_json::Value =
+        serde_json::from_str(content.lines().next().unwrap()).unwrap();
+    assert_eq!(
+        metadata.pointer("/run_config/profile/note_card"),
+        Some(&json!("Twin Strike"))
+    );
+    assert_eq!(
+        metadata.pointer("/run_config/profile/note_upgrades"),
+        Some(&json!(1))
+    );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn start_verification_run_records_exact_start_and_profile_metadata() {
+    let root = temp_dir("verification-profile-metadata");
+    fs::create_dir_all(&root).unwrap();
+    let mut store = SessionStore::new(ProfileStartBridge, AlwaysOkFidelity, &root);
+    let snapshot = store
+        .start_verification_run(
+            BridgeId("profile-bridge".to_owned()),
+            RunConfig {
+                character: Character::Ironclad,
+                ascension: 0,
+                seed: RunSeed::External("PROFILE01".to_owned()),
+                profile: None,
+            },
+            10_000,
+        )
+        .unwrap();
+
+    let profile = snapshot
+        .run_config
+        .as_ref()
+        .and_then(|config| config.profile.as_ref())
+        .expect("profile is attached to the recorded run config");
+    assert_eq!(profile.note_card, "Twin Strike");
+    assert_eq!(profile.note_upgrades, 1);
+
+    let content = fs::read_to_string(&snapshot.trace_path).unwrap();
+    let mut lines = content.lines();
+    let metadata: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+    let start: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+    assert_eq!(
+        metadata.pointer("/run_config/profile/note_card"),
+        Some(&json!("Twin Strike"))
+    );
+    assert_eq!(
+        start.pointer("/action/command/command"),
+        Some(&json!("START_VERIFY IRONCLAD 0 PROFILE01 10000"))
+    );
     fs::remove_dir_all(root).ok();
 }
 
@@ -93,6 +175,7 @@ fn active_trace_can_be_snapshotted_to_permanent_corpus_without_overwrite() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -151,6 +234,7 @@ fn sends_only_current_legal_actions() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -178,6 +262,7 @@ fn bridge_send_error_blocks_session_and_records_trace_error() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -217,6 +302,7 @@ fn fidelity_loss_after_action_stays_visible_without_blocking_manual_collection()
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -259,6 +345,7 @@ fn refresh_fidelity_reuses_cached_result_when_trace_is_unchanged() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -289,6 +376,7 @@ fn refresh_fidelity_reuses_unsupported_boundary_cache_after_trace_append() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -345,6 +433,7 @@ fn request_state_records_operator_command() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -369,6 +458,7 @@ fn successful_request_state_unblocks_transient_bridge_error() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -403,6 +493,7 @@ fn send_action_waits_for_state_newer_than_action_source() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -436,6 +527,7 @@ fn send_action_records_late_state_after_bridge_observation_timeout() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -467,6 +559,7 @@ fn send_neow_talk_waits_past_fresh_but_semantically_stale_state() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -499,6 +592,7 @@ fn send_neow_bonus_waits_until_selected_option_disappears() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -559,6 +653,175 @@ fn selected_map_node_remaining_visible_is_an_unsettled_transition() {
     };
 
     assert!(is_unsettled_action_transition(&action, &state));
+}
+
+#[test]
+fn selected_event_option_remaining_visible_is_an_unsettled_transition() {
+    let action = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "leave".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let state = LiveState {
+        sequence: 2,
+        phase: LivePhase::Event,
+        legal_actions: vec![action.clone()],
+        raw: json!({"summary": {"state_id": "state-2", "ready_for_command": true}}),
+    };
+
+    assert!(is_unsettled_action_transition(&action, &state));
+}
+
+#[test]
+fn repeatable_non_leave_event_option_can_remain_visible() {
+    let action = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "deeper".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let state = LiveState {
+        sequence: 2,
+        phase: LivePhase::Event,
+        legal_actions: vec![action.clone()],
+        raw: json!({"summary": {"state_id": "state-2", "ready_for_command": true}}),
+    };
+
+    assert!(!is_unsettled_action_transition(&action, &state));
+}
+
+#[test]
+fn event_leave_advancing_to_a_different_leave_command_is_settled() {
+    let action = LegalAction {
+        id: ActionId("choose-1".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "leave".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 1", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let confirmation = LegalAction {
+        id: ActionId("choose-0".to_owned()),
+        kind: LegalActionKind::EventChoice,
+        label: "leave".to_owned(),
+        enabled: true,
+        command: json!({"command": "CHOOSE 0", "source_state_id": "state-2"}),
+        disabled_reason: None,
+    };
+    let state = LiveState {
+        sequence: 2,
+        phase: LivePhase::Event,
+        legal_actions: vec![confirmation],
+        raw: json!({"summary": {"state_id": "state-2", "ready_for_command": true}}),
+    };
+
+    assert!(!is_unsettled_action_transition(&action, &state));
+}
+
+#[test]
+fn played_card_is_pending_while_its_source_uuid_remains_in_hand() {
+    let action = LegalAction {
+        id: ActionId("play-1".to_owned()),
+        kind: LegalActionKind::PlayCard,
+        label: "Play Defend".to_owned(),
+        enabled: true,
+        command: json!({"command": "PLAY 1", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let state = |state_id: &str, hand: serde_json::Value| LiveState {
+        sequence: 2,
+        phase: LivePhase::Combat,
+        legal_actions: Vec::new(),
+        raw: json!({
+            "current_state": {
+                "message": {
+                    "game_state": {"combat_state": {"hand": hand}}
+                }
+            },
+            "summary": {"state_id": state_id, "ready_for_command": true}
+        }),
+    };
+    let source = state(
+        "state-1",
+        json!([
+            {"id": "Defend_R", "uuid": "played-card"},
+            {"id": "Defend_R", "uuid": "other-defend"}
+        ]),
+    );
+    let pending = state(
+        "state-2",
+        json!([
+            {"id": "Defend_R", "uuid": "played-card"},
+            {"id": "Defend_R", "uuid": "other-defend"}
+        ]),
+    );
+    let settled = state(
+        "state-3",
+        json!([{"id": "Defend_R", "uuid": "other-defend"}]),
+    );
+
+    assert!(is_play_card_still_pending(&action, &source, &pending));
+    assert!(!is_play_card_still_pending(&action, &source, &settled));
+}
+
+#[test]
+fn hand_selection_confirm_is_pending_until_selected_card_reaches_a_combat_pile() {
+    let action = LegalAction {
+        id: ActionId("confirm".to_owned()),
+        kind: LegalActionKind::Confirm,
+        label: "Confirm".to_owned(),
+        enabled: true,
+        command: json!({"command": "CONFIRM", "source_state_id": "state-1"}),
+        disabled_reason: None,
+    };
+    let source = LiveState {
+        sequence: 1,
+        phase: LivePhase::Combat,
+        legal_actions: vec![action.clone()],
+        raw: json!({
+            "current_state": {"message": {"game_state": {
+                "screen_type": "HAND_SELECT",
+                "screen_state": {"selected": [{"id": "Defend_R", "uuid": "selected-card"}]},
+                "combat_state": {
+                    "hand": [],
+                    "draw_pile": [],
+                    "discard_pile": [],
+                    "exhaust_pile": [],
+                    "limbo": []
+                }
+            }}},
+            "summary": {"state_id": "state-1", "ready_for_command": true}
+        }),
+    };
+    let candidate = |exhaust_pile: serde_json::Value| LiveState {
+        sequence: 2,
+        phase: LivePhase::Combat,
+        legal_actions: Vec::new(),
+        raw: json!({
+            "current_state": {"message": {"game_state": {"combat_state": {
+                "hand": [],
+                "draw_pile": [],
+                "discard_pile": [],
+                "exhaust_pile": exhaust_pile,
+                "limbo": []
+            }}}},
+            "summary": {"state_id": "state-2", "ready_for_command": true}
+        }),
+    };
+    let pending = candidate(json!([]));
+    let settled = candidate(json!([{"id": "Defend_R", "uuid": "selected-card"}]));
+
+    assert!(is_hand_selection_confirm_still_pending(
+        &action, &source, &pending
+    ));
+    assert!(!is_hand_selection_confirm_still_pending(
+        &action, &source, &settled
+    ));
 }
 
 #[test]
@@ -836,6 +1099,7 @@ fn send_map_action_waits_past_hidden_neow_transition_state() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -871,6 +1135,7 @@ fn recovers_existing_sessions_from_trace_root() {
                     character: Character::Ironclad,
                     ascension: 0,
                     seed: RunSeed::External("CODEX04".to_owned()),
+                    profile: None,
                 },
             )
             .unwrap();
@@ -908,6 +1173,7 @@ fn recovers_existing_sessions_from_trace_root() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(456),
+                profile: None,
             },
         )
         .unwrap();
@@ -927,6 +1193,7 @@ fn recovery_does_not_run_full_fidelity_check() {
                     character: Character::Ironclad,
                     ascension: 0,
                     seed: RunSeed::External("CODEX04".to_owned()),
+                    profile: None,
                 },
             )
             .unwrap();
@@ -1033,6 +1300,7 @@ fn recovery_does_not_restore_old_fidelity_lost_blocks() {
         character: Character::Ironclad,
         ascension: 0,
         seed: RunSeed::Numeric(123),
+        profile: None,
     };
     let records = [
         TraceRecord::Metadata {
@@ -1066,6 +1334,46 @@ fn recovery_does_not_restore_old_fidelity_lost_blocks() {
 }
 
 #[test]
+fn recovery_treats_fidelity_recheck_as_a_new_verifier_boundary() {
+    let root = temp_dir("recover-fidelity-recheck");
+    fs::create_dir_all(&root).unwrap();
+    let trace_path = root.join("session-1.jsonl");
+    let records = [
+        TraceRecord::Metadata {
+            schema: 1,
+            source: "live_trace".to_owned(),
+            session_id: SessionId("session-1".to_owned()),
+            bridge_id: BridgeId("fake-bridge-1".to_owned()),
+            run_config: None,
+        },
+        TraceRecord::Error {
+            sequence: 1,
+            reason_code: "fidelity_lost".to_owned(),
+            message: "old verifier diff".to_owned(),
+        },
+        TraceRecord::SlayTheData {
+            sequence: 2,
+            event: "fidelity_recheck".to_owned(),
+            details: json!({"reason": "verified simulator repair"}),
+        },
+    ];
+    let body = records
+        .iter()
+        .map(|record| serde_json::to_string(record).unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(&trace_path, format!("{body}\n")).unwrap();
+
+    let mut store = fake_store(&root);
+    let recovered = store.recover_existing_sessions().unwrap();
+
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].fidelity.kind, FidelityKind::Unknown);
+    assert_ne!(recovered[0].lifecycle, SessionLifecycle::FidelityLost);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn lists_sessions_in_stable_id_order() {
     let root = temp_dir("list");
     let mut store = fake_store(&root);
@@ -1076,6 +1384,7 @@ fn lists_sessions_in_stable_id_order() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -1086,6 +1395,7 @@ fn lists_sessions_in_stable_id_order() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(456),
+                profile: None,
             },
         )
         .unwrap();
@@ -1123,6 +1433,7 @@ fn abandon_run_marks_trace_and_ends_session() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -1154,6 +1465,7 @@ fn abandon_then_start_creates_two_start_rooted_traces() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(123),
+                profile: None,
             },
         )
         .unwrap();
@@ -1170,6 +1482,7 @@ fn abandon_then_start_creates_two_start_rooted_traces() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1209,6 +1522,7 @@ fn slaythedata_attach_advises_and_sends_next_non_combat_action() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1254,6 +1568,7 @@ fn slaythedata_auto_play_hands_combat_to_the_combat_agent() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1314,6 +1629,7 @@ fn slaythedata_background_combat_reuses_the_existing_plan() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1374,6 +1690,7 @@ fn slaythedata_background_stops_when_combat_automation_blocks() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1438,6 +1755,7 @@ fn slaythedata_pause_stops_background_ticks_without_losing_progress() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1479,6 +1797,7 @@ fn slaythedata_game_over_reports_terminal_loss_instead_of_stale_guidance() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1529,6 +1848,7 @@ fn slaythedata_reattach_restores_sent_progress_from_trace() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1588,6 +1908,7 @@ fn recovered_cli_session_reattaches_guidance_from_records_without_hydrating_simu
                     character: Character::Ironclad,
                     ascension: 0,
                     seed: RunSeed::External("CODEX04".to_owned()),
+                    profile: None,
                 },
             )
             .unwrap();
@@ -1640,6 +1961,7 @@ fn slaythedata_blocks_guided_send_when_fidelity_is_not_ok() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1674,6 +1996,7 @@ fn slaythedata_rechecks_same_command_on_wrong_live_phase_without_sending() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1744,6 +2067,7 @@ fn slaythedata_bridge_send_failure_records_slaythedata_block() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -2306,6 +2630,68 @@ impl FidelityChecker for AlwaysOkFidelity {
             compact_diff: Vec::new(),
             message: None,
         })
+    }
+}
+
+struct ProfileStartBridge;
+
+impl BridgeManager for ProfileStartBridge {
+    fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>> {
+        Ok(Vec::new())
+    }
+
+    fn start_run(&mut self, _bridge_id: &BridgeId, _config: &RunConfig) -> LiveResult<LiveState> {
+        Ok(LiveState {
+            sequence: 1,
+            phase: LivePhase::Neow,
+            legal_actions: vec![request_state_action()],
+            raw: json!({
+                "current_state": {
+                    "message": {
+                        "game_state": {
+                            "seed": 123,
+                            "profile": {
+                                "note_card": "Twin Strike",
+                                "note_upgrades": 1
+                            }
+                        }
+                    }
+                }
+            }),
+        })
+    }
+
+    fn start_verification_run(
+        &mut self,
+        bridge_id: &BridgeId,
+        config: &RunConfig,
+        _starting_hp: i32,
+    ) -> LiveResult<LiveState> {
+        self.start_run(bridge_id, config)
+    }
+
+    fn abandon_run(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Err(LiveError::Bridge("not used by profile test".to_owned()))
+    }
+
+    fn request_state(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Err(LiveError::Bridge("not used by profile test".to_owned()))
+    }
+
+    fn send_action(
+        &mut self,
+        _bridge_id: &BridgeId,
+        _action: &LegalAction,
+    ) -> LiveResult<LiveState> {
+        Err(LiveError::Bridge("not used by profile test".to_owned()))
+    }
+
+    fn kill_bridge(&mut self, _bridge_id: &BridgeId) -> LiveResult<()> {
+        Ok(())
+    }
+
+    fn kill_all(&mut self) -> LiveResult<usize> {
+        Ok(0)
     }
 }
 

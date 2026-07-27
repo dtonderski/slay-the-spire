@@ -15,7 +15,7 @@ use sts_core::{
     },
     content::{
         cards,
-        monsters::{monster_state, FIXED_SIMPLE_MONSTER, GUARDIAN_A0},
+        monsters::{monster_state, DARKLING_A0, FIXED_SIMPLE_MONSTER, GUARDIAN_A0},
         shop_pool::colorless_discovery_pool,
     },
     legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
@@ -411,7 +411,7 @@ fn power_through_plus_adds_two_generated_wounds_then_gains_twenty_block() {
         CardId::new(1),
         cards::POWER_THROUGH_PLUS_ID,
     )];
-    for id in 2..=9 {
+    for id in 2..=10 {
         state
             .piles
             .hand
@@ -665,6 +665,41 @@ fn spot_weakness_plus_grants_strength_only_against_attacking_target() {
 }
 
 #[test]
+fn spot_weakness_recognizes_attack_intents_with_deferred_status_cards() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::SPOT_WEAKNESS_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    for intent in [
+        MonsterIntent::AddBurnToDiscard {
+            count: 1,
+            damage: 6,
+        },
+        MonsterIntent::AttackMultipleUpgradeBurns {
+            damage: 2,
+            hits: 6,
+            count: 1,
+        },
+    ] {
+        state.player.powers.strength = 0;
+        state.monsters[0].intent = intent;
+        state.piles.hand[0] = CardInstance::new(CardId::new(1), cards::SPOT_WEAKNESS_ID);
+        state.piles.discard_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Spot Weakness plays against a deferred-status attack");
+        assert_eq!(next.player.powers.strength, 3);
+    }
+}
+
+#[test]
 fn thunderclap_plus_deals_damage_then_applies_one_vulnerable_to_all_enemies() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
@@ -753,6 +788,35 @@ fn true_grit_plus_gains_block_then_exhausts_selected_card() {
         next.piles.discard_pile[0].content_id,
         cards::TRUE_GRIT_PLUS_ID
     );
+}
+
+#[test]
+fn true_grit_random_exhaust_skips_rng_when_one_card_is_eligible() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::TRUE_GRIT_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+    let starting_card_rng_counter = state.rng.card_random_rng.counter();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("True Grit should exhaust the only eligible card");
+
+    assert_eq!(
+        next.rng.card_random_rng.counter(),
+        starting_card_rng_counter
+    );
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::TRUE_GRIT_ID);
 }
 
 #[test]
@@ -1368,18 +1432,14 @@ fn burning_pact_plus_exhausts_one_other_card_then_draws_three() {
     state.piles.discard_pile.clear();
     state.piles.exhaust_pile.clear();
 
-    let mut next = apply_combat_action(
+    let next = apply_combat_action(
         &state,
         CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: None,
         },
     )
-    .expect("Burning Pact+ opens exhaust selection");
-    assert!(next.exhaust_select().is_some());
-
-    choose_exhaust_select(&mut next, 0).expect("select the other hand card");
-    confirm_exhaust_select(&mut next).expect("confirm Burning Pact+ selection");
+    .expect("Burning Pact+ exhausts the only other hand card automatically");
 
     assert_eq!(next.player.energy, 0);
     assert!(next.exhaust_select().is_none());
@@ -1603,6 +1663,78 @@ fn dark_embrace_stacks_one_draw_per_exhaust() {
 }
 
 #[test]
+fn dark_embrace_end_turn_draws_after_hand_discard() {
+    let mut state = CombatState::initial_fixture();
+    state.player.powers.dark_embrace = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::PERFECTED_STRIKE_ID),
+        CardInstance::new(CardId::new(2), cards::DAZED_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+        CardInstance::new(CardId::new(5), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(6), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(7), cards::BASH_ID),
+        CardInstance::new(CardId::new(8), cards::STRIKE_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = end_player_turn(&state).expect("supported monster intent");
+
+    assert_eq!(
+        next.piles
+            .discard_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::PERFECTED_STRIKE_ID]
+    );
+    assert_eq!(
+        next.piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![
+            cards::STRIKE_R_ID,
+            cards::BASH_ID,
+            cards::DEFEND_R_ID,
+            cards::STRIKE_R_ID,
+            cards::BASH_ID,
+            cards::DEFEND_R_ID,
+        ]
+    );
+}
+
+#[test]
+fn dark_embrace_end_turn_draw_ignores_expired_no_draw_power() {
+    let mut state = CombatState::initial_fixture();
+    state.player.cannot_draw = true;
+    state.player.powers.dark_embrace = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::CARNAGE_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+        CardInstance::new(CardId::new(5), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(6), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(7), cards::BASH_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = end_player_turn(&state).expect("supported monster intent");
+
+    assert!(!next.player.cannot_draw);
+    assert_eq!(next.piles.hand.len(), 6);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::CARNAGE_ID);
+}
+
+#[test]
 fn perfected_strike_plus_counts_hand_draw_and_discard_strikes_not_exhaust() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 2;
@@ -1664,6 +1796,140 @@ fn pommel_strike_plus_deals_ten_and_draws_two() {
         next.piles.discard_pile[0].content_id,
         cards::POMMEL_STRIKE_PLUS_ID
     );
+}
+
+#[test]
+fn strike_dummy_boosts_pommel_strike() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.relics = vec![Relic::StrikeDummy];
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::POMMEL_STRIKE_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Pommel Strike plays with Strike Dummy");
+
+    assert_eq!(next.monsters[0].hp, starting_hp - 12);
+}
+
+#[test]
+fn pommel_strike_draws_after_freeing_a_full_hand_slot() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = (1..=9)
+        .map(|id| CardInstance::new(CardId::new(id), cards::STRIKE_R_ID))
+        .chain(std::iter::once(CardInstance::new(
+            CardId::new(10),
+            cards::POMMEL_STRIKE_ID,
+        )))
+        .collect();
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(11), cards::DEFEND_R_ID)];
+    state.piles.discard_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(10),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Pommel Strike should play from a full hand");
+
+    assert_eq!(next.piles.hand.len(), 10);
+    assert!(next
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.content_id == cards::DEFEND_R_ID));
+    assert!(next.piles.draw_pile.is_empty());
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::POMMEL_STRIKE_ID
+    );
+}
+
+#[test]
+fn pommel_strike_double_tap_keeps_source_available_for_copied_draw() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.double_tap_pending = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::POMMEL_STRIKE_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(4), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(5), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(3),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Double Tap should copy Pommel Strike's draw");
+
+    assert_eq!(next.piles.hand.len(), 4);
+    assert!(next.piles.draw_pile.is_empty());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::POMMEL_STRIKE_ID
+    );
+}
+
+#[test]
+fn double_tap_headbutt_copies_discard_to_draw_effect() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.double_tap_pending = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HEADBUTT_ID)];
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile = vec![CardInstance::new(CardId::new(2), cards::DEFEND_R_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Double Tap should copy Headbutt's discard effect");
+
+    assert!(next.discard_select().is_none());
+    assert_eq!(
+        next.piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::DEFEND_R_ID, cards::HEADBUTT_ID]
+    );
+    assert!(next.piles.discard_pile.is_empty());
+}
+
+#[test]
+fn unused_duplication_potion_stack_expires_at_end_of_round() {
+    let mut state = CombatState::initial_fixture();
+    state.duplication_potion_stacks = 2;
+    state.piles.discard_pile.clear();
+
+    let next = end_player_turn(&state).expect("end turn should resolve");
+
+    assert_eq!(next.duplication_potion_stacks, 1);
+    assert!(!next.duplication_potion_pending);
 }
 
 #[test]
@@ -2853,6 +3119,34 @@ fn bite_heals_two_even_when_damage_is_blocked() {
 }
 
 #[test]
+fn bite_plus_heals_three_even_when_damage_is_blocked() {
+    let mut state = CombatState::initial_fixture();
+    state.player.hp = 50;
+    state.player.max_hp = 60;
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BITE_PLUS_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].block = 99;
+    let starting_monster_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Bite+ plays against a blocked target");
+
+    assert_eq!(next.player.hp, 53);
+    assert_eq!(next.monsters[0].hp, starting_monster_hp);
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::BITE_PLUS_ID);
+}
+
+#[test]
 fn whirlwind_definitions_are_x_cost_all_enemy_attacks() {
     assert_eq!(cards::WHIRLWIND.cost, -1);
     assert_eq!(cards::WHIRLWIND.target, TargetRequirement::AllEnemies);
@@ -2861,6 +3155,30 @@ fn whirlwind_definitions_are_x_cost_all_enemy_attacks() {
     assert_eq!(cards::WHIRLWIND_PLUS.cost, -1);
     assert_eq!(cards::WHIRLWIND_PLUS.target, TargetRequirement::AllEnemies);
     assert_eq!(cards::WHIRLWIND_PLUS.values.damage, Some(8));
+}
+
+#[test]
+fn whirlwind_is_playable_at_zero_energy_for_zero_hits() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::WHIRLWIND_ID)];
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let starting_monster_hp = state.monsters[0].hp;
+    let play = CombatAction::PlayCard {
+        card_id: CardId::new(1),
+        target: None,
+    };
+
+    assert!(valid_legal_combat_actions(&state).contains(&play));
+    let next = apply_combat_action(&state, play)
+        .expect("the real game permits zero-energy Whirlwind for zero hits");
+
+    assert_eq!(next.player.energy, 0);
+    assert_eq!(next.monsters[0].hp, starting_monster_hp);
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::WHIRLWIND_ID);
 }
 
 #[test]
@@ -2899,12 +3217,35 @@ fn transmutation_plus_generates_an_upgraded_zero_cost_colorless_card() {
     assert_eq!(next.piles.hand.len(), 1);
     let generated = next.piles.hand[0];
     assert_eq!(generated.temp_cost, Some(0));
+    assert!(generated.temp_cost_turn_only);
     assert!(colorless_discovery_pool()
         .iter()
         .any(|base| { cards::upgrade_content_id(*base) == Some(generated.content_id) }));
     assert_eq!(
         next.piles.exhaust_pile[0].content_id,
         cards::TRANSMUTATION_PLUS_ID
+    );
+}
+
+#[test]
+fn transmutation_can_be_played_with_zero_energy() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::TRANSMUTATION_ID)];
+    state.piles.exhaust_pile.clear();
+
+    let play = CombatAction::PlayCard {
+        card_id: CardId::new(1),
+        target: None,
+    };
+    assert!(valid_legal_combat_actions(&state).contains(&play));
+
+    let next = apply_combat_action(&state, play).expect("zero-energy Transmutation plays");
+    assert_eq!(next.player.energy, 0);
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::TRANSMUTATION_ID
     );
 }
 
@@ -3283,6 +3624,32 @@ fn ritual_dagger_does_not_grow_on_minion_kill() {
     .expect("Ritual Dagger kills the minion");
 
     assert_eq!(next.monsters[0].hp, 0);
+    assert_eq!(next.piles.exhaust_pile[0].ritual_dagger_damage_bonus, 0);
+}
+
+#[test]
+fn ritual_dagger_does_not_grow_on_a_half_dead_darkling() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::RITUAL_DAGGER_ID)];
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&DARKLING_A0, MonsterId::new(1))];
+    state.monsters[0].rolled_attack_damage = Some(8);
+    state.monsters[0].intent = MonsterIntent::Attack { damage: 8 };
+    state.monsters[0].hp = 1;
+    state.monsters[0].max_hp = 1;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Ritual Dagger puts the Darkling into its half-dead state");
+
+    assert!(!next.monsters[0].alive);
+    assert!(next.monsters[0].escaped);
     assert_eq!(next.piles.exhaust_pile[0].ritual_dagger_damage_bonus, 0);
 }
 
@@ -3713,6 +4080,35 @@ fn havoc_battle_trance_plus_draws_four_sets_no_draw_and_exhausts() {
 }
 
 #[test]
+fn battle_trance_draw_does_not_trigger_evolve_extra_draws() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 3;
+    state.player.powers.evolve = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BATTLE_TRANCE_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(4), cards::DAZED_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Battle Trance should resolve its fixed draw count");
+
+    assert_eq!(next.piles.hand.len(), 3);
+    assert!(next.piles.draw_pile.is_empty());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert!(next.player.cannot_draw);
+}
+
+#[test]
 fn reckless_charge_adds_generated_dazed_to_draw_pile() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
@@ -4106,7 +4502,8 @@ fn top_draw_secret_technique_fetches_skill_and_exhausts_source() {
     state.piles.draw_pile = vec![
         CardInstance::new(CardId::new(1), cards::STRIKE_R_ID),
         CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
-        CardInstance::new(CardId::new(3), cards::SECRET_TECHNIQUE_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_PLUS_ID),
+        CardInstance::new(CardId::new(4), cards::SECRET_TECHNIQUE_ID),
     ];
     state.piles.discard_pile.clear();
     state.piles.exhaust_pile.clear();
@@ -4115,12 +4512,19 @@ fn top_draw_secret_technique_fetches_skill_and_exhausts_source() {
         .expect("top-draw Secret Technique opens draw selection");
     assert!(next.draw_select().is_some());
 
-    choose_draw_select(&mut next, 0).expect("select Defend skill");
+    let defend_index = next
+        .draw_select()
+        .expect("draw selection")
+        .selectable_card_ids
+        .iter()
+        .position(|id| *id == CardId::new(2))
+        .expect("Defend is selectable");
+    choose_draw_select(&mut next, defend_index).expect("select Defend skill");
     confirm_draw_select(&mut next).expect("confirm Secret Technique draw selection");
 
     assert_eq!(next.piles.hand.len(), 1);
     assert_eq!(next.piles.hand[0].content_id, cards::DEFEND_R_ID);
-    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile.len(), 2);
     assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
     assert!(next.piles.discard_pile.is_empty());
     assert_eq!(next.piles.exhaust_pile.len(), 1);
@@ -4132,13 +4536,49 @@ fn top_draw_secret_technique_fetches_skill_and_exhausts_source() {
 }
 
 #[test]
+fn secret_technique_with_one_skill_moves_it_without_a_grid() {
+    let mut state = CombatState::initial_fixture();
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::SECRET_TECHNIQUE_ID,
+    )];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Secret Technique plays with one skill in draw pile");
+
+    assert!(next.draw_select().is_none());
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::DEFEND_R_ID);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::SECRET_TECHNIQUE_ID
+    );
+}
+
+#[test]
 fn top_draw_secret_weapon_plus_fetches_attack_and_discards_source() {
     let mut state = CombatState::initial_fixture();
     state.piles.hand.clear();
     state.piles.draw_pile = vec![
         CardInstance::new(CardId::new(1), cards::DEFEND_R_ID),
         CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
-        CardInstance::new(CardId::new(3), cards::SECRET_WEAPON_PLUS_ID),
+        CardInstance::new(CardId::new(3), cards::BASH_ID),
+        CardInstance::new(CardId::new(4), cards::SECRET_WEAPON_PLUS_ID),
     ];
     state.piles.discard_pile.clear();
     state.piles.exhaust_pile.clear();
@@ -4147,12 +4587,19 @@ fn top_draw_secret_weapon_plus_fetches_attack_and_discards_source() {
         .expect("top-draw Secret Weapon+ opens draw selection");
     assert!(next.draw_select().is_some());
 
-    choose_draw_select(&mut next, 0).expect("select Strike attack");
+    let strike_index = next
+        .draw_select()
+        .expect("draw selection")
+        .selectable_card_ids
+        .iter()
+        .position(|id| *id == CardId::new(2))
+        .expect("Strike is selectable");
+    choose_draw_select(&mut next, strike_index).expect("select Strike attack");
     confirm_draw_select(&mut next).expect("confirm Secret Weapon+ draw selection");
 
     assert_eq!(next.piles.hand.len(), 1);
     assert_eq!(next.piles.hand[0].content_id, cards::STRIKE_R_ID);
-    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert_eq!(next.piles.draw_pile.len(), 2);
     assert_eq!(next.piles.draw_pile[0].content_id, cards::DEFEND_R_ID);
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(

@@ -1,5 +1,5 @@
 use super::{
-    add_ritual_dagger_damage_bonus, apply_monster_death_hooks, apply_or_queue_spikes_to_player,
+    add_ritual_dagger_damage_bonus, apply_or_queue_spikes_to_player,
     apply_player_vulnerable_debuff, checked_add_combat_value, checked_combat_sum,
     deal_attack_damage_to_all_living, living_monster_mut, living_monster_mut_opt,
     push_attack_block_follow_ups, queue_monster_death_hooks, random_living_monster_id,
@@ -72,10 +72,25 @@ pub(super) fn deal_damage(
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
-        queue_monster_death_hooks(state, info.target)?;
+        follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
     apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
     Ok(follow_ups)
+}
+
+pub(super) fn deal_body_slam_damage(
+    state: &mut CombatState,
+    source: CardId,
+    target: crate::ids::MonsterId,
+) -> SimResult<Vec<InternalAction>> {
+    deal_damage(
+        state,
+        DamageInfo {
+            source: DamageSource::Card(source),
+            target,
+            amount: state.player.block,
+        },
+    )
 }
 
 pub(super) fn deal_damage_random_enemy(
@@ -135,7 +150,7 @@ pub(super) fn deal_damage_random_enemy(
         }
         check_slime_boss_split(state, target);
         if !still_alive {
-            apply_monster_death_hooks(state, target)?;
+            follow_ups.extend(queue_monster_death_hooks(state, target)?);
         }
         apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
         return Ok(follow_ups);
@@ -203,7 +218,7 @@ pub(super) fn deal_hand_of_greed_damage(
         if !minion {
             checked_add_combat_value(&mut state.combat_gold_gained, gold.max(0))?;
         }
-        apply_monster_death_hooks(state, info.target)?;
+        follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
     apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
     Ok(follow_ups)
@@ -266,7 +281,7 @@ pub(super) fn deal_damage_and_heal_unblocked(
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
-        apply_monster_death_hooks(state, info.target)?;
+        follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
     apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
     Ok(follow_ups)
@@ -341,7 +356,7 @@ pub(super) fn deal_feed_damage(
             state.player.hp = hp;
             crate::relic::sync_red_skull_strength(state)?;
         }
-        apply_monster_death_hooks(state, info.target)?;
+        follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
     apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
     Ok(follow_ups)
@@ -363,6 +378,7 @@ pub(super) fn deal_ritual_dagger_damage(
         monster_content_id,
         still_alive,
         minion,
+        half_dead_darkling,
         hand_drill_applies,
         curl_up_block,
         malleable_block,
@@ -384,6 +400,7 @@ pub(super) fn deal_ritual_dagger_damage(
             monster_content_id,
             monster.alive,
             monster.powers.minion > 0,
+            monster.content_id == DARKLING_ID && monster.escaped,
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
             damage.curl_up_block,
             damage.malleable_block,
@@ -404,11 +421,11 @@ pub(super) fn deal_ritual_dagger_damage(
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
-        if !minion {
+        if !minion && !half_dead_darkling {
             let DamageSource::Card(source_card_id) = info.source;
             add_ritual_dagger_damage_bonus(state, source_card_id, growth)?;
         }
-        apply_monster_death_hooks(state, info.target)?;
+        follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
     apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
     Ok(follow_ups)

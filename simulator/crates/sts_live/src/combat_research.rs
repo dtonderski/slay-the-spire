@@ -420,6 +420,7 @@ fn default_metadata() -> TraceMetadata {
         ended_at: None,
         event: None,
         boss_unlocks: None,
+        run_config: None,
     }
 }
 

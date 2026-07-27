@@ -218,10 +218,10 @@ pub(super) fn apply_act_one_event_action(
             }
             3 if choice_index == 0 => {
                 // DeadAdventurer adds its 25-35 combat gold with miscRng when
-                // the search fails. A previously found GOLD reward contributes
-                // the fixed extra 30 when the player then enters combat.
+                // the search fails. Earlier GOLD search rewards were already
+                // paid directly to the player and are not part of this reward.
                 let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
-                next.pending_event_combat_gold_offer = 30 + misc_rng.random_int_range(25, 35);
+                next.pending_event_combat_gold_offer = misc_rng.random_int_range(25, 35);
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
                 // Dead Adventurer marks the encounter as an elite fight, so
                 // the post-combat screen always contains the normal elite
@@ -327,7 +327,7 @@ pub(super) fn apply_act_one_event_action(
         }
         Event::ShiningLight if screen.stage == 0 && choice_index == 0 => {
             let loss = shining_light_hp_loss(next.player_max_hp);
-            next.player_hp = (next.player_hp - loss).max(0);
+            lose_event_hp(next, loss);
             upgrade_random_deck_cards(next, 2)?;
             next.event = Some(make_event_screen(
                 Event::ShiningLight,
@@ -349,7 +349,7 @@ pub(super) fn apply_act_one_event_action(
         Event::ScrapOoze => match screen.stage {
             0 if choice_index == 0 => {
                 let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data)?;
-                next.player_hp = (next.player_hp - hp_loss).max(0);
+                lose_event_hp(next, hp_loss);
                 if roll_scrap_ooze_relic(next, screen.event_data)? {
                     scrap_ooze_success(next)?;
                 } else {
@@ -371,7 +371,7 @@ pub(super) fn apply_act_one_event_action(
             }
             1 if choice_index == 0 => {
                 let hp_loss = scrap_ooze_hp_loss(next.ascension, screen.event_data)?;
-                next.player_hp = (next.player_hp - hp_loss).max(0);
+                lose_event_hp(next, hp_loss);
                 if roll_scrap_ooze_relic(next, screen.event_data)? {
                     scrap_ooze_success(next)?;
                 } else {

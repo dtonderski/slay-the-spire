@@ -212,6 +212,40 @@ mod tests {
     }
 
     #[test]
+    fn random_draw_insertion_does_not_append_after_the_existing_pile() {
+        let mut found_append = false;
+        for seed in 0..1_000_i64 {
+            let mut piles = CardPiles {
+                hand: Vec::new(),
+                draw_pile: vec![
+                    CardInstance::new(CardId::new(1), BURN_ID),
+                    CardInstance::new(CardId::new(2), BURN_ID),
+                ],
+                discard_pile: Vec::new(),
+                exhaust_pile: Vec::new(),
+                limbo: Vec::new(),
+            };
+            let mut rng = StsRng::new(seed);
+
+            add_cards_to_draw_random_spot(&mut piles, BURN_ID, 1, &mut rng, 2)
+                .expect("Burn generation is valid");
+            if piles
+                .draw_pile
+                .last()
+                .is_some_and(|card| card.id == CardId::new(3))
+            {
+                found_append = true;
+                break;
+            }
+        }
+
+        assert!(
+            !found_append,
+            "random spot must select an existing position"
+        );
+    }
+
+    #[test]
     fn generated_cards_start_after_the_authoritative_external_maximum() {
         let mut piles = CardPiles {
             hand: vec![CardInstance::new(CardId::new(1), BURN_ID)],

@@ -173,7 +173,7 @@ pub(super) fn apply_special_event_action(
             }
             0 if choice_index == 1 => {
                 next.gain_relic_key(RelicKey::WarpedTongs)?;
-                next.pending_obtain_cards.push(PAIN_ID);
+                next.queue_pending_obtain_card(PAIN_ID);
                 next.event = Some(EventScreen {
                     event: Event::AccursedBlacksmith,
                     choices: labeled_choices(&["Leave"]),
@@ -370,9 +370,16 @@ pub(super) fn apply_special_event_action(
                 .collect();
             next.store_rng_counter(RunRngStream::Potion, &potion_rng);
             next.phase = RunPhase::Reward;
-            next.event = None;
+            // Target WomanInBlue switches to its RESULT screen before opening
+            // CombatRewardScreen. The reward overlay hides that event screen,
+            // but the event remains the continuation shown after PROCEED.
+            next.event = Some(make_event_screen(
+                Event::TheWomanInBlue,
+                labeled_choices(&["Leave"]),
+                1,
+            ));
             next.reward = Some(RewardScreen {
-                continuation: crate::RewardContinuation::None,
+                continuation: crate::RewardContinuation::Event,
                 choices: Vec::new(),
                 queued_card_rewards: Vec::new(),
                 gold_offer: 0,
@@ -389,7 +396,7 @@ pub(super) fn apply_special_event_action(
         Event::TheWomanInBlue if screen.stage == 0 && choice_index == 3 => {
             if next.ascension >= 15 {
                 let hp_loss = woman_in_blue_punch_hp_loss(next.player_max_hp);
-                next.player_hp = (next.player_hp - hp_loss).max(0);
+                lose_event_hp(next, hp_loss);
             }
             next.event = Some(make_event_screen(
                 Event::TheWomanInBlue,

@@ -1,6 +1,7 @@
 use super::{
     apply_player_card_block_gain, apply_player_vulnerable_debuff,
-    apply_sadistic_nature_after_monster_debuff, checked_add_combat_value, living_monster_mut_opt,
+    apply_sadistic_nature_after_monster_debuff, checked_add_combat_value,
+    juggernaut_follow_up_for_positive_block_gain, living_monster_mut_opt,
 };
 use crate::{
     action::InternalAction,
@@ -20,6 +21,17 @@ pub(super) fn gain_player_block(
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
     apply_player_card_block_gain(state, amount)
+}
+
+pub(super) fn gain_player_block_direct(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    if state.player.no_block_turns > 0 {
+        return Ok(Vec::new());
+    }
+    checked_add_combat_value(&mut state.player.block, amount)?;
+    Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
 }
 
 pub(super) fn gain_monster_block(

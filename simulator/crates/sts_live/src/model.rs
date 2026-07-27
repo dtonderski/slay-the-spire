@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt, io};
-use sts_verify::SlayTheDataReplayStepKind;
+use sts_verify::{SlayTheDataReplayStepKind, TraceProfile};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BridgeId(pub String);
@@ -40,6 +40,9 @@ pub struct RunConfig {
     pub character: Character,
     pub ascension: u8,
     pub seed: RunSeed,
+    /// Persistent profile input captured from the first state of the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<TraceProfile>,
 }
 
 #[cfg(test)]

@@ -58,6 +58,12 @@ pub struct PlayerPowers {
     pub entangled: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub constricted: i32,
+    /// Time Eater's one-stack DrawReductionPower remains visible after its
+    /// first reduced opening draw and expires after the following one.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub draw_reduction: i32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub draw_reduction_first_draw_seen: bool,
 }
 
 fn is_zero_i32(value: &i32) -> bool {
@@ -108,6 +114,9 @@ pub struct MonsterPowers {
     pub strength_up: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub slow: i32,
+    /// Cards played toward Time Eater's twelve-card Time Warp threshold.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub time_warp: i32,
 }
 
 fn is_false(value: &bool) -> bool {

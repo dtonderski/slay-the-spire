@@ -12,7 +12,7 @@ use crate::{
         WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     ids::{CardId, MonsterId},
-    relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics, Relic},
+    relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics},
     SimError, SimResult,
 };
 
@@ -283,18 +283,14 @@ fn is_affordable(
     card: &crate::CardInstance,
     definition: &CardDefinition,
 ) -> SimResult<bool> {
-    if is_x_cost(definition) {
-        return Ok(state.player.energy >= 1 || state.relics.contains(&Relic::ChemicalX));
+    if definition.id == WHIRLWIND_ID || definition.id == WHIRLWIND_PLUS_ID {
+        return Ok(true);
+    }
+    if definition.id == TRANSMUTATION_ID || definition.id == TRANSMUTATION_PLUS_ID {
+        return Ok(true);
     }
     Ok(state.player.energy
         >= effective_card_cost_with_corruption(card, state.player.powers.corruption > 0)?)
-}
-
-fn is_x_cost(definition: &CardDefinition) -> bool {
-    definition.id == WHIRLWIND_ID
-        || definition.id == WHIRLWIND_PLUS_ID
-        || definition.id == TRANSMUTATION_ID
-        || definition.id == TRANSMUTATION_PLUS_ID
 }
 
 fn is_clash(definition: &CardDefinition) -> bool {

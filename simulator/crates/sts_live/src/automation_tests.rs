@@ -376,6 +376,11 @@ fn real_planner_auto_plays_current_combat_under_fake_bridge() {
     let trace = fs::read_to_string(finished.trace_path).unwrap();
     assert!(trace.contains("\"event\":\"sent_action\""));
     assert!(trace.contains("\"event\":\"auto_play_done\""));
+    assert_eq!(
+        trace.matches("\"id\":\"request-state\"").count(),
+        1,
+        "auto-play should refresh once, then use the settled state returned by each action"
+    );
     fs::remove_dir_all(root).ok();
 }
 
@@ -509,6 +514,55 @@ fn backend_auto_play_history_keeps_all_executed_actions() {
         .executed_actions
         .iter()
         .all(|action| action.command.is_some()));
+    let trace = fs::read_to_string(second.trace_path).unwrap();
+    assert_eq!(
+        trace.matches("\"id\":\"request-state\"").count(),
+        1,
+        "later auto-play ticks must reuse the settled state returned by send_action"
+    );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn backend_auto_play_reuses_verified_plan_without_full_replay_between_cards() {
+    let root = temp_dir("auto-plan-fidelity-batch");
+    let checks = Rc::new(Cell::new(0));
+    let mut store = SessionStore::new(
+        SimCombatBridge::default(),
+        CountingOkFidelity {
+            checks: Rc::clone(&checks),
+        },
+        &root,
+    );
+    let started = store
+        .start_run(BridgeId("bridge".to_owned()), run_config())
+        .unwrap();
+    checks.set(0);
+    store
+        .automation_start_auto_play(&started.session_id)
+        .unwrap();
+
+    let (first, keep_going) = store
+        .automation_auto_play_tick(&started.session_id, 0)
+        .unwrap();
+    assert!(keep_going);
+    assert!(first
+        .automation
+        .plan
+        .as_ref()
+        .is_some_and(|plan| plan.actions.len() > plan.played_actions));
+    let checks_after_first = checks.get();
+
+    let (second, _) = store
+        .automation_auto_play_tick(&started.session_id, 1)
+        .unwrap();
+
+    assert_eq!(second.automation.executed_actions.len(), 2);
+    assert_eq!(
+        checks.get(),
+        checks_after_first,
+        "a bound same-turn principal-variation step should not replay the full trace"
+    );
     fs::remove_dir_all(root).ok();
 }
 
@@ -565,6 +619,7 @@ fn run_config() -> RunConfig {
         character: Character::Ironclad,
         ascension: 0,
         seed: RunSeed::Numeric(123),
+        profile: None,
     }
 }
 

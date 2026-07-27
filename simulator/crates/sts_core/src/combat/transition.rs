@@ -20,13 +20,16 @@ use crate::{
     },
     content::cards::{
         card_instance_is_upgradeable, get_card_definition, required_upgrade_content_id,
-        upgrade_card_instance, DAZED_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, PAIN_ID,
+        upgrade_card_instance, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID,
+        CLASH_PLUS_ID, DAZED_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, PAIN_ID,
         PURITY_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
     },
     content::monsters::{
-        apply_collector_death_escape, apply_gremlin_leader_death_escape, check_slime_boss_split,
+        apply_collector_death_escape, apply_gremlin_leader_death_escape,
+        apply_reptomancer_death_escape, awakened_one_is_half_dead, check_slime_boss_split,
         enter_guardian_defensive_mode, get_monster_definition, guardian_accumulate_hp_damage,
-        release_stasis_card_on_death, wake_lagavulin_on_damage, GIANT_HEAD_ID, GUARDIAN_ID,
+        release_stasis_card_on_death, wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID,
+        GUARDIAN_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -165,7 +168,11 @@ fn process_internal_queue(
             InternalAction::SkipCopiedCardEffectsIfCombatDone
         ) {
             event_log.push(internal_action);
-            if next.monsters.iter().all(|monster| !monster.alive) {
+            if next
+                .monsters
+                .iter()
+                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+            {
                 while let Some(skipped_action) = queue.pop_front() {
                     event_log.push(skipped_action);
                     if matches!(skipped_action, InternalAction::EndCopiedCardEffects) {
@@ -229,11 +236,24 @@ fn process_internal_queue(
         }
     }
 
+    if next.time_warp_end_turn
+        && next.player.hp > 0
+        && next.monsters.iter().any(|monster| monster.alive)
+        && next.decision.is_none()
+    {
+        next.time_warp_end_turn = false;
+        next = crate::combat::end_player_turn(&next)?;
+    }
+
     if next.player.hp <= 0 {
         next.player.hp = 0;
         next.player.block = 0;
         next.phase = CombatPhase::Lost;
-    } else if next.monsters.iter().all(|monster| !monster.alive) {
+    } else if next
+        .monsters
+        .iter()
+        .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+    {
         next.phase = CombatPhase::Won;
         apply_burning_blood(&mut next)?;
     } else {
@@ -247,6 +267,42 @@ fn process_internal_queue(
 }
 
 fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalAction) {
+    if matches!(follow_up, InternalAction::CardExhausted { .. }) {
+        queue.push_front(follow_up);
+        return;
+    }
+
+    if matches!(
+        follow_up,
+        InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
+            | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
+    ) {
+        // HexPower queues its MakeTempCardInDrawPileAction with addToBot.
+        // Keep that queued draw-pile mutation ahead of an Ink Bottle draw
+        // already returned by the card-play relic hooks.
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::DrawCardsFromInkBottle { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    if matches!(follow_up, InternalAction::DrawCardsFromInkBottle { .. }) {
+        // AbstractPlayer constructs UseCardAction after card.use. Ink Bottle's
+        // onUseCard callback therefore queues its draw before UseCardAction
+        // moves the played card out of limbo. Keep that boundary when the
+        // simulator appends the callback to the card's effect queue.
+        if let Some(index) = queue
+            .iter()
+            .rposition(|action| matches!(action, InternalAction::MoveCard { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
     if let InternalAction::GainMonsterBlock { target, .. } = &follow_up {
         // Multi-hit cards enqueue their remaining hit actions before Malleable's
         // block actions resolve. Keep the block behind contiguous hits from the
@@ -258,6 +314,10 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
                 matches!(
                     action,
                     InternalAction::DealDamage { info } if info.target == *target
+                ) || matches!(
+                    action,
+                    InternalAction::DealDamageAll { .. }
+                        | InternalAction::DealDamageRandomEnemy { .. }
                 )
             })
             .count();
@@ -365,6 +425,9 @@ fn apply_internal_action(
             card_actions::set_hand_card_cost_for_combat(state, card_id, cost)
         }
         InternalAction::DealDamage { info } => damage_actions::deal_damage(state, info),
+        InternalAction::DealBodySlamDamage { source, target } => {
+            damage_actions::deal_body_slam_damage(state, source, target)
+        }
         InternalAction::DealHandOfGreedDamage { info, gold } => {
             damage_actions::deal_hand_of_greed_damage(state, info, gold)
         }
@@ -393,6 +456,9 @@ fn apply_internal_action(
         }
         InternalAction::HealPlayer { amount } => defense_actions::heal_player(state, amount),
         InternalAction::GainBlock { amount } => defense_actions::gain_player_block(state, amount),
+        InternalAction::GainBlockDirect { amount } => {
+            defense_actions::gain_player_block_direct(state, amount)
+        }
         InternalAction::GainMonsterBlock { target, amount } => {
             defense_actions::gain_monster_block(state, target, amount)
         }
@@ -445,6 +511,20 @@ fn apply_internal_action(
         } => {
             pile_actions::add_generated_card(state, content_id, to, temp_cost, temp_cost_turn_only)
         }
+        InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
+            content_id,
+            source_card_id,
+            count,
+            temp_cost,
+            temp_cost_turn_only,
+        } => pile_actions::add_generated_cards_to_hand_while_source_in_limbo(
+            state,
+            content_id,
+            source_card_id,
+            count,
+            temp_cost,
+            temp_cost_turn_only,
+        ),
         InternalAction::AddGeneratedHandCardBeforePendingDraw {
             content_id,
             temp_cost,
@@ -457,6 +537,9 @@ fn apply_internal_action(
         ),
         InternalAction::AddStatEquivalentCopyToPile { card, to } => {
             pile_actions::add_stat_equivalent_copy(state, card, to)
+        }
+        InternalAction::AddCardInstanceToHandOrDiscard { card } => {
+            pile_actions::add_card_instance_to_hand_or_discard(state, card)
         }
         InternalAction::AddGeneratedCardToDrawPileRandomSpot { content_id } => {
             pile_actions::add_generated_card_to_random_draw_spot(state, content_id, None, false)
@@ -475,8 +558,16 @@ fn apply_internal_action(
             pile_actions::add_random_colorless_card_to_hand(state, temp_cost, upgrade)
         }
         InternalAction::DrawCards { count } => pile_actions::draw_cards(state, count),
+        InternalAction::DrawCardsWithoutEvolve { count } => {
+            pile_actions::draw_cards_without_evolve(state, count)
+        }
         InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count } => {
             pile_actions::draw_cards_while_played_card_is_in_limbo(state, card_id, count)
+        }
+        InternalAction::DrawCardsWhilePlayedCardIsInLimboWithoutEvolve { card_id, count } => {
+            pile_actions::draw_cards_while_played_card_is_in_limbo_without_evolve(
+                state, card_id, count,
+            )
         }
         InternalAction::DrawCardsFromInkBottle { count } => pile_actions::draw_cards(state, count),
         InternalAction::ShuffleDiscardIntoDraw => pile_actions::shuffle_discard_into_draw(state),
@@ -493,9 +584,10 @@ fn apply_internal_action(
         InternalAction::LoseHp { amount, source } => player_actions::lose_hp(state, amount, source),
         InternalAction::SetCannotDraw => player_actions::set_cannot_draw(state),
         InternalAction::GainRage { amount } => player_actions::gain_rage(state, amount),
-        InternalAction::SetRandomHandCardCostForCombat { amount } => {
-            player_actions::set_random_hand_card_cost(state, amount)
-        }
+        InternalAction::SetRandomHandCardCostForCombat {
+            amount,
+            excluded_card_id,
+        } => player_actions::set_random_hand_card_cost(state, amount, excluded_card_id),
         InternalAction::UpgradeHandCardsExcept { card_id } => {
             player_actions::upgrade_hand_cards_other_than(state, card_id)
         }
@@ -536,6 +628,12 @@ fn apply_internal_action(
             deal_unmodified_damage_to_living_monster(state, target, amount)?;
             Ok(Vec::new())
         }
+        InternalAction::DealUnmodifiedDamageRandom { amount } => {
+            if let Some(target) = random_living_monster_id(state) {
+                deal_unmodified_damage_to_living_monster(state, target, amount)?;
+            }
+            Ok(Vec::new())
+        }
         InternalAction::GainMetallicize { amount } => {
             player_actions::gain_metallicize(state, amount)
         }
@@ -573,7 +671,7 @@ fn apply_internal_action(
             let next_id = CardId::new(state.next_card_instance_id()?);
             state
                 .piles
-                .hand
+                .draw_pile
                 .push(CardInstance::new(next_id, card.content_id));
             Ok(Vec::new())
         }
@@ -589,6 +687,9 @@ fn apply_internal_action(
             source_card_id,
             purpose,
         } => decision_actions::await_discard_select(state, source_card_id, purpose),
+        InternalAction::AwaitCopiedDiscardSelect { purpose } => {
+            decision_actions::await_copied_discard_select(state, purpose)
+        }
         InternalAction::AwaitExhaustSelect {
             source_card_id,
             purpose,
@@ -642,9 +743,30 @@ fn apply_on_card_play_powers(
 ) -> SimResult<Vec<InternalAction>> {
     let mut follow_ups = Vec::new();
 
+    let mut time_warp_triggered = false;
     for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
         if monster.content_id == GIANT_HEAD_ID || monster.powers.slow > 0 {
             checked_add_combat_value(&mut monster.powers.slow, 1)?;
+        }
+        if monster.content_id == crate::content::monsters::TIME_EATER_ID {
+            checked_add_combat_value(&mut monster.powers.time_warp, 1)?;
+            if monster.powers.time_warp >= 12 {
+                monster.powers.time_warp = 0;
+                time_warp_triggered = true;
+            }
+        }
+        if card_type == CardType::Power
+            && monster.content_id == AWAKENED_ONE_ID
+            && monster.mode_shift == 0
+        {
+            let curiosity = if state.ascension >= 19 { 2 } else { 1 };
+            checked_add_combat_value(&mut monster.powers.strength, curiosity)?;
+        }
+    }
+    if time_warp_triggered {
+        state.time_warp_end_turn = true;
+        for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
+            checked_add_combat_value(&mut monster.powers.strength, 2)?;
         }
     }
 
@@ -738,8 +860,14 @@ fn deal_attack_damage_to_all_living(
     let mut follow_ups = Vec::new();
 
     for (target, monster_content_id, spikes) in targets {
+        // A lethal hit can trigger a group-specific death hook before a later
+        // all-enemy target in this snapshot resolves (for example,
+        // Reptomancer makes its Daggers flee). The target game skips that
+        // target instead of rejecting the whole all-enemy action.
+        let Some(monster) = living_monster_mut_opt(state, target) else {
+            continue;
+        };
         let (hp_damage, still_alive, hand_drill_applies, curl_up_block, malleable_block) = {
-            let monster = living_monster_mut(state, target)?;
             let damage = deal_damage_info_to_monster_with_result(
                 monster,
                 DamageInfo {
@@ -776,7 +904,10 @@ fn deal_attack_damage_to_all_living(
         total_hp_damage += hp_damage;
         check_slime_boss_split(state, target);
         if !still_alive {
-            apply_monster_death_hooks(state, target)?;
+            // Gremlin Horn resolves after the card's queued MoveCard action.
+            // This lets an empty-draw-pile shuffle include the card that dealt
+            // the lethal hit, matching the target action ordering.
+            follow_ups.extend(queue_monster_death_hooks(state, target)?);
         }
         apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
     }
@@ -829,11 +960,21 @@ fn deal_unmodified_damage_to_living_monster(
     target: MonsterId,
     amount: i32,
 ) -> SimResult<()> {
+    // Card-play powers such as Panache queue one damage action per target
+    // before the played card's own damage resolves. A lethal card hit can
+    // therefore make one of those queued targets disappear before its action
+    // runs; the target game's all-enemy action simply skips that dead monster.
+    if !state
+        .monsters
+        .iter()
+        .any(|monster| monster.id == target && monster.alive)
+    {
+        return Ok(());
+    }
     let still_alive = {
         let monster = living_monster_mut(state, target)?;
         let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
         wake_lagavulin_on_damage(monster, hp_damage);
-        guardian_accumulate_hp_damage(monster, hp_damage);
         monster.alive
     };
     check_slime_boss_split(state, target);
@@ -856,8 +997,16 @@ pub(crate) fn apply_monster_death_hooks(
     Ok(())
 }
 
-fn queue_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) -> SimResult<()> {
-    apply_monster_death_non_relic_hooks(state, monster_id)?;
+fn queue_monster_death_hooks(
+    state: &mut CombatState,
+    monster_id: MonsterId,
+) -> SimResult<Vec<InternalAction>> {
+    let stasis_card = state
+        .monsters
+        .iter_mut()
+        .find(|monster| monster.id == monster_id)
+        .and_then(|monster| monster.stasis_card.take());
+    apply_monster_death_non_stasis_hooks(state, monster_id)?;
     if state.monsters.iter().any(|monster| monster.alive)
         && state.relics.contains(&Relic::GremlinHorn)
     {
@@ -868,7 +1017,10 @@ fn queue_monster_death_hooks(state: &mut CombatState, monster_id: MonsterId) -> 
                 "combat death trigger counter overflows u32",
             ))?;
     }
-    Ok(())
+    Ok(stasis_card
+        .into_iter()
+        .map(|card| InternalAction::AddCardInstanceToHandOrDiscard { card })
+        .collect())
 }
 
 fn apply_monster_death_non_relic_hooks(
@@ -882,7 +1034,15 @@ fn apply_monster_death_non_relic_hooks(
     {
         release_stasis_card_on_death(monster, &mut state.piles);
     }
+    apply_monster_death_non_stasis_hooks(state, monster_id)
+}
+
+fn apply_monster_death_non_stasis_hooks(
+    state: &mut CombatState,
+    monster_id: MonsterId,
+) -> SimResult<()> {
     apply_gremlin_leader_death_escape(&mut state.monsters, monster_id);
+    apply_reptomancer_death_escape(&mut state.monsters, monster_id);
     apply_collector_death_escape(&mut state.monsters, monster_id);
     apply_spore_cloud_on_monster_death(state, monster_id)
 }
@@ -945,26 +1105,23 @@ fn juggernaut_follow_up_for_positive_block_gain(
     if gained <= 0 || state.player.powers.juggernaut <= 0 {
         return Vec::new();
     }
-    random_living_monster_id(state)
-        .map(|target| {
-            vec![InternalAction::DealUnmodifiedDamage {
-                target,
-                amount: state.player.powers.juggernaut,
-            }]
-        })
-        .unwrap_or_default()
+    vec![InternalAction::DealUnmodifiedDamageRandom {
+        amount: state.player.powers.juggernaut,
+    }]
 }
 
 pub(crate) fn apply_juggernaut_after_direct_block_gain(
     state: &mut CombatState,
     gained: i32,
 ) -> SimResult<()> {
-    if let Some(InternalAction::DealUnmodifiedDamage { target, amount }) =
+    if let Some(InternalAction::DealUnmodifiedDamageRandom { amount }) =
         juggernaut_follow_up_for_positive_block_gain(state, gained)
             .into_iter()
             .next()
     {
-        deal_unmodified_damage_to_living_monster(state, target, amount)?;
+        if let Some(target) = random_living_monster_id(state) {
+            deal_unmodified_damage_to_living_monster(state, target, amount)?;
+        }
     }
     Ok(())
 }
@@ -1029,7 +1186,7 @@ fn random_hand_card_id_except(state: &mut CombatState, excluded_card_id: CardId)
     candidates.get(index).copied()
 }
 
-fn dead_branch_follow_up(state: &mut CombatState) -> Option<InternalAction> {
+fn dead_branch_card_content(state: &mut CombatState) -> Option<ContentId> {
     if !state.relics.contains(&Relic::DeadBranch)
         || !state.monsters.iter().any(|monster| monster.alive)
     {
@@ -1037,12 +1194,21 @@ fn dead_branch_follow_up(state: &mut CombatState) -> Option<InternalAction> {
     }
 
     let pool = dead_branch_card_pool();
+    let before_counter = state.rng.card_random_rng.counter();
     let index = state
         .rng
         .card_random_rng
         .random_int((pool.len() - 1) as i32) as usize;
+    eprintln!(
+        "DEBUG dead-branch counter={} index={} card={:?}",
+        before_counter, index, pool[index]
+    );
+    Some(pool[index])
+}
+
+fn dead_branch_follow_up(state: &mut CombatState) -> Option<InternalAction> {
     Some(InternalAction::AddGeneratedCardToPile {
-        content_id: pool[index],
+        content_id: dead_branch_card_content(state)?,
         to: CardPile::Hand,
         temp_cost: None,
         temp_cost_turn_only: false,
@@ -1070,6 +1236,21 @@ fn dead_branch_card_pool() -> Vec<ContentId> {
 }
 
 pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
+    apply_on_exhaust_effects_inner(state, card_id, true)
+}
+
+pub(crate) fn apply_on_exhaust_effects_without_dark_embrace(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<()> {
+    apply_on_exhaust_effects_inner(state, card_id, false)
+}
+
+fn apply_on_exhaust_effects_inner(
+    state: &mut CombatState,
+    card_id: CardId,
+    draw_with_dark_embrace: bool,
+) -> SimResult<()> {
     match exhausted_card_content_id(state, card_id) {
         // Energy is nonnegative in every valid combat state, so signed target
         // overflow is rejected by the authoritative transition validation.
@@ -1081,7 +1262,7 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId)
         let gained = state.player.powers.feel_no_pain;
         apply_player_direct_block_gain(state, gained)?;
     }
-    if state.player.powers.dark_embrace > 0 {
+    if draw_with_dark_embrace && state.player.powers.dark_embrace > 0 {
         player_draw_cards(state, state.player.powers.dark_embrace as usize)?;
     }
     if state.relics.contains(&Relic::CharonsAshes) {
@@ -1098,7 +1279,6 @@ pub(crate) fn apply_on_exhaust_effects(state: &mut CombatState, card_id: CardId)
                 let hp_damage =
                     deal_unmodified_damage_to_monster(monster, crate::relic::CHARONS_ASHES_DAMAGE);
                 wake_lagavulin_on_damage(monster, hp_damage);
-                guardian_accumulate_hp_damage(monster, hp_damage);
                 monster.alive
             };
             check_slime_boss_split(state, target);
@@ -1124,6 +1304,26 @@ pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) -> SimRes
         return Ok(());
     }
     crate::combat::draw::draw_cards_with_combat_rng(state, count)
+}
+
+pub(crate) fn player_draw_cards_with_deferred_evolve(
+    state: &mut CombatState,
+    count: usize,
+) -> SimResult<Vec<usize>> {
+    if state.player.cannot_draw {
+        return Ok(Vec::new());
+    }
+    crate::combat::draw::draw_cards_with_combat_rng_deferred_evolve(state, count)
+}
+
+pub(crate) fn player_draw_cards_without_evolve(
+    state: &mut CombatState,
+    count: usize,
+) -> SimResult<()> {
+    if state.player.cannot_draw {
+        return Ok(());
+    }
+    crate::combat::draw::draw_cards_with_combat_rng_without_evolve(state, count)
 }
 
 pub(crate) fn player_shuffle_discard_into_draw(state: &mut CombatState) -> SimResult<()> {
@@ -1213,11 +1413,7 @@ fn add_generated_card_to_pile(
     temp_cost: Option<u8>,
     temp_cost_turn_only: bool,
 ) -> SimResult<()> {
-    let next_id = CardId::new(state.next_card_instance_id()?);
-    let mut card = CardInstance {
-        combat_only: true,
-        ..CardInstance::new(next_id, content_id)
-    };
+    let mut card = make_generated_card(state, content_id)?;
     card.temp_cost = temp_cost;
     card.temp_cost_turn_only = temp_cost_turn_only;
     let destination = if to == CardPile::Hand && state.piles.hand.len() >= MAX_HAND_SIZE {
@@ -1227,6 +1423,33 @@ fn add_generated_card_to_pile(
     };
     push_card_to_pile(state, card, destination);
     Ok(())
+}
+
+pub(crate) fn make_generated_card(
+    state: &mut CombatState,
+    content_id: ContentId,
+) -> SimResult<CardInstance> {
+    let next_id = CardId::new(state.next_card_instance_id()?);
+    let mut card = CardInstance {
+        combat_only: true,
+        ..CardInstance::new(next_id, content_id)
+    };
+    apply_generated_card_metadata(state, &mut card);
+    Ok(card)
+}
+
+pub(crate) fn dead_branch_card_for_end_turn(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<Option<CardInstance>> {
+    dead_branch_card_content(state)
+        .map(|content_id| {
+            let mut card = CardInstance::new(card_id, content_id);
+            card.combat_only = true;
+            apply_generated_card_metadata(state, &mut card);
+            Ok(card)
+        })
+        .transpose()
 }
 
 fn add_stat_equivalent_copy_to_pile(
@@ -1262,16 +1485,25 @@ fn add_generated_card_to_draw_pile_random_spot(
         combat_only: true,
         ..CardInstance::new(next_id, content_id)
     };
+    apply_generated_card_metadata(state, &mut card);
     card.temp_cost = temp_cost;
     card.temp_cost_turn_only = temp_cost_turn_only;
     if state.piles.draw_pile.is_empty() {
         state.piles.draw_pile.push(card);
         return Ok(());
     }
+    // CardGroup.addToRandomSpot selects an existing position; it does not
+    // append the generated card after the current last entry.
     let bound = (state.piles.draw_pile.len() - 1) as i32;
     let index = state.rng.card_random_rng.random_int(bound) as usize;
     state.piles.draw_pile.insert(index, card);
     Ok(())
+}
+
+fn apply_generated_card_metadata(state: &CombatState, card: &mut CardInstance) {
+    if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
+        card.blood_for_blood_cost_reduction = state.player.damage_events_this_combat;
+    }
 }
 
 fn random_colorless_card(state: &mut CombatState, upgrade: bool) -> SimResult<ContentId> {
@@ -1349,22 +1581,35 @@ fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) -> SimR
     Ok(())
 }
 
-fn set_random_hand_card_cost_for_combat(state: &mut CombatState, amount: u8) -> SimResult<()> {
-    if state.piles.hand.is_empty() {
+fn set_random_hand_card_cost_for_combat(
+    state: &mut CombatState,
+    amount: u8,
+    excluded_card_id: CardId,
+) -> SimResult<()> {
+    let candidates: Vec<usize> = state
+        .piles
+        .hand
+        .iter()
+        .enumerate()
+        .filter_map(|(index, card)| (card.id != excluded_card_id).then_some(index))
+        .collect();
+    if candidates.is_empty() {
         return Ok(());
     }
 
-    let better_possible = state.piles.hand.iter().try_fold(false, |found, card| {
+    let better_possible = candidates.iter().try_fold(false, |found, index| {
+        let card = &state.piles.hand[*index];
         Ok(found || effective_card_cost(card)? > 0)
     })?;
-    let possible = state.piles.hand.iter().try_fold(false, |found, card| {
+    let possible = candidates.iter().try_fold(false, |found, index| {
+        let card = &state.piles.hand[*index];
         Ok(found || printed_card_cost(card)? > 0)
     })?;
     if !better_possible && !possible {
         return Ok(());
     }
 
-    let index = random_madness_candidate_index(state, better_possible)?;
+    let index = random_madness_candidate_index(state, &candidates, better_possible)?;
 
     let card = &mut state.piles.hand[index];
     card.temp_cost = Some(amount);
@@ -1374,11 +1619,12 @@ fn set_random_hand_card_cost_for_combat(state: &mut CombatState, amount: u8) -> 
 
 fn random_madness_candidate_index(
     state: &mut CombatState,
+    candidates: &[usize],
     better_possible: bool,
 ) -> SimResult<usize> {
     loop {
-        let bound = (state.piles.hand.len() - 1) as i32;
-        let index = state.rng.card_random_rng.random_int(bound) as usize;
+        let bound = (candidates.len() - 1) as i32;
+        let index = candidates[state.rng.card_random_rng.random_int(bound) as usize];
         if madness_card_matches(&state.piles.hand[index], better_possible)? {
             return Ok(index);
         }
@@ -1444,7 +1690,15 @@ fn apply_play_top_draw_card(
         }
     });
 
-    if definition.keywords.unplayable || !crate::relic::can_play_card_with_relics(state) {
+    let clash_is_unplayable = matches!(definition.id, CLASH_ID | CLASH_PLUS_ID)
+        && state.piles.hand.iter().any(|card| {
+            get_card_definition(card.content_id)
+                .is_none_or(|definition| definition.card_type != CardType::Attack)
+        });
+    if definition.keywords.unplayable
+        || clash_is_unplayable
+        || !crate::relic::can_play_card_with_relics(state)
+    {
         let mut follow_ups = Vec::new();
         if exhaust_played_card || definition.keywords.exhaust {
             state.piles.exhaust_pile.push(card);
@@ -1522,38 +1776,53 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    match hand_select.purpose {
-        HandSelectPurpose::WarcryPutOnDraw => confirm_warcry_select(
+    let put_on_draw_card = match hand_select.purpose {
+        HandSelectPurpose::WarcryPutOnDraw => Some(confirm_warcry_select(
             state,
             hand_select.source_card_id,
             required_hand_select_index(&hand_select)?,
-        ),
-        HandSelectPurpose::ThinkingAheadPutOnDraw => confirm_thinking_ahead_select(
+        )?),
+        HandSelectPurpose::ThinkingAheadPutOnDraw => Some(confirm_thinking_ahead_select(
             state,
             hand_select.source_card_id,
             required_hand_select_index(&hand_select)?,
-        ),
-        HandSelectPurpose::ArmamentsUpgrade => confirm_armaments_select(
-            state,
-            hand_select.source_card_id,
-            required_hand_select_index(&hand_select)?,
-        ),
-        HandSelectPurpose::ForethoughtPutOnDraw => confirm_forethought_select(
-            state,
-            hand_select.source_card_id,
-            required_hand_select_index(&hand_select)?,
-        ),
-        HandSelectPurpose::ForethoughtPutAnyOnDraw => confirm_forethought_multi_select(
-            state,
-            hand_select.source_card_id,
-            hand_select.selected_hand_indices,
-        ),
-        HandSelectPurpose::DualWieldCopy => confirm_dual_wield_select(
-            state,
-            hand_select.source_card_id,
-            required_hand_select_index(&hand_select)?,
-        ),
-    }?;
+        )?),
+        HandSelectPurpose::ArmamentsUpgrade => {
+            confirm_armaments_select(
+                state,
+                hand_select.source_card_id,
+                required_hand_select_index(&hand_select)?,
+            )?;
+            None
+        }
+        HandSelectPurpose::ForethoughtPutOnDraw => {
+            confirm_forethought_select(
+                state,
+                hand_select.source_card_id,
+                required_hand_select_index(&hand_select)?,
+            )?;
+            None
+        }
+        HandSelectPurpose::ForethoughtPutAnyOnDraw => {
+            confirm_forethought_multi_select(
+                state,
+                hand_select.source_card_id,
+                hand_select.selected_hand_indices,
+            )?;
+            None
+        }
+        HandSelectPurpose::DualWieldCopy => {
+            confirm_dual_wield_select(
+                state,
+                hand_select.source_card_id,
+                required_hand_select_index(&hand_select)?,
+            )?;
+            None
+        }
+    };
+    if let Some(card) = put_on_draw_card {
+        state.piles.draw_pile.push(card);
+    }
     resume_actions_after_hand_select(state, pending_actions)?;
     state.activate_next_queued_decision_if_idle();
     Ok(())
@@ -1590,6 +1859,20 @@ pub fn draw_select_ui_to_draw_index(state: &CombatState, ui_index: usize) -> Sim
     let draw_select = state
         .draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
+    if !draw_select.selectable_card_ids.is_empty() {
+        let card_id = draw_select
+            .selectable_card_ids
+            .get(ui_index)
+            .ok_or(SimError::IllegalAction("draw select index out of range"))?;
+        return state
+            .piles
+            .draw_pile
+            .iter()
+            .position(|card| card.id == *card_id)
+            .ok_or(SimError::IllegalAction(
+                "draw select card is no longer in draw pile",
+            ));
+    }
     let selectable: Vec<usize> = state
         .piles
         .draw_pile
@@ -1723,11 +2006,11 @@ fn confirm_warcry_select(
     state: &mut CombatState,
     source_card_id: CardId,
     index: usize,
-) -> SimResult<()> {
+) -> SimResult<CardInstance> {
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
-    state.piles.draw_pile.push(card);
-    finish_warcry_source(state, source_card_id)
+    finish_warcry_source(state, source_card_id)?;
+    Ok(card)
 }
 
 fn finish_warcry_source(state: &mut CombatState, source_card_id: CardId) -> SimResult<()> {
@@ -1738,11 +2021,11 @@ fn confirm_thinking_ahead_select(
     state: &mut CombatState,
     source_card_id: CardId,
     index: usize,
-) -> SimResult<()> {
+) -> SimResult<CardInstance> {
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
-    state.piles.draw_pile.push(card);
-    move_delayed_played_source_with_strange_spoon(state, source_card_id)
+    move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+    Ok(card)
 }
 
 fn move_delayed_played_source_with_strange_spoon(
@@ -1850,6 +2133,21 @@ fn confirm_armaments_select(
         .ok_or(SimError::IllegalAction("hand select index out of range"))?;
     if selected.id == source_card_id {
         return Err(SimError::IllegalAction("cannot upgrade Armaments"));
+    }
+    // A top-drawn Armaments is already in its forced destination when its
+    // hand-select screen opens. The real card queue keeps the selected card
+    // hidden until the turn cleanup instead of returning the upgraded card to
+    // hand immediately. Ordinary Armaments still resolves through the normal
+    // upgrade-and-return path below.
+    let source_is_top_drawn = state
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.id == source_card_id);
+    if source_is_top_drawn {
+        let selected = remove_card_from_pile(state, selected.id, CardPile::Hand)?;
+        state.pending_hidden_hand_card_until_end_turn = Some(selected);
+        return Ok(());
     }
     card_content_definition(state, source_card_id)?;
     let upgraded = upgrade_card_instance(selected)?
@@ -2148,12 +2446,24 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
         .get(index)
         .copied()
         .ok_or(SimError::IllegalAction("discard select index out of range"))?;
-    state.piles.discard_pile.remove(index);
-    state.piles.draw_pile.push(card);
+    let forced_top_draw_source = discard_select.source_card.is_none()
+        && discard_select.source_card_id.is_some_and(|source_card_id| {
+            state
+                .piles
+                .exhaust_pile
+                .iter()
+                .any(|source_card| source_card.id == source_card_id)
+        });
+    if !forced_top_draw_source {
+        state.piles.discard_pile.remove(index);
+        state.piles.draw_pile.push(card);
+    }
     if let Some(source_card) = discard_select.source_card {
         state.piles.discard_pile.push(source_card);
     } else if let Some(source_card_id) = discard_select.source_card_id {
-        move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
+        if !forced_top_draw_source {
+            move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
+        }
     }
     flush_pending_monster_death_relics_if_ready(state)?;
     state.activate_next_queued_decision_if_idle();
@@ -2167,6 +2477,7 @@ pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
             source_card_id: None,
             source_card: None,
             selected_hand_indices: Vec::new(),
+            interrupted_by_cultist_potion: false,
             pending_actions: VecDeque::new(),
         },
     });
@@ -2183,6 +2494,7 @@ pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
             source_card_id: None,
             source_card: None,
             selected_hand_indices: Vec::new(),
+            interrupted_by_cultist_potion: false,
             pending_actions: VecDeque::new(),
         },
     });
@@ -2284,6 +2596,7 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
     let exhaust_select = state
         .take_exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    let purpose = exhaust_select.purpose;
     let pending_actions = exhaust_select.pending_actions.clone();
     match exhaust_select.purpose {
         crate::combat::ExhaustSelectPurpose::GamblingChip => {
@@ -2327,6 +2640,21 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
                 apply_on_exhaust_effects(state, card_id)?;
             }
         }
+    }
+    if matches!(
+        purpose,
+        crate::combat::ExhaustSelectPurpose::BurningPactDraw2
+            | crate::combat::ExhaustSelectPurpose::BurningPactDraw3
+    ) && state.piles.draw_pile.is_empty() && pending_actions.iter().any(|action| {
+        matches!(
+            action,
+            crate::action::InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
+                | crate::action::InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
+        )
+    }) {
+        // The target's deferred Hex action still performs its random-spot
+        // draw after Burning Pact has emptied the pile.
+        state.rng.card_random_rng.random_int(0);
     }
     if !pending_actions.is_empty() {
         let transition = process_internal_queue(state, pending_actions)?;
@@ -2410,9 +2738,21 @@ fn confirm_burning_pact_select(
     if card.id == source_card_id {
         return Err(SimError::IllegalAction("Burning Pact cannot select itself"));
     }
-    state.piles.hand.remove(index);
-    state.piles.exhaust_pile.push(card);
-    apply_on_exhaust_effects(state, card.id)?;
+    // A Burning Pact played from the top of the draw pile (for example by
+    // Havoc) has already moved its source card out of hand before the select
+    // screen opens. In the real action queue, the selected hand card remains
+    // hidden until the next end-turn cleanup instead of entering exhaust
+    // immediately. This is the same visible-pile settlement as the
+    // Cultist-Potion interruption, but is a generic consequence of a delayed
+    // top-draw source rather than a potion-specific event.
+    if exhaust_select.interrupted_by_cultist_potion || exhaust_select.source_card.is_none() {
+        state.piles.hand.remove(index);
+        state.pending_hidden_hand_card_until_end_turn = Some(card);
+    } else {
+        state.piles.hand.remove(index);
+        state.piles.exhaust_pile.push(card);
+        apply_on_exhaust_effects(state, card.id)?;
+    }
     player_draw_cards(state, draw_count)?;
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.discard_pile.push(source_card);
@@ -2735,7 +3075,16 @@ fn move_card(
 ) -> SimResult<()> {
     let card = match from {
         CardPile::Hand => remove_card_from_hand(state, card_id)?,
-        CardPile::DrawPile | CardPile::DiscardPile | CardPile::ExhaustPile => {
+        CardPile::DrawPile => {
+            let index = state
+                .piles
+                .draw_pile
+                .iter()
+                .position(|card| card.id == card_id)
+                .ok_or(SimError::UnknownCard(card_id))?;
+            state.piles.draw_pile.remove(index)
+        }
+        CardPile::DiscardPile | CardPile::ExhaustPile => {
             return Err(SimError::IllegalAction(
                 "card move source is not implemented",
             ));
@@ -2755,7 +3104,15 @@ fn move_card(
             state.piles.exhaust_pile.push(card);
             Ok(())
         }
-        CardPile::Hand | CardPile::DrawPile => Err(SimError::IllegalAction(
+        CardPile::Hand => {
+            if state.piles.hand.len() >= 10 {
+                state.piles.discard_pile.push(card);
+            } else {
+                state.piles.hand.push(card);
+            }
+            Ok(())
+        }
+        CardPile::DrawPile => Err(SimError::IllegalAction(
             "card move destination is not implemented",
         )),
     }
@@ -2784,9 +3141,198 @@ mod tests {
     use super::*;
     use crate::content::cards::*;
     use crate::content::monsters::{
-        monster_state, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, SNAKE_PLANT_A0,
+        monster_state, BRONZE_ORB_A0, DAGGER_A0, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0,
+        JAW_WORM_A0, REPTOMANCER_A0, SNAKE_PLANT_A0,
     };
     use crate::rng::StsRng;
+
+    #[test]
+    fn ink_bottle_draws_before_played_card_moves_to_discard() {
+        let mut queue = VecDeque::from([
+            InternalAction::DealDamageAll {
+                source: CardId::new(1),
+                amount: 8,
+            },
+            InternalAction::MoveCard {
+                card_id: CardId::new(1),
+                from: CardPile::Hand,
+                to: CardPile::DiscardPile,
+            },
+        ]);
+
+        push_follow_up(
+            &mut queue,
+            InternalAction::DrawCardsFromInkBottle { count: 1 },
+        );
+
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::DealDamageAll { .. })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::DrawCardsFromInkBottle { count: 1 })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::MoveCard { .. })
+        ));
+    }
+
+    #[test]
+    fn panache_skips_a_target_killed_by_the_triggering_attack() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.player.powers.panache = 10;
+        state.player.powers.panache_cards_played = 4;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![
+            monster_state(&JAW_WORM_A0, MonsterId::new(1)),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 6;
+        state.monsters[0].max_hp = 6;
+        state.monsters[1].hp = 30;
+        state.monsters[1].max_hp = 30;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Strike plus Panache should resolve after a lethal hit");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.monsters[1].hp, 20);
+    }
+
+    #[test]
+    fn reptomancer_death_ends_combat_with_daggers_alive() {
+        let reptomancer_id = MonsterId::new(2);
+        let mut left_dagger = monster_state(&DAGGER_A0, MonsterId::new(1));
+        left_dagger.powers.minion = 1;
+        let mut right_dagger = monster_state(&DAGGER_A0, MonsterId::new(3));
+        right_dagger.powers.minion = 1;
+        let mut reptomancer = monster_state(&REPTOMANCER_A0, reptomancer_id);
+        reptomancer.hp = 5;
+        reptomancer.max_hp = 5;
+
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![left_dagger, reptomancer, right_dagger];
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), PERFECTED_STRIKE_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(reptomancer_id),
+            },
+        )
+        .expect("Perfected Strike should resolve");
+
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert!(next.monsters.iter().all(|monster| !monster.alive));
+    }
+
+    #[test]
+    fn all_enemy_damage_skips_daggers_that_flee_after_reptomancer_dies() {
+        let reptomancer_id = MonsterId::new(2);
+        let mut left_dagger = monster_state(&DAGGER_A0, MonsterId::new(1));
+        left_dagger.powers.minion = 1;
+        let mut right_dagger = monster_state(&DAGGER_A0, MonsterId::new(3));
+        right_dagger.powers.minion = 1;
+        let mut reptomancer = monster_state(&REPTOMANCER_A0, reptomancer_id);
+        reptomancer.hp = 5;
+        reptomancer.max_hp = 5;
+
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 2;
+        state.monsters = vec![left_dagger, reptomancer, right_dagger];
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), IMMOLATE_PLUS_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Immolate+ should skip Daggers that flee after Reptomancer dies");
+
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert!(next.monsters.iter().all(|monster| !monster.alive));
+    }
+
+    #[test]
+    fn gremlin_horn_shuffle_includes_a_lethal_aoe_card() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.relics.push(Relic::GremlinHorn);
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), CLEAVE_PLUS_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![
+            monster_state(&JAW_WORM_A0, MonsterId::new(1)),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 1;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Cleave+ should trigger Gremlin Horn after entering discard");
+
+        assert!(!next.monsters[0].alive);
+        assert!(next.monsters[1].alive);
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, CLEAVE_PLUS_ID);
+        assert!(next.piles.draw_pile.is_empty());
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.player.energy, 1);
+    }
+
+    #[test]
+    fn hex_draw_pile_mutation_precedes_ink_bottle_draw() {
+        let mut queue = VecDeque::from([
+            InternalAction::DrawCardsWhilePlayedCardIsInLimbo {
+                card_id: CardId::new(1),
+                count: 1,
+            },
+            InternalAction::DrawCardsFromInkBottle { count: 1 },
+        ]);
+
+        push_follow_up(
+            &mut queue,
+            InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                content_id: DAZED_ID,
+            },
+        );
+
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::DrawCardsWhilePlayedCardIsInLimbo { .. })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                content_id: DAZED_ID
+            })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::DrawCardsFromInkBottle { count: 1 })
+        ));
+    }
 
     #[test]
     fn gambling_chip_discards_in_selection_order() {
@@ -3346,6 +3892,56 @@ mod tests {
     }
 
     #[test]
+    fn hex_uses_warcry_selected_card_before_deferred_dazed() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.hex = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), WARCRY_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(4), BASH_ID),
+            CardInstance::new(CardId::new(5), CLEAVE_ID),
+            CardInstance::new(CardId::new(6), DEFEND_R_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Warcry should open its hand-select screen");
+        choose_hand_select(&mut next, 0).expect("select Strike");
+
+        let mut expected_rng = next.rng.card_random_rng.clone();
+        let mut expected_draw = next
+            .piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>();
+        expected_draw.push(STRIKE_R_ID);
+        let generated_index = expected_rng.random_int((expected_draw.len() - 1) as i32) as usize;
+        expected_draw.insert(generated_index, DAZED_ID);
+
+        confirm_hand_select(&mut next).expect("confirm Warcry selection");
+
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            expected_draw
+        );
+    }
+
+    #[test]
     fn hex_dazed_waits_for_burning_pact_exhaust_select_to_close() {
         let mut state = CombatState::initial_fixture();
         state.player.powers.hex = 1;
@@ -3398,6 +3994,49 @@ mod tests {
                 .count(),
             1
         );
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DAZED_ID, SHRUG_IT_OFF_ID]
+        );
+    }
+
+    #[test]
+    fn juggernaut_random_target_selection_waits_for_hex_draw_insertion() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.player.powers.hex = 1;
+        state.player.powers.juggernaut = 5;
+        state.rng.card_random_rng = StsRng::new(1_234);
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), DEFEND_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), BERSERK_ID),
+            CardInstance::new(CardId::new(3), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(4), DEFEND_R_ID),
+            CardInstance::new(CardId::new(5), COMBUST_ID),
+        ];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Defend should resolve with Juggernaut and Hex");
+
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![BERSERK_ID, DAZED_ID, ARMAMENTS_ID, DEFEND_R_ID, COMBUST_ID]
+        );
+        assert_eq!(next.rng.card_random_rng.counter(), 2);
     }
 
     #[test]
@@ -3571,6 +4210,41 @@ mod tests {
 
         assert_eq!(next.piles.hand.len(), 2);
         assert_eq!(next.piles.draw_pile.len(), 2);
+    }
+
+    #[test]
+    fn stasis_release_is_queued_after_a_lethal_card_draw() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.monsters = vec![
+            monster_state(&BRONZE_ORB_A0, target),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 1;
+        state.monsters[0].max_hp = 1;
+        state.monsters[0].stasis_card = Some(CardInstance::new(CardId::new(2), IMMOLATE_ID));
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), POMMEL_STRIKE_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), DEFEND_R_ID)];
+        state.piles.discard_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Pommel Strike should resolve the lethal Stasis hit");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, IMMOLATE_ID]
+        );
     }
 
     #[test]
@@ -3749,6 +4423,67 @@ mod tests {
     }
 
     #[test]
+    fn sword_boomerang_resolves_all_random_hits_before_malleable_block() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SNAKE_PLANT_A0, target)];
+        state.monsters[0].hp = 8;
+        state.monsters[0].max_hp = 8;
+        state.monsters[0].block = 3;
+        state.monsters[0].powers.malleable = 4;
+        state.monsters[0].powers.malleable_base = 3;
+        state.monsters[0].powers.vulnerable = 2;
+        state.player.energy = 1;
+        state.player.powers.weak = 2;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), SWORD_BOOMERANG_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Sword Boomerang should play");
+
+        assert_eq!(next.monsters[0].hp, 2);
+        assert_eq!(next.monsters[0].block, 9);
+        assert_eq!(next.monsters[0].powers.malleable, 6);
+    }
+
+    #[test]
+    fn whirlwind_resolves_all_hits_before_malleable_block() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SNAKE_PLANT_A0, target)];
+        state.monsters[0].hp = 56;
+        state.monsters[0].block = 0;
+        state.monsters[0].powers.malleable = 3;
+        state.monsters[0].powers.malleable_base = 3;
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), WHIRLWIND_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Whirlwind should play");
+
+        assert_eq!(next.monsters[0].hp, 41);
+        assert_eq!(next.monsters[0].block, 12);
+        assert_eq!(next.monsters[0].powers.malleable, 6);
+    }
+
+    #[test]
     fn top_draw_double_tap_plus_grants_two_pending_attack_replays() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand.clear();
@@ -3763,6 +4498,32 @@ mod tests {
         assert_eq!(state.piles.discard_pile.len(), 1);
         assert_eq!(state.piles.discard_pile[0].content_id, DOUBLE_TAP_PLUS_ID);
         assert!(state.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn top_draw_perfected_strike_does_not_count_the_limbo_card() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 100;
+        state.monsters[0].max_hp = 100;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), TWIN_STRIKE_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+            CardInstance::new(CardId::new(6), PERFECTED_STRIKE_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        apply_play_top_draw_card_to_state(&mut state, Some(target))
+            .expect("top Perfected Strike plays");
+
+        assert_eq!(state.monsters[0].hp, 86);
     }
 
     #[test]
@@ -3826,6 +4587,36 @@ mod tests {
         assert_eq!(next.piles.exhaust_pile.len(), 1);
         assert_eq!(next.piles.exhaust_pile[0].content_id, DOUBT_ID);
         assert!(next.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn havoc_exhausts_clash_when_the_hand_contains_a_skill() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].id = target;
+        state.monsters[0].hp = 100;
+        state.monsters[0].max_hp = 100;
+        state.player.energy = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), CLASH_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc should resolve an unplayable Clash");
+
+        assert_eq!(next.monsters[0].hp, 100);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, CLASH_ID);
+        assert_eq!(next.piles.discard_pile[0].content_id, HAVOC_PLUS_ID);
     }
 
     #[test]
@@ -3989,7 +4780,10 @@ mod tests {
     #[test]
     fn havoc_played_burning_pact_resolves_selection_after_source_exhaust() {
         let mut state = CombatState::initial_fixture();
-        state.piles.hand = vec![CardInstance::new(CardId::new(1), DEFEND_R_ID)];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), DEFEND_R_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+        ];
         state.piles.draw_pile = vec![
             CardInstance::new(CardId::new(2), STRIKE_R_ID),
             CardInstance::new(CardId::new(3), BASH_ID),
@@ -4012,8 +4806,14 @@ mod tests {
         confirm_exhaust_select(&mut next).expect("resolve Burning Pact selection");
 
         assert!(next.exhaust_select().is_none());
-        assert_eq!(next.piles.hand.len(), 2);
-        assert_eq!(next.piles.exhaust_pile.len(), 2);
+        assert_eq!(next.piles.hand.len(), 3);
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(
+            next.pending_hidden_hand_card_until_end_turn
+                .expect("top-drawn Burning Pact selection remains hidden")
+                .content_id,
+            DEFEND_R_ID
+        );
         assert_eq!(
             next.piles
                 .exhaust_pile
@@ -4022,6 +4822,134 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn havoc_played_armaments_hides_selected_card_until_end_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), ARMAMENTS_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut staged = state;
+        let queue = apply_play_top_draw_card(&mut staged, None, true, false)
+            .expect("top-draw Armaments queue");
+        let mut next = process_internal_queue(&staged, queue.into())
+            .expect("top-draw Armaments opens hand selection")
+            .state;
+        assert!(next.hand_select().is_some());
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .filter(|card| card.content_id == ARMAMENTS_ID)
+                .count(),
+            1
+        );
+
+        choose_hand_select(&mut next, 0).expect("select Strike");
+        confirm_hand_select(&mut next).expect("resolve top-draw Armaments selection");
+
+        assert!(next.hand_select().is_none());
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, DEFEND_R_ID);
+        assert_eq!(
+            next.pending_hidden_hand_card_until_end_turn
+                .expect("selected card remains hidden until cleanup")
+                .content_id,
+            STRIKE_R_ID
+        );
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id != STRIKE_R_PLUS_ID));
+    }
+
+    #[test]
+    fn burning_pact_crossing_deck_boundary_exhausts_selected_card_before_draw() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), SHRUG_IT_OFF_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+            CardInstance::new(CardId::new(6), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), STRIKE_R_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(4), DEFEND_R_ID)];
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact should open its exhaust-select screen");
+
+        choose_exhaust_select(&mut next, 0).expect("Shrug It Off is selectable");
+        confirm_exhaust_select(&mut next).expect("Burning Pact selection should resolve");
+
+        assert!(next.pending_hidden_hand_card_until_end_turn.is_none());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == SHRUG_IT_OFF_ID));
+        assert_eq!(
+            next.piles
+                .discard_pile
+                .iter()
+                .filter(|card| card.content_id == BURNING_PACT_ID)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn burning_pact_small_hand_exhausts_selected_card() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), BASH_PLUS_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), DEFEND_R_ID),
+            CardInstance::new(CardId::new(6), STRIKE_R_ID),
+        ];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(7), STRIKE_R_ID)];
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact should open its exhaust-select screen");
+
+        choose_exhaust_select(&mut next, 0).expect("Bash should be selectable");
+        confirm_exhaust_select(&mut next).expect("Burning Pact selection should resolve");
+
+        assert!(next.pending_hidden_hand_card_until_end_turn.is_none());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == BASH_PLUS_ID));
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == BURNING_PACT_ID));
     }
 
     #[test]
@@ -4108,14 +5036,21 @@ mod tests {
         assert_eq!(next.player.energy, 2);
         assert_eq!(next.piles.exhaust_pile.len(), 1);
         assert_eq!(next.piles.exhaust_pile[0].content_id, HEADBUTT_ID);
-        assert_eq!(next.discard_select().unwrap().source_card_id, None);
+        assert_eq!(
+            next.discard_select().unwrap().source_card_id,
+            Some(CardId::new(2))
+        );
         assert_eq!(next.discard_select().unwrap().source_card, None);
 
         choose_discard_select(&mut next, 0).expect("select Power Through");
         confirm_headbutt_select(&mut next).expect("confirm forced Headbutt selection");
 
-        assert_eq!(next.piles.draw_pile.len(), 1);
-        assert_eq!(next.piles.draw_pile[0].content_id, POWER_THROUGH_ID);
+        assert!(next.piles.draw_pile.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == POWER_THROUGH_ID));
         assert!(next
             .piles
             .exhaust_pile
@@ -4126,6 +5061,34 @@ mod tests {
             .discard_pile
             .iter()
             .any(|card| card.content_id == HEADBUTT_ID));
+    }
+
+    #[test]
+    fn havoc_places_source_in_discard_before_headbutt_can_return_it_to_draw() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 40;
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), HEADBUTT_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc should expose itself to top-deck Headbutt");
+
+        assert_eq!(next.piles.discard_pile.len(), 0);
+        assert_eq!(next.piles.draw_pile.len(), 1);
+        assert_eq!(next.piles.draw_pile[0].content_id, HAVOC_ID);
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, HEADBUTT_ID);
     }
 
     #[test]
@@ -4279,6 +5242,56 @@ mod tests {
     }
 
     #[test]
+    fn corruption_exhausts_delayed_limbo_skills() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.player.energy = 3;
+        state.player.powers.corruption = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), SHRUG_IT_OFF_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), STRIKE_R_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Corruption should exhaust Shrug It Off after its draw");
+
+        assert!(next.piles.discard_pile.is_empty());
+        assert_eq!(next.piles.exhaust_pile.len(), 1);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, SHRUG_IT_OFF_ID);
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+    }
+
+    #[test]
+    fn generated_blood_for_blood_copies_current_combat_damage_events() {
+        let mut state = CombatState::initial_fixture();
+        state.player.damage_events_this_combat = 3;
+        state.piles.hand.clear();
+
+        add_generated_card_to_pile(
+            &mut state,
+            BLOOD_FOR_BLOOD_ID,
+            CardPile::Hand,
+            Some(0),
+            true,
+        )
+        .expect("generated Blood for Blood should enter hand");
+
+        assert_eq!(state.piles.hand.len(), 1);
+        assert_eq!(
+            state.piles.hand[0].blood_for_blood_cost_reduction,
+            state.player.damage_events_this_combat
+        );
+    }
+
+    #[test]
     fn infernal_blade_uses_source_groups_in_rarity_order() {
         let pool = card_effects::infernal_blade_modeled_attack_pool();
 
@@ -4317,6 +5330,18 @@ mod tests {
         );
 
         confirm_exhaust_select(&mut state).expect("confirm exhaust select");
+
+        assert!(state.pending_elixir_exhaust_card_ids.is_empty());
+        assert_eq!(state.pending_elixir_exhaust_turns_remaining, 0);
+        assert_eq!(
+            state
+                .piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(1), CardId::new(6), CardId::new(5)]
+        );
 
         let hand_ids = state
             .piles

@@ -450,6 +450,7 @@ fn communication_bridge_start_sends_tcp_command_without_state_preflight() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -556,6 +557,7 @@ fn communication_bridge_waits_until_neow_is_ready_for_choice() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -668,6 +670,7 @@ fn communication_bridge_start_refreshes_stale_error_state_before_command() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::Numeric(-1_271_861_678_227_830_524),
+                profile: None,
             },
         )
         .unwrap();
@@ -792,6 +795,7 @@ fn communication_bridge_start_forces_fresh_state_after_abandon_race() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();
@@ -1400,6 +1404,7 @@ fn communication_bridge_file_command_fallback_is_opt_in() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap_err();
@@ -1413,6 +1418,7 @@ fn communication_bridge_file_command_fallback_is_opt_in() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             },
         )
         .unwrap();

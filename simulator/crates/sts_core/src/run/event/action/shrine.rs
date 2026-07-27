@@ -106,18 +106,23 @@ pub(super) fn apply_shrine_event_action(
                 0 => {
                     next.event = Some(EventScreen {
                         event: Event::WheelOfChange,
-                        choices: wheel_of_change_choices(3, screen.event_data),
+                        choices: wheel_of_change_choices(3, 0),
                         stage: 3,
-                        event_data: screen.event_data,
+                        event_data: 0,
                     });
                 }
                 1 => {
                     let act = next.current_act;
                     let key = roll_event_relic_reward(next, act);
                     next.phase = RunPhase::Reward;
-                    next.event = None;
+                    next.event = Some(EventScreen {
+                        event: Event::WheelOfChange,
+                        choices: wheel_of_change_choices(3, 0),
+                        stage: 3,
+                        event_data: 0,
+                    });
                     next.reward = Some(RewardScreen {
-                        continuation: crate::RewardContinuation::None,
+                        continuation: crate::RewardContinuation::Event,
                         choices: Vec::new(),
                         queued_card_rewards: Vec::new(),
                         gold_offer: 0,

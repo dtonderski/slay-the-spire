@@ -100,6 +100,7 @@ fn checker_uses_seed_start_for_complete_start_traces() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             }),
         })
         .unwrap();
@@ -155,6 +156,7 @@ fn checker_returns_simulator_state_for_supported_live_trace() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX10".to_owned()),
+                profile: None,
             }),
         })
         .unwrap();
@@ -247,6 +249,7 @@ fn checker_preserves_action_timer_when_pairing_settled_live_states() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("354Y73L428LQ8".to_owned()),
+                profile: None,
             }),
         })
         .unwrap();
@@ -413,6 +416,7 @@ fn checker_ignores_start_before_first_state_when_waiting_for_seed_boundary() {
                 character: Character::Ironclad,
                 ascension: 0,
                 seed: RunSeed::External("CODEX04".to_owned()),
+                profile: None,
             }),
         })
         .unwrap();

@@ -20,6 +20,28 @@ pub(super) fn start_run_action(config: &RunConfig) -> LegalAction {
     }
 }
 
+pub(super) fn start_verification_run_action(config: &RunConfig, starting_hp: i32) -> LegalAction {
+    let character = match config.character {
+        Character::Ironclad => "IRONCLAD",
+    };
+    let seed = config.seed.command_text();
+    let command = format!(
+        "START_VERIFY {character} {} {seed} {starting_hp}",
+        config.ascension
+    );
+    LegalAction {
+        id: ActionId("start-verification-run".to_owned()),
+        kind: LegalActionKind::StartRun,
+        label: "Start verification run".to_owned(),
+        enabled: true,
+        command: json!({
+            "transport": "communication_mod",
+            "command": command,
+        }),
+        disabled_reason: None,
+    }
+}
+
 pub(super) fn request_state_action() -> LegalAction {
     LegalAction {
         id: ActionId("request-state".to_owned()),

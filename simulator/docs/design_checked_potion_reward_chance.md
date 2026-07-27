@@ -27,6 +27,13 @@ Valid-path probability, potion selection, and RNG draw order remain unchanged.
 This slice does not impose a speculative fixed range on `potion_chance`; it only
 rejects arithmetic that the state representation cannot express.
 
+Smoke Bomb uses the same checked reward-roll helper before the target hides the
+combat reward screen. The target JAR's `AbstractRoom.endBattle` calls
+`addPotionToRewards` for a smoked room; because Smoke Bomb sets the room's
+`smoked` flag rather than marking the monsters as escaped, the ordinary 40%
+base chance still applies. A successful roll consumes the hidden potion
+selection draw and lowers `potion_chance`, even though no potion is shown.
+
 ## Verification
 
 Focused regressions cover base-chance overflow, miss overflow, hit underflow,

@@ -8,6 +8,7 @@ pub(super) fn apply_act_three_event_action(
     match screen.event {
         Event::Falling => match screen.stage {
             0 if choice_index == 0 => {
+                roll_falling_card_choices(next)?;
                 next.event = Some(EventScreen {
                     event: Event::Falling,
                     choices: falling_choices(next, 1),
@@ -24,14 +25,19 @@ pub(super) fn apply_act_three_event_action(
                         2,
                     ));
                 } else if let Some(card_type) = card_types.get(choice_index).copied() {
-                    open_falling_card_grid(next, card_type);
-                    if next.card_grid.is_none() {
-                        next.event = Some(make_event_screen(
-                            Event::Falling,
-                            labeled_choices(&["Leave"]),
-                            2,
+                    let selected = falling_selected_card(next, card_type)?;
+                    let Some(index) = next.deck.iter().position(|card| card.id == selected.id)
+                    else {
+                        return Err(SimError::InvalidState(
+                            "Falling selected card is missing from the deck",
                         ));
-                    }
+                    };
+                    next.deck.remove(index);
+                    next.event = Some(make_event_screen(
+                        Event::Falling,
+                        labeled_choices(&["Leave"]),
+                        2,
+                    ));
                 } else {
                     return Err(SimError::IllegalAction(
                         "event choice is not implemented for Falling",
@@ -132,19 +138,27 @@ pub(super) fn apply_act_three_event_action(
                 ))?;
             let mut next_card_id = next.reserve_card_instance_ids(total_card_choices)?;
             let mut card_rng = next.rng_for_stream(RunRngStream::CardReward);
-            let mut rarity_factor = next.card_rarity_factor;
             let mut queued_card_rewards = Vec::with_capacity(usize::from(reward_count));
             for _ in 0..reward_count {
-                let cards = target_colorless_card_reward_choices_with_count(
+                let cards = target_colorless_event_card_reward_choices_with_count(
                     &mut card_rng,
-                    &mut rarity_factor,
+                    &mut next.card_rarity_factor,
                     next_card_id,
                     card_choice_count,
-                );
+                )
+                .into_iter()
+                .map(|mut card| {
+                    // Sensory Stone creates RewardItems through the same
+                    // preview-obtain path as other visible card rewards.
+                    // Egg relics therefore upgrade the displayed choice
+                    // before the reward screen is opened.
+                    card.content_id = next.content_id_after_card_add_relics(card.content_id)?;
+                    Ok(card)
+                })
+                .collect::<SimResult<Vec<_>>>()?;
                 next_card_id += cards.len() as u64;
                 queued_card_rewards.push(cards);
             }
-            next.card_rarity_factor = rarity_factor;
             next.store_rng_counter(RunRngStream::CardReward, &card_rng);
             next.phase = RunPhase::Reward;
             next.event = Some(make_event_screen(

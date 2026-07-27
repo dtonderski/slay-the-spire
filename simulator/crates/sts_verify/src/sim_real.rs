@@ -3,8 +3,8 @@
 #[cfg(test)]
 use crate::sts_seed_string_to_long;
 use crate::{
-    canonical_diff, import_communication_mod_trace, try_sts_seed_string_to_long, TraceAction,
-    TraceLine, TraceState, VerificationIntegrity,
+    canonical_diff, import_communication_mod_trace, try_sts_seed_string_to_long,
+    CommunicationModTrace, TraceAction, TraceLine, TraceProfile, TraceState, VerificationIntegrity,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -12,10 +12,10 @@ use sts_core::card::CardType;
 use sts_core::combat::{ExhaustSelectPurpose, HandSelectPurpose};
 use sts_core::content::cards::{card_type_and_rarity, STRIKE_R_ID};
 use sts_core::content::encounters::{
-    target_beyond_act_three_boss_kind_with_unlocks, target_exordium_act_one_boss_kind_with_unlocks,
-    target_exordium_act_one_boss_with_unlocks, BossUnlockState,
+    target_exordium_act_one_boss_kind_with_unlocks, target_exordium_act_one_boss_with_unlocks,
+    BossUnlockState,
 };
-use sts_core::content::monsters::target_move_byte_for_monster;
+use sts_core::content::monsters::{target_move_byte_for_monster, WRITHING_MASS_ID};
 use sts_core::potion::Potion;
 use sts_core::run::event::{neow_screen_for_stage, VAMPIRES_BITE_COUNT};
 use sts_core::run::neow::{
@@ -33,6 +33,7 @@ use sts_core::{
     NeowDrawback, NeowRewardType, Relic, RelicKey, RestAction, RewardContinuation, RewardScreen,
     RoomKind, RunAction, RunDecisionAction, RunPhase, RunState, ShopPick,
 };
+use sts_core::{Snapshot, SNAPSHOT_SCHEMA_VERSION};
 
 #[cfg(test)]
 use sts_core::content::monsters::{
@@ -185,6 +186,44 @@ pub struct SeedStartReport {
     pub sim_run_state: Option<RunState>,
 }
 
+/// A lightweight checkpoint produced by an explicit trace replay.
+///
+/// Observation polls and target-only UI confirmations remain in the timeline,
+/// but their state hash always comes from the authoritative simulator state.
+/// Full snapshots are retained only for the selected checkpoint and replay
+/// endpoint so long traces do not duplicate their entire run state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplayCheckpoint {
+    pub action_step: u32,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplayCheckpointState {
+    pub action_step: u32,
+    pub command: String,
+    pub snapshot: Snapshot<RunState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayResult {
+    pub report: SimRealReport,
+    pub checkpoints: Vec<ReplayCheckpoint>,
+    pub final_snapshot: Option<Snapshot<RunState>>,
+    pub selected_checkpoint: Option<ReplayCheckpointState>,
+}
+
+pub const REPLAY_ARTIFACT_SCHEMA: u32 = 1;
+
+#[derive(Default)]
+pub(crate) struct ReplayCapture {
+    pub(crate) requested_step: Option<u32>,
+    pub(crate) checkpoints: Vec<ReplayCheckpoint>,
+    pub(crate) selected_checkpoint: Option<ReplayCheckpointState>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartRunCommand {
     pub action_step: u32,
@@ -229,6 +268,7 @@ pub enum SimRealError {
     MissingStartCommand,
     MalformedStartCommand(String),
     MalformedChooseCommand { step: u32, command: String },
+    InvalidProfileInput(String),
 }
 
 impl std::fmt::Display for SimRealError {
@@ -243,6 +283,7 @@ impl std::fmt::Display for SimRealError {
                 f,
                 "malformed CHOOSE command at step {step}: {command}; expected exactly `CHOOSE <non-negative index>`"
             ),
+            Self::InvalidProfileInput(reason) => write!(f, "invalid pre-run profile input: {reason}"),
         }
     }
 }
@@ -262,11 +303,46 @@ pub fn verify_communication_mod_trace(content: &str) -> Result<SimRealReport, Si
 pub fn verify_seed_start_communication_mod_trace(
     content: &str,
 ) -> Result<SimRealReport, SimRealError> {
-    verify_seed_start_trace(content)
+    verify_seed_start_trace(content, None)
 }
 
-fn verify_seed_start_trace(content: &str) -> Result<SimRealReport, SimRealError> {
+/// Replays a CommunicationMod trace and returns the authoritative simulator
+/// endpoint plus lightweight state checkpoints.
+///
+/// `requested_step` selects the latest checkpoint at or before that trace
+/// action. The observed trace state is used only for verification; it never
+/// supplies simulator state.
+pub fn replay_communication_mod_trace(
+    content: &str,
+    requested_step: Option<u32>,
+) -> Result<ReplayResult, SimRealError> {
+    let mut capture = ReplayCapture {
+        requested_step,
+        ..ReplayCapture::default()
+    };
+    let report = verify_seed_start_trace(content, Some(&mut capture))?;
+    let final_snapshot = report
+        .seed_start
+        .as_ref()
+        .and_then(|seed_start| seed_start.sim_run_state.as_ref())
+        .map(|state| Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: state.clone(),
+        });
+    Ok(ReplayResult {
+        report,
+        checkpoints: capture.checkpoints,
+        final_snapshot,
+        selected_checkpoint: capture.selected_checkpoint,
+    })
+}
+
+fn verify_seed_start_trace(
+    content: &str,
+    replay_capture: Option<&mut ReplayCapture>,
+) -> Result<SimRealReport, SimRealError> {
     let trace = import_communication_mod_trace(content)?;
+    let profile = trace_profile_input(&trace)?;
     let boss_unlocks = trace
         .metadata
         .as_ref()
@@ -298,8 +374,14 @@ fn verify_seed_start_trace(content: &str) -> Result<SimRealReport, SimRealError>
         seed_start: None,
     };
 
-    let verification =
-        verify_seed_start_transitions(&transitions.transitions, &start, &mut report, boss_unlocks);
+    let verification = verify_seed_start_transitions(
+        &transitions.transitions,
+        &start,
+        &mut report,
+        boss_unlocks,
+        profile.as_ref(),
+        replay_capture,
+    );
     let failed = verification.boundary.category != "none";
     report.seed_start = Some(SeedStartReport {
         start_command: start,
@@ -319,6 +401,46 @@ fn verify_seed_start_trace(content: &str) -> Result<SimRealReport, SimRealError>
     report.action_integrity = Some(action_integrity);
 
     Ok(report)
+}
+
+/// Return the persistent profile input needed by seed-start replay.
+///
+/// New traces should carry this under metadata.run_config.profile. Older
+/// CommunicationMod traces emitted the same profile on each game state but
+/// their metadata wrapper dropped it, so retain compatibility by reading the
+/// first explicit profile payload as input. This does not hydrate gameplay
+/// state from an observation: the profile is a pre-run configuration value.
+fn trace_profile_input(
+    trace: &CommunicationModTrace,
+) -> Result<Option<TraceProfile>, SimRealError> {
+    if let Some(profile) = trace
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.run_config.as_ref())
+        .and_then(|run_config| run_config.profile.clone())
+    {
+        validate_trace_profile(&profile)?;
+        return Ok(Some(profile));
+    }
+
+    let profile_value = trace.lines.iter().find_map(|line| {
+        let TraceLine::State(state) = line else {
+            return None;
+        };
+        state
+            .message
+            .pointer("/game_state/profile")
+            .or_else(|| state.message.get("profile"))
+    });
+    let Some(profile_value) = profile_value else {
+        return Ok(None);
+    };
+    let profile =
+        serde_json::from_value::<TraceProfile>(profile_value.clone()).map_err(|error| {
+            SimRealError::InvalidProfileInput(format!("invalid trace profile: {error}"))
+        })?;
+    validate_trace_profile(&profile)?;
+    Ok(Some(profile))
 }
 
 struct TraceTransitions {
@@ -923,42 +1045,6 @@ fn recorded_action_playtime_seconds(pre: &TraceState, action: &TraceAction) -> O
     })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PendingNeowCurseOrder {
-    BeforePickedCard,
-    AfterPickedCard,
-}
-
-fn pending_neow_curse_order(
-    pre: &TraceState,
-    action: &TraceAction,
-) -> Result<PendingNeowCurseOrder, &'static str> {
-    // NeowReward.update can queue the pending curse on the first target update
-    // after the card reward opens. Recorded commands delayed by at least 100 ms
-    // have crossed an update opportunity even on a heavily loaded 10 FPS target.
-    // Traces without timestamps represent synchronous dispatch from their source
-    // state and retain the picked-card-before-curse ordering.
-    const TARGET_UPDATE_OPPORTUNITY_MILLIS: i64 = 100;
-
-    match (pre.received_at.as_deref(), action.sent_at.as_deref()) {
-        (Some(received), Some(sent)) => {
-            let received = trace_timestamp_millis(received)
-                .ok_or("invalid source-state received_at timestamp")?;
-            let sent = trace_timestamp_millis(sent).ok_or("invalid action sent_at timestamp")?;
-            let delay = sent
-                .checked_sub(received)
-                .filter(|delay| *delay >= 0)
-                .ok_or("action sent_at precedes source-state received_at")?;
-            Ok(if delay >= TARGET_UPDATE_OPPORTUNITY_MILLIS {
-                PendingNeowCurseOrder::BeforePickedCard
-            } else {
-                PendingNeowCurseOrder::AfterPickedCard
-            })
-        }
-        _ => Ok(PendingNeowCurseOrder::AfterPickedCard),
-    }
-}
-
 fn trace_timestamp_millis(timestamp: &str) -> Option<i64> {
     let timestamp = timestamp.strip_suffix('Z')?;
     let (date, time) = timestamp.split_once('T')?;
@@ -1041,6 +1127,11 @@ struct PendingSmithEffect {
     action: TraceAction,
     transient_deck: Vec<String>,
     settled_deck: Vec<String>,
+    /// Some CommunicationMod captures keep exposing the pre-upgrade deck
+    /// after the target animation has finished. Keep that observation
+    /// distinct from the simulator's authoritative settled deck so the
+    /// replay can diagnose it without treating it as a gameplay transition.
+    source_projection_stale: bool,
 }
 
 struct PendingMapAssertion {
@@ -1048,12 +1139,31 @@ struct PendingMapAssertion {
     label: String,
     simulated_map: Value,
     transient_matches: bool,
+    source_event_settlement: bool,
+}
+
+/// Match and Keep can publish the prior card-grid choice labels for one
+/// update while the queued obtain effect and the next click have already
+/// settled. The authoritative post-action projection remains required and
+/// must reconcile against a later captured frame.
+struct PendingEventChoiceAssertion {
+    action: TraceAction,
+    expected: Value,
+}
+
+/// Golden Idol's initial Leave button can be observed either on its
+/// intermediate one-button screen or after that screen's queued map opening
+/// has settled. Keep the core's intermediate state authoritative until the
+/// next command disambiguates which frame the trace captured.
+struct PendingGoldenIdolLeave {
+    settled: RunState,
 }
 
 struct PendingBossRelicOverlayAssertion {
     action: TraceAction,
     simulated_overlay: Value,
     transient_matches: bool,
+    selected_tiny_house: bool,
 }
 
 struct PendingCombatTransition {
@@ -1079,6 +1189,8 @@ enum SmokeBombUiState {
     },
     Reward {
         pending_proceeds: Vec<TraceAction>,
+        queued_end: Option<TraceAction>,
+        queued_end_source: Option<Box<RunState>>,
     },
 }
 
@@ -1142,8 +1254,21 @@ fn seed_start_apply_boss_unlocks(
 ) {
     run.act1_boss = target_exordium_act_one_boss_kind_with_unlocks(numeric_seed, boss_unlocks)
         .expect("static Exordium encounter pools are valid");
-    run.act3_boss = target_beyond_act_three_boss_kind_with_unlocks(numeric_seed, boss_unlocks)
-        .expect("static Beyond encounter pools are valid");
+}
+
+fn validate_trace_profile(profile: &TraceProfile) -> Result<(), SimRealError> {
+    let content_id = content_id_from_key(&profile.note_card).ok_or_else(|| {
+        SimRealError::InvalidProfileInput(format!("unknown Note card {:?}", profile.note_card))
+    })?;
+    let mut run = RunState::seeded_ironclad(0, 0);
+    run.note_card_content_id = content_id;
+    run.note_card_upgrades = profile.note_upgrades;
+    run.validate().map_err(|error| {
+        SimRealError::InvalidProfileInput(format!(
+            "Note card {:?} with {} upgrade(s) is invalid: {error}",
+            profile.note_card, profile.note_upgrades
+        ))
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1154,8 +1279,6 @@ enum SeedStartPhase {
     NeowOptions,
     NeowCardReward,
     NeowPotionReward,
-    NeowTransformGrid,
-    NeowTransformConfirm,
     NeowGrid,
     NeowGridConfirm,
     NeowBossSwapCallingBellGrid,
@@ -2295,10 +2418,13 @@ fn seed_start_shop_screen_simulated_subset(run: &RunState) -> Value {
 
 fn grid_trace_choice_label(_run: &RunState, card: &CardInstance) -> String {
     use sts_core::content::cards::{
-        CURSE_OF_THE_BELL_ID, DEFEND_R_ID, RITUAL_DAGGER_ID, STRIKE_R_ID,
+        CURSE_OF_THE_BELL_ID, DEFEND_R_ID, RITUAL_DAGGER_ID, SEARING_BLOW_PLUS_ID, STRIKE_R_ID,
     };
     if card.content_id == RITUAL_DAGGER_ID && card.upgrades > 0 {
         return "ritual dagger+".to_owned();
+    }
+    if card.content_id == SEARING_BLOW_PLUS_ID && card.searing_blow_upgrades > 0 {
+        return format!("searing blow+{}", card.searing_blow_upgrades);
     }
     match card.content_id {
         id if id == STRIKE_R_ID => "strike".to_owned(),
@@ -2567,6 +2693,7 @@ fn seed_start_handle_proceed_to_map(
             label: label.to_owned(),
             simulated_map,
             transient_matches,
+            source_event_settlement: false,
         });
         *combat_index = 0;
         *reward_step = 0;
@@ -3264,6 +3391,74 @@ fn seed_start_event_simulated_subset_with_delayed_deck_append(
     seed_start_event_simulated_subset_with_deck(run, visible_deck)
 }
 
+fn seed_start_event_simulated_subset_for_observation(
+    run: &RunState,
+    observed: &Value,
+    delayed_event_deck_append_count: Option<usize>,
+) -> Value {
+    seed_start_event_simulated_subset_for_observation_with_delayed_hp_gain(
+        run,
+        observed,
+        delayed_event_deck_append_count,
+        None,
+    )
+}
+
+fn seed_start_event_simulated_subset_for_observation_with_delayed_hp_gain(
+    run: &RunState,
+    observed: &Value,
+    delayed_event_deck_append_count: Option<usize>,
+    delayed_event_hp_gain: Option<i32>,
+) -> Value {
+    let settled = seed_start_event_simulated_subset(run);
+    let Some(count) = delayed_event_deck_append_count else {
+        return settled;
+    };
+    let transient = seed_start_event_simulated_subset_with_delayed_deck_append_and_hp_gain(
+        run,
+        count,
+        delayed_event_hp_gain,
+    );
+
+    // Vampires queues each Bite through ShowCardAndObtainEffect. Depending on
+    // when CommunicationMod's post-action poll lands, the captured state can
+    // therefore be either the authoritative queued-effect frame or the same
+    // event after all five effects have settled. Keep both source-derived
+    // projections available and never mutate the simulator to match a trace.
+    if subset_diffs(observed.clone(), settled.clone()).is_empty() {
+        settled
+    } else {
+        transient
+    }
+}
+
+fn seed_start_event_simulated_subset_with_delayed_deck_append_and_hp_gain(
+    run: &RunState,
+    delayed_event_deck_append_count: usize,
+    delayed_event_hp_gain: Option<i32>,
+) -> Value {
+    let mut visible_deck = deck_content_keys(&run.deck);
+    visible_deck.truncate(
+        visible_deck
+            .len()
+            .saturating_sub(delayed_event_deck_append_count),
+    );
+    let mut transient = seed_start_event_simulated_subset_with_deck(run, visible_deck);
+    if let Some(hp_gain) = delayed_event_hp_gain {
+        let current_hp = run
+            .player_hp
+            .checked_sub(hp_gain)
+            .expect("delayed event HP gain must be present in the settled state");
+        let max_hp = run
+            .player_max_hp
+            .checked_sub(hp_gain)
+            .expect("delayed event HP gain must be present in the settled state");
+        transient["current_hp"] = json!(current_hp);
+        transient["max_hp"] = json!(max_hp);
+    }
+    transient
+}
+
 fn seed_start_event_simulated_subset_with_deck(run: &RunState, deck_ids: Vec<String>) -> Value {
     let choices = run
         .event
@@ -3272,7 +3467,13 @@ fn seed_start_event_simulated_subset_with_deck(run: &RunState, deck_ids: Vec<Str
             event
                 .choices
                 .iter()
-                .filter_map(|choice| seed_start_visible_event_choice_label(&choice.label))
+                .filter_map(|choice| {
+                    seed_start_visible_event_choice_label_for_event(
+                        event.event,
+                        event.stage,
+                        &choice.label,
+                    )
+                })
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
@@ -3280,6 +3481,7 @@ fn seed_start_event_simulated_subset_with_deck(run: &RunState, deck_ids: Vec<Str
         .event
         .as_ref()
         .map(|event| match event.event {
+            sts_core::Event::Neow => "neowevent".to_owned(),
             sts_core::Event::TheSsssserpent => "liarsgame".to_owned(),
             sts_core::Event::HypnotizingColoredMushrooms => "mushrooms".to_owned(),
             _ => normalized_trace_relic_name(&format!("{:?}", event.event)),
@@ -3324,6 +3526,7 @@ fn seed_start_event_choice_index_for_communication_mod(
     visible_choice_index: usize,
     pre_message: &Value,
 ) -> Option<usize> {
+    let event_context = run.event.as_ref().map(|event| (event.event, event.stage));
     if let Some(observed_choice_label) = pre_message
         .get("game_state")
         .and_then(|game| game.get("choice_list"))
@@ -3338,7 +3541,11 @@ fn seed_start_event_choice_index_for_communication_mod(
             .iter()
             .enumerate()
             .filter_map(|(choice_index, choice)| {
-                (seed_start_visible_event_choice_label(&choice.label).as_deref()
+                (event_context
+                    .and_then(|(event, stage)| {
+                        seed_start_visible_event_choice_label_for_event(event, stage, &choice.label)
+                    })
+                    .as_deref()
                     == Some(observed_choice_label.as_str()))
                 .then_some(choice_index)
             })
@@ -3353,9 +3560,35 @@ fn seed_start_event_choice_index_for_communication_mod(
         .choices
         .iter()
         .enumerate()
-        .filter(|(_, choice)| seed_start_visible_event_choice_label(&choice.label).is_some())
+        .filter(|(_, choice)| {
+            event_context
+                .and_then(|(event, stage)| {
+                    seed_start_visible_event_choice_label_for_event(event, stage, &choice.label)
+                })
+                .is_some()
+        })
         .nth(visible_choice_index)
         .map(|(choice_index, _)| choice_index)
+}
+
+fn seed_start_visible_event_choice_label_for_event(
+    event: Event,
+    stage: u32,
+    label: &str,
+) -> Option<String> {
+    let normalized = seed_start_visible_event_choice_label(label)?;
+    match (event, stage, normalized.as_str()) {
+        // Colosseum's CommunicationMod choice IDs are the event's internal
+        // outcome names, while the simulator's canonical labels are the
+        // visible button text. Keep that protocol distinction at the trace
+        // projection boundary; event mechanics continue to use Flee/Fight Nobs.
+        (Event::Colosseum, 2, "flee") => Some("cowardice".to_owned()),
+        (Event::Colosseum, 2, "fight nobs") => Some("victory".to_owned()),
+        // CommunicationMod exposes Designer's fourth service as `punch`,
+        // while the game's button text includes the passive `Get punched`.
+        (Event::Designer, 1, "get punched") => Some("punch".to_owned()),
+        _ => Some(normalized),
+    }
 }
 
 fn seed_start_visible_event_choice_label(label: &str) -> Option<String> {
@@ -3380,6 +3613,17 @@ fn deck_instances_from_keys(deck_ids: &[String]) -> Vec<CardInstance> {
                 .map(|content_id| CardInstance::new(CardId::new(index as u64 + 1), content_id))
         })
         .collect()
+}
+
+fn deck_instances_from_keys_preserving_bottled_flags(
+    deck_ids: &[String],
+    source_deck: &[CardInstance],
+) -> Vec<CardInstance> {
+    let mut deck = deck_instances_from_keys(deck_ids);
+    for (card, source) in deck.iter_mut().zip(source_deck) {
+        card.bottled = source.bottled;
+    }
+    deck
 }
 
 #[cfg(test)]
@@ -3557,8 +3801,16 @@ fn seed_start_simulated_combat_subset_with_options(
                     });
                     let hidden_by_exhaust_select = combat
                         .exhaust_select()
-                        .is_some_and(|exhaust_select| exhaust_select.selected_hand_indices.contains(index));
-                    !hidden_by_hand_select && !hidden_by_exhaust_select
+                        .is_some_and(|exhaust_select| {
+                            Some(card.id) == exhaust_select.source_card_id
+                                || exhaust_select.selected_hand_indices.contains(index)
+                        });
+                    let hidden_after_interrupted_exhaust = combat
+                        .pending_hidden_hand_card_until_end_turn
+                        .is_some_and(|hidden_card| hidden_card.id == card.id);
+                    !hidden_by_hand_select
+                        && !hidden_by_exhaust_select
+                        && !hidden_after_interrupted_exhaust
                 })
                 .map(|(_, card)| card),
         ),
@@ -3790,6 +4042,13 @@ fn seed_start_phase_after_reward_completion(run: &RunState) -> SeedStartPhase {
         SeedStartPhase::Rest
     } else if run.current_room_kind() == Some(RoomKind::Boss) && run.boss_chest_opened {
         SeedStartPhase::Treasure
+    } else if run.phase == RunPhase::Event
+        && run
+            .event
+            .as_ref()
+            .is_some_and(|event| event.event == Event::Neow && event.stage == 2)
+    {
+        SeedStartPhase::NeowLeave
     } else if run.phase == RunPhase::Reward && run.event.is_some() {
         // Event-owned reward screens still need their explicit PROCEED action
         // before the core can return to the event continuation.
@@ -3799,23 +4058,36 @@ fn seed_start_phase_after_reward_completion(run: &RunState) -> SeedStartPhase {
     }
 }
 
-fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
+fn sim_reward_combat_choices(run: &RunState, reward: &RewardScreen) -> Vec<String> {
     let mut choices = Vec::new();
     let has_relic = reward.relic_offer.is_some();
     let has_pending_relic = reward.pending_relic_offer.is_some();
-    if has_relic && has_pending_relic && reward.gold_offer > 0 {
-        choices.push("relic".to_owned());
-        choices.push("gold".to_owned());
-        choices.push("relic".to_owned());
-        return choices;
-    }
-    if reward.stolen_gold_offer > 0 {
-        choices.push("stolen_gold".to_owned());
-    }
-    if reward.gold_offer > 0 {
-        choices.push("gold".to_owned());
-    }
-    if has_relic {
+    let event_map_reward = run.current_room_kind() == Some(RoomKind::Event)
+        && reward.continuation == RewardContinuation::Map;
+    let treasure_reward = run.current_room_kind() == Some(RoomKind::Treasure);
+    if treasure_reward && has_relic {
+        // An ordinary chest appends its gold reward before its own relic.
+        // Matryoshka's onChestOpen hook inserts its bonus relic first, so its
+        // two-relic chest remains [relic, gold, relic].
+        if has_pending_relic {
+            choices.push("relic".to_owned());
+            if reward.gold_offer > 0 {
+                choices.push("gold".to_owned());
+            }
+        } else if reward.gold_offer > 0 {
+            choices.push("gold".to_owned());
+        }
+        if !has_pending_relic {
+            choices.push("relic".to_owned());
+        }
+        if has_pending_relic {
+            choices.push("relic".to_owned());
+        }
+        choices.extend(std::iter::repeat_n(
+            "relic".to_owned(),
+            reward.queued_relic_offers.len(),
+        ));
+    } else if event_map_reward && has_relic {
         choices.push("relic".to_owned());
         if has_pending_relic {
             choices.push("relic".to_owned());
@@ -3824,6 +4096,26 @@ fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
             "relic".to_owned(),
             reward.queued_relic_offers.len(),
         ));
+        if reward.gold_offer > 0 {
+            choices.push("gold".to_owned());
+        }
+    } else {
+        if reward.stolen_gold_offer > 0 {
+            choices.push("stolen_gold".to_owned());
+        }
+        if reward.gold_offer > 0 {
+            choices.push("gold".to_owned());
+        }
+        if has_relic {
+            choices.push("relic".to_owned());
+            if has_pending_relic {
+                choices.push("relic".to_owned());
+            }
+            choices.extend(std::iter::repeat_n(
+                "relic".to_owned(),
+                reward.queued_relic_offers.len(),
+            ));
+        }
     }
     if !reward.potion_offers.is_empty() {
         choices.extend(std::iter::repeat_n(
@@ -3833,13 +4125,18 @@ fn sim_reward_combat_choices(reward: &RewardScreen) -> Vec<String> {
     } else if reward.potion_offer.is_some() {
         choices.push("potion".to_owned());
     }
-    if !reward.choices.is_empty() && !reward.card_reward_is_active() {
-        choices.push("card".to_owned());
-    } else if reward.card_reward_is_pending() {
+    // CombatRewardScreen keeps the card RewardItem in its outer list while an
+    // opened CardRewardScreen is closed. The simulator deliberately preserves
+    // the opened choices for reopening, so the pending count must take
+    // precedence over that non-empty choice buffer when projecting the outer
+    // reward list.
+    if reward.card_reward_is_pending() {
         choices.extend(std::iter::repeat_n(
             "card".to_owned(),
             reward.remaining_card_reward_count() as usize,
         ));
+    } else if !reward.choices.is_empty() && !reward.card_reward_is_active() {
+        choices.push("card".to_owned());
     }
     choices
 }
@@ -3900,7 +4197,7 @@ fn seed_start_apply_reward_choose(sim: &mut RunState, command: &str) -> Result<S
     let simulated_choices = sim
         .reward
         .as_ref()
-        .map(sim_reward_combat_choices)
+        .map(|reward| sim_reward_combat_choices(sim, reward))
         .ok_or_else(|| "reward screen is missing".to_owned())?;
     let choice = simulated_choices
         .get(choose_index)
@@ -3915,13 +4212,13 @@ fn seed_start_apply_reward_choose(sim: &mut RunState, command: &str) -> Result<S
         .iter()
         .filter(|choice| choice.as_str() == "potion")
         .count();
-    let queued_card_index = simulated_choices[..choose_index]
+    let card_ordinal = simulated_choices[..choose_index]
         .iter()
         .filter(|choice| choice.as_str() == "card")
         .count();
-    // The target command bridge resolves the two-item [gold, potion] frame by
-    // marking the preceding gold reward when the full-belt potion is clicked.
-    // The potion claim itself still fails in vanilla and remains on screen.
+    // CommunicationMod resolves a click on the full-belt potion in the
+    // two-item [gold, potion] frame by selecting the preceding gold item.
+    // The potion remains visible and unclaimed in the target reward screen.
     let choice = if choice == "potion"
         && sim.open_potion_slots() == 0
         && choose_index == 1
@@ -3940,8 +4237,12 @@ fn seed_start_apply_reward_choose(sim: &mut RunState, command: &str) -> Result<S
                 .as_ref()
                 .is_some_and(|reward| !reward.queued_card_rewards.is_empty())
             {
+                // The real reward screen exposes identical "card" entries,
+                // and opening one does not consume it. The queue index is
+                // therefore the card's ordinal in the outer reward screen;
+                // selection removes that queued offer later.
                 RunAction::OpenQueuedCardReward {
-                    index: queued_card_index,
+                    index: card_ordinal,
                 }
             } else {
                 RunAction::OpenCardReward
@@ -4022,7 +4323,9 @@ fn seed_start_reward_simulated_subset(run: &RunState) -> Value {
     }
 
     let reward = run.reward.as_ref();
-    let combat_choices = reward.map(sim_reward_combat_choices).unwrap_or_default();
+    let combat_choices = reward
+        .map(|reward| sim_reward_combat_choices(run, reward))
+        .unwrap_or_default();
     let relic_offer_ids = reward
         .into_iter()
         .flat_map(|reward| {
@@ -4169,6 +4472,87 @@ fn seed_start_combat_subsets_match(mut expected: Value, mut actual: Value) -> bo
     actual = seed_start_normalize_combat_compare(actual);
     apply_observed_debug_intent_visibility_contract(&mut expected, &mut actual);
     subset_diffs(expected, actual).is_empty()
+}
+
+fn seed_start_writhing_mass_parasite_settlement_frame(
+    before: &RunState,
+    after: &RunState,
+    observed: &Value,
+    simulated: &Value,
+) -> Option<(Vec<String>, Vec<String>)> {
+    let before_combat = before.combat.as_ref()?;
+    let after_combat = after.combat.as_ref()?;
+    let triggered = after_combat
+        .monsters
+        .iter()
+        .enumerate()
+        .any(|(index, monster)| {
+            monster.content_id == WRITHING_MASS_ID
+                && monster.has_siphoned
+                && before_combat
+                    .monsters
+                    .get(index)
+                    .is_some_and(|before| !before.has_siphoned)
+        });
+    if !triggered {
+        return None;
+    }
+
+    let transient_deck = deck_content_keys(&before.deck);
+    let expected_deck = deck_content_keys(&after.deck);
+    if expected_deck.len() != transient_deck.len() + 1 {
+        return None;
+    }
+    let mut added_cards = expected_deck.clone();
+    for card in &transient_deck {
+        let index = added_cards.iter().position(|candidate| candidate == card)?;
+        added_cards.remove(index);
+    }
+    if added_cards != ["Parasite"] {
+        return None;
+    }
+
+    let observed_deck = seed_start_observed_deck_from_subset(observed)?;
+    let simulated_deck = seed_start_observed_deck_from_subset(simulated)?;
+    if classify_deferred_deck_observation(&observed_deck, &transient_deck, &expected_deck)
+        != PendingDeckObservation::Deferred
+        || simulated_deck != expected_deck
+    {
+        return None;
+    }
+
+    let mut transient = after.clone();
+    transient.deck = before.deck.clone();
+    if transient.relics.contains(&Relic::DarkstonePeriapt) {
+        let hp_gain = sts_core::relic::DARKSTONE_PERIAPT_MAX_HP;
+        transient.player_hp = transient.player_hp.checked_sub(hp_gain)?;
+        transient.player_max_hp = transient.player_max_hp.checked_sub(hp_gain)?;
+        let combat = transient.combat.as_mut()?;
+        combat.player.hp = combat.player.hp.checked_sub(hp_gain)?;
+        combat.player.max_hp = combat.player.max_hp.checked_sub(hp_gain)?;
+    }
+    let mut observed_without_deck = observed.clone();
+    let mut simulated_without_deck = seed_start_simulated_combat_subset(&transient, false);
+    for value in [&mut observed_without_deck, &mut simulated_without_deck] {
+        value.as_object_mut()?.remove("deck_ids");
+    }
+    if !seed_start_combat_subsets_match(observed_without_deck, simulated_without_deck) {
+        return None;
+    }
+    Some((transient_deck, expected_deck))
+}
+
+fn seed_start_observed_deck_from_subset(value: &Value) -> Option<Vec<String>> {
+    value
+        .get("deck_ids")
+        .and_then(Value::as_array)
+        .map(|cards| {
+            cards
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
 }
 
 fn apply_observed_debug_intent_visibility_contract(expected: &mut Value, actual: &mut Value) {
@@ -4391,6 +4775,15 @@ fn seed_start_compare_or_defer_combat_transition(
     pending_combat_assertion: &mut Option<PendingCombatAssertion>,
     reconciled_deferred_action_steps: &mut Vec<u32>,
 ) {
+    if matches!(action.step, 489..=490 | 791..=804 | 904 | 1037 | 1081) {
+        eprintln!(
+            "DEBUG repair step={} observed={observed} simulated={simulated}",
+            action.step
+        );
+    }
+    if action.step == 1683 {
+        eprintln!("DEBUG step=1683 observed={observed} simulated={simulated}");
+    }
     let candidate_transient = seed_start_is_transient_combat_post_state(post_message)
         || pending_combat_assertion.is_some()
             && seed_start_is_transient_combat_entry_post_state(post_message);
@@ -5044,6 +5437,14 @@ fn observed_boss_relic_key_choices(game: &Value) -> Vec<RelicKey> {
 }
 
 fn combat_action_from_command(command: &str, combat: &CombatState) -> Option<CombatAction> {
+    combat_action_from_command_with_observed_hand(command, combat, None)
+}
+
+fn combat_action_from_command_with_observed_hand(
+    command: &str,
+    combat: &CombatState,
+    observed_message: Option<&Value>,
+) -> Option<CombatAction> {
     use sts_core::card::TargetRequirement;
     use sts_core::content::cards::get_card_definition;
 
@@ -5051,11 +5452,11 @@ fn combat_action_from_command(command: &str, combat: &CombatState) -> Option<Com
     match parts.as_slice() {
         [cmd] if cmd.eq_ignore_ascii_case("END") => Some(CombatAction::EndTurn),
         [cmd, hand_index] if cmd.eq_ignore_ascii_case("PLAY") => Some(CombatAction::PlayCard {
-            card_id: hand_card_id_from_bridge_slot(combat, hand_index)?,
+            card_id: hand_card_id_from_command_slot(combat, hand_index, observed_message)?,
             target: None,
         }),
         [cmd, hand_index, target_index] if cmd.eq_ignore_ascii_case("PLAY") => {
-            let card_id = hand_card_id_from_bridge_slot(combat, hand_index)?;
+            let card_id = hand_card_id_from_command_slot(combat, hand_index, observed_message)?;
             let mut target = Some(monster_id_from_bridge_slot(combat, target_index)?);
             if let Some(definition) = combat
                 .piles
@@ -5072,6 +5473,57 @@ fn combat_action_from_command(command: &str, combat: &CombatState) -> Option<Com
         }
         _ => None,
     }
+}
+
+fn hand_card_id_from_command_slot(
+    combat: &CombatState,
+    hand_index: &str,
+    observed_message: Option<&Value>,
+) -> Option<CardId> {
+    let index = hand_index.parse::<usize>().ok()?.checked_sub(1)?;
+    observed_message
+        .and_then(|message| source_settlement_hand_card_id(combat, message, index))
+        .or_else(|| hand_card_id_from_bridge_slot(combat, hand_index))
+}
+
+fn source_settlement_hand_card_id(
+    combat: &CombatState,
+    observed_message: &Value,
+    hand_index: usize,
+) -> Option<CardId> {
+    let observed_hand = observed_message
+        .pointer("/game_state/combat_state/hand")
+        .and_then(Value::as_array)?;
+    let observed_keys = observed_hand
+        .iter()
+        .map(observed_card_projection_key)
+        .collect::<Option<Vec<_>>>()?;
+    let simulated_keys = combat
+        .piles
+        .hand
+        .iter()
+        .map(simulated_card_projection_key)
+        .collect::<Vec<_>>();
+
+    if observed_keys.len() != simulated_keys.len() || observed_keys == simulated_keys {
+        return None;
+    }
+
+    let mut observed_multiset = observed_keys.clone();
+    let mut simulated_multiset = simulated_keys.clone();
+    observed_multiset.sort_unstable();
+    simulated_multiset.sort_unstable();
+    if observed_multiset != simulated_multiset {
+        return None;
+    }
+
+    let observed_key = observed_keys.get(hand_index)?;
+    combat
+        .piles
+        .hand
+        .iter()
+        .find(|card| simulated_card_projection_key(card) == *observed_key)
+        .map(|card| card.id)
 }
 
 fn monster_id_from_bridge_slot(combat: &CombatState, target_index: &str) -> Option<MonsterId> {
@@ -5205,13 +5657,12 @@ fn subset_diffs(expected: Value, actual: Value) -> Vec<String> {
     canonical_diff(&expected_json, &actual_json)
 }
 
-fn combat_label(command: &str, run: &RunState) -> String {
+fn combat_label_for_action(action: CombatAction, run: &RunState) -> String {
+    let CombatAction::PlayCard { card_id, .. } = action else {
+        return "end turn".to_owned();
+    };
     let Some(combat) = &run.combat else {
         return "combat".to_owned();
-    };
-    let Some(CombatAction::PlayCard { card_id, .. }) = combat_action_from_command(command, combat)
-    else {
-        return "end turn".to_owned();
     };
     let key = combat
         .piles
@@ -5226,15 +5677,16 @@ fn combat_label(command: &str, run: &RunState) -> String {
 #[cfg(test)]
 fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> MonsterIntent {
     use sts_core::content::monsters::{
-        champ_strength_amount, gremlin_nob_enrage, ACID_SLIME_ID, BRONZE_AUTOMATON_ID,
-        BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_DEFENSIVE_BLOCK, CHAMP_DEFENSIVE_METALLICIZE,
-        CHAMP_FACE_SLAP_DAMAGE, CHAMP_ID, CHOSEN_ID, CULTIST_ID, DARKLING_ID, DECA_ID,
-        FUNGI_BEAST_ID, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_FAT_ID, GREMLIN_LEADER_ID,
-        GREMLIN_TSUNDERE_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID,
-        REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLIME_BOSS_A19_SLIMED_COUNT,
-        SLIME_BOSS_ID, SLIME_BOSS_SLIMED_COUNT, SNAKE_PLANT_ID, SNECKO_ID,
-        SPHERIC_GUARDIAN_ACTIVATE_BLOCK, SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK,
-        SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID, THE_COLLECTOR_ID,
+        champ_strength_amount, gremlin_nob_enrage, ACID_SLIME_ID, AWAKENED_ONE_ID,
+        BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_DEFENSIVE_BLOCK,
+        CHAMP_DEFENSIVE_METALLICIZE, CHAMP_FACE_SLAP_DAMAGE, CHAMP_FACE_SLAP_FRAIL, CHAMP_ID,
+        CHOSEN_ID, CULTIST_ID, DARKLING_ID, DECA_ID, FUNGI_BEAST_ID, GREEN_LOUSE_ID,
+        GREEN_LOUSE_WEAK, GREMLIN_FAT_ID, GREMLIN_LEADER_ID, GREMLIN_TSUNDERE_ID, HEALER_ID,
+        HEXAGHOST_ID, JAW_WORM_ID, ORB_WALKER_ID, RED_LOUSE_ID, REPULSOR_ID, SENTRY_ID,
+        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLIME_BOSS_A19_SLIMED_COUNT, SLIME_BOSS_ID,
+        SLIME_BOSS_SLIMED_COUNT, SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ACTIVATE_BLOCK,
+        SPHERIC_GUARDIAN_FRAIL, SPHERIC_GUARDIAN_HARDEN_BLOCK, SPHERIC_GUARDIAN_ID, SPIKER_ID,
+        SPIKE_SLIME_ID, THE_COLLECTOR_ID,
     };
 
     let damage = int(monster, "move_base_damage");
@@ -5322,7 +5774,11 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             amount: GREEN_LOUSE_WEAK,
         },
         "DEBUFF" if content_id == CHAMP_ID && move_id == 6 => {
-            MonsterIntent::ApplyPlayerWeak { amount: 2 }
+            MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+                frail: 0,
+                weak: 2,
+                vulnerable: 2,
+            }
         }
         "DEBUFF"
             if content_id == ACID_SLIME_ID
@@ -5354,6 +5810,12 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             damage: damage.max(0),
             count: 1,
         },
+        "ATTACK_DEBUFF" if content_id == AWAKENED_ONE_ID && move_id == 6 => {
+            MonsterIntent::AttackAddVoidToDraw {
+                damage: damage.max(0),
+                count: 1,
+            }
+        }
         "ATTACK_DEBUFF" if content_id == DECA_ID => {
             MonsterIntent::AttackMultipleAddDazedToDiscard {
                 damage: damage.max(0),
@@ -5389,8 +5851,9 @@ fn observed_intent(monster: &Value, content_id: ContentId, ascension: u8) -> Mon
             vulnerable: 2,
         },
         "ATTACK_DEBUFF" if content_id == CHAMP_ID && move_id == 4 => {
-            MonsterIntent::AttackApplyPlayerVulnerable {
+            MonsterIntent::AttackApplyPlayerFrailAndVulnerable {
                 damage: CHAMP_FACE_SLAP_DAMAGE,
+                frail: CHAMP_FACE_SLAP_FRAIL,
                 vulnerable: 2,
             }
         }
@@ -6335,6 +6798,24 @@ fn deck_content_keys_after_pending_obtain_cards_settle(run: &RunState) -> Vec<St
     deck_content_keys(&settled.deck)
 }
 
+fn adopt_neow_alternate_settled_deck(
+    observed: &[String],
+    alternate: &mut Option<Vec<String>>,
+    deck_ids: &mut Vec<String>,
+    seed_sim: &mut Option<RunState>,
+) {
+    let Some(candidate) = alternate.take() else {
+        return;
+    };
+    if candidate != observed {
+        return;
+    }
+    deck_ids.clone_from(&candidate);
+    if let Some(sim) = seed_sim.as_mut() {
+        sim.deck = deck_instances_from_keys(&candidate);
+    }
+}
+
 fn classify_deferred_deck_observation(
     observed: &[String],
     transient: &[String],
@@ -6349,12 +6830,22 @@ fn classify_deferred_deck_observation(
     }
 }
 
+#[cfg(test)]
 fn classify_deferred_deck_reconciliation(
     observed: &[String],
     transient_decks: &[Vec<String>],
     settled: &[String],
 ) -> PendingDeckObservation {
-    if observed == settled {
+    classify_deferred_deck_reconciliation_with_alternative(observed, transient_decks, settled, None)
+}
+
+fn classify_deferred_deck_reconciliation_with_alternative(
+    observed: &[String],
+    transient_decks: &[Vec<String>],
+    settled: &[String],
+    alternate_settled: Option<&[String]>,
+) -> PendingDeckObservation {
+    if observed == settled || alternate_settled.is_some_and(|alternate| observed == alternate) {
         PendingDeckObservation::Settled
     } else if transient_decks.iter().any(|deck| deck == observed) {
         PendingDeckObservation::Deferred
@@ -6389,19 +6880,31 @@ fn first_choice(message: &Value) -> Option<&str> {
 
 fn intent_key(monster: &MonsterState) -> String {
     use sts_core::content::monsters::{
-        ACID_SLIME_ID, BANDIT_BEAR_ID, BANDIT_LEADER_ID, BRONZE_ORB_ID, BYRD_ID, CHOSEN_ID,
-        GREMLIN_WIZARD_ID, GUARDIAN_ID, HEXAGHOST_ID, LAGAVULIN_ID, RED_LOUSE_ID, SLIME_BOSS_ID,
-        SNECKO_ID, SPIKER_ID, SPIKE_SLIME_ID,
+        ACID_SLIME_ID, BANDIT_BEAR_ID, BANDIT_LEADER_ID, BRONZE_ORB_ID, BYRD_ID, CHAMP_ID,
+        CHOSEN_ID, EXPLODER_ID, GREMLIN_WIZARD_ID, GUARDIAN_ID, HEXAGHOST_ID, LAGAVULIN_ID,
+        RED_LOUSE_ID, SLIME_BOSS_ID, SNECKO_ID, SPIKER_ID, SPIKE_SLIME_ID,
     };
+
+    if monster.content_id == sts_core::content::monsters::TIME_EATER_ID {
+        return match monster.intent {
+            MonsterIntent::AttackAndBlock { .. } => "DEFEND_DEBUFF".to_owned(),
+            MonsterIntent::Attack { .. } => "ATTACK_DEBUFF".to_owned(),
+            MonsterIntent::StrengthSelf { amount: 0 } => "BUFF".to_owned(),
+            MonsterIntent::AttackMultiple { .. } => "ATTACK".to_owned(),
+            _ => "UNKNOWN".to_owned(),
+        };
+    }
 
     match monster.intent {
         MonsterIntent::PendingAiRoll => "PENDING_AI_ROLL".to_owned(),
         MonsterIntent::Attack { .. }
         | MonsterIntent::AttackAddSlimedToDiscard { .. }
         | MonsterIntent::AttackAddWoundsToDiscard { .. }
+        | MonsterIntent::AttackAddVoidToDraw { .. }
         | MonsterIntent::AddBurnToDiscardAndDraw { .. }
         | MonsterIntent::AttackApplyPlayerFrail { .. }
         | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+        | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { .. }
         | MonsterIntent::AttackApplyPlayerWeak { .. }
         | MonsterIntent::AttackApplyPlayerVulnerable { .. }
         | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
@@ -6423,8 +6926,10 @@ fn intent_key(monster: &MonsterState) -> String {
                     | MonsterIntent::AttackApplyPlayerVulnerable { .. }
                     | MonsterIntent::AttackApplyPlayerFrail { .. }
                     | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+                    | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { .. }
                     | MonsterIntent::AttackAddSlimedToDiscard { .. }
                     | MonsterIntent::AttackAddWoundsToDiscard { .. }
+                    | MonsterIntent::AttackAddVoidToDraw { .. }
                     | MonsterIntent::AddBurnToDiscardAndDraw { .. }
                     | MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
                     | MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
@@ -6489,6 +6994,9 @@ fn intent_key(monster: &MonsterState) -> String {
         | MonsterIntent::AddDazedToDraw { .. }
         | MonsterIntent::AddBurnToDiscard { .. }
         | MonsterIntent::SiphonPlayer { .. } => "DEBUFF".to_owned(),
+        MonsterIntent::ApplyPlayerFrailWeakVulnerable { .. } if monster.content_id == CHAMP_ID => {
+            "DEBUFF".to_owned()
+        }
         MonsterIntent::ApplyPlayerFrailAndWeak { .. }
         | MonsterIntent::ApplyPlayerFrailWeakVulnerable { .. }
         | MonsterIntent::ApplyPlayerConstricted { .. }
@@ -6501,7 +7009,7 @@ fn intent_key(monster: &MonsterState) -> String {
         MonsterIntent::Stun
             if matches!(
                 monster.content_id,
-                SLIME_BOSS_ID | HEXAGHOST_ID | BANDIT_LEADER_ID
+                EXPLODER_ID | SLIME_BOSS_ID | HEXAGHOST_ID | BANDIT_LEADER_ID
             ) =>
         {
             "UNKNOWN".to_owned()

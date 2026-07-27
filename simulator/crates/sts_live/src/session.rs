@@ -11,7 +11,7 @@ use crate::{
         SessionListItem, SessionSnapshot, SlayTheDataGuidedDivergenceKind, SlayTheDataRunSummary,
         SlayTheDataSearchFilters, TraceRecord,
     },
-    operator_actions::{request_state_action, start_run_action},
+    operator_actions::{request_state_action, start_run_action, start_verification_run_action},
     session_blocking::record_blocked,
     session_recovery,
     session_response::append_bridge_response_and_state,
@@ -35,8 +35,33 @@ use sts_verify::{
     verify_seed_start_communication_mod_trace, TraceLine, TraceMetadata,
 };
 
-const ACTION_STATE_POLL_INTERVAL: Duration = Duration::from_millis(100);
+// CommunicationMod advances queued game actions as it services state requests.
+// A 100 ms sleep here turned the 20-30 update frames needed to settle some
+// actions into several seconds of idle wall time. The TCP bridge already
+// serializes requests, so a 1 ms yield avoids a busy loop without throttling
+// the game to single-digit updates per second.
+const ACTION_STATE_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const ACTION_STATE_POLL_TIMEOUT: Duration = Duration::from_secs(15);
+
+pub(super) fn profile_from_initial_state(
+    state: &LiveState,
+) -> LiveResult<Option<sts_verify::TraceProfile>> {
+    let Some(profile) = state
+        .raw
+        .pointer("/current_state/message/game_state/profile")
+        .or_else(|| state.raw.pointer("/message/game_state/profile"))
+        .or_else(|| state.raw.get("profile"))
+    else {
+        return Ok(None);
+    };
+    serde_json::from_value(profile.clone())
+        .map(Some)
+        .map_err(|error| {
+            LiveError::Bridge(format!(
+                "CommunicationMod returned an invalid profile snapshot: {error}"
+            ))
+        })
+}
 
 pub struct SessionStore<B, F> {
     bridge: B,
@@ -311,6 +336,7 @@ where
                 ended_at: None,
                 event: None,
                 boss_unlocks: None,
+                run_config: None,
             });
             metadata.event = Some(format!(
                 "retained_verified_prefix_through_step={retained_step}; excluded_failure_step={failing_step}"
@@ -379,6 +405,29 @@ where
         self.attach_slaythedata_run(session_id, run_id).map(Some)
     }
 
+    pub fn begin_fidelity_recheck(
+        &mut self,
+        session_id: &SessionId,
+        reason: &str,
+    ) -> LiveResult<SessionSnapshot> {
+        let session = self.session_mut(session_id)?;
+        let sequence = session
+            .latest_state
+            .as_ref()
+            .map_or(0, |state| state.sequence);
+        session.trace_writer.append(&TraceRecord::SlayTheData {
+            sequence,
+            event: "fidelity_recheck".to_owned(),
+            details: json!({"reason": reason}),
+        })?;
+        session.fidelity = FidelityStatus::unknown();
+        session.fidelity_cache = None;
+        if session.lifecycle != SessionLifecycle::Ended {
+            session.lifecycle = lifecycle_for_fidelity(&session.fidelity);
+        }
+        Ok(session.snapshot())
+    }
+
     fn recorded_slaythedata_run_id(&self, session_id: &SessionId) -> LiveResult<Option<i64>> {
         let records = read_records(self.session(session_id)?.trace_writer.path())?;
         Ok(records.iter().rev().find_map(|record| {
@@ -406,18 +455,64 @@ where
         config: RunConfig,
     ) -> LiveResult<SessionSnapshot> {
         let state = self.bridge.start_run(&bridge_id, &config)?;
+        self.record_started_run(
+            bridge_id,
+            config,
+            state,
+            start_run_action,
+            "live_trace",
+            "start_run",
+        )
+    }
+
+    pub fn start_verification_run(
+        &mut self,
+        bridge_id: BridgeId,
+        config: RunConfig,
+        starting_hp: i32,
+    ) -> LiveResult<SessionSnapshot> {
+        if !(1..=1_000_000).contains(&starting_hp) {
+            return Err(LiveError::InvalidAction(format!(
+                "START_VERIFY starting HP must be between 1 and 1000000, got {starting_hp}"
+            )));
+        }
+        let state = self
+            .bridge
+            .start_verification_run(&bridge_id, &config, starting_hp)?;
+        self.record_started_run(
+            bridge_id,
+            config,
+            state,
+            |config| start_verification_run_action(config, starting_hp),
+            "live_trace_action_template",
+            "start_verification_run",
+        )
+    }
+
+    fn record_started_run(
+        &mut self,
+        bridge_id: BridgeId,
+        mut config: RunConfig,
+        state: LiveState,
+        start_action: impl FnOnce(&RunConfig) -> LegalAction,
+        source: &str,
+        response_command: &str,
+    ) -> LiveResult<SessionSnapshot> {
+        if let Some(profile) = profile_from_initial_state(&state)? {
+            config.profile = Some(profile);
+        }
         let id = self.next_session_id();
-        let start_action = start_run_action(&config);
+        let start_action = start_action(&config);
         let mut session = self.new_session(id.clone(), bridge_id, Some(config))?;
         session.lifecycle = SessionLifecycle::Recording;
         session
             .trace_writer
-            .append(&metadata_record(&session, "live_trace"))?;
+            .append(&metadata_record(&session, source))?;
         session.trace_writer.append(&TraceRecord::Action {
             sequence: state.sequence.saturating_sub(1),
             action: start_action,
         })?;
-        append_bridge_response_and_state(&mut session, "start_run", &state)?;
+        append_bridge_response_and_state(&mut session, response_command, &state)?;
         session.latest_state = Some(state);
         session.fidelity = self.fidelity.check_trace(session.trace_writer.path())?;
         session.lifecycle = lifecycle_for_fidelity(&session.fidelity);
@@ -644,6 +739,8 @@ where
             && !same_observed_game_state(source_state, &initial)
             && transition_state_is_ready(source_state, &initial)
             && !is_unsettled_action_transition(action, &initial)
+            && !is_play_card_still_pending(action, source_state, &initial)
+            && !is_hand_selection_confirm_still_pending(action, source_state, &initial)
             && !is_cursed_key_chest_curse_pending(action, source_state, &initial)
         {
             return Ok(initial);
@@ -656,6 +753,8 @@ where
                 && !same_observed_game_state(source_state, &refreshed)
                 && transition_state_is_ready(source_state, &refreshed)
                 && !is_unsettled_action_transition(action, &refreshed)
+                && !is_play_card_still_pending(action, source_state, &refreshed)
+                && !is_hand_selection_confirm_still_pending(action, source_state, &refreshed)
                 && !is_cursed_key_chest_curse_pending(action, source_state, &refreshed)
             {
                 return Ok(refreshed);
@@ -1720,7 +1819,15 @@ where
         }
 
         self.set_automation_state(session_id, AutomationState::WaitingForLiveState)?;
-        let refreshed = self.request_state_with_fidelity(session_id, false)?;
+        // Refresh once when a caller starts auto-play, since an idle session
+        // can be stale. Every successful send_action then waits for and stores
+        // the next settled, actionable bridge state, so polling STATE again
+        // before later actions only adds a CommunicationMod round trip.
+        let refreshed = if actions_sent == 0 {
+            self.request_state_with_fidelity(session_id, false)?
+        } else {
+            self.session(session_id)?.snapshot()
+        };
         if refreshed
             .latest_state
             .as_ref()
@@ -1739,18 +1846,24 @@ where
                 Some("waiting for the live combat state to become actionable".to_owned());
             return Ok((session.snapshot(), true));
         }
-        self.refresh_fidelity_uncached(session_id)?;
-        if let Some(blocked) = self.block_if_automation_fidelity_not_ok(
-            session_id,
-            "automation requires fidelity ok before auto-play planning",
-        )? {
-            return Ok((blocked, false));
-        }
-
-        let planned = if self.bind_existing_automation_plan_to_latest_state(session_id)? {
+        let reused_plan = self.bind_existing_automation_plan_to_latest_state(session_id)?;
+        let planned = if reused_plan {
             self.set_automation_state(session_id, AutomationState::ReadyToSend)?;
             self.session(session_id)?.snapshot()
         } else {
+            // A bound principal-variation step was already derived from the
+            // last verified simulator state. Keep consuming that bounded plan
+            // without replaying the full trace between every card. Reverify
+            // whenever the plan no longer binds (including turn boundaries)
+            // and when combat finishes, so any divergence is still attributed
+            // to its first recorded action.
+            self.refresh_fidelity_uncached(session_id)?;
+            if let Some(blocked) = self.block_if_automation_fidelity_not_ok(
+                session_id,
+                "automation requires fidelity ok before auto-play planning",
+            )? {
+                return Ok((blocked, false));
+            }
             self.automation_plan_with_fidelity_check(session_id, false)?
         };
         if planned.automation.state != AutomationState::ReadyToSend {
@@ -2621,6 +2734,99 @@ fn state_ready_for_command(state: &LiveState) -> Option<bool> {
         .and_then(serde_json::Value::as_bool)
 }
 
+pub(crate) fn is_play_card_still_pending(
+    action: &LegalAction,
+    source: &LiveState,
+    candidate: &LiveState,
+) -> bool {
+    if action.kind != LegalActionKind::PlayCard {
+        return false;
+    }
+    let Some(hand_index) = action
+        .command
+        .get("command")
+        .and_then(Value::as_str)
+        .and_then(|command| command.split_whitespace().nth(1))
+        .and_then(|index| index.parse::<usize>().ok())
+        .and_then(|index| index.checked_sub(1))
+    else {
+        return false;
+    };
+    let source_card_uuid = state_combat_hand(source)
+        .and_then(|hand| hand.get(hand_index))
+        .and_then(|card| card.get("uuid"))
+        .and_then(Value::as_str);
+    let Some(source_card_uuid) = source_card_uuid else {
+        return false;
+    };
+    state_combat_hand(candidate).is_some_and(|hand| {
+        hand.iter()
+            .any(|card| card.get("uuid").and_then(Value::as_str) == Some(source_card_uuid))
+    })
+}
+
+fn state_combat_hand(state: &LiveState) -> Option<&Vec<Value>> {
+    state
+        .raw
+        .pointer("/current_state/message/game_state/combat_state/hand")
+        .or_else(|| {
+            state
+                .raw
+                .pointer("/state/message/game_state/combat_state/hand")
+        })
+        .and_then(Value::as_array)
+}
+
+pub(crate) fn is_hand_selection_confirm_still_pending(
+    action: &LegalAction,
+    source: &LiveState,
+    candidate: &LiveState,
+) -> bool {
+    if action.kind != LegalActionKind::Confirm
+        || action
+            .command
+            .get("command")
+            .and_then(Value::as_str)
+            .is_none_or(|command| !command.trim().eq_ignore_ascii_case("CONFIRM"))
+    {
+        return false;
+    }
+    let selected_uuids = source
+        .raw
+        .pointer("/current_state/message/game_state/screen_state/selected")
+        .or_else(|| {
+            source
+                .raw
+                .pointer("/state/message/game_state/screen_state/selected")
+        })
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|card| card.get("uuid").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    if selected_uuids.is_empty() {
+        return false;
+    }
+    let Some(combat_state) = candidate
+        .raw
+        .pointer("/current_state/message/game_state/combat_state")
+        .or_else(|| {
+            candidate
+                .raw
+                .pointer("/state/message/game_state/combat_state")
+        })
+    else {
+        return false;
+    };
+    selected_uuids.iter().any(|selected_uuid| {
+        ["hand", "draw_pile", "discard_pile", "exhaust_pile", "limbo"]
+            .iter()
+            .filter_map(|pile| combat_state.get(*pile).and_then(Value::as_array))
+            .flatten()
+            .all(|card| card.get("uuid").and_then(Value::as_str) != Some(*selected_uuid))
+    })
+}
+
 pub(crate) fn is_unsettled_action_transition(action: &LegalAction, state: &LiveState) -> bool {
     let hidden_map_transition = action.kind == LegalActionKind::ChooseMapNode
         && state.phase == LivePhase::Neow
@@ -2645,6 +2851,26 @@ pub(crate) fn is_unsettled_action_transition(action: &LegalAction, state: &LiveS
         && state.legal_actions.iter().any(|candidate| {
             candidate.kind == LegalActionKind::ChooseNeow
                 && candidate.label.eq_ignore_ascii_case(&action.label)
+        });
+
+    // Event effects can publish a new state id before replacing the selected
+    // option. In particular, a Leave command may briefly expose the same Leave
+    // button while the room transition is still queued. Do not let repeated
+    // CHOOSE command text turn that stale frame into a second click.
+    let stale_event_choice = action.kind == LegalActionKind::EventChoice
+        && action.label.eq_ignore_ascii_case("leave")
+        && state.phase == LivePhase::Event
+        && state.legal_actions.iter().any(|candidate| {
+            candidate.kind == LegalActionKind::EventChoice
+                && candidate.label.eq_ignore_ascii_case(&action.label)
+                && candidate
+                    .command
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .zip(action.command.get("command").and_then(Value::as_str))
+                    .is_some_and(|(candidate, source)| {
+                        candidate.trim().eq_ignore_ascii_case(source.trim())
+                    })
         });
 
     let stale_card_reward_choice = action.kind == LegalActionKind::ChooseReward
@@ -2687,6 +2913,7 @@ pub(crate) fn is_unsettled_action_transition(action: &LegalAction, state: &LiveS
     hidden_map_transition
         || stale_map_choice
         || stale_neow_choice
+        || stale_event_choice
         || stale_card_reward_choice
         || smoke_bomb_escape_pending
         || nest_ritual_dagger_pending

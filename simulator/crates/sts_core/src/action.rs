@@ -56,6 +56,10 @@ pub enum InternalAction {
     DealDamage {
         info: DamageInfo,
     },
+    DealBodySlamDamage {
+        source: CardId,
+        target: MonsterId,
+    },
     DealHandOfGreedDamage {
         info: DamageInfo,
         gold: i32,
@@ -94,6 +98,9 @@ pub enum InternalAction {
     GainBlock {
         amount: i32,
     },
+    GainBlockDirect {
+        amount: i32,
+    },
     GainMonsterBlock {
         target: MonsterId,
         amount: i32,
@@ -130,6 +137,13 @@ pub enum InternalAction {
         temp_cost: Option<u8>,
         temp_cost_turn_only: bool,
     },
+    AddGeneratedCardsToHandWhileSourceInLimbo {
+        content_id: crate::ContentId,
+        source_card_id: CardId,
+        count: usize,
+        temp_cost: Option<u8>,
+        temp_cost_turn_only: bool,
+    },
     AddGeneratedHandCardBeforePendingDraw {
         content_id: crate::ContentId,
         temp_cost: Option<u8>,
@@ -138,6 +152,9 @@ pub enum InternalAction {
     AddStatEquivalentCopyToPile {
         card: CardInstance,
         to: CardPile,
+    },
+    AddCardInstanceToHandOrDiscard {
+        card: CardInstance,
     },
     AddGeneratedCardToDrawPileRandomSpot {
         content_id: crate::ContentId,
@@ -173,7 +190,14 @@ pub enum InternalAction {
     DrawCards {
         count: usize,
     },
+    DrawCardsWithoutEvolve {
+        count: usize,
+    },
     DrawCardsWhilePlayedCardIsInLimbo {
+        card_id: CardId,
+        count: usize,
+    },
+    DrawCardsWhilePlayedCardIsInLimboWithoutEvolve {
         card_id: CardId,
         count: usize,
     },
@@ -201,6 +225,7 @@ pub enum InternalAction {
     },
     SetRandomHandCardCostForCombat {
         amount: u8,
+        excluded_card_id: CardId,
     },
     UpgradeHandCardsExcept {
         card_id: CardId,
@@ -268,6 +293,9 @@ pub enum InternalAction {
         target: crate::MonsterId,
         amount: i32,
     },
+    DealUnmodifiedDamageRandom {
+        amount: i32,
+    },
     GainMetallicize {
         amount: i32,
     },
@@ -321,6 +349,9 @@ pub enum InternalAction {
     },
     AwaitDiscardSelect {
         source_card_id: CardId,
+        purpose: DiscardSelectPurpose,
+    },
+    AwaitCopiedDiscardSelect {
         purpose: DiscardSelectPurpose,
     },
     AwaitExhaustSelect {

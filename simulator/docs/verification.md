@@ -74,6 +74,28 @@ cd simulator
 uv run -- cargo run -q -p sts_verify --bin sts_verify -- parity verification\corpus\permanent_traces\trace-session-8.jsonl
 ```
 
+Use `replay` when the goal is to inspect or persist the simulator state
+reconstructed from the trace:
+
+```powershell
+cd simulator
+cargo run -q -p sts_verify -- replay --json verification\corpus\permanent_traces\trace-session-8.jsonl -o replay.json
+cargo run -q -p sts_verify -- replay --json --at-step 3322 verification\corpus\permanent_traces\trace-session-8.jsonl
+cargo run -q -p sts_verify -- replay --timeline verification\corpus\permanent_traces\trace-session-8.jsonl
+```
+
+The replay artifact contains the same verification report, the final
+authoritative `RunState` snapshot, and lightweight checkpoints with stable
+snapshot hashes. `--at-step` retains the latest checkpoint at or before the
+requested trace action and includes its full snapshot. A replay boundary still
+returns the simulator state at the frontier, but exits `2`; it is not silently
+treated as a successful complete replay. The exit codes are `0` for complete,
+`1` for invalid input, and `2` for a valid trace that reaches a boundary.
+
+Replay and parity share the same transition engine. CommunicationMod post-state
+observations are comparison evidence only, including when a trace is replayed
+with `--at-step` or `--timeline`.
+
 Use the typed permanent manifest for corpus-wide status:
 
 ```powershell

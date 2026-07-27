@@ -73,7 +73,7 @@ impl FidelityChecker for TraceFidelityChecker {
                     first_divergent_step: None,
                     compact_diff: Vec::new(),
                     message: Some(
-                        "strict seed-start replay requires recorded run config and START command"
+                        "strict seed-start replay requires recorded run config and START or START_VERIFY command"
                             .to_owned(),
                     ),
                 },
@@ -117,7 +117,16 @@ fn read_live_trace(path: &Path) -> LiveResult<Vec<TraceRecord>> {
 }
 
 fn explicit_live_status(records: &[TraceRecord]) -> Option<FidelityStatus> {
-    for (index, record) in records.iter().enumerate() {
+    let recheck_start = records
+        .iter()
+        .rposition(|record| {
+            matches!(
+                record,
+                TraceRecord::SlayTheData { event, .. } if event == "fidelity_recheck"
+            )
+        })
+        .map_or(0, |index| index + 1);
+    for (index, record) in records.iter().enumerate().skip(recheck_start) {
         match record {
             TraceRecord::Error {
                 reason_code,
@@ -153,11 +162,19 @@ fn communication_mod_trace(
     records: &[TraceRecord],
     mode: TraceMode,
 ) -> LiveResult<CommunicationTrace> {
+    let run_config = records.iter().find_map(|record| match record {
+        TraceRecord::Metadata {
+            run_config: Some(run_config),
+            ..
+        } => Some(run_config),
+        _ => None,
+    });
     let mut jsonl = serde_json::to_string(&json!({
         "type": "metadata",
         "schema": 1,
         "source": "communication_mod",
         "client": "sts_live",
+        "run_config": run_config,
     }))?;
     jsonl.push('\n');
     let mut states = 0;
@@ -186,7 +203,7 @@ fn communication_mod_trace(
             }
             TraceRecord::Action { sequence, action } => {
                 if let Some(command) = action.command.get("command").and_then(Value::as_str) {
-                    if command.to_ascii_uppercase().starts_with("START ") {
+                    if is_start_command(command) {
                         has_start = true;
                         if matches!(mode, TraceMode::SeedStart) && !saw_state {
                             append_state_line(
@@ -221,6 +238,12 @@ fn communication_mod_trace(
     })
 }
 
+fn is_start_command(command: &str) -> bool {
+    command.split_whitespace().next().is_some_and(|verb| {
+        verb.eq_ignore_ascii_case("START") || verb.eq_ignore_ascii_case("START_VERIFY")
+    })
+}
+
 fn append_state_line(jsonl: &mut String, sequence: u64, message: Value) -> LiveResult<()> {
     jsonl.push_str(&serde_json::to_string(&json!({
         "type": "state",
@@ -235,4 +258,46 @@ fn communication_message(raw: &Value) -> Option<Value> {
     raw.pointer("/current_state/message")
         .or_else(|| raw.pointer("/state/message"))
         .cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{explicit_live_status, is_start_command};
+    use crate::model::TraceRecord;
+
+    #[test]
+    fn recognizes_normal_and_verification_start_commands_by_exact_verb() {
+        assert!(is_start_command("START IRONCLAD 0 CODEX04"));
+        assert!(is_start_command("start_verify ironclad 0 FIDL00055 10000"));
+        assert!(!is_start_command("START_VERIFYING IRONCLAD 0 CODEX04"));
+        assert!(!is_start_command("RESTART IRONCLAD 0 CODEX04"));
+    }
+
+    #[test]
+    fn fidelity_recheck_supersedes_only_earlier_recorded_loss() {
+        let records = vec![
+            TraceRecord::Error {
+                sequence: 1,
+                reason_code: "fidelity_lost".to_owned(),
+                message: "old verifier result".to_owned(),
+            },
+            TraceRecord::SlayTheData {
+                sequence: 2,
+                event: "fidelity_recheck".to_owned(),
+                details: serde_json::json!({"reason": "verified simulator repair"}),
+            },
+        ];
+        assert!(explicit_live_status(&records).is_none());
+
+        let mut records = records;
+        records.push(TraceRecord::Error {
+            sequence: 3,
+            reason_code: "fidelity_lost".to_owned(),
+            message: "new verifier result".to_owned(),
+        });
+        assert_eq!(
+            explicit_live_status(&records).and_then(|status| status.message),
+            Some("new verifier result".to_owned())
+        );
+    }
 }

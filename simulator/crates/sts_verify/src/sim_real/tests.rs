@@ -177,6 +177,18 @@ fn serialize_trace_test_lines(mut lines: Vec<Value>) -> String {
         .join("\n")
 }
 
+#[test]
+fn pre_run_profile_sets_note_card_without_observation_input() {
+    let profile = TraceProfile {
+        note_card: "Twin Strike".to_owned(),
+        note_upgrades: 1,
+    };
+    let mut run = RunState::seeded_ironclad(1, 0);
+    replay::seed_start_apply_note_profile_for_test(&mut run, Some(&profile));
+    assert_eq!(run.note_card_content_id, TWIN_STRIKE_ID);
+    assert_eq!(run.note_card_upgrades, 1);
+}
+
 fn observed_deck_cards(cards: &[CardInstance]) -> Vec<Value> {
     cards
         .iter()
@@ -332,6 +344,267 @@ fn smoke_bomb_trace_reconciles_escape_and_reward_proceeds_at_stable_frames() {
 }
 
 #[test]
+fn smoke_bomb_hidden_gold_rng_keeps_later_combat_reward_aligned() {
+    let Some(content) = crate::load_corpus_file(
+        "fidelity_regressions/random-fidelity-fidl00001-escaped-gold-rng.jsonl",
+    ) else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("escaped Looter gold RNG regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert!(report.action_dispositions.iter().any(|entry| {
+        entry.action_step == 843
+            && entry.command == "PLAY 2 0"
+            && entry.disposition == ActionDispositionKind::Verified
+    }));
+}
+
+#[test]
+fn smoke_bomb_queued_end_resolves_the_source_combat_before_escape() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-665dff26cbb6e5f4.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Smoke Bomb queued END regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    for step in [86, 87] {
+        assert_eq!(
+            report
+                .action_dispositions
+                .iter()
+                .find(|entry| entry.action_step == step)
+                .map(|entry| entry.disposition),
+            Some(ActionDispositionKind::Verified),
+            "Smoke Bomb queued END step {step}"
+        );
+    }
+}
+
+#[test]
+fn smoke_bomb_queued_end_applies_victory_heal_before_late_enemy_turn() {
+    let mut source = RunState::combat_fixture_with_relics(vec![Relic::BurningBlood]);
+    source.potions = vec![Potion::SmokeBomb];
+    source.empty_potion_slots = vec![1, 2];
+    source.player_hp = 80;
+    source.player_max_hp = 80;
+    let combat = source.combat.as_mut().expect("combat fixture");
+    combat.player.hp = 80;
+    combat.player.max_hp = 80;
+    combat.player.block = 0;
+
+    let destination = apply_run_action(
+        &source,
+        RunAction::UsePotion {
+            slot: 0,
+            target: None,
+        },
+    )
+    .expect("Smoke Bomb reaches its core destination");
+    assert_eq!(destination.player_hp, 80);
+
+    let queued_destination =
+        super::replay::seed_start_smoke_bomb_queued_end_destination(&source, &destination)
+            .expect("queued END resolves after the escape heal");
+    assert_eq!(
+        queued_destination.player_hp, 74,
+        "Burning Blood is capped at full HP before the queued six-damage enemy turn"
+    );
+}
+
+#[test]
+fn smoke_bomb_event_queued_end_does_not_start_a_late_enemy_turn() {
+    let mut source = RunState::combat_fixture_with_relics(vec![Relic::BurningBlood]);
+    source.current_room_override = Some(RoomKind::Event);
+    source.potions = vec![Potion::SmokeBomb];
+    source.empty_potion_slots = vec![1, 2];
+
+    let destination = apply_run_action(
+        &source,
+        RunAction::UsePotion {
+            slot: 0,
+            target: None,
+        },
+    )
+    .expect("Smoke Bomb reaches its event-combat destination");
+
+    let queued_destination =
+        super::replay::seed_start_smoke_bomb_queued_end_destination(&source, &destination)
+            .expect("event queued END reaches the empty reward frame");
+    assert_eq!(queued_destination.player_hp, destination.player_hp);
+    assert_eq!(queued_destination.phase, RunPhase::Idle);
+}
+
+#[test]
+fn smoke_bomb_trace_can_end_at_a_verified_escape_transient() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-0e918c922e0616f8.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Smoke Bomb transient-end trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+    let disposition = report
+        .action_dispositions
+        .iter()
+        .find(|entry| entry.action_step == 134)
+        .expect("Smoke Bomb action disposition");
+    assert_eq!(disposition.disposition, ActionDispositionKind::Verified);
+    assert!(disposition.deferred_assertion_reconciled);
+}
+
+#[test]
+fn reactive_thorns_preserve_a_queued_dead_monster_roll() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-9ef59d65e4f6728e.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Jaw Worm reactive-thorns trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+}
+
+#[test]
+fn the_joust_trace_uses_target_bet_labels() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-bc1722606a474ee9.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("The Joust trace verifies through the bet screen");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+}
+
+#[test]
+fn the_joust_trace_uses_target_watch_label_after_bet() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-a46dfdb55ac478a3.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("The Joust trace verifies through the watch screen");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+}
+
+#[test]
+fn snecko_oil_keeps_the_following_juggernaut_target_in_sync() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-2589152bd2f3b1b7.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Snecko Oil/Juggernaut trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+}
+
+#[test]
 fn smoke_bomb_trace_reconciles_queued_combat_command_at_stable_reward() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-7a15d436727123b4.jsonl")
@@ -365,17 +638,17 @@ fn smoke_bomb_trace_reconciles_queued_combat_command_at_stable_reward() {
 }
 
 #[test]
-fn smoke_bomb_trace_names_an_unreconciled_queued_command_endpoint() {
+fn smoke_bomb_trace_reconciles_a_queued_command_at_the_captured_endpoint() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-b51801b5fbe7f86b.jsonl")
     else {
         return;
     };
     let report = verify_seed_start_communication_mod_trace(&content)
-        .expect("unreconciled Smoke Bomb regression trace verifies");
+        .expect("captured queued Smoke Bomb command regression trace verifies");
 
-    assert!(report.unexpected_diffs.is_empty());
-    assert!(report.unsupported.is_empty());
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
     assert_eq!(
         report
             .seed_start
@@ -383,9 +656,10 @@ fn smoke_bomb_trace_names_an_unreconciled_queued_command_endpoint() {
             .expect("seed-start report")
             .first_boundary,
         SeedStartBoundary {
-            path: "$.actions[step=93].command".to_owned(),
-            category: "unreconciled_smoke_bomb_frame".to_owned(),
-            reason: "Smoke Bomb escape did not reach a captured stable reward frame".to_owned(),
+            path: "$.actions[verified]".to_owned(),
+            category: "none".to_owned(),
+            reason: "seed-start verifier checked every verifiable transition in the trace"
+                .to_owned(),
         }
     );
     assert_eq!(
@@ -394,8 +668,13 @@ fn smoke_bomb_trace_names_an_unreconciled_queued_command_endpoint() {
             .as_ref()
             .expect("action integrity")
             .unresolved_transient_assertions,
-        2
+        0
     );
+    assert!(report.action_dispositions.iter().any(|entry| {
+        entry.action_step == 93
+            && entry.command == "PLAY 2 0"
+            && entry.disposition == ActionDispositionKind::Verified
+    }));
 }
 
 #[test]
@@ -464,6 +743,7 @@ fn purifier_direct_leave_reaches_its_terminal_leave_screen() {
 #[test]
 fn golden_idol_direct_leave_reaches_its_terminal_leave_screen() {
     for name in [
+        "random-fidelity-90f176908abf7404.jsonl",
         "random-fidelity-8e680d9593a06359.jsonl",
         "random-fidelity-a66d580b08db3587.jsonl",
     ] {
@@ -540,6 +820,38 @@ fn shovel_dig_enters_and_resolves_its_relic_reward() {
             .expect("action integrity")
             .unresolved_transient_assertions,
         0
+    );
+}
+
+#[test]
+fn rest_relic_reward_proceed_completes_the_rest_room_before_map_entry() {
+    let content =
+        crate::load_corpus_file("permanent_traces/random-fidelity-b788a4e142c8fc26.jsonl")
+            .expect("full rest relic-reward trace");
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("rest relic-reward trace replays");
+
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "{:#?}",
+        report.unexpected_diffs
+    );
+    assert!(report
+        .unsupported
+        .iter()
+        .all(|entry| entry.action_step != 451));
+    assert!(report
+        .verified
+        .iter()
+        .any(|entry| { entry.action_step == 451 && entry.label == "rest reward proceed to map" }));
+    let seed_start = report.seed_start.expect("seed-start report");
+    assert_eq!(
+        seed_start.first_boundary.path,
+        "$.actions[step=481].command"
+    );
+    assert_eq!(
+        seed_start.first_boundary.category,
+        "unexpected_sim_real_diff"
     );
 }
 
@@ -673,6 +985,45 @@ fn delayed_double_tap_copy_is_canceled_by_end_turn_command() {
 }
 
 #[test]
+fn delayed_double_tap_copy_is_canceled_by_next_semantic_command() {
+    let attack_id = CardId::new(91_003);
+    let skill_id = CardId::new(91_004);
+    let mut combat = CombatState::initial_fixture();
+    combat.double_tap_pending = 2;
+    combat.piles.hand = vec![
+        CardInstance::new(attack_id, STRIKE_R_ID),
+        CardInstance::new(skill_id, DEFEND_R_ID),
+    ];
+
+    let expectation = seed_start_copied_attack_expectation(
+        &combat,
+        CombatAction::PlayCard {
+            card_id: attack_id,
+            target: Some(MonsterId::new(1)),
+        },
+    );
+    assert_eq!(
+        expectation,
+        Some(CopiedAttackExpectation {
+            remaining_double_tap: 1,
+        })
+    );
+
+    let cancelled = {
+        combat.double_tap_pending = 0;
+        sts_core::combat::apply_combat_action(
+            &combat,
+            CombatAction::PlayCard {
+                card_id: attack_id,
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("the original attack remains authoritative")
+    };
+    assert_eq!(cancelled.double_tap_pending, 0);
+}
+
+#[test]
 fn combat_card_reward_source_frame_reconciles_without_boundary() {
     let trace = "random-fidelity-acaabd41a504598f.jsonl";
     let Some(content) = crate::load_corpus_file(format!("permanent_traces/{trace}")) else {
@@ -721,7 +1072,233 @@ fn stable_combat_trace_reconciles_compound_transient_evidence() {
 }
 
 #[test]
-fn smoke_bomb_trace_names_a_queued_command_that_mutates_transient_combat() {
+fn exhume_selection_post_click_transient_reconciles_without_boundary() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-8375d0aa0e56c94b.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Exhume post-click transient regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    let boundary = &report
+        .seed_start
+        .as_ref()
+        .expect("seed-start report")
+        .first_boundary;
+    assert_eq!(boundary.category, "none");
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+}
+
+#[test]
+fn warcry_skipped_put_on_deck_retrieval_frame_replays_source_transition() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-354debe1cdef9bc6.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Warcry skipped retrieval regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 231)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn random_fidelity_warcry_skipped_retrieval_preserves_delayed_discard_order() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-36e6dccfb5901688.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Warcry delayed-discard permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "the selected status must settle before the following Strike: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 313)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "the follow-up Strike must observe the delayed discard in source order: {report:#?}"
+    );
+}
+
+#[test]
+fn warcry_source_settlement_frame_verifies_without_a_follow_up_poll() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-ee35f57424b997d7.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Warcry source settlement regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 301)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn put_on_deck_source_card_survives_the_following_end_turn_refill() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-a364e2a698e879dc.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("put-on-deck end-turn regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 102)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn forethought_skipped_put_on_deck_retrieval_frame_replays_source_transition() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-ded412a8f5a83ec0.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Forethought skipped retrieval regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 46)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn forethought_skipped_retrieval_continues_through_combat_potion_use() {
+    let Some(content) = crate::load_corpus_file(
+        "fidelity_regressions/random-fidelity-5b364b2faf1f9e9d-forethought-potion-continuation.jsonl",
+    ) else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("captured Forethought and Regen Potion trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 100
+            && transition.command == "POTION USE 0"
+            && transition.label == "combat potion use"
+    }));
+}
+
+#[test]
+fn gambling_chip_source_settlement_frame_verifies_without_a_follow_up_poll() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-7e93e8670a459612.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Gambling Chip source settlement regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 122)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn exhaust_select_hides_played_source_card_in_action_frame() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-ca1c5042a4810f20.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("True Grit action-frame regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty());
+    assert!(report.unsupported.is_empty());
+    let boundary = &report
+        .seed_start
+        .as_ref()
+        .expect("seed-start report")
+        .first_boundary;
+    assert_eq!(boundary.category, "none");
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+}
+
+#[test]
+fn smoke_bomb_trace_replays_a_queued_command_that_mutates_transient_combat() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-617b5319ca2c85b4.jsonl")
     else {
@@ -731,7 +1308,7 @@ fn smoke_bomb_trace_names_a_queued_command_that_mutates_transient_combat() {
         .expect("mutated transient Smoke Bomb regression trace verifies");
 
     assert!(report.unexpected_diffs.is_empty());
-    assert_eq!(report.unsupported.len(), 1);
+    assert!(report.unsupported.is_empty());
     assert_eq!(
         report
             .seed_start
@@ -739,16 +1316,7 @@ fn smoke_bomb_trace_names_a_queued_command_that_mutates_transient_combat() {
             .expect("seed-start report")
             .first_boundary
             .category,
-        "unsupported_smoke_bomb_queued_combat"
-    );
-    assert_eq!(
-        report
-            .seed_start
-            .as_ref()
-            .expect("seed-start report")
-            .first_boundary
-            .path,
-        "$.actions[step=230].command"
+        "none"
     );
     assert_eq!(
         report
@@ -756,8 +1324,49 @@ fn smoke_bomb_trace_names_a_queued_command_that_mutates_transient_combat() {
             .as_ref()
             .expect("action integrity")
             .unresolved_transient_assertions,
-        2
+        0
     );
+    assert!(report.action_dispositions.iter().any(|entry| {
+        entry.action_step == 230
+            && entry.command == "PLAY 2"
+            && entry.disposition == ActionDispositionKind::Verified
+    }));
+}
+
+#[test]
+fn smoke_bomb_trace_reconciles_a_queued_end_at_the_captured_endpoint() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-5e634e6cfbe0ca83.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("captured Smoke Bomb END regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+    assert!(report.action_dispositions.iter().any(|entry| {
+        entry.action_step == 198
+            && entry.command == "END"
+            && entry.disposition == ActionDispositionKind::Verified
+    }));
 }
 
 #[test]
@@ -779,43 +1388,6 @@ fn recorded_action_input_drives_time_gated_run_state_without_gameplay_hydration(
         recorded_action_playtime_seconds(&pre, &action),
         Some(799),
         "the explicit action input wins over its source state's copy"
-    );
-}
-
-#[test]
-fn neow_curse_order_uses_only_pre_state_and_typed_action_timing() {
-    let mut pre = TraceState {
-        step: 3,
-        received_at: None,
-        message: json!({"game_state": {"screen_type": "CARD_REWARD"}}),
-    };
-    let mut action = TraceAction {
-        step: 4,
-        command: "CHOOSE 0".to_owned(),
-        sent_at: None,
-        playtime_seconds: None,
-    };
-    assert_eq!(
-        pending_neow_curse_order(&pre, &action),
-        Ok(PendingNeowCurseOrder::AfterPickedCard)
-    );
-
-    pre.received_at = Some("2026-07-07T21:30:35.058Z".to_owned());
-    action.sent_at = Some("2026-07-07T21:30:42.532Z".to_owned());
-    assert_eq!(
-        pending_neow_curse_order(&pre, &action),
-        Ok(PendingNeowCurseOrder::BeforePickedCard)
-    );
-
-    action.sent_at = Some("2026-07-07T21:30:35.099Z".to_owned());
-    assert_eq!(
-        pending_neow_curse_order(&pre, &action),
-        Ok(PendingNeowCurseOrder::AfterPickedCard)
-    );
-    action.sent_at = Some("not-a-timestamp".to_owned());
-    assert_eq!(
-        pending_neow_curse_order(&pre, &action),
-        Err("invalid action sent_at timestamp")
     );
 }
 
@@ -1122,7 +1694,9 @@ fn runic_dome_hides_intent_in_both_monster_projections() {
 
 #[test]
 fn intent_projection_preserves_distinct_communication_mod_categories() {
-    use sts_core::content::monsters::{BYRD_ID, GREMLIN_WIZARD_ID, GUARDIAN_ID, SPIKER_ID};
+    use sts_core::content::monsters::{
+        BYRD_ID, EXPLODER_ID, GREMLIN_WIZARD_ID, GUARDIAN_ID, SPIKER_ID,
+    };
 
     let mut monster = CombatState::initial_fixture().monsters.remove(0);
     let cases = [
@@ -1164,6 +1738,10 @@ fn intent_projection_preserves_distinct_communication_mod_categories() {
 
     monster.content_id = BYRD_ID;
     monster.intent = MonsterIntent::StrengthSelf { amount: 0 };
+    assert_eq!(intent_key(&monster), "UNKNOWN");
+
+    monster.content_id = EXPLODER_ID;
+    monster.intent = MonsterIntent::Stun;
     assert_eq!(intent_key(&monster), "UNKNOWN");
 
     monster.content_id = SPIKER_ID;
@@ -1595,9 +2173,86 @@ fn reward_projection_lists_every_pending_orrery_card_reward() {
     };
 
     assert_eq!(
-        sim_reward_combat_choices(&reward),
+        sim_reward_combat_choices(&RunState::map_fixture(), &reward),
         vec!["card".to_owned(); sts_core::relic::ORRERY_CARD_REWARDS as usize]
     );
+}
+
+#[test]
+fn reward_projection_keeps_pending_card_items_after_closing_card_screen() {
+    let reward = RewardScreen {
+        continuation: sts_core::RewardContinuation::None,
+        choices: vec![CardInstance::new(
+            CardId::new(1),
+            sts_core::content::cards::BASH_ID,
+        )],
+        queued_card_rewards: Vec::new(),
+        gold_offer: 0,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers: Vec::new(),
+        relic_offer: None,
+        pending_relic_offer: None,
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: sts_core::CardRewardFlow::pending(2),
+    };
+
+    assert_eq!(
+        sim_reward_combat_choices(&RunState::map_fixture(), &reward),
+        ["card", "card"].map(str::to_owned)
+    );
+}
+
+#[test]
+fn reward_command_opens_next_compacted_queued_card_reward() {
+    let mut run = RunState::map_fixture();
+    run.phase = RunPhase::Reward;
+    let first = CardInstance::new(CardId::new(10_001), sts_core::content::cards::BASH_ID);
+    let second = CardInstance::new(CardId::new(10_002), sts_core::content::cards::STRIKE_R_ID);
+    run.reward = Some(RewardScreen {
+        continuation: sts_core::RewardContinuation::None,
+        choices: Vec::new(),
+        queued_card_rewards: vec![vec![first], vec![second]],
+        gold_offer: 10,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers: Vec::new(),
+        relic_offer: None,
+        pending_relic_offer: None,
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: sts_core::CardRewardFlow::pending(2),
+    });
+
+    // The first queued reward was already opened and consumed from the
+    // compact queue, but the outer reward screen still has two card entries.
+    let label = seed_start_apply_reward_choose(&mut run, "CHOOSE 1")
+        .expect("outer card ordinal selects the corresponding queued reward");
+
+    assert_eq!(label, "card reward");
+    let reward = run.reward.as_ref().expect("reward remains open");
+    assert!(reward.card_reward_is_active());
+    assert_eq!(reward.choices, vec![first]);
+    assert_eq!(reward.queued_card_rewards.len(), 2);
+
+    let closed = apply_run_action(&run, RunAction::CloseCardReward)
+        .expect("closed card reward retains its visible choices");
+    run = closed;
+    seed_start_apply_reward_choose(&mut run, "CHOOSE 2")
+        .expect("queued open replaces stale choices after compaction");
+    let reward = run.reward.as_ref().expect("compacted reward remains open");
+    assert_eq!(reward.choices, vec![second]);
+    assert_eq!(reward.queued_card_rewards.len(), 2);
+
+    let selected = apply_run_action(&run, RunAction::TakeCardReward { card_id: second.id })
+        .expect("selected queued reward is consumed");
+    let reward = selected
+        .reward
+        .as_ref()
+        .expect("remaining reward stays open");
+    assert_eq!(reward.queued_card_rewards, vec![vec![first]]);
+    assert_eq!(reward.remaining_card_reward_count(), 1);
 }
 
 #[test]
@@ -1618,8 +2273,166 @@ fn reward_projection_places_stolen_gold_before_combat_gold() {
     };
 
     assert_eq!(
-        sim_reward_combat_choices(&reward),
+        sim_reward_combat_choices(&RunState::map_fixture(), &reward),
         ["stolen_gold", "gold", "card"].map(str::to_owned)
+    );
+}
+
+#[test]
+fn reward_projection_keeps_black_star_offers_in_screen_order() {
+    let reward = RewardScreen {
+        continuation: sts_core::RewardContinuation::None,
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 27,
+        stolen_gold_offer: 0,
+        potion_offer: Some(sts_core::Potion::Fire),
+        potion_offers: Vec::new(),
+        relic_offer: Some(Relic::ToyOrnithopter),
+        pending_relic_offer: Some(Relic::Vajra),
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: sts_core::CardRewardFlow::pending(1),
+    };
+
+    assert_eq!(
+        sim_reward_combat_choices(&RunState::map_fixture(), &reward),
+        ["gold", "relic", "relic", "potion", "card"].map(str::to_owned)
+    );
+}
+
+#[test]
+fn reward_projection_keeps_matryoshka_chest_offers_in_screen_order() {
+    let mut run = RunState::map_fixture();
+    run.current_room_override = Some(RoomKind::Treasure);
+    let reward = RewardScreen {
+        continuation: sts_core::RewardContinuation::Map,
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 24,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers: Vec::new(),
+        relic_offer: Some(Relic::BottledLightning),
+        pending_relic_offer: Some(Relic::OddlySmoothStone),
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: sts_core::CardRewardFlow::None,
+    };
+
+    assert_eq!(
+        sim_reward_combat_choices(&run, &reward),
+        ["relic", "gold", "relic"].map(str::to_owned)
+    );
+}
+
+#[test]
+fn reward_projection_keeps_single_chest_gold_before_relic() {
+    let mut run = RunState::map_fixture();
+    run.current_room_override = Some(RoomKind::Treasure);
+    let reward = RewardScreen {
+        continuation: sts_core::RewardContinuation::Map,
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 72,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers: Vec::new(),
+        relic_offer: Some(Relic::Orichalcum),
+        pending_relic_offer: None,
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: sts_core::CardRewardFlow::None,
+    };
+
+    assert_eq!(
+        sim_reward_combat_choices(&run, &reward),
+        ["gold", "relic"].map(str::to_owned)
+    );
+}
+
+#[test]
+fn reward_projection_keeps_full_belt_potion_offer_visible() {
+    let mut run = RunState::map_fixture();
+    run.phase = RunPhase::Reward;
+    run.potions = vec![Potion::BlessingOfTheForge, Potion::Dexterity, Potion::Power];
+    run.reward = Some(RewardScreen {
+        continuation: sts_core::RewardContinuation::None,
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 10,
+        stolen_gold_offer: 0,
+        potion_offer: Some(Potion::Fire),
+        potion_offers: Vec::new(),
+        relic_offer: None,
+        pending_relic_offer: None,
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: sts_core::CardRewardFlow::pending(1),
+    });
+
+    assert_eq!(
+        sim_reward_combat_choices(&run, run.reward.as_ref().expect("reward screen")),
+        ["gold", "potion", "card"].map(str::to_owned)
+    );
+    let subset = seed_start_reward_simulated_subset(&run);
+    assert_eq!(subset["choices"], json!(["gold", "potion", "card"]));
+    assert_eq!(subset["reward_types"], json!(["GOLD", "POTION", "CARD"]));
+}
+
+#[test]
+fn random_fidelity_e45_potion_drop_sequence_replays_without_boundary() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-e45fe3dd64059dc2.jsonl")
+    else {
+        return;
+    };
+    let report =
+        verify_seed_start_communication_mod_trace(&content).expect("potion drop trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    let seed_start = report.seed_start.expect("seed-start report");
+    assert!(!seed_start.failed, "unexpected boundary: {seed_start:#?}");
+    assert_eq!(seed_start.first_boundary.category, "none");
+    assert!(report.action_dispositions.iter().any(|entry| {
+        entry.action_step == 120 && entry.disposition == ActionDispositionKind::Verified
+    }));
+    for action_step in [33, 34, 35] {
+        assert!(
+            report.action_dispositions.iter().any(|entry| {
+                entry.action_step == action_step
+                    && entry.disposition == ActionDispositionKind::Verified
+            }),
+            "Smoke Bomb escape/reward settlement step {action_step} must remain verified"
+        );
+    }
+}
+
+#[test]
+fn preexisting_full_belt_potion_reward_remains_visible() {
+    let Some(content) = crate::load_corpus_file(
+        "permanent_traces/trace-2026-06-25T00-44-15-558Z.retained.step548.jsonl",
+    ) else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("full-belt potion reward trace replays");
+
+    assert!(
+        report
+            .unexpected_diffs
+            .iter()
+            .all(|diff| diff.action_step != 158),
+        "step 158 must retain the target's visible potion reward: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 158)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
     );
 }
 
@@ -2204,6 +3017,50 @@ fn trace_replay_parses_unknown_exit_metadata_and_supports_empty_trace() {
 }
 
 #[test]
+fn explicit_trace_replay_exposes_deterministic_snapshots_and_checkpoints() {
+    let Some(content) = crate::load_corpus_file("permanent_traces/trace-session-8.jsonl") else {
+        return;
+    };
+
+    let verified = verify_communication_mod_trace(&content).expect("trace verifies");
+    let replay = replay_communication_mod_trace(&content, None).expect("trace replays");
+    assert_eq!(
+        replay
+            .final_snapshot
+            .as_ref()
+            .map(|snapshot| &snapshot.state),
+        verified
+            .seed_start
+            .as_ref()
+            .and_then(|seed_start| seed_start.sim_run_state.as_ref())
+    );
+    assert!(!replay.checkpoints.is_empty());
+    assert!(replay
+        .checkpoints
+        .iter()
+        .any(|checkpoint| checkpoint.state_hash.is_some()));
+
+    let selected_step = replay
+        .checkpoints
+        .iter()
+        .find(|checkpoint| checkpoint.state_hash.is_some())
+        .expect("replay has a state checkpoint")
+        .action_step;
+    let selected = replay_communication_mod_trace(&content, Some(selected_step))
+        .expect("selected replay succeeds")
+        .selected_checkpoint
+        .expect("selected step has a state");
+    assert_eq!(selected.action_step, selected_step);
+    let serialized = serde_json::to_string(&selected.snapshot).expect("snapshot serializes");
+    let restored = sts_core::restore_run_snapshot_json(&serialized).expect("snapshot restores");
+    assert_eq!(restored, selected.snapshot);
+
+    let repeated = replay_communication_mod_trace(&content, None).expect("replay repeats");
+    assert_eq!(replay.checkpoints, repeated.checkpoints);
+    assert_eq!(replay.final_snapshot, repeated.final_snapshot);
+}
+
+#[test]
 fn unknown_trace_record_is_invalid_input_instead_of_disappearing() {
     let content = r#"{"type":"metadata","schema":1,"source":"communication_mod"}
 {"type":"exit","ended_at":"now"}"#;
@@ -2745,6 +3602,265 @@ fn observed_grid_destination_cannot_steer_projection() {
 }
 
 #[test]
+fn end_turn_reconciles_a_captured_card_reward_frame_before_resolution() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-599f7cd81ae66c46.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("captured end-turn card reward frame verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+}
+
+#[test]
+fn combat_hand_order_source_settlement_accepts_captured_endpoint() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-c3199c4dd4ffd0ff.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("combat hand-order settlement trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+}
+
+#[test]
+fn source_hand_order_settlement_binds_the_following_play_by_observed_slot() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-7e93e8670a459612.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("source hand-order follow-up trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 57
+            && transition.command == "PLAY 3"
+            && transition.label == "Defend"
+    }));
+}
+
+#[test]
+fn random_fidelity_68c54240_defend_slot_uses_captured_hand_order() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-68c54240e41ce245.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("68c54240 fidelity regression trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 139
+            && transition.command == "PLAY 3 0"
+            && transition.label == "Strike"
+    }));
+}
+
+#[test]
+fn end_turn_reconciles_a_short_source_appended_discard_frame() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-c07d0eb5fa699d29.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("short end-turn discard settlement trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+}
+
+#[test]
+fn smith_source_projection_preserves_bottled_flame_for_the_next_combat() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-911672c13a04d363.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Smith and bottled opening trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+}
+
+#[test]
+fn event_grid_source_settlement_accepts_the_captured_event_frame() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-4251e4da40015ef4.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("event grid settlement trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+}
+
+#[test]
+fn distilled_chaos_accepts_a_source_settlement_frame_with_delayed_monster_hp() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-8c45b99d2c2a473d.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Distilled Chaos settlement trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+}
+
+#[test]
+fn combat_entry_reconciles_when_source_card_reward_settles_the_initial_hand() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-af6462493d32f815.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("combat entry card reward settlement trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action integrity")
+            .unresolved_transient_assertions,
+        0
+    );
+}
+
+#[test]
+fn shop_entry_source_inventory_refresh_requires_one_card_and_seventy_five_gold() {
+    let observed = json!({
+        "screen_type": "SHOP_ROOM",
+        "floor": 11,
+        "gold": 204,
+        "current_hp": 100,
+        "max_hp": 100,
+        "deck_ids": ["Strike_R", "Defend_R", "Bash"],
+        "relic_ids": ["Burning Blood"],
+        "choices": ["shop"],
+    });
+    let simulated = json!({
+        "screen_type": "SHOP_ROOM",
+        "floor": 11,
+        "gold": 279,
+        "current_hp": 100,
+        "max_hp": 100,
+        "deck_ids": ["Strike_R", "Defend_R", "Defend_R", "Bash"],
+        "relic_ids": ["Burning Blood"],
+        "choices": ["shop"],
+    });
+    assert!(replay::seed_start_shop_source_inventory_refresh_frame(
+        &observed, &simulated
+    ));
+
+    let mut wrong_gold = observed.clone();
+    wrong_gold["gold"] = json!(203);
+    assert!(!replay::seed_start_shop_source_inventory_refresh_frame(
+        &wrong_gold,
+        &simulated
+    ));
+}
+
+#[test]
 fn observed_shop_post_screen_cannot_choose_purchase_destination() {
     let path = crate::corpus_path("permanent_traces/trace-2026-06-21T09-57-10-380Z.jsonl");
     let content = std::fs::read_to_string(path).expect("retained trace");
@@ -3190,6 +4306,34 @@ fn neow_proceed_discards_unclaimed_tiny_house_overlay_rewards() {
 }
 
 #[test]
+fn tiny_house_parent_reward_skip_discards_unclaimed_offers() {
+    let Some(content) = crate::load_corpus_file(
+        "fidelity_regressions/random-fidelity-200c4c2257bb6033-tiny-house-parent-skip.jsonl",
+    ) else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("captured Tiny House parent reward SKIP trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 9
+            && transition.command == "SKIP"
+            && transition.label == "skip Tiny House reward overlay to event"
+    }));
+}
+
+#[test]
 fn evolve_does_not_draw_for_shame_curse() {
     let path = crate::corpus_path("permanent_traces/random-fidelity-a13717f0e4c2dd25.jsonl");
     let content = std::fs::read_to_string(path).expect("Evolve curse trace");
@@ -3424,15 +4568,25 @@ fn tiny_house_overlay_uses_authoritative_pre_pick_state() {
         .as_ref()
         .expect("seed-start report")
         .first_boundary;
-    assert_eq!(boundary.path, "$.actions[step=418].command");
-    assert_eq!(boundary.category, "unreconciled_boss_relic_overlay_frame");
+    assert_eq!(boundary.category, "none");
+    let pick = report
+        .action_dispositions
+        .iter()
+        .find(|entry| entry.action_step == 418 && entry.command == "CHOOSE 2")
+        .expect("Tiny House pick disposition");
+    assert_eq!(pick.disposition, ActionDispositionKind::Verified);
+    assert!(pick.deferred_assertion_reconciled);
+    assert!(report.verified.iter().any(|entry| {
+        entry.action_step == 418
+            && entry.label == "boss relic reward reconciled at captured Tiny House deck overlay"
+    }));
     assert_eq!(
         report
             .action_integrity
             .as_ref()
             .expect("action integrity")
             .unresolved_transient_assertions,
-        1
+        0
     );
 }
 
@@ -3522,7 +4676,7 @@ fn dramatic_entrance_maps_from_observed_card_json() {
 
 #[test]
 fn colorless_reward_cards_map_from_observed_card_json() {
-    use sts_core::content::cards::{DARK_SHACKLES_ID, DISCOVERY_ID};
+    use sts_core::content::cards::{DARK_SHACKLES_ID, DISCOVERY_ID, SECRET_WEAPON_ID};
 
     for (id, expected, key) in [
         (
@@ -3532,6 +4686,7 @@ fn colorless_reward_cards_map_from_observed_card_json() {
         ),
         ("Dark Shackles", DARK_SHACKLES_ID, "Dark Shackles"),
         ("Discovery", DISCOVERY_ID, "Discovery"),
+        ("Secret Weapon", SECRET_WEAPON_ID, "Secret Weapon"),
     ] {
         let card = json!({"id": id, "name": id, "upgrades": 0});
 
@@ -4066,6 +5221,27 @@ fn large_acid_slime_debuff_observed_intent_imports_two_weak() {
 }
 
 #[test]
+fn champ_debuff_observed_intent_imports_weak_and_vulnerable() {
+    use sts_core::content::monsters::CHAMP_ID;
+
+    let monster = json!({
+        "id": "Champ",
+        "intent": "DEBUFF",
+        "move_id": 6,
+        "move_base_damage": -1
+    });
+
+    assert_eq!(
+        observed_intent(&monster, CHAMP_ID, 0),
+        MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+            frail: 0,
+            weak: 2,
+            vulnerable: 2,
+        }
+    );
+}
+
+#[test]
 fn medium_spike_slime_debuff_observed_intent_imports_frail() {
     use sts_core::content::monsters::SPIKE_SLIME_ID;
 
@@ -4147,8 +5323,63 @@ fn observed_event_screen_imports_lab() {
 }
 
 #[test]
+fn mind_bloom_rich_permanent_trace_preserves_normality_settlement_frame() {
+    let content = std::fs::read_to_string(crate::corpus_path(
+        "permanent_traces/random-fidelity-350adbf8276a3c06.jsonl",
+    ))
+    .expect("Mind Bloom permanent trace");
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 1384 && transition.label == "event choice"
+    }));
+}
+
+#[test]
+fn random_fidelity_addict_obtain_may_end_on_the_source_transient_deck_frame() {
+    let content = std::fs::read_to_string(crate::corpus_path(
+        "permanent_traces/random-fidelity-3e3e39b3e8607252.jsonl",
+    ))
+    .expect("Addict permanent trace");
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "the captured Addict transient is source-valid: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action-integrity report")
+            .unresolved_transient_assertions,
+        0,
+        "the pending Shame obtain is represented by the typed event state: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 327)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
 fn grid_trace_choice_label_does_not_preview_upgrade_existing_cards() {
-    use sts_core::content::cards::{RITUAL_DAGGER_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID};
+    use sts_core::content::cards::{
+        RITUAL_DAGGER_ID, SEARING_BLOW_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID,
+    };
 
     let mut run = RunState::map_fixture();
     run.gain_relic_key(RelicKey::ToxicEgg)
@@ -4167,6 +5398,12 @@ fn grid_trace_choice_label_does_not_preview_upgrade_existing_cards() {
     assert_eq!(
         grid_trace_choice_label(&run, &ritual_dagger),
         "ritual dagger+"
+    );
+    let mut searing_blow = CardInstance::new(CardId::new(4), SEARING_BLOW_PLUS_ID);
+    searing_blow.searing_blow_upgrades = 1;
+    assert_eq!(
+        grid_trace_choice_label(&run, &searing_blow),
+        "searing blow+1"
     );
 }
 
@@ -4310,6 +5547,122 @@ fn observed_map_return_cannot_verify_itself() {
 }
 
 #[test]
+fn map_phase_dispatches_noncombat_potion_use_without_treating_it_as_a_node_choice() {
+    let mut run = RunState::map_fixture();
+    run.phase = RunPhase::Idle;
+    run.potions = vec![Potion::FruitJuice];
+    run.empty_potion_slots = vec![1, 2];
+    let expected = apply_run_action(
+        &run,
+        RunAction::UsePotion {
+            slot: 0,
+            target: None,
+        },
+    )
+    .expect("Fruit Juice is usable from the map");
+    let projection = seed_start_simulated_map_return(&expected).expect("map projection");
+    let relics = projection["relic_ids"]
+        .as_array()
+        .expect("projected relic ids")
+        .iter()
+        .map(|id| json!({ "id": id }))
+        .collect::<Vec<_>>();
+    let potions = expected
+        .potions
+        .iter()
+        .map(|potion| json!({ "id": potion_trace_name(*potion) }))
+        .collect::<Vec<_>>();
+    let pre = TraceState {
+        step: 1,
+        received_at: None,
+        message: json!({ "game_state": { "screen_type": "MAP" } }),
+    };
+    let action = TraceAction {
+        step: 2,
+        command: "POTION USE 0".to_owned(),
+        sent_at: None,
+        playtime_seconds: None,
+    };
+    let post = TraceState {
+        step: 2,
+        received_at: None,
+        message: json!({
+            "game_state": {
+                "screen_type": projection["screen_type"],
+                "floor": projection["floor"],
+                "gold": projection["gold"],
+                "current_hp": projection["current_hp"],
+                "max_hp": projection["max_hp"],
+                "deck": observed_deck_cards(&expected.deck),
+                "relics": relics,
+                "potions": potions,
+                "choice_list": projection["choices"],
+                "screen_state": {
+                    "first_node_chosen": projection["first_node_chosen"],
+                    "current_node": projection["current_node"],
+                    "next_nodes": projection["next_nodes"],
+                },
+            }
+        }),
+    };
+    let start = StartRunCommand {
+        action_step: 0,
+        character: "IRONCLAD".to_owned(),
+        ascension: 0,
+        external_seed: "TEST".to_owned(),
+        numeric_seed: 0,
+        verification_starting_hp: None,
+    };
+    let mut pending_curse = None;
+    let mut pending_curse_rng = false;
+    let mut map_path = Vec::new();
+    let mut event_index = 0;
+    let mut combat_index = 0;
+    let mut seed_sim = Some(run);
+    let mut pending_combat = None;
+    let mut phase = SeedStartPhase::Map;
+    let mut smoke_bomb_ui = None;
+    let mut report = SimRealReport {
+        total_actions: 1,
+        ignored_tail_actions: 0,
+        action_dispositions: Vec::new(),
+        action_integrity: None,
+        verified: Vec::new(),
+        unsupported: Vec::new(),
+        unexpected_diffs: Vec::new(),
+        seed_start: None,
+    };
+
+    let disposition = replay::seed_start_handle_map_phase(
+        &pre,
+        &action,
+        &post,
+        &start,
+        BossUnlockState::default(),
+        &mut pending_curse,
+        &mut pending_curse_rng,
+        &mut map_path,
+        &mut event_index,
+        &mut combat_index,
+        &mut seed_sim,
+        &mut smoke_bomb_ui,
+        &mut pending_combat,
+        &mut phase,
+        &mut report,
+    );
+
+    assert!(matches!(disposition, replay::SeedStartPreDispatch::Handled));
+    assert_eq!(seed_sim, Some(expected));
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 2
+            && transition.command == "POTION USE 0"
+            && transition.label == "map potion use"
+    }));
+}
+
+#[test]
 fn seed_start_map_return_rejects_missing_core_map_authority() {
     let mut run = RunState::map_fixture();
     run.map = None;
@@ -4399,6 +5752,91 @@ fn seed_start_event_choice_labels_strip_effect_parentheticals() {
 }
 
 #[test]
+fn designer_punch_choice_uses_communication_mod_label() {
+    assert_eq!(
+        seed_start_visible_event_choice_label_for_event(Event::Designer, 1, "Get punched (12 HP)"),
+        Some("punch".to_owned())
+    );
+}
+
+#[test]
+fn upgrade_shrine_leave_projects_the_source_event_settlement_frame() {
+    let mut source = RunState::seeded_ironclad(1, 0);
+    source.phase = RunPhase::Event;
+    source.event = Some(EventScreen {
+        event: Event::UpgradeShrine,
+        choices: vec![
+            EventChoice {
+                label: "Pray".to_owned(),
+            },
+            EventChoice {
+                label: "Leave".to_owned(),
+            },
+        ],
+        stage: 0,
+        event_data: 0,
+    });
+    let settled = apply_event_action(&source, EventAction::Choose { choice_index: 1 })
+        .expect("Upgrade Shrine Leave returns to the map phase");
+    let transient = replay::seed_start_upgrade_shrine_leave_transient(&source, &settled)
+        .expect("Upgrade Shrine has a source settlement frame");
+
+    assert_eq!(settled.phase, RunPhase::Idle);
+    assert!(settled.event.is_none());
+    assert_eq!(transient.phase, RunPhase::Event);
+    assert_eq!(
+        seed_start_event_simulated_subset(&transient)["choices"],
+        json!(["leave"])
+    );
+    assert_eq!(
+        seed_start_event_simulated_subset(&transient)["screen_type"],
+        json!("EVENT")
+    );
+}
+
+#[test]
+fn random_fidelity_upgrade_shrine_leave_transient_endpoint_replays() {
+    for trace_name in [
+        "permanent_traces/random-fidelity-4071b226e326d68f.jsonl",
+        "permanent_traces/random-fidelity-f90b4d20ff89e9ff.jsonl",
+    ] {
+        let Some(content) = crate::load_corpus_file(trace_name) else {
+            continue;
+        };
+        let report = verify_seed_start_communication_mod_trace(&content)
+            .expect("Upgrade Shrine transient endpoint trace verifies");
+
+        assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+        assert!(report.unsupported.is_empty(), "{report:#?}");
+        assert_eq!(
+            report
+                .seed_start
+                .as_ref()
+                .expect("seed-start report")
+                .first_boundary
+                .category,
+            "none",
+            "{trace_name}: {report:#?}"
+        );
+        assert_eq!(
+            report
+                .action_integrity
+                .as_ref()
+                .expect("action integrity")
+                .unresolved_transient_assertions,
+            0,
+            "{trace_name}: {report:#?}"
+        );
+        assert!(
+            report.verified.iter().any(|entry| {
+                entry.label == "Upgrade Shrine leave reconciled at captured transient endpoint"
+            }),
+            "{trace_name}: {report:#?}"
+        );
+    }
+}
+
+#[test]
 fn seed_start_mushrooms_event_uses_communication_mod_identity_and_labels() {
     let mut run = RunState::seeded_ironclad(1, 0);
     run.current_floor = 8;
@@ -4409,6 +5847,32 @@ fn seed_start_mushrooms_event_uses_communication_mod_identity_and_labels() {
 
     assert_eq!(subset["event_id"], "mushrooms");
     assert_eq!(subset["choices"], json!(["stomp", "eat"]));
+}
+
+#[test]
+fn seed_start_colosseum_uses_communication_mod_outcome_choice_ids() {
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.current_act = 2;
+    run.current_floor = 30;
+    run.phase = RunPhase::Event;
+    run.event = Some(EventScreen {
+        event: Event::Colosseum,
+        choices: vec![
+            EventChoice {
+                label: "Flee".to_owned(),
+            },
+            EventChoice {
+                label: "Fight Nobs".to_owned(),
+            },
+        ],
+        stage: 2,
+        event_data: 0,
+    });
+
+    let subset = seed_start_event_simulated_subset(&run);
+
+    assert_eq!(subset["event_id"], "colosseum");
+    assert_eq!(subset["choices"], json!(["cowardice", "victory"]));
 }
 
 #[test]
@@ -5154,6 +6618,7 @@ fn simulated_combat_screen_type_comes_from_typed_decision_state() {
             source_card: None,
             selected_hand_indices: Vec::new(),
             pending_actions: VecDeque::new(),
+            interrupted_by_cultist_potion: false,
         },
     });
     assert_eq!(
@@ -5168,6 +6633,7 @@ fn simulated_combat_screen_type_comes_from_typed_decision_state() {
         state: DrawSelectState {
             purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
             source_card_id,
+            selectable_card_ids: Vec::new(),
             selected_draw_index: None,
         },
     });
@@ -5215,6 +6681,7 @@ fn simulated_combat_screen_type_comes_from_typed_decision_state() {
             state: DrawSelectState {
                 purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
                 source_card_id,
+                selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
             },
         });
@@ -5359,6 +6826,34 @@ fn seed_start_shop_choice_labels_apply_egg_preview_upgrades() {
 
     assert_eq!(shop_card_display_key(&run, WARCRY_ID), "Warcry+");
     assert_eq!(shop_card_display_key(&run, PANACEA_ID), "Panacea+");
+}
+
+#[test]
+fn shop_room_fruit_juice_use_replays_from_seed_start() {
+    let Some(content) = crate::load_corpus_file(
+        "fidelity_regressions/random-fidelity-d7a5a5c4225dba29-shop-room-fruit-juice.jsonl",
+    ) else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("captured shop-room Fruit Juice trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 106
+            && transition.command == "POTION USE 0"
+            && transition.label == "shop room potion use"
+    }));
 }
 
 #[test]
@@ -5625,7 +7120,7 @@ fn seed_start_neow_rare_relic_trace_branch_reaches_leave() {
             "choice_list": seed_start_first_map_choices("TEST")
         }}}),
     ];
-    let content = serialize_trace_test_lines(lines);
+    let content = serialize_trace_test_lines(lines.clone());
 
     let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
 
@@ -6059,7 +7554,10 @@ fn event_projection_defers_simulator_owned_pending_obtain_cards() {
         protected_deck,
         "settled projection must apply core card-obtain prevention"
     );
-    assert_eq!(protected.omamori_charges_used, 0, "projection is read-only");
+    assert_eq!(
+        protected.omamori_charges_used, 1,
+        "Omamori is consumed when the pending obtain is queued; projection remains read-only"
+    );
 
     assert_eq!(
         classify_deferred_deck_observation(
@@ -6104,6 +7602,17 @@ fn event_projection_defers_simulator_owned_pending_obtain_cards() {
         ),
         PendingDeckObservation::Diverged(diffs) if !diffs.is_empty()
     ));
+
+    let alternate_settled = ["Strike".to_owned(), "Pain".to_owned(), "Regret".to_owned()];
+    assert_eq!(
+        classify_deferred_deck_reconciliation_with_alternative(
+            &alternate_settled,
+            &transient,
+            &settled,
+            Some(&alternate_settled),
+        ),
+        PendingDeckObservation::Settled
+    );
 }
 
 #[test]
@@ -6126,6 +7635,76 @@ fn seed_start_vampires_projection_delays_bites_until_leave() {
         .iter()
         .any(|card| { card.as_str().is_some_and(|name| name.starts_with("Strike")) }));
     assert!(!deck.iter().any(|card| card == "Bite"));
+}
+
+#[test]
+fn seed_start_vampires_projection_reconciles_settled_and_transient_frames() {
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.current_act = 2;
+    run.current_floor = 31;
+    run.phase = RunPhase::Event;
+    run.event = Some(event_screen(Event::Vampires));
+    let accepted = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+        .expect("Vampires accept applies");
+    let settled = seed_start_event_simulated_subset(&accepted);
+    let transient = seed_start_event_simulated_subset_with_delayed_deck_append(
+        &accepted,
+        Some(VAMPIRES_BITE_COUNT),
+    );
+
+    assert_eq!(
+        seed_start_event_simulated_subset_for_observation(
+            &accepted,
+            &settled,
+            Some(VAMPIRES_BITE_COUNT),
+        ),
+        settled
+    );
+    assert_eq!(
+        seed_start_event_simulated_subset_for_observation(
+            &accepted,
+            &transient,
+            Some(VAMPIRES_BITE_COUNT),
+        ),
+        transient
+    );
+}
+
+#[test]
+fn seed_start_mind_bloom_healthy_projection_delays_doubt_and_darkstone_hp() {
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.current_floor = 41;
+    run.phase = RunPhase::Event;
+    run.relics.push(Relic::DarkstonePeriapt);
+    run.event = Some(event_screen(Event::MindBloom));
+
+    let accepted = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
+        .expect("Mind Bloom Healthy choice applies");
+    assert_eq!((accepted.player_hp, accepted.player_max_hp), (86, 86));
+
+    let settled = seed_start_event_simulated_subset(&accepted);
+    let transient = seed_start_event_simulated_subset_with_delayed_deck_append_and_hp_gain(
+        &accepted,
+        1,
+        Some(sts_core::relic::DARKSTONE_PERIAPT_MAX_HP),
+    );
+    assert_eq!(transient["current_hp"], 80);
+    assert_eq!(transient["max_hp"], 80);
+    assert!(!transient["deck_ids"]
+        .as_array()
+        .expect("projected deck")
+        .iter()
+        .any(|card| card == "Doubt"));
+    assert_eq!(
+        seed_start_event_simulated_subset_for_observation_with_delayed_hp_gain(
+            &accepted,
+            &transient,
+            Some(1),
+            Some(sts_core::relic::DARKSTONE_PERIAPT_MAX_HP),
+        ),
+        transient
+    );
+    assert_ne!(settled, transient);
 }
 
 #[test]
@@ -6535,8 +8114,8 @@ fn seed_start_boss_swap_astrolabe_grid_transforms_three_selected_cards() {
     let after_first = select_grid_card(&astrolabe_run, 0).expect("select first");
     let after_second = select_grid_card(&after_first, 1).expect("select second");
     let after_third = select_grid_card(&after_second, 2).expect("select third");
-    let after_confirm = confirm_grid(&after_third).expect("confirm Astrolabe transforms");
-    let transformed_deck: Vec<_> = deck_content_keys(&after_confirm.deck)
+    assert!(after_third.card_grid.is_none());
+    let transformed_deck: Vec<_> = deck_content_keys(&after_third.deck)
         .into_iter()
         .map(|id| json!({ "id": id }))
         .collect();
@@ -7519,11 +9098,13 @@ fn seed_start_neow_curse_transform_two_rejects_forged_map_after_second_pick() {
     let after_second_select =
         select_grid_card(&after_first_select, 1).expect("select second and transform");
     let after_confirm = confirm_grid(&after_second_select).expect("confirm transform two");
-    let grid_deck: Vec<_> = deck_content_keys(&initial_run.deck)
+    let curse_key = seed_start_neow_curse_deck_key(numeric_seed, 0).expect("generated curse key");
+    let mut grid_deck_ids = deck_content_keys(&initial_run.deck);
+    grid_deck_ids.push(curse_key.clone());
+    let grid_deck: Vec<_> = grid_deck_ids
         .into_iter()
         .map(|id| json!({ "id": id }))
         .collect();
-    let curse_key = seed_start_neow_curse_deck_key(numeric_seed, 0).expect("generated curse key");
     let mut first_select_deck = deck_content_keys(&initial_run.deck);
     first_select_deck.push(curse_key.clone());
     let first_select_deck: Vec<_> = first_select_deck
@@ -9337,4 +10918,495 @@ fn test_seed_string_from_long(mut seed: i64) -> String {
         seed /= 35;
     }
     out.iter().rev().collect()
+}
+
+#[test]
+fn random_fidelity_gremlin_leader_rally_preserves_monster_group_order() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-e5f5126b26961e8a.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Gremlin Leader rally ordering trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 610)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn random_fidelity_havoc_burning_pact_defers_selected_card_settlement() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-6bb06bc1b46cc683.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Havoc top-draw Burning Pact trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 52)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+    assert_eq!(
+        report
+            .action_integrity
+            .as_ref()
+            .expect("action-integrity report")
+            .unresolved_transient_assertions,
+        0
+    );
+}
+
+#[test]
+fn random_fidelity_thunderclap_discard_ordering_after_burning_pact() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-47d58a2e70711da8.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Thunderclap discard-ordering trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 205)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn random_fidelity_burning_pact_small_hand_transient_is_source_derived() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-1798668c9838293e.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("small-hand Burning Pact trace replays");
+
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 123)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "the deferred selection frame must be accepted from the typed core state: {report:#?}"
+    );
+    assert_ne!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .path,
+        "$.actions[step=123].command",
+        "the old Burning Pact boundary must be gone: {report:#?}"
+    );
+}
+
+#[test]
+fn random_fidelity_burning_pact_draw_order_corpus_replays_past_boundary() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-92e742c9f2c8470c.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("broad-corpus Burning Pact trace replays");
+
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 175)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "the draw/hand ordering boundary must be gone: {report:#?}"
+    );
+}
+
+#[test]
+fn random_fidelity_burning_pact_hidden_selection_preserves_end_turn_draw_order() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-9667b7fd8ff939a8.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("hidden-selection Burning Pact trace replays");
+
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 181)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "the END after the hidden Burning Pact selection must verify: {report:#?}"
+    );
+    assert_ne!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .path,
+        "$.actions[step=181].command",
+        "the hidden selected card must not be reinserted before the end-turn draw: {report:#?}"
+    );
+}
+
+#[test]
+fn random_fidelity_burning_pact_normal_hand_selection_can_settle_deferred() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-bb2cf06ce5dff840.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("normal-hand Burning Pact settlement trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 749)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+    assert_eq!(
+        report
+            .verified
+            .iter()
+            .find(|entry| entry.action_step == 749)
+            .map(|entry| entry.label.as_str()),
+        Some("Burning Pact deferred selection transient")
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 751)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn random_fidelity_havoc_headbutt_returns_source_to_draw() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-f99c08d43d7c329e.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Havoc/Headbutt permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 703)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "Havoc must settle before the forced top-card Headbutt resolves: {report:#?}"
+    );
+}
+
+#[test]
+fn random_fidelity_havoc_empty_draw_shuffles_without_source() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-9c74b1b3157af014.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("empty-draw Havoc permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "the empty-draw Havoc boundary must be gone: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 5149)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn random_fidelity_burning_pact_exhausts_before_crossing_deck_boundary() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-b9c0db157d03167f.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Burning Pact discard-ordering trace replays");
+
+    let boundary = &report
+        .seed_start
+        .as_ref()
+        .expect("seed-start report")
+        .first_boundary;
+    assert_ne!(
+        boundary.path, "$.actions[step=335].command",
+        "the old discard-ordering boundary must be gone: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 335)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "step 335 must verify after Burning Pact exhausts its selection"
+    );
+}
+
+#[test]
+fn random_fidelity_burning_pact_keeps_visible_normal_selection_in_exhaust() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-44f7dfd426e439c6.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("normal-hand Burning Pact trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 225)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn random_fidelity_burning_pact_end_turn_draw_ordering_after_deferred_selection() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-2e1bd52d86404d3b.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("deferred Burning Pact end-turn trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    let seed_start = report.seed_start.as_ref().expect("seed-start report");
+    assert!(!seed_start.failed, "{report:#?}");
+    assert_eq!(seed_start.first_boundary.category, "none", "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 301)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "the deferred selected card must not re-enter the end-turn shuffle: {report:#?}"
+    );
+}
+
+#[test]
+fn random_fidelity_champ_taunt_preserves_frail_for_following_defend() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-520f091a7b46a976.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Champ Taunt permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 574)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
+#[test]
+fn random_fidelity_collector_rolls_fireball_after_opening_summon() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-2273d66230c5560b.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Collector intent permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 906)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "the Collector must select Fireball after its opening summon: {report:#?}"
+    );
+}
+
+#[test]
+fn random_fidelity_lethal_monster_hit_cancels_following_thorns() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-86059d43fea814c1.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("lethal end-turn Thorns permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 1087)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "the lethal Centurion hit must prevent Mystic's queued Thorns damage"
+    );
+}
+
+#[test]
+fn random_fidelity_legacy_trace_uses_profile_note_card_for_event_grid() {
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-f6b5080af3ce19fd.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("legacy Note For Yourself trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
 }

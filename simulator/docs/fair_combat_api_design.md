@@ -1,6 +1,6 @@
 # Fair Combat API Design
 
-Status: implementation contract for the first fair combat API slice.
+Status: implementation contract for fair combat and run-screen APIs.
 Last updated: 2026-07-23.
 
 This document narrows the active work that precedes combat RL. It covers the
@@ -18,17 +18,19 @@ leakage-proof public representation of the same legal choices.
    public, stable way to describe what the player can select.
 2. `FairCombatObservation` and `PlayerChoice` are symbolic Rust data. Tensor
    extraction belongs outside simulator mechanics and is deliberately deferred.
-3. The Python package is `sts_sim`, with a fair decision API and explicitly
-   privileged omniscient/debug APIs. Its compiled implementation is private
-   `_native`; do not create a separate `sts_fair` crate.
-4. The first implementation is combat-only. Full-run screens are a later slice.
+3. The Python package is `sts_sim`, with one state-owning `RunEnv`, one public
+   `Action` type, and explicit fair/full/snapshot state projections. Its
+   compiled implementation is private `_native`; do not create a separate
+   `sts_fair` crate or a second fair environment.
+4. Combat remains the detailed V1 projection; run-level screens use the
+   screen-tagged `Observation` envelope and the same public `Action` boundary.
 5. Belief and particle planning are deferred. The same fair boundary will be
    reused when a singleton privileged search root is replaced by a belief over
    hidden roots.
 
 ## Public Decision Contract
 
-The public boundary is a single atomic decision:
+The legacy combat-only boundary remains available for compatibility:
 
 ```text
 FairDecision
@@ -190,17 +192,26 @@ authoritative Rust combat API so they can be tested without Python. They must
 not introduce tensor or training dependencies into `sts_core`.
 
 The public Python package is named `sts_sim`. Its compiled implementation is a
-private `_native` extension, while typed Python objects expose the fair decision
-API. Privileged objects remain visibly named as `OmniCombatEnv` and
-`OmniRunEnv`. Fair Python objects must not offer snapshot, restore, raw state
-JSON, hashes, RNG details, or debug logs.
+private `_native` extension. `RunEnv` owns one authoritative run and exposes one
+legal `Action` list and one `step()` method. Fairness is enforced at the
+observation/model boundary: `observation()` returns only the symbolic fair
+projection, while `full_state()` and `snapshot()` are explicitly privileged
+research and persistence queries. Policy and tensor code receives the fair
+observation or `Decision`, never the state-owning environment.
+
+The run-level projection follows the active decision screen (`combat`, `map`,
+`event`, `reward`, `treasure`, `rest`, `shop`, `grid`, or `complete`). It is
+assembled atomically with public decision-local action slots. Raw map/card
+instance IDs and pre-rolled future outcomes remain private.
+
+The compatibility `Omni*`, `Exact*`, and `FairCombatEnv` bindings are not the
+target public architecture. See `design_unified_python_run_environment.md`.
 
 ## Deferred Work
 
 - PyTorch observation and action tensor schemas, vocabularies, padding, and
   normalization;
 - public-history/recurrent input contract beyond the V1 extension point;
-- full-run observations and choices;
 - particle beliefs, POMCP, or latent dynamics;
 - adversarial statistical leak probes beyond the first deterministic and
   property-test suite.

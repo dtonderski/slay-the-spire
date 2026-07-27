@@ -42,10 +42,39 @@ pub(super) fn await_draw_select(
     source_card_id: CardId,
     purpose: DrawSelectPurpose,
 ) -> SimResult<Vec<crate::action::InternalAction>> {
+    let mut selectable_card_ids = Vec::new();
+    for card in &state.piles.draw_pile {
+        let selectable = match purpose {
+            DrawSelectPurpose::SecretTechniqueSkillToHand => {
+                crate::content::cards::get_card_definition(card.content_id)
+                    .is_some_and(|definition| definition.card_type == crate::card::CardType::Skill)
+            }
+            DrawSelectPurpose::SecretWeaponAttackToHand => {
+                crate::content::cards::get_card_definition(card.content_id)
+                    .is_some_and(|definition| definition.card_type == crate::card::CardType::Attack)
+            }
+        };
+        if !selectable {
+            continue;
+        }
+        if selectable_card_ids.is_empty() {
+            selectable_card_ids.push(card.id);
+        } else {
+            // CardGroup::addToRandomSpot chooses an inclusive insertion slot
+            // from the already-built temporary group.
+            let index = state
+                .rng
+                .card_random_rng
+                .random_int((selectable_card_ids.len() - 1) as i32)
+                as usize;
+            selectable_card_ids.insert(index, card.id);
+        }
+    }
     state.decision = Some(CombatDecisionState::DrawSelect {
         state: crate::combat::DrawSelectState {
             purpose,
             source_card_id,
+            selectable_card_ids,
             selected_draw_index: None,
         },
     });
@@ -78,6 +107,9 @@ pub(super) fn await_discard_select(
             .iter()
             .any(|card| card.id == source_card_id)
         {
+            // A Headbutt played by Havoc is already in exhaust when its
+            // discard selection opens. Its identity is retained separately
+            // below so confirmation can preserve the forced-play settlement.
             None
         } else {
             return Err(SimError::IllegalAction(
@@ -108,7 +140,7 @@ pub(super) fn await_discard_select(
         state.decision = Some(CombatDecisionState::DiscardSelect {
             state: crate::combat::DiscardSelectState {
                 purpose,
-                source_card_id: source_card.map(|_| source_card_id),
+                source_card_id: Some(source_card_id),
                 source_card,
                 selected_discard_indices: Vec::new(),
                 max_choices: 1,
@@ -121,6 +153,36 @@ pub(super) fn await_discard_select(
         state: crate::combat::DiscardSelectState {
             purpose,
             source_card_id: Some(source_card_id),
+            source_card: None,
+            selected_discard_indices: Vec::new(),
+            max_choices: 1,
+            selected_discard_index: None,
+        },
+    });
+    Ok(Vec::new())
+}
+
+pub(super) fn await_copied_discard_select(
+    state: &mut CombatState,
+    purpose: DiscardSelectPurpose,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    if purpose != DiscardSelectPurpose::HeadbuttPutOnDraw {
+        return Err(SimError::IllegalAction(
+            "copied discard select purpose is unsupported",
+        ));
+    }
+    if state.monsters.iter().all(|monster| !monster.alive) || state.piles.discard_pile.is_empty() {
+        return Ok(Vec::new());
+    }
+    if state.piles.discard_pile.len() == 1 {
+        let card = state.piles.discard_pile.remove(0);
+        state.piles.draw_pile.push(card);
+        return Ok(Vec::new());
+    }
+    state.decision = Some(CombatDecisionState::DiscardSelect {
+        state: crate::combat::DiscardSelectState {
+            purpose,
+            source_card_id: None,
             source_card: None,
             selected_discard_indices: Vec::new(),
             max_choices: 1,
@@ -179,6 +241,7 @@ pub(super) fn await_exhaust_select(
             source_card_id: Some(source_card_id),
             source_card,
             selected_hand_indices: Vec::new(),
+            interrupted_by_cultist_potion: false,
             pending_actions: VecDeque::new(),
         },
     });

@@ -15,7 +15,7 @@ pub use minimize::{
     MinimizeFailureKind, MinimizeReport,
 };
 pub use outcome::{
-    assess_verification, RetainedPrefixEndpoint, VerificationCorpusEntry,
+    assess_verification, ExpectedBoundary, RetainedPrefixEndpoint, VerificationCorpusEntry,
     VerificationCorpusManifest, VerificationExpectation, VerificationFailure,
     VerificationIntegrity, VerificationOutcome, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
@@ -24,9 +24,11 @@ pub use seed::{
     STS_SEED_ALPHABET,
 };
 pub use sim_real::{
-    verify_communication_mod_trace, verify_seed_start_communication_mod_trace, ActionDisposition,
-    ActionDispositionKind, SeedStartBoundary, SeedStartReport, SimRealError, SimRealReport,
-    StartRunCommand, UnexpectedDiff, UnsupportedTransition, VerifiedTransition,
+    replay_communication_mod_trace, verify_communication_mod_trace,
+    verify_seed_start_communication_mod_trace, ActionDisposition, ActionDispositionKind,
+    ReplayCheckpoint, ReplayCheckpointState, ReplayResult, SeedStartBoundary, SeedStartReport,
+    SimRealError, SimRealReport, StartRunCommand, UnexpectedDiff, UnsupportedTransition,
+    VerifiedTransition, REPLAY_ARTIFACT_SCHEMA,
 };
 pub use slaythedata::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,
@@ -44,7 +46,7 @@ pub use slaythedata::{
 };
 pub use trace::{
     import_communication_mod_trace, parse_trace_jsonl, CommunicationModTrace, ManualFixture,
-    TraceAction, TraceError, TraceLine, TraceMetadata, TraceState,
+    TraceAction, TraceError, TraceLine, TraceMetadata, TraceProfile, TraceRunConfig, TraceState,
 };
 
 use std::path::{Path, PathBuf};

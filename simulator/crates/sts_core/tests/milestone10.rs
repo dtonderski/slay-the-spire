@@ -181,6 +181,7 @@ fn ornamental_fan_grants_block_after_three_attacks_in_turn() {
     let run = RunState::combat_fixture_with_relics(vec![Relic::OrnamentalFan]);
     let mut combat = run.combat.expect("combat initialized");
     combat.player.energy = 10;
+    combat.player.powers.frail = 1;
     combat.monsters[0].hp = 100;
     combat.monsters[0].max_hp = 100;
     for index in 0..2 {

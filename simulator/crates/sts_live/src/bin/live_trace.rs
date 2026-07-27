@@ -123,6 +123,14 @@ mod entrypoint_tests {
             "session-5".to_owned(),
         ]));
     }
+
+    #[test]
+    fn long_lived_agent_starts_without_recovering_stale_sessions() {
+        assert!(!should_recover_sessions(&[
+            "slaythedata".to_owned(),
+            "agent".to_owned(),
+        ]));
+    }
 }
 
 fn should_recover_sessions(args: &[String]) -> bool {
@@ -135,7 +143,7 @@ fn should_recover_sessions(args: &[String]) -> bool {
             if area == "slaythedata"
                 && matches!(
                     command.as_str(),
-                    "agent" | "attach" | "send-next" | "skip-shop" | "auto-play" | "resume"
+                    "attach" | "send-next" | "skip-shop" | "auto-play" | "resume"
                 ) =>
         {
             true
@@ -163,6 +171,20 @@ impl BridgeManager for RuntimeBridge {
         match self {
             Self::Communication(bridge) => bridge.start_run(bridge_id, config),
             Self::Fake(bridge) => bridge.start_run(bridge_id, config),
+        }
+    }
+
+    fn start_verification_run(
+        &mut self,
+        bridge_id: &BridgeId,
+        config: &RunConfig,
+        starting_hp: i32,
+    ) -> LiveResult<LiveState> {
+        match self {
+            Self::Communication(bridge) => {
+                bridge.start_verification_run(bridge_id, config, starting_hp)
+            }
+            Self::Fake(bridge) => bridge.start_verification_run(bridge_id, config, starting_hp),
         }
     }
 

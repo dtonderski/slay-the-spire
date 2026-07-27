@@ -101,6 +101,22 @@ pub struct CombatState {
     /// Deferred DiscoveryAction generations after a potion reward selection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_potion_card_reward_settlement: Option<PendingPotionCardRewardSettlement>,
+    /// A target-game hand-select screen can retain a selected card outside
+    /// every visible pile after a Cultist Potion interleaving. The card is
+    /// appended to discard after the visible hand's end-turn cleanup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_hidden_hand_card_until_end_turn: Option<CardInstance>,
+    /// Elixir's ExhaustAction can leave its selected cards outside the target's
+    /// visible piles for one complete subsequent turn before returning them to
+    /// discard. Keep the cards in exhaust for authoritative effects, then move
+    /// them to discard when this countdown reaches zero.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_elixir_exhaust_card_ids: Vec<CardId>,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub pending_elixir_exhaust_turns_remaining: u8,
+    /// Time Eater ends the current player turn after the twelfth card resolves.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub time_warp_end_turn: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -154,6 +170,10 @@ pub struct DrawSelectState {
     #[serde(default)]
     pub purpose: DrawSelectPurpose,
     pub source_card_id: CardId,
+    /// The target grid's CardGroup.addToRandomSpot order, captured when the
+    /// draw-selection screen is opened.
+    #[serde(default)]
+    pub selectable_card_ids: Vec<CardId>,
     pub selected_draw_index: Option<usize>,
 }
 
@@ -198,6 +218,11 @@ pub struct ExhaustSelectState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_card: Option<CardInstance>,
     pub selected_hand_indices: Vec<usize>,
+    /// Cultist Potion can be used while Burning Pact is waiting for an
+    /// exhaust selection. The target action queue leaves the selected card
+    /// pending in that specific interleaving instead of exhausting it.
+    #[serde(default)]
+    pub interrupted_by_cultist_potion: bool,
     #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
     pub pending_actions: VecDeque<InternalAction>,
 }
@@ -253,6 +278,10 @@ pub struct PlayerState {
     pub energy: i32,
     #[serde(default = "default_player_energy")]
     pub max_energy: i32,
+    /// Target AbstractPlayer.damagedThisCombat: positive damage/loss events
+    /// delivered during this combat, used when generated cards are copied.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub damage_events_this_combat: i32,
     pub powers: PlayerPowers,
     #[serde(default)]
     pub cannot_draw: bool,
@@ -284,6 +313,7 @@ impl PlayerState {
             block: 0,
             energy: energy_per_turn,
             max_energy: energy_per_turn,
+            damage_events_this_combat: 0,
             powers: PlayerPowers::default(),
             cannot_draw: false,
             temp_strength: 0,
@@ -409,6 +439,11 @@ pub enum MonsterIntent {
         weak: i32,
         vulnerable: i32,
     },
+    AttackApplyPlayerFrailAndVulnerable {
+        damage: i32,
+        frail: i32,
+        vulnerable: i32,
+    },
     AttackApplyPlayerFrailAndWeak {
         damage: i32,
         frail: i32,
@@ -468,6 +503,10 @@ pub enum MonsterIntent {
         count: i32,
     },
     AttackAddSlimedToDiscard {
+        damage: i32,
+        count: i32,
+    },
+    AttackAddVoidToDraw {
         damage: i32,
         count: i32,
     },
@@ -719,6 +758,7 @@ impl CombatState {
                 block: 0,
                 energy: BASE_PLAYER_ENERGY,
                 max_energy: BASE_PLAYER_ENERGY,
+                damage_events_this_combat: 0,
                 powers: PlayerPowers::default(),
                 cannot_draw: false,
                 temp_strength: 0,
@@ -775,6 +815,10 @@ impl CombatState {
             pending_monster_death_relic_triggers: 0,
             combat_gold_gained: 0,
             pending_potion_card_reward_settlement: None,
+            pending_hidden_hand_card_until_end_turn: None,
+            pending_elixir_exhaust_card_ids: Vec::new(),
+            pending_elixir_exhaust_turns_remaining: 0,
+            time_warp_end_turn: false,
         }
     }
 
@@ -877,6 +921,11 @@ impl CombatState {
         if self.player.block < 0 || self.player.energy < 0 || self.player.max_energy < 0 {
             return Err(SimError::InvalidState(
                 "combat player block or energy is negative",
+            ));
+        }
+        if self.player.damage_events_this_combat < 0 {
+            return Err(SimError::InvalidState(
+                "combat player damage counter is negative",
             ));
         }
         let combust_stacks = self.player.powers.combust;
@@ -1071,6 +1120,10 @@ fn is_zero_i32(value: &i32) -> bool {
 }
 
 fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
+fn is_zero_u8(value: &u8) -> bool {
     *value == 0
 }
 

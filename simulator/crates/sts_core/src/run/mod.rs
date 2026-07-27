@@ -1,5 +1,6 @@
 pub mod decision;
 pub mod event;
+pub mod fair_observation;
 pub mod grid;
 pub mod map;
 pub mod neow;
@@ -19,6 +20,7 @@ pub use event::{
     match_and_keep_group_index_for_label, match_and_keep_label_index_for_group,
     validate_event_action, Event, EventChoice, EventScreen, GOLDEN_SHRINE_GOLD,
 };
+pub use fair_observation::{fair_run_observation, FAIR_RUN_OBSERVATION_SCHEMA_VERSION};
 pub use grid::{
     cancel_grid, confirm_grid, open_astrolabe_grid, open_bonfire_elementals_grid, open_bottle_grid,
     open_calling_bell_grid, open_designer_remove_and_upgrade_grid, open_dollys_mirror_grid,

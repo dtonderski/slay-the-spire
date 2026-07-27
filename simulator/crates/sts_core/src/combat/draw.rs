@@ -2,8 +2,8 @@ use crate::{
     card::CardType,
     combat::{damage::deal_unmodified_damage_to_monster, CombatState},
     content::{
-        cards::{get_card_definition, is_curse_content_id},
-        monsters::{check_slime_boss_split, guardian_on_hp_damage, wake_lagavulin_on_damage},
+        cards::{get_card_definition, is_curse_content_id, VOID_ID},
+        monsters::{check_slime_boss_split, wake_lagavulin_on_damage},
     },
     ids::{ContentId, MonsterId},
     rng::{JavaRng, StsRng},
@@ -16,10 +16,6 @@ fn draw_card_from_pile_top(state: &mut CombatState) -> Option<CardInstance> {
 }
 
 pub(crate) const MAX_HAND_SIZE: usize = 10;
-
-fn drawable_count(state: &CombatState, count: usize) -> usize {
-    count.min(MAX_HAND_SIZE.saturating_sub(state.piles.hand.len()))
-}
 
 pub fn draw_cards_with_sts_rng(
     state: &mut CombatState,
@@ -39,7 +35,10 @@ fn draw_cards_with_sts_rng_inner(
     count: usize,
     rng: &mut StsRng,
 ) -> SimResult<()> {
-    for _ in 0..drawable_count(state, count) {
+    for _ in 0..count {
+        if state.piles.hand.len() >= MAX_HAND_SIZE {
+            break;
+        }
         if state.piles.draw_pile.is_empty() {
             shuffle_discard_into_draw_sts(state, rng)?;
         }
@@ -52,6 +51,9 @@ fn draw_cards_with_sts_rng_inner(
             let content_id = card.content_id;
             apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
+            if content_id == VOID_ID {
+                state.player.energy = state.player.energy.saturating_sub(1);
+            }
             apply_fire_breathing_on_draw(state, content_id)?;
             draw_cards_with_sts_rng_inner(state, evolve_extra_draw_count(state, content_id), rng)?;
         }
@@ -61,15 +63,82 @@ fn draw_cards_with_sts_rng_inner(
 
 pub(crate) fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) -> SimResult<()> {
     let mut next = state.clone();
-    draw_cards_with_combat_rng_inner(&mut next, count)?;
+    draw_cards_with_combat_rng_inner(&mut next, count, true)?;
     *state = next;
     Ok(())
 }
 
-fn draw_cards_with_combat_rng_inner(state: &mut CombatState, count: usize) -> SimResult<()> {
-    for _ in 0..drawable_count(state, count) {
+pub(crate) fn draw_cards_with_combat_rng_deferred_evolve(
+    state: &mut CombatState,
+    count: usize,
+) -> SimResult<Vec<usize>> {
+    let mut next = state.clone();
+    let mut deferred_evolve_draws = Vec::new();
+    let had_cards_at_start =
+        !next.piles.draw_pile.is_empty() || !next.piles.discard_pile.is_empty();
+    for _ in 0..count {
+        if next.piles.hand.len() >= MAX_HAND_SIZE {
+            break;
+        }
+        if next.piles.draw_pile.is_empty() {
+            if next.piles.discard_pile.is_empty() {
+                if had_cards_at_start {
+                    consume_empty_deck_shuffle_with_combat_rng(&mut next)?;
+                }
+            } else {
+                shuffle_discard_into_draw_with_combat_rng(&mut next)?;
+            }
+        }
+        if next.piles.draw_pile.is_empty() {
+            break;
+        }
+        if let Some(mut card) = draw_card_from_pile_top(&mut next) {
+            let content_id = card.content_id;
+            let extra_draws = evolve_extra_draw_count(&next, content_id);
+            apply_confusion_cost_randomization(&mut next, &mut card);
+            next.piles.hand.push(card);
+            if content_id == VOID_ID {
+                next.player.energy = next.player.energy.saturating_sub(1);
+            }
+            apply_fire_breathing_on_draw(&mut next, content_id)?;
+            if extra_draws > 0 {
+                deferred_evolve_draws.push(extra_draws);
+            }
+        }
+    }
+    *state = next;
+    Ok(deferred_evolve_draws)
+}
+
+pub(crate) fn draw_cards_with_combat_rng_without_evolve(
+    state: &mut CombatState,
+    count: usize,
+) -> SimResult<()> {
+    let mut next = state.clone();
+    draw_cards_with_combat_rng_inner(&mut next, count, false)?;
+    *state = next;
+    Ok(())
+}
+
+fn draw_cards_with_combat_rng_inner(
+    state: &mut CombatState,
+    count: usize,
+    trigger_evolve: bool,
+) -> SimResult<()> {
+    let had_cards_at_start =
+        !state.piles.draw_pile.is_empty() || !state.piles.discard_pile.is_empty();
+    for _ in 0..count {
+        if state.piles.hand.len() >= MAX_HAND_SIZE {
+            break;
+        }
         if state.piles.draw_pile.is_empty() {
-            shuffle_discard_into_draw_with_combat_rng(state)?;
+            if state.piles.discard_pile.is_empty() {
+                if had_cards_at_start {
+                    consume_empty_deck_shuffle_with_combat_rng(state)?;
+                }
+            } else {
+                shuffle_discard_into_draw_with_combat_rng(state)?;
+            }
         }
 
         if state.piles.draw_pile.is_empty() {
@@ -80,10 +149,23 @@ fn draw_cards_with_combat_rng_inner(state: &mut CombatState, count: usize) -> Si
             let content_id = card.content_id;
             apply_confusion_cost_randomization(state, &mut card);
             state.piles.hand.push(card);
+            if content_id == VOID_ID {
+                state.player.energy = state.player.energy.saturating_sub(1);
+            }
             apply_fire_breathing_on_draw(state, content_id)?;
-            draw_cards_with_combat_rng_inner(state, evolve_extra_draw_count(state, content_id))?;
+            let extra_draws = if trigger_evolve {
+                evolve_extra_draw_count(state, content_id)
+            } else {
+                0
+            };
+            draw_cards_with_combat_rng_inner(state, extra_draws, trigger_evolve)?;
         }
     }
+    Ok(())
+}
+
+pub(crate) fn consume_empty_deck_shuffle_with_combat_rng(state: &mut CombatState) -> SimResult<()> {
+    let _ = state.rng.shuffle_rng.random_long();
     Ok(())
 }
 
@@ -114,7 +196,6 @@ pub(crate) fn apply_fire_breathing_on_draw(
             };
             let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
             wake_lagavulin_on_damage(monster, hp_damage);
-            guardian_on_hp_damage(monster, hp_damage);
             monster.alive
         };
         check_slime_boss_split(state, target);
@@ -148,7 +229,8 @@ pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: 
     if !state.relics.contains(&Relic::SneckoEye) && state.player.powers.confusion <= 0 {
         return;
     }
-    if get_card_definition(card.content_id).is_none_or(|definition| definition.keywords.unplayable)
+    if get_card_definition(card.content_id)
+        .is_none_or(|definition| definition.keywords.unplayable || definition.cost < 0)
     {
         return;
     }
@@ -177,6 +259,17 @@ pub(crate) fn shuffle_discard_into_draw_with_combat_rng(state: &mut CombatState)
 
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let shuffle_seed = state.rng.shuffle_rng.random_long();
+    if state.piles.draw_pile.len() == 29 {
+        eprintln!(
+            "DEBUG actual shuffle len=29 seed={shuffle_seed} cards={:?}",
+            state
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()
+        );
+    }
     JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
     crate::relic::apply_shuffle_relics(state)
 }

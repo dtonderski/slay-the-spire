@@ -2,21 +2,26 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::exit,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    },
+    thread,
 };
 
 use sts_verify::{
     assess_verification, canonical_diff, corpus_path, import_communication_mod_trace,
     import_slaythedata_jsonl_line, import_slaythedata_run_json, load_corpus_file,
-    minimize_communication_mod_trace, slaythedata_replay_plan, slaythedata_replay_preflight,
-    verify_communication_mod_trace, MinimizeError, SlayTheDataDiagnosticSeverity,
-    VerificationCorpusManifest, VerificationExpectation, VerificationOutcome,
-    VERIFICATION_CORPUS_MANIFEST_SCHEMA,
+    minimize_communication_mod_trace, replay_communication_mod_trace, slaythedata_replay_plan,
+    slaythedata_replay_preflight, verify_communication_mod_trace, MinimizeError,
+    SlayTheDataDiagnosticSeverity, VerificationCorpusManifest, VerificationExpectation,
+    VerificationOutcome, REPLAY_ARTIFACT_SCHEMA, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
 fn main() {
     let mut args = env::args().skip(1);
     let Some(command) = args.next() else {
-        eprintln!("usage: sts_verify <trace|diff|parity|minimize|status|corpus> ...");
+        eprintln!("usage: sts_verify <trace|diff|parity|replay|minimize|status|corpus> ...");
         exit(1);
     };
 
@@ -183,6 +188,147 @@ fn main() {
             let exit_code = verification_outcome_exit_code(&outcome);
             if exit_code != 0 {
                 exit(exit_code);
+            }
+        }
+        "replay" => {
+            let mut json_output = false;
+            let mut timeline_output = false;
+            let mut requested_step = None;
+            let mut output_path = None;
+            let mut path = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--json" => json_output = true,
+                    "--timeline" => timeline_output = true,
+                    "--at-step" => {
+                        let Some(value) = args.next() else {
+                            eprintln!(
+                                "usage: sts_verify replay [--json|--timeline] [--at-step N] [-o path] <trace.jsonl>"
+                            );
+                            exit(1);
+                        };
+                        requested_step = Some(value.parse().unwrap_or_else(|err| {
+                            eprintln!("invalid --at-step {value:?}: {err}");
+                            exit(1);
+                        }));
+                    }
+                    "-o" | "--output" => {
+                        output_path = Some(args.next().unwrap_or_else(|| {
+                            eprintln!(
+                                "usage: sts_verify replay [--json|--timeline] [--at-step N] [-o path] <trace.jsonl>"
+                            );
+                            exit(1);
+                        }));
+                    }
+                    other if other.starts_with('-') => {
+                        eprintln!("unknown replay flag: {other}");
+                        exit(1);
+                    }
+                    other => {
+                        if path.replace(other.to_owned()).is_some() {
+                            eprintln!("replay accepts one trace path");
+                            exit(1);
+                        }
+                    }
+                }
+            }
+            if json_output && timeline_output {
+                eprintln!("replay accepts either --json or --timeline, not both");
+                exit(1);
+            }
+            let Some(path) = path else {
+                eprintln!(
+                    "usage: sts_verify replay [--json|--timeline] [--at-step N] [-o path] <trace.jsonl>"
+                );
+                exit(1);
+            };
+            let content = if path == "-" {
+                use std::io::Read;
+                let mut buffer = String::new();
+                std::io::stdin()
+                    .read_to_string(&mut buffer)
+                    .expect("read stdin");
+                buffer
+            } else {
+                fs::read_to_string(&path).unwrap_or_else(|err| {
+                    eprintln!("failed to read {path}: {err}");
+                    exit(1);
+                })
+            };
+            let result =
+                replay_communication_mod_trace(&content, requested_step).unwrap_or_else(|err| {
+                    eprintln!("failed to replay trace: {err}");
+                    exit(1);
+                });
+            let outcome = replay_outcome(&result.report);
+            let final_snapshot_hash = result
+                .final_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.hash().ok())
+                .map(|hash| hash.to_string());
+
+            let rendered = if timeline_output {
+                result
+                    .checkpoints
+                    .iter()
+                    .map(|checkpoint| {
+                        serde_json::to_string(checkpoint).expect("checkpoint serializes")
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    + "\n"
+            } else if json_output {
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "schema": REPLAY_ARTIFACT_SCHEMA,
+                    "outcome": outcome,
+                    "report": &result.report,
+                    "checkpoints": &result.checkpoints,
+                    "final_snapshot_hash": &final_snapshot_hash,
+                    "final_snapshot": &result.final_snapshot,
+                    "selected_checkpoint": &result.selected_checkpoint,
+                }))
+                .expect("replay artifact serializes")
+                    + "\n"
+            } else {
+                let final_hash = final_snapshot_hash.unwrap_or_default();
+                let selected = result
+                    .selected_checkpoint
+                    .as_ref()
+                    .map(|checkpoint| checkpoint.action_step.to_string())
+                    .unwrap_or_default();
+                let boundary = result
+                    .report
+                    .seed_start
+                    .as_ref()
+                    .map(|seed_start| {
+                        format!(
+                            "{}: {}",
+                            seed_start.first_boundary.category, seed_start.first_boundary.reason
+                        )
+                    })
+                    .unwrap_or_default();
+                format!(
+                    "outcome={outcome}\ntotal_actions={}\ncheckpoints={}\nfinal_snapshot_hash={final_hash}\nselected_step={selected}\nboundary={boundary}\n",
+                    result.report.total_actions,
+                    result.checkpoints.len(),
+                )
+            };
+
+            if let Some(output_path) = output_path {
+                if output_path == "-" {
+                    print!("{rendered}");
+                } else {
+                    fs::write(&output_path, rendered).unwrap_or_else(|err| {
+                        eprintln!("failed to write {output_path}: {err}");
+                        exit(1);
+                    });
+                    eprintln!("replay.wrote={output_path}");
+                }
+            } else {
+                print!("{rendered}");
+            }
+            if outcome != "complete" {
+                exit(2);
             }
         }
         "slaythedata-plan" => {
@@ -553,70 +699,106 @@ fn status_path(input: &str) -> PathBuf {
 
 fn trace_status_entries(root: &Path) -> Result<Vec<TraceStatusEntry>, String> {
     let inputs = status_trace_inputs(root)?;
-    let mut entries = Vec::new();
-    for input in inputs {
-        let expectation = expectation_label(&input.expectation);
-        let content = match fs::read_to_string(&input.path) {
-            Ok(content) => content,
-            Err(err) => {
-                entries.push(trace_error_entry(
-                    input.trace,
-                    expectation,
-                    format!("read error: {err}"),
-                ));
-                continue;
-            }
-        };
-        let report = match verify_communication_mod_trace(&content) {
-            Ok(report) => report,
-            Err(err) => {
-                entries.push(trace_error_entry(
-                    input.trace,
-                    expectation,
-                    format!("parse error: {err}"),
-                ));
-                continue;
-            }
-        };
-        let outcome = assess_verification(
-            Ok(&report),
-            &input.expectation,
-            report.action_integrity.as_ref(),
-        );
-        let integrity = report.action_integrity.unwrap_or_default();
-        let boundary = report.seed_start.as_ref().map(|seed_start| {
-            format!(
-                "{} at {}",
-                seed_start.first_boundary.category, seed_start.first_boundary.path
-            )
-        });
-        entries.push(TraceStatusEntry {
-            trace: input.trace,
-            expectation,
-            verified_floor: report
-                .seed_start
-                .as_ref()
-                .and_then(|seed_start| seed_start.sim_run_state.as_ref())
-                .and_then(|state| state.map.as_ref())
-                .map(|map| map.floor)
-                .unwrap_or(0),
-            total_actions: report.total_actions,
-            verified: report.verified.len(),
-            raw_diffs: report.unexpected_diffs.len(),
-            unsupported: report.unsupported.len(),
-            ignored_tail: report.ignored_tail_actions,
-            applicable_actions: integrity.applicable_actions,
-            disposed_actions: integrity.disposed_actions,
-            rejected_actions: integrity.rejected_actions,
-            duplicate_dispositions: integrity.duplicate_dispositions,
-            unresolved_transient_assertions: integrity.unresolved_transient_assertions,
-            status: outcome_status(&outcome).to_owned(),
-            boundary: boundary.unwrap_or_else(|| "-".to_owned()),
-            frontier: trace_frontier(&report, &outcome),
-        });
+    if inputs.is_empty() {
+        return Ok(Vec::new());
     }
 
-    Ok(entries)
+    let worker_count = status_worker_count(inputs.len());
+    eprintln!(
+        "status: {} traces across {worker_count} workers",
+        inputs.len()
+    );
+    let next_input = AtomicUsize::new(0);
+    let results = Mutex::new((0..inputs.len()).map(|_| None).collect::<Vec<_>>());
+
+    thread::scope(|scope| {
+        for _ in 0..worker_count {
+            let inputs = &inputs;
+            let next_input = &next_input;
+            let results = &results;
+            scope.spawn(move || loop {
+                let index = next_input.fetch_add(1, Ordering::Relaxed);
+                let Some(input) = inputs.get(index) else {
+                    break;
+                };
+                let entry = trace_status_entry(input);
+                results.lock().expect("status result mutex")[index] = Some(entry);
+            });
+        }
+    });
+
+    Ok(results
+        .into_inner()
+        .expect("status result mutex")
+        .into_iter()
+        .map(|entry| entry.expect("status worker produced one result per trace"))
+        .collect())
+}
+
+fn status_worker_count(trace_count: usize) -> usize {
+    trace_count
+        .min(thread::available_parallelism().map_or(1, usize::from))
+        .max(1)
+}
+
+fn trace_status_entry(input: &StatusTraceInput) -> TraceStatusEntry {
+    let expectation = expectation_label(&input.expectation);
+    let content = match fs::read_to_string(&input.path) {
+        Ok(content) => content,
+        Err(err) => {
+            return trace_error_entry(
+                input.trace.clone(),
+                expectation,
+                format!("read error: {err}"),
+            );
+        }
+    };
+    let report = match verify_communication_mod_trace(&content) {
+        Ok(report) => report,
+        Err(err) => {
+            return trace_error_entry(
+                input.trace.clone(),
+                expectation,
+                format!("parse error: {err}"),
+            );
+        }
+    };
+    let outcome = assess_verification(
+        Ok(&report),
+        &input.expectation,
+        report.action_integrity.as_ref(),
+    );
+    let integrity = report.action_integrity.unwrap_or_default();
+    let boundary = report.seed_start.as_ref().map(|seed_start| {
+        format!(
+            "{} at {}",
+            seed_start.first_boundary.category, seed_start.first_boundary.path
+        )
+    });
+    TraceStatusEntry {
+        trace: input.trace.clone(),
+        expectation,
+        verified_floor: report
+            .seed_start
+            .as_ref()
+            .and_then(|seed_start| seed_start.sim_run_state.as_ref())
+            .and_then(|state| state.map.as_ref())
+            .map(|map| map.floor)
+            .unwrap_or(0),
+        total_actions: report.total_actions,
+        verified: report.verified.len(),
+        raw_diffs: report.unexpected_diffs.len(),
+        unsupported: report.unsupported.len(),
+        ignored_tail: report.ignored_tail_actions,
+        applicable_actions: integrity.applicable_actions,
+        disposed_actions: integrity.disposed_actions,
+        rejected_actions: integrity.rejected_actions,
+        duplicate_dispositions: integrity.duplicate_dispositions,
+        unresolved_transient_assertions: integrity.unresolved_transient_assertions,
+        status: outcome_status(&outcome).to_owned(),
+        boundary: boundary.unwrap_or_else(|| "-".to_owned()),
+        frontier: trace_frontier(&report, &outcome),
+    }
 }
 
 fn status_trace_inputs(root: &Path) -> Result<Vec<StatusTraceInput>, String> {
@@ -713,6 +895,10 @@ fn expectation_label(expectation: &VerificationExpectation) -> String {
             "retained_prefix through step {} ({})",
             endpoint.action_step, endpoint.label
         ),
+        VerificationExpectation::ExpectedBoundary { boundary } => format!(
+            "expected_boundary {} at {}",
+            boundary.category, boundary.path
+        ),
     }
 }
 
@@ -720,6 +906,7 @@ fn outcome_status(outcome: &VerificationOutcome) -> &'static str {
     match outcome {
         VerificationOutcome::CompletePass => "complete_pass",
         VerificationOutcome::RetainedPrefixPass { .. } => "retained_prefix_pass",
+        VerificationOutcome::ExpectedBoundaryPass { .. } => "expected_boundary_pass",
         VerificationOutcome::InvalidInput { .. } => "invalid_input",
         VerificationOutcome::Failed { .. } => "failed",
     }
@@ -727,9 +914,19 @@ fn outcome_status(outcome: &VerificationOutcome) -> &'static str {
 
 fn verification_outcome_exit_code(outcome: &VerificationOutcome) -> i32 {
     match outcome {
-        VerificationOutcome::CompletePass | VerificationOutcome::RetainedPrefixPass { .. } => 0,
+        VerificationOutcome::CompletePass
+        | VerificationOutcome::RetainedPrefixPass { .. }
+        | VerificationOutcome::ExpectedBoundaryPass { .. } => 0,
         VerificationOutcome::InvalidInput { .. } => 1,
         VerificationOutcome::Failed { .. } => 2,
+    }
+}
+
+fn replay_outcome(report: &sts_verify::SimRealReport) -> &'static str {
+    match report.seed_start.as_ref() {
+        Some(seed_start) if !seed_start.failed => "complete",
+        Some(_) => "boundary",
+        None => "boundary",
     }
 }
 
@@ -742,7 +939,9 @@ fn print_verification_outcome(outcome: &VerificationOutcome) {
                 println!("failure={failure:?}");
             }
         }
-        VerificationOutcome::CompletePass | VerificationOutcome::RetainedPrefixPass { .. } => {}
+        VerificationOutcome::CompletePass
+        | VerificationOutcome::RetainedPrefixPass { .. }
+        | VerificationOutcome::ExpectedBoundaryPass { .. } => {}
     }
 }
 
@@ -989,5 +1188,12 @@ mod tests {
             "parse error".to_owned(),
         );
         assert_eq!(trace_status_exit_code(&[invalid]), 1);
+    }
+
+    #[test]
+    fn status_worker_count_is_bounded_by_trace_count() {
+        assert_eq!(status_worker_count(1), 1);
+        assert!(status_worker_count(3) >= 1);
+        assert!(status_worker_count(3) <= 3);
     }
 }

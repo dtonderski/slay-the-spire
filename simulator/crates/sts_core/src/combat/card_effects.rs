@@ -4,6 +4,7 @@ use crate::{
     combat::{
         cost::effective_card_cost,
         damage::{DamageInfo, DamageSource},
+        draw::MAX_HAND_SIZE,
         CombatDecisionState, CombatState, HandSelectPurpose,
     },
     content::cards::{
@@ -114,7 +115,6 @@ pub(super) fn play_card_queue(
             definition,
         ),
         BODY_SLAM_ID | BODY_SLAM_PLUS_ID => body_slam_queue(
-            state,
             card_id,
             target.expect("validated Body Slam has a target"),
             definition,
@@ -125,6 +125,7 @@ pub(super) fn play_card_queue(
             definition,
         ),
         CLASH_ID | CLASH_PLUS_ID | SWIFT_STRIKE_ID | SWIFT_STRIKE_PLUS_ID => generic_attack_queue(
+            state,
             card_id,
             target.expect("validated generic attack has a target"),
             definition,
@@ -140,6 +141,7 @@ pub(super) fn play_card_queue(
             definition,
         ),
         WILD_STRIKE_ID | WILD_STRIKE_PLUS_ID => wild_strike_queue(
+            state,
             card_id,
             target.expect("validated Wild Strike has a target"),
             definition,
@@ -162,7 +164,7 @@ pub(super) fn play_card_queue(
             target.expect("validated Rampage has a target"),
             definition,
         ),
-        POWER_THROUGH_ID | POWER_THROUGH_PLUS_ID => power_through_queue(card_id, definition),
+        POWER_THROUGH_ID | POWER_THROUGH_PLUS_ID => power_through_queue(state, card_id, definition),
         APOTHEOSIS_ID | APOTHEOSIS_PLUS_ID => apotheosis_queue(card_id, definition),
         ARMAMENTS_ID | ARMAMENTS_PLUS_ID => armaments_queue(state, card_id, definition),
         HEADBUTT_ID | HEADBUTT_PLUS_ID => headbutt_queue(
@@ -205,6 +207,7 @@ pub(super) fn play_card_queue(
         }
         IMMOLATE_ID | IMMOLATE_PLUS_ID => immolate_queue(card_id, definition),
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => twin_strike_queue(
+            state,
             card_id,
             target.expect("validated Twin Strike has a target"),
             definition,
@@ -255,6 +258,7 @@ pub(super) fn play_card_queue(
         METALLICIZE_ID | METALLICIZE_PLUS_ID => metallicize_queue(card_id, definition),
         POMMEL_STRIKE_ID | POMMEL_STRIKE_PLUS_ID | FLASH_OF_STEEL_ID | FLASH_OF_STEEL_PLUS_ID => {
             pommel_strike_queue(
+                state,
                 card_id,
                 target.expect("validated draw attack has a target"),
                 definition,
@@ -361,6 +365,7 @@ pub(super) fn play_card_queue(
             && definition.target == crate::TargetRequirement::Enemy =>
         {
             generic_attack_queue(
+                state,
                 card_id,
                 target.expect("validated attack has a target"),
                 definition,
@@ -411,11 +416,20 @@ pub(super) fn play_top_draw_card_queue(
     // builder constructs effects, then changes only the play envelope: no
     // energy payment and a top-draw-specific final destination.
     let mut staged = state.clone();
+    // The target removes the top card into limbo before resolving its effect.
+    // Keep the staged hand copy for shared card builders, while retaining a
+    // limbo marker so pile-sensitive effects do not count that copy as a
+    // current combat-pile card.
+    staged.piles.limbo.push(card);
     // Put the staged source first so test/debug states with duplicate card IDs
     // cannot redirect effect construction to an unrelated hand card. Validated
     // production states still require globally unique card IDs.
     staged.piles.hand.insert(0, card);
     let (mut queued_state, mut queue) = play_card_queue(&staged, card.id, target)?;
+    queued_state
+        .piles
+        .limbo
+        .retain(|candidate| candidate.id != card.id);
 
     queue.retain(|action| {
         !matches!(
@@ -430,10 +444,18 @@ pub(super) fn play_top_draw_card_queue(
         )
     });
     for action in &mut queue {
-        if let InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count } = *action {
-            if card_id == card.id {
+        match *action {
+            InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count }
+                if card_id == card.id =>
+            {
                 *action = InternalAction::DrawCards { count };
             }
+            InternalAction::DrawCardsWhilePlayedCardIsInLimboWithoutEvolve { card_id, count }
+                if card_id == card.id =>
+            {
+                *action = InternalAction::DrawCardsWithoutEvolve { count };
+            }
+            _ => {}
         }
     }
     if definition.id == WHIRLWIND_ID || definition.id == WHIRLWIND_PLUS_ID {
@@ -447,6 +469,16 @@ pub(super) fn play_top_draw_card_queue(
             to,
         } if *card_id == card.id => Some(*to),
         _ => None,
+    });
+    let shared_movement_index = queue.iter().position(|action| {
+        matches!(
+            action,
+            InternalAction::MoveCard {
+                card_id,
+                from: CardPile::Hand,
+                ..
+            } if *card_id == card.id
+        )
     });
     let destination = top_draw_card_destination(
         &mut queued_state,
@@ -477,7 +509,7 @@ pub(super) fn play_top_draw_card_queue(
             "top-draw card queue has no play action",
         ))?;
     if !delayed_hand_select_moves_source {
-        queue.insert(played_index + 1, movement);
+        queue.insert(shared_movement_index.unwrap_or(played_index + 1), movement);
     }
 
     Ok((queued_state, queue))
@@ -819,8 +851,37 @@ fn apply_double_tap_to_queue(
         queue
             .iter()
             .copied()
-            .filter(|action| is_duplicated_card_effect(*action, card_id)),
+            .filter_map(|action| duplicated_card_effect(action, card_id)),
     );
+    let rampage_growth = duplicated_effects
+        .iter()
+        .filter_map(|action| match action {
+            InternalAction::IncreaseRampageDamage {
+                card_id: source,
+                amount,
+            } if *source == card_id => Some(*amount),
+            _ => None,
+        })
+        .try_fold(0i32, i32::checked_add);
+    if let Some(rampage_growth) = rampage_growth {
+        for action in &mut duplicated_effects {
+            if let InternalAction::DealDamage {
+                info:
+                    crate::combat::damage::DamageInfo {
+                        source: DamageSource::Card(source),
+                        amount,
+                        ..
+                    },
+            } = action
+            {
+                if *source == card_id {
+                    if let Some(adjusted) = amount.checked_add(rampage_growth) {
+                        *amount = adjusted;
+                    }
+                }
+            }
+        }
+    }
 
     let final_move = queue
         .back()
@@ -848,7 +909,7 @@ fn apply_necronomicon_to_queue(
         queue
             .iter()
             .copied()
-            .filter(|action| is_duplicated_card_effect(*action, card_id)),
+            .filter_map(|action| duplicated_card_effect(action, card_id)),
     );
 
     let final_move = queue
@@ -902,6 +963,7 @@ fn action_required_living_target(action: InternalAction) -> Option<MonsterId> {
         InternalAction::DealDamage { info }
         | InternalAction::DealDamageAndHealUnblocked { info }
         | InternalAction::DealFeedDamage { info, .. } => Some(info.target),
+        InternalAction::DealBodySlamDamage { target, .. } => Some(target),
         InternalAction::GainMonsterBlock { target, .. }
         | InternalAction::ApplyVulnerable { target, .. }
         | InternalAction::ReduceMonsterStrength { target, .. }
@@ -951,8 +1013,22 @@ fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
             | InternalAction::AwaitHandSelect { .. }
             | InternalAction::AwaitDrawSelect { .. }
             | InternalAction::AwaitDiscardSelect { .. }
+            | InternalAction::AwaitCopiedDiscardSelect { .. }
             | InternalAction::AwaitExhaustSelect { .. }
     ) && !is_card_move_for(action, card_id)
+}
+
+fn duplicated_card_effect(action: InternalAction, card_id: CardId) -> Option<InternalAction> {
+    match action {
+        InternalAction::AwaitDiscardSelect {
+            source_card_id,
+            purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
+        } if source_card_id == card_id => Some(InternalAction::AwaitCopiedDiscardSelect {
+            purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
+        }),
+        action if is_duplicated_card_effect(action, card_id) => Some(action),
+        _ => None,
+    }
 }
 
 fn is_card_move_for(action: InternalAction, card_id: CardId) -> bool {
@@ -977,6 +1053,18 @@ fn required_block(definition: &CardDefinition) -> SimResult<i32> {
     definition.values.block.ok_or(SimError::InvalidState(
         "card definition is missing required block",
     ))
+}
+
+fn attack_damage_with_strike_dummy(
+    state: &CombatState,
+    definition: &CardDefinition,
+) -> SimResult<i32> {
+    let damage = required_damage(definition)?;
+    Ok(if is_strike_named_definition(definition) {
+        strike_damage_with_relics(&state.relics, damage)
+    } else {
+        damage
+    })
 }
 
 fn required_vulnerable(definition: &CardDefinition) -> SimResult<i32> {
@@ -1010,6 +1098,7 @@ fn strike_queue(
 }
 
 fn generic_attack_queue(
+    state: &CombatState,
     card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
@@ -1021,7 +1110,7 @@ fn generic_attack_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: required_damage(definition)?,
+                amount: attack_damage_with_strike_dummy(state, definition)?,
             },
         },
         InternalAction::MoveCard {
@@ -1115,7 +1204,6 @@ fn iron_wave_queue(
 }
 
 fn body_slam_queue(
-    state: &CombatState,
     card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
@@ -1125,12 +1213,9 @@ fn body_slam_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DealDamage {
-            info: DamageInfo {
-                source: DamageSource::Card(card_id),
-                target,
-                amount: state.player.block,
-            },
+        InternalAction::DealBodySlamDamage {
+            source: card_id,
+            target,
         },
         InternalAction::MoveCard {
             card_id,
@@ -1489,6 +1574,13 @@ pub(super) fn combat_strike_named_card_count(state: &CombatState) -> usize {
         .chain(state.piles.draw_pile.iter())
         .chain(state.piles.discard_pile.iter())
         .filter(|card| {
+            !state
+                .piles
+                .limbo
+                .iter()
+                .any(|limbo_card| limbo_card.id == card.id)
+        })
+        .filter(|card| {
             get_card_definition(card.content_id)
                 .map(is_strike_named_definition)
                 .unwrap_or(false)
@@ -1503,6 +1595,7 @@ fn is_strike_named_definition(definition: &CardDefinition) -> bool {
 }
 
 fn wild_strike_queue(
+    state: &CombatState,
     card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
@@ -1516,7 +1609,7 @@ fn wild_strike_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: required_damage(definition)?,
+                amount: attack_damage_with_strike_dummy(state, definition)?,
             },
         },
         InternalAction::AddGeneratedCardToDrawPileRandomSpot {
@@ -1547,7 +1640,9 @@ fn bite_queue(
                 amount: required_damage(definition)?,
             },
         },
-        InternalAction::HealPlayer { amount: 2 },
+        InternalAction::HealPlayer {
+            amount: if definition.id == BITE_PLUS_ID { 3 } else { 2 },
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
@@ -1607,26 +1702,45 @@ fn rampage_queue(
 }
 
 fn power_through_queue(
+    state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    Ok(VecDeque::from([
+    let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::AddGeneratedCardToPile {
+    ]);
+    if state.piles.hand.len() >= 10 {
+        // The target MakeTempCardInHandAction sees the played card in limbo,
+        // so it can place one of two Wounds in a full hand. Preserve the
+        // existing queue shape for non-full hands; only the hand-capacity
+        // boundary requires the limbo-aware batch action.
+        queue.push_back(InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
             content_id: WOUND_ID,
-            to: CardPile::Hand,
+            source_card_id: card_id,
+            count: 2,
             temp_cost: None,
             temp_cost_turn_only: false,
-        },
-        InternalAction::AddGeneratedCardToPile {
-            content_id: WOUND_ID,
-            to: CardPile::Hand,
-            temp_cost: None,
-            temp_cost_turn_only: false,
-        },
+        });
+    } else {
+        queue.extend([
+            InternalAction::AddGeneratedCardToPile {
+                content_id: WOUND_ID,
+                to: CardPile::Hand,
+                temp_cost: None,
+                temp_cost_turn_only: false,
+            },
+            InternalAction::AddGeneratedCardToPile {
+                content_id: WOUND_ID,
+                to: CardPile::Hand,
+                temp_cost: None,
+                temp_cost_turn_only: false,
+            },
+        ]);
+    }
+    queue.extend([
         InternalAction::GainBlock {
             amount: required_block(definition)?,
         },
@@ -1635,7 +1749,8 @@ fn power_through_queue(
             from: CardPile::Hand,
             to: card_move_destination(definition),
         },
-    ]))
+    ]);
+    Ok(queue)
 }
 
 fn infernal_blade_queue(
@@ -1644,17 +1759,31 @@ fn infernal_blade_queue(
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
     let generated = infernal_blade_generated_attack(state);
-    Ok(VecDeque::from([
-        InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy {
-            amount: i32::from(definition.cost),
-        },
+    let add_generated = if state.piles.hand.len() >= MAX_HAND_SIZE {
+        // MakeTempCardInHandAction observes the played card in limbo. A full
+        // visible hand therefore still has one slot for Infernal Blade's
+        // generated attack while its source card is resolving.
+        InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
+            content_id: generated,
+            source_card_id: card_id,
+            count: 1,
+            temp_cost: Some(0),
+            temp_cost_turn_only: true,
+        }
+    } else {
         InternalAction::AddGeneratedCardToPile {
             content_id: generated,
             to: CardPile::Hand,
             temp_cost: Some(0),
             temp_cost_turn_only: true,
+        }
+    };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
         },
+        add_generated,
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
@@ -1871,14 +2000,27 @@ fn jack_of_all_trades_queue(
             amount: i32::from(definition.cost),
         },
     ]);
-    for _ in 0..generated_count {
-        let generated = jack_of_all_trades_generated_colorless(state);
-        queue.push_back(InternalAction::AddGeneratedCardToPile {
-            content_id: generated,
-            to: CardPile::Hand,
-            temp_cost: None,
-            temp_cost_turn_only: false,
-        });
+    if state.piles.hand.len() >= MAX_HAND_SIZE {
+        for _ in 0..generated_count {
+            let generated = jack_of_all_trades_generated_colorless(state);
+            queue.push_back(InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
+                content_id: generated,
+                source_card_id: card_id,
+                count: 1,
+                temp_cost: None,
+                temp_cost_turn_only: false,
+            });
+        }
+    } else {
+        for _ in 0..generated_count {
+            let generated = jack_of_all_trades_generated_colorless(state);
+            queue.push_back(InternalAction::AddGeneratedCardToPile {
+                content_id: generated,
+                to: CardPile::Hand,
+                temp_cost: None,
+                temp_cost_turn_only: false,
+            });
+        }
     }
     queue.extend([InternalAction::MoveCard {
         card_id,
@@ -1904,12 +2046,15 @@ fn madness_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
+        InternalAction::SetRandomHandCardCostForCombat {
+            amount: 0,
+            excluded_card_id: card_id,
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
             to: card_move_destination(definition),
         },
-        InternalAction::SetRandomHandCardCostForCombat { amount: 0 },
     ]))
 }
 
@@ -3044,11 +3189,6 @@ fn whirlwind_queue(
     } else {
         0
     };
-    if x + chemical_x_bonus < 1 {
-        return Err(SimError::IllegalAction(
-            "Whirlwind requires at least 1 energy",
-        ));
-    }
 
     let damage = required_damage(definition)?;
     let mut queue = VecDeque::from([
@@ -3088,11 +3228,6 @@ fn transmutation_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     let x = state.player.energy;
     let uses = x_cost_uses_with_chemical_x(state);
-    if uses < 1 {
-        return Err(SimError::IllegalAction(
-            "Transmutation requires at least 1 energy",
-        ));
-    }
 
     let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
@@ -3129,22 +3264,45 @@ fn havoc_queue(
         ));
     }
 
-    Ok(VecDeque::from([
+    let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::PlayTopDrawCard {
+    ]);
+
+    // When the draw pile is empty, DrawCardAction reshuffles the discard pile
+    // before it removes Havoc from limbo. Keeping Havoc out of that shuffle is
+    // observable: the forced card must come from the pre-existing discard,
+    // while Havoc settles into discard after the forced play completes.
+    if state.piles.draw_pile.is_empty() {
+        queue.push_back(InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card: true,
             random_living_target: true,
-        },
-        InternalAction::MoveCard {
+        });
+        queue.push_back(InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
             to: CardPile::DiscardPile,
-        },
-    ]))
+        });
+    } else {
+        // With a non-empty draw pile, the normal UseCardAction settlement
+        // happens before the forced top-card play. This also exposes Havoc to
+        // discard-sensitive cards such as Headbutt.
+        queue.push_back(InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        });
+        queue.push_back(InternalAction::PlayTopDrawCard {
+            target,
+            exhaust_played_card: true,
+            random_living_target: true,
+        });
+    }
+
+    Ok(queue)
 }
 
 fn warcry_draw_count(definition: &CardDefinition) -> usize {
@@ -3208,18 +3366,17 @@ fn thinking_ahead_queue(
     Ok(queue)
 }
 
-fn draw_pile_has_skill(state: &CombatState) -> bool {
-    state.piles.draw_pile.iter().any(|card| {
-        get_card_definition(card.content_id)
-            .is_some_and(|definition| definition.card_type == CardType::Skill)
-    })
-}
-
-fn draw_pile_has_attack(state: &CombatState) -> bool {
-    state.piles.draw_pile.iter().any(|card| {
-        get_card_definition(card.content_id)
-            .is_some_and(|definition| definition.card_type == CardType::Attack)
-    })
+fn draw_pile_cards_of_type(state: &CombatState, card_type: CardType) -> Vec<CardId> {
+    state
+        .piles
+        .draw_pile
+        .iter()
+        .filter(|card| {
+            get_card_definition(card.content_id)
+                .is_some_and(|definition| definition.card_type == card_type)
+        })
+        .map(|card| card.id)
+        .collect()
 }
 
 fn secret_technique_queue(
@@ -3234,17 +3391,30 @@ fn secret_technique_queue(
         },
     ]);
 
-    if draw_pile_has_skill(state) {
-        queue.push_back(InternalAction::AwaitDrawSelect {
-            source_card_id: card_id,
-            purpose: crate::combat::DrawSelectPurpose::SecretTechniqueSkillToHand,
-        });
-    } else {
-        queue.push_back(InternalAction::MoveCard {
+    match draw_pile_cards_of_type(state, CardType::Skill).as_slice() {
+        [selected_card_id] => {
+            queue.extend([
+                InternalAction::MoveCard {
+                    card_id: *selected_card_id,
+                    from: CardPile::DrawPile,
+                    to: CardPile::Hand,
+                },
+                InternalAction::MoveCard {
+                    card_id,
+                    from: CardPile::Hand,
+                    to: card_move_destination(definition),
+                },
+            ]);
+        }
+        [] => queue.push_back(InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
-            to: CardPile::ExhaustPile,
-        });
+            to: card_move_destination(definition),
+        }),
+        _ => queue.push_back(InternalAction::AwaitDrawSelect {
+            source_card_id: card_id,
+            purpose: crate::combat::DrawSelectPurpose::SecretTechniqueSkillToHand,
+        }),
     }
 
     Ok(queue)
@@ -3262,17 +3432,30 @@ fn secret_weapon_queue(
         },
     ]);
 
-    if draw_pile_has_attack(state) {
-        queue.push_back(InternalAction::AwaitDrawSelect {
-            source_card_id: card_id,
-            purpose: crate::combat::DrawSelectPurpose::SecretWeaponAttackToHand,
-        });
-    } else {
-        queue.push_back(InternalAction::MoveCard {
+    match draw_pile_cards_of_type(state, CardType::Attack).as_slice() {
+        [selected_card_id] => {
+            queue.extend([
+                InternalAction::MoveCard {
+                    card_id: *selected_card_id,
+                    from: CardPile::DrawPile,
+                    to: CardPile::Hand,
+                },
+                InternalAction::MoveCard {
+                    card_id,
+                    from: CardPile::Hand,
+                    to: card_move_destination(definition),
+                },
+            ]);
+        }
+        [] => queue.push_back(InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
-            to: CardPile::ExhaustPile,
-        });
+            to: card_move_destination(definition),
+        }),
+        _ => queue.push_back(InternalAction::AwaitDrawSelect {
+            source_card_id: card_id,
+            purpose: crate::combat::DrawSelectPurpose::SecretWeaponAttackToHand,
+        }),
     }
 
     Ok(queue)
@@ -3378,11 +3561,12 @@ pub(super) fn validate_havoc_target(
 }
 
 fn twin_strike_queue(
+    state: &CombatState,
     card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let damage = required_damage(definition)?;
+    let damage = attack_damage_with_strike_dummy(state, definition)?;
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -3662,6 +3846,16 @@ fn true_grit_queue(
                 purpose: crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
             });
             return Ok(queue);
+        } else if other_hand_cards(state, card_id).len() == 1 {
+            // Target ExhaustAction takes its non-random "exhaust all" path
+            // when this is the only card left in hand, so it does not advance
+            // cardRandomRng for unupgraded True Grit.
+            let target_card_id = other_hand_cards(state, card_id)[0];
+            queue.push_back(InternalAction::MoveCard {
+                card_id: target_card_id,
+                from: CardPile::Hand,
+                to: CardPile::ExhaustPile,
+            });
         } else {
             queue.push_back(InternalAction::ExhaustRandomHandCardExcept {
                 excluded_card_id: card_id,
@@ -3697,7 +3891,26 @@ fn burning_pact_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDequ
         2
     };
 
-    if lowest_other_hand_card(state, card_id).is_none() {
+    let other_hand_card_ids = other_hand_cards(state, card_id);
+    if other_hand_card_ids.is_empty() {
+        queue.push_back(InternalAction::DrawCards { count: draw_count });
+        queue.push_back(InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        });
+        return Ok(queue);
+    }
+
+    if other_hand_card_ids.len() == 1 {
+        // Target ExhaustAction(1, false) exhausts all cards without opening
+        // HandCardSelectScreen when the played card is already in limbo and
+        // only one other card remains in hand.
+        queue.push_back(InternalAction::MoveCard {
+            card_id: other_hand_card_ids[0],
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        });
         queue.push_back(InternalAction::DrawCards { count: draw_count });
         queue.push_back(InternalAction::MoveCard {
             card_id,
@@ -3836,6 +4049,7 @@ fn metallicize_queue(
 }
 
 fn pommel_strike_queue(
+    state: &CombatState,
     card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
@@ -3854,14 +4068,12 @@ fn pommel_strike_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: required_damage(definition)?,
+                amount: attack_damage_with_strike_dummy(state, definition)?,
             },
         },
-        InternalAction::DrawCards { count: draw_count },
-        InternalAction::MoveCard {
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo {
             card_id,
-            from: CardPile::Hand,
-            to: CardPile::DiscardPile,
+            count: draw_count,
         },
     ]))
 }
@@ -3934,7 +4146,7 @@ fn battle_trance_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DrawCardsWhilePlayedCardIsInLimbo {
+        InternalAction::DrawCardsWhilePlayedCardIsInLimboWithoutEvolve {
             card_id,
             count: battle_trance_draw_count(definition),
         },
@@ -4131,12 +4343,18 @@ fn monster_intends_attack(state: &CombatState, target: MonsterId) -> bool {
                     | MonsterIntent::AttackApplyPlayerFrail { .. }
                     | MonsterIntent::AttackApplyPlayerVulnerable { .. }
                     | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
+                    | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { .. }
                     | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
                     | MonsterIntent::AttackHealSelf { .. }
                     | MonsterIntent::AttackAddWoundsToDiscard { .. }
                     | MonsterIntent::AttackAddSlimedToDiscard { .. }
                     | MonsterIntent::AttackMultiple { .. }
                     | MonsterIntent::AttackStealGold { .. }
+                    | MonsterIntent::AddBurnToDiscard { .. }
+                    | MonsterIntent::AddBurnToDiscardAndDraw { .. }
+                    | MonsterIntent::AttackMultipleUpgradeBurns { .. }
+                    | MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
+                    | MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
             )
         })
 }

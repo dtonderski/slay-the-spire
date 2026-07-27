@@ -55,13 +55,72 @@ let controlAddress = null;
 let stateSeq = 0;
 let controlOwner = null;
 let commandInFlight = null;
+const deferredJsonWrites = new Map();
 
 function writeRecord(record) {
   logStream.write(`${JSON.stringify(record)}\n`);
 }
 
+function sleepSync(milliseconds) {
+  Atomics.wait(
+    new Int32Array(new SharedArrayBuffer(4)),
+    0,
+    0,
+    milliseconds,
+  );
+}
+
+function renameSyncWithRetry(source, destination, attempts = 20) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      fs.renameSync(source, destination);
+      return;
+    } catch (error) {
+      const retryable = new Set(["EPERM", "EACCES", "EBUSY"]).has(error.code);
+      if (!retryable || attempt >= attempts) throw error;
+      sleepSync(Math.min(100, 5 * (2 ** Math.min(attempt - 1, 4))));
+    }
+  }
+}
+
 function writeJson(filePath, value) {
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+  const temporaryPath = `${filePath}.${clientPid}.tmp`;
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`);
+  renameSyncWithRetry(temporaryPath, filePath);
+}
+
+function writeJsonDeferred(filePath, value) {
+  let state = deferredJsonWrites.get(filePath);
+  if (!state) {
+    state = { writing: false, pending: null };
+    deferredJsonWrites.set(filePath, state);
+  }
+  state.pending = `${JSON.stringify(value, null, 2)}\n`;
+  if (!state.writing) drainDeferredJsonWrite(filePath, state);
+}
+
+function drainDeferredJsonWrite(filePath, state) {
+  if (state.pending === null) {
+    state.writing = false;
+    return;
+  }
+  const content = state.pending;
+  state.pending = null;
+  state.writing = true;
+  const temporaryPath = `${filePath}.${clientPid}.tmp`;
+  fs.writeFile(temporaryPath, content, (error) => {
+    if (error) {
+      process.stderr.write(`Failed to publish ${filePath}: ${error.message}\n`);
+      drainDeferredJsonWrite(filePath, state);
+      return;
+    }
+    fs.rename(temporaryPath, filePath, (renameError) => {
+      if (renameError) {
+        process.stderr.write(`Failed to publish ${filePath}: ${renameError.message}\n`);
+      }
+      drainDeferredJsonWrite(filePath, state);
+    });
+  });
 }
 
 function stateIdFor(message, summary) {
@@ -91,9 +150,12 @@ function writeStatus(value) {
 
 function writePendingStatus() {
   if (!latestStatus) return;
+  const queued = queuedCommands[0] || null;
   writeStatus({
     ...latestStatus,
     pending_command: queuedCommands.length > 0 || Boolean(commandInFlight),
+    queued_command: queued?.command ?? null,
+    queued_command_meta: queued?.command_meta ?? null,
     command_in_flight: commandInFlight,
   });
 }
@@ -117,8 +179,17 @@ function markExit(reason, details = {}) {
   const endedAt = new Date().toISOString();
   const record = { type: "metadata", event: "exit", reason, ended_at: endedAt, ...details };
   writeRecord(record);
+  try {
+    const publishedStatus = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+    if (publishedStatus.client_pid !== undefined && publishedStatus.client_pid !== clientPid) {
+      return;
+    }
+  } catch {
+    // A missing or interrupted old status still needs an explicit exit record.
+  }
   writeStatus({
     step,
+    client_pid: clientPid,
     status: "exited",
     reason,
     trace_path: tracePath,
@@ -226,10 +297,10 @@ function publishState(message) {
     state_seq: stateSeq,
     state_id: stateId,
   };
-  writeJson(statePath, {
+  writeJsonDeferred(statePath, {
     ...latestState,
   });
-  writeJson(summaryPath, latestSummary);
+  writeJsonDeferred(summaryPath, latestSummary);
   notifyStateWaiters();
   return latestSummary;
 }
@@ -282,6 +353,39 @@ function enqueueCommand(command, commandMeta) {
   } else {
     queuedCommands.push(item);
   }
+}
+
+function cancelQueuedCommand(commandId, reason = "observed_update_timeout") {
+  const index = queuedCommands.findIndex(
+    (item) => item.command_meta?.command_id === commandId,
+  );
+  if (index < 0) return false;
+  const [cancelled] = queuedCommands.splice(index, 1);
+  writeRecord({
+    type: "metadata",
+    event: "queued_command_cancelled",
+    step,
+    cancelled_at: new Date().toISOString(),
+    command: cancelled.command,
+    command_id: commandId,
+    reason,
+  });
+  return true;
+}
+
+function cancelOrphanedQueuedCommands(maxAgeMs, nowMs = Date.now()) {
+  if (!Number.isFinite(maxAgeMs) || maxAgeMs < 0 || controlOwner) return [];
+  const cancelled = [];
+  for (const item of [...queuedCommands]) {
+    const submittedAtMs = Number(item.command_meta?.submitted_at) * 1000;
+    if (!Number.isFinite(submittedAtMs) || nowMs - submittedAtMs < maxAgeMs) continue;
+    const commandId = item.command_meta?.command_id;
+    if (commandId && cancelQueuedCommand(commandId, "orphaned_controller_takeover")) {
+      cancelled.push(commandId);
+    }
+  }
+  if (cancelled.length > 0) writePendingStatus();
+  return cancelled;
 }
 
 function waitForQueuedCommand(timeoutMs) {
@@ -399,9 +503,13 @@ function validateProtocolCommand(payload) {
   if (!command) return "command is required";
   if (command.length > 200) return "command is too long";
   const verb = command.split(/\s+/)[0].toLowerCase();
-  const startupStart = verb === "start" && !latestSummary && latestStatus?.status === "ready";
+  const isStartCommand = verb === "start" || verb === "start_verify";
+  const startupStart = isStartCommand && !latestSummary && latestStatus?.status === "ready";
   const available = new Set((latestSummary?.available_commands ?? []).map((item) => String(item).toLowerCase()));
-  const menuStart = verb === "start" && latestSummary?.in_game === false && available.has("start");
+  const menuStart =
+    isStartCommand &&
+    latestSummary?.in_game === false &&
+    available.has(verb);
   if (!latestSummary && !startupStart) return "no observed state is available";
   if (queuedCommands.length > 0) return "a command is already queued";
   if (commandInFlight && stateSeq <= commandInFlight.accepted_state_seq) {
@@ -536,6 +644,7 @@ async function enqueueAbandonRun(payload) {
         step,
       };
     if (!observed) {
+      cancelQueuedCommand(commandId);
       writeRecord({
         type: "command_observed_timeout",
         step,
@@ -549,7 +658,6 @@ async function enqueueAbandonRun(payload) {
     if (
       commandInFlight
       && commandInFlight.command_id === commandId
-      && queuedCommands.length === 0
     ) {
       commandInFlight = null;
       writePendingStatus();
@@ -569,6 +677,9 @@ async function handleControlMessage(payload) {
   if (type === "acquire") {
     const ownerId = String(payload.owner_id ?? "").trim();
     if (!ownerId) return { ok: false, error: "owner_id is required" };
+    const cancelledOrphanedCommandIds = cancelOrphanedQueuedCommands(
+      Number(payload.cancel_orphaned_command_after_ms),
+    );
     if (controlOwner && controlOwner.owner_id !== ownerId) {
       const leaseAgeMs = controlOwnerLeaseAgeMs();
       const takeoverAfterMs = Number(payload.takeover_if_stale_after_ms);
@@ -604,6 +715,7 @@ async function handleControlMessage(payload) {
           owner_token: controlOwner.owner_token,
           replaced_owner_id: replacedOwnerId,
           takeover: true,
+          cancelled_orphaned_command_ids: cancelledOrphanedCommandIds,
           state_id: latestSummary?.state_id ?? null,
           state_seq: stateSeq,
         };
@@ -629,6 +741,7 @@ async function handleControlMessage(payload) {
       protocol: "sts-bridge-jsonl-v1",
       owner_id: controlOwner.owner_id,
       owner_token: controlOwner.owner_token,
+      cancelled_orphaned_command_ids: cancelledOrphanedCommandIds,
       state_id: latestSummary?.state_id ?? null,
       state_seq: stateSeq,
     };
@@ -732,6 +845,7 @@ async function handleControlMessage(payload) {
           step,
         };
       if (!observed) {
+        cancelQueuedCommand(commandId);
         writeRecord({
           type: "command_observed_timeout",
           step,
@@ -745,7 +859,6 @@ async function handleControlMessage(payload) {
       if (
         commandInFlight
         && commandInFlight.command_id === commandId
-      && queuedCommands.length === 0
     ) {
       commandInFlight = null;
       writePendingStatus();
@@ -813,7 +926,20 @@ async function waitForCommand(message) {
 
   const started = Date.now();
   while (true) {
-    const timeoutMs = Math.max(0, Math.min(100, autoStateMs > 0 ? autoStateMs - (Date.now() - started) : 100));
+    const elapsedMs = Date.now() - started;
+    if (Number.isFinite(autoStateMs) && autoStateMs > 0 && elapsedMs >= autoStateMs) {
+      return {
+        command: "state",
+        command_meta: {
+          source: "passive_poll",
+          auto_state_ms: autoStateMs,
+        },
+      };
+    }
+    const timeoutMs = Math.max(
+      1,
+      Math.min(100, autoStateMs > 0 ? autoStateMs - elapsedMs : 100),
+    );
     const queued = await waitForQueuedCommand(timeoutMs);
     if (queued) return queued;
     if (fs.existsSync(commandPath)) {
@@ -832,16 +958,6 @@ async function waitForCommand(message) {
         }
       }
     }
-    if (Number.isFinite(autoStateMs) && autoStateMs > 0 && Date.now() - started >= autoStateMs) {
-      return {
-        command: "state",
-        command_meta: {
-          source: "passive_poll",
-          auto_state_ms: autoStateMs,
-        },
-      };
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
 
