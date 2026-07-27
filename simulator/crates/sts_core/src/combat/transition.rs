@@ -2443,12 +2443,16 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
     let index = discard_select
         .selected_discard_index
         .ok_or(SimError::IllegalAction("discard select choice is required"))?;
-    let card = state
-        .piles
-        .discard_pile
-        .get(index)
-        .copied()
-        .ok_or(SimError::IllegalAction("discard select index out of range"))?;
+    if index >= state.piles.discard_pile.len() {
+        return Err(SimError::IllegalAction("discard select index out of range"));
+    }
+    // Headbutt's PutOnDeck always returns the chosen discard card to the top of
+    // the draw pile, including when Headbutt itself was already force-exhausted
+    // by Havoc / Mayhem / similar PlayTopCard(exhaust=true) paths. The forced
+    // source may already sit in exhaust; only the source settlement is skipped
+    // below, never the put-on-draw.
+    let card = state.piles.discard_pile.remove(index);
+    state.piles.draw_pile.push(card);
     let forced_top_draw_source = discard_select.source_card.is_none()
         && discard_select.source_card_id.is_some_and(|source_card_id| {
             state
@@ -2457,10 +2461,6 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
                 .iter()
                 .any(|source_card| source_card.id == source_card_id)
         });
-    if !forced_top_draw_source {
-        state.piles.discard_pile.remove(index);
-        state.piles.draw_pile.push(card);
-    }
     if let Some(source_card) = discard_select.source_card {
         state.piles.discard_pile.push(source_card);
     } else if let Some(source_card_id) = discard_select.source_card_id {
@@ -5060,8 +5060,11 @@ mod tests {
         choose_discard_select(&mut next, 0).expect("select Power Through");
         confirm_headbutt_select(&mut next).expect("confirm forced Headbutt selection");
 
-        assert!(next.piles.draw_pile.is_empty());
-        assert!(next
+        // Havoc exhausts Headbutt, but Headbutt's PutOnDeck still returns the
+        // chosen discard card to the top of the draw pile.
+        assert_eq!(next.piles.draw_pile.len(), 1);
+        assert_eq!(next.piles.draw_pile[0].content_id, POWER_THROUGH_ID);
+        assert!(!next
             .piles
             .discard_pile
             .iter()

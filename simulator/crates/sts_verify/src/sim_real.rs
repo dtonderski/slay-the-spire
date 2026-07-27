@@ -1970,13 +1970,23 @@ fn combat_card_ids(value: Option<&Value>) -> Vec<String> {
     let Some(cards) = value.and_then(Value::as_array) else {
         return Vec::new();
     };
-    cards
-        .iter()
-        .map(|card| {
+    // CommunicationMod occasionally lists the same card instance twice in a
+    // pile snapshot (same uuid) after PutOnDeck-style moves. A single card
+    // instance cannot occupy two pile slots; keep the first occurrence.
+    let mut seen_uuids = std::collections::HashSet::new();
+    let mut ids = Vec::with_capacity(cards.len());
+    for card in cards {
+        if let Some(uuid) = card.get("uuid").and_then(Value::as_str) {
+            if !seen_uuids.insert(uuid) {
+                continue;
+            }
+        }
+        ids.push(
             observed_card_projection_key(card)
-                .expect("trace combat card schema was validated before projection")
-        })
-        .collect()
+                .expect("trace combat card schema was validated before projection"),
+        );
+    }
+    ids
 }
 
 fn cards_to_comm_mod_visible_order<'a>(
