@@ -1899,6 +1899,57 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
     Ok(())
 }
 
+/// Confirm a single-card put-on-deck hand select without retrieving the selected
+/// card onto the draw pile.
+///
+/// Models the GameActionManager skipped-retrieval frame: `PutOnDeckAction` can
+/// `tickDuration()` when opening `HandCardSelectScreen`, complete before
+/// CONFIRM, and skip the later update that calls `hand.moveToDeck`. The selected
+/// card remains owned by the closed selection screen (absent from every
+/// serialized pile). Source settlement still runs, so Dark Embrace draws the
+/// pre-select top of the draw pile rather than the never-placed selected card.
+///
+/// Returns the stuck selected card for verifier limbo tracking until end-turn
+/// discard reintroduces it. Eligible purposes match the single-card put-on-deck
+/// family: Warcry, Thinking Ahead, and base Forethought.
+pub fn confirm_hand_select_skipped_put_on_deck_retrieval(
+    state: &mut CombatState,
+) -> SimResult<CardInstance> {
+    let (hand_select, pending_actions) = state
+        .take_hand_select()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    match hand_select.purpose {
+        HandSelectPurpose::WarcryPutOnDraw
+        | HandSelectPurpose::ThinkingAheadPutOnDraw
+        | HandSelectPurpose::ForethoughtPutOnDraw => {}
+        _ => {
+            return Err(SimError::IllegalAction(
+                "skipped put-on-deck retrieval requires a single-card put-on-deck hand select",
+            ));
+        }
+    }
+    let index = required_hand_select_index(&hand_select)?;
+    let selected_id = state
+        .piles
+        .hand
+        .get(index)
+        .ok_or(SimError::IllegalAction("hand select index out of range"))?
+        .id;
+    if selected_id == hand_select.source_card_id {
+        return Err(SimError::IllegalAction(
+            "cannot put the put-on-deck source card back onto the draw pile",
+        ));
+    }
+    // Leave the selected card outside every pile (selection-screen limbo).
+    let selected = remove_card_from_pile(state, selected_id, CardPile::Hand)?;
+    // Source settlement still runs after PutOnDeckAction would have completed.
+    // Dark Embrace therefore draws the real top, not the never-placed card.
+    move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
+    resume_actions_after_hand_select(state, pending_actions)?;
+    state.activate_next_queued_decision_if_idle();
+    Ok(selected)
+}
+
 fn resume_actions_after_hand_select(
     state: &mut CombatState,
     pending_actions: VecDeque<InternalAction>,

@@ -1176,6 +1176,42 @@ fn warcry_skipped_put_on_deck_retrieval_frame_replays_source_transition() {
 }
 
 #[test]
+fn warcry_skipped_retrieval_with_dark_embrace_draws_real_top_not_selected() {
+    // Warcry CONFIRM under skipped PutOnDeck retrieval while Dark Embrace is
+    // active: selected Defend+ stays in selection-screen limbo, DE draws the
+    // pre-select top (Dual Wield) into hand. Permanent trace ends at step 649.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-aacf87be6c7234a6.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Warcry+Dark Embrace skipped retrieval permanent trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "step 649 CONFIRM must match Dual Wield drawn via DE: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 649)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "Warcry hand-select CONFIRM must verify as skipped retrieval: {report:#?}"
+    );
+}
+
+#[test]
 fn random_fidelity_warcry_skipped_retrieval_preserves_delayed_discard_order() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-36e6dccfb5901688.jsonl")

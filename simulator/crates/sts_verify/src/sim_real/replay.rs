@@ -3910,17 +3910,21 @@ fn seed_start_handle_combat_phase(
                     "Gambling Chip source settlement frame".to_owned()
                 },
             });
-        } else if let Some(selected_card_id) = put_on_deck_selected_card_id {
+        } else if put_on_deck_selected_card_id.is_some() {
             let observed = seed_start_combat_observed_subset(&post.message);
-            let skipped_retrieval =
-                seed_start_put_on_deck_skipped_retrieval_state(&next, selected_card_id);
-            let skipped_retrieval_matches = skipped_retrieval.as_ref().is_some_and(|skipped| {
-                seed_start_is_stable_combat_post_state(&post.message)
-                    && seed_start_combat_subsets_match(
-                        observed.clone(),
-                        seed_start_simulated_combat_subset(skipped, false),
-                    )
-            });
+            // Rebuild from pre-CONFIRM so source settlement (Dark Embrace) draws
+            // the real top when PutOnDeckAction skipped retrieval. Deriving the
+            // candidate by stripping the selected card from the normal post
+            // state is wrong once on-exhaust already drew that card into hand.
+            let skipped_retrieval = seed_start_put_on_deck_skipped_retrieval_state(sim);
+            let skipped_retrieval_matches =
+                skipped_retrieval.as_ref().is_some_and(|(skipped, _)| {
+                    seed_start_is_stable_combat_post_state(&post.message)
+                        && seed_start_combat_subsets_match(
+                            observed.clone(),
+                            seed_start_simulated_combat_subset(skipped, false),
+                        )
+                });
             if skipped_retrieval_matches {
                 report.verified.push(VerifiedTransition {
                     action_step: action.step,
@@ -3934,12 +3938,10 @@ fn seed_start_handle_combat_phase(
                 // END (see deferred_put_on_deck_card settlement above).
                 // Flag starts false (= not yet forced to multi-card after an
                 // empty-hand miss).
-                if seed_start_put_on_deck_card_settlement(sim) {
-                    *pending_put_on_deck_card =
-                        seed_start_put_on_deck_card(&next, selected_card_id)
-                            .map(|card| (card, false));
-                }
-                next = skipped_retrieval.expect("matching skipped-retrieval state exists");
+                let (skipped_state, selected_card) =
+                    skipped_retrieval.expect("matching skipped-retrieval state exists");
+                *pending_put_on_deck_card = Some((selected_card, false));
+                next = skipped_state;
             } else {
                 seed_start_compare_or_defer_combat_transition(
                     report,
@@ -4862,36 +4864,28 @@ fn seed_start_put_on_deck_card_settlement(run: &RunState) -> bool {
     )
 }
 
+/// Rebuild put-on-deck skipped retrieval from the pre-CONFIRM source state.
+///
+/// `PutOnDeckAction` stores selected cards in `HandCardSelectScreen.selectedCards`.
+/// If the action has already completed when CONFIRM closes that screen, the
+/// action manager skips its retrieval update, leaving the card outside every
+/// serialized pile. Source settlement still runs, so Dark Embrace draws the
+/// pre-select top of draw rather than the never-placed selected card.
+///
+/// Returns `(post_state, stuck_selected_card)`. The replay caller retains the
+/// typed card and reintroduces it via end-turn discard on the first eligible
+/// non-empty-hand END (`pending_hidden_hand_card_until_end_turn`).
 fn seed_start_put_on_deck_skipped_retrieval_state(
-    run: &RunState,
-    selected_card_id: CardId,
-) -> Option<RunState> {
-    let mut transient = run.clone();
+    pre: &RunState,
+) -> Option<(RunState, CardInstance)> {
+    if !seed_start_put_on_deck_card_settlement(pre) {
+        return None;
+    }
+    let mut transient = pre.clone();
     let combat = transient.combat.as_mut()?;
-    let selected_index = combat
-        .piles
-        .draw_pile
-        .iter()
-        .position(|card| card.id == selected_card_id)?;
-    // PutOnDeckAction stores selected cards in HandCardSelectScreen.selectedCards.
-    // If the action has already completed when CONFIRM closes that screen, the
-    // action manager skips its retrieval update, leaving the card outside every
-    // serialized pile. The replay caller retains the typed card separately and
-    // restores it to the draw-pile bottom when the following END settles the
-    // source action; it must not use the hand-card pending slot, whose core
-    // end-turn semantics append to discard.
-    combat.piles.draw_pile.remove(selected_index);
-    Some(transient)
-}
-
-fn seed_start_put_on_deck_card(run: &RunState, selected_card_id: CardId) -> Option<CardInstance> {
-    run.combat
-        .as_ref()?
-        .piles
-        .draw_pile
-        .iter()
-        .find(|card| card.id == selected_card_id)
-        .copied()
+    let selected =
+        sts_core::combat::confirm_hand_select_skipped_put_on_deck_retrieval(combat).ok()?;
+    Some((transient, selected))
 }
 
 fn card_with_replay_transient_id(combat: &CombatState, mut card: CardInstance) -> CardInstance {

@@ -22,17 +22,25 @@ the player directly, while serializing selected hand cards separately under
 The normal core transition keeps the intended selected-card draw destination
 authoritative. The real-game skipped-retrieval result is a separate,
 source-backed transition candidate. It is eligible only for a typed Warcry,
-Thinking Ahead, or base Forethought hand-select confirmation, only when the
-selected card is in the core draw pile, and only when the stable target frame
-matches the candidate in every other compared field. A generic pile mismatch
-does not use this candidate.
+Thinking Ahead, or base Forethought hand-select confirmation, and only when
+the stable target frame matches the candidate in every other compared field.
+A generic pile mismatch does not use this candidate.
 
 Once that exact target transition is verified, later commands continue from
-the skipped-retrieval candidate. The candidate is derived only by removing the
-simulator-selected card from the normal core result; no observed card identity,
-pile ordering, RNG state, or other gameplay field is copied into simulation.
-This is necessary because the target card remains owned by the closed
-selection-screen object after the action manager skips retrieval.
+the skipped-retrieval candidate. The candidate is rebuilt only from the
+pre-CONFIRM simulator state via
+`confirm_hand_select_skipped_put_on_deck_retrieval`: remove the selected card
+without putting it on the draw pile, then settle the source (exhaust/discard
+and on-exhaust effects). No observed card identity, pile ordering, RNG state,
+or other gameplay field is copied into simulation.
+
+Rebuilding from pre-CONFIRM is required when Dark Embrace (or another
+on-exhaust draw) is active. The normal core path puts the selected card on
+top and then Dark Embrace draws it into hand; stripping that card from the
+post-CONFIRM result would leave the wrong card undrawn. Under skipped
+retrieval the card never reached the draw pile, so Dark Embrace draws the
+previous top instead (e.g. Dual Wield still in draw → drawn into hand while
+Defend+ stays in selection-screen limbo).
 
 The limbo card is re-introduced through the end-turn discard path
 (`pending_hidden_hand_card_until_end_turn` → discard):
