@@ -82,7 +82,7 @@ fn draw_cards_with_sts_rng_batch_deferred(
 /// draws from statuses are queued after the current draw action finishes—not
 /// interleaved between the remaining cards of this batch. Nested status draws
 /// from those follow-up actions are processed FIFO in the same way.
-pub(crate) fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) -> SimResult<()> {
+pub fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) -> SimResult<()> {
     let mut next = state.clone();
     let mut pending = std::collections::VecDeque::from(draw_cards_batch_deferred_evolve_in_place(
         &mut next, count,

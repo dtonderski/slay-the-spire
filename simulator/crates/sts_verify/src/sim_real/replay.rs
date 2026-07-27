@@ -4887,7 +4887,7 @@ fn seed_start_gambling_chip_source_settlement_frame_matches(
 
 fn seed_start_burning_pact_deferred_selection_state(
     source: &RunState,
-    settled: &RunState,
+    _settled: &RunState,
 ) -> Option<RunState> {
     let source_combat = source.combat.as_ref()?;
     let select = source_combat.exhaust_select()?;
@@ -4896,33 +4896,48 @@ fn seed_start_burning_pact_deferred_selection_state(
         ExhaustSelectPurpose::BurningPactDraw2 | ExhaustSelectPurpose::BurningPactDraw3
     ) || select.source_card.is_none()
         || select.selected_hand_indices.len() != 1
+        || source_combat
+            .pending_hidden_hand_card_until_end_turn
+            .is_some()
     {
         return None;
     }
 
     let selected_index = select.selected_hand_indices[0];
-    let selected_card_id = source_combat.piles.hand.get(selected_index)?.id;
-    let mut transient = settled.clone();
-    let combat = transient.combat.as_mut()?;
-    if combat.pending_hidden_hand_card_until_end_turn.is_some() {
+    if selected_index >= source_combat.piles.hand.len() {
         return None;
     }
-    let exhaust_index = combat
-        .piles
-        .exhaust_pile
-        .iter()
-        .position(|card| card.id == selected_card_id)?;
-    // With Runic Pyramid, CommunicationMod can expose the settled CONFIRM
-    // frame before the target ExhaustAction has placed the selected card in a
-    // visible pile. Keep that card out of the next end-turn shuffle: the
-    // source trace shows it remains hidden while the retained hand is drawn.
-    // Without Runic Pyramid, preserve the existing delayed-discard settlement
-    // used by ordinary Burning Pact traces.
-    if combat.relics.contains(&Relic::RunicPyramid) {
-        combat.piles.exhaust_pile.remove(exhaust_index);
-    } else {
-        let selected_card = combat.piles.exhaust_pile.remove(exhaust_index);
+    let draw_count = match select.purpose {
+        ExhaustSelectPurpose::BurningPactDraw3 => 3,
+        _ => 2,
+    };
+
+    // Rebuild from the pre-CONFIRM source. ExhaustAction calls tickDuration when
+    // it opens HandCardSelectScreen; if that duration completes before CONFIRM
+    // (common under heavy ExhaustCardEffect load late in Sentry fights),
+    // GameActionManager skips the retrieval update. The selected card remains
+    // owned by the closed selection screen — absent from every serialized pile —
+    // and Dark Embrace never draws. Only Burning Pact's DrawCardAction and
+    // UseCardAction (source → discard) still resolve.
+    //
+    // Ordinary successful retrieval keeps the core exhaust+DE path. This
+    // candidate is used only when the stable observed frame matches it (no
+    // selected card in exhaust, hand/draw without the DE card).
+    let mut transient = source.clone();
+    let combat = transient.combat.as_mut()?;
+    let select = combat.take_exhaust_select()?;
+    let selected_card = combat.piles.hand.remove(selected_index);
+    // Without Runic Pyramid the stuck card re-enters via end-turn discard then
+    // shuffle (trace 131acce5 step 254). With Runic Pyramid it stays outside the
+    // shuffle while the retained hand is drawn — leave it fully untracked.
+    if !combat.relics.contains(&Relic::RunicPyramid) {
         combat.pending_hidden_hand_card_until_end_turn = Some(selected_card);
+    }
+    if let Err(_err) = sts_core::combat::draw::draw_cards_with_combat_rng(combat, draw_count) {
+        return None;
+    }
+    if let Some(source_card) = select.source_card {
+        combat.piles.discard_pile.push(source_card);
     }
     Some(transient)
 }
