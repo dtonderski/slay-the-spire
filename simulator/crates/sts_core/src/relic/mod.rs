@@ -2500,6 +2500,46 @@ pub fn apply_end_of_player_turn_relics(state: &mut CombatState) -> SimResult<()>
     Ok(())
 }
 
+/// Open Nilry's Codex 3-card combat reward (caller pauses end-of-turn until closed).
+pub fn open_nilrys_codex_card_reward(state: &mut CombatState) -> SimResult<()> {
+    use crate::content::cards::get_card_definition;
+    use crate::content::shop_pool::ironclad_combat_discovery_pool;
+    use crate::ids::CardId;
+    use crate::CardInstance;
+    use crate::combat::state::CombatDecisionState;
+
+    let pool: Vec<_> = ironclad_combat_discovery_pool()
+        .iter()
+        .copied()
+        .filter(|content_id| get_card_definition(*content_id).is_some())
+        .collect();
+    if pool.len() < 3 {
+        return Err(SimError::InvalidState(
+            "Nilry's Codex card pool is smaller than 3 modeled cards",
+        ));
+    }
+    let next_card_id = state.reserve_card_instance_ids(3)?;
+    let mut choices = Vec::with_capacity(3);
+    let rng = &mut state.rng.card_random_rng;
+    while choices.len() < 3 {
+        let index = rng.random_int((pool.len() - 1) as i32) as usize;
+        let content_id = pool[index];
+        if !choices.contains(&content_id) {
+            choices.push(content_id);
+        }
+    }
+    state.decision = Some(CombatDecisionState::NilrysCodexCardReward {
+        choices: choices
+            .into_iter()
+            .enumerate()
+            .map(|(index, content_id)| {
+                CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
+            })
+            .collect(),
+    });
+    Ok(())
+}
+
 #[must_use]
 pub fn mitigate_unblocked_attack_damage(relics: &[Relic], amount: i32) -> i32 {
     let mut mitigated = amount;

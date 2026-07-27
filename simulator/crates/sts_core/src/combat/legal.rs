@@ -137,7 +137,8 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
             CombatDecisionState::ExhaustSelect { .. } => "exhaust select is open",
             CombatDecisionState::PotionCardReward { .. }
             | CombatDecisionState::ToolboxCardReward { .. }
-            | CombatDecisionState::DiscoveryCardReward { .. } => "combat card reward is open",
+            | CombatDecisionState::DiscoveryCardReward { .. }
+            | CombatDecisionState::NilrysCodexCardReward { .. } => "combat card reward is open",
         };
         return Err(SimError::IllegalAction(reason));
     }

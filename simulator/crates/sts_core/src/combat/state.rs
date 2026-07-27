@@ -106,6 +106,16 @@ pub struct CombatState {
     /// appended to discard after the visible hand's end-turn cleanup.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_hidden_hand_card_until_end_turn: Option<CardInstance>,
+    /// Set when Nilry's Codex paused end-of-turn; resume discards + monster turn
+    /// after the card-reward decision closes.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub resume_end_turn_after_nilrys_codex: bool,
+    /// Dead Branch cards held across the Nilry pause until post-discard hand rebuild.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_end_turn_dead_branch_cards: Vec<CardInstance>,
+    /// Dark Embrace draws deferred across the Nilry pause.
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
+    pub pending_end_turn_dark_embrace_draws: usize,
     /// Legacy fields retained for snapshot deserialization compatibility.
     /// Elixir permanently exhausts selected cards; these are no longer written.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -239,6 +249,11 @@ pub enum CombatDecisionState {
         choices: Vec<CardInstance>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source_card: Option<CardInstance>,
+    },
+    /// Nilry's Codex end-of-turn offer: pick one card to shuffle into the draw
+    /// pile (or skip). End-turn continues after the decision closes.
+    NilrysCodexCardReward {
+        choices: Vec<CardInstance>,
     },
     HandSelect {
         state: HandSelectState,
@@ -570,7 +585,8 @@ impl CombatState {
         match self.decision.as_ref()? {
             CombatDecisionState::PotionCardReward { choices, .. }
             | CombatDecisionState::ToolboxCardReward { choices }
-            | CombatDecisionState::DiscoveryCardReward { choices, .. } => Some(choices),
+            | CombatDecisionState::DiscoveryCardReward { choices, .. }
+            | CombatDecisionState::NilrysCodexCardReward { choices } => Some(choices),
             _ => None,
         }
     }
@@ -814,6 +830,9 @@ impl CombatState {
             combat_gold_gained: 0,
             pending_potion_card_reward_settlement: None,
             pending_hidden_hand_card_until_end_turn: None,
+            resume_end_turn_after_nilrys_codex: false,
+            pending_end_turn_dead_branch_cards: Vec::new(),
+            pending_end_turn_dark_embrace_draws: 0,
             pending_elixir_exhaust_card_ids: Vec::new(),
             pending_elixir_exhaust_turns_remaining: 0,
             time_warp_end_turn: false,
@@ -1095,7 +1114,8 @@ fn extend_decision_cards<'a>(cards: &mut Vec<&'a CardInstance>, decision: &'a Co
     match decision {
         CombatDecisionState::PotionCardReward { choices, .. }
         | CombatDecisionState::ToolboxCardReward { choices }
-        | CombatDecisionState::DiscoveryCardReward { choices, .. } => cards.extend(choices),
+        | CombatDecisionState::DiscoveryCardReward { choices, .. }
+        | CombatDecisionState::NilrysCodexCardReward { choices } => cards.extend(choices),
         CombatDecisionState::DiscardSelect { state } => cards.extend(state.source_card.iter()),
         CombatDecisionState::ExhaustSelect { state } => cards.extend(state.source_card.iter()),
         CombatDecisionState::HandSelect { .. } | CombatDecisionState::DrawSelect { .. } => {}
@@ -1122,6 +1142,10 @@ fn is_zero_u32(value: &u32) -> bool {
 }
 
 fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
+}
+
+fn is_zero_usize(value: &usize) -> bool {
     *value == 0
 }
 

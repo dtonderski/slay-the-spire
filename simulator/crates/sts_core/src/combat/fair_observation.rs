@@ -814,6 +814,12 @@ fn project_selection(
             options: ordered_options(choices, corruption_active)?,
             selected_slots: Vec::new(),
         },
+        CombatDecisionState::NilrysCodexCardReward { choices } => FairSelection {
+            // Same transport as Toolbox/Discovery card-reward overlays.
+            kind: FairSelectionKind::ToolboxReward,
+            options: ordered_options(choices, corruption_active)?,
+            selected_slots: Vec::new(),
+        },
         CombatDecisionState::DiscoveryCardReward { choices, .. } => FairSelection {
             kind: FairSelectionKind::DiscoveryReward,
             options: ordered_options(choices, corruption_active)?,

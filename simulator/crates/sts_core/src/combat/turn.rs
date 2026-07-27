@@ -77,33 +77,63 @@ const HAND_SIZE: usize = 5;
 pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     let mut next = state.clone();
     let started_with_living_monster = state.monsters.iter().any(|monster| monster.alive);
-    let stasis_cards_before_end_powers = next
-        .monsters
-        .iter()
-        .filter(|monster| monster.alive)
-        .filter_map(|monster| monster.stasis_card.as_ref().map(|card| card.id))
-        .collect::<Vec<_>>();
+    let resuming_after_nilrys = next.resume_end_turn_after_nilrys_codex;
+    let deferred_stasis_cards;
+    let end_of_turn_hand;
 
-    // Slay the Spire checks Orichalcum before queued end-of-turn powers such as
-    // Metallicize resolve. Both block grants therefore apply when the player
-    // clicks End Turn with zero block.
-    crate::relic::apply_orichalcum_end_of_player_turn(&mut next)?;
-    crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand(&mut next)?;
-    expire_unused_duplication_potion_stack(&mut next);
-    resolve_player_temp_strength(&mut next)?;
-    let deferred_stasis_cards = if next.monsters.iter().any(|monster| monster.alive) {
-        take_released_stasis_cards_from_piles(&mut next, &stasis_cards_before_end_powers)
+    if resuming_after_nilrys {
+        // Nilry's Codex already ran the pre-discard half of end-turn. Resume
+        // after the card-reward decision with hand still present.
+        next.resume_end_turn_after_nilrys_codex = false;
+        deferred_stasis_cards = Vec::new();
+        end_of_turn_hand = crate::combat::hand::EndOfTurnHandResolution {
+            dead_branch_cards: std::mem::take(&mut next.pending_end_turn_dead_branch_cards),
+            deferred_dark_embrace_draws: std::mem::take(
+                &mut next.pending_end_turn_dark_embrace_draws,
+            ),
+        };
     } else {
-        Vec::new()
-    };
-    let end_of_turn_hand = resolve_end_of_turn_hand_with_deferred_dark_embrace_draws(&mut next)?;
-    crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
-    if finish_combat_if_over(&mut next, started_with_living_monster)? {
-        return Ok(next);
-    }
-    crate::relic::apply_end_of_player_turn_relics(&mut next)?;
-    if finish_combat_if_over(&mut next, started_with_living_monster)? {
-        return Ok(next);
+        let stasis_cards_before_end_powers = next
+            .monsters
+            .iter()
+            .filter(|monster| monster.alive)
+            .filter_map(|monster| monster.stasis_card.as_ref().map(|card| card.id))
+            .collect::<Vec<_>>();
+
+        // Slay the Spire checks Orichalcum before queued end-of-turn powers such as
+        // Metallicize resolve. Both block grants therefore apply when the player
+        // clicks End Turn with zero block.
+        crate::relic::apply_orichalcum_end_of_player_turn(&mut next)?;
+        crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand(&mut next)?;
+        expire_unused_duplication_potion_stack(&mut next);
+        resolve_player_temp_strength(&mut next)?;
+        deferred_stasis_cards = if next.monsters.iter().any(|monster| monster.alive) {
+            take_released_stasis_cards_from_piles(&mut next, &stasis_cards_before_end_powers)
+        } else {
+            Vec::new()
+        };
+        end_of_turn_hand =
+            resolve_end_of_turn_hand_with_deferred_dark_embrace_draws(&mut next)?;
+        crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
+        if finish_combat_if_over(&mut next, started_with_living_monster)? {
+            return Ok(next);
+        }
+        crate::relic::apply_end_of_player_turn_relics(&mut next)?;
+        if finish_combat_if_over(&mut next, started_with_living_monster)? {
+            return Ok(next);
+        }
+        // Nilry's Codex: before hand discard, open a 3-card combat reward and
+        // pause end-turn until the player chooses or skips.
+        if next.relics.contains(&crate::relic::Relic::NilrysCodex)
+            && next.decision.is_none()
+            && next.monsters.iter().any(|monster| monster.alive)
+        {
+            crate::relic::open_nilrys_codex_card_reward(&mut next)?;
+            next.pending_end_turn_dead_branch_cards = end_of_turn_hand.dead_branch_cards;
+            next.pending_end_turn_dark_embrace_draws = end_of_turn_hand.deferred_dark_embrace_draws;
+            next.resume_end_turn_after_nilrys_codex = true;
+            return Ok(next);
+        }
     }
     discard_end_of_turn_hand(&mut next);
     if let Some(card) = next.pending_hidden_hand_card_until_end_turn.take() {

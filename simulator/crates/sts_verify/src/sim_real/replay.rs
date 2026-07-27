@@ -3433,6 +3433,35 @@ fn seed_start_handle_combat_phase(
         return SeedStartPreDispatch::Boundary(boundary);
     };
 
+    // Nilry's Codex pauses end-turn across the card-reward choose. After the
+    // offer closes, the next real combat command needs the remainder of end
+    // turn (discard → monster → draw) before PLAY/END can apply.
+    if sim
+        .combat
+        .as_ref()
+        .is_some_and(|combat| combat.resume_end_turn_after_nilrys_codex && combat.decision.is_none())
+        && combat_decision.is_none()
+        && potion_use.is_none()
+        && (is_play_command || command_head.eq_ignore_ascii_case("END"))
+    {
+        match apply_combat_action_on_run(sim, CombatAction::EndTurn) {
+            Ok(next) => *sim = next,
+            Err(error) => {
+                let reason = push_sim_unsupported(
+                    report,
+                    action,
+                    "Nilry Codex resume end turn",
+                    error,
+                );
+                return SeedStartPreDispatch::Boundary(SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "unsupported_combat_path".to_owned(),
+                    reason,
+                });
+            }
+        }
+    }
+
     // PutOnDeckAction can close its hand-selection screen after the selected
     // card has temporarily left every visible pile. Carry the typed core card
     // across that transient frame instead of losing it from the authoritative

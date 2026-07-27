@@ -239,6 +239,12 @@ fn legal_combat_select_actions_on_run(
                 (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),
             );
         }
+        Some(CombatDecisionState::NilrysCodexCardReward { choices }) => {
+            candidates.extend(
+                (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),
+            );
+            candidates.push(RunAction::SkipCombatCardReward);
+        }
         Some(CombatDecisionState::HandSelect { .. }) => {
             candidates.extend(
                 (0..combat.piles.hand.len()).map(|index| RunAction::ChooseHandSelect { index }),

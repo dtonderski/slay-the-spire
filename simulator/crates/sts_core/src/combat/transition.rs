@@ -1487,6 +1487,14 @@ fn add_stat_equivalent_copy_to_pile(
     Ok(())
 }
 
+/// Public wrapper for Nilry's Codex and similar combat-generated draw inserts.
+pub fn add_generated_card_to_draw_pile_random_spot_public(
+    state: &mut CombatState,
+    content_id: ContentId,
+) -> SimResult<()> {
+    add_generated_card_to_draw_pile_random_spot(state, content_id, None, false)
+}
+
 fn add_generated_card_to_draw_pile_random_spot(
     state: &mut CombatState,
     content_id: ContentId,

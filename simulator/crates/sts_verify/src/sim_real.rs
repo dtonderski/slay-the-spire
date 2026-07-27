@@ -3682,7 +3682,8 @@ fn seed_start_active_combat_decision(
     Ok(combat.decision.as_ref().map(|decision| match decision {
         CombatDecisionState::PotionCardReward { .. }
         | CombatDecisionState::ToolboxCardReward { .. }
-        | CombatDecisionState::DiscoveryCardReward { .. } => SeedStartCombatDecision::CardReward,
+        | CombatDecisionState::DiscoveryCardReward { .. }
+        | CombatDecisionState::NilrysCodexCardReward { .. } => SeedStartCombatDecision::CardReward,
         CombatDecisionState::HandSelect { .. } => SeedStartCombatDecision::HandSelect,
         CombatDecisionState::DrawSelect { .. } => SeedStartCombatDecision::DrawSelect,
         CombatDecisionState::DiscardSelect { .. } => SeedStartCombatDecision::DiscardSelect,

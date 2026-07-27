@@ -154,7 +154,12 @@ pub fn validate_combat_card_reward_skip(run: &RunState) -> SimResult<()> {
     let combat = run.combat.as_ref().ok_or(SimError::IllegalAction(
         "combat card reward requires combat",
     ))?;
-    if combat.potion_card_reward_choices().is_some() {
+    if combat.potion_card_reward_choices().is_some()
+        || matches!(
+            combat.decision.as_ref(),
+            Some(CombatDecisionState::NilrysCodexCardReward { .. })
+        )
+    {
         Ok(())
     } else {
         Err(SimError::IllegalAction(
@@ -522,6 +527,19 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             crate::relic::settle_pending_start_of_turn_relic_actions(combat)?;
         }
+        CombatDecisionState::NilrysCodexCardReward { choices } => {
+            let choice = choices[index];
+            // Shuffle the chosen card into a random draw-pile spot (combat-only).
+            // Do not finish end-turn here: CommunicationMod captures the closed
+            // reward with the pre-discard hand still visible. The remainder of
+            // end-turn resumes on the next combat command (see replay) or when
+            // `end_player_turn` is invoked with `resume_end_turn_after_nilrys_codex`.
+            crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
+                combat,
+                choice.content_id,
+            )?;
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+        }
         other => {
             combat.decision = Some(other);
             return Err(SimError::IllegalAction("no combat card reward is open"));
@@ -535,23 +553,33 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
     validate_combat_card_reward_skip(run)?;
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
-    let Some(CombatDecisionState::PotionCardReward { reward_kind, .. }) = combat.decision.take()
-    else {
-        return Err(SimError::IllegalAction(
-            "no skippable combat card reward is open",
-        ));
-    };
-    settle_potion_card_reward_rng(combat, reward_kind, false);
-    combat.pending_potion_card_reward_settlement = Some(PendingPotionCardRewardSettlement {
-        reward_kind,
-        generations_remaining: POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS as u32,
-        end_turns_remaining: 2,
-    });
-    crate::relic::apply_potion_use_relics_to_combat(combat)?;
-    next.player_hp = combat.player.hp;
-    next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-    combat.activate_next_queued_decision_if_idle();
-    Ok(next)
+    match combat.decision.take() {
+        Some(CombatDecisionState::PotionCardReward { reward_kind, .. }) => {
+            settle_potion_card_reward_rng(combat, reward_kind, false);
+            combat.pending_potion_card_reward_settlement = Some(PendingPotionCardRewardSettlement {
+                reward_kind,
+                generations_remaining: POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS as u32,
+                end_turns_remaining: 2,
+            });
+            crate::relic::apply_potion_use_relics_to_combat(combat)?;
+            next.player_hp = combat.player.hp;
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            combat.activate_next_queued_decision_if_idle();
+            Ok(next)
+        }
+        Some(CombatDecisionState::NilrysCodexCardReward { .. }) => {
+            // Close the offer without finishing end-turn; see choose path.
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            combat.activate_next_queued_decision_if_idle();
+            Ok(next)
+        }
+        other => {
+            combat.decision = other;
+            Err(SimError::IllegalAction(
+                "no skippable combat card reward is open",
+            ))
+        }
+    }
 }
 
 fn settle_potion_card_reward_rng(
