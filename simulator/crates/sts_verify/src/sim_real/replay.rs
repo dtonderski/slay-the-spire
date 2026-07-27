@@ -3436,23 +3436,17 @@ fn seed_start_handle_combat_phase(
     // Nilry's Codex pauses end-turn across the card-reward choose. After the
     // offer closes, the next real combat command needs the remainder of end
     // turn (discard → monster → draw) before PLAY/END can apply.
-    if sim
-        .combat
-        .as_ref()
-        .is_some_and(|combat| combat.resume_end_turn_after_nilrys_codex && combat.decision.is_none())
-        && combat_decision.is_none()
+    if sim.combat.as_ref().is_some_and(|combat| {
+        combat.resume_end_turn_after_nilrys_codex && combat.decision.is_none()
+    }) && combat_decision.is_none()
         && potion_use.is_none()
         && (is_play_command || command_head.eq_ignore_ascii_case("END"))
     {
         match apply_combat_action_on_run(sim, CombatAction::EndTurn) {
             Ok(next) => *sim = next,
             Err(error) => {
-                let reason = push_sim_unsupported(
-                    report,
-                    action,
-                    "Nilry Codex resume end turn",
-                    error,
-                );
+                let reason =
+                    push_sim_unsupported(report, action, "Nilry Codex resume end turn", error);
                 return SeedStartPreDispatch::Boundary(SeedStartBoundary {
                     path: format!("$.actions[step={}].command", action.step),
                     category: "unsupported_combat_path".to_owned(),
@@ -3638,6 +3632,29 @@ fn seed_start_handle_combat_phase(
                         seed_start_simulated_combat_subset(transient, false),
                     )
             });
+        // DualWieldAction ticks duration when opening HandCardSelectScreen. If
+        // that duration completes before CONFIRM (large frame delta under CM /
+        // heavy VFX), GameActionManager skips the retrieval update that creates
+        // MakeTempCardInHandAction copies. The selected card remains owned by
+        // the closed selection screen — absent from every serialized pile —
+        // and re-enters via end-turn DiscardAction leftover-selectedCards
+        // settlement (pending_hidden → discard). Only force-exhausted Dual
+        // Wield (Havoc / Mayhem / Distilled Chaos) is eligible: the source is
+        // already in exhaust/discard when the select opens.
+        let dual_wield_skipped_retrieval = if decision_action == RunAction::ConfirmHandSelect {
+            seed_start_dual_wield_skipped_retrieval_state(sim)
+        } else {
+            None
+        };
+        let dual_wield_skipped_retrieval_matches = dual_wield_skipped_retrieval
+            .as_ref()
+            .is_some_and(|transient| {
+                seed_start_is_stable_combat_post_state(&post.message)
+                    && seed_start_combat_subsets_match(
+                        seed_start_combat_observed_subset(&post.message),
+                        seed_start_simulated_combat_subset(transient, false),
+                    )
+            });
         let source_hand_settlement_frame = decision_action == RunAction::ConfirmHandSelect
             && seed_start_hand_select_confirm_source_frame(sim, &next, &post.message);
         let gambling_chip_source_settlement_frame =
@@ -3656,6 +3673,14 @@ fn seed_start_handle_combat_phase(
                 label: "Burning Pact deferred selection transient".to_owned(),
             });
             next = burning_pact_deferred_selection.expect("matching Burning Pact transient exists");
+        } else if dual_wield_skipped_retrieval_matches {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Dual Wield skipped retrieval frame".to_owned(),
+            });
+            next = dual_wield_skipped_retrieval
+                .expect("matching Dual Wield skipped-retrieval state exists");
         } else if source_hand_settlement_frame
             || source_card_reward_frame
             || gambling_chip_source_settlement_frame
@@ -4583,6 +4608,56 @@ fn seed_start_put_on_deck_selected_card_id(run: &RunState) -> Option<CardId> {
     }
     let selected_index = select.selected_hand_index?;
     combat.piles.hand.get(selected_index).map(|card| card.id)
+}
+
+/// DualWieldAction skipped-retrieval candidate (force-exhausted Dual Wield).
+///
+/// Rebuild from the pre-CONFIRM source: close the DualWieldCopy hand select
+/// without creating temporary copies, and park the selected card in
+/// `pending_hidden_hand_card_until_end_turn` so end-turn discard reintroduces
+/// it (matching leftover `HandCardSelectScreen.selectedCards` settlement via
+/// `DiscardAction` when `wereCardsRetrieved` is still false).
+///
+/// Eligible only when Dual Wield's source is already in exhaust or discard
+/// (Havoc / Mayhem / Distilled Chaos force-exhaust). Ordinary hand Dual Wield
+/// keeps the core copy path authoritative; this candidate is accepted only
+/// when the stable observed frame matches it.
+fn seed_start_dual_wield_skipped_retrieval_state(source: &RunState) -> Option<RunState> {
+    let source_combat = source.combat.as_ref()?;
+    let select = source_combat.hand_select()?;
+    if select.purpose != HandSelectPurpose::DualWieldCopy {
+        return None;
+    }
+    let selected_index = select.selected_hand_index?;
+    if selected_index >= source_combat.piles.hand.len() {
+        return None;
+    }
+    if source_combat
+        .pending_hidden_hand_card_until_end_turn
+        .is_some()
+    {
+        return None;
+    }
+    let source_already_settled = source_combat
+        .piles
+        .exhaust_pile
+        .iter()
+        .chain(source_combat.piles.discard_pile.iter())
+        .any(|card| card.id == select.source_card_id);
+    if !source_already_settled {
+        return None;
+    }
+
+    let mut transient = source.clone();
+    let combat = transient.combat.as_mut()?;
+    let (select, _pending) = combat.take_hand_select()?;
+    let selected_index = select.selected_hand_index?;
+    if selected_index >= combat.piles.hand.len() {
+        return None;
+    }
+    let selected = combat.piles.hand.remove(selected_index);
+    combat.pending_hidden_hand_card_until_end_turn = Some(selected);
+    Some(transient)
 }
 
 fn seed_start_put_on_deck_card_settlement(run: &RunState) -> bool {
