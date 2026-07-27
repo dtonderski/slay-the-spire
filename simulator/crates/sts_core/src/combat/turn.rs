@@ -3,11 +3,7 @@ use crate::{
         apply_end_of_monster_turn_powers, apply_end_of_monster_turn_powers_without_ritual,
     },
     combat::{
-        draw::{
-            apply_confusion_cost_randomization, apply_fire_breathing_on_draw,
-            consume_empty_deck_shuffle_with_combat_rng, draw_cards_with_combat_rng,
-            evolve_extra_draw_count, shuffle_discard_into_draw_with_combat_rng, MAX_HAND_SIZE,
-        },
+        draw::{draw_cards_with_combat_rng, MAX_HAND_SIZE},
         hand::{
             discard_end_of_turn_hand, resolve_deferred_dark_embrace_draws,
             resolve_end_of_turn_hand_with_deferred_dark_embrace_draws,
@@ -100,8 +96,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     } else {
         Vec::new()
     };
-    let end_of_turn_hand =
-        resolve_end_of_turn_hand_with_deferred_dark_embrace_draws(&mut next)?;
+    let end_of_turn_hand = resolve_end_of_turn_hand_with_deferred_dark_embrace_draws(&mut next)?;
     crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
     if finish_combat_if_over(&mut next, started_with_living_monster)? {
         return Ok(next);
@@ -121,10 +116,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     // Dark Embrace draws from ethereal cards resolve after that expiration,
     // before the monster turn begins.
     next.player.cannot_draw = false;
-    resolve_deferred_dark_embrace_draws(
-        &mut next,
-        end_of_turn_hand.deferred_dark_embrace_draws,
-    )?;
+    resolve_deferred_dark_embrace_draws(&mut next, end_of_turn_hand.deferred_dark_embrace_draws)?;
     next.piles.hand.extend(deferred_stasis_cards);
     apply_pending_player_spikes_damage(&mut next)?;
     if next.player.hp <= 0 {
@@ -208,14 +200,6 @@ pub fn start_player_turn(state: &mut CombatState) -> SimResult<()> {
 }
 
 fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
-    if state.player.powers.evolve == 2 {
-        eprintln!(
-            "DEBUG_START before hand={} draw={} discard={}",
-            state.piles.hand.len(),
-            state.piles.draw_pile.len(),
-            state.piles.discard_pile.len()
-        );
-    }
     crate::relic::reset_turn_relic_counters(state);
     reset_turn_only_temp_costs(state);
     if crate::relic::preserves_energy_between_turns(&state.relics) {
@@ -261,14 +245,6 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
     }
     apply_start_of_turn_magnetism(state)?;
     draw_next_hand_without_shuffle(state)?;
-    if state.player.powers.evolve == 2 {
-        eprintln!(
-            "DEBUG_START after hand={} draw={} discard={}",
-            state.piles.hand.len(),
-            state.piles.draw_pile.len(),
-            state.piles.discard_pile.len()
-        );
-    }
     if state.player.powers.draw_reduction > 0 {
         if state.player.powers.draw_reduction_first_draw_seen {
             state.player.powers.draw_reduction = 0;
@@ -1505,39 +1481,11 @@ fn apply_attack_heal_self_thorns_after_heal(
 }
 
 fn draw_next_hand_without_shuffle(state: &mut CombatState) -> SimResult<()> {
-    let had_cards_at_start =
-        !state.piles.draw_pile.is_empty() || !state.piles.discard_pile.is_empty();
-    for _ in 0..next_hand_draw_count(state) {
-        // Evolve queues its extra DrawCardAction after the current turn-draw
-        // action. The simulator resolves that extra draw recursively, so the
-        // outer loop must re-check the target hand limit before drawing its
-        // next base card.
-        if state.piles.hand.len() >= MAX_HAND_SIZE {
-            break;
-        }
-        if state.piles.draw_pile.is_empty() {
-            if state.piles.discard_pile.is_empty() {
-                if had_cards_at_start {
-                    consume_empty_deck_shuffle_with_combat_rng(state)?;
-                }
-                break;
-            }
-            shuffle_discard_into_draw_with_combat_rng(state)?;
-        }
-
-        if let Some(mut card) = state.piles.draw_pile.pop() {
-            let content_id = card.content_id;
-            let extra_draws = evolve_extra_draw_count(state, content_id);
-            apply_confusion_cost_randomization(state, &mut card);
-            state.piles.hand.push(card);
-            if content_id == crate::content::cards::VOID_ID {
-                state.player.energy = state.player.energy.saturating_sub(1);
-            }
-            apply_fire_breathing_on_draw(state, content_id)?;
-            draw_cards_with_combat_rng(state, extra_draws)?;
-        }
-    }
-    Ok(())
+    // Target GameActionManager queues a single DrawCardAction(gameHandSize).
+    // EvolvePower.addToBot follow-ups therefore run after the full base refill,
+    // not interleaved between remaining base draws (see draw_cards_with_combat_rng).
+    let count = next_hand_draw_count(state);
+    draw_cards_with_combat_rng(state, count)
 }
 
 pub(crate) fn target_hand_size(state: &CombatState) -> usize {
@@ -2181,8 +2129,8 @@ mod tests {
     use super::*;
     use crate::combat::hand::resolve_end_of_turn_hand;
     use crate::content::cards::{
-        BURN_ID, DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, POMMEL_STRIKE_ID, REGRET_ID,
-        SHAME_ID, SLIMED_ID, STRIKE_R_ID, VOID_ID,
+        BASH_ID, BURN_ID, DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, POMMEL_STRIKE_ID,
+        REGRET_ID, SHAME_ID, SLIMED_ID, STRIKE_R_ID, VOID_ID, WOUND_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -2392,7 +2340,45 @@ mod tests {
     }
 
     #[test]
-    fn evolve_recursive_draw_respects_hand_capacity() {
+    fn turn_draw_defers_evolve_until_after_base_hand_refill() {
+        // Draw pile top is the last element. Base DrawCardAction draws the five
+        // non-evolve slots first; EvolvePower.addToBot follow-ups append after.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.evolve = 1;
+        state.piles.hand.clear();
+        state.piles.discard_pile.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), DEFEND_R_ID), // bottom
+            CardInstance::new(CardId::new(2), BASH_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), DAZED_ID),
+            CardInstance::new(CardId::new(6), WOUND_ID), // top: drawn first
+        ];
+
+        draw_next_hand_without_shuffle(&mut state).expect("turn draw with deferred Evolve");
+
+        assert_eq!(
+            state
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![
+                WOUND_ID,
+                DAZED_ID,
+                STRIKE_R_ID,
+                STRIKE_R_ID,
+                BASH_ID,
+                DEFEND_R_ID, // Evolve follow-up after the five base draws
+            ]
+        );
+        assert!(state.piles.draw_pile.is_empty());
+    }
+
+    #[test]
+    fn evolve_follow_up_draw_respects_hand_capacity() {
         let mut state = CombatState::initial_fixture();
         state.player.powers.evolve = 2;
         state.piles.hand = (1..=8)
@@ -2405,7 +2391,7 @@ mod tests {
         ];
         state.piles.discard_pile.clear();
 
-        draw_cards_with_combat_rng(&mut state, 2).expect("recursive draw with Evolve");
+        draw_cards_with_combat_rng(&mut state, 2).expect("draw with Evolve follow-ups");
 
         assert_eq!(state.piles.hand.len(), MAX_HAND_SIZE);
         assert_eq!(state.piles.draw_pile.len(), 1);

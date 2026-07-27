@@ -28,12 +28,19 @@ matches the candidate in every other compared field. A generic pile mismatch
 does not use this candidate.
 
 Once that exact target transition is verified, later commands continue from
-the skipped-retrieval candidate for the remainder of the combat. The candidate
-is derived only by removing the simulator-selected card from the normal core
-result; no observed card identity, pile ordering, RNG state, or other gameplay
-field is copied into simulation. This is necessary because the target card
-remains owned by the closed selection-screen object and does not settle into a
-combat pile on later updates. The master deck remains unchanged.
+the skipped-retrieval candidate. The candidate is derived only by removing the
+simulator-selected card from the normal core result; no observed card identity,
+pile ordering, RNG state, or other gameplay field is copied into simulation.
+This is necessary because the target card remains owned by the closed
+selection-screen object after the action manager skips retrieval.
+
+The limbo card is re-introduced through the end-turn discard path
+(`pending_hidden_hand_card_until_end_turn` → discard) on the next END that
+discards a multi-card hand. Injecting it on empty/single-card ENDs that
+reshuffle discard into the next refill desyncs draw/hand order from the target
+(see `random-fidelity-ae18829cad583a71` / `b788a4e142c8fc26`). Forethought
+still waits one full refill before that settlement window. The master deck
+remains unchanged.
 
 The supported single-card sources are Warcry, Thinking Ahead, and base
 Forethought. Forethought+ can select multiple cards and requires a separate

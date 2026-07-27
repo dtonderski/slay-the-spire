@@ -1198,6 +1198,42 @@ fn put_on_deck_source_card_survives_the_following_end_turn_refill() {
 }
 
 #[test]
+fn random_fidelity_warcry_limbo_and_evolve_end_turn_draw_order() {
+    // Warcry skipped-retrieval limbo must not re-enter discard on empty /
+    // single-card ENDs that reshuffle; Evolve then draws statuses after the
+    // base hand refill (not interleaved). Permanent trace ends mid-run.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-ae18829cad583a71.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Warcry limbo + Evolve end-turn draw permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "step 472 END draw/hand order must match through the full trace: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 472)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "the Evolve-adjacent end-turn draw must verify: {report:#?}"
+    );
+}
+
+#[test]
 fn forethought_skipped_put_on_deck_retrieval_frame_replays_source_transition() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-ded412a8f5a83ec0.jsonl")
