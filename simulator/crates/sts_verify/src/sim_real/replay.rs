@@ -3436,41 +3436,39 @@ fn seed_start_handle_combat_phase(
     // PutOnDeckAction can close its hand-selection screen after the selected
     // card has temporarily left every visible pile. Carry the typed core card
     // across that transient frame instead of losing it from the authoritative
-    // replay state. Base Forethought's source frame keeps the card hidden for
-    // one complete refill, so its first END only advances this pending state.
+    // replay state.
     //
-    // Warcry / Thinking Ahead: do not inject the card into discard on an
-    // empty-hand END. That END reshuffles discard into draw for the next
-    // refill; injecting the limbo card there desyncs draw/hand order from the
-    // target (random-fidelity-ae18829cad583a71). Hold the card until an END
-    // that discards a non-empty hand, matching when the source frame next
-    // exposes it in discard.
+    // Settlement of that limbo card (via pending_hidden → discard):
+    // - First opportunity: any non-empty hand END (hand_len >= 1). Single-card
+    //   hands still flush the stuck selectedCards entry
+    //   (e3f0cee2 / d5c980b7 / b4f5134b).
+    // - Empty-hand ENDs never inject: they reshuffle discard into the next
+    //   refill and would desync draw order (ae18829 / b788a4e step 472).
+    // - After an empty-hand miss, require a multi-card hand (hand_len >= 2)
+    //   before injecting; a later single-card END still holds (ae18829 477).
+    // The bool flag is `require_multi_after_empty_miss`, not a Forethought
+    // refill wait.
     let deferred_put_on_deck_card = command
         .eq_ignore_ascii_case("END")
         .then(|| {
-            pending_put_on_deck_card.take().and_then(|(card, wait)| {
-                if wait {
-                    *pending_put_on_deck_card = Some((card, false));
-                    None
-                } else {
-                    // Hold the limbo card across ENDs until a multi-card hand
-                    // is discarded. Empty or single-card hands often precede a
-                    // full discard→draw reshuffle (or a one-card ethereal/curse
-                    // cleanup) where injecting the card corrupts the next
-                    // refill (ae18829 / b788a4e step 472–477).
+            pending_put_on_deck_card
+                .take()
+                .and_then(|(card, require_multi_after_empty_miss)| {
                     let hand_len = sim
                         .combat
                         .as_ref()
                         .map(|combat| combat.piles.hand.len())
                         .unwrap_or(0);
-                    if hand_len < 2 {
-                        *pending_put_on_deck_card = Some((card, false));
+                    if hand_len == 0 {
+                        *pending_put_on_deck_card = Some((card, true));
+                        None
+                    } else if require_multi_after_empty_miss && hand_len < 2 {
+                        *pending_put_on_deck_card = Some((card, true));
                         None
                     } else {
                         Some(card)
                     }
-                }
-            })
+                })
         })
         .flatten();
     let deferred_cross_combat_discard = command
@@ -3688,14 +3686,14 @@ fn seed_start_handle_combat_phase(
                 // The selected card remains owned by the closed target
                 // selection screen, so later combat commands must continue
                 // from the source-backed skipped-retrieval result.
-                // Warcry / Thinking Ahead: reinsert at the first END where
-                // the hand is non-empty before cleanup (empty-hand ENDs that
-                // reshuffle would otherwise inject the card into the next
-                // draw order). Forethought waits one full refill first.
-                if let Some(wait_for_refill) = seed_start_put_on_deck_card_settlement(sim) {
+                // Reinsert via end-turn discard on the first non-empty-hand
+                // END (see deferred_put_on_deck_card settlement above).
+                // Flag starts false (= not yet forced to multi-card after an
+                // empty-hand miss).
+                if seed_start_put_on_deck_card_settlement(sim) {
                     *pending_put_on_deck_card =
                         seed_start_put_on_deck_card(&next, selected_card_id)
-                            .map(|card| (card, wait_for_refill));
+                            .map(|card| (card, false));
                 }
                 next = skipped_retrieval.expect("matching skipped-retrieval state exists");
             } else {
@@ -4558,15 +4556,16 @@ fn seed_start_put_on_deck_selected_card_id(run: &RunState) -> Option<CardId> {
     combat.piles.hand.get(selected_index).map(|card| card.id)
 }
 
-fn seed_start_put_on_deck_card_settlement(run: &RunState) -> Option<bool> {
-    let purpose = run.combat.as_ref()?.hand_select()?.purpose;
-    match purpose {
-        HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw => {
-            Some(false)
-        }
-        HandSelectPurpose::ForethoughtPutOnDraw => Some(true),
-        _ => None,
-    }
+fn seed_start_put_on_deck_card_settlement(run: &RunState) -> bool {
+    let purpose = run.combat.as_ref().and_then(|combat| combat.hand_select());
+    matches!(
+        purpose.map(|select| select.purpose),
+        Some(
+            HandSelectPurpose::WarcryPutOnDraw
+                | HandSelectPurpose::ThinkingAheadPutOnDraw
+                | HandSelectPurpose::ForethoughtPutOnDraw
+        )
+    )
 }
 
 fn seed_start_put_on_deck_skipped_retrieval_state(

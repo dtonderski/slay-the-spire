@@ -730,9 +730,10 @@ fn smith_mid_effect_and_stale_release_reconcile_vampires_after_multiple_smiths()
             .category,
         "none"
     );
-    assert!(report.verified.iter().any(|transition| {
-        transition.label == "rest smith effect queued"
-    }));
+    assert!(report
+        .verified
+        .iter()
+        .any(|transition| { transition.label == "rest smith effect queued" }));
 }
 
 #[test]
@@ -748,11 +749,14 @@ fn smith_mid_effect_deck_omission_does_not_fail_as_rest_smith_identity() {
     assert!(report.verified.iter().any(|transition| {
         transition.action_step == 110 && transition.label == "rest smith effect queued"
     }));
-    let failed_as_smith_identity = report.unsupported.iter().any(|entry| {
-        entry.action_step == 113 && entry.reason.contains("rest smith effect")
-    }) || report.unexpected_diffs.iter().any(|entry| {
-        entry.action_step == 113 && entry.label == "rest smith effect"
-    });
+    let failed_as_smith_identity = report
+        .unsupported
+        .iter()
+        .any(|entry| entry.action_step == 113 && entry.reason.contains("rest smith effect"))
+        || report
+            .unexpected_diffs
+            .iter()
+            .any(|entry| entry.action_step == 113 && entry.label == "rest smith effect");
     assert!(
         !failed_as_smith_identity,
         "step 113 must not fail as rest smith identity: {report:#?}"
@@ -1249,9 +1253,10 @@ fn put_on_deck_source_card_survives_the_following_end_turn_refill() {
 
 #[test]
 fn random_fidelity_warcry_limbo_and_evolve_end_turn_draw_order() {
-    // Warcry skipped-retrieval limbo must not re-enter discard on empty /
-    // single-card ENDs that reshuffle; Evolve then draws statuses after the
-    // base hand refill (not interleaved). Permanent trace ends mid-run.
+    // Warcry skipped-retrieval limbo must not re-enter discard on empty-hand
+    // ENDs that reshuffle, nor on a subsequent single-card END after that
+    // miss; Evolve then draws statuses after the base hand refill (not
+    // interleaved). Permanent trace ends mid-run.
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-ae18829cad583a71.jsonl")
     else {
