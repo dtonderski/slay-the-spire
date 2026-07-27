@@ -1095,6 +1095,62 @@ fn codex10_neow_transform_two_trace_verifies_through_first_map_node() {
 }
 
 #[test]
+fn fidl00135_neow_transform_two_accepts_settled_deck_on_grid_confirm() {
+    // CommunicationMod lag sometimes shows the fully settled deck (sources
+    // removed and replacements already obtained) on the post-confirm leave
+    // frame, instead of the pre-obtain transient deck seen by CODEX10.
+    let Some(content) = load_corpus_file("permanent_traces/random-fidelity-3826e93f4e599ac5.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:?}",
+        report.unexpected_diffs
+    );
+    assert!(
+        report.unsupported.is_empty(),
+        "unsupported transitions: {:?}",
+        report.unsupported
+    );
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(
+        !seed_start.failed,
+        "boundary: {:?}",
+        seed_start.first_boundary
+    );
+    assert_eq!(seed_start.start_command.external_seed, "FIDL00135");
+    assert_eq!(seed_start.first_boundary.category, "none");
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    for expected in [
+        "Neow talk",
+        "Neow transform two grid",
+        "Neow grid select",
+        "Neow grid confirm",
+    ] {
+        assert!(
+            labels.contains(&expected),
+            "missing verified label {expected}; labels: {labels:?}"
+        );
+    }
+    assert!(
+        report
+            .verified
+            .iter()
+            .any(|step| { step.action_step == 7 && step.label == "Neow grid confirm" }),
+        "step 7 must verify as Neow grid confirm with settled Sentinel/Thunderclap deck"
+    );
+}
+
+#[test]
 fn library_grid_uses_target_card_group_bottom_order() {
     let Some(content) = load_corpus_file("permanent_traces/trace-2026-07-07T18-33-54-807Z.jsonl")
     else {
