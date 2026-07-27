@@ -6158,6 +6158,62 @@ mod tests {
     }
 
     #[test]
+    fn back_to_basics_elegance_opens_card_removal_grid_and_removes_selected_card() {
+        use crate::content::cards::BASH_ID;
+
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::BackToBasics));
+
+        let after_elegance = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Elegance opens the removal grid");
+        let grid = after_elegance
+            .card_grid
+            .as_ref()
+            .expect("Elegance opens EventRemoveReturnToEvent grid");
+        assert!(matches!(
+            grid.purpose,
+            crate::GridPurpose::EventRemoveReturnToEvent {
+                event: Event::BackToBasics
+            }
+        ));
+        let bash_index = grid
+            .cards
+            .iter()
+            .position(|card| card.content_id == BASH_ID)
+            .expect("starter Bash is purgeable");
+
+        // CommunicationMod resolves on the select click (no CONFIRM).
+        let after_select = crate::run::grid::select_grid_card(&after_elegance, bash_index)
+            .expect("select removes");
+        assert!(after_select.card_grid.is_none());
+        assert_eq!(after_select.phase, RunPhase::Event);
+        let leave = after_select
+            .event
+            .as_ref()
+            .expect("Elegance returns to Leave");
+        assert_eq!(leave.event, Event::BackToBasics);
+        assert_eq!(leave.stage, 1);
+        assert_eq!(
+            leave
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Leave"]
+        );
+        assert!(!after_select
+            .deck
+            .iter()
+            .any(|card| card.content_id == BASH_ID));
+
+        let left = apply_event_action(&after_select, EventAction::Choose { choice_index: 0 })
+            .expect("Leave returns to map");
+        assert_eq!(left.phase, RunPhase::Idle);
+        assert!(left.event.is_none());
+    }
+
+    #[test]
     fn purifier_leave_requires_second_leave_click() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;

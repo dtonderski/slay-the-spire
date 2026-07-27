@@ -20,7 +20,10 @@ pub(super) fn apply_act_two_event_action(
             });
         }
         Event::BackToBasics if choice_index == 0 => {
-            open_event_remove_grid(next);
+            // Elegance: one-card purgeable remove that returns to Leave.
+            // CommunicationMod publishes for_purge=false / no confirm button and
+            // resolves on the CHOOSE click (same family as Note For Yourself).
+            open_event_remove_return_to_event_grid(next, Event::BackToBasics);
             if next.card_grid.is_none() {
                 next.event = Some(EventScreen {
                     event: Event::BackToBasics,

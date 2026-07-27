@@ -1340,7 +1340,10 @@ fn warcry_put_on_deck_lethal_end_does_not_residual_dropkick_next_combat() {
 
     assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
     assert!(
-        report.unsupported.iter().all(|entry| entry.action_step > 431),
+        report
+            .unsupported
+            .iter()
+            .all(|entry| entry.action_step > 431),
         "step 431 END must not fail with residual Dropkick: {report:#?}"
     );
     assert_eq!(
@@ -1351,6 +1354,36 @@ fn warcry_put_on_deck_lethal_end_does_not_residual_dropkick_next_combat() {
             .map(|entry| entry.disposition),
         Some(ActionDispositionKind::Verified),
         "next-combat first END after Warcry limbo lethal must verify: {report:#?}"
+    );
+}
+
+#[test]
+fn back_to_basics_elegance_grid_choose_removes_and_returns_to_leave() {
+    // Ancient Writing / Back to Basics Elegance: CHOOSE on the remove grid
+    // auto-confirms (no CONFIRM command) and lands on EVENT Leave with the
+    // selected card removed. Permanent tip
+    // random-fidelity-f3c0d2bea83d9313 ends at step 582 CHOOSE 23 (Metallicize).
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-f3c0d2bea83d9313.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Back to Basics Elegance permanent tip replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(
+        report.unsupported.is_empty(),
+        "Elegance CHOOSE 23 must complete the tip: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 582)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "step 582 grid remove → Leave must verify: {report:#?}"
     );
 }
 

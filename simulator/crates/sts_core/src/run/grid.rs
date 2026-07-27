@@ -61,10 +61,7 @@ pub(super) fn event_grid_has_authoritative_owner(run: &RunState, purpose: GridPu
     };
 
     match purpose {
-        GridPurpose::EventRemove => matches!(
-            (screen.event, screen.stage),
-            (Event::BackToBasics, 0) | (Event::Beggar, 2)
-        ),
+        GridPurpose::EventRemove => matches!((screen.event, screen.stage), (Event::Beggar, 2)),
         GridPurpose::EventObtainCard
         | GridPurpose::EventUpgrade
         | GridPurpose::EventTransform { .. } => false,
@@ -72,7 +69,13 @@ pub(super) fn event_grid_has_authoritative_owner(run: &RunState, purpose: GridPu
             event == screen.event
                 && match (screen.event, screen.stage) {
                     (Event::WingStatue, 2) => screen.event_data == 0,
-                    (Event::TheCleric | Event::LivingWall | Event::Purifier, 0)
+                    (
+                        Event::TheCleric
+                        | Event::LivingWall
+                        | Event::Purifier
+                        | Event::BackToBasics,
+                        0,
+                    )
                     | (Event::Designer | Event::NoteForYourself | Event::Falling, 1) => true,
                     (Event::WheelOfChange, 2) => screen.event_data == 4,
                     _ => false,
@@ -898,13 +901,14 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     ) {
         return apply_validated_grid_confirmation(&next);
     }
-    // Note For Yourself opens a one-card GridCardSelectScreen without a
-    // confirm button. Its event update consumes the selected card immediately
-    // and then exposes the event's leave screen.
+    // Note For Yourself and Back to Basics/Elegance open a one-card
+    // GridCardSelectScreen without a confirm button. Their event updates
+    // consume the selected card immediately and then expose Leave.
+    // CommunicationMod records a single CHOOSE (no CONFIRM) for both.
     if matches!(
         grid.purpose,
         GridPurpose::EventRemoveReturnToEvent {
-            event: Event::NoteForYourself
+            event: Event::NoteForYourself | Event::BackToBasics
         }
     ) {
         return apply_validated_grid_confirmation(&next);
@@ -1118,12 +1122,19 @@ fn apply_validated_grid_confirmation(run: &RunState) -> SimResult<RunState> {
                 .expect("event remove selected a deck card");
             next.card_grid = None;
             next.phase = RunPhase::Event;
+            // Back to Basics leave is stage 1 (same as Simplicity). Most other
+            // remove-return events use stage 2; Wheel of Change uses stage 3.
+            let leave_stage = match event {
+                Event::WheelOfChange => 3,
+                Event::BackToBasics => 1,
+                _ => 2,
+            };
             next.event = Some(EventScreen {
                 event,
                 choices: vec![EventChoice {
                     label: "Leave".to_owned(),
                 }],
-                stage: if event == Event::WheelOfChange { 3 } else { 2 },
+                stage: leave_stage,
                 event_data: 0,
             });
         }
