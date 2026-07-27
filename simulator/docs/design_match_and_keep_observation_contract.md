@@ -15,12 +15,24 @@ The post-observation and the core-owned event projection are then compared
 without normalizing either side. Choice count, slot labels, revealed card
 identities, deck effects, and event stage remain evidence.
 
-The current committed Match and Keep corpus replays without the old rewrite, so
-there is no supported transient exception to preserve. If a future trace proves
-that the target publishes a genuinely transient animation frame, that shape
-must become a typed deferred assertion with a named visibility contract and a
-required later reconciliation point. It must not restore observed-to-simulated
-substitution or count the transient frame as complete parity.
+Choice-list lag after a flip (or after a matched obtain settles) is modeled as
+a typed deferred assertion: non-choice fields must already match the settled
+core projection, observed choices must equal the pre-action choice list, and
+the deferred action reconciles when a later frame matches the core projection
+(or Leave after gameDone cleanup). Observed choice arrays are never rewritten
+to the simulator projection.
+
+Command binding for stage-2 card picks follows CommunicationMod's
+`pickable.get(index)` semantics with two lag-aware rules:
+
+1. Removal-stale pre (pre still lists a face-up card) → bind by visible index on
+   the live sim board.
+2. Resolution-stale pre (mid-pair / pre-name) → bind by the pre list's cardN
+   label when it uniquely identifies a sim slot.
+
+After the fifth attempt the target sets `gameDone` and waits before Leave;
+the discrete model keeps the card board one action longer, then any CHOOSE
+opens Leave.
 
 ## Regression
 

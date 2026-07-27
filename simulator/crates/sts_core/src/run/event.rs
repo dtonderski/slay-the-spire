@@ -2095,6 +2095,11 @@ pub struct MatchAndKeepState {
     pub second_flipped_index: Option<usize>,
     #[serde(default)]
     pub matched_cards: Vec<ContentId>,
+    /// Target sets gameDone and waitTimer after the fifth attempt resolves;
+    /// Leave options appear only after that cleanup wait. Discrete actions keep
+    /// the card board one step longer, then any CHOOSE advances to Leave.
+    #[serde(default)]
+    pub game_done: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3458,6 +3463,7 @@ fn initialize_match_and_keep_state(run: &mut RunState) -> SimResult<MatchAndKeep
         first_flipped_index: None,
         second_flipped_index: None,
         matched_cards: Vec::new(),
+        game_done: false,
     })
 }
 
@@ -4099,11 +4105,15 @@ fn apply_match_and_keep_card_choice(run: &mut RunState, choice_index: usize) -> 
         .ok_or(SimError::InvalidState("Match and Keep state is missing"))?
         .attempts_remaining;
     if attempts_remaining == 0 {
-        run.flush_pending_obtain_cards()?;
+        // Mirror the target's gameDone + waitTimer pause: keep the card board
+        // published until the next CHOOSE advances to Leave.
+        if let Some(state) = run.match_and_keep.as_mut() {
+            state.game_done = true;
+        }
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
-            labeled_choices(&["Leave"]),
-            3,
+            match_and_keep_card_choices(run)?,
+            2,
         ));
     } else {
         run.event = Some(make_event_screen(
@@ -4281,6 +4291,7 @@ mod tests {
             first_flipped_index: None,
             second_flipped_index: None,
             matched_cards: Vec::new(),
+            game_done: false,
         });
         let choices = match stage {
             0 | 1 => match_and_keep_choices(stage, 0),
@@ -5693,6 +5704,7 @@ mod tests {
             first_flipped_index: None,
             second_flipped_index: None,
             matched_cards: Vec::new(),
+            game_done: false,
         });
 
         assert_eq!(
@@ -5732,6 +5744,7 @@ mod tests {
             first_flipped_index: None,
             second_flipped_index: None,
             matched_cards: Vec::new(),
+            game_done: false,
         });
 
         let after_first = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
@@ -5805,6 +5818,7 @@ mod tests {
             first_flipped_index: None,
             second_flipped_index: None,
             matched_cards: Vec::new(),
+            game_done: false,
         });
 
         let after_first = apply_event_action(&run, EventAction::Choose { choice_index: 3 })
@@ -5849,6 +5863,7 @@ mod tests {
             first_flipped_index: None,
             second_flipped_index: None,
             matched_cards: Vec::new(),
+            game_done: false,
         });
         let first = apply_event_action(&run, EventAction::Choose { choice_index: 11 }).unwrap();
         let second = apply_event_action(&first, EventAction::Choose { choice_index: 3 }).unwrap();
@@ -5896,6 +5911,7 @@ mod tests {
             first_flipped_index: None,
             second_flipped_index: None,
             matched_cards: Vec::new(),
+            game_done: false,
         });
 
         let after_first = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
@@ -5988,6 +6004,7 @@ mod tests {
             first_flipped_index: None,
             second_flipped_index: None,
             matched_cards: Vec::new(),
+            game_done: false,
         });
 
         let after_first = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
@@ -6002,13 +6019,20 @@ mod tests {
             .as_ref()
             .expect("final mismatch keeps event state until Leave");
         assert_eq!(state.attempts_remaining, 0);
+        assert!(state.game_done);
         assert_eq!(state.first_flipped_index, None);
         assert_eq!(state.second_flipped_index, None);
+        // Target holds the card board through the gameDone waitTimer before Leave.
+        assert_eq!(after_second.event.as_ref().expect("board").stage, 2);
+
+        let after_cleanup =
+            apply_event_action(&after_second, EventAction::Choose { choice_index: 0 })
+                .expect("post-gameDone choose opens Leave");
         assert_eq!(
-            after_second
+            after_cleanup
                 .event
                 .as_ref()
-                .expect("complete screen")
+                .expect("leave screen")
                 .choices
                 .iter()
                 .map(|choice| choice.label.as_str())
@@ -6017,7 +6041,7 @@ mod tests {
         );
 
         let after_leave =
-            apply_event_action(&after_second, EventAction::Choose { choice_index: 0 })
+            apply_event_action(&after_cleanup, EventAction::Choose { choice_index: 0 })
                 .expect("leave closes the completed game");
         assert_eq!(after_leave.deck.len(), deck_len);
         assert_eq!(after_leave.phase, RunPhase::Idle);

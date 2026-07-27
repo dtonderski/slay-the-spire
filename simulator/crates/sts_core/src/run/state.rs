@@ -1683,12 +1683,20 @@ impl RunState {
                             "Match and Keep intro retains modified game state",
                         ));
                     }
-                    2 if state.attempts_remaining == 0 => {
+                    2 if state.attempts_remaining == 0 && !state.game_done => {
                         return Err(SimError::InvalidState(
                             "Match and Keep play stage has no attempts remaining",
                         ));
                     }
-                    3 if state.attempts_remaining != 0 || state.first_flipped_index.is_some() => {
+                    2 if state.game_done && state.attempts_remaining != 0 => {
+                        return Err(SimError::InvalidState(
+                            "Match and Keep gameDone requires exhausted attempts",
+                        ));
+                    }
+                    3 if state.attempts_remaining != 0
+                        || state.first_flipped_index.is_some()
+                        || !state.game_done =>
+                    {
                         return Err(SimError::InvalidState(
                             "Match and Keep completion state is inconsistent",
                         ));

@@ -556,11 +556,12 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
     match combat.decision.take() {
         Some(CombatDecisionState::PotionCardReward { reward_kind, .. }) => {
             settle_potion_card_reward_rng(combat, reward_kind, false);
-            combat.pending_potion_card_reward_settlement = Some(PendingPotionCardRewardSettlement {
-                reward_kind,
-                generations_remaining: POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS as u32,
-                end_turns_remaining: 2,
-            });
+            combat.pending_potion_card_reward_settlement =
+                Some(PendingPotionCardRewardSettlement {
+                    reward_kind,
+                    generations_remaining: POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS as u32,
+                    end_turns_remaining: 2,
+                });
             crate::relic::apply_potion_use_relics_to_combat(combat)?;
             next.player_hp = combat.player.hp;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();

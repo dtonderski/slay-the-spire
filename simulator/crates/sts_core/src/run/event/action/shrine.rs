@@ -192,6 +192,21 @@ pub(super) fn apply_shrine_event_action(
                 2,
             ));
         }
+        Event::MatchAndKeep
+            if screen.stage == 2
+                && next
+                    .match_and_keep
+                    .as_ref()
+                    .is_some_and(|state| state.game_done) =>
+        {
+            // Post-fifth-attempt cleanup wait has elapsed; any CHOOSE opens Leave.
+            next.flush_pending_obtain_cards()?;
+            next.event = Some(make_event_screen(
+                Event::MatchAndKeep,
+                labeled_choices(&["Leave"]),
+                3,
+            ));
+        }
         Event::MatchAndKeep if screen.stage == 2 => {
             let card_index = match_and_keep_card_index_for_choice(next, screen, choice_index)?;
             apply_match_and_keep_card_choice(next, card_index)?;

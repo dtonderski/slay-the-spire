@@ -6157,6 +6157,86 @@ fn seed_start_event_choice_index_matches_observed_shining_light_leave_label() {
 }
 
 #[test]
+fn match_and_keep_removal_stale_pre_binds_by_visible_index() {
+    // Pre still lists card4 after the sim flipped it. Index 7 on the shorter
+    // live board is card9, not the stale pre label warcry.
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.phase = RunPhase::Event;
+    run.event = Some(EventScreen {
+        event: Event::MatchAndKeep,
+        stage: 2,
+        event_data: 0,
+        choices: [
+            "card0", "card1", "card3", "card5", "card6", "bash", "warcry", "card9", "card10",
+        ]
+        .into_iter()
+        .map(|label| EventChoice {
+            label: label.to_owned(),
+        })
+        .collect(),
+    });
+    let pre_message = json!({
+        "game_state": {
+            "screen_type": "EVENT",
+            "choice_list": [
+                "card0", "card1", "card3", "card4", "card5", "card6", "bash", "warcry", "card9",
+                "card10"
+            ],
+            "screen_state": { "event_id": "Match and Keep!" }
+        }
+    });
+
+    assert_eq!(
+        seed_start_event_choice_index_for_communication_mod(&run, 7, &pre_message),
+        Some(7)
+    );
+    assert_eq!(run.event.as_ref().unwrap().choices[7].label, "card9");
+}
+
+#[test]
+fn match_and_keep_resolution_stale_pre_binds_by_card_label() {
+    // Pre is mid-pair (card9 still cardN) while sim already resolved names.
+    // Collector CHOOSE 4 targets card6 on the shorter pre list.
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.phase = RunPhase::Event;
+    run.event = Some(EventScreen {
+        event: Event::MatchAndKeep,
+        stage: 2,
+        event_data: 0,
+        choices: [
+            "card0",
+            "card1",
+            "card3",
+            "deep breath",
+            "card5",
+            "card6",
+            "bash",
+            "warcry",
+            "inflame",
+            "card10",
+        ]
+        .into_iter()
+        .map(|label| EventChoice {
+            label: label.to_owned(),
+        })
+        .collect(),
+    });
+    let pre_message = json!({
+        "game_state": {
+            "screen_type": "EVENT",
+            "choice_list": [
+                "card0", "card1", "card3", "card5", "card6", "bash", "warcry", "card9", "card10"
+            ],
+            "screen_state": { "event_id": "Match and Keep!" }
+        }
+    });
+
+    let mapped =
+        seed_start_event_choice_index_for_communication_mod(&run, 4, &pre_message).expect("maps");
+    assert_eq!(run.event.as_ref().unwrap().choices[mapped].label, "card6");
+}
+
+#[test]
 fn observed_event_screen_imports_wing_statue() {
     let game = json!({
         "screen_type": "EVENT",

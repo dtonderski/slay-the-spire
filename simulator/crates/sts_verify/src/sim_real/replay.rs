@@ -2959,6 +2959,8 @@ fn seed_start_handle_event_phase(
     pending_deck_assertion: &mut Option<PendingDeckAssertion>,
     pending_map_assertion: &mut Option<PendingMapAssertion>,
     pending_golden_idol_leave: &mut Option<PendingGoldenIdolLeave>,
+    pending_event_choice: &mut Option<PendingEventChoiceAssertion>,
+    reconciled_deferred_action_steps: &mut Vec<u32>,
     phase: &mut SeedStartPhase,
     report: &mut SimRealReport,
 ) -> SeedStartPreDispatch {
@@ -2988,7 +2990,25 @@ fn seed_start_handle_event_phase(
             reason: "seed-start event action without initialized run simulation".to_owned(),
         });
     };
+    if let Some(pending) = pending_event_choice.as_ref() {
+        let pre_observed = seed_start_event_observed_subset(&pre.message);
+        let pre_is_leave = pre_observed.get("choices") == Some(&json!(["leave"]));
+        if subset_diffs(pre_observed, pending.expected.clone()).is_empty()
+            || (pending.match_and_keep_game_done_board && pre_is_leave)
+        {
+            let pending = pending_event_choice
+                .take()
+                .expect("pending Match and Keep choice assertion checked above");
+            report.verified.push(VerifiedTransition {
+                action_step: pending.action.step,
+                command: pending.action.command,
+                label: pending.label,
+            });
+            reconciled_deferred_action_steps.push(pending.action.step);
+        }
+    }
     let source_event = sim.event.clone();
+    let pre_event_choices = seed_start_event_visible_choice_labels(sim);
     let Some(sim_choice_index) =
         seed_start_event_choice_index_for_communication_mod(sim, choose_index, &pre.message)
     else {
@@ -3354,7 +3374,7 @@ fn seed_start_handle_event_phase(
                 }
             }
         }
-    } else {
+    } else if next.phase == RunPhase::Event {
         if seed_start_event_source_deck_settlement_frame(&observed, &simulated) {
             report.verified.push(VerifiedTransition {
                 action_step: action.step,
@@ -3362,13 +3382,95 @@ fn seed_start_handle_event_phase(
                 label: "event choice (source deck settlement frame)".to_owned(),
             });
         } else {
-            compare_subset(report, action, "event choice", observed, simulated);
+            if let Some(pending) = pending_event_choice.take() {
+                let observed_is_leave = observed.get("choices") == Some(&json!(["leave"]));
+                if subset_diffs(observed.clone(), pending.expected.clone()).is_empty()
+                    || (pending.match_and_keep_game_done_board && observed_is_leave)
+                {
+                    report.verified.push(VerifiedTransition {
+                        action_step: pending.action.step,
+                        command: pending.action.command,
+                        label: pending.label,
+                    });
+                    reconciled_deferred_action_steps.push(pending.action.step);
+                } else {
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: pending.action.step,
+                        command: pending.action.command,
+                        label: pending.label,
+                        diffs: subset_diffs(observed.clone(), pending.expected),
+                    });
+                }
+            }
+            if subset_diffs(observed.clone(), simulated.clone()).is_empty() {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "event choice".to_owned(),
+                });
+            } else if seed_start_match_and_keep_choice_lag_frame(
+                &observed,
+                &simulated,
+                &pre_event_choices,
+            ) && next
+                .event
+                .as_ref()
+                .is_some_and(|screen| screen.event == Event::MatchAndKeep)
+            {
+                *pending_event_choice = Some(PendingEventChoiceAssertion {
+                    action: action.clone(),
+                    label: "event choice (Match and Keep choice lag)".to_owned(),
+                    expected: simulated,
+                    match_and_keep_game_done_board: next
+                        .match_and_keep
+                        .as_ref()
+                        .is_some_and(|state| state.game_done)
+                        && next.event.as_ref().is_some_and(|screen| screen.stage == 2),
+                });
+            } else {
+                compare_subset(report, action, "event choice", observed, simulated);
+            }
         }
+    } else {
+        // Map/reward destinations from an event choice: keep any pending Match
+        // and Keep leave lag armed until the Idle reconcile below.
+        compare_subset(report, action, "event choice", observed, simulated);
     }
     *sim = next.clone();
     if next.card_grid.is_some() {
         *phase = SeedStartPhase::Grid;
     } else if next.phase == RunPhase::Idle {
+        // Leaving Match and Keep may skip publishing the Leave screen when the
+        // final attempt's waitTimer settles into Leave and the next CHOOSE is
+        // still a stale card-grid index. Reaching the map reconciles that lag.
+        if let Some(pending) = pending_event_choice.take() {
+            let pre_observed = seed_start_event_observed_subset(&pre.message);
+            let pending_is_match_and_keep_leave = pending.expected.get("event_id")
+                == Some(&json!("matchandkeep"))
+                && pending.expected.get("choices") == Some(&json!(["leave"]));
+            let pre_is_leave = pre_observed.get("choices") == Some(&json!(["leave"]));
+            if subset_diffs(pre_observed, pending.expected.clone()).is_empty()
+                || pending_is_match_and_keep_leave
+                || (pending.match_and_keep_game_done_board && pre_is_leave)
+            {
+                report.verified.push(VerifiedTransition {
+                    action_step: pending.action.step,
+                    command: pending.action.command,
+                    label: pending.label,
+                });
+                reconciled_deferred_action_steps.push(pending.action.step);
+            } else {
+                report.unexpected_diffs.push(UnexpectedDiff {
+                    action_step: pending.action.step,
+                    command: pending.action.command,
+                    label: pending.label,
+                    diffs: subset_diffs(
+                        seed_start_event_observed_subset(&pre.message),
+                        pending.expected,
+                    ),
+                });
+            }
+        }
         *phase = SeedStartPhase::Map;
     } else if next.phase == RunPhase::Reward {
         *phase = SeedStartPhase::Reward;
@@ -7234,6 +7336,7 @@ pub(super) fn verify_seed_start_transitions(
     let mut pending_smith_effect: Option<PendingSmithEffect> = None;
     let mut pending_map_assertion: Option<PendingMapAssertion> = None;
     let mut pending_golden_idol_leave: Option<PendingGoldenIdolLeave> = None;
+    let mut pending_event_choice: Option<PendingEventChoiceAssertion> = None;
     let mut pending_boss_relic_overlay: Option<PendingBossRelicOverlayAssertion> = None;
     let mut pending_combat_assertion: Option<PendingCombatAssertion> = None;
     let mut pending_put_on_deck_card: Option<(CardInstance, bool)> = None;
@@ -7263,6 +7366,9 @@ pub(super) fn verify_seed_start_transitions(
                 }
             }
             if let Some(pending) = pending_map_assertion.as_ref() {
+                unresolved_deferred_action_steps.push(pending.action.step);
+            }
+            if let Some(pending) = pending_event_choice.as_ref() {
                 unresolved_deferred_action_steps.push(pending.action.step);
             }
             if let Some(pending) = pending_golden_idol_leave.take() {
@@ -8406,6 +8512,8 @@ pub(super) fn verify_seed_start_transitions(
             &mut pending_deck_assertion,
             &mut pending_map_assertion,
             &mut pending_golden_idol_leave,
+            &mut pending_event_choice,
+            &mut reconciled_deferred_action_steps,
             &mut phase,
             report,
         ) {
@@ -8794,3 +8902,4 @@ pub(super) fn verify_seed_start_transitions(
     };
     finish_boundary!(boundary)
 }
+// temp - no, use a small test instead

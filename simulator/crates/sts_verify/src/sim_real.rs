@@ -1152,10 +1152,17 @@ struct PendingMapAssertion {
 /// Match and Keep can publish the prior card-grid choice labels for one
 /// update while the queued obtain effect and the next click have already
 /// settled. The authoritative post-action projection remains required and
-/// must reconcile against a later captured frame.
+/// must reconcile against a later captured frame without rewriting observed
+/// choices to the simulator projection.
 struct PendingEventChoiceAssertion {
     action: TraceAction,
+    label: String,
+    /// Core-owned event subset after the deferred action.
     expected: Value,
+    /// Final Match and Keep pair can settle to gameDone while the capture still
+    /// shows the prior first-flip board; the next observed Leave screen is the
+    /// required reconciliation point (cleanup wait), not the intermediate board.
+    match_and_keep_game_done_board: bool,
 }
 
 /// Golden Idol's initial Leave button can be observed either on its
@@ -3540,6 +3547,34 @@ fn seed_start_event_choice_index_for_communication_mod(
     pre_message: &Value,
 ) -> Option<usize> {
     let event_context = run.event.as_ref().map(|event| (event.event, event.stage));
+    // Match and Keep: CommunicationMod executes pickable.get(index), but the
+    // captured pre-choice list can lag the authoritative board in two ways:
+    // 1) Removal-stale (pre still lists a face-up card the sim already flipped)
+    //    → index on the sim board is the live game's pickable.get(index).
+    // 2) Resolution-stale (pre is mid-pair / pre-name while sim already
+    //    resolved the previous pair) → the collector chose by the stale list's
+    //    label (cardN), which must bind by that label rather than by index on
+    //    the longer settled list.
+    // After the fifth attempt the sim publishes Leave; a stale card-grid CHOOSE
+    // index still advances that single Leave option.
+    if event_context.is_some_and(|(event, stage)| event == Event::MatchAndKeep && stage == 3) {
+        let labels = seed_start_event_visible_choice_labels(run);
+        if labels.len() == 1 && labels[0] == "leave" {
+            return Some(0);
+        }
+    }
+    // gameDone wait: any CHOOSE advances to Leave without selecting a card.
+    if event_context.is_some_and(|(event, stage)| event == Event::MatchAndKeep && stage == 2)
+        && run
+            .match_and_keep
+            .as_ref()
+            .is_some_and(|state| state.game_done)
+    {
+        return Some(0);
+    }
+    if event_context.is_some_and(|(event, stage)| event == Event::MatchAndKeep && stage == 2) {
+        return seed_start_match_and_keep_choice_index(run, visible_choice_index, pre_message);
+    }
     if let Some(observed_choice_label) = pre_message
         .get("game_state")
         .and_then(|game| game.get("choice_list"))
@@ -3568,6 +3603,14 @@ fn seed_start_event_choice_index_for_communication_mod(
         }
     }
 
+    seed_start_event_choice_index_by_visible_order(run, visible_choice_index)
+}
+
+fn seed_start_event_choice_index_by_visible_order(
+    run: &RunState,
+    visible_choice_index: usize,
+) -> Option<usize> {
+    let event_context = run.event.as_ref().map(|event| (event.event, event.stage));
     run.event
         .as_ref()?
         .choices
@@ -3582,6 +3625,108 @@ fn seed_start_event_choice_index_for_communication_mod(
         })
         .nth(visible_choice_index)
         .map(|(choice_index, _)| choice_index)
+}
+
+fn seed_start_match_and_keep_choice_index(
+    run: &RunState,
+    visible_choice_index: usize,
+    pre_message: &Value,
+) -> Option<usize> {
+    let pre_labels = pre_message
+        .get("game_state")
+        .and_then(|game| game.get("choice_list"))
+        .map(|choices| choice_list_from_value(Some(choices)))
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|choice| seed_start_visible_event_choice_label(&choice))
+        .collect::<Vec<_>>();
+    let sim_labels = seed_start_event_visible_choice_labels(run);
+
+    // Pre still includes face-up cards the sim already removed from the
+    // pickable list. Index against the live sim board (matches pickable.get).
+    if pre_labels.len() > sim_labels.len() {
+        return seed_start_event_choice_index_by_visible_order(run, visible_choice_index);
+    }
+
+    // Pre is mid-pair or pre-name relative to a settled sim board. Bind the
+    // collector's chosen label when it uniquely identifies a sim slot.
+    if let Some(observed_label) = pre_labels.get(visible_choice_index) {
+        let matches = run
+            .event
+            .as_ref()?
+            .choices
+            .iter()
+            .enumerate()
+            .filter_map(|(choice_index, choice)| {
+                (seed_start_visible_event_choice_label_for_event(
+                    Event::MatchAndKeep,
+                    2,
+                    &choice.label,
+                )
+                .as_deref()
+                    == Some(observed_label.as_str()))
+                .then_some(choice_index)
+            })
+            .collect::<Vec<_>>();
+        if let [choice_index] = matches.as_slice() {
+            return Some(*choice_index);
+        }
+    }
+
+    seed_start_event_choice_index_by_visible_order(run, visible_choice_index)
+}
+
+fn seed_start_event_visible_choice_labels(run: &RunState) -> Vec<String> {
+    let Some(event) = run.event.as_ref() else {
+        return Vec::new();
+    };
+    event
+        .choices
+        .iter()
+        .filter_map(|choice| {
+            seed_start_visible_event_choice_label_for_event(event.event, event.stage, &choice.label)
+        })
+        .collect()
+}
+
+/// CommunicationMod can publish Match and Keep choice lists one flip behind
+/// the authoritative post-action board while gold/deck from a prior matched
+/// obtain have already settled. Accept only the exact pre-action choice list
+/// as that lag; every non-choice field must already match the settled core.
+fn seed_start_match_and_keep_choice_lag_frame(
+    observed: &Value,
+    settled: &Value,
+    pre_choices: &[String],
+) -> bool {
+    let Some(observed_object) = observed.as_object() else {
+        return false;
+    };
+    let Some(settled_object) = settled.as_object() else {
+        return false;
+    };
+    let observed_choices = observed_object
+        .get("choices")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    if observed_choices != json!(pre_choices) {
+        return false;
+    }
+    let settled_choices = settled_object
+        .get("choices")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    if observed_choices == settled_choices {
+        return false;
+    }
+
+    let mut observed_without_choices = observed.clone();
+    let mut settled_without_choices = settled.clone();
+    for value in [&mut observed_without_choices, &mut settled_without_choices] {
+        if let Some(object) = value.as_object_mut() {
+            object.remove("choices");
+        }
+    }
+    subset_diffs(observed_without_choices, settled_without_choices).is_empty()
 }
 
 fn seed_start_visible_event_choice_label_for_event(

@@ -528,6 +528,7 @@ fn match_and_keep_authoritative_state_is_validated() {
         first_flipped_index: Some(1),
         second_flipped_index: None,
         matched_cards: Vec::new(),
+        game_done: false,
     });
 
     assert_eq!(
