@@ -5,7 +5,7 @@ use crate::{
 };
 
 use super::grid::{open_rest_remove_grid, open_rest_smith_grid};
-use super::reward::{roll_event_relic_reward, roll_pending_card_reward_choices};
+use super::reward::{roll_pending_card_reward_choices, roll_reward_screen_relic};
 use crate::RewardScreen;
 
 pub const REST_HEAL_PERCENT: i32 = 30;
@@ -191,8 +191,10 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
             next.rest_room_complete = true;
         }
         RestAction::Dig => {
+            // CampfireDigEffect: returnRandomRelicTier() + returnRandomRelic(tier)
+            // (not returnRandomScreenlessRelic — Dig opens CombatRewardScreen).
             let act = next.current_act;
-            let key = roll_event_relic_reward(&mut next, act);
+            let key = roll_reward_screen_relic(&mut next, act);
             next.rest_room_complete = true;
             next.phase = RunPhase::Reward;
             next.reward = Some(RewardScreen {
@@ -245,8 +247,9 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
 mod tests {
     use super::*;
     use crate::{
-        content::cards::SEARING_BLOW_PLUS_ID, run::reward::apply_run_action, CardId, CardInstance,
-        RoomKind, RunAction, Snapshot, SNAPSHOT_SCHEMA_VERSION,
+        content::cards::{ANGER_ID, SEARING_BLOW_PLUS_ID},
+        run::reward::{apply_run_action, roll_event_relic_reward, roll_reward_screen_relic},
+        CardId, CardInstance, RoomKind, RunAction, Snapshot, SNAPSHOT_SCHEMA_VERSION,
     };
 
     #[test]
@@ -424,5 +427,47 @@ mod tests {
         assert_eq!(settled.phase, RunPhase::Rest);
         assert!(settled.rest_room_complete);
         assert!(settled.reward.is_none());
+    }
+
+    #[test]
+    fn dig_uses_reward_screen_relic_not_screenless_event_roll() {
+        // CampfireDigEffect uses returnRandomRelicTier + returnRandomRelic, so
+        // bottled relics may appear. Event instant-grants use screenless and skip
+        // bottles/Whetstone.
+        let mut base = RunState::seeded_ironclad(42, 0);
+        base.phase = RunPhase::Rest;
+        base.current_room_override = Some(RoomKind::Rest);
+        base.event = None;
+        base.relics.push(Relic::Shovel);
+        base.deck
+            .push(CardInstance::new(CardId::new(500), ANGER_ID));
+        base.ensure_ironclad_relic_pools();
+        {
+            let pools = base.relic_pools.as_mut().expect("pools");
+            pools.remove_relic(Relic::BottledFlame);
+            pools.remove_relic(Relic::MeatOnTheBone);
+            for pool in [&mut pools.common, &mut pools.uncommon, &mut pools.rare] {
+                pool.insert(0, Relic::BottledFlame);
+                pool.insert(1, Relic::MeatOnTheBone);
+            }
+        }
+
+        let dig = apply_rest_action(&base, RestAction::Dig).expect("dig opens reward");
+        let dig_offer = dig
+            .reward
+            .as_ref()
+            .expect("dig reward")
+            .relic_offer
+            .expect("dig relic offer");
+
+        let act = base.current_act;
+        let mut screen_run = base.clone();
+        let screen = roll_reward_screen_relic(&mut screen_run, act);
+        let mut event_run = base.clone();
+        let event = roll_event_relic_reward(&mut event_run, act);
+
+        assert_eq!(dig_offer, screen);
+        assert_eq!(screen, Relic::BottledFlame);
+        assert_eq!(event, Relic::MeatOnTheBone);
     }
 }

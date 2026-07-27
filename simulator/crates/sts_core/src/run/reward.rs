@@ -206,12 +206,25 @@ fn queue_eager_card_reward_choices(run: &mut RunState, count: u8) -> SimResult<(
     Ok(())
 }
 
+/// Event paths that grant a relic without opening the combat reward screen use
+/// `AbstractDungeon.returnRandomScreenlessRelic` (skip bottled relics / Whetstone).
 pub fn roll_event_relic_reward(run: &mut RunState, act: i32) -> RelicKey {
     run.ensure_ironclad_relic_pools();
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_relic_tier(&mut relic_rng, act);
     run.store_rng_counter(RunRngStream::Relic, &relic_rng);
     roll_screenless_relic_reward(run, tier)
+}
+
+/// Reward-screen relic offers (Dig / chests / elites) use
+/// `returnRandomRelicTier` + `returnRandomRelic`. Bottled relics are allowed
+/// because the combat reward screen can open their bottle grid on pickup.
+pub fn roll_reward_screen_relic(run: &mut RunState, act: i32) -> RelicKey {
+    run.ensure_ironclad_relic_pools();
+    let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
+    let tier = target_relic_tier(&mut relic_rng, act);
+    run.store_rng_counter(RunRngStream::Relic, &relic_rng);
+    roll_relic_reward(run, tier)
 }
 
 fn roll_screenless_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey {
