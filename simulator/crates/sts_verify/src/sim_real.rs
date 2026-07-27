@@ -4075,22 +4075,29 @@ fn sim_reward_combat_choices(run: &RunState, reward: &RewardScreen) -> Vec<Strin
     let event_map_reward = run.current_room_kind() == Some(RoomKind::Event)
         && reward.continuation == RewardContinuation::Map;
     let treasure_reward = run.current_room_kind() == Some(RoomKind::Treasure);
+    let relic_before_gold = run
+        .treasure_room
+        .as_ref()
+        .is_some_and(|treasure| treasure.relic_before_gold);
     if treasure_reward && has_relic {
         // An ordinary chest appends its gold reward before its own relic.
         // Matryoshka's onChestOpen hook inserts its bonus relic first, so its
-        // two-relic chest remains [relic, gold, relic].
-        if has_pending_relic {
+        // two-relic chest remains [relic, gold, relic]. After the trailing
+        // chest relic is claimed, treasure_room.relic_before_gold keeps the
+        // residual order as [relic, gold] instead of flipping to [gold, relic].
+        let matryoshka_style = has_pending_relic || relic_before_gold;
+        if matryoshka_style {
             choices.push("relic".to_owned());
             if reward.gold_offer > 0 {
                 choices.push("gold".to_owned());
             }
-        } else if reward.gold_offer > 0 {
-            choices.push("gold".to_owned());
-        }
-        if !has_pending_relic {
-            choices.push("relic".to_owned());
-        }
-        if has_pending_relic {
+            if has_pending_relic {
+                choices.push("relic".to_owned());
+            }
+        } else {
+            if reward.gold_offer > 0 {
+                choices.push("gold".to_owned());
+            }
             choices.push("relic".to_owned());
         }
         choices.extend(std::iter::repeat_n(

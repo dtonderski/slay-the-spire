@@ -2341,6 +2341,12 @@ fn reward_projection_keeps_black_star_offers_in_screen_order() {
 fn reward_projection_keeps_matryoshka_chest_offers_in_screen_order() {
     let mut run = RunState::map_fixture();
     run.current_room_override = Some(RoomKind::Treasure);
+    run.treasure_room = Some(sts_core::run::TreasureRoomState {
+        chest_size: sts_core::run::reward::ChestSize::Large,
+        relic_tier: sts_core::RelicTier::Uncommon,
+        have_gold: true,
+        relic_before_gold: true,
+    });
     let reward = RewardScreen {
         continuation: sts_core::RewardContinuation::Map,
         choices: Vec::new(),
@@ -2360,6 +2366,75 @@ fn reward_projection_keeps_matryoshka_chest_offers_in_screen_order() {
         sim_reward_combat_choices(&run, &reward),
         ["relic", "gold", "relic"].map(str::to_owned)
     );
+}
+
+#[test]
+fn indexed_map_chest_relic_pick_preserves_remaining_reward_order() {
+    let mut run = RunState::map_fixture();
+    run.phase = RunPhase::Reward;
+    run.current_room_override = Some(RoomKind::Treasure);
+    run.treasure_room = Some(sts_core::run::TreasureRoomState {
+        chest_size: sts_core::run::reward::ChestSize::Large,
+        relic_tier: sts_core::RelicTier::Uncommon,
+        have_gold: true,
+        relic_before_gold: true,
+    });
+    run.reward = Some(RewardScreen {
+        continuation: sts_core::RewardContinuation::Map,
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 72,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers: Vec::new(),
+        // Non-bottled relics so indexed picks stay on the combat-reward screen.
+        relic_offer: Some(Relic::Orichalcum),
+        pending_relic_offer: Some(Relic::Sundial),
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: sts_core::CardRewardFlow::None,
+    });
+
+    let picked_last = apply_run_action(&run, RunAction::TakeRelicRewardAt { index: 1 })
+        .expect("last chest relic can be picked");
+    assert!(
+        picked_last
+            .treasure_room
+            .as_ref()
+            .expect("treasure room remains open")
+            .relic_before_gold
+    );
+    assert_eq!(
+        sim_reward_combat_choices(
+            &picked_last,
+            picked_last.reward.as_ref().expect("remaining chest reward"),
+        ),
+        ["relic", "gold"].map(str::to_owned)
+    );
+    assert!(picked_last.relics.contains(&Relic::Sundial));
+    assert!(!picked_last.relics.contains(&Relic::Orichalcum));
+
+    let picked_first = apply_run_action(&run, RunAction::TakeRelicRewardAt { index: 0 })
+        .expect("first chest relic can be picked");
+    assert!(
+        !picked_first
+            .treasure_room
+            .as_ref()
+            .expect("treasure room remains open")
+            .relic_before_gold
+    );
+    assert_eq!(
+        sim_reward_combat_choices(
+            &picked_first,
+            picked_first
+                .reward
+                .as_ref()
+                .expect("remaining chest reward"),
+        ),
+        ["gold", "relic"].map(str::to_owned)
+    );
+    assert!(picked_first.relics.contains(&Relic::Orichalcum));
+    assert!(!picked_first.relics.contains(&Relic::Sundial));
 }
 
 #[test]

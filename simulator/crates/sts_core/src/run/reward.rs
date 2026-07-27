@@ -81,6 +81,12 @@ pub struct TreasureRoomState {
     pub chest_size: ChestSize,
     pub relic_tier: RelicTier,
     pub have_gold: bool,
+    /// Matryoshka inserts its bonus relic before the chest gold RewardItem.
+    /// Ordinary chests keep gold before the single relic. After a non-leading
+    /// relic is claimed, this flag preserves the residual `[relic, gold]` order
+    /// instead of falling back to the ordinary `[gold, relic]` layout.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relic_before_gold: bool,
 }
 
 fn target_chest_size(rng: &mut StsRng) -> ChestSize {
@@ -135,6 +141,7 @@ pub fn setup_treasure_room(run: &mut RunState) {
         chest_size,
         relic_tier,
         have_gold,
+        relic_before_gold: false,
     });
 }
 
@@ -1767,6 +1774,7 @@ fn enter_chest_relic_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     } else {
         None
     };
+    let matryoshka_bonus_inserted = bonus_relic_offer.is_some();
     // AbstractChest.open invokes relic onChestOpen hooks before adding the
     // chest's own relic reward. Matryoshka therefore consumes relic RNG and
     // removes its relic from the pool before the normal chest relic is rolled.
@@ -1780,6 +1788,12 @@ fn enter_chest_relic_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     };
     if pending_relic_offer.is_some_and(is_bottled_relic_offer) {
         std::mem::swap(&mut relic_offer, &mut pending_relic_offer);
+    }
+    // CombatRewardScreen keeps RewardItems in insertion order. Matryoshka's
+    // onChestOpen inserts its bonus relic before the gold item, so residual
+    // screens after claiming the trailing chest relic remain [relic, gold].
+    if let Some(treasure_room) = run.treasure_room.as_mut() {
+        treasure_room.relic_before_gold = matryoshka_bonus_inserted && gold_offer > 0;
     }
 
     run.phase = RunPhase::Reward;
@@ -2363,6 +2377,16 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             next.gain_potion(potion)?;
         }
         RunAction::TakeRelicReward => {
+            // Claiming the leading reward-list relic drops Matryoshka's
+            // relic-before-gold residual order; remaining chest rewards use the
+            // ordinary gold-then-relic layout.
+            let map_chest_relic_before_gold = next.reward.as_ref().is_some_and(|reward| {
+                reward.continuation == RewardContinuation::Map
+                    && next
+                        .treasure_room
+                        .as_ref()
+                        .is_some_and(|treasure| treasure.relic_before_gold)
+            });
             let relic_offer = next
                 .reward
                 .as_mut()
@@ -2371,6 +2395,11 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .take();
             if let Some(relic) = relic_offer {
                 next.gain_relic(relic)?;
+            }
+            if map_chest_relic_before_gold {
+                if let Some(treasure_room) = next.treasure_room.as_mut() {
+                    treasure_room.relic_before_gold = false;
+                }
             }
             if next.phase == RunPhase::Reward && next.card_grid.is_none() {
                 advance_pending_relic_offer(&mut next);
@@ -2387,6 +2416,13 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             }
         }
         RunAction::TakeRelicRewardAt { index } => {
+            let map_chest_relic_before_gold = next.reward.as_ref().is_some_and(|reward| {
+                reward.continuation == RewardContinuation::Map
+                    && next
+                        .treasure_room
+                        .as_ref()
+                        .is_some_and(|treasure| treasure.relic_before_gold)
+            });
             let reward = next.reward.as_mut().expect("validated reward screen");
             let active_count = usize::from(reward.relic_offer.is_some());
             let pending_count = usize::from(reward.pending_relic_offer.is_some());
@@ -2415,7 +2451,15 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             remaining.retain(|relic| *relic != selected);
             reward.relic_offer = Some(selected);
             reward.queued_relic_offers = remaining;
+            // TakeRelicReward clears relic_before_gold because it claims the
+            // temporary primary slot. Non-leading indexed picks leave the
+            // original leading relic in place, so restore the residual order.
             next = apply_reward_action(&next, RunAction::TakeRelicReward)?;
+            if map_chest_relic_before_gold && index > 0 {
+                if let Some(treasure_room) = next.treasure_room.as_mut() {
+                    treasure_room.relic_before_gold = true;
+                }
+            }
         }
         RunAction::ChooseBossRelicReward { index } => {
             let key = {
@@ -3511,6 +3555,29 @@ mod tests {
         closed
             .validate()
             .expect("closed chest reward has no orphaned treasure state");
+    }
+
+    #[test]
+    fn treasure_room_reward_order_round_trips_through_json() {
+        let original = TreasureRoomState {
+            chest_size: ChestSize::Large,
+            relic_tier: RelicTier::Uncommon,
+            have_gold: true,
+            relic_before_gold: true,
+        };
+        let restored: TreasureRoomState = serde_json::from_value(
+            serde_json::to_value(original).expect("treasure room serializes"),
+        )
+        .expect("treasure room deserializes");
+        assert_eq!(restored, original);
+
+        let legacy: TreasureRoomState = serde_json::from_value(serde_json::json!({
+            "chest_size": "Small",
+            "relic_tier": "Common",
+            "have_gold": false
+        }))
+        .expect("legacy treasure room defaults relic_before_gold");
+        assert!(!legacy.relic_before_gold);
     }
 
     #[test]
