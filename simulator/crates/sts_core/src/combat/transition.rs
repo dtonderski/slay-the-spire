@@ -681,16 +681,20 @@ fn apply_internal_action(
         InternalAction::GainArtifact { amount } => player_actions::gain_artifact(state, amount),
         InternalAction::UpgradeCombatCards => player_actions::upgrade_all_combat_cards(state),
         InternalAction::CardExhausted { card_id } => {
-            // Feel No Pain queues GainBlockAction via addToBot (after remaining
-            // card.use / onUseCard actions such as Guardian Sharp Hide).
-            apply_on_exhaust_effects_except_feel_no_pain(state, card_id)?;
+            // Feel No Pain and Dark Embrace both queue via addToBot on exhaust
+            // (after remaining card.use / onUseCard / UseCardAction settlement).
+            // Immediate DE draws would reshuffle before the played card reaches
+            // discard (Sever Soul + empty draw), desyncing hand/draw order.
+            apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
             let mut follow_ups = feel_no_pain_block_follow_up(state);
+            follow_ups.extend(dark_embrace_draw_follow_up(state));
             follow_ups.extend(dead_branch_follow_up(state));
             Ok(follow_ups)
         }
         InternalAction::HandCardExhausted { card_id } => {
-            apply_on_exhaust_effects_except_feel_no_pain(state, card_id)?;
+            apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
             let mut follow_ups = feel_no_pain_block_follow_up(state);
+            follow_ups.extend(dark_embrace_draw_follow_up(state));
             follow_ups.extend(dead_branch_follow_up_before_pending_draw(state));
             Ok(follow_ups)
         }
@@ -1291,11 +1295,13 @@ pub(crate) fn apply_on_exhaust_effects_without_dark_embrace(
     apply_on_exhaust_effects_inner(state, card_id, false, true)
 }
 
-fn apply_on_exhaust_effects_except_feel_no_pain(
+fn apply_on_exhaust_effects_except_bot_queued_powers(
     state: &mut CombatState,
     card_id: CardId,
 ) -> SimResult<()> {
-    apply_on_exhaust_effects_inner(state, card_id, true, false)
+    // Skip Feel No Pain and Dark Embrace: both use addToBot in the target
+    // (`GainBlockAction` / `DrawCardAction`) and are emitted as follow-ups.
+    apply_on_exhaust_effects_inner(state, card_id, false, false)
 }
 
 /// STS FeelNoPainPower.onExhaust addToBot's GainBlockAction.
@@ -1303,6 +1309,17 @@ fn feel_no_pain_block_follow_up(state: &CombatState) -> Vec<InternalAction> {
     if state.player.powers.feel_no_pain > 0 {
         vec![InternalAction::GainBlockDirect {
             amount: state.player.powers.feel_no_pain,
+        }]
+    } else {
+        Vec::new()
+    }
+}
+
+/// STS DarkEmbracePower.onExhaust addToBot's DrawCardAction.
+fn dark_embrace_draw_follow_up(state: &CombatState) -> Vec<InternalAction> {
+    if state.player.powers.dark_embrace > 0 {
+        vec![InternalAction::DrawCards {
+            count: state.player.powers.dark_embrace.max(0) as usize,
         }]
     } else {
         Vec::new()
@@ -4534,6 +4551,74 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![DEFEND_R_ID]
         );
+    }
+
+    #[test]
+    fn sever_soul_dark_embrace_draws_after_played_card_discard_reshuffle() {
+        // DarkEmbracePower.onExhaust addToBot's DrawCardAction, so DE draws run
+        // after UseCardAction discards Sever Soul. With an empty draw pile the
+        // reshuffle must include Sever Soul; immediate-on-exhaust draws leave it
+        // stranded in discard and desync the post-play hand.
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].block = 0;
+        state.player.energy = 2;
+        state.player.powers.dark_embrace = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), SEVER_SOUL_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(5), BASH_ID),
+            CardInstance::new(CardId::new(6), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(7), FLEX_ID),
+            CardInstance::new(CardId::new(8), MADNESS_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+        state.rng.shuffle_rng = StsRng::new(42);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Sever Soul with Dark Embrace should resolve");
+
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, DEFEND_R_ID]
+        );
+        assert!(
+            next.piles.discard_pile.is_empty(),
+            "reshuffle for DE draws must consume discard after Sever Soul settles"
+        );
+        assert!(
+            next.piles
+                .draw_pile
+                .iter()
+                .any(|card| card.content_id == SEVER_SOUL_ID)
+                || next
+                    .piles
+                    .hand
+                    .iter()
+                    .any(|card| card.content_id == SEVER_SOUL_ID),
+            "Sever Soul must be in the reshuffled draw or hand, not stranded in discard"
+        );
+        // Iron Wave-equivalent: kept attack + two DE draws from the 5-card
+        // reshuffle (4 prior discard + Sever Soul).
+        assert_eq!(next.piles.hand.len(), 3);
+        assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert_eq!(next.piles.draw_pile.len(), 3);
     }
 
     #[test]
