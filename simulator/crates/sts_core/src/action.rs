@@ -28,6 +28,8 @@ pub enum InternalAction {
     ConsumeDuplicationPotion,
     ConsumeDoubleTap,
     ConsumeNecronomicon,
+    /// Remove player Vigor after the current Attack card's hits resolve.
+    ConsumeVigor,
     PlayCard {
         card_id: CardId,
     },

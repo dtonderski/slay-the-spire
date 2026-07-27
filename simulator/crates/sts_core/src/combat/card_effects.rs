@@ -61,9 +61,7 @@ use crate::{
         ironclad_combat_discovery_pool, ironclad_combat_skill_discovery_pool,
     },
     ids::{CardId, ContentId, MonsterId},
-    relic::{
-        strike_damage_with_relics, Relic, AKABEKO_DAMAGE, CHEMICAL_X_BONUS_X, PEN_NIB_THRESHOLD,
-    },
+    relic::{strike_damage_with_relics, Relic, CHEMICAL_X_BONUS_X, PEN_NIB_THRESHOLD},
     CardInstance, MonsterIntent, SimError, SimResult,
 };
 use std::collections::VecDeque;
@@ -381,7 +379,6 @@ pub(super) fn play_card_queue(
     if state.duplication_potion_pending || state.duplication_potion_stacks > 0 {
         queue = apply_duplication_potion_to_queue(queue, card_id);
     }
-    apply_akabeko_to_first_attack_queue(state, definition.card_type, card_id, &mut queue);
     if should_apply_necronomicon(state, card, definition)? {
         queue = apply_necronomicon_to_queue(queue, card_id);
     }
@@ -393,6 +390,10 @@ pub(super) fn play_card_queue(
     // move; otherwise Double Tap/Necronomicon clone the already-doubled
     // damage and incorrectly receive Pen Nib too.
     apply_pen_nib_to_tenth_attack_queue(state, definition.card_type, card_id, &mut queue);
+    // Vigor applies at damage resolution time (like Strength). Consume it after
+    // the original Attack card's hits so multi-hit attacks keep the bonus and
+    // Double Tap / Necronomicon copies do not.
+    apply_vigor_consumption_to_attack_queue(state, definition.card_type, card_id, &mut queue);
 
     apply_effective_cost_to_played_card_queue(card, definition, &mut queue)?;
     apply_corruption_to_played_skill_queue(state, definition, card_id, &mut queue);
@@ -688,59 +689,33 @@ fn apply_strange_spoon_to_played_card_move(
     };
 }
 
-fn apply_akabeko_to_first_attack_queue(
+fn apply_vigor_consumption_to_attack_queue(
     state: &CombatState,
     card_type: CardType,
     card_id: CardId,
     queue: &mut VecDeque<InternalAction>,
 ) {
-    if card_type != CardType::Attack
-        || !state.relics.contains(&Relic::Akabeko)
-        || state.relic_counters.attacks_played_this_combat > 0
-    {
+    if card_type != CardType::Attack || state.player.powers.vigor <= 0 {
         return;
     }
 
-    for action in queue {
-        if is_card_move_for(*action, card_id) {
-            break;
-        }
-        match action {
-            InternalAction::DealDamage {
-                info:
-                    DamageInfo {
-                        source: DamageSource::Card(source),
-                        amount,
-                        ..
-                    },
-            } if *source == card_id => {
-                *amount += AKABEKO_DAMAGE;
-            }
-            InternalAction::DealDamageRandomEnemy { source, amount } if *source == card_id => {
-                *amount += AKABEKO_DAMAGE;
-            }
-            InternalAction::DealDamageAll { source, amount } if *source == card_id => {
-                *amount += AKABEKO_DAMAGE;
-            }
-            InternalAction::DealDamageAllAndHealUnblocked { source, amount }
-                if *source == card_id =>
-            {
-                *amount += AKABEKO_DAMAGE;
-            }
-            InternalAction::DealFeedDamage {
-                info:
-                    DamageInfo {
-                        source: DamageSource::Card(source),
-                        amount,
-                        ..
-                    },
-                ..
-            } if *source == card_id => {
-                *amount += AKABEKO_DAMAGE;
-            }
-            _ => {}
-        }
+    // Prefer clearing after original hits and before any PlayCardCopy so
+    // Double Tap / Necronomicon clones do not inherit Vigor.
+    if let Some(index) = queue
+        .iter()
+        .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
+    {
+        queue.insert(index, InternalAction::ConsumeVigor);
+        return;
     }
+    if let Some(index) = queue
+        .iter()
+        .rposition(|action| is_card_move_for(*action, card_id))
+    {
+        queue.insert(index + 1, InternalAction::ConsumeVigor);
+        return;
+    }
+    queue.push_back(InternalAction::ConsumeVigor);
 }
 
 fn apply_pen_nib_to_tenth_attack_queue(
@@ -799,8 +774,12 @@ fn apply_pen_nib_to_tenth_attack_queue(
 }
 
 fn pen_nib_queue_amount(state: &CombatState, amount: i32) -> i32 {
-    let strength = state.player.powers.strength + state.player.temp_strength;
-    (amount + strength).max(0) * 2 - strength
+    // Pen Nib doubles the pre-Weak/Vulnerable attack total, including Strength
+    // and Vigor. Bake the double into the queued base so later
+    // `base + strength + vigor` yields `2 * (base + strength + vigor)`.
+    let additive =
+        state.player.powers.strength + state.player.temp_strength + state.player.powers.vigor;
+    (amount + additive).max(0) * 2 - additive
 }
 
 fn apply_duplication_potion_to_queue(

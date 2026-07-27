@@ -1458,6 +1458,32 @@ fn body_slam_plus_deals_current_block_as_attack_damage() {
 }
 
 #[test]
+fn body_slam_with_zero_block_applies_vigor_before_vulnerable() {
+    // Trace pattern: Body Slam, block=0, Vigor=8, target Vulnerable → 12 damage.
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.block = 0;
+    state.player.powers.vigor = 8;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BODY_SLAM_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].powers.vulnerable = 1;
+    let starting_hp = state.monsters[0].hp;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Body Slam with Vigor plays");
+
+    // (0 block + 8 vigor) * 1.5 vulnerable = 12
+    assert_eq!(next.monsters[0].hp, starting_hp - 12);
+    assert_eq!(next.player.powers.vigor, 0);
+}
+
+#[test]
 fn brutality_loses_one_hp_then_draws_before_normal_turn_draw() {
     let mut state = CombatState::initial_fixture();
     state.player.hp = 50;

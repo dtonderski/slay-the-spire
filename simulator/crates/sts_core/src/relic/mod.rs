@@ -87,7 +87,7 @@ pub const BIRD_FACED_URN_HEAL: i32 = 2;
 pub const THE_BOOT_MAX_DAMAGE: i32 = 4;
 /// Unblocked attack damage after [Relic::TheBoot] increase.
 pub const THE_BOOT_DAMAGE: i32 = 5;
-/// Damage added to each hit of the first Attack card by [Relic::Akabeko].
+/// Vigor granted by [Relic::Akabeko] at combat start (next Attack +N damage).
 pub const AKABEKO_DAMAGE: i32 = 8;
 /// Cards drawn after first HP loss each combat by [Relic::CentennialPuzzle].
 pub const CENTENNIAL_PUZZLE_DRAW: usize = 3;
@@ -2123,7 +2123,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::WhiteBeastStatue => {}
             Relic::Whetstone => {}
             Relic::WarPaint => {}
-            Relic::Akabeko => {}
+            Relic::Akabeko => {
+                checked_add_relic_value(&mut combat.player.powers.vigor, AKABEKO_DAMAGE)?;
+            }
             Relic::CentennialPuzzle => {}
             Relic::PenNib => {}
             Relic::SelfFormingClay => {}

@@ -212,7 +212,9 @@ fn calculate_player_attack_damage(
     target_slow: i32,
     relics: &[Relic],
 ) -> i32 {
-    let mut amount = (base + player.strength + temp_strength).max(0) as f64;
+    // VigorPower.atDamageGive adds to NORMAL attack damage like Strength, before
+    // Weak / Vulnerable / Slow multipliers. It is consumed after the Attack card.
+    let mut amount = (base + player.strength + temp_strength + player.vigor).max(0) as f64;
     if player.weak > 0 {
         amount *= 0.75;
     }

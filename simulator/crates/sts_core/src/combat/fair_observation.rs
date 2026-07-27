@@ -625,6 +625,7 @@ fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
         ("confusion", p.confusion),
         ("entangled", p.entangled),
         ("constricted", p.constricted),
+        ("vigor", p.vigor),
     ] {
         push_power(result, key, amount);
     }

@@ -35,6 +35,11 @@ pub(super) fn consume_necronomicon(state: &mut CombatState) -> SimResult<Vec<Int
     Ok(Vec::new())
 }
 
+pub(super) fn consume_vigor(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    state.player.powers.vigor = 0;
+    Ok(Vec::new())
+}
+
 pub(super) fn play_card(
     state: &mut CombatState,
     card_id: CardId,

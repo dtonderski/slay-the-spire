@@ -409,6 +409,7 @@ fn apply_internal_action(
         InternalAction::ConsumeDuplicationPotion => card_actions::consume_duplication_potion(state),
         InternalAction::ConsumeDoubleTap => card_actions::consume_double_tap(state),
         InternalAction::ConsumeNecronomicon => card_actions::consume_necronomicon(state),
+        InternalAction::ConsumeVigor => card_actions::consume_vigor(state),
         InternalAction::PlayCard { card_id } => card_actions::play_card(state, card_id),
         InternalAction::PlayCardCopy { card_id } => card_actions::play_card_copy(state, card_id),
         InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }

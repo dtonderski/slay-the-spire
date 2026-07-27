@@ -58,6 +58,10 @@ pub struct PlayerPowers {
     pub entangled: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub constricted: i32,
+    /// Temporary attack bonus consumed by the next Attack card (VigorPower).
+    /// Added to each hit of that card, then removed when the card is played.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub vigor: i32,
     /// Time Eater's one-stack DrawReductionPower remains visible after its
     /// first reduced opening draw and expires after the following one.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
@@ -144,7 +148,7 @@ pub fn attack_damage_with_vulnerable_bonus(
 }
 
 /// Player attack modifiers applied before target vulnerable:
-/// 1. add strength and temp strength
+/// 1. add strength, temp strength, and vigor
 /// 2. if weak, multiply by 0.75 and floor via integer `base * 3 / 4`
 /// 3. apply target vulnerable
 #[must_use]
@@ -154,7 +158,7 @@ pub fn calculate_attack_damage(
     temp_strength: i32,
     target_vulnerable: i32,
 ) -> i32 {
-    let with_strength = (base + player.strength + temp_strength).max(0);
+    let with_strength = (base + player.strength + temp_strength + player.vigor).max(0);
     let with_weak = if player.weak > 0 {
         with_strength * 3 / 4
     } else {
