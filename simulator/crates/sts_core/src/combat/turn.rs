@@ -109,6 +109,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     if let Some(card) = next.pending_hidden_hand_card_until_end_turn.take() {
         next.piles.discard_pile.push(card);
     }
+    settle_pending_elixir_exhaust_cards(&mut next);
     // Dead Branch cards created while end-of-turn ethereal cards exhaust are
     // queued after the hand discard and remain at the front of the next hand.
     next.piles.hand.extend(end_of_turn_hand.dead_branch_cards);
@@ -151,6 +152,32 @@ fn expire_unused_duplication_potion_stack(state: &mut CombatState) {
     }
     if state.duplication_potion_stacks == 0 {
         state.duplication_potion_pending = false;
+    }
+}
+
+/// Elixir exhaust cards stay in exhaust for on-exhaust effects, but the target
+/// surfaces them on discard after one complete subsequent player turn. Tick the
+/// countdown at each end-of-turn hand cleanup; when it reaches zero, move the
+/// pending cards from exhaust to discard in selection order.
+fn settle_pending_elixir_exhaust_cards(state: &mut CombatState) {
+    if state.pending_elixir_exhaust_turns_remaining == 0 {
+        return;
+    }
+    state.pending_elixir_exhaust_turns_remaining -= 1;
+    if state.pending_elixir_exhaust_turns_remaining > 0 {
+        return;
+    }
+    let pending_ids = std::mem::take(&mut state.pending_elixir_exhaust_card_ids);
+    for card_id in pending_ids {
+        if let Some(index) = state
+            .piles
+            .exhaust_pile
+            .iter()
+            .position(|card| card.id == card_id)
+        {
+            let card = state.piles.exhaust_pile.remove(index);
+            state.piles.discard_pile.push(card);
+        }
     }
 }
 
@@ -2245,6 +2272,97 @@ mod tests {
             vec![CardId::new(2), CardId::new(1), CardId::new(9)]
         );
         assert!(next.pending_hidden_hand_card_until_end_turn.is_none());
+    }
+
+    #[test]
+    fn elixir_exhaust_cards_move_to_discard_after_one_complete_subsequent_turn() {
+        use crate::combat::transition::{
+            choose_exhaust_select, confirm_exhaust_select, open_exhaust_select,
+        };
+
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = (10..=20)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        open_exhaust_select(&mut state).expect("open elixir exhaust select");
+        choose_exhaust_select(&mut state, 0).expect("select first card");
+        choose_exhaust_select(&mut state, 0).expect("select second visible card");
+        confirm_exhaust_select(&mut state).expect("confirm elixir exhaust");
+
+        assert_eq!(
+            state.pending_elixir_exhaust_card_ids,
+            vec![CardId::new(1), CardId::new(2)]
+        );
+        assert_eq!(state.pending_elixir_exhaust_turns_remaining, 2);
+        assert_eq!(
+            state
+                .piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(1), CardId::new(2)]
+        );
+
+        // End of the turn Elixir was used: countdown ticks, cards stay in exhaust.
+        let after_elixir_turn = end_player_turn(&state).expect("end elixir turn");
+        assert_eq!(after_elixir_turn.pending_elixir_exhaust_turns_remaining, 1);
+        assert_eq!(
+            after_elixir_turn.pending_elixir_exhaust_card_ids,
+            vec![CardId::new(1), CardId::new(2)]
+        );
+        assert!(after_elixir_turn
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1)));
+        assert!(!after_elixir_turn
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1)));
+
+        // End of the following complete turn: cards settle onto discard in selection order.
+        let after_subsequent_turn =
+            end_player_turn(&after_elixir_turn).expect("end subsequent turn");
+        assert_eq!(
+            after_subsequent_turn.pending_elixir_exhaust_turns_remaining,
+            0
+        );
+        assert!(after_subsequent_turn
+            .pending_elixir_exhaust_card_ids
+            .is_empty());
+        assert!(!after_subsequent_turn
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1) || card.id == CardId::new(2)));
+        let discard_ids: Vec<_> = after_subsequent_turn
+            .piles
+            .discard_pile
+            .iter()
+            .map(|card| card.id)
+            .collect();
+        let first = discard_ids
+            .iter()
+            .position(|id| *id == CardId::new(1))
+            .expect("first elixir card on discard");
+        let second = discard_ids
+            .iter()
+            .position(|id| *id == CardId::new(2))
+            .expect("second elixir card on discard");
+        assert!(
+            first < second,
+            "elixir cards keep selection order on discard"
+        );
     }
 
     #[test]

@@ -2634,10 +2634,22 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
             for index in removal_order.into_iter().rev() {
                 state.piles.hand.remove(index);
             }
+            // Elixir multi-select exhaust settles to discard after one complete
+            // subsequent player turn in the target. Keep the cards in exhaust
+            // for on-exhaust effects, then surface them on discard when the
+            // countdown reaches zero (see settle_pending_elixir_exhaust_cards).
+            let mut pending_elixir_ids = Vec::with_capacity(exhausted.len());
             for card in exhausted {
                 let card_id = card.id;
+                pending_elixir_ids.push(card_id);
                 state.piles.exhaust_pile.push(card);
                 apply_on_exhaust_effects(state, card_id)?;
+            }
+            if !pending_elixir_ids.is_empty() {
+                state.pending_elixir_exhaust_card_ids = pending_elixir_ids;
+                // Tick once on the end of the turn Elixir was used, then again
+                // on the following end turn where the cards reappear in discard.
+                state.pending_elixir_exhaust_turns_remaining = 2;
             }
         }
     }
@@ -5331,8 +5343,11 @@ mod tests {
 
         confirm_exhaust_select(&mut state).expect("confirm exhaust select");
 
-        assert!(state.pending_elixir_exhaust_card_ids.is_empty());
-        assert_eq!(state.pending_elixir_exhaust_turns_remaining, 0);
+        assert_eq!(
+            state.pending_elixir_exhaust_card_ids,
+            vec![CardId::new(1), CardId::new(6), CardId::new(5)]
+        );
+        assert_eq!(state.pending_elixir_exhaust_turns_remaining, 2);
         assert_eq!(
             state
                 .piles
