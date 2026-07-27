@@ -1599,6 +1599,17 @@ fn prepare_next_intents_for_ids(
                     ACID_SLIME_ID | SPIKE_SLIME_ID | SLIME_BOSS_ID
                 )
             {
+                // Non-split takeTurns (Tackle / Corrosive Spit / Lick) still queue
+                // RollMoveAction. SplitPower may already have forced the SPLIT
+                // intent mid-turn (e.g. reactive thorns), but AbstractMonster
+                // still draws the common AI roll before getMove re-asserts SPLIT.
+                // Consume that draw so post-split child spawn rolls stay aligned.
+                // The SPLIT takeTurn itself does not queue RollMoveAction; when the
+                // parent is already dead after spawning children, skip without a draw.
+                if monster.alive {
+                    let _ = state.rng.monster_rng.random_int(99);
+                    record_target_move(monster);
+                }
                 continue;
             }
             if monster.content_id == crate::content::monsters::AWAKENED_ONE_ID
@@ -2987,6 +2998,78 @@ mod tests {
             crate::MonsterIntent::SummonGremlins { count: 2 }
         );
         assert!(state.monsters[0].split_triggered);
+    }
+
+    #[test]
+    fn thorns_forced_slime_split_still_consumes_queued_ai_roll() {
+        // Acid Slime (L) Tackle still queues RollMoveAction. Reactive thorns can
+        // force SPLIT via SplitPower before that action runs; the common AI roll
+        // must still be drawn so later child spawn rolls stay on the target stream.
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.thorns = 3;
+        let mut slime = monster_state_for_ascension(&ACID_SLIME_A0, actor_id, state.ascension);
+        slime.hp = 34;
+        slime.max_hp = 66;
+        slime.slime_size = Some(SlimeSize::Large);
+        slime.rolled_attack_damage = Some(11);
+        slime.intent = crate::MonsterIntent::Attack { damage: 16 };
+        slime.move_history = vec![2, 4, 4, 1, 1, 2];
+        state.monsters = vec![slime];
+        state.rng.monster_rng = StsRng::new(42);
+        let mut expected_rng = StsRng::new(42);
+        let _ = expected_rng.random_int(99);
+
+        run_monster_turn(&mut state).expect("supported large Acid Slime attack");
+
+        assert!(state.monsters[0].alive);
+        assert!(state.monsters[0].split_triggered);
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::SummonGremlins { count: 2 }
+        );
+        assert_eq!(
+            state.monsters[0].move_history.last().copied(),
+            Some(3),
+            "RollMoveAction re-asserts SPLIT into move history"
+        );
+        assert_eq!(state.rng.monster_rng.counter(), expected_rng.counter());
+    }
+
+    #[test]
+    fn split_take_turn_does_not_draw_extra_ai_roll_after_children_spawn() {
+        // The SPLIT takeTurn path does not queue RollMoveAction. After children
+        // spawn the dead parent must not consume another common AI roll.
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        let mut slime = monster_state_for_ascension(&ACID_SLIME_A0, actor_id, state.ascension);
+        slime.hp = 17;
+        slime.max_hp = 66;
+        slime.slime_size = Some(SlimeSize::Large);
+        slime.rolled_attack_damage = Some(11);
+        slime.split_triggered = true;
+        slime.intent = crate::MonsterIntent::SummonGremlins { count: 2 };
+        slime.move_history = vec![2, 4, 4, 1, 1, 2, 3];
+        state.monsters = vec![slime];
+        state.rng.monster_rng = StsRng::new(7);
+        let mut expected_rng = StsRng::new(7);
+        // Two child opening rolls only.
+        let left_roll = expected_rng.random_int(99);
+        let _ =
+            target_medium_acid_slime_next_intent_from_roll(&[], left_roll, &mut expected_rng, 0);
+        let right_roll = expected_rng.random_int(99);
+        let _ =
+            target_medium_acid_slime_next_intent_from_roll(&[], right_roll, &mut expected_rng, 0);
+
+        run_monster_turn(&mut state).expect("supported large Acid Slime split");
+
+        let children: Vec<_> = state
+            .monsters
+            .iter()
+            .filter(|monster| monster.alive && monster.id != actor_id)
+            .collect();
+        assert_eq!(children.len(), 2);
+        assert_eq!(state.rng.monster_rng.counter(), expected_rng.counter());
     }
 
     #[test]
