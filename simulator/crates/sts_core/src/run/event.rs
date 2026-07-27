@@ -14,8 +14,8 @@ use crate::{
             monster_state_for_ascension, record_target_move,
             target_monster_hp_range_for_content_id, MonsterDefinition, BANDIT_BEAR_A0,
             BANDIT_LEADER_A0, BANDIT_POINTY_A0, FUNGI_BEAST_A0, GREMLIN_NOB_A0, GUARDIAN_A0,
-            HEXAGHOST_A0, LAGAVULIN_A0, ORB_WALKER_A0, SENTRY_A0, SLAVER_BLUE_A0, SLAVER_RED_A0,
-            SLIME_BOSS_A0, TASKMASTER_A0,
+            HEXAGHOST_A0, LAGAVULIN_EVENT_A0, ORB_WALKER_A0, SENTRY_A0, SLAVER_BLUE_A0,
+            SLAVER_RED_A0, SLIME_BOSS_A0, TASKMASTER_A0,
         },
         reward_pool::{random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
         shop_pool::{colorless_match_and_keep_pool, random_colorless_from_pool},
@@ -5276,6 +5276,34 @@ mod tests {
             monsters[2].intent,
             MonsterIntent::AddDazedToDiscard { count: 2 }
         ));
+    }
+
+    #[test]
+    fn dead_adventurer_lagavulin_event_opens_awake_with_siphon() {
+        // Target MonsterHelper "Lagavulin Event" constructs Lagavulin(false).
+        // usePreBattleAction sets STRONG_DEBUFF / Siphon Soul (move byte 1);
+        // there is no sleep armor (block/metallicize).
+        let mut run = RunState::seeded_ironclad(1, 0);
+
+        enter_event_combat(&mut run, &[&LAGAVULIN_EVENT_A0]).expect("supported monster intent");
+
+        let monster = &run.combat.as_ref().unwrap().monsters[0];
+        assert_eq!(monster.sleep_turns_remaining, 0);
+        assert_eq!(monster.block, 0);
+        assert_eq!(monster.powers.metallicize, 0);
+        assert!(matches!(
+            monster.intent,
+            MonsterIntent::SiphonPlayer {
+                strength: 1,
+                dexterity: 1
+            }
+        ));
+        assert_eq!(
+            crate::content::monsters::target_move_byte_for_monster(monster),
+            Some(1)
+        );
+        // Cycle after opening Siphon: Attack, Attack, Siphon…
+        assert_eq!(monster.moves_executed, 2);
     }
 
     #[test]

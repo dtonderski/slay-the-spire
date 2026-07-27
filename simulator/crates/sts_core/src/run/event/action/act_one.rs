@@ -233,7 +233,9 @@ pub(super) fn apply_act_one_event_action(
                 match dead_adventurer_enemy(screen.event_data) {
                     0 => enter_event_combat(next, &[&SENTRY_A0, &SENTRY_A0, &SENTRY_A0])?,
                     1 => enter_event_combat(next, &[&GREMLIN_NOB_A0])?,
-                    _ => enter_event_combat(next, &[&LAGAVULIN_A0])?,
+                    // MonsterHelper "Lagavulin Event" → Lagavulin(asleep=false):
+                    // opens awake with Siphon Soul, not the sleeping elite.
+                    _ => enter_event_combat(next, &[&LAGAVULIN_EVENT_A0])?,
                 }
             }
             _ => {

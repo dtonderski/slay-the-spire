@@ -1343,6 +1343,24 @@ pub const LAGAVULIN_A0: MonsterDefinition = MonsterDefinition {
     starting_defensive_turns: 0,
 };
 
+/// Dead Adventurer / MonsterHelper `"Lagavulin Event"`: `new Lagavulin(false)`.
+///
+/// Awake on entry — no sleep armor. Target `usePreBattleAction` when `asleep`
+/// is false sets Siphon Soul (`STRONG_DEBUFF`, move byte 1) as the opening
+/// intent. Subsequent cycle is Attack → Attack → Siphon (see
+/// `lagavulin_intent` phase alignment via opening `moves_executed`).
+pub const LAGAVULIN_EVENT_A0: MonsterDefinition = MonsterDefinition {
+    content_id: LAGAVULIN_ID,
+    name: "Lagavulin",
+    hp: 110,
+    attack_damage: 0,
+    ritual_amount: 0,
+    enrage_weak_on_skill: 0,
+    starting_spikes: 0,
+    starting_sleep_turns: 0,
+    starting_defensive_turns: 0,
+};
+
 /// Act 1 Sentry at ascension 0: 38-42 HP, Beam / Attack alternating by position.
 pub const SENTRY_A0: MonsterDefinition = MonsterDefinition {
     content_id: SENTRY_ID,
@@ -3872,7 +3890,11 @@ pub fn monster_state_for_ascension(
             SPIKE_SLIME_ID | ACID_SLIME_ID => Some(SlimeSize::Small),
             _ => None,
         },
-        moves_executed: 0,
+        // Awake Lagavulin Event opens on Siphon. The sleep-elite cycle is
+        // Attack→Attack→Siphon keyed on moves_executed % 3 after natural/damage
+        // wake (moves_executed starts at 0). Starting at 2 places the opening
+        // intent on Siphon and preserves Attack→Attack→Siphon afterwards.
+        moves_executed: lagavulin_opening_moves_executed(definition),
         sleep_turns_remaining: definition.starting_sleep_turns,
         has_siphoned: false,
         split_triggered: false,
@@ -3897,7 +3919,7 @@ pub fn monster_state_for_ascension(
         burns_upgraded: false,
         intent: prepare_monster_intent_for_monster(
             definition,
-            0,
+            lagavulin_opening_moves_executed(definition),
             ascension,
             definition.starting_sleep_turns,
             false,
@@ -3910,6 +3932,15 @@ pub fn monster_state_for_ascension(
             },
             None,
         ),
+    }
+}
+
+#[must_use]
+fn lagavulin_opening_moves_executed(definition: &MonsterDefinition) -> u32 {
+    if definition.content_id == LAGAVULIN_ID && definition.starting_sleep_turns == 0 {
+        2
+    } else {
+        0
     }
 }
 
