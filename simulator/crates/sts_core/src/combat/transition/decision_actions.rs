@@ -25,6 +25,24 @@ pub(super) fn await_hand_select(
         finish_warcry_source(state, source_card_id)?;
         return Ok(Vec::new());
     }
+    // Dual Wield with a single eligible attack/power: CM does not surface a
+    // HAND_SELECT frame (Havoc-forced Dual Wield with one Clash → two Clashes).
+    if purpose == HandSelectPurpose::DualWieldCopy {
+        let eligible: Vec<usize> = state
+            .piles
+            .hand
+            .iter()
+            .enumerate()
+            .filter(|(_, card)| {
+                card.id != source_card_id && super::dual_wield_select_allows_card(card)
+            })
+            .map(|(index, _)| index)
+            .collect();
+        if eligible.len() == 1 {
+            super::confirm_dual_wield_select(state, source_card_id, eligible[0])?;
+            return Ok(Vec::new());
+        }
+    }
     state.decision = Some(CombatDecisionState::HandSelect {
         state: crate::combat::HandSelectState {
             purpose,

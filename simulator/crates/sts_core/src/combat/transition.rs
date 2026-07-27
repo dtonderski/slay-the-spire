@@ -2305,7 +2305,7 @@ fn move_forethought_source_card(
     move_delayed_played_source_with_strange_spoon(state, source_card_id)
 }
 
-fn confirm_dual_wield_select(
+pub(super) fn confirm_dual_wield_select(
     state: &mut CombatState,
     source_card_id: CardId,
     index: usize,
@@ -2362,7 +2362,7 @@ fn confirm_dual_wield_select(
     Ok(())
 }
 
-fn dual_wield_select_allows_card(card: &CardInstance) -> bool {
+pub(super) fn dual_wield_select_allows_card(card: &CardInstance) -> bool {
     get_card_definition(card.content_id).is_some_and(|definition| {
         matches!(definition.card_type, CardType::Attack | CardType::Power)
     })
