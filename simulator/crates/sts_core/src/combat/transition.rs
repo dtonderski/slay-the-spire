@@ -1595,11 +1595,19 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) -> Si
     Ok(())
 }
 
-fn apply_rage_on_card_type(state: &mut CombatState, card_type: CardType) -> SimResult<()> {
+/// Rage grants block after the attack's damage resolves (STS queues
+/// GainBlockAction from onUseCard after card.use()). Returning a follow-up so
+/// Body Slam still reads pre-Rage block when computing damage.
+fn apply_rage_on_card_type(
+    state: &CombatState,
+    card_type: CardType,
+) -> SimResult<Vec<InternalAction>> {
     if card_type == CardType::Attack && state.player.temp_rage_block > 0 {
-        apply_player_direct_block_gain(state, state.player.temp_rage_block)?;
+        return Ok(vec![InternalAction::GainBlockDirect {
+            amount: state.player.temp_rage_block,
+        }]);
     }
-    Ok(())
+    Ok(Vec::new())
 }
 
 fn set_random_hand_card_cost_for_combat(

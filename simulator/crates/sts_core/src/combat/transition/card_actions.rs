@@ -48,8 +48,11 @@ pub(super) fn play_card(
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
     apply_enrage_on_card_type(state, definition.card_type)?;
-    apply_rage_on_card_type(state, definition.card_type)?;
-    let mut follow_ups = crate::relic::apply_on_card_play_relics(state, definition.card_type)?;
+    let mut follow_ups = apply_rage_on_card_type(state, definition.card_type)?;
+    follow_ups.extend(crate::relic::apply_on_card_play_relics(
+        state,
+        definition.card_type,
+    )?);
     apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
     follow_ups.extend(apply_on_card_play_powers(state, definition.card_type)?);
     follow_ups.extend(apply_hand_card_play_triggers(state, card_id));
@@ -62,8 +65,11 @@ pub(super) fn play_card_copy(
 ) -> SimResult<Vec<InternalAction>> {
     let definition = card_content_definition(state, card_id)?;
     apply_enrage_on_card_type(state, definition.card_type)?;
-    apply_rage_on_card_type(state, definition.card_type)?;
-    let mut follow_ups = crate::relic::apply_on_card_play_relics(state, definition.card_type)?;
+    let mut follow_ups = apply_rage_on_card_type(state, definition.card_type)?;
+    follow_ups.extend(crate::relic::apply_on_card_play_relics(
+        state,
+        definition.card_type,
+    )?);
     follow_ups.extend(apply_on_card_play_powers(state, definition.card_type)?);
     follow_ups.extend(apply_copied_card_play_triggers(state));
     Ok(follow_ups)
