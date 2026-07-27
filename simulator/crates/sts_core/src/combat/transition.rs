@@ -290,10 +290,22 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
     }
 
     if matches!(follow_up, InternalAction::DrawCardsFromInkBottle { .. }) {
-        // AbstractPlayer constructs UseCardAction after card.use. Ink Bottle's
-        // onUseCard callback therefore queues its draw before UseCardAction
-        // moves the played card out of limbo. Keep that boundary when the
-        // simulator appends the callback to the card's effect queue.
+        // AbstractPlayer.useCard calls card.use() first (Havoc addToBot's
+        // PlayTopCardAction), then constructs UseCardAction. Ink Bottle's
+        // onUseCard runs in that constructor and addToBot's DrawCardAction,
+        // then UseCardAction itself is addToBottom'd. Net order:
+        //   PlayTop (from use) → Ink draw (from onUseCard) → settle (UseCardAction)
+        // Prefer after any queued PlayTop so Ink cannot steal the forced top
+        // card (session-16 Havoc+ / Whirlwind / Uppercut+).
+        if let Some(index) = queue
+            .iter()
+            .rposition(|action| matches!(action, InternalAction::PlayTopDrawCard { .. }))
+        {
+            queue.insert(index + 1, follow_up);
+            return;
+        }
+        // Cards without a forced top-play still settle via MoveCard after
+        // onUseCard; keep the draw before that limbo→discard/exhaust move.
         if let Some(index) = queue
             .iter()
             .rposition(|action| matches!(action, InternalAction::MoveCard { .. }))
@@ -3159,6 +3171,7 @@ mod tests {
         monster_state, BRONZE_ORB_A0, DAGGER_A0, DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0,
         JAW_WORM_A0, REPTOMANCER_A0, SNAKE_PLANT_A0,
     };
+    use crate::relic::INK_BOTTLE_THRESHOLD;
     use crate::rng::StsRng;
 
     #[test]
@@ -3192,6 +3205,98 @@ mod tests {
             queue.pop_front(),
             Some(InternalAction::MoveCard { .. })
         ));
+    }
+
+    #[test]
+    fn ink_bottle_draws_after_havoc_play_top() {
+        // Mirrors AbstractPlayer.useCard: Havoc.use queues PlayTop first, then
+        // Ink Bottle onUseCard queues its draw, then UseCardAction settles.
+        let mut queue = VecDeque::from([
+            InternalAction::MoveCard {
+                card_id: CardId::new(1),
+                from: CardPile::Hand,
+                to: CardPile::DiscardPile,
+            },
+            InternalAction::PlayTopDrawCard {
+                target: None,
+                exhaust_played_card: true,
+                random_living_target: true,
+            },
+        ]);
+
+        push_follow_up(
+            &mut queue,
+            InternalAction::DrawCardsFromInkBottle { count: 1 },
+        );
+
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::MoveCard { .. })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::PlayTopDrawCard { .. })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::DrawCardsFromInkBottle { count: 1 })
+        ));
+    }
+
+    #[test]
+    fn havoc_with_ink_bottle_plays_original_top_then_draws_next() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.relics.push(Relic::InkBottle);
+        state.relic_counters.ink_bottle_cards_played = INK_BOTTLE_THRESHOLD - 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        // draw pile is bottom→top; pop takes the last element as top.
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), WHIRLWIND_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
+        let monster_hp_before = state.monsters[0].hp;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ with Ink Bottle should resolve");
+
+        // Whirlwind (original top) was force-played and exhausted; Ink Bottle
+        // then drew Strike rather than stealing Whirlwind from the top first.
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == WHIRLWIND_ID),
+            "Havoc must play the original top card (Whirlwind)"
+        );
+        assert!(
+            next.piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == STRIKE_R_ID),
+            "Ink Bottle must draw the card under the forced top play"
+        );
+        assert!(
+            next.piles
+                .hand
+                .iter()
+                .all(|card| card.content_id != WHIRLWIND_ID),
+            "Whirlwind must not remain in hand after a correct PlayTop-first order"
+        );
+        assert!(
+            next.monsters[0].hp < monster_hp_before,
+            "forced Whirlwind should deal damage"
+        );
+        assert_eq!(next.relic_counters.ink_bottle_cards_played, 1); // Havoc + Whirlwind
     }
 
     #[test]
