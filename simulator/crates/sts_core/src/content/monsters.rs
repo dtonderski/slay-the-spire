@@ -5344,8 +5344,12 @@ pub fn target_awakened_one_next_intent_from_roll(
 
 /// The Awakened One's first death is a delayed phase transition, not combat
 /// victory. The target leaves the monster in a half-dead state until its next
-/// monster turn, then revives with Regenerate and accumulated Strength and
-/// starts Dark Echo.
+/// monster turn, then revives (REBIRTH) with remaining buffs and starts Dark Echo.
+///
+/// Source (`AwakenedOne.damage`): on first form death, remove DEBUFF powers,
+/// Curiosity, Unawakened, and Shackled (`GainStrengthPower`). `StrengthPower` is
+/// a DEBUFF when amount is negative and a BUFF when positive, so only non-negative
+/// Strength survives into phase two.
 pub fn awakened_one_is_half_dead(monster: &MonsterState) -> bool {
     monster.content_id == AWAKENED_ONE_ID && !monster.alive && monster.mode_shift < 0
 }
@@ -5355,12 +5359,11 @@ pub fn awaken_one_after_first_death(monster: &mut MonsterState) -> bool {
         return false;
     }
 
-    let strength = monster.powers.strength;
+    // REBIRTH heals to max HP. Debuffs/Shackled were already stripped on the
+    // first death; surviving buff Strength is left as-is.
     monster.alive = true;
     monster.hp = monster.max_hp;
     monster.mode_shift = 1;
-    monster.powers = MonsterPowers::default();
-    monster.powers.strength = strength;
     monster.intent = MonsterIntent::Attack {
         damage: AWAKENED_ONE_DARK_ECHO_DAMAGE,
     };
@@ -5377,12 +5380,27 @@ pub fn mark_awakened_one_half_dead(monster: &mut MonsterState) -> bool {
     monster.hp = 0;
     monster.block = 0;
     monster.mode_shift = -1;
-    let strength = monster.powers.strength;
-    monster.powers = MonsterPowers::default();
-    monster.powers.strength = strength;
+    strip_awakened_one_half_death_powers(monster);
     monster.intent = MonsterIntent::Stun;
     record_target_move(monster);
     true
+}
+
+/// Source-backed half-death power cleanup for Awakened One.
+///
+/// Mirrors `AwakenedOne.damage`: drop DEBUFF-typed powers and Shackled. Curiosity
+/// / Unawakened are not stored as power fields; `mode_shift` already gates
+/// Curiosity after this transition.
+fn strip_awakened_one_half_death_powers(monster: &mut MonsterState) {
+    // StrengthPower.type is DEBUFF when amount < 0.
+    if monster.powers.strength < 0 {
+        monster.powers.strength = 0;
+    }
+    monster.powers.vulnerable = 0;
+    monster.powers.weak = 0;
+    monster.powers.slow = 0;
+    // GainStrengthPower ID "Shackled" — temporary strength restore marker.
+    monster.temp_strength_down = 0;
 }
 
 #[must_use]
@@ -12077,6 +12095,30 @@ mod tests {
         assert_eq!(monster.powers.strength, 5);
         assert!(awaken_one_after_first_death(&mut monster));
         assert_eq!(monster.powers.strength, 5);
+    }
+
+    #[test]
+    fn awakened_one_strips_negative_strength_and_debuffs_on_first_death() {
+        // Source: StrengthPower is DEBUFF when amount < 0 (e.g. Disarm), so
+        // AwakenedOne.damage removes it with other debuffs and Shackled.
+        let mut monster = monster_state(&AWAKENED_ONE_A0, crate::ids::MonsterId::new(1));
+        monster.powers.strength = -2;
+        monster.powers.vulnerable = 3;
+        monster.powers.weak = 2;
+        monster.powers.slow = 1;
+        monster.temp_strength_down = 4;
+
+        assert!(mark_awakened_one_half_dead(&mut monster));
+        assert_eq!(monster.powers.strength, 0);
+        assert_eq!(monster.powers.vulnerable, 0);
+        assert_eq!(monster.powers.weak, 0);
+        assert_eq!(monster.powers.slow, 0);
+        assert_eq!(monster.temp_strength_down, 0);
+
+        assert!(awaken_one_after_first_death(&mut monster));
+        assert_eq!(monster.powers.strength, 0);
+        assert!(monster.alive);
+        assert_eq!(monster.hp, monster.max_hp);
     }
 
     #[test]
