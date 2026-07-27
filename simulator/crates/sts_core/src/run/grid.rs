@@ -906,9 +906,13 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
     if matches!(
         grid.purpose,
         GridPurpose::Bottle { .. }
+            | GridPurpose::DollysMirror
             | GridPurpose::EventObtainCard
             | GridPurpose::EventObtainCardReturnToEvent { .. }
     ) {
+        // Bottle and Dolly's Mirror open a one-card GridCardSelectScreen with
+        // no confirm button (CommunicationMod `confirm_up=false`). Selecting a
+        // card equips/duplicates immediately and returns to the owning screen.
         return apply_validated_grid_confirmation(&next);
     }
     // Note For Yourself and Back to Basics/Elegance open a one-card
@@ -2212,5 +2216,58 @@ mod tests {
                 Some(astrolabe_card.content_id)
             );
         }
+    }
+
+    #[test]
+    fn dollys_mirror_shop_select_auto_confirms_and_duplicates_card() {
+        use crate::relic::RelicKey;
+        use crate::RunAction;
+
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.gold = 999;
+        let shop = shop::generate_shop_screen(&mut run).expect("shop fixture allocation is valid");
+        run.shop = Some(shop);
+        run.shop_merchant_open = true;
+        run.shop.as_mut().expect("shop").relics[0].relic_key = RelicKey::DollysMirror;
+        run.shop.as_mut().expect("shop").relics[0].price = 100;
+        run.shop.as_mut().expect("shop").relics[0].sold = false;
+
+        let original_deck = run.deck.clone();
+        let source = original_deck[0];
+        let after_buy = shop::apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
+            .expect("Dolly's Mirror purchase succeeds");
+        assert!(after_buy.relics.contains(&crate::Relic::DollysMirror));
+        assert_eq!(
+            after_buy
+                .card_grid
+                .as_ref()
+                .expect("Dolly's Mirror opens a deck grid")
+                .purpose,
+            GridPurpose::DollysMirror
+        );
+        assert_eq!(
+            after_buy.card_grid.as_ref().expect("grid").cards,
+            original_deck
+        );
+        assert!(after_buy.shop_merchant_open);
+        assert_eq!(after_buy.phase, RunPhase::Shop);
+
+        let after_select =
+            select_grid_card(&after_buy, 0).expect("Dolly's Mirror select auto-confirms");
+        assert!(after_select.card_grid.is_none());
+        assert_eq!(after_select.deck.len(), original_deck.len() + 1);
+        assert_eq!(
+            after_select.deck[original_deck.len()].content_id,
+            source.content_id
+        );
+        assert_ne!(after_select.deck[original_deck.len()].id, source.id);
+        assert!(!after_select.deck[original_deck.len()].bottled);
+        assert!(after_select.shop_merchant_open);
+        assert_eq!(after_select.phase, RunPhase::Shop);
+        after_select
+            .validate()
+            .expect("shop after Dolly's Mirror copy remains valid");
     }
 }
