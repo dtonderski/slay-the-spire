@@ -1309,23 +1309,39 @@ fn apply_monster_pending_effects(
     burn_to_discard_upgraded: bool,
     upgrade_burns: i32,
 ) -> SimResult<()> {
+    // PainfulStabsPower.onInflictDamage queues MakeTempCardInDiscardAction via
+    // addToBot during AbstractPlayer.damage. Those actions sit behind the rest of
+    // the attack queue. A lethal hit constructs DeathScreen and switches
+    // AbstractDungeon.screen to DEATH mid-DamageAction, which stops the action
+    // manager before deferred status cards (and remaining multi-hits) resolve.
+    // Count unblocked hits here, settle Wounds only if the player is still alive
+    // after the full attack sequence, and cancel remaining multi-hits on death.
     let mut total_hp_damage = 0;
+    let mut painful_stabs_triggers = 0;
     let hit_count = hits.max(1);
     if damage > 0 && hit_count > 1 {
         let hit_damage = damage / hit_count;
         for _ in 0..hit_count {
+            if state.player.hp <= 0 {
+                break;
+            }
             let hp_damage = deal_damage_to_player(state, hit_damage)?;
-            apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage)?;
+            if hp_damage > 0 && painful_stabs > 0 {
+                painful_stabs_triggers = checked_turn_add(painful_stabs_triggers, painful_stabs)?;
+            }
             total_hp_damage = checked_turn_add(total_hp_damage, hp_damage)?;
         }
     } else if damage > 0 {
         let hp_damage = deal_damage_to_player(state, damage)?;
-        apply_painful_stabs_after_player_damage(state, painful_stabs, hp_damage)?;
+        if hp_damage > 0 && painful_stabs > 0 {
+            painful_stabs_triggers = painful_stabs;
+        }
         total_hp_damage = checked_turn_add(total_hp_damage, hp_damage)?;
     }
     if state.player.hp <= 0 {
         return Ok(());
     }
+    settle_deferred_painful_stabs_wounds(state, painful_stabs_triggers)?;
     if weak > 0 {
         crate::relic::apply_player_weak_with_relics(&mut state.player.powers, &state.relics, weak)?;
     }
@@ -1449,19 +1465,18 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> SimResult<i32>
     Ok(hp_damage)
 }
 
-fn apply_painful_stabs_after_player_damage(
+fn settle_deferred_painful_stabs_wounds(
     state: &mut CombatState,
-    painful_stabs: i32,
-    hp_damage: i32,
+    wound_count: i32,
 ) -> SimResult<()> {
-    if painful_stabs <= 0 || hp_damage <= 0 {
+    if wound_count <= 0 || state.player.hp <= 0 {
         return Ok(());
     }
     let allocated_card_id_through = state.max_authoritative_card_instance_id();
     add_cards_to_discard(
         &mut state.piles,
         WOUND_ID,
-        painful_stabs,
+        wound_count,
         allocated_card_id_through,
     )
 }
@@ -3539,6 +3554,74 @@ mod tests {
         );
         assert_eq!(state.monsters[0].powers.book_stab_count, 5);
         assert_eq!(state.monsters[0].move_history.last().copied(), Some(1));
+    }
+
+    #[test]
+    fn painful_stabs_settles_wounds_only_when_player_survives_attack() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 30;
+        state.player.block = 0;
+        let discard_before = state.piles.discard_pile.len();
+
+        apply_monster_pending_effects(
+            &mut state, /*damage=*/ 18, /*hits=*/ 3, /*painful_stabs=*/ 1, None, 0,
+            0, 0, 0, false, 0,
+        )
+        .expect("non-lethal multi-hit");
+
+        assert_eq!(state.player.hp, 12);
+        assert_eq!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .filter(|card| card.content_id == WOUND_ID)
+                .count(),
+            3
+        );
+        assert_eq!(state.piles.discard_pile.len(), discard_before + 3);
+    }
+
+    #[test]
+    fn painful_stabs_cancels_deferred_wounds_and_remaining_hits_on_lethal_multi_hit() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 10;
+        state.player.block = 0;
+        state.player.max_hp = 10;
+        // No Lizard Tail / Fairy revive in the fixture by default.
+        state.relics.clear();
+        state.relic_counters.lizard_tail_available = false;
+        state.relic_counters.fairy_heal_percent = 0;
+        let discard_before = state.piles.discard_pile.len();
+
+        apply_monster_pending_effects(
+            &mut state,
+            /*damage=*/ 6 * 36,
+            /*hits=*/ 36,
+            /*painful_stabs=*/ 1,
+            None,
+            0,
+            0,
+            0,
+            0,
+            false,
+            0,
+        )
+        .expect("lethal multi-hit");
+
+        assert_eq!(state.player.hp, 0);
+        // Target DeathScreen freezes the action manager before deferred
+        // MakeTempCardInDiscardAction Wounds resolve, so none land.
+        assert_eq!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .filter(|card| card.content_id == WOUND_ID)
+                .count(),
+            0
+        );
+        assert_eq!(state.piles.discard_pile.len(), discard_before);
     }
 
     #[test]
