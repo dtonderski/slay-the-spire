@@ -331,29 +331,23 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         }
     }
 
-    if let InternalAction::GainMonsterBlock { target, .. } = &follow_up {
-        // Multi-hit cards enqueue their remaining hit actions before Malleable's
-        // block actions resolve. Keep the block behind contiguous hits from the
-        // same card; copied attacks are separated by PlayCardCopy and therefore
-        // still resolve Malleable before the copy.
-        let pending_hits = queue
+    if matches!(follow_up, InternalAction::GainMonsterBlock { .. }) {
+        // STS CurlUpPower / MalleablePower onAttacked use addToBot(GainBlockAction).
+        // Remaining same-card hits and other already-queued bot actions (notably
+        // Juggernaut's DamageRandomEnemyAction from an earlier GainBlock in the
+        // same card) therefore resolve before the monster gains block.
+        //
+        // Double Tap / Echo Form card-queue copies are modeled as PlayCardCopy
+        // and must stay behind Malleable/Curl Up so the copy encounters the
+        // block (design_curl_up_action_order.md).
+        if let Some(index) = queue
             .iter()
-            .take_while(|action| {
-                matches!(
-                    action,
-                    InternalAction::DealDamage { info } if info.target == *target
-                ) || matches!(
-                    action,
-                    InternalAction::DealDamageAll { .. }
-                        | InternalAction::DealDamageRandomEnemy { .. }
-                )
-            })
-            .count();
-        if pending_hits > 0 {
-            queue.insert(pending_hits, follow_up);
+            .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
+        {
+            queue.insert(index, follow_up);
             return;
         }
-        queue.push_front(follow_up);
+        queue.push_back(follow_up);
         return;
     }
 
@@ -4827,6 +4821,50 @@ mod tests {
         assert_eq!(next.monsters[0].hp, 50);
         assert_eq!(next.monsters[0].block, 5);
         assert_eq!(next.monsters[0].powers.malleable, 6);
+    }
+
+    #[test]
+    fn iron_wave_juggernaut_kills_before_malleable_block() {
+        // Permanent tip 1ac7db2c9f4a3da9 step 670: Iron Wave with Juggernaut 5 vs
+        // Snake Plant at 7 HP / Malleable 5. Block first queues Juggernaut
+        // (addToBot), then Iron Wave damage (3 after Weak) leaves 4 HP and
+        // queues Malleable (addToBot after Juggernaut). Juggernaut's 5 thorns
+        // must kill before Malleable grants block — otherwise combat continues.
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SNAKE_PLANT_A0, target)];
+        state.monsters[0].hp = 7;
+        state.monsters[0].max_hp = 75;
+        state.monsters[0].block = 0;
+        state.monsters[0].powers.malleable = 5;
+        state.monsters[0].powers.malleable_base = 3;
+        state.player.energy = 1;
+        state.player.block = 9;
+        state.player.powers.juggernaut = 5;
+        state.player.powers.dexterity = 2;
+        state.player.powers.frail = 2;
+        state.player.powers.weak = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), IRON_WAVE_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Iron Wave should play");
+
+        assert!(
+            !next.monsters[0].alive,
+            "Juggernaut must kill before Malleable block"
+        );
+        assert_eq!(next.monsters[0].hp, 0);
+        assert_eq!(next.player.block, 14);
+        assert_eq!(next.phase, CombatPhase::Won);
     }
 
     #[test]

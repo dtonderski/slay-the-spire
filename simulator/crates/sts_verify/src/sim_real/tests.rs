@@ -11926,3 +11926,39 @@ fn random_fidelity_legacy_trace_uses_profile_note_card_for_event_grid() {
         "none"
     );
 }
+
+#[test]
+fn random_fidelity_iron_wave_juggernaut_kills_before_malleable_reward() {
+    // Iron Wave GainBlock queues Juggernaut (addToBot) before Iron Wave damage
+    // queues Malleable (addToBot). Juggernaut's thorns must land before Malleable
+    // block or Snake Plant survives at 4 HP instead of opening COMBAT_REWARD.
+    // Permanent tip: random-fidelity-1ac7db2c9f4a3da9 step 670.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-1ac7db2c9f4a3da9.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Iron Wave Juggernaut-before-Malleable permanent tip replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 670)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "step 670 Iron Wave must end combat (Juggernaut before Malleable): {report:#?}"
+    );
+}
