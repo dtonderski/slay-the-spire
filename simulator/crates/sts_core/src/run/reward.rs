@@ -923,9 +923,11 @@ pub fn target_random_combat_potion(rng: &mut StsRng) -> Potion {
         _ => PotionRarity::Rare,
     };
 
-    // AbstractDungeon.returnRandomPotion(true) keeps drawing from the
-    // character pool until the requested rarity and the no-Fruit-Juice filter
-    // both match. The first pool draw participates in that loop.
+    // AbstractDungeon.returnRandomPotion(rarity, true) always performs one
+    // initial PotionHelper.getRandomPotion() draw that cannot be accepted while
+    // the combat flag is set, then re-enters the loop. Only later draws can be
+    // returned, and Fruit Juice is rejected in combat.
+    let _ = target_uniform_random_potion(rng);
     loop {
         let potion = target_uniform_random_potion(rng);
         if potion.rarity() == rarity && potion != Potion::FruitJuice {
@@ -2832,9 +2834,24 @@ mod tests {
         let third = target_random_combat_potion(&mut potion_rng);
         assert_eq!(
             [first, second, third],
-            [Potion::Explosive, Potion::Fear, Potion::Skill]
+            [Potion::BlessingOfTheForge, Potion::Ancient, Potion::Fire]
         );
-        assert_eq!(potion_rng.counter(), 7);
+        assert_eq!(potion_rng.counter(), 11);
+    }
+
+    #[test]
+    fn combat_entropic_brew_fill_matches_fidelity_trace_5f3f2d8c() {
+        // permanent_traces/random-fidelity-5f3f2d8cafb4a224.jsonl
+        // After floor-1 Entropic Brew reward, potion_rng_counter is 6. Combat use
+        // fills three empty slots with Attack, Attack, Swift.
+        let mut potion_rng = StsRng::with_counter(34961238620706_i64, 6);
+        let potions = [
+            target_random_combat_potion(&mut potion_rng),
+            target_random_combat_potion(&mut potion_rng),
+            target_random_combat_potion(&mut potion_rng),
+        ];
+        assert_eq!(potions, [Potion::Attack, Potion::Attack, Potion::Swift]);
+        assert_eq!(potion_rng.counter(), 15);
     }
 
     #[test]
