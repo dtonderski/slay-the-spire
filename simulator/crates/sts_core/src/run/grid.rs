@@ -228,9 +228,19 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
                 .copied()
                 .collect::<Vec<_>>(),
         ),
-        GridPurpose::EventTransform { .. }
-        | GridPurpose::EventTransformReturnToEvent { .. }
-        | GridPurpose::BonfireElementals => Some(
+        // Target transform screens use the same purgeable deck subset as remove
+        // (CardGroup.getPurgeableCards + bottled filter). Bonfire offers any
+        // non-bottled card, including unremovable special curses.
+        GridPurpose::EventTransform { .. } | GridPurpose::EventTransformReturnToEvent { .. } => {
+            Some(
+                run.deck
+                    .iter()
+                    .filter(|card| is_purgeable_card(card))
+                    .copied()
+                    .collect::<Vec<_>>(),
+            )
+        }
+        GridPurpose::BonfireElementals => Some(
             run.deck
                 .iter()
                 .copied()
@@ -589,8 +599,8 @@ pub fn open_event_transform_grid(run: &mut RunState, count: u8) {
     let cards = run
         .deck
         .iter()
+        .filter(|card| is_purgeable_card(card))
         .copied()
-        .filter(|card| !card.bottled)
         .collect::<Vec<_>>();
     if cards.is_empty() || count == 0 {
         return;
@@ -608,8 +618,8 @@ pub fn open_event_transform_return_to_event_grid(run: &mut RunState, event: Even
     let cards = run
         .deck
         .iter()
+        .filter(|card| is_purgeable_card(card))
         .copied()
-        .filter(|card| !card.bottled)
         .collect::<Vec<_>>();
     if cards.is_empty() || count == 0 {
         return;
@@ -1826,6 +1836,44 @@ mod tests {
             .iter()
             .all(|card| !matches!(card.content_id, ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID)));
         opened.validate().expect("purge grid is authoritative");
+    }
+
+    #[test]
+    fn event_transform_grid_excludes_target_non_purgeable_cards() {
+        // Permanent-trace cluster: Transmogrifier pray with Calling Bell in
+        // deck must not list Curse of the Bell (or Ascender's Bane) as a
+        // transform choice — same getPurgeableCards authority as remove.
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.gain_deck_card(ASCENDERS_BANE_ID)
+            .expect("Ascender's Bane can be added to the deck");
+        run.gain_deck_card(CURSE_OF_THE_BELL_ID)
+            .expect("Curse of the Bell can be added to the deck");
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            Event::Transmorgrifier,
+        ));
+
+        let opened = crate::run::event::apply_event_action(
+            &run,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Transmogrifier opens its transform grid");
+        let grid = opened.card_grid.as_ref().expect("transform grid");
+
+        assert!(matches!(
+            grid.purpose,
+            GridPurpose::EventTransformReturnToEvent {
+                event: Event::Transmorgrifier,
+                count: 1
+            }
+        ));
+        assert!(grid
+            .cards
+            .iter()
+            .all(|card| !matches!(card.content_id, ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID)));
+        assert!(grid.cards.iter().any(|card| card.content_id == STRIKE_R_ID));
+        opened.validate().expect("transform grid is authoritative");
     }
 
     #[test]
