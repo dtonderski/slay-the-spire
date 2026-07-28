@@ -146,8 +146,17 @@ pub(super) fn apply_special_event_action(
         },
         Event::FountainOfCleansing => match screen.stage {
             0 if choice_index == 0 => {
-                next.deck
-                    .retain(|card| !fountain_removes_curse(card.content_id));
+                // Route removals through remove_deck_card so curse-specific
+                // on-remove effects apply (Parasite: lose 3 Max HP).
+                let curse_ids: Vec<_> = next
+                    .deck
+                    .iter()
+                    .filter(|card| fountain_removes_curse(card.content_id))
+                    .map(|card| card.id)
+                    .collect();
+                for card_id in curse_ids {
+                    next.remove_deck_card(card_id);
+                }
                 next.event = Some(EventScreen {
                     event: Event::FountainOfCleansing,
                     choices: fountain_of_cleansing_choices(1),

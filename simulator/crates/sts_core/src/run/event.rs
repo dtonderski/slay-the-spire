@@ -8517,6 +8517,31 @@ mod tests {
     }
 
     #[test]
+    fn fountain_of_cleansing_drink_applies_parasite_max_hp_loss() {
+        // Target: Parasite "If transformed or removed from your deck, lose 3 Max HP."
+        // Fountain of Cleansing removes cleansable curses via deck removal, so
+        // Parasite must reduce max HP (and clamp current HP).
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.current_act = 1;
+        run.player_max_hp = 10000;
+        run.player_hp = 7819;
+        run.gain_deck_card(PARASITE_ID)
+            .expect("Parasite gain succeeds");
+        run.event = Some(event_screen(Event::FountainOfCleansing));
+
+        let after_drink = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Fountain drink removes Parasite");
+
+        assert!(!after_drink
+            .deck
+            .iter()
+            .any(|card| card.content_id == PARASITE_ID));
+        assert_eq!(after_drink.player_max_hp, 9997);
+        assert_eq!(after_drink.player_hp, 7819);
+    }
+
+    #[test]
     fn ghosts_accept_queues_apparitions_until_leave_screen() {
         let mut run = RunState::seeded_ironclad(772_776_727_775, 0);
         run.phase = RunPhase::Event;
