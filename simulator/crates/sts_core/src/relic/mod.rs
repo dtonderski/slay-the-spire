@@ -596,6 +596,12 @@ pub struct RelicCounters {
     pub attacks_played_this_combat: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub centennial_puzzle_triggers: u32,
+    /// Centennial Puzzle draw deferred across a multi-hit attack (addToBot).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deferred_centennial_puzzle_draw: bool,
+    /// Runic Cube draws deferred across a multi-hit attack (one per unblocked hit).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub deferred_runic_cube_draws: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub attacks_played_last_turn: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
@@ -2234,6 +2240,26 @@ pub fn apply_potion_use_relics_to_combat(combat: &mut CombatState) -> SimResult<
 }
 
 pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> SimResult<()> {
+    apply_player_hp_loss_relics_with_draw_policy(state, hp_loss, HpLossDrawPolicy::Immediate)
+}
+
+/// Whether Centennial Puzzle / Runic Cube draw effects resolve immediately or
+/// are counted for later settlement (multi-hit DamageAction sequences).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HpLossDrawPolicy {
+    /// Resolve draw relics now (single-hit attacks, card HP loss, etc.).
+    Immediate,
+    /// Mark counters / count Runic Cube events only. Caller settles draws after
+    /// the full multi-hit attack finishes — matching addToBot ordering so mid-hit
+    /// shuffles cannot grant Abacus block between stabs (aef32ab6).
+    DeferDraws,
+}
+
+pub fn apply_player_hp_loss_relics_with_draw_policy(
+    state: &mut CombatState,
+    hp_loss: i32,
+    draw_policy: HpLossDrawPolicy,
+) -> SimResult<()> {
     if hp_loss <= 0 {
         return Ok(());
     }
@@ -2244,8 +2270,10 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> Sim
         next.relic_counters.centennial_puzzle_triggers = 1;
         // CentennialPuzzle.onLoseHp addToBot's DrawCardAction; lethal damage
         // ends the fight before the bot runs.
-        if next.player.hp > 0 {
+        if draw_policy == HpLossDrawPolicy::Immediate && next.player.hp > 0 {
             crate::combat::transition::player_draw_cards(&mut next, CENTENNIAL_PUZZLE_DRAW)?;
+        } else if draw_policy == HpLossDrawPolicy::DeferDraws {
+            next.relic_counters.deferred_centennial_puzzle_draw = true;
         }
     }
     if next.relics.contains(&Relic::SelfFormingClay) {
@@ -2262,11 +2290,50 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> Sim
         // is lethal, GameActionManager never drains that bot entry — the death
         // screen keeps the pre-draw piles (a7f662aa8ed22115 END lethal vs
         // Lagavulin: Bash+ stays in draw, hand empty).
-        if next.player.hp > 0 {
-            crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
+        match draw_policy {
+            HpLossDrawPolicy::Immediate if next.player.hp > 0 => {
+                crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
+            }
+            HpLossDrawPolicy::DeferDraws => {
+                next.relic_counters.deferred_runic_cube_draws = next
+                    .relic_counters
+                    .deferred_runic_cube_draws
+                    .checked_add(1)
+                    .ok_or(SimError::InvalidState(
+                        "deferred Runic Cube draw count overflows u32",
+                    ))?;
+            }
+            HpLossDrawPolicy::Immediate => {}
         }
     }
     sync_red_skull_strength(&mut next)?;
+    *state = next;
+    Ok(())
+}
+
+/// Resolve Centennial Puzzle / Runic Cube draws queued during a multi-hit attack.
+pub fn settle_deferred_hp_loss_draw_relics(state: &mut CombatState) -> SimResult<()> {
+    if state.player.hp <= 0 {
+        state.relic_counters.deferred_centennial_puzzle_draw = false;
+        state.relic_counters.deferred_runic_cube_draws = 0;
+        return Ok(());
+    }
+    let mut next = state.clone();
+    if next.relic_counters.deferred_centennial_puzzle_draw {
+        next.relic_counters.deferred_centennial_puzzle_draw = false;
+        if next.relics.contains(&Relic::CentennialPuzzle) {
+            crate::combat::transition::player_draw_cards(&mut next, CENTENNIAL_PUZZLE_DRAW)?;
+        }
+    }
+    let runic_draws = std::mem::take(&mut next.relic_counters.deferred_runic_cube_draws);
+    if runic_draws > 0 && next.relics.contains(&Relic::RunicCube) {
+        for _ in 0..runic_draws {
+            if next.player.hp <= 0 {
+                break;
+            }
+            crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
+        }
+    }
     *state = next;
     Ok(())
 }

@@ -33,12 +33,24 @@ pub(crate) fn lose_player_blockable_hp(state: &mut CombatState, amount: i32) -> 
 }
 
 pub(crate) fn apply_player_hp_loss_hooks(state: &mut CombatState, hp_loss: i32) -> SimResult<()> {
+    apply_player_hp_loss_hooks_with_draw_policy(
+        state,
+        hp_loss,
+        crate::relic::HpLossDrawPolicy::Immediate,
+    )
+}
+
+pub(crate) fn apply_player_hp_loss_hooks_with_draw_policy(
+    state: &mut CombatState,
+    hp_loss: i32,
+    draw_policy: crate::relic::HpLossDrawPolicy,
+) -> SimResult<()> {
     if hp_loss <= 0 {
         return Ok(());
     }
 
     let mut next = state.clone();
-    apply_player_hp_loss_hooks_in_place(&mut next, hp_loss)?;
+    apply_player_hp_loss_hooks_in_place_with_draw_policy(&mut next, hp_loss, draw_policy)?;
     *state = next;
     Ok(())
 }
@@ -62,7 +74,11 @@ pub(crate) fn apply_player_card_hp_loss_hooks_with_pending_hand(
 
     let mut next = state.clone();
     let mut next_pending_hand = pending_hand.to_vec();
-    apply_player_hp_loss_hooks_in_place(&mut next, hp_loss)?;
+    apply_player_hp_loss_hooks_in_place_with_draw_policy(
+        &mut next,
+        hp_loss,
+        crate::relic::HpLossDrawPolicy::Immediate,
+    )?;
     reduce_blood_for_blood_costs_in_cards(&mut next_pending_hand)?;
     next.player.powers.strength = next
         .player
@@ -77,7 +93,11 @@ pub(crate) fn apply_player_card_hp_loss_hooks_with_pending_hand(
     Ok(())
 }
 
-fn apply_player_hp_loss_hooks_in_place(state: &mut CombatState, hp_loss: i32) -> SimResult<()> {
+fn apply_player_hp_loss_hooks_in_place_with_draw_policy(
+    state: &mut CombatState,
+    hp_loss: i32,
+    draw_policy: crate::relic::HpLossDrawPolicy,
+) -> SimResult<()> {
     state.player.damage_events_this_combat = state
         .player
         .damage_events_this_combat
@@ -86,7 +106,7 @@ fn apply_player_hp_loss_hooks_in_place(state: &mut CombatState, hp_loss: i32) ->
             "player damage event counter overflows i32",
         ))?;
     reduce_blood_for_blood_costs(state)?;
-    crate::relic::apply_player_hp_loss_relics(state, hp_loss)
+    crate::relic::apply_player_hp_loss_relics_with_draw_policy(state, hp_loss, draw_policy)
 }
 
 fn reduce_blood_for_blood_costs(state: &mut CombatState) -> SimResult<()> {

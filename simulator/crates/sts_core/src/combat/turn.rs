@@ -14,6 +14,7 @@ use crate::{
         },
     },
     combat::{CombatPhase, CombatState, SlimeSize},
+    relic::HpLossDrawPolicy,
     content::cards::{BURN_ID, DAZED_ID, SLIMED_ID, WOUND_ID},
     content::monsters::{
         apply_bronze_automaton_orb_spawn, apply_collector_spawn_torch_heads,
@@ -1339,6 +1340,11 @@ fn apply_monster_pending_effects(
     // manager before deferred status cards (and remaining multi-hits) resolve.
     // Count unblocked hits here, settle Wounds only if the player is still alive
     // after the full attack sequence, and cancel remaining multi-hits on death.
+    //
+    // RunicCube / CentennialPuzzle also addToBot DrawCardAction. Resolving those
+    // draws mid multi-hit lets The Abacus grant block between stabs (aef32ab6:
+    // 5 hits + mid-hit Abacus instead of 6 full stabs). Defer draws until after
+    // the whole multi-hit DamageAction sequence, matching GameActionManager.
     let mut total_hp_damage = 0;
     let mut painful_stabs_triggers = 0;
     let hit_count = hits.max(1);
@@ -1348,7 +1354,8 @@ fn apply_monster_pending_effects(
             if state.player.hp <= 0 {
                 break;
             }
-            let hp_damage = deal_damage_to_player(state, hit_damage)?;
+            let hp_damage =
+                deal_damage_to_player_with_draw_policy(state, hit_damage, HpLossDrawPolicy::DeferDraws)?;
             if hp_damage > 0 && painful_stabs > 0 {
                 painful_stabs_triggers = checked_turn_add(painful_stabs_triggers, painful_stabs)?;
             }
@@ -1362,9 +1369,13 @@ fn apply_monster_pending_effects(
         total_hp_damage = checked_turn_add(total_hp_damage, hp_damage)?;
     }
     if state.player.hp <= 0 {
+        // Drop deferred draws — death screen freezes the bot queue.
+        state.relic_counters.deferred_centennial_puzzle_draw = false;
+        state.relic_counters.deferred_runic_cube_draws = 0;
         return Ok(());
     }
     settle_deferred_painful_stabs_wounds(state, painful_stabs_triggers)?;
+    crate::relic::settle_deferred_hp_loss_draw_relics(state)?;
     if weak > 0 {
         crate::relic::apply_player_weak_with_relics(&mut state.player.powers, &state.relics, weak)?;
     }
@@ -1473,6 +1484,14 @@ fn apply_transient_fading_after_turn(monsters: &mut [crate::MonsterState], actor
 }
 
 fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> SimResult<i32> {
+    deal_damage_to_player_with_draw_policy(state, amount, HpLossDrawPolicy::Immediate)
+}
+
+fn deal_damage_to_player_with_draw_policy(
+    state: &mut CombatState,
+    amount: i32,
+    draw_policy: HpLossDrawPolicy,
+) -> SimResult<i32> {
     let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;
@@ -1480,7 +1499,11 @@ fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> SimResult<i32>
         crate::relic::mitigate_unblocked_attack_damage(&state.relics, incoming - blocked);
     let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp = (state.player.hp - hp_damage).max(0);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_damage)?;
+    crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
+        state,
+        hp_damage,
+        draw_policy,
+    )?;
     revive_player_if_available(state)?;
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
@@ -3781,6 +3804,128 @@ mod tests {
         );
         assert_eq!(state.monsters[0].powers.book_stab_count, 5);
         assert_eq!(state.monsters[0].move_history.last().copied(), Some(1));
+    }
+
+    #[test]
+    fn book_of_stabbing_multi_hit_applies_all_hits_and_wounds() {
+        // Painful Stabs multi-hit: N hits of 6 unblocked → 6N damage + N Wounds.
+        // Regression probe for aef32ab6 (sim under-hit by one at 6 stabs).
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 0;
+        state.player.hp = 9904;
+        state.player.max_hp = 10000;
+        state.player.block = 0;
+        state.player.energy = 0;
+        state.player.powers.brutality = 1;
+        state.monsters = vec![monster_state_for_ascension(
+            &BOOK_OF_STABBING_A0,
+            actor_id,
+            0,
+        )];
+        state.monsters[0].hp = 44;
+        state.monsters[0].powers.book_stab_count = 6;
+        state.monsters[0].powers.painful_stabs = 1;
+        state.monsters[0].intent = crate::MonsterIntent::AttackMultiple {
+            damage: 6,
+            hits: 6,
+        };
+        state.monsters[0].move_history = vec![1, 1, 2, 1, 1, 2];
+        state.piles.hand.clear();
+        state.piles.discard_pile.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), STRIKE_R_ID),
+            CardInstance::new(CardId::new(12), STRIKE_R_ID),
+            CardInstance::new(CardId::new(13), STRIKE_R_ID),
+            CardInstance::new(CardId::new(14), STRIKE_R_ID),
+            CardInstance::new(CardId::new(15), STRIKE_R_ID),
+            CardInstance::new(CardId::new(16), STRIKE_R_ID),
+            CardInstance::new(CardId::new(17), STRIKE_R_ID),
+            CardInstance::new(CardId::new(18), STRIKE_R_ID),
+            CardInstance::new(CardId::new(19), STRIKE_R_ID),
+        ];
+        state.rng.monster_rng = StsRng::new(1);
+
+        let next = end_player_turn(&state).expect("end turn with Book of Stabbing multi-hit");
+
+        // 6 hits × 6 + Brutality start-of-turn 1 = 37
+        assert_eq!(
+            next.player.hp, 9904 - 36 - 1,
+            "expected 6 full stabs + Brutality; got damage {}",
+            9904 - next.player.hp
+        );
+        let wounds = next
+            .piles
+            .discard_pile
+            .iter()
+            .filter(|card| card.content_id == WOUND_ID)
+            .count()
+            + next
+                .piles
+                .hand
+                .iter()
+                .filter(|card| card.content_id == WOUND_ID)
+                .count()
+            + next
+                .piles
+                .draw_pile
+                .iter()
+                .filter(|card| card.content_id == WOUND_ID)
+                .count();
+        assert_eq!(wounds, 6, "Painful Stabs should add one Wound per unblocked hit");
+    }
+
+    #[test]
+    fn book_of_stabbing_multi_hit_defers_runic_cube_so_abacus_cannot_block_later_hits() {
+        // Target: multi-hit DamageAction runs to completion before RunicCube's
+        // addToBot DrawCardAction. Mid-hit draws + Abacus would otherwise grant
+        // block between stabs (permanent aef32ab6: 6!=30+6 after mid-hit shuffle).
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.ascension = 0;
+        state.player.hp = 9904;
+        state.player.max_hp = 10000;
+        state.player.block = 0;
+        state.relics = vec![Relic::RunicCube, Relic::TheAbacus];
+        state.monsters = vec![monster_state_for_ascension(
+            &BOOK_OF_STABBING_A0,
+            actor_id,
+            0,
+        )];
+        state.monsters[0].hp = 44;
+        state.monsters[0].powers.book_stab_count = 6;
+        state.monsters[0].powers.painful_stabs = 1;
+        state.monsters[0].intent = crate::MonsterIntent::AttackMultiple {
+            damage: 6,
+            hits: 6,
+        };
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+        // Large discard so a mid-hit Runic Cube draw would reshuffle and Abacus.
+        state.piles.discard_pile = (0..20)
+            .map(|i| CardInstance::new(CardId::new(100 + i), STRIKE_R_ID))
+            .collect();
+        state.rng.monster_rng = StsRng::new(1);
+        state.rng.shuffle_rng = StsRng::new(2);
+
+        let next = end_player_turn(&state).expect("Book multi-hit with Runic Cube + Abacus");
+
+        assert_eq!(
+            next.player.hp,
+            9904 - 36,
+            "all six stabs must land unblocked; mid-hit Abacus must not fire, damage was {}",
+            9904 - next.player.hp
+        );
+        let wounds = next
+            .piles
+            .discard_pile
+            .iter()
+            .chain(next.piles.hand.iter())
+            .chain(next.piles.draw_pile.iter())
+            .filter(|card| card.content_id == WOUND_ID)
+            .count();
+        assert_eq!(wounds, 6);
     }
 
     #[test]
