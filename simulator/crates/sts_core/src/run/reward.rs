@@ -884,7 +884,7 @@ pub fn target_boss_combat_gold(rng: &mut StsRng) -> i32 {
         + rng.random_int_range(BOSS_COMBAT_GOLD_VARIANCE_MIN, BOSS_COMBAT_GOLD_VARIANCE_MAX)
 }
 
-fn combat_gold_offer_with_relics(run: &RunState, amount: i32) -> i32 {
+pub(crate) fn combat_gold_offer_with_relics(run: &RunState, amount: i32) -> i32 {
     if run.relics.contains(&Relic::GoldenIdol) {
         amount + (amount as f32 * 0.25).round() as i32
     } else {
@@ -3608,6 +3608,35 @@ mod tests {
         assert_eq!(skipped.current_floor, picked.current_floor);
         assert!(skipped.reward.is_none());
         assert!(skipped.boss_chest_opened);
+    }
+
+    #[test]
+    fn tiny_house_gold_offer_gets_golden_idol_bonus() {
+        // TinyHouse.onEquip adds a 50-gold RewardItem; Golden Idol's 25% combat
+        // gold bonus applies (50 + round(12.5) = 63). Source: 884c8929.
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(RoomKind::Boss);
+        run.current_floor = 17;
+        run.current_act = 1;
+        run.player_hp = 50;
+        run.player_max_hp = 100;
+        run.relics = vec![Relic::BurningBlood, Relic::GoldenIdol];
+
+        let mut opened = apply_run_action(&run, RunAction::OpenChest).expect("boss chest opens");
+        opened
+            .reward
+            .as_mut()
+            .expect("boss relic reward")
+            .boss_relic_choices = vec![RelicKey::TinyHouse, RelicKey::MarkOfPain];
+
+        let picked = apply_run_action(&opened, RunAction::ChooseBossRelicReward { index: 0 })
+            .expect("Tiny House can be picked");
+
+        assert!(picked.relics.contains(&Relic::TinyHouse));
+        assert!(picked.relics.contains(&Relic::GoldenIdol));
+        let reward = picked.reward.as_ref().expect("Tiny House reward overlay");
+        assert_eq!(reward.gold_offer, 63);
     }
 
     #[test]

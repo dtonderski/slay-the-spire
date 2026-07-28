@@ -3234,9 +3234,14 @@ impl RunState {
                 // independent heal on pickup.
                 self.heal_player(TINY_HOUSE_MAX_HP)?;
                 self.upgrade_random_deck_cards_matching(1, |_| true)?;
+                // TinyHouse adds a gold RewardItem. Golden Idol's 25% combat gold
+                // bonus applies (884c8929: 50 → 63). Idol is already on self.relics
+                // (Tiny House is pushed before this onEquip body).
+                let house_gold =
+                    super::reward::combat_gold_offer_with_relics(self, TINY_HOUSE_GOLD);
                 let mut eager_card_reward = false;
                 if let Some(reward) = self.reward.as_mut() {
-                    reward.gold_offer = checked_run_add(reward.gold_offer, TINY_HOUSE_GOLD)?;
+                    reward.gold_offer = checked_run_add(reward.gold_offer, house_gold)?;
                     let mut misc_rng =
                         StsRng::with_counter(self.misc_rng_seed as i64, self.misc_rng_counter);
                     reward.potion_offer = Some(crate::run::reward::target_uniform_random_potion(
