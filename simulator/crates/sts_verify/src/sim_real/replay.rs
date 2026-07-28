@@ -4155,6 +4155,20 @@ fn seed_start_handle_combat_phase(
                     reconciled_deferred_action_steps,
                 );
             }
+        } else if next.phase == RunPhase::Reward && next.reward.is_some() {
+            // Exhaust/hand select CONFIRM can resolve lethal on-exhaust damage
+            // (Feel No Pain → Juggernaut) and open combat rewards without a
+            // PlayCard transition (15ab4cc step 1102 Burning Pact).
+            compare_subset(
+                report,
+                action,
+                label,
+                seed_start_reward_observed_subset(&post.message),
+                seed_start_reward_simulated_subset(&next),
+            );
+            *sim = next;
+            *phase = SeedStartPhase::Reward;
+            return SeedStartPreDispatch::Handled;
         } else if let Some(selected_card_id) = exhume_selected_card_id {
             let observed = seed_start_combat_observed_subset(&post.message);
             let full_matches = seed_start_combat_subsets_match(

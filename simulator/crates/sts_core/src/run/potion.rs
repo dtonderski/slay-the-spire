@@ -336,8 +336,7 @@ pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
         .len()
         .saturating_sub(exhaust_before);
     apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
-    next.combat = Some(combat);
-    Ok(next)
+    settle_run_after_select_confirm(next, combat)
 }
 
 /// Confirm put-on-deck hand select without retrieving the selected card, then
@@ -458,7 +457,25 @@ pub fn apply_exhaust_select_confirm(run: &RunState) -> SimResult<RunState> {
     confirm_exhaust_select(&mut combat)?;
     let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
     apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    // Burning Pact + Feel No Pain can queue Juggernaut damage that kills the
+    // last monster during CONFIRM (15ab4cc step 1102). Unlike PlayCard, select
+    // confirms do not go through apply_combat_action_on_run's Won → reward path.
+    settle_run_after_select_confirm(next, combat)
+}
+
+/// Attach post-select combat and open rewards when CONFIRM left combat Won.
+fn settle_run_after_select_confirm(
+    mut next: RunState,
+    combat: CombatState,
+) -> SimResult<RunState> {
+    next.store_rng_counter(RunRngStream::CardRandom, &combat.rng.card_random_rng);
+    next.player_hp = combat.player.hp;
+    next.player_max_hp = combat.player.max_hp;
+    let won = combat.phase == CombatPhase::Won;
     next.combat = Some(combat);
+    if won {
+        enter_combat_reward_for_current_room(&mut next)?;
+    }
     Ok(next)
 }
 
@@ -1351,6 +1368,65 @@ fn enter_combat_reward_for_current_room(run: &mut RunState) -> SimResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        apply_combat_action_on_run, apply_run_action,
+        content::cards::{BURNING_PACT_ID, BURN_ID, DEFEND_R_ID, STRIKE_R_ID},
+        CombatAction,
+    };
+
+    #[test]
+    fn burning_pact_confirm_enters_reward_when_feel_no_pain_juggernaut_kills_last() {
+        // 15ab4cc step 1102: exhaust Burn under FNP queues Juggernaut damage that
+        // kills the last Darkling during CONFIRM; run must open combat reward.
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 2;
+            combat.player.powers.feel_no_pain = 3;
+            combat.player.powers.juggernaut = 5;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+                CardInstance::new(CardId::new(2), BURN_ID),
+                CardInstance::new(CardId::new(3), STRIKE_R_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(4), DEFEND_R_ID),
+                CardInstance::new(CardId::new(5), STRIKE_R_ID),
+            ];
+            combat.piles.discard_pile.clear();
+            combat.monsters.truncate(1);
+            combat.monsters[0].hp = 3;
+            combat.monsters[0].alive = true;
+        }
+
+        let after_play = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact opens exhaust select");
+        assert!(after_play
+            .combat
+            .as_ref()
+            .and_then(|c| c.exhaust_select())
+            .is_some());
+
+        let after_choose =
+            apply_run_action(&after_play, RunAction::ChooseExhaustSelect { index: 0 })
+                .expect("select Burn");
+        let after_confirm =
+            apply_run_action(&after_choose, RunAction::ConfirmExhaustSelect)
+                .expect("confirm Burning Pact");
+
+        assert_eq!(
+            after_confirm.phase,
+            RunPhase::Reward,
+            "lethal Juggernaut from FNP block on exhaust select CONFIRM must open rewards"
+        );
+        assert!(after_confirm.reward.is_some());
+    }
 
     #[derive(Debug, Clone, Copy)]
     enum PotionStatDestination {
