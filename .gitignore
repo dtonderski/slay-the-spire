@@ -36,3 +36,35 @@ data/slaythedata/
 *.sqlite
 *.sqlite3
 *.db
+
+# Random fidelity campaign working state (local only)
+random_traces_loop/active-*.jsonl
+random_traces_loop/traces/
+random_traces_loop/minimized/
+random_traces_loop/pipeline_logs/
+random_traces_loop/pipeline_status.json
+random_traces_loop/campaign_status.json
+random_traces_loop/campaign_failures.jsonl
+random_traces_loop/ledger.jsonl
+random_traces_loop/verification_*.jsonl
+random_traces_loop/promotion_checkpoints.jsonl
+random_traces_loop/skipped_policy_seeds.jsonl
+random_traces_loop/serial_*/
+random_traces_loop/repair_*/
+random_traces_loop/repair_integration/
+random_traces_loop/complete_pass_overnight/inventory/inventory.pid
+random_traces_loop/complete_pass_overnight/inventory/INVENTORY_*
+
+# Local live captures / agent scratch
+live_traces/
+live_traces_codex/
+.codex/
+
+# Native extension build product
+simulator/python/sts_sim/*.so
+simulator/python/sts_sim/__pycache__/
+
+# Local mod build symlinks / launcher
+mods/lib/
+ModTheSpire.json
+sts
