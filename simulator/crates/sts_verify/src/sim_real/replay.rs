@@ -407,36 +407,110 @@ fn seed_start_handle_neow_immediate_phase(
             &option,
             start.starting_hp(),
         );
-        let mut visible_deck_ids = deck_content_keys(&run.deck);
-        if option.drawback == NeowDrawback::Curse {
-            if let Some(curse) = visible_deck_ids.pop() {
-                *pending_neow_room_entry_curse = Some(curse);
-                *pending_neow_room_entry_curse_advances_card_rng = false;
-                run.deck = deck_instances_from_keys(&visible_deck_ids);
-            }
-        }
-        *deck_ids = visible_deck_ids;
         *neow_gold = run.gold;
         *neow_current_hp = run.player_hp;
         *neow_max_hp = run.player_max_hp;
-        compare_subset(
-            report,
-            action,
-            seed_start_neow_relic_reward_label(option.reward),
-            seed_start_observed_subset(&post.message),
-            json!({
+        let label = seed_start_neow_relic_reward_label(option.reward);
+        // Curse + relic CommMod captures can show either frame on leave-ready:
+        // transient (relic already, curse still pending) or settled (Shame etc.
+        // already on master deck). Match the curse-simple dual-frame model.
+        if option.drawback == NeowDrawback::Curse {
+            let settled_run = run.clone();
+            let settled_deck_ids = deck_content_keys(&settled_run.deck);
+            let mut visible_deck_ids = settled_deck_ids.clone();
+            let curse = visible_deck_ids
+                .pop()
+                .expect("curse drawback appends a curse to the deck");
+            *pending_neow_room_entry_curse = Some(curse);
+            *pending_neow_room_entry_curse_advances_card_rng = false;
+            run.deck = deck_instances_from_keys(&visible_deck_ids);
+            *deck_ids = visible_deck_ids.clone();
+            *seed_sim = Some(run);
+            let mut observed = seed_start_observed_subset(&post.message);
+            let observed_deck = observed
+                .as_object_mut()
+                .and_then(|object| object.remove("deck_ids"))
+                .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                .unwrap_or_default();
+            let mut simulated = json!({
                 "screen_type": "EVENT",
                 "ascension": start.ascension,
                 "floor": 0,
                 "gold": neow_gold,
                 "current_hp": neow_current_hp,
                 "max_hp": neow_max_hp,
-                "deck_ids": deck_ids,
-                "relic_ids": relic_ids_for_simulated_subset(&run),
+                "deck_ids": visible_deck_ids,
+                "relic_ids": relic_ids_for_simulated_subset(seed_sim.as_ref().expect("seed sim")),
                 "choices": ["leave"],
-            }),
-        );
-        *seed_sim = Some(run);
+            });
+            let simulated_deck = simulated
+                .as_object_mut()
+                .and_then(|object| object.remove("deck_ids"))
+                .and_then(|deck| serde_json::from_value::<Vec<String>>(deck).ok())
+                .expect("Neow relic reward projection contains a deck");
+            let diffs = subset_diffs(observed, simulated);
+            match classify_deferred_deck_observation(
+                &observed_deck,
+                &simulated_deck,
+                &settled_deck_ids,
+            ) {
+                PendingDeckObservation::Settled if diffs.is_empty() => {
+                    *pending_neow_room_entry_curse = None;
+                    *deck_ids = settled_deck_ids;
+                    *seed_sim = Some(settled_run);
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: label.to_owned(),
+                    });
+                }
+                PendingDeckObservation::Deferred if diffs.is_empty() => {
+                    report.verified.push(VerifiedTransition {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: label.to_owned(),
+                    });
+                }
+                PendingDeckObservation::Diverged(deck_diffs) => {
+                    let mut diffs = diffs;
+                    diffs.extend(deck_diffs);
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: label.to_owned(),
+                        diffs,
+                    });
+                }
+                PendingDeckObservation::Settled | PendingDeckObservation::Deferred => {
+                    report.unexpected_diffs.push(UnexpectedDiff {
+                        action_step: action.step,
+                        command: action.command.clone(),
+                        label: label.to_owned(),
+                        diffs,
+                    });
+                }
+            }
+        } else {
+            *deck_ids = deck_content_keys(&run.deck);
+            compare_subset(
+                report,
+                action,
+                label,
+                seed_start_observed_subset(&post.message),
+                json!({
+                    "screen_type": "EVENT",
+                    "ascension": start.ascension,
+                    "floor": 0,
+                    "gold": neow_gold,
+                    "current_hp": neow_current_hp,
+                    "max_hp": neow_max_hp,
+                    "deck_ids": deck_ids,
+                    "relic_ids": relic_ids_for_simulated_subset(&run),
+                    "choices": ["leave"],
+                }),
+            );
+            *seed_sim = Some(run);
+        }
         *phase = SeedStartPhase::NeowLeave;
         return SeedStartPreDispatch::Handled;
     }

@@ -7692,6 +7692,99 @@ fn seed_start_neow_curse_rare_relic_delays_visible_curse_until_after_leave() {
 }
 
 #[test]
+fn seed_start_neow_curse_rare_relic_accepts_settled_curse_on_leave_ready() {
+    // FIDL00214 / random-fidelity-36b4907ea3fed69f shows Shame already on the
+    // master deck in the leave-ready frame after curse+rare relic (settled),
+    // while session-197 captures the lagged pre-curse frame (deferred).
+    let numeric_seed = 34_961_238_618_114_i64;
+    let seed_string = "FIDL00214";
+    let option = seed_start_selected_neow_option(numeric_seed, "CHOOSE 2")
+        .expect("FIDL00214 slot 2 rare relic option");
+    assert_eq!(option.drawback, NeowDrawback::Curse);
+    assert_eq!(option.reward, NeowRewardType::OneRareRelic);
+    let run =
+        seed_start_apply_neow_relic_reward(numeric_seed, &ironclad_starter_deck_keys(), &option);
+    let settled_deck: Vec<_> = deck_content_keys(&run.deck)
+        .into_iter()
+        .map(|id| json!({ "id": id }))
+        .collect();
+    assert_eq!(
+        settled_deck
+            .last()
+            .and_then(|card| card.get("id"))
+            .and_then(|id| id.as_str()),
+        Some("Shame")
+    );
+    let post_relics = vec![
+        json!({ "name": "Burning Blood" }),
+        json!({ "name": seed_start_newest_trace_relic_name(&run) }),
+    ];
+    let starting_deck: Vec<_> = ironclad_starter_deck_keys()
+        .into_iter()
+        .map(|id| json!({ "id": id }))
+        .collect();
+    let lines = vec![
+        json!({"type": "metadata", "schema": 1, "source": "communication_mod"}),
+        json!({"type": "state", "step": 0, "message": {}}),
+        json!({"type": "action", "step": 1, "command": format!("START IRONCLAD 0 {seed_string}")}),
+        json!({"type": "state", "step": 1, "message": {"game_state": {
+            "screen_type": "EVENT",
+            "ascension_level": 0,
+            "floor": 0,
+            "gold": 99,
+            "current_hp": 80,
+            "max_hp": 80,
+            "deck": starting_deck,
+            "relics": [{"name": "Burning Blood"}],
+            "choice_list": ["talk"]
+        }}}),
+        json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+        json!({"type": "state", "step": 2, "message": {"game_state": {
+            "screen_type": "EVENT",
+            "ascension_level": 0,
+            "floor": 0,
+            "gold": 99,
+            "current_hp": 80,
+            "max_hp": 80,
+            "deck": starting_deck,
+            "relics": [{"name": "Burning Blood"}],
+            "choice_list": seed_start_neow_choices(numeric_seed)
+        }}}),
+        json!({"type": "action", "step": 3, "command": "CHOOSE 2"}),
+        json!({"type": "state", "step": 3, "message": {"game_state": {
+            "screen_type": "EVENT",
+            "ascension_level": 0,
+            "floor": 0,
+            "gold": 99,
+            "current_hp": run.player_hp,
+            "max_hp": run.player_max_hp,
+            "deck": settled_deck,
+            "relics": post_relics,
+            "choice_list": ["leave"]
+        }}}),
+    ];
+    let content = serialize_trace_test_lines(lines);
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert!(report.verified.iter().any(|transition| {
+        transition.action_step == 3 && transition.label == "Neow rare relic"
+    }));
+    let carried = report
+        .seed_start
+        .as_ref()
+        .and_then(|seed_start| seed_start.sim_run_state.as_ref())
+        .expect("seed-start carries simulator state after settled curse");
+    assert_eq!(
+        deck_content_keys(&carried.deck).last().map(String::as_str),
+        Some("Shame"),
+        "settled leave-ready frame must keep Shame on the carried deck"
+    );
+}
+
+#[test]
 fn seed_start_boss_swap_uses_generated_boss_relic_reward() {
     let (numeric_seed, run) = (1_i64..10_000)
         .map(|seed| {

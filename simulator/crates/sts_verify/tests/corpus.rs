@@ -1095,6 +1095,71 @@ fn codex10_neow_transform_two_trace_verifies_through_first_map_node() {
 }
 
 #[test]
+fn fidl00214_neow_curse_rare_relic_accepts_settled_shame_deck() {
+    // FIDL00214 leave-ready frame after curse+rare relic already includes
+    // Shame on the master deck (settled). Session-197 captures the lagged
+    // pre-curse frame; both must verify.
+    let Some(content) = load_corpus_file("permanent_traces/random-fidelity-36b4907ea3fed69f.jsonl")
+    else {
+        return;
+    };
+
+    let report = verify_seed_start_communication_mod_trace(&content).expect("seed-start report");
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {:?}",
+        report.unexpected_diffs
+    );
+    assert!(
+        report.unsupported.is_empty(),
+        "unsupported transitions: {:?}",
+        report.unsupported
+    );
+
+    let seed_start = report.seed_start.expect("seed-start details");
+    assert!(
+        !seed_start.failed,
+        "boundary: {:?}",
+        seed_start.first_boundary
+    );
+    assert_eq!(seed_start.start_command.external_seed, "FIDL00214");
+    assert_eq!(seed_start.first_boundary.category, "none");
+
+    let labels: Vec<_> = report
+        .verified
+        .iter()
+        .map(|step| step.label.as_str())
+        .collect();
+    for expected in ["Neow talk", "Neow rare relic"] {
+        assert!(
+            labels.contains(&expected),
+            "missing verified label {expected}; labels: {labels:?}"
+        );
+    }
+    assert!(
+        report
+            .verified
+            .iter()
+            .any(|step| { step.action_step == 6 && step.label == "Neow rare relic" }),
+        "step 6 must verify as Neow rare relic with settled Shame deck"
+    );
+    let carried = seed_start
+        .sim_run_state
+        .as_ref()
+        .expect("carried sim state after Neow rare relic");
+    assert_eq!(
+        carried.deck.len(),
+        11,
+        "settled deck should include starter 10 + Shame"
+    );
+    assert_eq!(
+        carried.deck.last().map(|card| card.content_id),
+        Some(sts_core::content::cards::SHAME_ID),
+        "settled leave-ready frame must keep Shame on the carried deck"
+    );
+}
+
+#[test]
 fn fidl00135_neow_transform_two_accepts_settled_deck_on_grid_confirm() {
     // CommunicationMod lag sometimes shows the fully settled deck (sources
     // removed and replacements already obtained) on the post-confirm leave
