@@ -1680,9 +1680,12 @@ fn enter_next_act_map(run: &mut RunState) -> SimResult<()> {
     // `potion_chance` is the bonus around the 40% base chance, so the reset is
     // represented by zero rather than by the displayed base percentage.
     run.potion_chance = 0;
-    run.event_room_monster_chance = DEFAULT_EVENT_ROOM_MONSTER_CHANCE;
-    run.event_room_shop_chance = DEFAULT_EVENT_ROOM_SHOP_CHANCE;
-    run.event_room_treasure_chance = DEFAULT_EVENT_ROOM_TREASURE_CHANCE;
+    run.event_room_monster_chance =
+        crate::run::state::EventRoomChance::new(DEFAULT_EVENT_ROOM_MONSTER_CHANCE);
+    run.event_room_shop_chance =
+        crate::run::state::EventRoomChance::new(DEFAULT_EVENT_ROOM_SHOP_CHANCE);
+    run.event_room_treasure_chance =
+        crate::run::state::EventRoomChance::new(DEFAULT_EVENT_ROOM_TREASURE_CHANCE);
     if next_act == 2 {
         run.map = Some(generate_target_fixed_map(
             run.reward_rng_seed as i64,

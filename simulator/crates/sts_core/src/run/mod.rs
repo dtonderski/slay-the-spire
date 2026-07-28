@@ -68,6 +68,8 @@ pub use shop::{
     ShopRelicSlot, ShopScreen, SHOP_BASE_REMOVE_PRICE,
 };
 pub use state::{
-    Act1Boss, Act3Boss, CardRewardFlow, RewardContinuation, RewardScreen, RunAction, RunPhase,
-    RunState, REWARD_GOLD_AMOUNT, STARTING_GOLD,
+    Act1Boss, Act3Boss, CardRewardFlow, EventRoomChance, RewardContinuation, RewardScreen,
+    RunAction, RunPhase, RunState, DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
+    DEFAULT_EVENT_ROOM_SHOP_CHANCE, DEFAULT_EVENT_ROOM_TREASURE_CHANCE, REWARD_GOLD_AMOUNT,
+    STARTING_GOLD,
 };

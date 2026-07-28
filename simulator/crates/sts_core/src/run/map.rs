@@ -51,8 +51,8 @@ use super::event::enter_event_screen;
 use super::reward::setup_treasure_room;
 use super::shop::enter_shop_room;
 use super::state::{
-    RunRngStream, DEFAULT_EVENT_ROOM_MONSTER_CHANCE, DEFAULT_EVENT_ROOM_SHOP_CHANCE,
-    DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
+    EventRoomChance, RunRngStream, DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
+    DEFAULT_EVENT_ROOM_SHOP_CHANCE, DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
 };
 
 fn current_room_kind(run: &RunState) -> Option<RoomKind> {
@@ -1040,6 +1040,7 @@ fn apply_event_room_outcome(run: &mut RunState, last_room_was_shop: bool) -> Sim
 
 fn apply_event_room_outcome_inner(run: &mut RunState, last_room_was_shop: bool) -> SimResult<()> {
     let mut rng = StsRng::with_counter(run.event_rng_seed as i64, run.event_rng_counter);
+    // Target EventHelper.roll: float roll = rng.random(); index = (int)(roll * 100.0f).
     let roll_index = (rng.random_float() * 100.0) as u32;
     run.event_rng_counter = rng.counter();
 
@@ -1048,9 +1049,9 @@ fn apply_event_room_outcome_inner(run: &mut RunState, last_room_was_shop: bool) 
     } else {
         target_event_room_outcome(
             roll_index,
-            run.event_room_monster_chance,
-            run.event_room_shop_chance,
-            run.event_room_treasure_chance,
+            run.event_room_monster_chance.weight(),
+            run.event_room_shop_chance.weight(),
+            run.event_room_treasure_chance.weight(),
             last_room_was_shop,
         )
     };
@@ -1059,7 +1060,7 @@ fn apply_event_room_outcome_inner(run: &mut RunState, last_room_was_shop: bool) 
     if outcome == EventRoomOutcome::Monster && run.relics.contains(&Relic::JuzuBracelet) {
         outcome = EventRoomOutcome::Event;
     }
-    update_event_room_chances(run, raw_outcome, outcome)?;
+    update_event_room_chances(run, raw_outcome, outcome);
 
     match outcome {
         EventRoomOutcome::Monster => {
@@ -1085,20 +1086,20 @@ fn apply_event_room_outcome_inner(run: &mut RunState, last_room_was_shop: bool) 
 
 fn target_event_room_outcome(
     roll_index: u32,
-    monster_chance: u32,
-    shop_chance: u32,
-    treasure_chance: u32,
+    monster_weight: u32,
+    shop_weight: u32,
+    treasure_weight: u32,
     last_room_was_shop: bool,
 ) -> EventRoomOutcome {
     let roll_index = u64::from(roll_index);
-    let monster_size = u64::from(monster_chance);
+    let monster_size = u64::from(monster_weight);
     let shop_size = monster_size
         + if last_room_was_shop {
             0
         } else {
-            u64::from(shop_chance)
+            u64::from(shop_weight)
         };
-    let treasure_size = shop_size + u64::from(treasure_chance);
+    let treasure_size = shop_size + u64::from(treasure_weight);
 
     if roll_index < monster_size {
         EventRoomOutcome::Monster
@@ -1111,45 +1112,32 @@ fn target_event_room_outcome(
     }
 }
 
+/// Target `EventHelper.roll` post-roll probability ramps use Java `float` add/reset.
 fn update_event_room_chances(
     run: &mut RunState,
     raw_outcome: EventRoomOutcome,
     resolved_outcome: EventRoomOutcome,
-) -> SimResult<()> {
-    let monster_chance = if raw_outcome == EventRoomOutcome::Monster {
-        DEFAULT_EVENT_ROOM_MONSTER_CHANCE
+) {
+    run.event_room_monster_chance = if raw_outcome == EventRoomOutcome::Monster {
+        EventRoomChance::new(DEFAULT_EVENT_ROOM_MONSTER_CHANCE)
     } else {
         run.event_room_monster_chance
-            .checked_add(DEFAULT_EVENT_ROOM_MONSTER_CHANCE)
-            .ok_or(SimError::InvalidState(
-                "event-room monster chance overflows u32",
-            ))?
+            .saturating_add(DEFAULT_EVENT_ROOM_MONSTER_CHANCE)
     };
 
-    let shop_chance = if resolved_outcome == EventRoomOutcome::Shop {
-        DEFAULT_EVENT_ROOM_SHOP_CHANCE
+    run.event_room_shop_chance = if resolved_outcome == EventRoomOutcome::Shop {
+        EventRoomChance::new(DEFAULT_EVENT_ROOM_SHOP_CHANCE)
     } else {
         run.event_room_shop_chance
-            .checked_add(DEFAULT_EVENT_ROOM_SHOP_CHANCE)
-            .ok_or(SimError::InvalidState(
-                "event-room shop chance overflows u32",
-            ))?
+            .saturating_add(DEFAULT_EVENT_ROOM_SHOP_CHANCE)
     };
 
-    let treasure_chance = if resolved_outcome == EventRoomOutcome::Treasure {
-        DEFAULT_EVENT_ROOM_TREASURE_CHANCE
+    run.event_room_treasure_chance = if resolved_outcome == EventRoomOutcome::Treasure {
+        EventRoomChance::new(DEFAULT_EVENT_ROOM_TREASURE_CHANCE)
     } else {
         run.event_room_treasure_chance
-            .checked_add(DEFAULT_EVENT_ROOM_TREASURE_CHANCE)
-            .ok_or(SimError::InvalidState(
-                "event-room treasure chance overflows u32",
-            ))?
+            .saturating_add(DEFAULT_EVENT_ROOM_TREASURE_CHANCE)
     };
-
-    run.event_room_monster_chance = monster_chance;
-    run.event_room_shop_chance = shop_chance;
-    run.event_room_treasure_chance = treasure_chance;
-    Ok(())
 }
 
 fn apply_tiny_chest(run: &mut RunState) -> SimResult<bool> {
@@ -1322,36 +1310,60 @@ mod tests {
         );
         assert_eq!(tiny_chest, tiny_chest_before);
 
-        let mut chances = RunState::map_fixture();
-        chances.event_room_treasure_chance = u32::MAX;
-        let chances_before = chances.clone();
+        // Target EventHelper accumulates Java floats without a hard u32 ceiling.
+        // Large weights still select Monster when the roll index is inside the
+        // monster band (first slots of the 100-entry table).
         assert_eq!(
-            update_event_room_chances(
-                &mut chances,
-                EventRoomOutcome::Event,
-                EventRoomOutcome::Event,
-            ),
-            Err(SimError::InvalidState(
-                "event-room treasure chance overflows u32"
-            ))
-        );
-        assert_eq!(chances, chances_before);
-
-        let mut event_room = RunState::map_fixture();
-        event_room.event_room_monster_chance = u32::MAX;
-        event_room.event_room_shop_chance = u32::MAX;
-        let event_room_before = event_room.clone();
-        assert_eq!(
-            apply_event_room_outcome(&mut event_room, false),
-            Err(SimError::InvalidState(
-                "event-room shop chance overflows u32"
-            ))
-        );
-        assert_eq!(event_room, event_room_before);
-
-        assert_eq!(
-            target_event_room_outcome(99, u32::MAX, u32::MAX, u32::MAX, false),
+            target_event_room_outcome(0, 50, 20, 10, false),
             EventRoomOutcome::Monster
+        );
+        assert_eq!(
+            target_event_room_outcome(55, 50, 20, 10, false),
+            EventRoomOutcome::Shop
+        );
+        assert_eq!(
+            target_event_room_outcome(75, 50, 20, 10, false),
+            EventRoomOutcome::Treasure
+        );
+        assert_eq!(
+            target_event_room_outcome(90, 50, 20, 10, false),
+            EventRoomOutcome::Event
+        );
+    }
+
+    #[test]
+    fn event_room_chance_float_accumulation_matches_java_weight_truncation() {
+        // Reproduce the FIDL00199 path: monster, event, monster, event, then a
+        // roll of 44. Integer percent storage would treat shop/treasure weights
+        // as 15/10 (treasure through index 44); Java float ramps yield 14/9
+        // (event from index 43).
+        let mut shop = EventRoomChance::new(DEFAULT_EVENT_ROOM_SHOP_CHANCE);
+        let mut treasure = EventRoomChance::new(DEFAULT_EVENT_ROOM_TREASURE_CHANCE);
+        for _ in 0..4 {
+            shop = shop.saturating_add(DEFAULT_EVENT_ROOM_SHOP_CHANCE);
+            treasure = treasure.saturating_add(DEFAULT_EVENT_ROOM_TREASURE_CHANCE);
+        }
+        // After the second monster reset, one further event ramp remains on monster.
+        let monster = EventRoomChance::new(DEFAULT_EVENT_ROOM_MONSTER_CHANCE)
+            .saturating_add(DEFAULT_EVENT_ROOM_MONSTER_CHANCE);
+
+        assert_eq!(monster.weight(), 20);
+        assert_eq!(shop.weight(), 14);
+        assert_eq!(treasure.weight(), 9);
+        assert_eq!(
+            target_event_room_outcome(
+                44,
+                monster.weight(),
+                shop.weight(),
+                treasure.weight(),
+                false
+            ),
+            EventRoomOutcome::Event
+        );
+        // Integer percent ramps would have selected Treasure at the same roll.
+        assert_eq!(
+            target_event_room_outcome(44, 20, 15, 10, false),
+            EventRoomOutcome::Treasure
         );
     }
 

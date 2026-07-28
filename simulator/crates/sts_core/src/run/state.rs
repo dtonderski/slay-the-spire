@@ -901,12 +901,19 @@ pub struct RunState {
     pub nunchaku_attacks_played: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub tiny_chest_counter: u32,
+    /// Target `EventHelper.MONSTER_CHANCE` probability in `[0, ∞)`.
+    ///
+    /// Accumulated with Java `float` semantics and converted to a weight via
+    /// `(chance * 100.0f) as i32` at roll time. Legacy snapshots that stored
+    /// integer percentage points (e.g. `10`) are accepted on deserialize.
     #[serde(default = "default_event_room_monster_chance")]
-    pub event_room_monster_chance: u32,
+    pub event_room_monster_chance: EventRoomChance,
+    /// Target `EventHelper.SHOP_CHANCE` probability. See monster field notes.
     #[serde(default = "default_event_room_shop_chance")]
-    pub event_room_shop_chance: u32,
+    pub event_room_shop_chance: EventRoomChance,
+    /// Target `EventHelper.TREASURE_CHANCE` probability. See monster field notes.
     #[serde(default = "default_event_room_treasure_chance")]
-    pub event_room_treasure_chance: u32,
+    pub event_room_treasure_chance: EventRoomChance,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub wing_boots_charges: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
@@ -1030,20 +1037,84 @@ fn default_note_card_content_id() -> ContentId {
     crate::content::cards::IRON_WAVE_ID
 }
 
-pub const DEFAULT_EVENT_ROOM_MONSTER_CHANCE: u32 = 10;
-pub const DEFAULT_EVENT_ROOM_SHOP_CHANCE: u32 = 3;
-pub const DEFAULT_EVENT_ROOM_TREASURE_CHANCE: u32 = 2;
+/// Target `EventHelper.BASE_MONSTER_CHANCE` / `RESET_MONSTER_CHANCE` (`0.1f`).
+pub const DEFAULT_EVENT_ROOM_MONSTER_CHANCE: f32 = 0.1;
+/// Target `EventHelper.BASE_SHOP_CHANCE` / `RESET_SHOP_CHANCE` (`0.03f`).
+pub const DEFAULT_EVENT_ROOM_SHOP_CHANCE: f32 = 0.03;
+/// Target `EventHelper.BASE_TREASURE_CHANCE` / `RESET_TREASURE_CHANCE` (`0.02f`).
+pub const DEFAULT_EVENT_ROOM_TREASURE_CHANCE: f32 = 0.02;
 
-fn default_event_room_monster_chance() -> u32 {
-    DEFAULT_EVENT_ROOM_MONSTER_CHANCE
+/// Java `float` event-room probability used by `EventHelper` chance ramps.
+///
+/// Equality compares IEEE-754 bits so `RunState` can keep `Eq` while matching
+/// the target's non-associative `0.03f` accumulation.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(transparent)]
+pub struct EventRoomChance(f32);
+
+impl EventRoomChance {
+    #[must_use]
+    pub const fn new(probability: f32) -> Self {
+        Self(probability)
+    }
+
+    #[must_use]
+    pub const fn probability(self) -> f32 {
+        self.0
+    }
+
+    /// Target `(int)(chance * 100.0f)` weight used to fill the 100-slot roll table.
+    #[must_use]
+    pub fn weight(self) -> u32 {
+        // Java casts truncate toward zero; chances are non-negative.
+        (self.0 * 100.0) as u32
+    }
+
+    #[must_use]
+    pub fn saturating_add(self, ramp: f32) -> Self {
+        Self(self.0 + ramp)
+    }
 }
 
-fn default_event_room_shop_chance() -> u32 {
-    DEFAULT_EVENT_ROOM_SHOP_CHANCE
+impl PartialEq for EventRoomChance {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
 }
 
-fn default_event_room_treasure_chance() -> u32 {
-    DEFAULT_EVENT_ROOM_TREASURE_CHANCE
+impl Eq for EventRoomChance {}
+
+impl<'de> Deserialize<'de> for EventRoomChance {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = f64::deserialize(deserializer)?;
+        Ok(Self(normalize_event_room_chance_value(raw as f32)))
+    }
+}
+
+/// Accept legacy integer percentage-point snapshots (`10` → `0.1`) while keeping
+/// true probability values (including accumulated values above `1.0` that are
+/// not whole integers) unchanged.
+fn normalize_event_room_chance_value(value: f32) -> f32 {
+    if value > 1.0 && value.fract() == 0.0 {
+        value / 100.0
+    } else {
+        value
+    }
+}
+
+fn default_event_room_monster_chance() -> EventRoomChance {
+    EventRoomChance::new(DEFAULT_EVENT_ROOM_MONSTER_CHANCE)
+}
+
+fn default_event_room_shop_chance() -> EventRoomChance {
+    EventRoomChance::new(DEFAULT_EVENT_ROOM_SHOP_CHANCE)
+}
+
+fn default_event_room_treasure_chance() -> EventRoomChance {
+    EventRoomChance::new(DEFAULT_EVENT_ROOM_TREASURE_CHANCE)
 }
 
 fn is_zero_u32(value: &u32) -> bool {
@@ -2342,9 +2413,9 @@ impl RunState {
             sundial_shuffles: 0,
             nunchaku_attacks_played: 0,
             tiny_chest_counter: 0,
-            event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
-            event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
-            event_room_treasure_chance: DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
+            event_room_monster_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_MONSTER_CHANCE),
+            event_room_shop_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_SHOP_CHANCE),
+            event_room_treasure_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_TREASURE_CHANCE),
             wing_boots_charges: 0,
             neow_lament_combats_remaining: 0,
             normal_combat_count: 0,
@@ -2442,9 +2513,9 @@ impl RunState {
             sundial_shuffles: 0,
             nunchaku_attacks_played: 0,
             tiny_chest_counter: 0,
-            event_room_monster_chance: DEFAULT_EVENT_ROOM_MONSTER_CHANCE,
-            event_room_shop_chance: DEFAULT_EVENT_ROOM_SHOP_CHANCE,
-            event_room_treasure_chance: DEFAULT_EVENT_ROOM_TREASURE_CHANCE,
+            event_room_monster_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_MONSTER_CHANCE),
+            event_room_shop_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_SHOP_CHANCE),
+            event_room_treasure_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_TREASURE_CHANCE),
             wing_boots_charges: 0,
             neow_lament_combats_remaining: 0,
             normal_combat_count: 0,
