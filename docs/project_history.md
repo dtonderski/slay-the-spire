@@ -60,12 +60,15 @@ combat.
 
 Guided collection then exposed a structural limit: event, item, reward, and
 other RNG trajectories often stop matching the source run. Keeping guidance
-legal requires brittle mapping even when the simulator is coherent. The current
-decision is to use SlayTheData to obtain broad Act 1-3 fidelity traces without
-making exact reconstruction the permanent data architecture. Strict replay
-validates fidelity; guided collection is a temporary bridge to varied states.
-Roughly 100 long runs may provide useful coverage, but readiness depends on
-measured, understood divergence rather than trace count alone.
+legal requires brittle mapping even when the simulator is coherent. In July
+2026 the collection loop therefore switched to reproducible random legal
+actions in the real game with 10,000 verification HP. Collection writes
+immutable complete traces without waiting for the simulator. Independent
+workers strictly replay those traces, retain the first valid prefix, minimize
+the first divergence, and deduplicate repair tasks. Repairs can then replay the
+same full trace farther to reveal its next divergence. This separation made
+real-game action throughput and verifier throughput independently scalable and
+removed SlayTheData legality from the fidelity-discovery loop.
 
 Sources: `simulator/SLAYTHEDATA_CLI_COLLECTION_STATUS.md` and the July 2026
 SlayTheData and fidelity history.

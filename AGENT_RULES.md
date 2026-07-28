@@ -17,6 +17,18 @@ These rules are for Codex or any other coding agent working on this project.
 11. Read `RESEARCH.md` before implementing RNG, action queue, save loading, map generation, reward generation, shop generation, or real-game verification tools.
 12. If a missing dependency or tool would materially simplify the task, improve correctness, or avoid a substantially worse workaround, stop and tell the user. Do not quietly build an inferior workaround around a missing crucial dependency.
 
+## Python Tooling
+
+- This repository uses `uv` for Python and Python-backed build tooling. Do not
+  invoke or require a separately installed system `python`/`pip` interpreter.
+- Run Python-dependent commands through `uv`, for example
+  `uv run --python 3.12 <command>`. Let `uv` install/manage the requested
+  interpreter when it is not already present.
+- Run PyO3-dependent Cargo commands under `uv` as well, for example
+  `uv run --python 3.12 cargo test --workspace`, so PyO3 discovers the managed
+  interpreter. A missing system Python is not a dependency blocker when `uv`
+  is available.
+
 ## Search Scope / Context Hygiene
 
 - Do not run broad repository-wide searches that include `tmp/decompiled-sts/`,
@@ -95,6 +107,17 @@ These rules are for Codex or any other coding agent working on this project.
   `http://127.0.0.1:5173/health`. If direct health is connected but the UI says
   "backend disconnected", check the Vite proxy port before changing backend
   code.
+- For real-game control from WSL or a sandboxed Codex session, use the Linux
+  `live-trace` CLI with host-network permission and
+  `STS_LIVE_BRIDGE_SESSION_DIR` pointed at the active CommunicationMod
+  `tools/communication/session` directory. Do not invoke PowerShell, handcraft
+  TCP protocol messages, or enable legacy file commands for ordinary play.
+  The Windows game and bridge may remain Windows processes; all operator
+  commands should still go through the Rust CLI.
+- A Codex process/port check inside its nested sandbox cannot prove that the
+  Windows game or bridge is stopped. Use `live-trace bridges list` with
+  host-network permission, then `bridges state`, `sessions start`,
+  `actions list`, and `actions send` as appropriate.
 
 ## Rust Hygiene
 
