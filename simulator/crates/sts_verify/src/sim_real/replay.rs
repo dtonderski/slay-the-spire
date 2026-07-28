@@ -4105,11 +4105,45 @@ fn seed_start_handle_combat_phase(
             }
         } else if let Some(selected_card_id) = exhume_selected_card_id {
             let observed = seed_start_combat_observed_subset(&post.message);
+            let full_matches = seed_start_combat_subsets_match(
+                observed.clone(),
+                seed_start_simulated_combat_subset(&next, false),
+            );
+            let skipped_return = choose_index(command)
+                .and_then(|index| seed_start_exhume_skipped_return_state(sim, index));
+            let skipped_return_matches = skipped_return.as_ref().is_some_and(|skipped| {
+                seed_start_is_stable_combat_post_state(&post.message)
+                    && seed_start_combat_subsets_match(
+                        observed.clone(),
+                        seed_start_simulated_combat_subset(skipped, false),
+                    )
+            });
             let transient =
                 seed_start_simulated_exhume_selection_transient_subset(&next, selected_card_id);
-            if transient.as_ref().is_some_and(|transient| {
+            let transient_matches = transient.as_ref().is_some_and(|transient| {
                 seed_start_combat_subsets_match(observed.clone(), transient.clone())
-            }) {
+            });
+            if full_matches {
+                seed_start_compare_or_defer_combat_transition(
+                    report,
+                    action,
+                    label,
+                    &post.message,
+                    observed,
+                    seed_start_simulated_combat_subset(&next, false),
+                    pending_combat_assertion,
+                    reconciled_deferred_action_steps,
+                );
+            } else if skipped_return_matches {
+                // Havoc-forced Exhume can settle source + Dark Embrace without
+                // retrieving the chosen exhaust card (6a06a48 step 561).
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "Exhume skipped return retrieval frame".to_owned(),
+                });
+                next = skipped_return.expect("matching skipped-return state exists");
+            } else if transient_matches {
                 report.verified.push(VerifiedTransition {
                     action_step: action.step,
                     command: action.command.clone(),
@@ -4929,6 +4963,24 @@ fn seed_start_exhume_selected_card_id(run: &RunState, ui_index: usize) -> Option
         })
         .nth(ui_index)
         .map(|card| card.id)
+}
+
+/// Rebuild Exhume CHOOSE without retrieving the selected exhaust card.
+///
+/// Source (parked Exhume) still settles into exhaust and Dark Embrace still
+/// draws; the chosen exhaust card remains in exhaust. Used only when that
+/// stable observed frame matches (6a06a48 Havoc→Exhume).
+fn seed_start_exhume_skipped_return_state(pre: &RunState, ui_index: usize) -> Option<RunState> {
+    let combat = pre.combat.as_ref()?;
+    let select = combat.exhaust_select()?;
+    if select.purpose != ExhaustSelectPurpose::ExhumeReturnToHand {
+        return None;
+    }
+    let mut transient = pre.clone();
+    let combat = transient.combat.as_mut()?;
+    sts_core::combat::choose_exhaust_select(combat, ui_index).ok()?;
+    sts_core::combat::confirm_exhume_select_skipped_return(combat).ok()?;
+    Some(transient)
 }
 
 fn seed_start_simulated_exhume_selection_transient_subset(

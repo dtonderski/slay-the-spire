@@ -1128,6 +1128,41 @@ fn stable_combat_trace_reconciles_compound_transient_evidence() {
 }
 
 #[test]
+
+#[test]
+fn random_fidelity_havoc_exhume_skipped_return_with_dark_embrace() {
+    // Havoc→Exhume CHOOSE: Exhume exhausts + DE draws, chosen exhaust card stays.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-6a06a48f3b8f0727.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Havoc Exhume skipped return permanent trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "{report:#?}"
+    );
+    assert_eq!(
+        report
+            .verified
+            .iter()
+            .find(|entry| entry.action_step == 561)
+            .map(|entry| entry.label.as_str()),
+        Some("Exhume skipped return retrieval frame"),
+        "{report:#?}"
+    );
+}
+
 fn exhume_selection_post_click_transient_reconciles_without_boundary() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-8375d0aa0e56c94b.jsonl")

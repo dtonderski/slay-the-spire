@@ -3106,6 +3106,39 @@ fn confirm_exhume_select(
     }
     state.piles.exhaust_pile.remove(index);
     state.piles.hand.push(card);
+    settle_exhume_source_after_selection(state, exhaust_select, source_card_id)
+}
+
+/// Close Exhume exhaust-select without retrieving the chosen exhaust card.
+///
+/// Models a skipped-retrieval frame for ExhumeReturnToHand: Exhume still
+/// settles into exhaust (and Dark Embrace still draws), but the selected card
+/// remains in the exhaust pile. Observed CommunicationMod frames under
+/// Havoc-forced Exhume (6a06a48 step 561) show DE drawing the pre-select top
+/// of draw while the chosen exhaust card never leaves exhaust.
+pub fn confirm_exhume_select_skipped_return(state: &mut CombatState) -> SimResult<()> {
+    let exhaust_select = state
+        .take_exhaust_select()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if exhaust_select.purpose != crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
+        return Err(SimError::IllegalAction(
+            "skipped Exhume return requires ExhumeReturnToHand",
+        ));
+    }
+    let source_card_id = exhaust_select
+        .source_card_id
+        .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+    // Do not remove or return the selected exhaust card.
+    settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
+    state.activate_next_queued_decision_if_idle();
+    Ok(())
+}
+
+fn settle_exhume_source_after_selection(
+    state: &mut CombatState,
+    exhaust_select: crate::combat::ExhaustSelectState,
+    source_card_id: CardId,
+) -> SimResult<()> {
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.exhaust_pile.push(source_card);
         apply_on_exhaust_effects(state, source_card_id)?;
