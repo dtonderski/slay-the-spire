@@ -11744,6 +11744,42 @@ fn random_fidelity_burning_pact_normal_hand_selection_can_settle_deferred() {
 }
 
 #[test]
+fn random_fidelity_burning_pact_dark_embrace_draws_after_discard() {
+    // DE×2 after Burning Pact exhaust: BP draws first, source discards, then DE
+    // reshuffles (can pull BP back into hand). Permanent minimized prefix ends
+    // at step 459 CONFIRM.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-9bf0204173fb2a7f.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Burning Pact + Dark Embrace permanent trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "step 459 CONFIRM must match DE-after-discard hand: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 459)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "Burning Pact exhaust-select CONFIRM must verify: {report:#?}"
+    );
+}
+
+#[test]
 fn random_fidelity_havoc_headbutt_returns_source_to_draw() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-f99c08d43d7c329e.jsonl")
