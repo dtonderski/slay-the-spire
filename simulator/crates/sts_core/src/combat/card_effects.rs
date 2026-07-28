@@ -493,12 +493,31 @@ pub(super) fn play_top_draw_card_queue(
         from: CardPile::Hand,
         to: destination,
     };
+    // Non-force hand-select (Warcry / Armaments / …) still settles the source
+    // inside confirm_*; do not queue a MoveCard here.
     let delayed_hand_select_moves_source = !force_exhaust
         && queue.iter().any(|action| {
             matches!(
                 action,
                 InternalAction::AwaitHandSelect { source_card_id, .. }
                     if *source_card_id == card.id
+            )
+        });
+    // Force-play (Havoc / Mayhem / Distilled Chaos) must not exhaust Exhume
+    // before its exhaust-select closes. Early exhaust queues Dark Embrace as
+    // pending_actions, so the drawn card lands on CHOOSE rather than after
+    // Exhume returns its target (6a06a48 step 561). await_exhaust_select parks
+    // the source on the decision; confirm_exhume settles exhaust + on-exhaust
+    // after the choice. Burning Pact / True Grit+ still force-exhaust early
+    // (their permanent-trace / unit coverage depends on that ordering).
+    let force_exhaust_opens_exhume_select = force_exhaust
+        && queue.iter().any(|action| {
+            matches!(
+                action,
+                InternalAction::AwaitExhaustSelect {
+                    source_card_id,
+                    purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
+                } if *source_card_id == card.id
             )
         });
     let played_index = queue
@@ -509,7 +528,7 @@ pub(super) fn play_top_draw_card_queue(
         .ok_or(SimError::InvalidState(
             "top-draw card queue has no play action",
         ))?;
-    if !delayed_hand_select_moves_source {
+    if !delayed_hand_select_moves_source && !force_exhaust_opens_exhume_select {
         queue.insert(shared_movement_index.unwrap_or(played_index + 1), movement);
     }
 

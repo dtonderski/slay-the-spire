@@ -5489,6 +5489,74 @@ mod tests {
     }
 
     #[test]
+    fn havoc_played_exhume_defers_dark_embrace_until_after_selection() {
+        // Havoc force-plays Exhume while Dark Embrace is active. Exhume must
+        // not sit in exhaust (and must not DE-draw) until the exhaust select
+        // returns a card — matching CM frames where hand gains only the
+        // exhumed card on CHOOSE.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.dark_embrace = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), CLEAVE_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), FLEX_ID),
+            CardInstance::new(CardId::new(4), EXHUME_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile = vec![
+            CardInstance::new(CardId::new(10), BASH_ID),
+            CardInstance::new(CardId::new(11), WOUND_ID),
+            CardInstance::new(CardId::new(12), ARMAMENTS_ID),
+        ];
+
+        let mut staged = state;
+        let queue = apply_play_top_draw_card(&mut staged, None, true, false)
+            .expect("top-draw Exhume queue");
+        let mut next = process_internal_queue(&staged, queue.into())
+            .expect("top-draw Exhume opens exhaust selection")
+            .state;
+        assert!(next.exhaust_select().is_some());
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .all(|card| card.content_id != EXHUME_ID),
+            "Exhume must not exhaust before selection closes"
+        );
+        assert_eq!(
+            next.piles.hand.len(),
+            3,
+            "Dark Embrace must not draw before Exhume selection: {:?}",
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()
+        );
+
+        // UI index 0 among non-Exhume exhaust cards → BASH.
+        choose_exhaust_select(&mut next, 0).expect("select Bash from exhaust");
+        confirm_exhaust_select(&mut next).expect("resolve Exhume selection");
+
+        assert!(next.exhaust_select().is_none());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == EXHUME_ID));
+        // Hand: original 3 + exhumed Bash + Dark Embrace draw.
+        assert_eq!(next.piles.hand.len(), 5);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == BASH_ID));
+    }
+
+    #[test]
     fn havoc_played_armaments_upgrades_selected_card_into_hand() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
