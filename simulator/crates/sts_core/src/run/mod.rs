@@ -45,7 +45,10 @@ pub use player_choice::{
     player_choices, resolve_player_choice, DecisionRevision, PlayerChoice, PlayerChoiceError,
     PlayerChoiceRequest, PlayerChoiceSet, PLAYER_CHOICE_SCHEMA_VERSION,
 };
-pub use potion::{apply_potion_action, validate_potion_action};
+pub use potion::{
+    apply_hand_select_confirm_skipped_put_on_deck_retrieval, apply_potion_action,
+    validate_potion_action,
+};
 pub use rest::{
     apply_rest_action, legal_rest_actions, rest_heal_amount, validate_rest_action,
     REST_HEAL_PERCENT,

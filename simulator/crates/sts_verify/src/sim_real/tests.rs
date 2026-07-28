@@ -1178,6 +1178,31 @@ fn warcry_skipped_put_on_deck_retrieval_frame_replays_source_transition() {
 }
 
 #[test]
+fn warcry_skipped_retrieval_with_dead_branch_rolls_into_hand() {
+    // Warcry CONFIRM under skipped PutOnDeck retrieval while Dead Branch is
+    // held: selected Dazed stays in limbo (not on draw), Warcry exhausts, and
+    // Dead Branch still adds Blood for Blood to hand (step 1500).
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-584b41fbb0fd6dfa.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Warcry+Dead Branch skipped retrieval permanent trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 1500)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "Warcry hand-select CONFIRM must verify as skipped retrieval with Dead Branch: {report:#?}"
+    );
+}
+
+#[test]
 fn warcry_skipped_retrieval_with_dark_embrace_draws_real_top_not_selected() {
     // Warcry CONFIRM under skipped PutOnDeck retrieval while Dark Embrace is
     // active: selected Defend+ stays in selection-screen limbo, DE draws the

@@ -5,7 +5,9 @@ use crate::{
         apply_combat_action_with_events, finish_monster_turn_after_player_revival,
         start_player_turn, CombatPhase,
     },
-    content::cards::{upgrade_card_instance, PARASITE_ID},
+    content::cards::{
+        upgrade_card_instance, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, PARASITE_ID,
+    },
     content::encounters::{
         generate_beyond_encounter_lists_with_rng, generate_city_encounter_lists_with_rng,
     },
@@ -2128,8 +2130,14 @@ fn apply_dead_branch_for_exhaust_count_with_placement(
     for offset in 0..exhaust_count {
         let next_id = first_id + offset as u64;
         let index = rng.random_int((pool.len() - 1) as i32) as usize;
-        let mut card = CardInstance::new(CardId::new(next_id), pool[index]);
+        let content_id = pool[index];
+        let mut card = CardInstance::new(CardId::new(next_id), content_id);
         card.combat_only = true;
+        // Match add_generated_card_to_pile / MakeTempCardInHand: Blood for Blood
+        // copies current combat damage events so cost is immediately playable.
+        if content_id == BLOOD_FOR_BLOOD_ID || content_id == BLOOD_FOR_BLOOD_PLUS_ID {
+            card.blood_for_blood_cost_reduction = combat.player.damage_events_this_combat;
+        }
         if generated.len() < available_hand_slots {
             generated.push(card);
         } else {

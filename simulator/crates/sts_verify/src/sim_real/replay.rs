@@ -5010,8 +5010,9 @@ fn seed_start_put_on_deck_card_settlement(run: &RunState) -> bool {
 /// `PutOnDeckAction` stores selected cards in `HandCardSelectScreen.selectedCards`.
 /// If the action has already completed when CONFIRM closes that screen, the
 /// action manager skips its retrieval update, leaving the card outside every
-/// serialized pile. Source settlement still runs, so Dark Embrace draws the
-/// pre-select top of draw rather than the never-placed selected card.
+/// serialized pile. Source settlement still runs (including Dead Branch on
+/// Warcry exhaust), so Dark Embrace draws the pre-select top of draw rather
+/// than the never-placed selected card.
 ///
 /// Returns `(post_state, stuck_selected_card)`. The replay caller retains the
 /// typed card and reintroduces it via end-turn discard on the first eligible
@@ -5022,11 +5023,9 @@ fn seed_start_put_on_deck_skipped_retrieval_state(
     if !seed_start_put_on_deck_card_settlement(pre) {
         return None;
     }
-    let mut transient = pre.clone();
-    let combat = transient.combat.as_mut()?;
-    let selected =
-        sts_core::combat::confirm_hand_select_skipped_put_on_deck_retrieval(combat).ok()?;
-    Some((transient, selected))
+    // Mirror apply_hand_select_confirm: skipped retrieval still exhausts the
+    // put-on-deck source and must roll Dead Branch the same way as CONFIRM.
+    sts_core::run::apply_hand_select_confirm_skipped_put_on_deck_retrieval(pre).ok()
 }
 
 fn card_with_replay_transient_id(combat: &CombatState, mut card: CardInstance) -> CardInstance {

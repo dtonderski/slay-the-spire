@@ -5,11 +5,11 @@ use crate::{
         apply_monster_death_hooks, apply_play_top_draw_card_action, choose_discard_select,
         choose_draw_select, choose_exhaust_select, choose_hand_select, close_discovery_source_card,
         confirm_discard_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
-        discard_select_ui_to_discard_index, draw_select_ui_to_draw_index,
-        exhaust_select_ui_to_hand_index, flush_pending_player_spikes_damage_if_ready,
-        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
-        open_gambling_chip_select, player_draw_cards, player_shuffle_discard_into_draw,
-        top_draw_card_definition,
+        confirm_hand_select_skipped_put_on_deck_retrieval, discard_select_ui_to_discard_index,
+        draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
+        flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
+        open_discard_select_with_max_choices, open_exhaust_select, open_gambling_chip_select,
+        player_draw_cards, player_shuffle_discard_into_draw, top_draw_card_definition,
     },
     combat::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
@@ -327,6 +327,38 @@ pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
     apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
     next.combat = Some(combat);
     Ok(next)
+}
+
+/// Confirm put-on-deck hand select without retrieving the selected card, then
+/// apply the same post-confirm Dead Branch settlement as a normal CONFIRM.
+///
+/// Used by seed-start replay when `PutOnDeckAction` skipped retrieval: the
+/// selected card stays outside every pile, but Warcry (etc.) still exhausts
+/// and Dead Branch still rolls into hand.
+pub fn apply_hand_select_confirm_skipped_put_on_deck_retrieval(
+    run: &RunState,
+) -> SimResult<(RunState, CardInstance)> {
+    validate_hand_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    let selected = confirm_hand_select_skipped_put_on_deck_retrieval(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    // Park the limbo card in the combat limbo pile while Dead Branch reserves
+    // new instance IDs. Otherwise max_authoritative_card_instance_id ignores the
+    // removed selected card and Dead Branch can reuse its CardId, later failing
+    // validation when the limbo card re-enters discard at end of turn.
+    combat.piles.limbo.push(selected);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    let selected = combat.piles.limbo.pop().ok_or(SimError::InvalidState(
+        "skipped put-on-deck limbo card missing after Dead Branch settlement",
+    ))?;
+    next.combat = Some(combat);
+    Ok((next, selected))
 }
 
 pub fn apply_draw_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {

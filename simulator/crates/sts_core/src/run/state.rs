@@ -525,9 +525,7 @@ mod tests {
             .expect("Enchiridion equip succeeds");
         let base = CombatState::cultist_fixture();
         let hand_before = base.piles.hand.len();
-        let combat = run
-            .init_combat(base)
-            .expect("combat initializes");
+        let combat = run.init_combat(base).expect("combat initializes");
 
         assert_eq!(combat.piles.hand.len(), hand_before + 1);
         let front = &combat.piles.hand[0];
