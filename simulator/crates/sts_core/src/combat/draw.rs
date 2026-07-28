@@ -47,6 +47,7 @@ fn draw_cards_with_sts_rng_batch_deferred(
     rng: &mut StsRng,
 ) -> SimResult<Vec<usize>> {
     let mut deferred_evolve_draws = Vec::new();
+    let mut deferred_fire_breathing = 0usize;
     for _ in 0..count {
         if state.piles.hand.len() >= MAX_HAND_SIZE {
             break;
@@ -67,11 +68,18 @@ fn draw_cards_with_sts_rng_batch_deferred(
             if content_id == VOID_ID {
                 state.player.energy = state.player.energy.saturating_sub(1);
             }
-            apply_fire_breathing_on_draw(state, content_id)?;
+            // FireBreathingPower.onCardDraw uses addToBot(DamageAllEnemiesAction),
+            // so resolve after this DrawCardAction batch finishes.
+            if fire_breathing_triggers_on_draw(state, content_id) {
+                deferred_fire_breathing += 1;
+            }
             if extra_draws > 0 {
                 deferred_evolve_draws.push(extra_draws);
             }
         }
+    }
+    for _ in 0..deferred_fire_breathing {
+        apply_fire_breathing_damage(state)?;
     }
     Ok(deferred_evolve_draws)
 }
@@ -82,6 +90,9 @@ fn draw_cards_with_sts_rng_batch_deferred(
 /// draws from statuses are queued after the current draw action finishes—not
 /// interleaved between the remaining cards of this batch. Nested status draws
 /// from those follow-up actions are processed FIFO in the same way.
+///
+/// `FireBreathingPower.onCardDraw` similarly `addToBot`s damage, so status/curse
+/// draws must not kill enemies (and release Stasis into hand) mid-batch.
 pub fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) -> SimResult<()> {
     let mut next = state.clone();
     let mut pending = std::collections::VecDeque::from(draw_cards_batch_deferred_evolve_in_place(
@@ -130,6 +141,7 @@ fn draw_cards_batch_in_place(
     trigger_evolve: bool,
 ) -> SimResult<Vec<usize>> {
     let mut deferred_evolve_draws = Vec::new();
+    let mut deferred_fire_breathing = 0usize;
     let had_cards_at_start =
         !state.piles.draw_pile.is_empty() || !state.piles.discard_pile.is_empty();
     for _ in 0..count {
@@ -162,11 +174,18 @@ fn draw_cards_batch_in_place(
             if content_id == VOID_ID {
                 state.player.energy = state.player.energy.saturating_sub(1);
             }
-            apply_fire_breathing_on_draw(state, content_id)?;
+            // Defer Fire Breathing damage until the DrawCardAction batch ends so
+            // Stasis release cannot interleave with remaining draws in the batch.
+            if fire_breathing_triggers_on_draw(state, content_id) {
+                deferred_fire_breathing += 1;
+            }
             if extra_draws > 0 {
                 deferred_evolve_draws.push(extra_draws);
             }
         }
+    }
+    for _ in 0..deferred_fire_breathing {
+        apply_fire_breathing_damage(state)?;
     }
     Ok(deferred_evolve_draws)
 }
@@ -176,12 +195,14 @@ pub(crate) fn consume_empty_deck_shuffle_with_combat_rng(state: &mut CombatState
     Ok(())
 }
 
-pub(crate) fn apply_fire_breathing_on_draw(
-    state: &mut CombatState,
-    content_id: crate::ContentId,
-) -> SimResult<()> {
+fn fire_breathing_triggers_on_draw(state: &CombatState, content_id: ContentId) -> bool {
+    state.player.powers.fire_breathing > 0 && is_status_or_curse(content_id)
+}
+
+/// Resolve one Fire Breathing pulse (one status/curse onCardDraw).
+pub(crate) fn apply_fire_breathing_damage(state: &mut CombatState) -> SimResult<()> {
     let amount = state.player.powers.fire_breathing;
-    if amount <= 0 || !is_status_or_curse(content_id) {
+    if amount <= 0 {
         return Ok(());
     }
 

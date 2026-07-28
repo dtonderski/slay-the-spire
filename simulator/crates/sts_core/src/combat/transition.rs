@@ -4708,6 +4708,55 @@ mod tests {
     }
 
     #[test]
+    fn fire_breathing_stasis_release_waits_until_draw_batch_finishes() {
+        // FireBreathingPower.onCardDraw addToBot's DamageAllEnemiesAction, so a
+        // mid-batch curse/status draw must not release Bronze Orb Stasis into
+        // the hand before the remaining cards of the same DrawCardAction.
+        // Draw order is top-last: Anger, Strike, Regret (FB kills orb), Exhume,
+        // Metallicize — then Disarm returns from Stasis.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.fire_breathing = 6;
+        state.monsters = vec![
+            monster_state(&BRONZE_ORB_A0, MonsterId::new(1)),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 5;
+        state.monsters[0].max_hp = 5;
+        state.monsters[0].stasis_card = Some(CardInstance::new(CardId::new(99), DISARM_ID));
+        state.piles.hand.clear();
+        state.piles.discard_pile.clear();
+        // Bottom → top (drawn last-first via pop).
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), METALLICIZE_ID),
+            CardInstance::new(CardId::new(2), EXHUME_ID),
+            CardInstance::new(CardId::new(3), REGRET_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), ANGER_ID),
+        ];
+
+        crate::combat::draw::draw_cards_with_combat_rng(&mut state, 5)
+            .expect("draw batch with Fire Breathing");
+
+        assert!(!state.monsters[0].alive);
+        assert_eq!(
+            state
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![
+                ANGER_ID,
+                STRIKE_R_ID,
+                REGRET_ID,
+                EXHUME_ID,
+                METALLICIZE_ID,
+                DISARM_ID,
+            ]
+        );
+    }
+
+    #[test]
     fn shrug_it_off_draws_after_freeing_its_slot_from_a_full_hand() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 3;
