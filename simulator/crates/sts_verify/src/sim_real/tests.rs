@@ -738,9 +738,11 @@ fn smith_mid_effect_and_stale_release_reconcile_vampires_after_multiple_smiths()
 
 #[test]
 fn smith_mid_effect_deck_omission_does_not_fail_as_rest_smith_identity() {
-    let Some(content) =
-        crate::load_corpus_file("permanent_traces/random-fidelity-814046a9628c9f89.jsonl")
-    else {
+    // Witness quarantined: SuperFastMode smith→shop purge (invalid collector
+    // residual). Keep the regression on the quarantined path.
+    let Some(content) = crate::load_corpus_file(
+        "quarantined_traces/superfast_smith_shop_purge/random-fidelity-814046a9628c9f89.jsonl",
+    ) else {
         return;
     };
     let report = verify_seed_start_communication_mod_trace(&content)
