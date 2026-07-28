@@ -4811,6 +4811,64 @@ mod tests {
         assert_eq!(next.piles.discard_pile[0].content_id, SHRUG_IT_OFF_ID);
     }
 
+    /// Reckless Charge leaves a generated Dazed on top of an empty draw pile.
+    /// Shrug It Off draws that Dazed while the source is still in limbo; Evolve
+    /// must wait until after UseCardAction discards Shrug so the status-triggered
+    /// reshuffle includes the played card (real STS addToBot ordering).
+    #[test]
+    fn shrug_it_off_evolve_reshuffle_includes_discarded_source_after_dazed() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.evolve = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), SHRUG_IT_OFF_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), DAZED_ID)];
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+            CardInstance::new(CardId::new(4), DEFEND_R_ID),
+            CardInstance::new(CardId::new(5), BASH_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Shrug It Off draws Dazed then Evolve-draws through reshuffle");
+
+        assert!(
+            next.piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == DAZED_ID),
+            "Dazed from Reckless Charge / draw pile should be in hand"
+        );
+        assert_eq!(
+            next.piles.hand.len(),
+            2,
+            "Evolve should draw one more card after Dazed"
+        );
+        assert!(
+            next.piles.discard_pile.is_empty(),
+            "reshuffle after discard should empty discard; got {:?}",
+            next.piles
+                .discard_pile
+                .iter()
+                .map(|c| c.content_id)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            next.piles
+                .draw_pile
+                .iter()
+                .any(|card| card.content_id == SHRUG_IT_OFF_ID),
+            "played Shrug must be in the post-Evolve draw pile, not left alone in discard"
+        );
+        assert_eq!(next.piles.draw_pile.len(), 3);
+    }
+
     #[test]
     fn battle_trance_draws_after_freeing_its_full_hand_slot() {
         let mut state = CombatState::initial_fixture();

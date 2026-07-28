@@ -11962,3 +11962,52 @@ fn random_fidelity_iron_wave_juggernaut_kills_before_malleable_reward() {
         "step 670 Iron Wave must end combat (Juggernaut before Malleable): {report:#?}"
     );
 }
+
+#[test]
+fn random_fidelity_reckless_charge_evolve_shrug_draw_order() {
+    // Reckless Charge puts Dazed on empty draw; Shrug It Off draws it under Evolve.
+    // EvolvePower.onCardDraw must addToBot after UseCardAction discards Shrug so
+    // the status-triggered reshuffle includes the played card. Inline limbo
+    // evolve left Shrug alone in discard → wrong piles at step 648 PLAY.
+    // Permanent tip: random-fidelity-0667712a2814e2cf steps 645–648.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-0667712a2814e2cf.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Reckless Charge / Evolve / Shrug permanent tip replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none"
+    );
+    assert!(
+        report.verified.iter().any(|transition| {
+            transition.action_step == 645 && transition.label == "Reckless Charge"
+        }),
+        "step 645 Reckless Charge must hard-verify: {report:#?}"
+    );
+    assert!(
+        report.verified.iter().any(|transition| {
+            transition.action_step == 646 && transition.label.contains("Shrug It Off")
+        }),
+        "step 646 Shrug It Off+ must hard-verify (not pile settlement only): {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 648)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "step 648 PLAY after Evolve reshuffle must verify: {report:#?}"
+    );
+}

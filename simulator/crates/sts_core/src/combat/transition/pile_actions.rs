@@ -259,11 +259,22 @@ fn draw_cards_while_played_card_is_in_limbo_with_mode(
             ));
         }
     };
-    if trigger_evolve {
-        player_draw_cards(state, count)?;
+    // EvolvePower.onCardDraw addToBot's DrawCardAction, so status-triggered
+    // draws must wait until after this DrawCardAction and the later
+    // UseCardAction MoveCard (discard/exhaust). Inline evolve here reshuffled
+    // without the played card still in limbo, desyncing discard/draw order
+    // after Reckless Charge → Dazed → Shrug It Off + Evolve (permanent
+    // random-fidelity-0667712a2814e2cf step 646/648).
+    let follow_ups = if trigger_evolve {
+        let deferred_evolve_draws = player_draw_cards_with_deferred_evolve(state, count)?;
+        deferred_evolve_draws
+            .into_iter()
+            .map(|count| InternalAction::DrawCards { count })
+            .collect()
     } else {
         player_draw_cards_without_evolve(state, count)?;
-    }
+        Vec::new()
+    };
     if let Some(played_card) = played_card {
         // Keep the source in hand after the limbo draw so later card effects
         // (Battle Trance No Draw, Corruption exhaust via MoveCard rewrite,
@@ -272,7 +283,7 @@ fn draw_cards_while_played_card_is_in_limbo_with_mode(
         // draw itself, then UseCardAction finishing afterward.
         state.piles.hand.push(played_card);
     }
-    Ok(Vec::new())
+    Ok(follow_ups)
 }
 
 pub(super) fn shuffle_discard_into_draw(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
