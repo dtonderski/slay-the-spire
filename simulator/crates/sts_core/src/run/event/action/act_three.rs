@@ -92,8 +92,12 @@ pub(super) fn apply_act_three_event_action(
                 ));
             }
             0 if choice_index == 1 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                // CommMod shows an intermediate Leave page before returning to map.
+                next.event = Some(make_event_screen(
+                    Event::MysteriousSphere,
+                    mysterious_sphere_choices(2),
+                    2,
+                ));
             }
             1 if choice_index == 0 => {
                 let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
@@ -103,6 +107,10 @@ pub(super) fn apply_act_three_event_action(
                     super::super::super::reward::roll_relic_reward(next, RelicTier::Rare),
                 );
                 enter_event_combat(next, &[&ORB_WALKER_A0, &ORB_WALKER_A0])?;
+            }
+            2 if choice_index == 0 => {
+                next.phase = RunPhase::Idle;
+                next.event = None;
             }
             _ => {
                 return Err(SimError::IllegalAction(

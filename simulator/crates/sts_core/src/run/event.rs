@@ -972,7 +972,7 @@ pub(super) fn validate_event_screen_authority(
             }
         }
         Event::MysteriousSphere => {
-            if screen.stage > 1 {
+            if screen.stage > 2 {
                 return Err(SimError::InvalidState("Mysterious Sphere stage is invalid"));
             }
             if screen.event_data != 0 {
@@ -2365,10 +2365,12 @@ fn rounded_event_percent(value: i32, percent: f32) -> i32 {
 
 fn mysterious_sphere_choices(stage: u32) -> Vec<EventChoice> {
     match stage {
-        // CommMod page 0 is "Open Sphere" / "Leave"; the intermediate confirm
-        // after opening is "Fight" (not "Continue").
+        // CommMod page 0 is "Open Sphere" / "Leave"; after Open Sphere the
+        // intermediate confirm is "Fight"; after Leave an intermediate "Leave"
+        // page remains before the map (same two-click leave as Beggar).
         0 => labeled_choices(&["Open Sphere", "Leave"]),
         1 => labeled_choices(&["Fight"]),
+        2 => labeled_choices(&["Leave"]),
         _ => Vec::new(),
     }
 }
@@ -8943,6 +8945,35 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn mysterious_sphere_leave_stages_final_leave_before_map() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.current_act = 3;
+        run.event = Some(event_screen(Event::MysteriousSphere));
+
+        let leave_page = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("Leave opens intermediate Leave page");
+        assert_eq!(leave_page.phase, RunPhase::Event);
+        assert_eq!(leave_page.event.as_ref().expect("leave").stage, 2);
+        assert_eq!(
+            leave_page
+                .event
+                .as_ref()
+                .expect("leave")
+                .choices
+                .iter()
+                .map(|c| c.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Leave"]
+        );
+
+        let on_map = apply_event_action(&leave_page, EventAction::Choose { choice_index: 0 })
+            .expect("final Leave returns to map");
+        assert_eq!(on_map.phase, RunPhase::Idle);
+        assert!(on_map.event.is_none());
     }
 
     #[test]
