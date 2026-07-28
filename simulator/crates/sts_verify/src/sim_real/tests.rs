@@ -1266,6 +1266,42 @@ fn warcry_source_settlement_frame_verifies_without_a_follow_up_poll() {
 }
 
 #[test]
+fn random_fidelity_warcry_singleton_auto_put_on_deck_allows_end() {
+    // After Ink Bottle draws Warcry into an empty hand, PLAY Warcry draws one
+    // card and PutOnDeckAction auto-places it (hand.size()==amount==1) without
+    // a HAND_SELECT / CHOOSE / CONFIRM. The following END must be legal.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-58c2f0f27ef22764.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Warcry singleton auto put-on-deck permanent trace replays");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "END after singleton-hand Warcry must not see an active HandSelect: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 469)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified),
+        "step 469 END must verify after auto put-on-deck Warcry: {report:#?}"
+    );
+}
+
+#[test]
 fn put_on_deck_source_card_survives_the_following_end_turn_refill() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-a364e2a698e879dc.jsonl")

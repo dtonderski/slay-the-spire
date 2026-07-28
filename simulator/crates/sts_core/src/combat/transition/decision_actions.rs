@@ -15,15 +15,53 @@ pub(super) fn await_hand_select(
     source_card_id: CardId,
     purpose: HandSelectPurpose,
 ) -> SimResult<Vec<crate::action::InternalAction>> {
-    if purpose == HandSelectPurpose::WarcryPutOnDraw
-        && !state
+    // Warcry queues PutOnDeckAction(amount=1, isRandom=false). Vanilla opens
+    // HandCardSelectScreen only when hand.size() > amount. The played Warcry is
+    // in limbo, so the decisive hand is the non-source cards the sim still holds
+    // as a limbo stand-in. When size <= amount, every remaining non-source card
+    // is moved via getRandomCard(cardRandomRng) without a player decision — so a
+    // lone drawn card is auto-placed and END is legal immediately (no CHOOSE/
+    // CONFIRM). Empty hand (failed draw) still only settles the source.
+    if purpose == HandSelectPurpose::WarcryPutOnDraw {
+        let selectable: Vec<usize> = state
             .piles
             .hand
             .iter()
-            .any(|card| card.id != source_card_id)
-    {
-        finish_warcry_source(state, source_card_id)?;
-        return Ok(Vec::new());
+            .enumerate()
+            .filter(|(_, card)| card.id != source_card_id)
+            .map(|(index, _)| index)
+            .collect();
+        // PutOnDeckAction amount is 1 for Warcry / Warcry+.
+        const PUT_ON_DECK_AMOUNT: usize = 1;
+        if selectable.len() <= PUT_ON_DECK_AMOUNT {
+            if !selectable.is_empty() {
+                // CardGroup.getRandomCard(cardRandomRng) always draws
+                // random(size-1), including the singleton size==1 case.
+                let mut remaining = selectable.len();
+                while remaining > 0 {
+                    let candidates: Vec<usize> = state
+                        .piles
+                        .hand
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, card)| card.id != source_card_id)
+                        .map(|(index, _)| index)
+                        .collect();
+                    let pick = state
+                        .rng
+                        .card_random_rng
+                        .random_int((candidates.len() - 1) as i32)
+                        as usize;
+                    let index = candidates[pick];
+                    let put_back = state.piles.hand[index].id;
+                    let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
+                    state.piles.draw_pile.push(card);
+                    remaining -= 1;
+                }
+            }
+            finish_warcry_source(state, source_card_id)?;
+            return Ok(Vec::new());
+        }
     }
     // Dual Wield with a single eligible attack/power: CM does not surface a
     // HAND_SELECT frame (Havoc-forced Dual Wield with one Clash → two Clashes).

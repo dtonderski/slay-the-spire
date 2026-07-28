@@ -71,3 +71,14 @@ The supported single-card sources are Warcry, Thinking Ahead, and base
 Forethought. Forethought+ can select multiple cards and requires a separate
 projection because its selected-card multiplicity and destination ordering
 are different.
+
+## Auto path when `hand.size() <= amount`
+
+Vanilla `PutOnDeckAction.update()` opens `HandCardSelectScreen` only when
+`hand.size() > amount`. Otherwise it places every hand card via
+`getRandomCard(cardRandomRng)` (including `random(0)` for a singleton) with no
+player decision. Warcry is in limbo during that check, so a lone post-draw
+card auto-completes: no HAND_SELECT / CHOOSE / CONFIRM, and END is immediately
+legal (`random-fidelity-58c2f0f27ef22764` step 468–469). The core
+`AwaitHandSelect` path for `WarcryPutOnDraw` mirrors that size gate using the
+non-source hand (limbo stand-in) and advances `card_random_rng` on auto-place.

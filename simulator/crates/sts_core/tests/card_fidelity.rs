@@ -946,6 +946,68 @@ fn warcry_with_no_card_after_draw_exhausts_without_opening_selection() {
 }
 
 #[test]
+fn warcry_with_only_drawn_card_auto_puts_on_deck_without_selection() {
+    // PutOnDeckAction opens HandCardSelectScreen only when hand.size() > amount.
+    // After Warcry draws into an otherwise empty hand, size==amount==1 so the
+    // drawn card is auto-placed via cardRandomRng (including random(0) for a
+    // singleton) and no player HandSelect remains.
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    let rng_before = state.rng.card_random_rng.counter();
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::WARCRY_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID), // top / drawn
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Warcry auto-completes put-on-deck for a singleton hand");
+
+    assert!(
+        next.hand_select().is_none(),
+        "singleton post-draw hand must not open HandSelect"
+    );
+    assert!(
+        next.piles.hand.is_empty(),
+        "drawn card returns to draw pile"
+    );
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::WARCRY_ID);
+    assert_eq!(
+        next.piles.draw_pile.last().map(|card| card.content_id),
+        Some(cards::STRIKE_R_ID),
+        "auto-placed card sits on top of draw"
+    );
+    assert_eq!(
+        next.piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::DEFEND_R_ID, cards::STRIKE_R_ID],
+        "net draw then put-back leaves draw order unchanged"
+    );
+    assert_eq!(
+        next.rng.card_random_rng.counter(),
+        rng_before + 1,
+        "getRandomCard still advances cardRandomRng for size==1"
+    );
+    assert!(
+        valid_legal_combat_actions(&next)
+            .iter()
+            .any(|action| matches!(action, CombatAction::EndTurn)),
+        "END must be legal after auto put-on-deck Warcry"
+    );
+}
+
+#[test]
 fn thinking_ahead_with_no_other_card_draws_without_putting_card_back() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
