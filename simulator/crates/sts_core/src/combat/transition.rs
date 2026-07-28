@@ -2916,15 +2916,20 @@ fn confirm_burning_pact_select(
     if card.id == source_card_id {
         return Err(SimError::IllegalAction("Burning Pact cannot select itself"));
     }
-    // A Burning Pact played from the top of the draw pile (for example by
-    // Havoc) has already moved its source card out of hand before the select
-    // screen opens. In the real action queue, the selected hand card remains
-    // hidden until the next end-turn cleanup instead of entering exhaust
-    // immediately. This is the same visible-pile settlement as the
-    // Cultist-Potion interruption, but is a generic consequence of a delayed
-    // top-draw source rather than a potion-specific event.
+    // Normal Burning Pact exhausts the selected card immediately (including
+    // Havoc / Mayhem / Distilled Chaos top-draw plays where source_card is
+    // already gone). FIDL00221 step 1274 shows Bash+Burning Pact both in
+    // exhaust after Havoc→BP confirm; parking the selection in pending_hidden
+    // left a cross-combat residual Bash on the next combat's first END
+    // (discard_ids[N]: null != "Bash").
+    //
+    // Rare CommunicationMod skipped-retrieval frames (selected card absent
+    // from every pile until end-turn DiscardAction) are rebuilt in the seed-
+    // start verifier via seed_start_burning_pact_deferred_selection_state —
+    // same pattern as Dual Wield skipped retrieval. Cultist-potion
+    // interruption still parks the selection until end-turn.
     let mut deferred_bot_on_exhaust = Vec::new();
-    if exhaust_select.interrupted_by_cultist_potion || exhaust_select.source_card.is_none() {
+    if exhaust_select.interrupted_by_cultist_potion {
         state.piles.hand.remove(index);
         state.pending_hidden_hand_card_until_end_turn = Some(card);
     } else {
@@ -5517,13 +5522,14 @@ mod tests {
 
         assert!(next.exhaust_select().is_none());
         assert_eq!(next.piles.hand.len(), 3);
-        assert_eq!(next.piles.exhaust_pile.len(), 1);
-        assert_eq!(
-            next.pending_hidden_hand_card_until_end_turn
-                .expect("top-drawn Burning Pact selection remains hidden")
-                .content_id,
-            DEFEND_R_ID
-        );
+        // Top-draw BP exhausts the selection immediately (FIDL00221). Skipped-
+        // retrieval limbo is a verifier rebuild, not the core default.
+        assert!(next.pending_hidden_hand_card_until_end_turn.is_none());
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
         assert_eq!(
             next.piles
                 .exhaust_pile
