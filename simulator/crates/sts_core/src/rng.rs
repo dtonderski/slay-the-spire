@@ -66,6 +66,17 @@ impl StsRng {
         rng
     }
 
+    /// Restore a mid-stream RandomXS128 state (seed pair + public draw counter).
+    /// Used by seed-start diagnostics and tests that continue from a snapshot.
+    #[must_use]
+    pub fn from_raw_state(seed0: u64, seed1: u64, counter: u32) -> Self {
+        Self {
+            seed0,
+            seed1,
+            counter,
+        }
+    }
+
     #[must_use]
     pub fn counter(&self) -> u32 {
         self.counter

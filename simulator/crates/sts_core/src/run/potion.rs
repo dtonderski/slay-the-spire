@@ -56,14 +56,25 @@ const COLORLESS_DISCOVERY_ACTION_PICKED_HIDDEN_GENERATIONS: usize = 11;
 const DISCOVERY_ACTION_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
 const DISCOVERY_ACTION_SKIPPED_HIDDEN_GENERATIONS: usize = 6;
 const DISCOVERY_ACTION_SKIPPED_SCREEN_SETTLE_DRAWS: usize = 3;
-// Played Discovery (card Discovery / Havoc→Discovery) post-pick settlement.
-// Permanent oracle random-fidelity-1a50b5ada2264b05: after open (1 visible + 4
-// hidden gens) the pick path must advance cardRandomRng by eight draws before
-// the next combat card-random use (Infernal Blade). Two three-card generations
-// plus two settle draws match that counter; four hidden gens over-burns by four
-// draws and selects Rampage instead of Blood for Blood.
-const PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 2;
-const PLAYED_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS: usize = 2;
+// Post-pick DiscoveryAction settlement. Target update() always regenerates three
+// unique choices at the top of every call until isDone (ACTION_DUR_FAST under
+// SuperFastMode). Two settlement shapes appear in live CommMod traces:
+//
+// Force-exhausted Discovery (Havoc/Mayhem PlayTop; decision.source_card is None,
+// card already in exhaust) — permanent random-fidelity-1a50b5ada2264b05:
+// after open (1 visible + 4 hidden gens) the pick path advances cardRandomRng by
+// eight draws (two three-card generations + two settle draws) before Infernal
+// Blade. Four hidden gens over-burns and selects Rampage instead of Blood for Blood.
+//
+// Hand-played Discovery (decision.source_card holds the limbo source; card not yet
+// exhausted) — permanent random-fidelity-f019eccf586137c4: after the same open,
+// seven full post-pick generations are required before Magnetism's start-of-turn
+// colorless roll (Dramatic Entrance). Two gens + two settles under-burn and roll
+// Transmutation instead.
+const FORCE_EXHAUST_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 2;
+const FORCE_EXHAUST_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS: usize = 2;
+const HAND_PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 7;
+const HAND_PLAYED_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS: usize = 0;
 const POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS: usize = 12;
 const POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
 
@@ -539,18 +550,28 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             } else {
                 CardId::new(combat.next_card_instance_id()?)
             };
-            // After a card-played Discovery is selected, DiscoveryAction keeps
-            // regenerating its three choices for hidden fast-action updates, then
-            // burns residual screen-settle draws before control returns.
+            // DiscoveryAction.update always regenerates choices while the fast
+            // action settles. Hand-played Discovery parks the source on the
+            // decision (source_card = Some); force-exhaust PlayTop leaves it in
+            // exhaust with source_card = None. Those paths burn different
+            // post-pick generation counts under SuperFastMode/CommMod.
+            let (hidden_generations, settle_draws) = if source_card.is_some() {
+                (
+                    HAND_PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
+                    HAND_PLAYED_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS,
+                )
+            } else {
+                (
+                    FORCE_EXHAUST_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
+                    FORCE_EXHAUST_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS,
+                )
+            };
             burn_all_discovery_card_choice_generations(
                 &mut combat.rng.card_random_rng,
                 3,
-                PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
+                hidden_generations,
             );
-            burn_all_discovery_card_choice_draws(
-                &mut combat.rng.card_random_rng,
-                PLAYED_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS,
-            );
+            burn_all_discovery_card_choice_draws(&mut combat.rng.card_random_rng, settle_draws);
             let choice = choices[index];
             let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
             card.temp_cost_turn_only = true;
