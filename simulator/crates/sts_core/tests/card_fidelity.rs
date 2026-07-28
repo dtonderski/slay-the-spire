@@ -681,6 +681,11 @@ fn spot_weakness_recognizes_attack_intents_with_deferred_status_cards() {
             hits: 6,
             count: 1,
         },
+        // Awakened One phase-2 Sludge (CM ATTACK_DEBUFF). FIDL00221 step 1595.
+        MonsterIntent::AttackAddVoidToDraw {
+            damage: 18,
+            count: 1,
+        },
     ] {
         state.player.powers.strength = 0;
         state.monsters[0].intent = intent;

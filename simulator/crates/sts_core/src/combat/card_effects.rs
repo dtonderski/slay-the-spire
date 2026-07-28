@@ -4353,6 +4353,10 @@ fn monster_intends_attack(state: &CombatState, target: MonsterId) -> bool {
         .iter()
         .find(|monster| monster.id == target && monster.alive)
         .is_some_and(|monster| {
+            // Mirror AbstractMonster attack-intent buckets used by Spot Weakness
+            // (isAttackIntent). AttackAddVoidToDraw is Awakened One Sludge
+            // (CM ATTACK_DEBUFF); omitting it under-dealt Whirlwind after SW
+            // on FIDL00221 step 1596 (str 8 vs 11 → 143 HP vs 133).
             matches!(
                 monster.intent,
                 MonsterIntent::Attack { .. }
@@ -4366,6 +4370,7 @@ fn monster_intends_attack(state: &CombatState, target: MonsterId) -> bool {
                     | MonsterIntent::AttackHealSelf { .. }
                     | MonsterIntent::AttackAddWoundsToDiscard { .. }
                     | MonsterIntent::AttackAddSlimedToDiscard { .. }
+                    | MonsterIntent::AttackAddVoidToDraw { .. }
                     | MonsterIntent::AttackMultiple { .. }
                     | MonsterIntent::AttackStealGold { .. }
                     | MonsterIntent::AddBurnToDiscard { .. }
