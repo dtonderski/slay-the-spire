@@ -28,6 +28,8 @@ pub const PARASITE_ID: ContentId = ContentId::new(70);
 pub const SHAME_ID: ContentId = ContentId::new(71);
 pub const WRITHE_ID: ContentId = ContentId::new(72);
 pub const ASCENDERS_BANE_ID: ContentId = ContentId::new(61);
+/// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
+pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
 pub const RETAIN_DEFEND_ID: ContentId = ContentId::new(9);
 pub const ANGER_ID: ContentId = ContentId::new(10);
@@ -508,6 +510,30 @@ pub const CURSE_OF_THE_BELL: CardDefinition = CardDefinition {
     id: CURSE_OF_THE_BELL_ID,
     key: "CurseOfTheBell",
     name: "Curse of the Bell",
+    cost: 0,
+    card_type: CardType::Status,
+    rarity: None,
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: false,
+        unplayable: true,
+    },
+};
+
+/// Unplayable soulbound curse from Necronomicon.onEquip.
+pub const NECRONOMICURSE: CardDefinition = CardDefinition {
+    id: NECRONOMICURSE_ID,
+    key: "Necronomicurse",
+    name: "Necronomicurse",
     cost: 0,
     card_type: CardType::Status,
     rarity: None,
@@ -4751,7 +4777,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub static ALL_CARDS: [CardDefinition; 246] = [
+pub static ALL_CARDS: [CardDefinition; 247] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -4766,6 +4792,7 @@ pub static ALL_CARDS: [CardDefinition; 246] = [
     REGRET,
     DOUBT,
     CURSE_OF_THE_BELL,
+    NECRONOMICURSE,
     CLUMSY,
     DECAY,
     INJURY,
@@ -5012,6 +5039,7 @@ pub fn is_curse_content_id(id: ContentId) -> bool {
         id if id == REGRET_ID
             || id == DOUBT_ID
             || id == CURSE_OF_THE_BELL_ID
+            || id == NECRONOMICURSE_ID
             || id == ASCENDERS_BANE_ID
             || id == CLUMSY_ID
             || id == DECAY_ID
@@ -5028,7 +5056,11 @@ pub fn is_curse_content_id(id: ContentId) -> bool {
 /// before its separate bottled-card filter is applied.
 #[must_use]
 pub fn is_purgeable_card(card: &CardInstance) -> bool {
-    !card.bottled && !matches!(card.content_id, ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID)
+    !card.bottled
+        && !matches!(
+            card.content_id,
+            ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID | NECRONOMICURSE_ID
+        )
 }
 
 #[must_use]
@@ -5160,6 +5192,14 @@ pub fn upgrade_card_instance(card: CardInstance) -> SimResult<Option<CardInstanc
     }
 
     let Some(upgraded_content_id) = upgrade_content_id(card.content_id) else {
+        // Prismatic / any-color pool cards use synthetic content ids without a
+        // separate upgraded ContentId. Track the upgrade on the instance so
+        // reward projection can emit the CommMod `name+` form (e.g. flying knee+).
+        if get_card_definition(card.content_id).is_none() && card.upgrades == 0 {
+            let mut upgraded = card;
+            upgraded.upgrades = 1;
+            return Ok(Some(upgraded));
+        }
         return Ok(None);
     };
     let mut upgraded = card;
@@ -5220,6 +5260,7 @@ fn adjust_temp_cost_for_upgrade(card: CardInstance, upgraded: &mut CardInstance)
 pub fn card_instance_is_upgradeable(card: &CardInstance) -> bool {
     (card.content_id == RITUAL_DAGGER_ID && card.upgrades == 0)
         || upgrade_content_id(card.content_id).is_some()
+        || (get_card_definition(card.content_id).is_none() && card.upgrades == 0)
 }
 
 #[cfg(test)]
@@ -5230,6 +5271,22 @@ mod tests {
     #[test]
     fn upgrade_content_id_covers_true_grit() {
         assert_eq!(upgrade_content_id(TRUE_GRIT_ID), Some(TRUE_GRIT_PLUS_ID));
+    }
+
+    #[test]
+    fn upgrade_card_instance_tracks_synthetic_pool_card_upgrades() {
+        // Prismatic shard any-color cards use stable synthetic content ids
+        // without a CardDefinition / upgrade ContentId pair.
+        let synthetic = crate::content::shop_pool::shop_card_content_id("FLYING_KNEE");
+        assert!(get_card_definition(synthetic).is_none());
+        let base = CardInstance::new(CardId::new(1), synthetic);
+        let upgraded = upgrade_card_instance(base)
+            .expect("upgrade is fallible only for invalid searing-blow metadata")
+            .expect("synthetic pool cards are upgradeable");
+        assert_eq!(upgraded.content_id, synthetic);
+        assert_eq!(upgraded.upgrades, 1);
+        assert!(card_instance_is_upgradeable(&base));
+        assert!(!card_instance_is_upgradeable(&upgraded));
     }
 
     #[test]

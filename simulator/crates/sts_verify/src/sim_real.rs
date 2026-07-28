@@ -6556,8 +6556,9 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
         HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID,
         INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID,
-        PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID,
+        LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, NECRONOMICURSE_ID, NORMALITY_ID,
+        OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID,
+        PUMMEL_ID, RAGE_ID,
         RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID,
         RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID,
         SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
@@ -6643,6 +6644,7 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Normality" | "normality" => Some(NORMALITY_ID),
         "Pain" | "pain" => Some(PAIN_ID),
         "Parasite" | "parasite" => Some(PARASITE_ID),
+        "Necronomicurse" | "necronomicurse" => Some(NECRONOMICURSE_ID),
         "Shame" | "shame" => Some(SHAME_ID),
         "Writhe" | "writhe" => Some(WRITHE_ID),
         "Offering" | "offering" => Some(OFFERING_ID),
@@ -6698,8 +6700,9 @@ fn content_key(content_id: ContentId) -> &'static str {
         HAVOC_PLUS_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID,
         IMPERVIOUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INJURY_ID, INTIMIDATE_ID,
         JACK_OF_ALL_TRADES_ID, LIMIT_BREAK_ID, MAGNETISM_ID, MAYHEM_ID, METALLICIZE_ID,
-        METALLICIZE_PLUS_ID, NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID, PAIN_ID, PARASITE_ID,
-        PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, RAGE_ID, RAMPAGE_ID,
+        METALLICIZE_PLUS_ID, NECRONOMICURSE_ID, NORMALITY_ID, OFFERING_ID, OFFERING_PLUS_ID,
+        PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        RAGE_ID, RAMPAGE_ID,
         REAPER_ID, REAPER_PLUS_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SEARING_BLOW_ID,
         SECRET_WEAPON_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID,
         SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
@@ -6790,6 +6793,7 @@ fn content_key(content_id: ContentId) -> &'static str {
         id if id == NORMALITY_ID => "Normality",
         id if id == PAIN_ID => "Pain",
         id if id == PARASITE_ID => "Parasite",
+        id if id == NECRONOMICURSE_ID => "Necronomicurse",
         id if id == SHAME_ID => "Shame",
         id if id == WRITHE_ID => "Writhe",
         id if id == DEMON_FORM_ID => "Demon Form",
@@ -6860,10 +6864,21 @@ fn reward_card_choice_display_key(run: &RunState, card: &CardInstance) -> String
     }
     if sts_core::content::cards::get_card_definition(card.content_id).is_none() {
         if let Some(key) = sts_core::run::reward::any_color_reward_card_key(card.content_id) {
-            return key.replace('_', " ");
+            let mut label = key.replace('_', " ");
+            // Synthetic prismatic/any-color reward cards store upgrades on the
+            // instance (no separate + ContentId). CommMod shows `flying knee+`.
+            if card.upgrades > 0 && !label.ends_with('+') {
+                label.push('+');
+            }
+            return label;
         }
     }
-    reward_card_display_key(run, card.content_id).to_owned()
+    // Ironclad / defined cards may also carry instance upgrades (Ritual Dagger).
+    let mut key = reward_card_display_key(run, card.content_id).to_owned();
+    if card.upgrades > 0 && !key.ends_with('+') {
+        key.push('+');
+    }
+    key
 }
 
 fn egg_preview_upgrade(run: &RunState, content_id: ContentId) -> Option<ContentId> {
