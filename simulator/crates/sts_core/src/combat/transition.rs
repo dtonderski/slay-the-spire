@@ -294,8 +294,14 @@ fn process_internal_queue(
         .iter()
         .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
     {
+        // Nested process_internal_queue (e.g. Havoc PlayTop) may already have
+        // set Won and applied Burning Blood. Re-applying doubles the heal
+        // (13efa069: 8060+6+6 → 8072 vs real 8066).
+        let already_won = next.phase == CombatPhase::Won;
         next.phase = CombatPhase::Won;
-        apply_burning_blood(&mut next)?;
+        if !already_won {
+            apply_burning_blood(&mut next)?;
+        }
     } else {
         next.phase = CombatPhase::WaitingForPlayer;
     }
@@ -5949,6 +5955,41 @@ mod tests {
             .hand
             .iter()
             .any(|card| card.content_id == DEFEND_R_ID));
+    }
+
+    #[test]
+    fn havoc_lethal_strike_applies_burning_blood_once() {
+        // Nested PlayTop process_internal_queue must not double BB heal when the
+        // outer queue also settles combat Won (13efa069: 6 not 12).
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::BurningBlood];
+        state.player.hp = 50;
+        state.player.max_hp = 100;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), STRIKE_R_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters[0].hp = 6; // Strike base 6, no str
+        state.monsters[0].max_hp = 50;
+        state.monsters[0].block = 0;
+        state.monsters[0].alive = true;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc plays Strike and kills");
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert!(next.monsters.iter().all(|m| !m.alive));
+        assert_eq!(
+            next.player.hp,
+            50 + crate::content::character::BURNING_BLOOD_HEAL_AMOUNT,
+            "Burning Blood must apply once, not once per nested process_internal_queue"
+        );
     }
 
     #[test]

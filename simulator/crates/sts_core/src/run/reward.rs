@@ -3716,6 +3716,23 @@ mod tests {
     }
 
     #[test]
+    fn singing_bowl_with_mark_of_bloom_raises_max_hp_without_healing() {
+        // Singing Bowl → increaseMaxHp(2, true); MotB blocks the heal half
+        // (13efa069 floor 44: max 9000→9002, current_hp stays 8361).
+        let mut run = RunState::map_fixture();
+        run.player_hp = 50;
+        run.player_max_hp = 80;
+        run.relics.push(Relic::MarkOfBloom);
+        run.relics.push(Relic::SingingBowl);
+
+        run.gain_max_hp(crate::relic::SINGING_BOWL_MAX_HP)
+            .expect("max HP gain");
+
+        assert_eq!(run.player_max_hp, 82);
+        assert_eq!(run.player_hp, 50, "Mark of the Bloom must block Singing Bowl heal");
+    }
+
+    #[test]
     fn potion_reward_chance_resets_entering_city() {
         let mut run = RunState::map_fixture();
         run.current_act = 1;

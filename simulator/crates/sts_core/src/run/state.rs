@@ -3035,10 +3035,14 @@ impl RunState {
         if amount < 0 {
             return Err(SimError::IllegalAction("max HP gain cannot be negative"));
         }
+        // AbstractCreature.increaseMaxHp(amount, true) heals the same amount,
+        // but Mark of the Bloom blocks all healing (Singing Bowl on 13efa069:
+        // max 9000→9002, current_hp stays 8361).
         let player_max_hp = checked_run_add(self.player_max_hp, amount)?;
-        let player_hp = checked_run_add(self.player_hp, amount)?;
         self.player_max_hp = player_max_hp;
-        self.player_hp = player_hp;
+        if !self.has_mark_of_bloom() {
+            self.player_hp = checked_run_add(self.player_hp, amount)?;
+        }
         Ok(())
     }
 

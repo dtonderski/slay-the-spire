@@ -3698,7 +3698,7 @@ fn seed_start_handle_combat_phase(
     pending_deck_assertion: &mut Option<PendingDeckAssertion>,
     reconciled_deferred_action_steps: &mut Vec<u32>,
     pending_put_on_deck_card: &mut Option<(CardInstance, bool)>,
-    pending_headbutt_put_on_draw_omit: &mut Option<CardInstance>,
+    pending_headbutt_put_on_draw_omit: &mut Option<(CardInstance, usize)>,
     pending_cross_combat_discard: &mut Option<CardInstance>,
     smoke_bomb_ui: &mut Option<SmokeBombUiState>,
     phase: &mut SeedStartPhase,
@@ -4095,10 +4095,9 @@ fn seed_start_handle_combat_phase(
                     "discard select (source put-on-draw settlement frame)".to_owned()
                 },
             });
-            // Permanent put-on-draw omit (failed CHOOSE / CM never moves the
-            // card): keep settled put-on-draw for this frame (lag compare), but
-            // remember the deferred card so a later pre-draw reverse can align
-            // sim with real before END reshuffles the hand (de6148c1).
+            // Permanent put-on-draw omit (CM never moves the card): hold the lag
+            // state (card still in discard) and remember index for a precise
+            // reverse if a later frame still shows the card in discard.
             if headbutt_discard_select_source_settlement_frame {
                 if let RunAction::ChooseDiscardSelect { index } = decision_action {
                     if let Some(card) = sim
@@ -4107,7 +4106,12 @@ fn seed_start_handle_combat_phase(
                         .and_then(|combat| combat.piles.discard_pile.get(index))
                         .cloned()
                     {
-                        *pending_headbutt_put_on_draw_omit = Some(card);
+                        *pending_headbutt_put_on_draw_omit = Some((card, index));
+                    }
+                    if let Some(lag) =
+                        seed_start_headbutt_put_on_draw_deferred_state(sim, &next, &decision_action)
+                    {
+                        next = lag;
                     }
                 }
             }
@@ -5576,12 +5580,15 @@ fn seed_start_headbutt_put_on_draw_deferred_state(
 /// If a Headbutt CHOOSE was accepted under put-on-draw lag and the pre-END
 /// observed combat still has that card in discard (never moved to draw), reverse
 /// the settled put-on-draw on sim before the end-turn hand draw.
+///
+/// Re-inserts at the original discard index (not append) so later Fisher-Yates
+/// shuffle of discard matches real order (13efa069 Champ reshuffle).
 fn seed_start_maybe_omit_headbutt_put_on_draw(
     sim: &mut RunState,
-    pending: &mut Option<CardInstance>,
+    pending: &mut Option<(CardInstance, usize)>,
     pre: &TraceState,
 ) {
-    let Some(card) = pending.clone() else {
+    let Some((card, index)) = pending.clone() else {
         return;
     };
     let observed = seed_start_combat_observed_subset(&pre.message);
@@ -5622,7 +5629,8 @@ fn seed_start_maybe_omit_headbutt_put_on_draw(
         return;
     }
     let moved = combat.piles.draw_pile.pop().expect("top checked");
-    combat.piles.discard_pile.push(moved);
+    let insert_at = index.min(combat.piles.discard_pile.len());
+    combat.piles.discard_pile.insert(insert_at, moved);
     *pending = None;
 }
 
@@ -8133,7 +8141,7 @@ pub(super) fn verify_seed_start_transitions(
     let mut pending_boss_relic_overlay: Option<PendingBossRelicOverlayAssertion> = None;
     let mut pending_combat_assertion: Option<PendingCombatAssertion> = None;
     let mut pending_put_on_deck_card: Option<(CardInstance, bool)> = None;
-    let mut pending_headbutt_put_on_draw_omit: Option<CardInstance> = None;
+    let mut pending_headbutt_put_on_draw_omit: Option<(CardInstance, usize)> = None;
     let mut pending_cross_combat_discard: Option<CardInstance> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
     let mut last_post_message: Option<Value> = None;
