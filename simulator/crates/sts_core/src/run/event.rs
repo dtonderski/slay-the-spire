@@ -6,8 +6,8 @@ use crate::{
         is_basic_starter_card, is_curse_content_id, is_purgeable_card, upgrade_card_instance,
         APPARITION_ID, ASCENDERS_BANE_ID, BASH_ID, BASH_PLUS_ID, BITE_ID, CURSE_OF_THE_BELL_ID,
         DECAY_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DOUBT_ID, INJURY_ID, JAX_ID, MADNESS_ID,
-        NORMALITY_ID, PAIN_ID, PARASITE_ID, REGRET_ID, RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID,
-        STRIKE_R_PLUS_ID, WRITHE_ID,
+        NECRONOMICURSE_ID, NORMALITY_ID, PAIN_ID, PARASITE_ID, REGRET_ID, RITUAL_DAGGER_ID,
+        SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
     },
     content::{
         monsters::{
@@ -306,7 +306,9 @@ fn nest_choices(stage: u8, ascension: u8) -> Vec<EventChoice> {
 fn beggar_choices(stage: u8) -> Vec<EventChoice> {
     match stage {
         0 => labeled_choices(&["Offer gold", "Leave"]),
-        1 => labeled_choices(&["Choose a card"]),
+        // CommMod / target intermediate page after paying gold is "Continue"
+        // (opens the remove-card grid), not a "Choose a card" label.
+        1 => labeled_choices(&["Continue"]),
         2 => labeled_choices(&["Leave"]),
         _ => Vec::new(),
     }
@@ -1604,9 +1606,11 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                             .as_ref()
                             .is_some_and(|state| state.matched_cards.contains(&pending[0])))
             }
-            _ => pending.is_empty(),
+            _ => pending_obtain_is_necronomicon_curse(run, pending),
         },
-        _ => pending.is_empty(),
+        // Necronomicon.onEquip may leave Necronomicurse pending while still on
+        // a combat/event reward screen (ShowCardAndObtainEffect delay).
+        _ => pending_obtain_is_necronomicon_curse(run, pending),
     };
     if !valid {
         return Err(SimError::InvalidState(
@@ -1614,6 +1618,11 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
         ));
     }
     Ok(())
+}
+
+fn pending_obtain_is_necronomicon_curse(run: &RunState, pending: &[ContentId]) -> bool {
+    pending.is_empty()
+        || (pending == [NECRONOMICURSE_ID] && run.relics.contains(&Relic::Necronomicon))
 }
 
 fn dead_adventurer_encounter_chance(run: &RunState, attempts: u8) -> i32 {
@@ -3226,7 +3235,10 @@ fn deck_has_cleansable_curse(deck: &[CardInstance]) -> bool {
 
 fn fountain_removes_curse(content_id: ContentId) -> bool {
     is_curse_content_id(content_id)
-        && !matches!(content_id, ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID)
+        && !matches!(
+            content_id,
+            ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID | NECRONOMICURSE_ID
+        )
 }
 
 fn note_for_yourself_is_available(run: &RunState) -> bool {
@@ -4381,6 +4393,31 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(labels, vec!["Offer gold", "Leave"]);
+    }
+
+    #[test]
+    fn beggar_offer_gold_stages_continue_before_remove_grid() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 2;
+        run.gold = 100;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::Beggar));
+
+        let after_gold = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Beggar Offer gold succeeds");
+        assert_eq!(after_gold.gold, 25);
+        assert_eq!(
+            after_gold
+                .event
+                .as_ref()
+                .expect("continue stage")
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Continue"]
+        );
+        assert!(after_gold.card_grid.is_none());
     }
 
     #[test]

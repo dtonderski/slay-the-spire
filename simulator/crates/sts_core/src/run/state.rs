@@ -493,6 +493,31 @@ mod tests {
     }
 
     #[test]
+    fn necronomicon_on_equip_queues_necronomicurse() {
+        // Target Necronomicon.onEquip queues Necronomicurse (ShowCardAndObtainEffect).
+        let mut run = RunState::map_fixture();
+        let before_len = run.deck.len();
+
+        run.gain_relic(Relic::Necronomicon)
+            .expect("Necronomicon pickup succeeds");
+
+        assert!(run.relics.contains(&Relic::Necronomicon));
+        assert_eq!(run.deck.len(), before_len);
+        assert_eq!(
+            run.pending_obtain_cards,
+            vec![crate::content::cards::NECRONOMICURSE_ID]
+        );
+
+        run.flush_pending_obtain_cards()
+            .expect("pending Necronomicurse settles");
+        assert_eq!(run.deck.len(), before_len + 1);
+        assert!(run
+            .deck
+            .iter()
+            .any(|card| card.content_id == crate::content::cards::NECRONOMICURSE_ID));
+    }
+
+    #[test]
     fn deck_card_gain_rejects_exhausted_instance_ids_without_mutating_run() {
         let mut run = RunState::map_fixture();
         run.deck[0].id = CardId::new(crate::ids::MAX_SUPPORTED_CARD_INSTANCE_ID);
@@ -3333,7 +3358,6 @@ impl RunState {
             | Relic::GoldenIdol
             | Relic::BloodyIdol
             | Relic::RedMask
-            | Relic::Necronomicon
             | Relic::Enchiridion
             | Relic::NilrysCodex
             | Relic::MutagenicStrength
@@ -3343,6 +3367,12 @@ impl RunState {
             | Relic::OddMushroom
             | Relic::NlothsGift
             | Relic::NeowsLament => {}
+            Relic::Necronomicon => {
+                // Target Necronomicon.onEquip queues Necronomicurse via
+                // ShowCardAndObtainEffect; it is not always visible on the same
+                // CommunicationMod poll as the relic claim.
+                self.queue_pending_obtain_card(crate::content::cards::NECRONOMICURSE_ID);
+            }
         }
         Ok(())
     }

@@ -2321,7 +2321,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             {
                 enter_boss_reward_chest(&mut next)?;
             } else {
-                close_reward_overlay(&mut next, RewardCloseReason::Automatic);
+                close_reward_overlay(&mut next, RewardCloseReason::Automatic)?;
             }
         }
         RunAction::CloseCardReward => {
@@ -2504,7 +2504,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 enter_spire_heart_event(&mut next)?;
                 return Ok(next);
             }
-            close_reward_overlay(&mut next, RewardCloseReason::Proceed);
+            close_reward_overlay(&mut next, RewardCloseReason::Proceed)?;
         }
         RunAction::OpenChest => {
             unreachable!("validated reward action")
@@ -2604,7 +2604,8 @@ fn return_to_reward_continuation_if_empty(run: &mut RunState) {
         && reward.continuation != RewardContinuation::Event
         && reward.continuation != RewardContinuation::Map
     {
-        close_reward_overlay(run, RewardCloseReason::Automatic);
+        close_reward_overlay(run, RewardCloseReason::Automatic)
+            .expect("closing an empty reward overlay must settle pending obtain cards");
     }
 }
 
@@ -2614,7 +2615,7 @@ enum RewardCloseReason {
     Proceed,
 }
 
-fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) {
+fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) -> SimResult<()> {
     let continuation = run
         .reward
         .as_ref()
@@ -2637,6 +2638,10 @@ fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) {
     if continuation == RewardContinuation::Neow && reason == RewardCloseReason::Proceed {
         run.event = None;
     }
+    // Settle queued obtain effects (e.g. Necronomicurse from Necronomicon) once
+    // the combat/event reward overlay closes, matching ShowCardAndObtainEffect
+    // completing before the next room frame.
+    run.flush_pending_obtain_cards()
 }
 
 pub(crate) fn reward_is_empty(reward: &RewardScreen) -> bool {
