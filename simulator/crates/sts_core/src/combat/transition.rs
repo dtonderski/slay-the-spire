@@ -3980,6 +3980,50 @@ mod tests {
     }
 
     #[test]
+    fn lethal_pommel_draw_skips_empty_deck_shuffle_and_sundial() {
+        // Target: Pommel damage kills the last enemy, then DrawCardAction runs.
+        // EmptyDeckShuffleAction / Sundial do not fire once the battle is ending
+        // (permanent a56e1754 energy 6!=4 was an extra post-lethal shuffle).
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::Sundial);
+        state.relic_counters.sundial_shuffles = 2;
+        state.player.energy = 4;
+        state.player.max_energy = 4;
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 1;
+        state.monsters[0].max_hp = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), POMMEL_STRIKE_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("lethal Pommel resolves");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert_eq!(
+            next.relic_counters.sundial_shuffles, 2,
+            "post-lethal empty-deck shuffle must not advance Sundial"
+        );
+        assert!(
+            next.piles.draw_pile.is_empty(),
+            "discard stays unshuffled when the battle is ending"
+        );
+        assert_eq!(next.piles.discard_pile.len(), 3); // 2 prior + played Pommel? or Pommel may exhaust-no
+    }
+
+    #[test]
     fn sundial_counter_overflow_fails_closed_at_the_combat_action_boundary() {
         let mut state = shuffle_trigger_state(Relic::Sundial);
         state.relic_counters.sundial_shuffles = i32::MAX as u32;

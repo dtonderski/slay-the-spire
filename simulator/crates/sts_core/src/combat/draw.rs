@@ -53,6 +53,12 @@ fn draw_cards_with_sts_rng_batch_deferred(
             break;
         }
         if state.piles.draw_pile.is_empty() {
+            // EmptyDeckShuffleAction no-ops when the battle is already ending
+            // (last enemy dead mid-card). DrawCardAction still runs for any
+            // cards already on the draw pile.
+            if !combat_has_living_monster(state) {
+                break;
+            }
             shuffle_discard_into_draw_sts(state, rng)?;
         }
 
@@ -135,6 +141,10 @@ fn draw_cards_batch_deferred_evolve_in_place(
     draw_cards_batch_in_place(state, count, true)
 }
 
+fn combat_has_living_monster(state: &CombatState) -> bool {
+    state.monsters.iter().any(|monster| monster.alive)
+}
+
 fn draw_cards_batch_in_place(
     state: &mut CombatState,
     count: usize,
@@ -149,6 +159,12 @@ fn draw_cards_batch_in_place(
             break;
         }
         if state.piles.draw_pile.is_empty() {
+            // Target EmptyDeckShuffleAction / Sundial do not run once the battle
+            // is ending (last enemy already dead mid-card, e.g. lethal Pommel
+            // draw with an empty draw pile). Remaining draw attempts simply stop.
+            if !combat_has_living_monster(state) {
+                break;
+            }
             if state.piles.discard_pile.is_empty() {
                 if had_cards_at_start {
                     consume_empty_deck_shuffle_with_combat_rng(state)?;
