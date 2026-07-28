@@ -2307,22 +2307,20 @@ fn confirm_armaments_select(
     if selected.id == source_card_id {
         return Err(SimError::IllegalAction("cannot upgrade Armaments"));
     }
-    // A top-drawn Armaments is already in its forced destination when its
-    // hand-select screen opens. The real card queue keeps the selected card
-    // hidden until the turn cleanup instead of returning the upgraded card to
-    // hand immediately. Ordinary Armaments still resolves through the normal
-    // upgrade-and-return path below.
+    // Havoc / Mayhem / Distilled Chaos force-exhaust Armaments before the
+    // hand-select CONFIRM (source already in exhaust when the screen opens).
+    // CommunicationMod permanent traces still show the upgraded selected card
+    // returned to hand on CONFIRM (then Dark Embrace / pending draws resume).
+    // Do not park the selected card in end-turn limbo unupgraded.
     let source_is_top_drawn = state
         .piles
         .exhaust_pile
         .iter()
+        .chain(state.piles.discard_pile.iter())
         .any(|card| card.id == source_card_id);
-    if source_is_top_drawn {
-        let selected = remove_card_from_pile(state, selected.id, CardPile::Hand)?;
-        state.pending_hidden_hand_card_until_end_turn = Some(selected);
-        return Ok(());
+    if !source_is_top_drawn {
+        card_content_definition(state, source_card_id)?;
     }
-    card_content_definition(state, source_card_id)?;
     let upgraded = upgrade_card_instance(selected)?
         .ok_or(SimError::IllegalAction("selected card cannot be upgraded"))?;
     let upgradeable_count = state
@@ -2349,7 +2347,10 @@ fn confirm_armaments_select(
     let selected_card_id = selected.id;
     let _removed = remove_card_from_pile(state, selected_card_id, CardPile::Hand)?;
     let card = upgraded;
-    move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+    if !source_is_top_drawn {
+        // Ordinary hand Armaments still settles the delayed source on CONFIRM.
+        move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+    }
     state.piles.hand.push(card);
     state.piles.hand.extend(cannot_upgrade);
     Ok(())
@@ -5488,7 +5489,7 @@ mod tests {
     }
 
     #[test]
-    fn havoc_played_armaments_hides_selected_card_until_end_turn() {
+    fn havoc_played_armaments_upgrades_selected_card_into_hand() {
         let mut state = CombatState::initial_fixture();
         state.piles.hand = vec![
             CardInstance::new(CardId::new(1), STRIKE_R_ID),
@@ -5518,19 +5519,19 @@ mod tests {
         confirm_hand_select(&mut next).expect("resolve top-draw Armaments selection");
 
         assert!(next.hand_select().is_none());
-        assert_eq!(next.piles.hand.len(), 1);
-        assert_eq!(next.piles.hand[0].content_id, DEFEND_R_ID);
-        assert_eq!(
-            next.pending_hidden_hand_card_until_end_turn
-                .expect("selected card remains hidden until cleanup")
-                .content_id,
-            STRIKE_R_ID
-        );
+        assert!(next.pending_hidden_hand_card_until_end_turn.is_none());
+        // Selected Strike is upgraded and returned; Defend remains.
+        assert_eq!(next.piles.hand.len(), 2);
         assert!(next
             .piles
             .hand
             .iter()
-            .all(|card| card.content_id != STRIKE_R_PLUS_ID));
+            .any(|card| card.content_id == STRIKE_R_PLUS_ID));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
     }
 
     #[test]
