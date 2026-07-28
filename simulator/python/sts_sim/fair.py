@@ -1,4 +1,4 @@
-"""Typed, visibility-safe fair combat objects and environment."""
+"""Typed, visibility-safe fair observation objects and legacy combat bindings."""
 
 from __future__ import annotations
 
@@ -287,15 +287,34 @@ class FairContext:
     act: int
     floor: int
     gold: int
+    player_hp: int | None = None
+    player_max_hp: int | None = None
+    deck: tuple[FairCard, ...] = ()
+    relics: tuple[str, ...] = ()
+    potion_slots: tuple[FairPotionSlot, ...] = ()
 
     @classmethod
     def _from_payload(cls, payload: object) -> FairContext:
         value = _mapping(payload)
+        relic_payload = value.get("relics", [])
         return cls(
             ascension=cast(int, value["ascension"]),
             act=cast(int, value["act"]),
             floor=cast(int, value["floor"]),
             gold=cast(int, value["gold"]),
+            player_hp=cast(int | None, value.get("player_hp")),
+            player_max_hp=cast(int | None, value.get("player_max_hp")),
+            deck=tuple(
+                FairCard._from_payload(card) for card in _items(value.get("deck", []))
+            ),
+            relics=tuple(
+                cast(str, _mapping(relic)["content_key"])
+                for relic in _items(relic_payload)
+            ),
+            potion_slots=tuple(
+                FairPotionSlot._from_payload(slot)
+                for slot in _items(value.get("potion_slots", []))
+            ),
         )
 
 
@@ -341,6 +360,38 @@ class FairCombatObservation:
                 for counter in _items(value["public_counters"])
             ),
         )
+
+    def __str__(self) -> str:
+        from .notebook import format_observation
+
+        return format_observation(self)
+
+
+@dataclass(frozen=True, slots=True)
+class FairRunObservation:
+    """Visibility-safe observation for a non-combat run decision screen."""
+
+    schema_version: int
+    phase: str
+    kind: str
+    context: FairContext
+    screen: dict[str, object]
+
+    @classmethod
+    def _from_payload(cls, payload: object) -> FairRunObservation:
+        value = _mapping(payload)
+        return cls(
+            schema_version=cast(int, value["schema_version"]),
+            phase=cast(str, value["phase"]),
+            kind=cast(str, value["kind"]),
+            context=FairContext._from_payload(value["context"]),
+            screen=_mapping(value["screen"]),
+        )
+
+    def __str__(self) -> str:
+        from .notebook import format_observation
+
+        return format_observation(self)
 
 
 @dataclass(frozen=True, slots=True)

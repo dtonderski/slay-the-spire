@@ -1,12 +1,7 @@
 import pytest
 
-from sts_sim import (
-    FairCombatEnv,
-    InvalidChoiceError,
-    PlayerChoice,
-    PlayerChoiceRequest,
-    StaleDecisionError,
-)
+from sts_sim import InvalidChoiceError, StaleDecisionError
+from sts_sim.fair import FairCombatEnv, PlayerChoice, PlayerChoiceRequest
 
 
 def test_fair_decision_is_typed_and_atomic() -> None:
