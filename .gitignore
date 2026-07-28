@@ -68,3 +68,6 @@ simulator/python/sts_sim/__pycache__/
 mods/lib/
 ModTheSpire.json
 sts
+
+.ipynb_checkpoints/
+**/Untitled.ipynb
