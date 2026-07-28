@@ -3202,6 +3202,13 @@ fn seed_start_handle_event_phase(
             // The Healthy choice's Doubt obtain effect can also be visible on
             // the Leave screen before its card and relic effects settle.
             Some(1)
+        } else if screen.event == Event::KnowingSkull
+            && screen.stage == 1
+            && sim_choice_index == 2
+        {
+            // Success? rolls a random Uncommon colorless via ShowCardAndObtainEffect.
+            // CM can still publish the pre-obtain deck on the same multi-choice page.
+            Some(1)
         } else {
             None
         }

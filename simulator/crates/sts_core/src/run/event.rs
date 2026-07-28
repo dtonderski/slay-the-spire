@@ -8370,6 +8370,42 @@ mod tests {
     }
 
     #[test]
+    fn knowing_skull_success_appends_uncommon_colorless_and_stays_open() {
+        // Target Success? pays HP then ShowCardAndObtainEffect for a random
+        // Uncommon colorless (Finesse/Flash of Steel/…). Core settles the deck;
+        // CM may lag one frame (see seed-start delayed append for d3437983).
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 2;
+        let event_data =
+            knowing_skull_event_data(knowing_skull_costs(0)).expect("starting costs are encodable");
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::KnowingSkull,
+            choices: knowing_skull_choices(1, event_data),
+            stage: 1,
+            event_data,
+        });
+        let initial_hp = run.player_hp;
+        let initial_deck_len = run.deck.len();
+
+        let after = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
+            .expect("Knowing Skull Success obtains a colorless card");
+
+        assert_eq!(after.player_hp, initial_hp - KNOWING_SKULL_STARTING_COST);
+        assert_eq!(after.deck.len(), initial_deck_len + 1);
+        let gained = after.deck[initial_deck_len].content_id;
+        assert!(
+            crate::content::shop_pool::shop_card_is_colorless(gained),
+            "Success? must grant a colorless card, got {gained:?}"
+        );
+        assert_eq!(after.event.as_ref().expect("stays open").stage, 1);
+        assert_eq!(
+            knowing_skull_costs(after.event.as_ref().expect("open").event_data).card,
+            KNOWING_SKULL_STARTING_COST + 1
+        );
+    }
+
+    #[test]
     fn knowing_skull_cost_increment_fails_instead_of_wrapping_to_start() {
         let mut run = RunState::seeded_ironclad(1, 0);
         let event_data = knowing_skull_event_data(KnowingSkullCosts {
