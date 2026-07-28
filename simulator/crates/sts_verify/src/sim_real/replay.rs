@@ -3700,6 +3700,7 @@ fn seed_start_handle_combat_phase(
     pending_deck_assertion: &mut Option<PendingDeckAssertion>,
     reconciled_deferred_action_steps: &mut Vec<u32>,
     pending_put_on_deck_card: &mut Option<(CardInstance, bool)>,
+    pending_headbutt_put_on_draw_omit: &mut Option<CardInstance>,
     pending_cross_combat_discard: &mut Option<CardInstance>,
     smoke_bomb_ui: &mut Option<SmokeBombUiState>,
     phase: &mut SeedStartPhase,
@@ -3746,6 +3747,13 @@ fn seed_start_handle_combat_phase(
         });
         return SeedStartPreDispatch::Boundary(boundary);
     };
+
+    // Headbutt put-on-draw lag that never resolves (failed CHOOSE): reverse the
+    // settled put-on-draw before the next hand draw so END does not shuffle a
+    // phantom top card into the next hand (de6148c1).
+    if command_head.eq_ignore_ascii_case("END") {
+        seed_start_maybe_omit_headbutt_put_on_draw(sim, pending_headbutt_put_on_draw_omit, pre);
+    }
 
     // Nilry's Codex pauses end-turn across the card-reward choose. After the
     // offer closes, the next real combat command needs the remainder of end
@@ -4066,6 +4074,22 @@ fn seed_start_handle_combat_phase(
                     "discard select (source put-on-draw settlement frame)".to_owned()
                 },
             });
+            // Permanent put-on-draw omit (failed CHOOSE / CM never moves the
+            // card): keep settled put-on-draw for this frame (lag compare), but
+            // remember the deferred card so a later pre-draw reverse can align
+            // sim with real before END reshuffles the hand (de6148c1).
+            if headbutt_discard_select_source_settlement_frame {
+                if let RunAction::ChooseDiscardSelect { index } = decision_action {
+                    if let Some(card) = sim
+                        .combat
+                        .as_ref()
+                        .and_then(|combat| combat.piles.discard_pile.get(index))
+                        .cloned()
+                    {
+                        *pending_headbutt_put_on_draw_omit = Some(card);
+                    }
+                }
+            }
         } else if put_on_deck_selected_card_id.is_some() {
             let observed = seed_start_combat_observed_subset(&post.message);
             // Rebuild from pre-CONFIRM so source settlement (Dark Embrace) draws
@@ -5270,59 +5294,116 @@ fn seed_start_hand_select_confirm_source_frame(
 /// discard or exhaust, but the chosen discard card has not yet left discard
 /// for the top of the draw pile. The simulator applies both atomically.
 ///
-/// Accept that source lag when the observed combat subset equals the settled
-/// sim subset with put-on-draw reversed (draw top restored into discard at the
-/// chosen index). Authoritative state remains the settled sim — no hydrate.
+/// Accept that source lag when the observed combat subset equals the deferred
+/// (put-on-draw reversed) state. The combat handler then advances sim to that
+/// deferred state so a permanent omit cannot poison later hands (de6148c1).
 fn seed_start_headbutt_discard_select_source_settlement_frame(
     pre: &RunState,
     settled: &RunState,
     post_message: &Value,
     decision_action: &RunAction,
 ) -> bool {
+    seed_start_headbutt_put_on_draw_deferred_state(pre, settled, decision_action).is_some_and(
+        |lag_state| {
+            seed_start_is_stable_combat_post_state(post_message)
+                && seed_start_combat_subsets_match(
+                    seed_start_combat_observed_subset(post_message),
+                    seed_start_simulated_combat_subset(&lag_state, false),
+                )
+        },
+    )
+}
+
+/// Reverse Headbutt put-on-draw on a settled post-CHOOSE state: pop the chosen
+/// card from draw top and reinsert it into discard at the choose index.
+///
+/// Used to recognize CM lag frames after CHOOSE.
+fn seed_start_headbutt_put_on_draw_deferred_state(
+    pre: &RunState,
+    settled: &RunState,
+    decision_action: &RunAction,
+) -> Option<RunState> {
     let RunAction::ChooseDiscardSelect { index } = *decision_action else {
-        return false;
+        return None;
     };
-    if !seed_start_is_stable_combat_post_state(post_message) {
-        return false;
-    }
-    let Some(pre_combat) = pre.combat.as_ref() else {
-        return false;
-    };
-    let Some(select) = pre_combat.discard_select() else {
-        return false;
-    };
+    let pre_combat = pre.combat.as_ref()?;
+    let select = pre_combat.discard_select()?;
     if select.purpose != DiscardSelectPurpose::HeadbuttPutOnDraw {
-        return false;
+        return None;
     }
     if index >= pre_combat.piles.discard_pile.len() {
-        return false;
+        return None;
     }
-    let Some(settled_combat) = settled.combat.as_ref() else {
-        return false;
-    };
-    if settled_combat.discard_select().is_some() {
-        return false;
-    }
+    let selected_id = pre_combat.piles.discard_pile[index].id;
     let selected_key = simulated_card_projection_key(&pre_combat.piles.discard_pile[index]);
-    let mut lag = seed_start_simulated_combat_subset(settled, false);
-    let Some(draw_ids) = lag.get_mut("draw_ids").and_then(Value::as_array_mut) else {
-        return false;
-    };
-    match draw_ids.last().and_then(Value::as_str) {
-        Some(top) if top == selected_key => {
-            draw_ids.pop();
-        }
-        _ => return false,
+    let mut lag = settled.clone();
+    let combat = lag.combat.as_mut()?;
+    if combat.discard_select().is_some() {
+        return None;
     }
-    let Some(discard_ids) = lag.get_mut("discard_ids").and_then(Value::as_array_mut) else {
-        return false;
-    };
-    if index > discard_ids.len() {
-        return false;
+    let top = combat.piles.draw_pile.last()?;
+    if top.id != selected_id && simulated_card_projection_key(top) != selected_key {
+        return None;
     }
-    discard_ids.insert(index, Value::String(selected_key));
-    let observed = seed_start_combat_observed_subset(post_message);
-    seed_start_combat_subsets_match(observed, lag)
+    let card = combat.piles.draw_pile.pop()?;
+    if index > combat.piles.discard_pile.len() {
+        return None;
+    }
+    combat.piles.discard_pile.insert(index, card);
+    Some(lag)
+}
+
+/// If a Headbutt CHOOSE was accepted under put-on-draw lag and the pre-END
+/// observed combat still has that card in discard (never moved to draw), reverse
+/// the settled put-on-draw on sim before the end-turn hand draw.
+fn seed_start_maybe_omit_headbutt_put_on_draw(
+    sim: &mut RunState,
+    pending: &mut Option<CardInstance>,
+    pre: &TraceState,
+) {
+    let Some(card) = pending.clone() else {
+        return;
+    };
+    let observed = seed_start_combat_observed_subset(&pre.message);
+    let Some(observed_discard) = observed.get("discard_ids").and_then(Value::as_array) else {
+        return;
+    };
+    let key = simulated_card_projection_key(&card);
+    let still_in_observed_discard = observed_discard
+        .iter()
+        .any(|value| value.as_str() == Some(key.as_str()));
+    if !still_in_observed_discard {
+        // Real applied put-on-draw; drop the omit watch.
+        *pending = None;
+        return;
+    }
+    let Some(observed_draw) = observed.get("draw_ids").and_then(Value::as_array) else {
+        return;
+    };
+    if observed_draw
+        .last()
+        .and_then(Value::as_str)
+        .is_some_and(|top| top == key)
+    {
+        *pending = None;
+        return;
+    }
+    let Some(combat) = sim.combat.as_mut() else {
+        return;
+    };
+    let Some(top_idx) = combat.piles.draw_pile.len().checked_sub(1) else {
+        return;
+    };
+    if combat.piles.draw_pile[top_idx].id != card.id
+        && simulated_card_projection_key(&combat.piles.draw_pile[top_idx]) != key
+    {
+        // Already not on draw top — nothing to reverse.
+        *pending = None;
+        return;
+    }
+    let moved = combat.piles.draw_pile.pop().expect("top checked");
+    combat.piles.discard_pile.push(moved);
+    *pending = None;
 }
 
 fn seed_start_card_reward_choose_source_frame(run: &RunState, post_message: &Value) -> bool {
@@ -7829,6 +7910,7 @@ pub(super) fn verify_seed_start_transitions(
     let mut pending_boss_relic_overlay: Option<PendingBossRelicOverlayAssertion> = None;
     let mut pending_combat_assertion: Option<PendingCombatAssertion> = None;
     let mut pending_put_on_deck_card: Option<(CardInstance, bool)> = None;
+    let mut pending_headbutt_put_on_draw_omit: Option<CardInstance> = None;
     let mut pending_cross_combat_discard: Option<CardInstance> = None;
     let mut reconciled_deferred_action_steps = Vec::new();
     let mut last_post_message: Option<Value> = None;
@@ -9019,6 +9101,7 @@ pub(super) fn verify_seed_start_transitions(
             &mut pending_deck_assertion,
             &mut reconciled_deferred_action_steps,
             &mut pending_put_on_deck_card,
+            &mut pending_headbutt_put_on_draw_omit,
             &mut pending_cross_combat_discard,
             &mut smoke_bomb_ui,
             &mut phase,

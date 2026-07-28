@@ -11950,6 +11950,41 @@ fn random_fidelity_headbutt_discard_select_accepts_put_on_draw_source_lag() {
 }
 
 #[test]
+fn random_fidelity_headbutt_put_on_draw_permanent_omit_before_end_draw() {
+    // de6148c1: Havoc→Headbutt CHOOSE 1 accepts put-on-draw lag, but real never
+    // moves Havoc out of discard. Reverse the settled put-on-draw before END so
+    // the next hand is not poisoned (Ghostly Armor block/hand mismatch at 379).
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-de6148c1d6dafaef.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("de6148c1 permanent omit Headbutt put-on-draw replays");
+    assert!(
+        report.unexpected_diffs.is_empty(),
+        "unexpected diffs: {report:#?}"
+    );
+    assert!(
+        !report
+            .unsupported
+            .iter()
+            .any(|entry| entry.action_step == 379),
+        "step 379 must not be unsupported: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "de6148c1 must clear to category=none: {report:#?}"
+    );
+}
+
+#[test]
 fn random_fidelity_havoc_empty_draw_shuffles_without_source() {
     let Some(content) =
         crate::load_corpus_file("permanent_traces/random-fidelity-9c74b1b3157af014.jsonl")
