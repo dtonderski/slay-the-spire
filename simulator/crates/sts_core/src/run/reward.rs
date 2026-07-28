@@ -1364,7 +1364,12 @@ pub fn enter_normal_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
 
 fn enter_normal_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     validate_combat_reward_entry(run)?;
-    let pending_card_reward_count = if run.relics.contains(&Relic::PrayerWheel) {
+    // Target PrayerWheel.onVictory only fires in MonsterRoom (map combat /
+    // elite). Event-room fights (Masked Bandits, etc.) stay on EventRoom and
+    // must not receive the extra card reward.
+    let pending_card_reward_count = if run.relics.contains(&Relic::PrayerWheel)
+        && run.current_room_kind() != Some(crate::map::RoomKind::Event)
+    {
         2
     } else {
         1
@@ -3152,6 +3157,23 @@ mod tests {
             .expect("both unopened card rewards can be skipped");
         assert_eq!(skipped.card_rng_counter, 115);
         assert!(skipped.reward.is_none());
+    }
+
+    #[test]
+    fn prayer_wheel_does_not_double_card_reward_in_event_rooms() {
+        // Masked Bandits / other EventRoom fights are not MonsterRoom; Prayer
+        // Wheel must not append a second card reward.
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.relics.push(Relic::PrayerWheel);
+        prepare_won_combat_reward_fixture(&mut run);
+        run.current_room_override = Some(RoomKind::Event);
+
+        enter_normal_combat_reward_screen(&mut run).expect("event combat reward entry succeeds");
+
+        let reward = run.reward.as_ref().expect("combat reward");
+        assert_eq!(reward.remaining_card_reward_count(), 1);
+        assert_eq!(reward.queued_card_rewards.len(), 0);
+        assert_eq!(reward.choices.len(), reward_card_choice_count(&run));
     }
 
     #[test]
