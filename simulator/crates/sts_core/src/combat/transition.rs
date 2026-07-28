@@ -1967,6 +1967,18 @@ fn hand_select_allows_card(
 }
 
 pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
+    confirm_hand_select_with_time_warp_policy(state, true)
+}
+
+/// Like [`confirm_hand_select`], but optionally defers Time Warp forced end-turn.
+///
+/// CommunicationMod can snapshot the post-CONFIRM pile state before Time Warp's
+/// end-turn drains the hand (15ab4cc Warcry as 12th card). Seed-start lag frames
+/// use `settle_time_warp = false`; continuous play keeps the default settle.
+pub fn confirm_hand_select_with_time_warp_policy(
+    state: &mut CombatState,
+    settle_time_warp: bool,
+) -> SimResult<()> {
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
@@ -2016,6 +2028,30 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
     };
     resume_actions_after_hand_select(state, pending_actions)?;
     state.activate_next_queued_decision_if_idle();
+    if settle_time_warp {
+        settle_time_warp_end_turn_if_ready(state)?;
+    }
+    Ok(())
+}
+
+/// Public settle for seed-start when a lag CONFIRM deferred Time Warp end-turn.
+pub fn settle_time_warp_end_turn_if_ready_public(state: &mut CombatState) -> SimResult<()> {
+    settle_time_warp_end_turn_if_ready(state)
+}
+
+/// Time Warp hits 12 on PlayCard of a card that opens a select. The end-turn is
+/// deferred until the select closes (process_internal_queue skips it while a
+/// decision is open). Honor it once CONFIRM leaves combat idle (15ab4cc Warcry
+/// as 12th card → forced end before the rejected PLAY / next-turn hand).
+fn settle_time_warp_end_turn_if_ready(state: &mut CombatState) -> SimResult<()> {
+    if state.time_warp_end_turn
+        && state.player.hp > 0
+        && state.monsters.iter().any(|monster| monster.alive)
+        && state.decision.is_none()
+    {
+        state.time_warp_end_turn = false;
+        *state = crate::combat::end_player_turn(state)?;
+    }
     Ok(())
 }
 
@@ -2067,6 +2103,7 @@ pub fn confirm_hand_select_skipped_put_on_deck_retrieval(
     move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
     resume_actions_after_hand_select(state, pending_actions)?;
     state.activate_next_queued_decision_if_idle();
+    settle_time_warp_end_turn_if_ready(state)?;
     Ok(selected)
 }
 
@@ -2122,6 +2159,7 @@ pub fn confirm_hand_select_skipped_armaments_retrieval(state: &mut CombatState) 
     state.pending_hidden_hand_card_until_end_turn = Some(selected);
     resume_actions_after_hand_select(state, pending_actions)?;
     state.activate_next_queued_decision_if_idle();
+    settle_time_warp_end_turn_if_ready(state)?;
     Ok(())
 }
 
@@ -2896,6 +2934,14 @@ fn exhaust_select_visible_hand_indices(state: &CombatState) -> Vec<usize> {
 }
 
 pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
+    confirm_exhaust_select_with_time_warp_policy(state, true)
+}
+
+/// Like [`confirm_exhaust_select`], with optional Time Warp end-turn settle.
+pub fn confirm_exhaust_select_with_time_warp_policy(
+    state: &mut CombatState,
+    settle_time_warp: bool,
+) -> SimResult<()> {
     let exhaust_select = state
         .take_exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
@@ -2958,6 +3004,9 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
         *state = transition.state;
     }
     state.activate_next_queued_decision_if_idle();
+    if settle_time_warp {
+        settle_time_warp_end_turn_if_ready(state)?;
+    }
     Ok(())
 }
 
@@ -5900,6 +5949,60 @@ mod tests {
             .hand
             .iter()
             .any(|card| card.content_id == DEFEND_R_ID));
+    }
+
+    #[test]
+    fn time_warp_ends_turn_after_warcry_select_confirm() {
+        // Time Warp increments on Warcry PlayCard; end-turn is deferred while
+        // hand select is open and must fire on CONFIRM (15ab4cc step 1625–1631).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), WARCRY_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(4), BASH_ID),
+            CardInstance::new(CardId::new(5), CLEAVE_ID),
+            CardInstance::new(CardId::new(6), STRIKE_R_ID),
+            CardInstance::new(CardId::new(7), DEFEND_R_ID),
+            CardInstance::new(CardId::new(8), BASH_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.monsters[0].content_id = crate::content::monsters::TIME_EATER_ID;
+        state.monsters[0].powers.time_warp = 11;
+        state.monsters[0].hp = 200;
+        state.monsters[0].max_hp = 200;
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Warcry opens select");
+        assert!(next.hand_select().is_some());
+        assert!(
+            next.time_warp_end_turn,
+            "12th card must arm Time Warp end-turn"
+        );
+        choose_hand_select(&mut next, 0).expect("select Strike");
+        confirm_hand_select(&mut next).expect("confirm Warcry");
+
+        assert!(next.hand_select().is_none());
+        assert!(
+            !next.time_warp_end_turn,
+            "CONFIRM must consume deferred Time Warp end-turn"
+        );
+        // After forced end + monster + start player, hand should be refilled.
+        assert!(
+            next.piles.hand.len() >= 3,
+            "forced end-turn must reach next player hand, got {:?}",
+            next.piles.hand.iter().map(|c| c.content_id).collect::<Vec<_>>()
+        );
+        assert_eq!(next.player.energy, 3);
     }
 
     #[test]

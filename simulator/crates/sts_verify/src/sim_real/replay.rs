@@ -4126,6 +4126,21 @@ fn seed_start_handle_combat_phase(
                             seed_start_simulated_combat_subset(skipped, false),
                         )
                 });
+            // Time Warp lag: put-on-deck CONFIRM can match pre-end-turn piles
+            // while the full settled path already ended the turn (15ab4cc
+            // Warcry as 12th card under Time Eater).
+            let time_warp_lag = seed_start_hand_select_confirm_time_warp_lag_state(sim);
+            let time_warp_lag_matches = time_warp_lag.as_ref().is_some_and(|lag_state| {
+                seed_start_is_stable_combat_post_state(&post.message)
+                    && seed_start_combat_subsets_match(
+                        observed.clone(),
+                        seed_start_simulated_combat_subset(lag_state, false),
+                    )
+            });
+            let settled_matches = seed_start_combat_subsets_match(
+                observed.clone(),
+                seed_start_simulated_combat_subset(&next, false),
+            );
             if skipped_retrieval_matches {
                 report.verified.push(VerifiedTransition {
                     action_step: action.step,
@@ -4143,6 +4158,13 @@ fn seed_start_handle_combat_phase(
                     skipped_retrieval.expect("matching skipped-retrieval state exists");
                 *pending_put_on_deck_card = Some((selected_card, false));
                 next = skipped_state;
+            } else if time_warp_lag_matches && !settled_matches {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "hand select confirm (Time Warp end-turn lag frame)".to_owned(),
+                });
+                next = time_warp_lag.expect("matching Time Warp lag state exists");
             } else {
                 seed_start_compare_or_defer_combat_transition(
                     report,
@@ -4168,6 +4190,80 @@ fn seed_start_handle_combat_phase(
             );
             *sim = next;
             *phase = SeedStartPhase::Reward;
+            return SeedStartPreDispatch::Handled;
+        } else if decision_action == RunAction::ConfirmExhaustSelect {
+            let observed = seed_start_combat_observed_subset(&post.message);
+            let settled_matches = seed_start_combat_subsets_match(
+                observed.clone(),
+                seed_start_simulated_combat_subset(&next, false),
+            );
+            let lag = seed_start_exhaust_select_confirm_time_warp_lag_state(sim);
+            let lag_matches = lag.as_ref().is_some_and(|lag_state| {
+                seed_start_is_stable_combat_post_state(&post.message)
+                    && seed_start_combat_subsets_match(
+                        observed.clone(),
+                        seed_start_simulated_combat_subset(lag_state, false),
+                    )
+            });
+            if lag_matches && !settled_matches {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "exhaust select confirm (Time Warp end-turn lag frame)".to_owned(),
+                });
+                next = lag.expect("matching exhaust Time Warp lag state exists");
+            } else {
+                seed_start_compare_or_defer_combat_transition(
+                    report,
+                    action,
+                    label,
+                    &post.message,
+                    observed,
+                    seed_start_simulated_combat_subset(&next, false),
+                    pending_combat_assertion,
+                    reconciled_deferred_action_steps,
+                );
+            }
+            *sim = next;
+            return SeedStartPreDispatch::Handled;
+        } else if decision_action == RunAction::ConfirmHandSelect {
+            let observed = seed_start_combat_observed_subset(&post.message);
+            let settled_matches = seed_start_combat_subsets_match(
+                observed.clone(),
+                seed_start_simulated_combat_subset(&next, false),
+            );
+            // Time Warp on the select-opening card ends the turn only after
+            // CONFIRM. CM can still publish the pre-end-turn hand for this
+            // frame (15ab4cc Warcry as 12th card). Prefer that lag state when
+            // it matches; keep time_warp_end_turn armed for the next action.
+            let lag = seed_start_hand_select_confirm_time_warp_lag_state(sim);
+            let lag_matches = lag.as_ref().is_some_and(|lag_state| {
+                seed_start_is_stable_combat_post_state(&post.message)
+                    && seed_start_combat_subsets_match(
+                        observed.clone(),
+                        seed_start_simulated_combat_subset(lag_state, false),
+                    )
+            });
+            if lag_matches && !settled_matches {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "hand select confirm (Time Warp end-turn lag frame)".to_owned(),
+                });
+                next = lag.expect("matching Time Warp lag state exists");
+            } else {
+                seed_start_compare_or_defer_combat_transition(
+                    report,
+                    action,
+                    label,
+                    &post.message,
+                    observed,
+                    seed_start_simulated_combat_subset(&next, false),
+                    pending_combat_assertion,
+                    reconciled_deferred_action_steps,
+                );
+            }
+            *sim = next;
             return SeedStartPreDispatch::Handled;
         } else if let Some(selected_card_id) = exhume_selected_card_id {
             let observed = seed_start_combat_observed_subset(&post.message);
@@ -4416,6 +4512,21 @@ fn seed_start_handle_combat_phase(
             label: "death screen proceed".to_owned(),
         });
         return SeedStartPreDispatch::Handled;
+    }
+
+    // Deferred Time Warp from a prior hand-select CONFIRM lag frame must fire
+    // before the next play (real already advanced via forced end-turn).
+    if sim
+        .combat
+        .as_ref()
+        .is_some_and(|combat| combat.time_warp_end_turn)
+    {
+        if let Some(mut combat) = sim.combat.take() {
+            let _ = sts_core::combat::settle_time_warp_end_turn_if_ready_public(&mut combat);
+            sim.player_hp = combat.player.hp;
+            sim.player_max_hp = combat.player.max_hp;
+            sim.combat = Some(combat);
+        }
     }
 
     if !(is_play_command || command_head.eq_ignore_ascii_case("END")) {
@@ -5094,6 +5205,40 @@ fn seed_start_put_on_deck_selected_card_id(run: &RunState) -> Option<CardId> {
     }
     let selected_index = select.selected_hand_index?;
     combat.piles.hand.get(selected_index).map(|card| card.id)
+}
+
+/// Hand-select CONFIRM lag when Time Warp armed on the opening play.
+///
+/// Rebuilds CONFIRM without consuming `time_warp_end_turn` so the post-select
+/// piles match CommunicationMod's pre-end-turn snapshot; the armed flag remains
+/// for the next combat transition.
+fn seed_start_hand_select_confirm_time_warp_lag_state(source: &RunState) -> Option<RunState> {
+    let combat = source.combat.as_ref()?;
+    if !combat.time_warp_end_turn || combat.hand_select().is_none() {
+        return None;
+    }
+    let mut transient = source.clone();
+    let combat = transient.combat.as_mut()?;
+    // process_internal_queue also settles Time Warp once the decision is gone;
+    // disarm for the confirm body then re-arm so lag piles stay pre-end-turn.
+    combat.time_warp_end_turn = false;
+    sts_core::combat::confirm_hand_select_with_time_warp_policy(combat, false).ok()?;
+    combat.time_warp_end_turn = true;
+    Some(transient)
+}
+
+/// Exhaust-select CONFIRM lag when Time Warp armed on the opening play.
+fn seed_start_exhaust_select_confirm_time_warp_lag_state(source: &RunState) -> Option<RunState> {
+    let combat = source.combat.as_ref()?;
+    if !combat.time_warp_end_turn || combat.exhaust_select().is_none() {
+        return None;
+    }
+    let mut transient = source.clone();
+    let combat = transient.combat.as_mut()?;
+    combat.time_warp_end_turn = false;
+    sts_core::combat::confirm_exhaust_select_with_time_warp_policy(combat, false).ok()?;
+    combat.time_warp_end_turn = true;
+    Some(transient)
 }
 
 /// Force-exhausted Armaments (Havoc / Mayhem / Distilled Chaos) can complete
@@ -8729,7 +8874,40 @@ pub(super) fn verify_seed_start_transitions(
                 phase = SeedStartPhase::NeowTalk;
                 continue;
             }
-            if pending_combat_assertion.is_some() {
+            let armed_time_warp = seed_sim.as_ref().is_some_and(|run| {
+                run.combat
+                    .as_ref()
+                    .is_some_and(|combat| combat.time_warp_end_turn)
+            });
+            // Flush Time Warp only once the poll shows a post-draw player turn
+            // (non-empty hand). Intermediate empty-hand end-turn frames lag.
+            let observed_player_turn_ready = seed_start_combat_observed_subset(&post.message)
+                .get("hand_ids")
+                .and_then(Value::as_array)
+                .is_some_and(|hand| !hand.is_empty());
+            if armed_time_warp && !observed_player_turn_ready {
+                report.verified.push(VerifiedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    label: "trace client poll (Time Warp end-turn settling)".to_owned(),
+                });
+                continue;
+            }
+            if pending_combat_assertion.is_some()
+                || (armed_time_warp && observed_player_turn_ready)
+            {
+                if armed_time_warp && observed_player_turn_ready {
+                    if let Some(run) = seed_sim.as_mut() {
+                        if let Some(mut combat) = run.combat.take() {
+                            let _ = sts_core::combat::settle_time_warp_end_turn_if_ready_public(
+                                &mut combat,
+                            );
+                            run.player_hp = combat.player.hp;
+                            run.player_max_hp = combat.player.max_hp;
+                            run.combat = Some(combat);
+                        }
+                    }
+                }
                 let Some(sim) = seed_sim.as_ref() else {
                     return finish_boundary!(SeedStartBoundary {
                         path: format!("$.actions[step={}].command", action.step),
