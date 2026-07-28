@@ -1128,8 +1128,6 @@ fn stable_combat_trace_reconciles_compound_transient_evidence() {
 }
 
 #[test]
-
-#[test]
 fn random_fidelity_havoc_exhume_skipped_return_with_dark_embrace() {
     // Havoc→Exhume CHOOSE: Exhume exhausts + DE draws, chosen exhaust card stays.
     let Some(content) =

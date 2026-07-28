@@ -1322,7 +1322,9 @@ enum SeedStartGridDestination {
     Rest,
     Reward,
     Treasure,
-    Proceed,
+    /// Event remove/obtain grids that settle the room and return to the act map
+    /// (RunPhase::Idle with no overlays). CommMod exposes MAP, not NONE.
+    Map,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1411,7 +1413,9 @@ fn seed_start_grid_destination(run: &RunState) -> Result<SeedStartGridDestinatio
                 && run.reward.is_none()
                 && run.combat.is_none() =>
         {
-            Ok(SeedStartGridDestination::Proceed)
+            // Beggar EventRemove (and similar direct-to-map grids) leave Idle
+            // with no overlays; project as MAP like event Leave / shop Proceed.
+            Ok(SeedStartGridDestination::Map)
         }
         phase => Err(format!(
             "grid command produced inconsistent simulator destination: phase={phase:?}, grid={}, shop={}, event={}, reward={}, combat={}",
@@ -1551,20 +1555,6 @@ fn seed_start_bootstrap_simulated_subset(
             start.numeric_seed,
             boss_unlocks,
         ),
-    })
-}
-
-fn seed_start_proceed_simulated_subset(run: &RunState) -> Value {
-    json!({
-        "screen_type": "NONE",
-        "ascension": run.ascension as u64,
-        "floor": run.current_floor,
-        "gold": run.gold,
-        "current_hp": run.player_hp,
-        "max_hp": run.player_max_hp,
-        "deck_ids": deck_content_keys(&run.deck),
-        "relic_ids": relic_ids_for_simulated_subset(run),
-        "choices": Vec::<String>::new(),
     })
 }
 

@@ -4421,6 +4421,37 @@ mod tests {
     }
 
     #[test]
+    fn beggar_purge_grid_confirm_returns_to_map_idle() {
+        // Target CommMod: Offer gold → Continue → GRID select → CONFIRM lands on MAP.
+        // Core settles RunPhase::Idle with no event/grid (map-owned room complete).
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 2;
+        run.gold = 100;
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::Beggar));
+        let deck_len_before = run.deck.len();
+        let purge_id = run.deck[0].id;
+
+        let after_gold = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Beggar Offer gold succeeds");
+        let after_continue =
+            apply_event_action(&after_gold, EventAction::Choose { choice_index: 0 })
+                .expect("Continue opens the remove grid");
+        assert!(after_continue.card_grid.is_some());
+        assert_eq!(after_continue.event.as_ref().expect("stage 2").stage, 2);
+
+        let selected =
+            crate::run::grid::select_grid_card(&after_continue, 0).expect("select purge target");
+        let completed =
+            crate::run::grid::confirm_grid(&selected).expect("Beggar purge confirm settles to map");
+        assert_eq!(completed.phase, RunPhase::Idle);
+        assert!(completed.event.is_none());
+        assert!(completed.card_grid.is_none());
+        assert_eq!(completed.deck.len(), deck_len_before - 1);
+        assert!(completed.deck.iter().all(|card| card.id != purge_id));
+    }
+
+    #[test]
     fn beggar_leave_stages_final_leave_before_returning_to_map() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;

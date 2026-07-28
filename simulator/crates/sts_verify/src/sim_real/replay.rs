@@ -6495,13 +6495,44 @@ fn seed_start_handle_grid_phase(
             seed_start_treasure_simulated_subset(&next),
             SeedStartPhase::Treasure,
         ),
-        SeedStartGridDestination::Proceed => (
-            "grid proceed",
-            seed_start_observed_subset(&post.message),
-            seed_start_proceed_simulated_subset(&next),
-            SeedStartPhase::Proceed,
-        ),
+        SeedStartGridDestination::Map => {
+            // Handled below with map projection (Result-bearing).
+            (
+                "grid to map",
+                seed_start_map_return_observed_subset(&post.message),
+                json!({}),
+                SeedStartPhase::Map,
+            )
+        }
     };
+    if destination == SeedStartGridDestination::Map {
+        let simulated_map = match seed_start_simulated_map_return(&next) {
+            Ok(projection) => projection,
+            Err(reason) => {
+                let boundary = SeedStartBoundary {
+                    path: format!("$.actions[step={}].command", action.step),
+                    category: "invalid_grid_map_projection".to_owned(),
+                    reason,
+                };
+                report.unsupported.push(UnsupportedTransition {
+                    action_step: action.step,
+                    command: action.command.clone(),
+                    reason: boundary.reason.clone(),
+                });
+                return SeedStartPreDispatch::Boundary(boundary);
+            }
+        };
+        compare_subset(
+            report,
+            action,
+            "grid to map",
+            seed_start_map_return_observed_subset(&post.message),
+            simulated_map,
+        );
+        *sim = next;
+        *phase = SeedStartPhase::Map;
+        return SeedStartPreDispatch::Handled;
+    }
     if destination == SeedStartGridDestination::Treasure
         && next.card_grid.is_none()
         && astrolabe_source_deck.is_some()
