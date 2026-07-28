@@ -11744,8 +11744,49 @@ fn random_fidelity_burning_pact_normal_hand_selection_can_settle_deferred() {
 }
 
 #[test]
-
 #[test]
+#[test]
+fn random_fidelity_gambling_chip_lag_frame_advances_without_unceasing_top_draw() {
+    // GC CONFIRM lag removes selected cards from hand only; advancing the fully
+    // settled sim would Unceasing-Top draw Berserk/Shrug before PLAY Sentinel.
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-d3b52f426b3aff94.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Gambling Chip lag permanent trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "Sentinel after GC lag must verify: {report:#?}"
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 804)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+    assert_eq!(
+        report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == 805)
+            .map(|entry| entry.disposition),
+        Some(ActionDispositionKind::Verified)
+    );
+}
+
 fn random_fidelity_runic_cube_lethal_end_turn_keeps_draw_pile() {
     // Runic Cube must not draw on lethal Lagavulin hit (bot Draw cancelled).
     let Some(content) =

@@ -3964,9 +3964,10 @@ fn seed_start_handle_combat_phase(
             });
         let source_hand_settlement_frame = decision_action == RunAction::ConfirmHandSelect
             && seed_start_hand_select_confirm_source_frame(sim, &next, &post.message);
-        let gambling_chip_source_settlement_frame =
+        let gambling_chip_source_settlement =
             matches!(decision_action, RunAction::ConfirmExhaustSelect)
-                && seed_start_gambling_chip_source_settlement_frame_matches(sim, &post.message);
+                .then(|| seed_start_gambling_chip_source_settlement_state(sim, &post.message))
+                .flatten();
         let headbutt_discard_select_source_settlement_frame =
             matches!(decision_action, RunAction::ChooseDiscardSelect { .. })
                 && seed_start_headbutt_discard_select_source_settlement_frame(
@@ -3996,9 +3997,31 @@ fn seed_start_handle_combat_phase(
             });
             next = dual_wield_skipped_retrieval
                 .expect("matching Dual Wield skipped-retrieval state exists");
+        } else if let Some((lag_state, selected_cards)) = gambling_chip_source_settlement {
+            // Advance from the lag frame (selected cards left hand only). Fully
+            // settled GC would discard + redraw and can fire Unceasing Top into a
+            // hand the CONFIRM frame never shows; keep selected cards parked so
+            // later END can reintroduce them like other select limbo paths.
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Gambling Chip source settlement frame".to_owned(),
+            });
+            next = lag_state;
+            if let Some(combat) = next.combat.as_mut() {
+                // Park first selected card in pending_hidden; remaining selected
+                // cards append to limbo so IDs stay unique and END can flush.
+                let mut selected = selected_cards;
+                if let Some(first) = selected.first().copied() {
+                    if combat.pending_hidden_hand_card_until_end_turn.is_none() {
+                        combat.pending_hidden_hand_card_until_end_turn = Some(first);
+                        selected.remove(0);
+                    }
+                }
+                combat.piles.limbo.extend(selected);
+            }
         } else if source_hand_settlement_frame
             || source_card_reward_frame
-            || gambling_chip_source_settlement_frame
             || headbutt_discard_select_source_settlement_frame
         {
             if source_card_reward_frame
@@ -4032,10 +4055,8 @@ fn seed_start_handle_combat_phase(
                     "hand select confirm (source hand settlement frame)".to_owned()
                 } else if source_card_reward_frame {
                     "combat card reward choose (source hand settlement frame)".to_owned()
-                } else if headbutt_discard_select_source_settlement_frame {
-                    "discard select (source put-on-draw settlement frame)".to_owned()
                 } else {
-                    "Gambling Chip source settlement frame".to_owned()
+                    "discard select (source put-on-draw settlement frame)".to_owned()
                 },
             });
         } else if put_on_deck_selected_card_id.is_some() {
@@ -5320,21 +5341,23 @@ fn seed_start_warcry_source_settlement_frame_matches(
         == pre_exhaust_count + 1
 }
 
-fn seed_start_gambling_chip_source_settlement_frame_matches(
+/// Rebuild Gambling Chip CONFIRM lag: selected cards leave the hand but have
+/// not yet entered discard / been redrawn (HandCardSelectScreen still owns them).
+///
+/// Callers that accept this frame must advance from the lag state (not the fully
+/// settled sim), otherwise Unceasing Top can draw into a fully-settled hand that
+/// the observed CONFIRM never shows (d3b52f426b3aff94 step 804→805).
+fn seed_start_gambling_chip_source_settlement_state(
     run: &RunState,
     post_message: &Value,
-) -> bool {
+) -> Option<(RunState, Vec<CardInstance>)> {
     if !seed_start_is_stable_combat_post_state(post_message) {
-        return false;
+        return None;
     }
-    let Some(pre_combat) = run.combat.as_ref() else {
-        return false;
-    };
-    let Some(select) = pre_combat.exhaust_select() else {
-        return false;
-    };
+    let pre_combat = run.combat.as_ref()?;
+    let select = pre_combat.exhaust_select()?;
     if select.purpose != ExhaustSelectPurpose::GamblingChip {
-        return false;
+        return None;
     }
 
     // GamblingChipAction retrieves the selected cards from the hand before it
@@ -5348,39 +5371,40 @@ fn seed_start_gambling_chip_source_settlement_frame_matches(
         .iter()
         .any(|index| *index >= pre_combat.piles.hand.len())
     {
-        return false;
+        return None;
     }
 
     let mut source_frame = run.clone();
+    let mut selected_cards = Vec::with_capacity(selected_indices.len());
     {
-        let source_combat = source_frame
-            .combat
-            .as_mut()
-            .expect("pre-combat state exists");
+        let source_combat = source_frame.combat.as_mut()?;
         for index in selected_indices.into_iter().rev() {
-            source_combat.piles.hand.remove(index);
+            selected_cards.push(source_combat.piles.hand.remove(index));
         }
+        selected_cards.reverse();
         source_combat.decision = None;
     }
 
     let observed = seed_start_combat_observed_subset(post_message);
     let simulated = seed_start_simulated_combat_subset(&source_frame, false);
     if !seed_start_combat_subsets_match(observed, simulated) {
-        return false;
+        return None;
     }
 
-    let Some(observed_combat) = post_message.pointer("/game_state/combat_state") else {
-        return false;
-    };
-    let source_combat = source_frame.combat.as_ref().expect("source combat exists");
-    combat_card_ids(observed_combat.get("hand"))
-        == cards_to_comm_mod_visible_order(&source_combat.piles.hand)
-        && combat_card_ids(observed_combat.get("draw_pile"))
-            == cards_to_comm_mod_visible_order(&source_combat.piles.draw_pile)
-        && combat_card_ids(observed_combat.get("discard_pile"))
-            == cards_to_comm_mod_visible_order(&source_combat.piles.discard_pile)
-        && combat_card_ids(observed_combat.get("exhaust_pile"))
-            == cards_to_comm_mod_visible_order(&source_combat.piles.exhaust_pile)
+    let observed_combat = post_message.pointer("/game_state/combat_state")?;
+    let source_combat = source_frame.combat.as_ref()?;
+    if combat_card_ids(observed_combat.get("hand"))
+        != cards_to_comm_mod_visible_order(&source_combat.piles.hand)
+        || combat_card_ids(observed_combat.get("draw_pile"))
+            != cards_to_comm_mod_visible_order(&source_combat.piles.draw_pile)
+        || combat_card_ids(observed_combat.get("discard_pile"))
+            != cards_to_comm_mod_visible_order(&source_combat.piles.discard_pile)
+        || combat_card_ids(observed_combat.get("exhaust_pile"))
+            != cards_to_comm_mod_visible_order(&source_combat.piles.exhaust_pile)
+    {
+        return None;
+    }
+    Some((source_frame, selected_cards))
 }
 
 fn seed_start_burning_pact_deferred_selection_state(
