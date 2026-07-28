@@ -3202,9 +3202,7 @@ fn seed_start_handle_event_phase(
             // The Healthy choice's Doubt obtain effect can also be visible on
             // the Leave screen before its card and relic effects settle.
             Some(1)
-        } else if screen.event == Event::KnowingSkull
-            && screen.stage == 1
-            && sim_choice_index == 2
+        } else if screen.event == Event::KnowingSkull && screen.stage == 1 && sim_choice_index == 2
         {
             // Success? rolls a random Uncommon colorless via ShowCardAndObtainEffect.
             // CM can still publish the pre-obtain deck on the same multi-choice page.
@@ -3977,6 +3975,21 @@ fn seed_start_handle_combat_phase(
                         seed_start_simulated_combat_subset(transient, false),
                     )
             });
+        let armaments_skipped_retrieval = if decision_action == RunAction::ConfirmHandSelect {
+            seed_start_armaments_skipped_retrieval_state(sim)
+        } else {
+            None
+        };
+        let armaments_skipped_retrieval_matches =
+            armaments_skipped_retrieval
+                .as_ref()
+                .is_some_and(|transient| {
+                    seed_start_is_stable_combat_post_state(&post.message)
+                        && seed_start_combat_subsets_match(
+                            seed_start_combat_observed_subset(&post.message),
+                            seed_start_simulated_combat_subset(transient, false),
+                        )
+                });
         let source_hand_settlement_frame = decision_action == RunAction::ConfirmHandSelect
             && seed_start_hand_select_confirm_source_frame(sim, &next, &post.message);
         let gambling_chip_source_settlement =
@@ -4012,6 +4025,14 @@ fn seed_start_handle_combat_phase(
             });
             next = dual_wield_skipped_retrieval
                 .expect("matching Dual Wield skipped-retrieval state exists");
+        } else if armaments_skipped_retrieval_matches {
+            report.verified.push(VerifiedTransition {
+                action_step: action.step,
+                command: action.command.clone(),
+                label: "Armaments skipped retrieval frame".to_owned(),
+            });
+            next = armaments_skipped_retrieval
+                .expect("matching Armaments skipped-retrieval state exists");
         } else if let Some((lag_state, selected_cards)) = gambling_chip_source_settlement {
             // Advance from the lag frame (selected cards left hand only). Fully
             // settled GC would discard + redraw and can fire Unceasing Top into a
@@ -5059,6 +5080,46 @@ fn seed_start_put_on_deck_selected_card_id(run: &RunState) -> Option<CardId> {
     }
     let selected_index = select.selected_hand_index?;
     combat.piles.hand.get(selected_index).map(|card| card.id)
+}
+
+/// Force-exhausted Armaments (Havoc / Mayhem / Distilled Chaos) can complete
+/// while `HandCardSelectScreen.wereCardsRetrieved` is still false: the selected
+/// card stays off every serialized pile unupgraded and re-enters discard on the
+/// next END via leftover-selectedCards settlement (15ab4cc step 771–775: Bash
+/// never returns as Bash+, then appears unupgraded on discard).
+///
+/// Rebuild via core skipped-retrieval: park unupgraded selection in
+/// `pending_hidden_hand_card_until_end_turn` and flush deferred actions (Hex).
+fn seed_start_armaments_skipped_retrieval_state(source: &RunState) -> Option<RunState> {
+    let source_combat = source.combat.as_ref()?;
+    let select = source_combat.hand_select()?;
+    if select.purpose != HandSelectPurpose::ArmamentsUpgrade {
+        return None;
+    }
+    let selected_index = select.selected_hand_index?;
+    if selected_index >= source_combat.piles.hand.len() {
+        return None;
+    }
+    if source_combat
+        .pending_hidden_hand_card_until_end_turn
+        .is_some()
+    {
+        return None;
+    }
+    let source_already_settled = source_combat
+        .piles
+        .exhaust_pile
+        .iter()
+        .chain(source_combat.piles.discard_pile.iter())
+        .any(|card| card.id == select.source_card_id);
+    if !source_already_settled {
+        return None;
+    }
+
+    let mut transient = source.clone();
+    let combat = transient.combat.as_mut()?;
+    sts_core::combat::confirm_hand_select_skipped_armaments_retrieval(combat).ok()?;
+    Some(transient)
 }
 
 /// DualWieldAction skipped-retrieval candidate (force-exhausted Dual Wield).
@@ -7086,7 +7147,10 @@ fn seed_start_combat_obtain_hand_lag_settlement_frame(
     // Observed hand multiset must be contained in simulated hand.
     let mut remaining_sim_hand = simulated_hand.clone();
     for card in &observed_hand {
-        if let Some(index) = remaining_sim_hand.iter().position(|candidate| candidate == card) {
+        if let Some(index) = remaining_sim_hand
+            .iter()
+            .position(|candidate| candidate == card)
+        {
             remaining_sim_hand.remove(index);
         } else {
             return false;

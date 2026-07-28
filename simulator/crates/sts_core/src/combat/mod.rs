@@ -39,6 +39,7 @@ pub use transition::{
     add_generated_card_to_draw_pile_random_spot_public, apply_combat_action,
     apply_combat_action_with_events, choose_draw_select, choose_exhaust_select, choose_hand_select,
     confirm_draw_select, confirm_exhume_select_skipped_return, confirm_hand_select,
+    confirm_hand_select_skipped_armaments_retrieval,
     confirm_hand_select_skipped_put_on_deck_retrieval, draw_select_ui_to_draw_index,
     hand_select_ui_to_hand_index, open_gambling_chip_select, CombatTransition,
 };

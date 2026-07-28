@@ -186,6 +186,7 @@ fn process_internal_queue(
             event_log.push(internal_action);
             continue;
         }
+        let had_hand_select = matches!(next.decision, Some(CombatDecisionState::HandSelect { .. }));
         let follow_ups = apply_internal_action(&mut next, internal_action)?;
         event_log.push(internal_action);
         for follow_up in follow_ups {
@@ -193,10 +194,45 @@ fn process_internal_queue(
         }
         if !queue.is_empty() {
             match next.decision.as_mut() {
-                Some(CombatDecisionState::HandSelect {
-                    pending_actions, ..
-                }) => {
-                    pending_actions.extend(queue.drain(..));
+                Some(CombatDecisionState::HandSelect { .. }) => {
+                    let just_opened = !had_hand_select;
+                    // Armaments' own Hex is queued after AwaitHandSelect and must
+                    // wait for CONFIRM. Havoc Hex is a parent follow-up after
+                    // nested PlayTop already opened the select — real still runs
+                    // that bot action under the open screen (15ab4cc step 769).
+                    let flush_free_hex = !just_opened
+                        || matches!(internal_action, InternalAction::PlayTopDrawCard { .. });
+                    if just_opened && !flush_free_hex {
+                        if let Some(CombatDecisionState::HandSelect {
+                            pending_actions, ..
+                        }) = next.decision.as_mut()
+                        {
+                            pending_actions.extend(queue.drain(..));
+                        }
+                        break;
+                    }
+                    let mut deferred = VecDeque::new();
+                    while let Some(queued) = queue.pop_front() {
+                        if matches!(
+                            queued,
+                            InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
+                                | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
+                        ) {
+                            let free_follow_ups = apply_internal_action(&mut next, queued)?;
+                            event_log.push(queued);
+                            for free_follow_up in free_follow_ups {
+                                push_follow_up(&mut queue, free_follow_up);
+                            }
+                        } else {
+                            deferred.push_back(queued);
+                        }
+                    }
+                    if let Some(CombatDecisionState::HandSelect {
+                        pending_actions, ..
+                    }) = next.decision.as_mut()
+                    {
+                        pending_actions.extend(deferred);
+                    }
                     break;
                 }
                 Some(CombatDecisionState::ExhaustSelect { state }) => {
@@ -287,6 +323,15 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         // on-exhaust draws still see the pre-exhaust draw pile (and consume
         // cardRandomRng against the correct size).
         //
+        // Havoc.use addToBot's PlayTop first, then Hex onUseCard. Hex must not
+        // land before PlayTop removes the forced card (insert size n vs n-1).
+        //
+        // Exception: when MoveCard is followed by AwaitHandSelect (force-exhaust
+        // Armaments via Havoc / Mayhem / Distilled Chaos), card.use() has opened
+        // a select that must close first. Real Hex then lands after CONFIRM
+        // (15ab4cc step 769–771: second Dazed only on Armaments CONFIRM). Insert
+        // after the select so it becomes hand-select pending_actions.
+        //
         // Keep it ahead of an Ink Bottle draw already returned by card-play
         // relic hooks as well.
         if let Some(index) = queue
@@ -298,9 +343,23 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         }
         if let Some(index) = queue
             .iter()
+            .rposition(|action| matches!(action, InternalAction::PlayTopDrawCard { .. }))
+        {
+            queue.insert(index + 1, follow_up);
+            return;
+        }
+        if let Some(move_index) = queue
+            .iter()
             .rposition(|action| matches!(action, InternalAction::MoveCard { .. }))
         {
-            queue.insert(index, follow_up);
+            if let Some(select_index) = queue.iter().enumerate().find_map(|(index, action)| {
+                (index > move_index && matches!(action, InternalAction::AwaitHandSelect { .. }))
+                    .then_some(index)
+            }) {
+                queue.insert(select_index + 1, follow_up);
+                return;
+            }
+            queue.insert(move_index, follow_up);
             return;
         }
     }
@@ -696,7 +755,22 @@ fn apply_internal_action(
             target,
             exhaust_played_card,
             random_living_target,
-        } => apply_play_top_draw_card(state, target, exhaust_played_card, random_living_target),
+        } => {
+            // Expand the forced top-play inline so parent follow-ups queued after
+            // PlayTop (notably Hex from Havoc.use → onUseCard) run only once the
+            // top card is already removed. Expanding as parent follow-ups left
+            // Havoc Hex ahead of the expanded Armaments actions and inserted
+            // Dazed into a still-full draw pile (15ab4cc step 769).
+            let actions =
+                apply_play_top_draw_card(state, target, exhaust_played_card, random_living_target)?;
+            if actions.is_empty() {
+                Ok(Vec::new())
+            } else {
+                let transition = process_internal_queue(state, actions.into_iter().collect())?;
+                *state = transition.state;
+                Ok(Vec::new())
+            }
+        }
         InternalAction::PutHandCardOnTopOfDraw { card_id } => {
             let card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
             state.piles.draw_pile.insert(0, card);
@@ -1996,6 +2070,61 @@ pub fn confirm_hand_select_skipped_put_on_deck_retrieval(
     Ok(selected)
 }
 
+/// Confirm force-exhausted Armaments without retrieving the selected card as an
+/// upgrade in hand.
+///
+/// Models `HandCardSelectScreen.wereCardsRetrieved == false`: ArmamentsAction
+/// can complete before CONFIRM under CommunicationMod load, so the upgrade never
+/// lands. The selected card stays owned by the closed selection screen (absent
+/// from every serialized pile) and re-enters via end-turn `DiscardAction`
+/// leftover-selectedCards settlement as the unupgraded card
+/// (`pending_hidden_hand_card_until_end_turn`). Deferred pending actions (Hex
+/// Dazed insert, etc.) still resume after the screen closes.
+///
+/// Eligible only when Armaments is already in exhaust/discard (Havoc / Mayhem /
+/// Distilled Chaos). Ordinary hand Armaments keeps
+/// [`confirm_hand_select`] / [`confirm_armaments_select`] authoritative.
+pub fn confirm_hand_select_skipped_armaments_retrieval(state: &mut CombatState) -> SimResult<()> {
+    let (hand_select, pending_actions) = state
+        .take_hand_select()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    if hand_select.purpose != HandSelectPurpose::ArmamentsUpgrade {
+        return Err(SimError::IllegalAction(
+            "skipped Armaments retrieval requires Armaments hand select",
+        ));
+    }
+    let index = required_hand_select_index(&hand_select)?;
+    let selected = *state
+        .piles
+        .hand
+        .get(index)
+        .ok_or(SimError::IllegalAction("hand select index out of range"))?;
+    if selected.id == hand_select.source_card_id {
+        return Err(SimError::IllegalAction("cannot select Armaments itself"));
+    }
+    let source_settled = state
+        .piles
+        .exhaust_pile
+        .iter()
+        .chain(state.piles.discard_pile.iter())
+        .any(|card| card.id == hand_select.source_card_id);
+    if !source_settled {
+        return Err(SimError::IllegalAction(
+            "skipped Armaments retrieval requires force-exhausted source",
+        ));
+    }
+    if state.pending_hidden_hand_card_until_end_turn.is_some() {
+        return Err(SimError::IllegalAction(
+            "pending hidden hand card already occupied",
+        ));
+    }
+    state.piles.hand.remove(index);
+    state.pending_hidden_hand_card_until_end_turn = Some(selected);
+    resume_actions_after_hand_select(state, pending_actions)?;
+    state.activate_next_queued_decision_if_idle();
+    Ok(())
+}
+
 fn resume_actions_after_hand_select(
     state: &mut CombatState,
     pending_actions: VecDeque<InternalAction>,
@@ -2772,7 +2901,7 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
     let purpose = exhaust_select.purpose;
     let pending_actions = exhaust_select.pending_actions.clone();
-    match exhaust_select.purpose {
+    match purpose {
         crate::combat::ExhaustSelectPurpose::GamblingChip => {
             confirm_gambling_chip_select(state, exhaust_select.selected_hand_indices)?;
         }
@@ -2819,21 +2948,11 @@ pub fn confirm_exhaust_select(state: &mut CombatState) -> SimResult<()> {
             }
         }
     }
-    if matches!(
-        purpose,
-        crate::combat::ExhaustSelectPurpose::BurningPactDraw2
-            | crate::combat::ExhaustSelectPurpose::BurningPactDraw3
-    ) && state.piles.draw_pile.is_empty() && pending_actions.iter().any(|action| {
-        matches!(
-            action,
-            crate::action::InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
-                | crate::action::InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
-        )
-    }) {
-        // The target's deferred Hex action still performs its random-spot
-        // draw after Burning Pact has emptied the pile.
-        state.rng.card_random_rng.random_int(0);
-    }
+    // When deferred Hex MakeTempCardInDrawPile lands on an empty draw pile,
+    // CardGroup.addToRandomSpot just group.add(c) — no cardRandomRng roll
+    // (see desktop-1.0 CardGroup.addToRandomSpot). Do not burn a phantom
+    // random_int(0) here: it desyncs later Hex inserts (15ab4cc Battle Trance
+    // Dazed index 6 vs 5 → unplayable PLAY).
     if !pending_actions.is_empty() {
         let transition = process_internal_queue(state, pending_actions)?;
         *state = transition.state;
@@ -4371,6 +4490,91 @@ mod tests {
     }
 
     #[test]
+    fn hex_on_empty_draw_after_burning_pact_does_not_burn_card_random() {
+        // CardGroup.addToRandomSpot on an empty pile is group.add only — no
+        // cardRandomRng call. A phantom random_int(0) after BP emptied the
+        // pile desynced later Hex inserts (15ab4cc).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.hex = 1;
+        state.rng.card_random_rng = StsRng::new(99);
+        let counter_before = state.rng.card_random_rng.counter();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        // Exactly two cards: BP draws both, leaving empty before deferred Hex.
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(4), BASH_ID),
+            CardInstance::new(CardId::new(5), CLEAVE_ID),
+        ];
+        state.piles.discard_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact opens exhaust select");
+        choose_exhaust_select(&mut next, 0).expect("select Strike");
+        confirm_exhaust_select(&mut next).expect("BP resolves");
+
+        assert_eq!(
+            next.rng.card_random_rng.counter(),
+            counter_before,
+            "empty-pile Hex must not consume cardRandomRng"
+        );
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .filter(|card| card.content_id == DAZED_ID)
+                .count(),
+            1,
+            "Hex still adds one Dazed when the pile was emptied by BP draw"
+        );
+
+        // Next public Hex roll uses the stream that was not poisoned.
+        next.player.energy = 1;
+        next.piles.hand = vec![CardInstance::new(CardId::new(10), DEFEND_R_ID)];
+        next.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(11), STRIKE_R_ID),
+            CardInstance::new(CardId::new(12), BASH_ID),
+            CardInstance::new(CardId::new(13), CLEAVE_ID),
+        ];
+        let mut expected_rng = next.rng.card_random_rng.clone();
+        let mut expected_draw = next
+            .piles
+            .draw_pile
+            .iter()
+            .map(|c| c.content_id)
+            .collect::<Vec<_>>();
+        let idx = expected_rng.random_int((expected_draw.len() - 1) as i32) as usize;
+        expected_draw.insert(idx, DAZED_ID);
+
+        let after = apply_combat_action(
+            &next,
+            CombatAction::PlayCard {
+                card_id: CardId::new(10),
+                target: None,
+            },
+        )
+        .expect("Defend under Hex");
+        assert_eq!(
+            after
+                .piles
+                .draw_pile
+                .iter()
+                .map(|c| c.content_id)
+                .collect::<Vec<_>>(),
+            expected_draw
+        );
+    }
+
+    #[test]
     fn juggernaut_random_target_selection_waits_for_hex_draw_insertion() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 1;
@@ -5696,6 +5900,69 @@ mod tests {
             .hand
             .iter()
             .any(|card| card.content_id == DEFEND_R_ID));
+    }
+
+    #[test]
+    fn havoc_played_armaments_skipped_retrieval_parks_unupgraded_and_flushes_hex() {
+        // wereCardsRetrieved=false: selected card stays off every pile until
+        // end-turn discard; deferred Hex still inserts after the select closes.
+        let mut state = CombatState::initial_fixture();
+        state.rng.card_random_rng = StsRng::new(7);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), ARMAMENTS_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut staged = state;
+        let queue = apply_play_top_draw_card(&mut staged, None, true, false)
+            .expect("top-draw Armaments queue");
+        let mut next = process_internal_queue(&staged, queue.into())
+            .expect("top-draw Armaments opens hand selection")
+            .state;
+        assert!(next.hand_select().is_some());
+        // Deferred Hex behind the select (same interleaving as enemy Hex on the
+        // Havoc-played Armaments card under CommunicationMod).
+        match next.decision.as_mut() {
+            Some(crate::combat::CombatDecisionState::HandSelect {
+                pending_actions, ..
+            }) => {
+                pending_actions.push_back(InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                    content_id: DAZED_ID,
+                });
+            }
+            _ => panic!("expected hand select decision"),
+        }
+        choose_hand_select(&mut next, 0).expect("select Strike");
+        confirm_hand_select_skipped_armaments_retrieval(&mut next)
+            .expect("skipped Armaments retrieval");
+
+        assert!(next.hand_select().is_none());
+        assert_eq!(
+            next.pending_hidden_hand_card_until_end_turn
+                .map(|card| card.content_id),
+            Some(STRIKE_R_ID),
+            "selected card parks unupgraded"
+        );
+        assert!(
+            !next
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == STRIKE_R_ID || card.content_id == STRIKE_R_PLUS_ID),
+            "selected card must not return upgraded to hand"
+        );
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .filter(|card| card.content_id == DAZED_ID)
+                .count(),
+            1,
+            "deferred Hex still inserts Dazed after skipped retrieval"
+        );
     }
 
     #[test]
