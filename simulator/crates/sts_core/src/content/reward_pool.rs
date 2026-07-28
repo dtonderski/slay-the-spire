@@ -437,13 +437,33 @@ pub fn ironclad_transform_card_content_id(source: ContentId, rng: &mut StsRng) -
     pool[pick]
 }
 
+/// Event/special colorless cards (Bite, Apparition, …) are not shop colorless
+/// entries but still use `srcColorlessCardPool` under `AbstractDungeon.transformCard`.
+fn is_colorless_for_transform(source: ContentId) -> bool {
+    use crate::content::cards::{
+        APPARITION_ID, APPARITION_PLUS_ID, BITE_ID, BITE_PLUS_ID, JAX_ID, JAX_PLUS_ID,
+        RITUAL_DAGGER_ID,
+    };
+    crate::content::shop_pool::shop_card_is_colorless(source)
+        || matches!(
+            source,
+            BITE_ID
+                | BITE_PLUS_ID
+                | RITUAL_DAGGER_ID
+                | APPARITION_ID
+                | APPARITION_PLUS_ID
+                | JAX_ID
+                | JAX_PLUS_ID
+        )
+}
+
 #[must_use]
 pub fn ironclad_transform_card_pool(source: ContentId) -> Vec<ContentId> {
     // AbstractDungeon.transformCard branches on card color. Curse transforms call
     // CardLibrary.getCurse(source, rng), which excludes the source and special curses.
     // Colorless cards use the colorless card library pool; non-curse Ironclad
     // cards use the character transform pool below.
-    if crate::content::shop_pool::shop_card_is_colorless(source) {
+    if is_colorless_for_transform(source) {
         return crate::content::shop_pool::colorless_transform_pool()
             .into_iter()
             .filter(|content_id| *content_id != source)
@@ -508,5 +528,21 @@ mod tests {
         assert!(pool.contains(&CHRYSALIS_ID));
         assert!(!pool.contains(&ANGER_ID));
         assert!(!pool.contains(&MASTER_OF_STRATEGY_ID));
+    }
+
+    #[test]
+    fn bite_transform_uses_colorless_pool_not_ironclad() {
+        // Drug Dealer / event transforms: Bite is colorless SPECIAL, not red.
+        use crate::content::cards::{BITE_ID, SWIFT_STRIKE_ID};
+        let pool = ironclad_transform_card_pool(BITE_ID);
+        assert!(
+            pool.contains(&SWIFT_STRIKE_ID),
+            "Bite must transform via colorless pool"
+        );
+        assert!(
+            !pool.contains(&ANGER_ID),
+            "Bite must not use the Ironclad transform pool"
+        );
+        assert!(!pool.contains(&BITE_ID));
     }
 }
