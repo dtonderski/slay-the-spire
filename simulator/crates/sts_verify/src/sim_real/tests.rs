@@ -11744,6 +11744,32 @@ fn random_fidelity_burning_pact_normal_hand_selection_can_settle_deferred() {
 }
 
 #[test]
+
+#[test]
+fn random_fidelity_runic_cube_lethal_end_turn_keeps_draw_pile() {
+    // Runic Cube must not draw on lethal Lagavulin hit (bot Draw cancelled).
+    let Some(content) =
+        crate::load_corpus_file("permanent_traces/random-fidelity-a7f662aa8ed22115.jsonl")
+    else {
+        return;
+    };
+    let report = verify_seed_start_communication_mod_trace(&content)
+        .expect("Runic Cube lethal permanent trace verifies");
+
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .category,
+        "none",
+        "step 2896 lethal END must leave Bash+ in draw: {report:#?}"
+    );
+}
+
 fn random_fidelity_burning_pact_dark_embrace_draws_after_discard() {
     // DE×2 after Burning Pact exhaust: BP draws first, source discards, then DE
     // reshuffles (can pull BP back into hand). Permanent minimized prefix ends

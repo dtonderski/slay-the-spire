@@ -164,6 +164,49 @@ mod tests {
     }
 
     #[test]
+    fn runic_cube_does_not_draw_on_lethal_hp_loss() {
+        // RunicCube.onLoseHp queues DrawCardAction; lethal damage cancels the bot.
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::RunicCube);
+        state.player.hp = 3;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), crate::content::cards::STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), crate::content::cards::BASH_ID),
+        ];
+        state.piles.discard_pile.clear();
+
+        // Simulate post-damage hooks after HP has already been reduced to 0.
+        state.player.hp = 0;
+        apply_player_hp_loss_hooks(&mut state, 18).expect("lethal Runic Cube hooks succeed");
+
+        assert!(
+            state.piles.hand.is_empty(),
+            "lethal Runic Cube must not draw: hand={:?}",
+            state.piles.hand
+        );
+        assert_eq!(state.piles.draw_pile.len(), 2);
+    }
+
+    #[test]
+    fn runic_cube_draws_on_nonlethal_hp_loss() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::RunicCube);
+        state.player.hp = 10;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(
+            CardId::new(1),
+            crate::content::cards::STRIKE_R_ID,
+        )];
+
+        state.player.hp = 7;
+        apply_player_hp_loss_hooks(&mut state, 3).expect("nonlethal Runic Cube draws");
+
+        assert_eq!(state.piles.hand.len(), 1);
+        assert!(state.piles.draw_pile.is_empty());
+    }
+
+    #[test]
     fn self_forming_clay_overflow_rolls_back_earlier_hp_loss_triggers() {
         let mut state = CombatState::initial_fixture();
         state.relics.push(Relic::SelfFormingClay);

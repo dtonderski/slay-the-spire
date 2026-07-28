@@ -2242,7 +2242,11 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> Sim
         && next.relic_counters.centennial_puzzle_triggers == 0
     {
         next.relic_counters.centennial_puzzle_triggers = 1;
-        crate::combat::transition::player_draw_cards(&mut next, CENTENNIAL_PUZZLE_DRAW)?;
+        // CentennialPuzzle.onLoseHp addToBot's DrawCardAction; lethal damage
+        // ends the fight before the bot runs.
+        if next.player.hp > 0 {
+            crate::combat::transition::player_draw_cards(&mut next, CENTENNIAL_PUZZLE_DRAW)?;
+        }
     }
     if next.relics.contains(&Relic::SelfFormingClay) {
         next.relic_counters.self_forming_clay_next_turn_block = next
@@ -2254,7 +2258,13 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> Sim
             ))?;
     }
     if next.relics.contains(&Relic::RunicCube) {
-        crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
+        // RunicCube.onLoseHp addToBot's DrawCardAction. When the same damage
+        // is lethal, GameActionManager never drains that bot entry — the death
+        // screen keeps the pre-draw piles (a7f662aa8ed22115 END lethal vs
+        // Lagavulin: Bash+ stays in draw, hand empty).
+        if next.player.hp > 0 {
+            crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
+        }
     }
     sync_red_skull_strength(&mut next)?;
     *state = next;
