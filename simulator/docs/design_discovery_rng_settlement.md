@@ -12,15 +12,19 @@ does not change potion or typed Discovery settlement.
   choices at the start of every update, including updates after the reward
   selection, until the fast action finishes.
 - SuperFastMode patches `tickDuration` but preserves the repeated update calls.
-- CommunicationMod session-1204 uniquely requires two more `cardRandomRng`
-  draws than the previous ten-draw model: the earlier True Grit and Bronze Orb
-  Stasis outcomes remain unchanged only at a +2 offset, and the later True Grit
-  then selects the observed card.
-- Four hidden three-card generations consume twelve draws for this captured
-  no-duplicate sequence. No separate synthetic "settle" draw is needed.
+- Permanent oracle `random-fidelity-1a50b5ada2264b05` isolates the post-pick
+  burn: Havoc autoplays Discovery (choices Fire Breathing / Hemokinesis /
+  Battle Trance), player picks Hemokinesis, end turn, then Infernal Blade must
+  generate Blood for Blood. With open settlement fixed at 1 visible + 4 hidden
+  generations, the pick path must advance `cardRandomRng` by **eight** draws
+  (two three-card generations + two settle draws). Four hidden generations
+  (twelve draws) over-burns by four and selects Rampage instead.
+- Earlier session-1204 True Grit calibration that pinned twelve draws is
+  superseded by this cleaner Infernal Blade oracle; residual True Grit RNG may
+  have included non-Discovery card-random uses.
 
 ## Verification
 
-Pin the twelve-draw counter delta in the focused Discovery choice test, then
-replay session-1204 through the later True Grit transition before resuming the
-live run.
+Pin the eight-draw counter delta in the focused Discovery choice test
+(fixture counter 16 → 24), then replay
+`random-fidelity-1a50b5ada2264b05` through Infernal Blade (`category=none`).

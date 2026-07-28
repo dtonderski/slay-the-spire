@@ -19,7 +19,8 @@ use crate::{
     content::cards::{get_card_definition, upgrade_card_instance},
     content::monsters::wake_lagavulin_on_damage,
     content::shop_pool::{
-        burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
+        burn_all_discovery_card_choice_draws, burn_all_discovery_card_choice_generations,
+        burn_colorless_discovery_card_choice_draws,
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
         burn_discovery_card_choice_generations, colorless_discovery_card_choices,
         discovery_card_choices,
@@ -55,7 +56,14 @@ const COLORLESS_DISCOVERY_ACTION_PICKED_HIDDEN_GENERATIONS: usize = 11;
 const DISCOVERY_ACTION_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
 const DISCOVERY_ACTION_SKIPPED_HIDDEN_GENERATIONS: usize = 6;
 const DISCOVERY_ACTION_SKIPPED_SCREEN_SETTLE_DRAWS: usize = 3;
-const PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 4;
+// Played Discovery (card Discovery / Havoc→Discovery) post-pick settlement.
+// Permanent oracle random-fidelity-1a50b5ada2264b05: after open (1 visible + 4
+// hidden gens) the pick path must advance cardRandomRng by eight draws before
+// the next combat card-random use (Infernal Blade). Two three-card generations
+// plus two settle draws match that counter; four hidden gens over-burns by four
+// draws and selects Rampage instead of Blood for Blood.
+const PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 2;
+const PLAYED_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS: usize = 2;
 const POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS: usize = 12;
 const POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
 
@@ -500,11 +508,16 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                 CardId::new(combat.next_card_instance_id()?)
             };
             // After a card-played Discovery is selected, DiscoveryAction keeps
-            // regenerating its three choices for four hidden fast-action updates.
+            // regenerating its three choices for hidden fast-action updates, then
+            // burns residual screen-settle draws before control returns.
             burn_all_discovery_card_choice_generations(
                 &mut combat.rng.card_random_rng,
                 3,
                 PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
+            );
+            burn_all_discovery_card_choice_draws(
+                &mut combat.rng.card_random_rng,
+                PLAYED_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS,
             );
             let choice = choices[index];
             let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
@@ -2105,8 +2118,8 @@ mod tests {
         assert_eq!(hand.last().map(|card| card.id), Some(chosen_id));
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            28,
-            "four hidden DiscoveryAction generations consume twelve draws"
+            24,
+            "two hidden DiscoveryAction generations plus two settle draws consume eight draws"
         );
     }
 
