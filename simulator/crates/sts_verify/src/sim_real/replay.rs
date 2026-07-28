@@ -4901,6 +4901,20 @@ fn seed_start_handle_combat_phase(
         *sim = next;
         return SeedStartPreDispatch::Handled;
     }
+    if (command_head.eq_ignore_ascii_case("PLAY") || command.eq_ignore_ascii_case("END"))
+        && seed_start_combat_obtain_hand_lag_settlement_frame(&post.message, &next)
+    {
+        // Discovery (and similar ShowCardAndObtain) can leave the chosen card
+        // missing from CM hands for one or more post-pick frames while core
+        // already holds it (a1b2883 Whirlwind after Discovery).
+        report.verified.push(VerifiedTransition {
+            action_step: action.step,
+            command: action.command.clone(),
+            label: "combat obtain hand lag (source settlement frame)".to_owned(),
+        });
+        *sim = next;
+        return SeedStartPreDispatch::Handled;
+    }
     let copied_attack = seed_start_copied_attack_expectation(combat, combat_action);
     if seed_start_warcry_source_settlement_frame_matches(
         &pre_action_run,
@@ -6947,6 +6961,84 @@ fn seed_start_combat_pile_source_settlement_frame(post_message: &Value, next: &R
     }
 
     observed_pile_keys != simulated_pile_keys
+}
+
+/// CM can lag ShowCardAndObtain into hand (Discovery pick) for frames after the
+/// choose is accepted. Core already holds the card; observed piles are a strict
+/// sub-multiset missing only those hand-lagged obtains.
+fn seed_start_combat_obtain_hand_lag_settlement_frame(
+    post_message: &Value,
+    next: &RunState,
+) -> bool {
+    if !seed_start_is_stable_combat_post_state(post_message) {
+        return false;
+    }
+    let observed = seed_start_combat_observed_subset(post_message);
+    let Some(simulated_combat) = next.combat.as_ref() else {
+        return false;
+    };
+    let simulated = seed_start_simulated_combat_subset(next, false);
+    let Some(observed_combat) = post_message.pointer("/game_state/combat_state") else {
+        return false;
+    };
+
+    let mut observed_without_piles = observed.clone();
+    let mut simulated_without_piles = simulated.clone();
+    for value in [&mut observed_without_piles, &mut simulated_without_piles] {
+        let Some(object) = value.as_object_mut() else {
+            return false;
+        };
+        for key in ["hand_ids", "draw_ids", "discard_ids"] {
+            object.remove(key);
+        }
+        object.remove("unobservable");
+    }
+    if !seed_start_combat_subsets_match(observed_without_piles, simulated_without_piles) {
+        return false;
+    }
+
+    let observed_hand = combat_card_ids(observed_combat.get("hand"));
+    let simulated_hand = cards_to_comm_mod_visible_order(simulated_combat.piles.hand.iter());
+    if simulated_hand.len() <= observed_hand.len() {
+        return false;
+    }
+    // Observed hand multiset must be contained in simulated hand.
+    let mut remaining_sim_hand = simulated_hand.clone();
+    for card in &observed_hand {
+        if let Some(index) = remaining_sim_hand.iter().position(|candidate| candidate == card) {
+            remaining_sim_hand.remove(index);
+        } else {
+            return false;
+        }
+    }
+    if remaining_sim_hand.is_empty() {
+        return false;
+    }
+    // Lagged obtains must not appear in other observed piles yet.
+    let observed_other = ["draw_pile", "discard_pile", "exhaust_pile"]
+        .into_iter()
+        .flat_map(|pile| combat_card_ids(observed_combat.get(pile)))
+        .collect::<Vec<_>>();
+    for lag in &remaining_sim_hand {
+        if observed_other.iter().any(|card| card == lag) {
+            return false;
+        }
+    }
+    // Non-hand piles must match exactly once lagged hand cards are excluded
+    // from the simulated multiset.
+    let observed_non_hand = observed_other;
+    let mut simulated_non_hand = [
+        &simulated_combat.piles.draw_pile,
+        &simulated_combat.piles.discard_pile,
+        &simulated_combat.piles.exhaust_pile,
+    ]
+    .into_iter()
+    .flat_map(|pile| cards_to_comm_mod_visible_order(pile.iter()))
+    .collect::<Vec<_>>();
+    let mut observed_non_hand_sorted = observed_non_hand;
+    observed_non_hand_sorted.sort_unstable();
+    simulated_non_hand.sort_unstable();
+    observed_non_hand_sorted == simulated_non_hand
 }
 
 fn seed_start_event_grid_source_settlement_frame(post_message: &Value, next: &RunState) -> bool {
