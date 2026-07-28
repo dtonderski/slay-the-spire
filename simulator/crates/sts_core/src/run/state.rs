@@ -518,6 +518,34 @@ mod tests {
     }
 
     #[test]
+    fn enchiridion_power_is_inserted_at_front_of_opening_hand() {
+        // Target MakeTempCardInHandAction uses CardGroup.addToTop.
+        let mut run = RunState::map_fixture();
+        run.gain_relic(Relic::Enchiridion)
+            .expect("Enchiridion equip succeeds");
+        let base = CombatState::cultist_fixture();
+        let hand_before = base.piles.hand.len();
+        let combat = run
+            .init_combat(base)
+            .expect("combat initializes");
+
+        assert_eq!(combat.piles.hand.len(), hand_before + 1);
+        let front = &combat.piles.hand[0];
+        assert!(front.combat_only, "Enchiridion power is combat-only");
+        assert_eq!(front.temp_cost, Some(0));
+        let def = crate::content::cards::get_card_definition(front.content_id)
+            .expect("generated power has a definition");
+        assert_eq!(def.card_type, crate::card::CardType::Power);
+        // Previously pushed to the end; residual 15c51cc required addToTop.
+        assert!(
+            combat.piles.hand[1..]
+                .iter()
+                .all(|card| !card.combat_only || card.content_id != front.content_id),
+            "only the front Enchiridion power should be the new combat-only power"
+        );
+    }
+
+    #[test]
     fn deck_card_gain_rejects_exhausted_instance_ids_without_mutating_run() {
         let mut run = RunState::map_fixture();
         run.deck[0].id = CardId::new(crate::ids::MAX_SUPPORTED_CARD_INSTANCE_ID);
@@ -828,7 +856,8 @@ fn add_enchiridion_power_to_hand(combat: &mut CombatState) -> SimResult<()> {
     };
     card.temp_cost = Some(0);
     card.temp_cost_turn_only = true;
-    combat.piles.hand.push(card);
+    // Target MakeTempCardInHandAction uses CardGroup.addToTop (front of hand).
+    combat.piles.hand.insert(0, card);
     Ok(())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
