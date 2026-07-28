@@ -2923,19 +2923,32 @@ fn confirm_burning_pact_select(
     // immediately. This is the same visible-pile settlement as the
     // Cultist-Potion interruption, but is a generic consequence of a delayed
     // top-draw source rather than a potion-specific event.
+    let mut deferred_bot_on_exhaust = Vec::new();
     if exhaust_select.interrupted_by_cultist_potion || exhaust_select.source_card.is_none() {
         state.piles.hand.remove(index);
         state.pending_hidden_hand_card_until_end_turn = Some(card);
     } else {
         state.piles.hand.remove(index);
         state.piles.exhaust_pile.push(card);
-        apply_on_exhaust_effects(state, card.id)?;
+        // Dark Embrace / Feel No Pain use addToBot after ExhaustAction. Burning
+        // Pact still has DrawCardAction and UseCardAction (source → discard) on
+        // the queue, so DE must not draw until those resolve — otherwise DE
+        // consumes the remaining draw pile before BP draws, and BP never re-enters
+        // the post-discard reshuffle (9bf0204173fb2a7f step 459).
+        apply_on_exhaust_effects_except_bot_queued_powers(state, card.id)?;
+        deferred_bot_on_exhaust.extend(feel_no_pain_block_follow_up(state));
+        deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
     }
     player_draw_cards(state, draw_count)?;
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.discard_pile.push(source_card);
     } else {
         move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+    }
+    if !deferred_bot_on_exhaust.is_empty() {
+        let transition =
+            process_internal_queue(state, deferred_bot_on_exhaust.into_iter().collect())?;
+        *state = transition.state;
     }
     Ok(())
 }
@@ -5682,6 +5695,91 @@ mod tests {
             .discard_pile
             .iter()
             .any(|card| card.content_id == BURNING_PACT_ID));
+    }
+
+    #[test]
+    fn burning_pact_dark_embrace_draws_after_source_discard_reshuffle() {
+        // DE onExhaust is addToBot after ExhaustAction. With empty draw after
+        // Burning Pact's own draws, DE must reshuffle a discard that already
+        // contains Burning Pact — so BP can re-enter hand (9bf020 step 459).
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.dark_embrace = 2;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), PERFECTED_STRIKE_ID),
+            CardInstance::new(CardId::new(3), BURN_ID),
+            CardInstance::new(CardId::new(4), BURN_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), STRIKE_R_ID),
+        ];
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+            CardInstance::new(CardId::new(21), FLEX_ID),
+            CardInstance::new(CardId::new(22), CLASH_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact opens exhaust select");
+
+        // UI index 1 among non-source hand cards: Perfected Strike(0), Burn(1), Burn(2).
+        choose_exhaust_select(&mut next, 1).expect("select Burn");
+        confirm_exhaust_select(&mut next).expect("resolve Burning Pact");
+
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == BURN_ID));
+        // BP drew the two Strikes first; DE then reshuffles discard (incl. BP)
+        // and draws two more. Burning Pact must be able to sit in hand again.
+        assert!(
+            next.piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == BURNING_PACT_ID)
+                || next
+                    .piles
+                    .draw_pile
+                    .iter()
+                    .any(|card| card.content_id == BURNING_PACT_ID),
+            "Burning Pact must be discarded before Dark Embrace reshuffles: hand={:?} draw={:?} discard={:?}",
+            next.piles
+                .hand
+                .iter()
+                .map(|c| c.content_id)
+                .collect::<Vec<_>>(),
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|c| c.content_id)
+                .collect::<Vec<_>>(),
+            next.piles
+                .discard_pile
+                .iter()
+                .map(|c| c.content_id)
+                .collect::<Vec<_>>(),
+        );
+        // Immediate-DE-first would leave BP stuck only in discard with empty draw
+        // after DE stole the two Strikes — assert we drew 4 cards into hand total
+        // beyond the leftover Burn and Perfected Strike (2 BP + 2 DE).
+        assert!(
+            next.piles.hand.len() >= 5,
+            "BP draw 2 + DE draw 2 should fill hand: {:?}",
+            next.piles
+                .hand
+                .iter()
+                .map(|c| c.content_id)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
