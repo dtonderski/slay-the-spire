@@ -2254,6 +2254,34 @@ fn pen_nib_doubles_only_the_original_double_tapped_bash() {
 }
 
 #[test]
+fn pen_nib_doubles_body_slam_including_strength() {
+    // FIDL00221 step 1609: 10th attack is Body Slam with 0 block + Str 11 → 22.
+    let target = MonsterId::new(1);
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.block = 0;
+    state.player.powers.strength = 11;
+    state.relics = vec![Relic::PenNib];
+    state.relic_counters.pen_nib_attacks_played = 9;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::BODY_SLAM_ID)];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, target)];
+    state.monsters[0].hp = 143;
+    state.monsters[0].max_hp = 143;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(target),
+        },
+    )
+    .expect("Pen Nib Body Slam should play");
+
+    assert_eq!(next.monsters[0].hp, 121);
+    assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
+}
+
+#[test]
 fn guardian_mode_shift_block_resolves_after_double_tapped_sword_boomerang() {
     let target = MonsterId::new(1);
     let mut state = CombatState::initial_fixture();

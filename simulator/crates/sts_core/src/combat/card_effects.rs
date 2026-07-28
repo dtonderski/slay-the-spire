@@ -787,6 +787,18 @@ fn apply_pen_nib_to_tenth_attack_queue(
             } if *source == card_id => {
                 *amount = pen_nib_queue_amount(state, *amount);
             }
+            // Body Slam resolves block at deal-time via DealBodySlamDamage, so it
+            // never hit the DealDamage amount rewrite path. Convert to doubled
+            // DealDamage here (FIDL00221 step 1609: 0 block + Str 11 → 22).
+            InternalAction::DealBodySlamDamage { source, target } if *source == card_id => {
+                *action = InternalAction::DealDamage {
+                    info: DamageInfo {
+                        source: DamageSource::Card(*source),
+                        target: *target,
+                        amount: pen_nib_queue_amount(state, state.player.block),
+                    },
+                };
+            }
             _ => {}
         }
     }
