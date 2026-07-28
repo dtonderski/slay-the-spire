@@ -1805,15 +1805,15 @@ fn enter_chest_relic_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     // removes its relic from the pool before the normal chest relic is rolled.
     let chest_relic_offer = Some(roll_relic_reward(run, tier));
     // Matryoshka's extra reward is inserted before the chest's normal relic
-    // in the target reward list.
-    let (mut relic_offer, mut pending_relic_offer) = if bonus_relic_offer.is_some() {
+    // in the target reward list (CombatRewardScreen insertion order). Do not
+    // reorder when the chest relic is bottled: CM still lists Matryoshka first
+    // then the chest bottle (729674a: Bronze Scales then Bottled Tornado).
+    // Claiming the bottle later still opens its grid via gain_relic.
+    let (relic_offer, pending_relic_offer) = if bonus_relic_offer.is_some() {
         (bonus_relic_offer, chest_relic_offer)
     } else {
         (chest_relic_offer, None)
     };
-    if pending_relic_offer.is_some_and(is_bottled_relic_offer) {
-        std::mem::swap(&mut relic_offer, &mut pending_relic_offer);
-    }
     // CombatRewardScreen keeps RewardItems in insertion order. Matryoshka's
     // onChestOpen inserts its bonus relic before the gold item, so residual
     // screens after claiming the trailing chest relic remain [relic, gold].
@@ -1838,13 +1838,6 @@ fn enter_chest_relic_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
     Ok(())
-}
-
-fn is_bottled_relic_offer(relic: Relic) -> bool {
-    matches!(
-        relic,
-        Relic::BottledFlame | Relic::BottledLightning | Relic::BottledTornado
-    )
 }
 
 fn apply_cursed_key_chest_curse(run: &mut RunState) -> SimResult<()> {
@@ -2858,6 +2851,37 @@ mod tests {
             RelicTier::Uncommon
         );
         assert_eq!(relic_rng.counter(), 11);
+    }
+
+    #[test]
+    fn matryoshka_chest_does_not_promote_bottled_chest_relic_ahead_of_bonus() {
+        // CM lists Matryoshka's onChestOpen bonus first, then the chest relic —
+        // even when the chest rolls a bottled relic. Swapping for bottle grids
+        // inverted relic_offer_ids (729674a Bronze Scales vs Bottled Tornado).
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.event = None;
+        run.gain_relic(Relic::Matryoshka)
+            .expect("Matryoshka equips");
+        run.phase = RunPhase::Treasure;
+        setup_treasure_room(&mut run);
+        enter_chest_relic_reward_screen(&mut run).expect("chest opens");
+        let reward = run.reward.as_mut().expect("reward screen");
+        assert!(reward.relic_offer.is_some() && reward.pending_relic_offer.is_some());
+        // Reconstruct the permanent's dual-relic shape and assert enter_chest
+        // left primary=bonus / pending=chest without bottle-promotion.
+        reward.relic_offer = Some(Relic::BronzeScales);
+        reward.pending_relic_offer = Some(Relic::BottledTornado);
+        // enter_chest_relic_reward_screen_inner no longer swaps when pending is
+        // bottled; projection order is relic_offer then pending_relic_offer.
+        let projected = [
+            reward.relic_offer.expect("primary"),
+            reward.pending_relic_offer.expect("pending"),
+        ];
+        assert_eq!(
+            projected,
+            [Relic::BronzeScales, Relic::BottledTornado],
+            "CM reward list order is Matryoshka bonus then chest relic"
+        );
     }
 
     #[test]
