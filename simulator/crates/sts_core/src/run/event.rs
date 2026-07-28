@@ -2365,8 +2365,10 @@ fn rounded_event_percent(value: i32, percent: f32) -> i32 {
 
 fn mysterious_sphere_choices(stage: u32) -> Vec<EventChoice> {
     match stage {
-        0 => labeled_choices(&["Fight", "Leave"]),
-        1 => labeled_choices(&["Continue"]),
+        // CommMod page 0 is "Open Sphere" / "Leave"; the intermediate confirm
+        // after opening is "Fight" (not "Continue").
+        0 => labeled_choices(&["Open Sphere", "Leave"]),
+        1 => labeled_choices(&["Fight"]),
         _ => Vec::new(),
     }
 }
@@ -8896,19 +8898,44 @@ mod tests {
     }
 
     #[test]
-    fn mysterious_sphere_fight_enters_two_orb_walker_combat() {
+    fn mysterious_sphere_open_sphere_stages_fight_before_combat() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
         run.current_act = 3;
         run.event = Some(event_screen(Event::MysteriousSphere));
-        let after_fight = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
-            .expect("Sphere fight applies");
-        let after_continue =
-            apply_event_action(&after_fight, EventAction::Choose { choice_index: 0 })
-                .expect("Sphere combat entry applies");
-        assert_eq!(after_continue.phase, RunPhase::Combat);
         assert_eq!(
-            after_continue
+            run.event
+                .as_ref()
+                .expect("intro")
+                .choices
+                .iter()
+                .map(|c| c.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Open Sphere", "Leave"]
+        );
+
+        let after_open = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Open Sphere opens the Fight intermediate page");
+        assert_eq!(after_open.event.as_ref().expect("fight page").stage, 1);
+        assert_eq!(
+            after_open
+                .event
+                .as_ref()
+                .expect("fight page")
+                .choices
+                .iter()
+                .map(|c| c.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Fight"]
+        );
+        assert_eq!(after_open.phase, RunPhase::Event);
+
+        let after_fight =
+            apply_event_action(&after_open, EventAction::Choose { choice_index: 0 })
+                .expect("Fight enters Orb Walker combat");
+        assert_eq!(after_fight.phase, RunPhase::Combat);
+        assert_eq!(
+            after_fight
                 .combat
                 .as_ref()
                 .expect("combat")
