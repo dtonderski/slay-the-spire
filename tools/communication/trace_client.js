@@ -974,6 +974,15 @@ async function handleLine(line) {
     return;
   }
 
+  if (Array.isArray(message.external_rng) && message.external_rng.length > 0) {
+    writeRecord({
+      type: "external_rng",
+      step,
+      draws: message.external_rng,
+    });
+    delete message.external_rng;
+  }
+
   writeRecord({
     type: message.error ? "error" : "state",
     step,

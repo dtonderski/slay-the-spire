@@ -7,6 +7,7 @@ use super::{
 use crate::{
     action::InternalAction,
     combat::{
+        card_effects::pen_nib_queue_amount,
         damage::{deal_damage_info_to_monster_with_result, DamageInfo, DamageSource},
         CombatState,
     },
@@ -14,9 +15,25 @@ use crate::{
         check_slime_boss_split, guardian_accumulate_hp_damage, wake_lagavulin_on_damage,
         DARKLING_ID,
     },
-    ids::CardId,
+    ids::{CardId, MonsterId},
     SimError, SimResult,
 };
+
+fn apply_pen_nib_to_card_damage_info(state: &CombatState, mut info: DamageInfo) -> DamageInfo {
+    if state.pen_nib_double_active && matches!(info.source, DamageSource::Card(_)) {
+        info.amount = pen_nib_queue_amount(state, info.amount);
+    }
+    info
+}
+
+fn apply_pen_nib_to_card_damage_amount(state: &CombatState, source: CardId, amount: i32) -> i32 {
+    let _ = source;
+    if state.pen_nib_double_active {
+        pen_nib_queue_amount(state, amount)
+    } else {
+        amount
+    }
+}
 
 pub(super) fn deal_damage(
     state: &mut CombatState,
@@ -25,6 +42,7 @@ pub(super) fn deal_damage(
     if living_monster_mut_opt(state, info.target).is_none() {
         return Ok(Vec::new());
     }
+    let info = apply_pen_nib_to_card_damage_info(state, info);
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
@@ -68,7 +86,12 @@ pub(super) fn deal_damage(
         malleable_block,
     );
     if still_alive && hand_drill_applies {
-        apply_player_vulnerable_debuff(state, info.target, crate::relic::HAND_DRILL_VULNERABLE)?;
+        apply_player_vulnerable_debuff(
+            state,
+            info.target,
+            crate::relic::HAND_DRILL_VULNERABLE,
+            true,
+        )?;
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
@@ -99,6 +122,7 @@ pub(super) fn deal_damage_random_enemy(
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
     if let Some(target) = random_living_monster_id(state) {
+        let amount = apply_pen_nib_to_card_damage_amount(state, source, amount);
         let player_powers = state.player.powers;
         let temp_strength = state.player.temp_strength;
         let relics = state.relics.clone();
@@ -146,7 +170,12 @@ pub(super) fn deal_damage_random_enemy(
             malleable_block,
         );
         if still_alive && hand_drill_applies {
-            apply_player_vulnerable_debuff(state, target, crate::relic::HAND_DRILL_VULNERABLE)?;
+            apply_player_vulnerable_debuff(
+                state,
+                target,
+                crate::relic::HAND_DRILL_VULNERABLE,
+                true,
+            )?;
         }
         check_slime_boss_split(state, target);
         if !still_alive {
@@ -158,6 +187,109 @@ pub(super) fn deal_damage_random_enemy(
     Ok(Vec::new())
 }
 
+pub(super) fn resolve_fiend_fire(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    target: MonsterId,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    use crate::action::CardPile;
+
+    // Snapshot the other hand cards at resolve time. Dead Branch refills must
+    // not be exhausted by Fiend Fire (and must not steal exhaust slots from
+    // Sentinel / etc. — FIDL584b energy from Sentinel on-exhaust). Double Tap
+    // copies re-snapshot, so an empty hand yields zero hits (FIDL00237).
+    let mut pending_exhaust: Vec<CardId> = state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != source_card_id)
+        .map(|card| card.id)
+        .collect();
+    let hits = pending_exhaust.len();
+    let mut follow_ups = Vec::new();
+    // Pick order with the same cardRandomRng pattern as ExhaustRandomHandCardExcept
+    // (one random_int per remaining snapshot card), without exhausting Dead Branch
+    // refills that land mid-resolve.
+    while !pending_exhaust.is_empty() {
+        let pick = state
+            .rng
+            .card_random_rng
+            .random_int((pending_exhaust.len() - 1) as i32) as usize;
+        let card_id = pending_exhaust.remove(pick);
+        if state.piles.hand.iter().all(|card| card.id != card_id) {
+            continue;
+        }
+        super::move_card(state, card_id, CardPile::Hand, CardPile::ExhaustPile)?;
+        super::apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
+        if state.player.powers.feel_no_pain > 0 {
+            follow_ups.push(InternalAction::GainBlockDirect {
+                amount: state.player.powers.feel_no_pain,
+            });
+        }
+        if state.player.powers.dark_embrace > 0 {
+            follow_ups.push(InternalAction::DrawCards {
+                count: state.player.powers.dark_embrace.max(0) as usize,
+            });
+        }
+        if let Some(db) = super::dead_branch_follow_up(state) {
+            match db {
+                InternalAction::AddGeneratedCardToPile {
+                    content_id,
+                    to: CardPile::Hand,
+                    temp_cost,
+                    temp_cost_turn_only,
+                } => {
+                    super::add_generated_card_to_pile(
+                        state,
+                        content_id,
+                        CardPile::Hand,
+                        temp_cost,
+                        temp_cost_turn_only,
+                    )?;
+                }
+                other => follow_ups.push(other),
+            }
+        }
+    }
+    if state.pending_hidden_hand_card_exhausts_with_fiend_fire {
+        let pending_hidden = std::mem::take(&mut state.pending_hidden_hand_card_until_end_turn);
+        state.pending_hidden_hand_card_exhausts_with_fiend_fire = false;
+        for card in pending_hidden {
+            state.piles.exhaust_pile.push(card);
+            super::apply_on_exhaust_effects_except_bot_queued_powers(state, card.id)?;
+            if state.player.powers.feel_no_pain > 0 {
+                follow_ups.push(InternalAction::GainBlockDirect {
+                    amount: state.player.powers.feel_no_pain,
+                });
+            }
+            if state.player.powers.dark_embrace > 0 {
+                follow_ups.push(InternalAction::DrawCards {
+                    count: state.player.powers.dark_embrace.max(0) as usize,
+                });
+            }
+        }
+    }
+    if state.piles.hand.is_empty() {
+        super::apply_unceasing_top_after_hand_emptied(state)?;
+    }
+    for _ in 0..hits {
+        if living_monster_mut_opt(state, target).is_none() {
+            break;
+        }
+        let hit_follow_ups = deal_damage(
+            state,
+            DamageInfo {
+                source: DamageSource::Card(source_card_id),
+                target,
+                amount,
+            },
+        )?;
+        follow_ups.extend(hit_follow_ups);
+    }
+    Ok(follow_ups)
+}
+
 pub(super) fn deal_hand_of_greed_damage(
     state: &mut CombatState,
     info: DamageInfo,
@@ -166,6 +298,7 @@ pub(super) fn deal_hand_of_greed_damage(
     if living_monster_mut_opt(state, info.target).is_none() {
         return Ok(Vec::new());
     }
+    let info = apply_pen_nib_to_card_damage_info(state, info);
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
@@ -174,6 +307,7 @@ pub(super) fn deal_hand_of_greed_damage(
         monster_content_id,
         still_alive,
         minion,
+        half_dead_darkling,
         hand_drill_applies,
         curl_up_block,
         malleable_block,
@@ -195,6 +329,9 @@ pub(super) fn deal_hand_of_greed_damage(
             monster_content_id,
             monster.alive,
             monster.powers.minion > 0,
+            // Darkling first-death is half-dead (escaped), not a true fatal for
+            // Hand of Greed gold (FIDL00245 step 1048: gold stays put).
+            monster.content_id == DARKLING_ID && monster.escaped,
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
             damage.curl_up_block,
             damage.malleable_block,
@@ -211,11 +348,16 @@ pub(super) fn deal_hand_of_greed_damage(
         malleable_block,
     );
     if still_alive && hand_drill_applies {
-        apply_player_vulnerable_debuff(state, info.target, crate::relic::HAND_DRILL_VULNERABLE)?;
+        apply_player_vulnerable_debuff(
+            state,
+            info.target,
+            crate::relic::HAND_DRILL_VULNERABLE,
+            true,
+        )?;
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
-        if !minion {
+        if !minion && !half_dead_darkling {
             checked_add_combat_value(&mut state.combat_gold_gained, gold.max(0))?;
         }
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
@@ -231,6 +373,7 @@ pub(super) fn deal_damage_and_heal_unblocked(
     if living_monster_mut_opt(state, info.target).is_none() {
         return Ok(Vec::new());
     }
+    let info = apply_pen_nib_to_card_damage_info(state, info);
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
@@ -277,7 +420,12 @@ pub(super) fn deal_damage_and_heal_unblocked(
     );
     crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
     if still_alive && hand_drill_applies {
-        apply_player_vulnerable_debuff(state, info.target, crate::relic::HAND_DRILL_VULNERABLE)?;
+        apply_player_vulnerable_debuff(
+            state,
+            info.target,
+            crate::relic::HAND_DRILL_VULNERABLE,
+            true,
+        )?;
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
@@ -295,6 +443,7 @@ pub(super) fn deal_feed_damage(
     if living_monster_mut_opt(state, info.target).is_none() {
         return Ok(Vec::new());
     }
+    let info = apply_pen_nib_to_card_damage_info(state, info);
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
@@ -340,7 +489,12 @@ pub(super) fn deal_feed_damage(
         malleable_block,
     );
     if still_alive && hand_drill_applies {
-        apply_player_vulnerable_debuff(state, info.target, crate::relic::HAND_DRILL_VULNERABLE)?;
+        apply_player_vulnerable_debuff(
+            state,
+            info.target,
+            crate::relic::HAND_DRILL_VULNERABLE,
+            true,
+        )?;
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
@@ -370,6 +524,7 @@ pub(super) fn deal_ritual_dagger_damage(
     if living_monster_mut_opt(state, info.target).is_none() {
         return Ok(Vec::new());
     }
+    let info = apply_pen_nib_to_card_damage_info(state, info);
     let player_powers = state.player.powers;
     let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
@@ -417,7 +572,12 @@ pub(super) fn deal_ritual_dagger_damage(
         malleable_block,
     );
     if still_alive && hand_drill_applies {
-        apply_player_vulnerable_debuff(state, info.target, crate::relic::HAND_DRILL_VULNERABLE)?;
+        apply_player_vulnerable_debuff(
+            state,
+            info.target,
+            crate::relic::HAND_DRILL_VULNERABLE,
+            true,
+        )?;
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
@@ -436,6 +596,7 @@ pub(super) fn deal_damage_all(
     source: CardId,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
+    let amount = apply_pen_nib_to_card_damage_amount(state, source, amount);
     let (_, follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
     Ok(follow_ups)
 }
@@ -446,6 +607,7 @@ pub(super) fn deal_damage_all_repeated(
     amount: i32,
     times: i32,
 ) -> SimResult<Vec<InternalAction>> {
+    let amount = apply_pen_nib_to_card_damage_amount(state, source, amount);
     let initial_malleable = state
         .monsters
         .iter()
@@ -483,6 +645,7 @@ pub(super) fn deal_damage_all_and_heal_unblocked(
     source: CardId,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
+    let amount = apply_pen_nib_to_card_damage_amount(state, source, amount);
     let (hp_damage, follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
     crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
     Ok(follow_ups)

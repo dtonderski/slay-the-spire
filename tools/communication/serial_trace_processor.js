@@ -71,7 +71,7 @@ function parseVerifierOutput(output, exitCode) {
     boundary.reason = null;
   }
   return {
-    ok: outcome === "complete_pass" || outcome === "retained_prefix_pass",
+    ok: outcome === "complete_pass",
     outcome,
     exitCode,
     boundary: boundary.category ? boundary : null,
@@ -102,18 +102,13 @@ function traceFingerprint(tracePath) {
   return crypto.createHash("sha256").update(fs.readFileSync(tracePath)).digest("hex").slice(0, 16);
 }
 
-function manifestPaths() {
+function corpusPaths() {
   const corpus = path.join(root, "simulator", "verification", "corpus");
   return {
     directory: corpus,
-    manifest: path.join(corpus, "permanent_traces.json"),
     traces: path.join(corpus, "permanent_traces"),
+    openFailures: path.join(corpus, "open_failures"),
   };
-}
-
-function readManifest() {
-  const { manifest } = manifestPaths();
-  return JSON.parse(fs.readFileSync(manifest, "utf8"));
 }
 
 function writeJsonAtomic(filePath, value) {
@@ -128,35 +123,18 @@ function permanentizeFailure(tracePath, verification) {
   }
   const fingerprint = traceFingerprint(tracePath);
   const traceName = `random-fidelity-${fingerprint}.jsonl`;
-  const { traces, manifest } = manifestPaths();
-  fs.mkdirSync(traces, { recursive: true });
-  const destination = path.join(traces, traceName);
+  const { openFailures } = corpusPaths();
+  // Keep full failing witnesses outside the green permanent_traces gate.
+  fs.mkdirSync(openFailures, { recursive: true });
+  const destination = path.join(openFailures, traceName);
   if (!fs.existsSync(destination)) fs.copyFileSync(tracePath, destination);
-  const corpus = readManifest();
-  const existing = corpus.entries.find((entry) => entry.trace === traceName);
-  const entry = {
-    trace: traceName,
-    expectation: {
-      kind: "expected_boundary",
-      boundary: {
-        path: verification.boundary.path,
-        category: verification.boundary.category,
-      },
-    },
-  };
-  if (existing) existing.expectation = entry.expectation;
-  else corpus.entries.push(entry);
-  writeJsonAtomic(manifest, corpus);
   return { fingerprint, traceName, destination };
 }
 
 function markPermanentTraceComplete(traceName) {
-  const { manifest } = manifestPaths();
-  const corpus = readManifest();
-  const entry = corpus.entries.find((value) => value.trace === traceName);
-  if (!entry) throw new Error(`permanent trace is missing from manifest: ${traceName}`);
-  entry.expectation = { kind: "complete" };
-  writeJsonAtomic(manifest, corpus);
+  // No expectation manifest: green corpus is directory membership + clean EOF.
+  // Callers may copy a clean prefix into permanent_traces separately.
+  void traceName;
 }
 
 function appendState(traceRoot, event) {
@@ -196,7 +174,7 @@ function repairPrompt({ tracePath, permanentTracePath, verification, attempt, ve
 
 This is repair attempt ${attempt}; further attempts will continue until this trace passes. Work directly in the repository at ${root}; do not
 use subagents, do not run Git state-changing commands, and do not edit trace data,
-permanent_traces.json, or processor state. Read AGENT_RULES.md and docs/research.md.
+permanent_traces contents, or processor state. Read AGENT_RULES.md and docs/research.md.
 
 Trace to reproduce: ${tracePath}
 Permanent copy: ${permanentTracePath || "not yet available"}

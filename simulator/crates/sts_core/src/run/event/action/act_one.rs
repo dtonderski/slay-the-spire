@@ -156,11 +156,16 @@ pub(super) fn apply_act_one_event_action(
                 let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
                 let encounter = misc_rng.random_int(99) < encounter_chance;
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
+                // Preserve search loot / pending bits across attempt updates.
+                let flag_bits = screen.event_data
+                    & (DEAD_ADVENTURER_PENDING_ENCOUNTER
+                        | DEAD_ADVENTURER_SEARCH_RELIC_CLAIMED
+                        | DEAD_ADVENTURER_SEARCH_GOLD_CLAIMED);
                 let event_data = dead_adventurer_event_data(
                     dead_adventurer_order(screen.event_data)?,
                     dead_adventurer_enemy(screen.event_data),
                     attempts + 1,
-                );
+                ) | flag_bits;
                 if encounter {
                     next.event = Some(dead_adventurer_screen(next, 3, event_data));
                 } else {
@@ -169,12 +174,17 @@ pub(super) fn apply_act_one_event_action(
                         .ok_or(SimError::InvalidState(
                             "Dead Adventurer search attempts exceed reward count",
                         ))?;
+                    let mut event_data = event_data;
                     match reward {
-                        0 => next.gain_gold(30)?,
+                        0 => {
+                            next.gain_gold(30)?;
+                            event_data = dead_adventurer_with_search_gold_claimed(event_data);
+                        }
                         2 => {
                             let act = next.current_act;
                             let relic = roll_event_relic_reward(next, act);
                             next.gain_relic_key(relic)?;
+                            event_data = dead_adventurer_with_search_relic_claimed(event_data);
                         }
                         _ => {}
                     }
@@ -199,17 +209,22 @@ pub(super) fn apply_act_one_event_action(
                         .ok_or(SimError::InvalidState(
                             "Dead Adventurer continuation attempts exceed reward count",
                         ))?;
+                    let mut event_data = screen.event_data;
                     match reward {
-                        0 => next.gain_gold(30)?,
+                        0 => {
+                            next.gain_gold(30)?;
+                            event_data = dead_adventurer_with_search_gold_claimed(event_data);
+                        }
                         2 => {
                             let act = next.current_act;
                             let relic = roll_event_relic_reward(next, act);
                             next.gain_relic_key(relic)?;
+                            event_data = dead_adventurer_with_search_relic_claimed(event_data);
                         }
                         _ => {}
                     }
                     let stage = if attempts >= 3 { 1 } else { 0 };
-                    next.event = Some(dead_adventurer_screen(next, stage, screen.event_data));
+                    next.event = Some(dead_adventurer_screen(next, stage, event_data));
                 }
             }
             2 if choice_index == 1 => {
@@ -217,25 +232,35 @@ pub(super) fn apply_act_one_event_action(
                 next.event = None;
             }
             3 if choice_index == 0 => {
-                // DeadAdventurer adds its 25-35 combat gold with miscRng when
-                // the search fails. Earlier GOLD search rewards were already
-                // paid directly to the player and are not part of this reward.
+                // Post-combat gold: goldAmount (25–35) plus unclaimed search GOLD
+                // loot (30) when that loot type was never found (FIDL00229: 26+30;
+                // FIDL00421: fight after first search with neither loot claimed →
+                // 26+30=56 and still the elite relic).
+                // Relic: only if search never claimed the event relic.
                 let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
-                next.pending_event_combat_gold_offer = misc_rng.random_int_range(25, 35);
+                let mut gold = misc_rng.random_int_range(25, 35);
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
-                // Dead Adventurer marks the encounter as an elite fight, so
-                // the post-combat screen always contains the normal elite
-                // relic reward. The shuffled search reward is unrelated.
-                let mut relic_rng = next.rng_for_stream(RunRngStream::Relic);
-                let relic_tier = target_elite_relic_tier(&mut relic_rng);
-                next.store_rng_counter(RunRngStream::Relic, &relic_rng);
-                next.pending_event_combat_relic_offer = Some(roll_relic_reward(next, relic_tier));
+                if !dead_adventurer_search_gold_claimed(screen.event_data) {
+                    gold = gold
+                        .checked_add(30)
+                        .ok_or(SimError::InvalidState("Dead Adventurer gold overflows"))?;
+                }
+                next.pending_event_combat_gold_offer = gold;
+                if dead_adventurer_search_relic_claimed(screen.event_data) {
+                    next.pending_event_combat_relic_offer = None;
+                } else {
+                    let mut relic_rng = next.rng_for_stream(RunRngStream::Relic);
+                    let relic_tier = target_elite_relic_tier(&mut relic_rng);
+                    next.store_rng_counter(RunRngStream::Relic, &relic_rng);
+                    next.pending_event_combat_relic_offer =
+                        Some(roll_relic_reward(next, relic_tier));
+                }
                 match dead_adventurer_enemy(screen.event_data) {
-                    0 => enter_event_combat(next, &[&SENTRY_A0, &SENTRY_A0, &SENTRY_A0])?,
-                    1 => enter_event_combat(next, &[&GREMLIN_NOB_A0])?,
+                    0 => enter_event_elite_combat(next, &[&SENTRY_A0, &SENTRY_A0, &SENTRY_A0])?,
+                    1 => enter_event_elite_combat(next, &[&GREMLIN_NOB_A0])?,
                     // MonsterHelper "Lagavulin Event" → Lagavulin(asleep=false):
                     // opens awake with Siphon Soul, not the sleeping elite.
-                    _ => enter_event_combat(next, &[&LAGAVULIN_EVENT_A0])?,
+                    _ => enter_event_elite_combat(next, &[&LAGAVULIN_EVENT_A0])?,
                 }
             }
             _ => {

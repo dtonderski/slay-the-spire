@@ -7,8 +7,9 @@
 //!   must roll Blood for Blood (two generations + two settle draws).
 
 use sts_core::content::cards::{
-    get_card_definition, ARMAMENTS_ID, BLOOD_FOR_BLOOD_ID, DRAMATIC_ENTRANCE_ID, TWIN_STRIKE_ID,
-    WARCRY_ID,
+    get_card_definition, ARMAMENTS_ID, BLIND_ID, BLOOD_FOR_BLOOD_ID, DARK_SHACKLES_ID,
+    DEEP_BREATH_ID, DRAMATIC_ENTRANCE_ID, ENLIGHTENMENT_ID, MAYHEM_ID, TRANSMUTATION_ID,
+    TWIN_STRIKE_ID, WARCRY_ID,
 };
 use sts_core::content::shop_pool::{
     burn_all_discovery_card_choice_draws, burn_all_discovery_card_choice_generations,
@@ -56,8 +57,38 @@ fn hand_played_discovery_seven_pick_gens_yield_dramatic_entrance() {
     let mag = magnetism(&mut r);
     assert_eq!(
         mag, DRAMATIC_ENTRANCE_ID,
-        "hand-played Discovery pick must leave Magnetism on Dramatic Entrance"
+        "hand-played Discovery pick must leave source-pool Magnetism on Dramatic Entrance"
     );
+}
+
+/// FIDL00226 keeps the selected hand-played action alive across later ENDs.
+#[test]
+fn hand_played_discovery_staged_settlement_matches_magnetism_sequence() {
+    let ic = ironclad_combat_discovery_pool();
+    let mut r = StsRng::from_raw_state(17743558243545444171, 9704550745339910859, 2);
+    let _ = disc_choices(&mut r, ic);
+    for _ in 0..4 {
+        let _ = disc_choices(&mut r, ic);
+    }
+    for _ in 0..7 {
+        let _ = disc_choices(&mut r, ic);
+    }
+    assert_eq!(magnetism(&mut r), DRAMATIC_ENTRANCE_ID);
+
+    burn_all_discovery_card_choice_generations(&mut r, 3, 26);
+    burn_all_discovery_card_choice_draws(&mut r, 1);
+    assert_eq!(magnetism(&mut r), TRANSMUTATION_ID);
+    assert_eq!(magnetism(&mut r), BLIND_ID);
+
+    burn_all_discovery_card_choice_generations(&mut r, 3, 11);
+    burn_all_discovery_card_choice_draws(&mut r, 2);
+    assert_eq!(magnetism(&mut r), DARK_SHACKLES_ID);
+    burn_all_discovery_card_choice_draws(&mut r, 1);
+    assert_eq!(magnetism(&mut r), ENLIGHTENMENT_ID);
+    burn_all_discovery_card_choice_draws(&mut r, 2);
+    assert_eq!(magnetism(&mut r), MAYHEM_ID);
+    burn_all_discovery_card_choice_draws(&mut r, 1);
+    assert_eq!(magnetism(&mut r), DEEP_BREATH_ID);
 }
 
 /// Force-exhaust Discovery post-pick: two gens + two settle draws (1a50b5 oracle).

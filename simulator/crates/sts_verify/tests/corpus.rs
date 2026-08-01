@@ -20,7 +20,6 @@ use sts_core::{
 use sts_verify::{
     assess_verification, corpus_path, load_corpus_file, verify_communication_mod_trace,
     verify_seed_start_communication_mod_trace, ActionDispositionKind, ManualFixture,
-    VerificationCorpusEntry, VerificationCorpusManifest, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -814,6 +813,7 @@ fn test_m32c_20260625_retained_trace_records_32b_shop_reward_deck_evidence() {
     assert!(trace.lines.iter().all(|line| match line {
         sts_verify::TraceLine::State(state) => state.step <= 541,
         sts_verify::TraceLine::Action(action) => action.step <= 541,
+        sts_verify::TraceLine::ExternalRng(capture) => capture.step <= 541,
         sts_verify::TraceLine::Error(error) => error.step <= 541,
         sts_verify::TraceLine::Metadata(_) => true,
         sts_verify::TraceLine::CommandAccept(accepted) => accepted.step <= 541,
@@ -858,6 +858,7 @@ fn test_m33_manual01_selected_neow_random_rare_card_prefix() {
     assert!(trace.lines.iter().all(|line| match line {
         sts_verify::TraceLine::State(state) => state.step <= 4,
         sts_verify::TraceLine::Action(action) => action.step <= 4,
+        sts_verify::TraceLine::ExternalRng(capture) => capture.step <= 4,
         sts_verify::TraceLine::Error(error) => error.step <= 4,
         sts_verify::TraceLine::Metadata(_) => true,
         sts_verify::TraceLine::CommandAccept(accepted) => accepted.step <= 4,
@@ -936,6 +937,7 @@ fn test_m33_m290005_selected_neow_remove_card_grid_prefix() {
     assert!(trace.lines.iter().all(|line| match line {
         sts_verify::TraceLine::State(state) => state.step <= 7,
         sts_verify::TraceLine::Action(action) => action.step <= 7,
+        sts_verify::TraceLine::ExternalRng(capture) => capture.step <= 7,
         sts_verify::TraceLine::Error(error) => error.step <= 7,
         sts_verify::TraceLine::Metadata(_) => true,
         sts_verify::TraceLine::CommandAccept(accepted) => accepted.step <= 7,
@@ -1038,7 +1040,7 @@ fn test_seed_start_boss_relic_retained_trace() {
         "enter shop merchant",
     ] {
         assert!(
-            labels.contains(&expected),
+            labels.iter().any(|label| label.starts_with(expected)),
             "missing verified label {expected}; labels: {labels:?}"
         );
     }
@@ -1283,8 +1285,10 @@ fn seed_start_wing_statue_filters_locked_choice_list() {
         report
             .verified
             .iter()
-            .any(|transition| transition.action_step == 34
-                && transition.label == "map event node 1"),
+            .any(|transition| {
+                transition.action_step == 34
+                    && transition.label.starts_with("map event node 1")
+            }),
         "Wing Statue event entry should verify through the hidden locked option; report: {report:#?}"
     );
     assert!(
@@ -1303,57 +1307,47 @@ fn permanent_trace_entries_pass_seed_start() {
     if !dir.exists() {
         return;
     }
-    let manifest_content =
-        load_corpus_file("permanent_traces.json").expect("permanent trace manifest is readable");
-    let manifest: VerificationCorpusManifest =
-        serde_json::from_str(&manifest_content).expect("permanent trace manifest parses");
-    assert_eq!(manifest.schema, VERIFICATION_CORPUS_MANIFEST_SCHEMA);
 
-    let mut actual_traces = fs::read_dir(&dir)
+    let mut traces = fs::read_dir(&dir)
         .expect("permanent trace directory is readable")
         .map(|entry| entry.expect("permanent trace entry is readable").path())
         .filter(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"))
-        .map(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .expect("permanent trace filename is UTF-8")
-                .to_owned()
-        })
         .collect::<Vec<_>>();
-    actual_traces.sort();
-    let mut declared_traces = manifest
-        .entries
-        .iter()
-        .map(|entry| entry.trace.clone())
-        .collect::<Vec<_>>();
-    declared_traces.sort();
-    assert_eq!(
-        declared_traces, actual_traces,
-        "permanent trace manifest must exactly match the corpus directory"
+    traces.sort();
+    assert!(
+        !traces.is_empty(),
+        "permanent_traces/ should contain at least one .jsonl file"
     );
 
-    let entries = manifest.entries;
-    let worker_count = thread::available_parallelism()
-        .map_or(1, usize::from)
-        .min(entries.len());
+    // Cap concurrency: each seed-start replay of a multi‑10MB trace is memory-heavy.
+    // Unbounded available_parallelism() OOMs on typical 16GB hosts (~24 cores).
+    let worker_count = {
+        const DEFAULT_CAP: usize = 4;
+        let cpus = thread::available_parallelism().map_or(1, usize::from);
+        let from_env = std::env::var("STS_VERIFY_JOBS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value >= 1);
+        let cap = from_env.unwrap_or(DEFAULT_CAP.min(cpus).max(1));
+        traces.len().min(cap).max(1)
+    };
     eprintln!(
-        "permanent corpus: {} traces across {worker_count} workers",
-        entries.len()
+        "permanent corpus: {} traces across {worker_count} workers (clean-through-EOF; STS_VERIFY_JOBS overrides)",
+        traces.len()
     );
     let next_entry = AtomicUsize::new(0);
-    let results = Mutex::new(vec![None; entries.len()]);
+    let results = Mutex::new(vec![None; traces.len()]);
     thread::scope(|scope| {
         for _ in 0..worker_count {
-            let entries = &entries;
-            let dir = &dir;
+            let traces = &traces;
             let next_entry = &next_entry;
             let results = &results;
             scope.spawn(move || loop {
                 let index = next_entry.fetch_add(1, Ordering::Relaxed);
-                let Some(entry) = entries.get(index) else {
+                let Some(path) = traces.get(index) else {
                     break;
                 };
-                let result = verify_permanent_trace_entry(dir, entry);
+                let result = verify_permanent_trace_file(path);
                 results.lock().expect("result mutex")[index] = Some(result);
             });
         }
@@ -1367,22 +1361,27 @@ fn permanent_trace_entries_pass_seed_start() {
         .filter_map(
             |(index, result)| match result.expect("worker produced one result per trace") {
                 Ok(()) => None,
-                Err(reason) => Some(format!("{}: {reason}", entries[index].trace)),
+                Err(reason) => {
+                    let name = traces[index]
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("<unknown>");
+                    Some(format!("{name}: {reason}"))
+                }
             },
         )
         .collect::<Vec<_>>();
     assert!(
         failures.is_empty(),
-        "{} permanent traces failed:\n{}",
+        "{} permanent traces failed clean-through-EOF:\n{}",
         failures.len(),
         failures.join("\n")
     );
 }
 
-fn verify_permanent_trace_entry(dir: &Path, entry: &VerificationCorpusEntry) -> Result<(), String> {
-    let path = dir.join(&entry.trace);
+fn verify_permanent_trace_file(path: &Path) -> Result<(), String> {
     let display_path = path.display();
-    let content = fs::read_to_string(&path)
+    let content = fs::read_to_string(path)
         .map_err(|error| format!("permanent trace is not readable at {display_path}: {error}"))?;
     let report = verify_seed_start_communication_mod_trace(&content)
         .map_err(|error| format!("seed-start replay failed to parse: {error}"))?;
@@ -1391,11 +1390,7 @@ fn verify_permanent_trace_entry(dir: &Path, entry: &VerificationCorpusEntry) -> 
     if repeated_report != report {
         return Err("repeated deterministic replay produced a different report".to_owned());
     }
-    if !matches!(
-        entry.expectation,
-        sts_verify::VerificationExpectation::ExpectedBoundary { .. }
-    ) && !report.unexpected_diffs.is_empty()
-    {
+    if !report.unexpected_diffs.is_empty() {
         let first = &report.unexpected_diffs[0];
         let mut details = first.diffs.iter().take(3).cloned().collect::<Vec<_>>();
         if first.diffs.len() > details.len() {
@@ -1449,7 +1444,7 @@ fn verify_permanent_trace_entry(dir: &Path, entry: &VerificationCorpusEntry) -> 
             integrity.unresolved_transient_assertions
         ));
     }
-    let outcome = assess_verification(Ok(&report), &entry.expectation, Some(integrity));
+    let outcome = assess_verification(Ok(&report), Some(integrity));
     if !outcome.is_success() {
         if let Some(boundary) = report
             .seed_start
@@ -1549,43 +1544,20 @@ fn fidelity_regression_trace_entries_pass_seed_start() {
             .seed_start
             .as_ref()
             .unwrap_or_else(|| panic!("seed-start details for {display_path}"));
-        let expected_endpoint = match path.file_name().and_then(|name| name.to_str()) {
-            Some("session-1-transmogrifier-transform-grid.jsonl") => {
-                Some(("$.actions[step=1044].command", "unreconciled_deck_frame"))
-            }
-            Some("session-1227-ritual-dagger-deck-update.jsonl") => {
-                Some(("$.actions[step=388].command", "unreconciled_deck_frame"))
-            }
-            Some("session-16-neow-transform-two-delayed-obtain.jsonl") => {
-                Some(("$.actions[step=5106].command", "unreconciled_deck_frame"))
-            }
-            Some("session-29-winding-halls-focus-effect.jsonl") => {
-                Some(("$.actions[step=6654].command", "unreconciled_deck_frame"))
-            }
-            Some("session-38-floor21-hex-dazed-insertion.jsonl") => {
-                Some(("$.actions[step=1986].command", "unreconciled_combat_frame"))
-            }
-            _ => None,
-        };
-        if let Some((expected_path, expected_category)) = expected_endpoint {
-            assert!(seed_start.failed, "{display_path} must retain its endpoint");
-            assert_eq!(seed_start.first_boundary.path, expected_path);
-            assert_eq!(seed_start.first_boundary.category, expected_category);
-            assert_eq!(
-                report
-                    .action_integrity
-                    .as_ref()
-                    .expect("action integrity")
-                    .unresolved_transient_assertions,
-                1
-            );
-        } else {
-            assert!(
-                !seed_start.failed,
-                "{display_path} boundary: {:?}",
-                seed_start.first_boundary
-            );
-        }
+        assert!(
+            !seed_start.failed,
+            "{display_path} boundary: {:?}",
+            seed_start.first_boundary
+        );
+        assert_eq!(
+            report
+                .action_integrity
+                .as_ref()
+                .expect("action integrity")
+                .unresolved_transient_assertions,
+            0,
+            "{display_path} must settle every deferred frame"
+        );
     }
 }
 
@@ -1650,8 +1622,8 @@ fn session13_golden_shrine_curse_is_deferred_until_the_stable_deck_frame() {
             .action_integrity
             .expect("truncated verification integrity")
             .unresolved_transient_assertions,
-        1,
-        "a retained transient frame must not count as complete verification"
+        0,
+        "the captured settlement frame now closes the deferred assertion"
     );
 }
 
@@ -1789,8 +1761,8 @@ fn session38_hex_dazed_reconciles_stable_selection_and_names_unresolved_endpoint
             .unwrap_or_else(|| panic!("step {step} disposition"));
         assert_eq!(disposition.disposition, ActionDispositionKind::Verified);
         assert!(
-            disposition.deferred_assertion_reconciled,
-            "step {step} must reconcile only at the stable CONFIRM frame"
+            !disposition.deferred_assertion_reconciled,
+            "step {step} is already verified at its source frame"
         );
     }
     assert!(report.verified.iter().any(|transition| {
@@ -1801,10 +1773,7 @@ fn session38_hex_dazed_reconciles_stable_selection_and_names_unresolved_endpoint
         .iter()
         .find(|entry| entry.action_step == 1986)
         .expect("terminal Armaments action disposition");
-    assert_eq!(
-        endpoint.disposition,
-        ActionDispositionKind::PendingTransient
-    );
+    assert_eq!(endpoint.disposition, ActionDispositionKind::Verified);
     assert!(!endpoint.deferred_assertion_reconciled);
     assert_eq!(
         report
@@ -1812,7 +1781,7 @@ fn session38_hex_dazed_reconciles_stable_selection_and_names_unresolved_endpoint
             .as_ref()
             .expect("action integrity")
             .unresolved_transient_assertions,
-        1
+        0
     );
 }
 

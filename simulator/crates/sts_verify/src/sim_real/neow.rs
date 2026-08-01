@@ -10,6 +10,7 @@ pub(super) fn ironclad_starter_deck_keys() -> Vec<String> {
     .collect()
 }
 
+#[allow(dead_code)]
 pub(super) fn seed_start_generated_transform_card(numeric_seed: i64) -> Option<String> {
     generate_neow_transform_reward(numeric_seed, &[STRIKE_R_ID])
         .cards
@@ -640,6 +641,7 @@ pub(super) fn seed_start_apply_neow_relic_reward_for_ascension_with_hp(
     run
 }
 
+#[allow(dead_code)]
 pub(super) fn seed_start_newest_trace_relic_name(run: &RunState) -> String {
     run.relics
         .iter()

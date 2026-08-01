@@ -62,6 +62,12 @@ pub struct PlayerPowers {
     /// Added to each hit of that card, then removed when the card is played.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub vigor: i32,
+    /// Watcher Divinity stance: attack damage is tripled while > 0.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub divinity: i32,
+    /// EndTurnDeathPower from Blasphemy: kill the player at end of turn while > 0.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub end_turn_death: i32,
     /// Time Eater's one-stack DrawReductionPower remains visible after its
     /// first reduced opening draw and expires after the following one.
     #[serde(default, skip_serializing_if = "is_zero_i32")]

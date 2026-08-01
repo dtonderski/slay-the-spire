@@ -3,7 +3,6 @@
 const fs = require("fs");
 const path = require("path");
 const {
-  acquireDirectoryLock,
   promoteDistinctFailure,
 } = require("./random_fidelity_collector");
 
@@ -14,9 +13,6 @@ const outputDir = path.resolve(
 );
 const tasksDir = path.join(outputDir, "repair_tasks");
 const pollMs = Number.parseInt(process.env.STS_RANDOM_PROMOTE_POLL_MS || "1000", 10);
-const corpusRoot = path.join(root, "simulator", "verification", "corpus");
-const manifestPath = path.join(corpusRoot, "permanent_traces.json");
-const manifestLockPath = path.join(corpusRoot, ".permanent-traces.lock");
 
 if (!Number.isInteger(pollMs) || pollMs < 1) {
   throw new Error("STS_RANDOM_PROMOTE_POLL_MS must be a positive integer");
@@ -63,76 +59,9 @@ function promotionCandidate(task, traceExists = fs.existsSync) {
   };
 }
 
-function expectationForTask(task, traceText) {
-  if (task.status !== "resolved") {
-    return {
-      kind: "expected_boundary",
-      boundary: {
-        path: task.boundary.path,
-        category: task.boundary.category,
-      },
-    };
-  }
-  const lastActionStep = traceText
-    .split(/\r?\n/)
-    .filter(Boolean)
-    .flatMap((line) => {
-      try {
-        const record = JSON.parse(line);
-        return record.type === "action" && Number.isInteger(record.step)
-          ? [record.step]
-          : [];
-      } catch {
-        return [];
-      }
-    })
-    .reduce((maximum, step) => Math.max(maximum, step), 0);
-  if (lastActionStep < 1) {
-    throw new Error(`resolved trace for ${task.fingerprint} has no action step`);
-  }
-  return {
-    kind: "retained_prefix",
-    endpoint: {
-      action_step: lastActionStep,
-      label: `resolved random-fidelity regression ${task.fingerprint}`,
-    },
-  };
-}
-
-function withManifestLock(callback) {
-  acquireDirectoryLock(manifestLockPath);
-  try {
-    return callback();
-  } finally {
-    fs.rmdirSync(manifestLockPath);
-  }
-}
-
-function reconcileExpectation(task, candidate) {
-  const traceName = `random-fidelity-${task.fingerprint}.jsonl`;
-  const permanentTracePath = path.join(corpusRoot, "permanent_traces", traceName);
-  if (!fs.existsSync(permanentTracePath)) return false;
-  const expectation = expectationForTask(
-    task,
-    fs.readFileSync(permanentTracePath, "utf8"),
-  );
-  return withManifestLock(() => {
-    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    const entry = manifest.entries.find((value) => value.trace === traceName);
-    if (!entry) return false;
-    if (JSON.stringify(entry.expectation) === JSON.stringify(expectation)) return false;
-    entry.expectation = expectation;
-    const temporary = `${manifestPath}.tmp-${process.pid}`;
-    fs.writeFileSync(temporary, `${JSON.stringify(manifest, null, 2)}\n`);
-    fs.renameSync(temporary, manifestPath);
-    return true;
-  });
-}
-
 function promotePending(tasks = readTasks()) {
   let added = 0;
   let existing = 0;
-  let expectationsUpdated = 0;
   let skipped = 0;
   for (const task of tasks) {
     const candidate = promotionCandidate(task);
@@ -143,16 +72,15 @@ function promotePending(tasks = readTasks()) {
     const result = promoteDistinctFailure(candidate);
     if (result?.added) added += 1;
     else existing += 1;
-    if (reconcileExpectation(task, candidate)) expectationsUpdated += 1;
   }
-  return { added, existing, expectations_updated: expectationsUpdated, skipped };
+  return { added, existing, expectations_updated: 0, skipped };
 }
 
 async function main() {
   console.error(`random permanent-corpus promoter ready: ${tasksDir}`);
   for (;;) {
     const summary = promotePending();
-    if (summary.added > 0 || summary.expectations_updated > 0) {
+    if (summary.added > 0) {
       console.log(JSON.stringify({
         promoted_at: new Date().toISOString(),
         ...summary,
@@ -170,9 +98,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  expectationForTask,
   promotionCandidate,
   promotePending,
-  reconcileExpectation,
   readTasks,
 };

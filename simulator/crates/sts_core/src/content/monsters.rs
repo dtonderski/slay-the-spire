@@ -3815,6 +3815,7 @@ pub fn monster_state_for_ascension(
         },
         alive: true,
         escaped: false,
+        vulnerable_just_applied: false,
         powers: MonsterPowers {
             spikes: if definition.content_id == SPIKER_ID {
                 spiker_starting_thorns(ascension)
@@ -3879,6 +3880,12 @@ pub fn monster_state_for_ascension(
             },
             anger: if definition.content_id == GREMLIN_WARRIOR_ID {
                 gremlin_warrior_anger(ascension)
+            } else {
+                0
+            },
+            // Orb Walker GenericStrengthUpPower — amount applied each end of turn.
+            strength_up: if definition.content_id == ORB_WALKER_ID {
+                ORB_WALKER_STRENGTH_UP
             } else {
                 0
             },
@@ -9872,7 +9879,7 @@ pub fn target_large_acid_slime_next_intent_from_roll(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(dead_code, clippy::too_many_arguments)]
 pub(crate) fn apply_monster_intent_with_card_rng(
     monster: &mut MonsterState,
     player: &mut crate::PlayerState,
@@ -10477,9 +10484,7 @@ fn apply_monster_intent_with_card_rng_inner(
     if monster.alive && block_after_thorns > 0 {
         checked_add_monster_intent_value(&mut monster.block, block_after_thorns)?;
     }
-    if monster.alive && thorns_hits > 0 && monster.powers.strength_up > 0 {
-        checked_add_monster_intent_value(&mut monster.powers.strength, monster.powers.strength_up)?;
-    }
+    // strength_up (Orb Walker) applies at end of turn via turn_powers, not mid-attack.
     if monster.content_id == GUARDIAN_ID
         && monster.in_defensive_mode
         && guardian_was_in_defensive_mode
@@ -10514,7 +10519,7 @@ fn player_survives_monster_hit(
     let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(player, damage);
     let blocked = player.block.min(incoming);
     let mitigated = crate::relic::mitigate_unblocked_attack_damage(relics, incoming - blocked);
-    let mut powers = player.powers.clone();
+    let mut powers = player.powers;
     let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut powers, mitigated);
     player.hp > hp_damage
 }
@@ -13155,7 +13160,6 @@ mod tests {
         );
 
         for (definition, content_id) in [
-            (&AWAKENED_ONE_A0, AWAKENED_ONE_ID),
             (&CORRUPT_HEART_A0, CORRUPT_HEART_ID),
             (&SPIRE_SHIELD_A0, SPIRE_SHIELD_ID),
             (&SPIRE_SPEAR_A0, SPIRE_SPEAR_ID),
@@ -13166,6 +13170,12 @@ mod tests {
                 Err(SimError::UnsupportedMechanic(content_id))
             );
         }
+
+        let awakened_one = monster_state(&AWAKENED_ONE_A0, MonsterId::new(1));
+        assert_eq!(
+            prepare_monster_intent_for_ascension(&awakened_one, 0),
+            Ok(MonsterIntent::Attack { damage: 20 })
+        );
 
         let time_eater = monster_state(&TIME_EATER_A0, MonsterId::new(1));
         assert_eq!(

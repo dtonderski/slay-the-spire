@@ -9,6 +9,8 @@ pub enum SimError {
     UnknownMonster(MonsterId),
     UnknownContent(ContentId),
     UnsupportedMechanic(ContentId),
+    MissingExternalRng(&'static str),
+    ExternalRngMismatch(&'static str),
     UnknownMapNode(MapNodeId),
     InvalidState(&'static str),
 }
@@ -22,6 +24,12 @@ impl fmt::Display for SimError {
             Self::UnknownMonster(id) => write!(f, "unknown monster: {id}"),
             Self::UnknownContent(id) => write!(f, "unknown content: {id}"),
             Self::UnsupportedMechanic(id) => write!(f, "unsupported mechanic: {id}"),
+            Self::MissingExternalRng(purpose) => {
+                write!(f, "missing_external_rng: {purpose}")
+            }
+            Self::ExternalRngMismatch(purpose) => {
+                write!(f, "external_rng_mismatch: {purpose}")
+            }
             Self::UnknownMapNode(id) => write!(f, "unknown map node: {id}"),
             Self::InvalidState(message) => write!(f, "invalid state: {message}"),
         }

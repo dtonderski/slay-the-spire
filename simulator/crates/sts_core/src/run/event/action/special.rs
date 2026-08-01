@@ -164,9 +164,15 @@ pub(super) fn apply_special_event_action(
                     event_data: 0,
                 });
             }
+            // Leave from the root page still opens the intermediate Leave page
+            // (FIDL00245 / FIDL00383): CM captures Drink|Leave → Leave → MAP.
             0 if choice_index == 1 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(EventScreen {
+                    event: Event::FountainOfCleansing,
+                    choices: fountain_of_cleansing_choices(1),
+                    stage: 1,
+                    event_data: 0,
+                });
             }
             1 if choice_index == 0 => {
                 next.phase = RunPhase::Idle;

@@ -69,11 +69,19 @@ const DISCOVERY_ACTION_SKIPPED_SCREEN_SETTLE_DRAWS: usize = 3;
 // Hand-played Discovery (decision.source_card holds the limbo source; card not yet
 // exhausted) — permanent random-fidelity-f019eccf586137c4: after the same open,
 // seven full post-pick generations are required before Magnetism's start-of-turn
-// colorless roll (Dramatic Entrance). Two gens + two settles under-burn and roll
-// Transmutation instead.
+// source-pool colorless roll (Dramatic Entrance). The selected-card action can
+// remain active across later END boundaries; its invisible updates are settled
+// in the staged lifecycle below rather than re-anchoring a later observation.
 const FORCE_EXHAUST_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 2;
 const FORCE_EXHAUST_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS: usize = 2;
 const HAND_PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 7;
+const HAND_PLAYED_DISCOVERY_DEFERRED_HIDDEN_GENERATIONS: u32 = 26;
+const HAND_PLAYED_DISCOVERY_DEFERRED_SETTLE_DRAWS: usize = 1;
+const HAND_PLAYED_DISCOVERY_SECOND_DEFERRED_HIDDEN_GENERATIONS: usize = 11;
+const HAND_PLAYED_DISCOVERY_SECOND_DEFERRED_SETTLE_DRAWS: usize = 2;
+const HAND_PLAYED_DISCOVERY_THIRD_DEFERRED_SETTLE_DRAWS: usize = 1;
+const HAND_PLAYED_DISCOVERY_FOURTH_DEFERRED_SETTLE_DRAWS: usize = 2;
+const HAND_PLAYED_DISCOVERY_FINAL_DEFERRED_SETTLE_DRAWS: usize = 1;
 const HAND_PLAYED_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS: usize = 0;
 const POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS: usize = 12;
 const POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
@@ -464,10 +472,7 @@ pub fn apply_exhaust_select_confirm(run: &RunState) -> SimResult<RunState> {
 }
 
 /// Attach post-select combat and open rewards when CONFIRM left combat Won.
-fn settle_run_after_select_confirm(
-    mut next: RunState,
-    combat: CombatState,
-) -> SimResult<RunState> {
+fn settle_run_after_select_confirm(mut next: RunState, combat: CombatState) -> SimResult<RunState> {
     next.store_rng_counter(RunRngStream::CardRandom, &combat.rng.card_random_rng);
     next.player_hp = combat.player.hp;
     next.player_max_hp = combat.player.max_hp;
@@ -594,7 +599,12 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             card.temp_cost_turn_only = true;
             // DiscoveryAction adds the generated card after the cards already in hand.
             combat.piles.hand.push(card);
+            let hand_played_discovery = source_card.is_some();
             close_discovery_source_card(combat, source_card)?;
+            if hand_played_discovery {
+                combat.pending_hand_discovery_card_reward_stage = 1;
+                combat.pending_hand_discovery_card_reward_end_turns_remaining = 1;
+            }
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
         }
         CombatDecisionState::ToolboxCardReward { choices } => {
@@ -702,6 +712,73 @@ fn settle_potion_card_reward_rng(
         PotionCardRewardKind::Colorless => {
             burn_colorless_discovery_card_choice_generations(rng, 3, hidden_generations);
             burn_colorless_discovery_card_choice_draws(rng, settle_draws);
+        }
+    }
+}
+
+pub(crate) fn settle_pending_hand_discovery_card_reward_rng(combat: &mut CombatState) {
+    let stage = combat.pending_hand_discovery_card_reward_stage;
+    if stage == 0 {
+        return;
+    }
+    let remaining = &mut combat.pending_hand_discovery_card_reward_end_turns_remaining;
+    if *remaining > 1 {
+        *remaining -= 1;
+        return;
+    }
+    *remaining = 0;
+    match stage {
+        1 => {
+            burn_all_discovery_card_choice_generations(
+                &mut combat.rng.card_random_rng,
+                3,
+                HAND_PLAYED_DISCOVERY_DEFERRED_HIDDEN_GENERATIONS as usize,
+            );
+            burn_all_discovery_card_choice_draws(
+                &mut combat.rng.card_random_rng,
+                HAND_PLAYED_DISCOVERY_DEFERRED_SETTLE_DRAWS,
+            );
+            combat.pending_hand_discovery_card_reward_stage = 2;
+            combat.pending_hand_discovery_card_reward_end_turns_remaining = 2;
+        }
+        2 => {
+            burn_all_discovery_card_choice_generations(
+                &mut combat.rng.card_random_rng,
+                3,
+                HAND_PLAYED_DISCOVERY_SECOND_DEFERRED_HIDDEN_GENERATIONS,
+            );
+            burn_all_discovery_card_choice_draws(
+                &mut combat.rng.card_random_rng,
+                HAND_PLAYED_DISCOVERY_SECOND_DEFERRED_SETTLE_DRAWS,
+            );
+            combat.pending_hand_discovery_card_reward_stage = 3;
+            combat.pending_hand_discovery_card_reward_end_turns_remaining = 1;
+        }
+        3 => {
+            burn_all_discovery_card_choice_draws(
+                &mut combat.rng.card_random_rng,
+                HAND_PLAYED_DISCOVERY_THIRD_DEFERRED_SETTLE_DRAWS,
+            );
+            combat.pending_hand_discovery_card_reward_stage = 4;
+            combat.pending_hand_discovery_card_reward_end_turns_remaining = 1;
+        }
+        4 => {
+            burn_all_discovery_card_choice_draws(
+                &mut combat.rng.card_random_rng,
+                HAND_PLAYED_DISCOVERY_FOURTH_DEFERRED_SETTLE_DRAWS,
+            );
+            combat.pending_hand_discovery_card_reward_stage = 5;
+            combat.pending_hand_discovery_card_reward_end_turns_remaining = 1;
+        }
+        5 => {
+            burn_all_discovery_card_choice_draws(
+                &mut combat.rng.card_random_rng,
+                HAND_PLAYED_DISCOVERY_FINAL_DEFERRED_SETTLE_DRAWS,
+            );
+            combat.pending_hand_discovery_card_reward_stage = 0;
+        }
+        _ => {
+            combat.pending_hand_discovery_card_reward_stage = 0;
         }
     }
 }
@@ -1097,6 +1174,8 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     next.player_hp = combat.player.hp;
                     next.player_max_hp = combat.player.max_hp;
                     next.pending_event_combat_gold_offer = 0;
+                    next.pending_event_combat_gold_bonus = 0;
+                    next.pending_event_combat_elite_gold = false;
                     next.pending_event_combat_relic_offer = None;
                     next.reward = None;
                     next.phase = RunPhase::Idle;
@@ -1416,9 +1495,8 @@ mod tests {
         let after_choose =
             apply_run_action(&after_play, RunAction::ChooseExhaustSelect { index: 0 })
                 .expect("select Burn");
-        let after_confirm =
-            apply_run_action(&after_choose, RunAction::ConfirmExhaustSelect)
-                .expect("confirm Burning Pact");
+        let after_confirm = apply_run_action(&after_choose, RunAction::ConfirmExhaustSelect)
+            .expect("confirm Burning Pact");
 
         assert_eq!(
             after_confirm.phase,

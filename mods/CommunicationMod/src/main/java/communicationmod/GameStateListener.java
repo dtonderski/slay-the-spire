@@ -79,6 +79,7 @@ public class GameStateListener {
      * Resets all state detection variables for the start of a new run.
      */
     public static void resetStateVariables() {
+        ExternalRngCapture.clearPending();
         previousScreen = null;
         previousScreenUp = false;
         previousPhase = null;

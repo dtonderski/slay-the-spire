@@ -61,7 +61,7 @@ pub use relic::{
     ODDLY_SMOOTH_STONE_ID, ORNAMENTAL_FAN_BLOCK, ORNAMENTAL_FAN_ID, ORNAMENTAL_FAN_THRESHOLD,
     STRAWBERRY_ID, STRAWBERRY_MAX_HP, VAJRA_ID, VAJRA_STRENGTH,
 };
-pub use rng::{JavaRng, StsRng};
+pub use rng::{ExternalRngInput, ExternalRngKind, JavaRng, MathUtilsRngState, StsRng};
 pub use run::{
     advance_card_rng_for_combat_entry, affordable_shop_picks, apply_combat_action_on_run,
     apply_event_action, apply_initial_monster_ai_rolls, apply_map_action_on_run,

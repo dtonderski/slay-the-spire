@@ -14,8 +14,8 @@ use crate::{
             monster_state_for_ascension, record_target_move,
             target_monster_hp_range_for_content_id, MonsterDefinition, BANDIT_BEAR_A0,
             BANDIT_LEADER_A0, BANDIT_POINTY_A0, FUNGI_BEAST_A0, GREMLIN_NOB_A0, GUARDIAN_A0,
-            HEXAGHOST_A0, LAGAVULIN_EVENT_A0, ORB_WALKER_A0, SENTRY_A0, SLAVER_BLUE_A0,
-            SLAVER_RED_A0, SLIME_BOSS_A0, TASKMASTER_A0,
+            HEXAGHOST_A0, LAGAVULIN_EVENT_A0, ORB_WALKER_A0, ORB_WALKER_ID, SENTRY_A0,
+            SLAVER_BLUE_A0, SLAVER_RED_A0, SLIME_BOSS_A0, TASKMASTER_A0,
         },
         reward_pool::{random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
         shop_pool::{colorless_match_and_keep_pool, random_colorless_from_pool},
@@ -207,13 +207,13 @@ pub fn vampires_max_hp_loss(max_hp: i32) -> i32 {
 }
 
 fn replace_starter_strikes_with_bites(run: &mut RunState) -> SimResult<()> {
-    let mut next = run.clone();
-    next.deck
+    // Remove Strikes immediately; queue Bites until Leave so Ceramic Fish gold
+    // lands on the leave transition (FIDL00397: gold stays put until Leave).
+    run.deck
         .retain(|card| !matches!(card.content_id, STRIKE_R_ID | STRIKE_R_PLUS_ID));
     for _ in 0..VAMPIRES_BITE_COUNT {
-        next.gain_deck_card(BITE_ID)?;
+        run.queue_pending_obtain_card(BITE_ID);
     }
-    *run = next;
     Ok(())
 }
 
@@ -490,9 +490,30 @@ fn dead_adventurer_attempts(event_data: u32) -> u8 {
 }
 
 const DEAD_ADVENTURER_PENDING_ENCOUNTER: u32 = 1 << 10;
+/// Set when search already granted the event's relic loot (type 2).
+/// Post-combat then skips the elite relic (FIDL00229 vs d6d3 / FIDL00270).
+const DEAD_ADVENTURER_SEARCH_RELIC_CLAIMED: u32 = 1 << 11;
+/// Set when search already granted the fixed 30-gold loot (type 0).
+const DEAD_ADVENTURER_SEARCH_GOLD_CLAIMED: u32 = 1 << 12;
 
 fn dead_adventurer_pending_encounter(event_data: u32) -> bool {
     event_data & DEAD_ADVENTURER_PENDING_ENCOUNTER != 0
+}
+
+fn dead_adventurer_search_relic_claimed(event_data: u32) -> bool {
+    event_data & DEAD_ADVENTURER_SEARCH_RELIC_CLAIMED != 0
+}
+
+fn dead_adventurer_search_gold_claimed(event_data: u32) -> bool {
+    event_data & DEAD_ADVENTURER_SEARCH_GOLD_CLAIMED != 0
+}
+
+fn dead_adventurer_with_search_relic_claimed(event_data: u32) -> u32 {
+    event_data | DEAD_ADVENTURER_SEARCH_RELIC_CLAIMED
+}
+
+fn dead_adventurer_with_search_gold_claimed(event_data: u32) -> u32 {
+    event_data | DEAD_ADVENTURER_SEARCH_GOLD_CLAIMED
 }
 
 pub(super) fn validate_event_screen_authority(
@@ -1301,7 +1322,8 @@ pub(super) fn validate_event_screen_authority(
             }
         }
         Event::DeadAdventurer => {
-            if screen.event_data & !0x7ff != 0 {
+            // bits 0–9 order/enemy/attempts, 10 pending, 11 search relic, 12 search gold
+            if screen.event_data & !0x1fff != 0 {
                 return Err(SimError::InvalidState(
                     "Dead Adventurer event data has unknown bits",
                 ));
@@ -1576,6 +1598,7 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                         && pending.is_empty())
             }
             (Event::HypnotizingColoredMushrooms, 1) => pending == [PARASITE_ID],
+            (Event::MindBloom, 1) => pending.is_empty() || pending == [NORMALITY_ID, NORMALITY_ID],
             (Event::BigFish, 1) if screen.event_data == 0 => {
                 pending == [REGRET_ID] || (run.player_max_hp / 3 == 0 && pending.is_empty())
             }
@@ -1594,6 +1617,12 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             (Event::AccursedBlacksmith, 1) => pending.is_empty() || pending == [PAIN_ID],
             (Event::GoldenShrine, 1) => pending.is_empty() || pending == [REGRET_ID],
             (Event::ForgottenAltar, 1) => pending.is_empty() || pending == [DECAY_ID],
+            // Accept queues 5 Bites until Leave; Refuse leaves pending empty.
+            (Event::Vampires, 1) => {
+                pending.is_empty()
+                    || (pending.len() == VAMPIRES_BITE_COUNT
+                        && pending.iter().all(|id| *id == BITE_ID))
+            }
             (Event::DrugDealer, 1) => pending.is_empty() || pending == [JAX_ID],
             (Event::Addict, 1) => pending.is_empty() || pending == [SHAME_ID],
             (Event::Duplicator, 2) => pending.is_empty() || pending.len() == 1,
@@ -1826,15 +1855,26 @@ fn remove_relic_key(run: &mut RunState, key: RelicKey) -> bool {
 }
 
 fn give_forgotten_altar_idol(run: &mut RunState) -> SimResult<()> {
-    if !remove_relic_key(run, RelicKey::GoldenIdol) {
+    // STS replaces Golden Idol in-place with Bloody Idol (FIDL00395 relic order).
+    let Some(index) = run
+        .relics
+        .iter()
+        .position(|relic| relic.key() == RelicKey::GoldenIdol)
+    else {
         return Err(SimError::IllegalAction(
             "Forgotten Altar Give Idol requires Golden Idol",
         ));
-    }
+    };
+    run.relics.remove(index);
     if has_relic_key(run, RelicKey::BloodyIdol) {
         run.gain_relic_key(RelicKey::Circlet)?;
     } else {
-        run.gain_relic_key(RelicKey::BloodyIdol)?;
+        // Insert at the Golden Idol slot so acquisition order is preserved.
+        run.relics.insert(index, Relic::BloodyIdol);
+        if let Some(pools) = run.relic_pools.as_mut() {
+            pools.remove_relic(RelicKey::BloodyIdol);
+        }
+        // On-equip side effects for Bloody Idol are none; keep parity with gain_relic_key.
     }
     Ok(())
 }
@@ -3778,7 +3818,10 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
 
 pub(crate) fn enter_spire_heart_event(run: &mut RunState) -> SimResult<()> {
     run.advance_floor()?;
+    // Floor 50 boss → 51 Spire Heart is a real floor climb. Maw Bank (and
+    // Ssserpent Head on event rooms) fire on entry — FIDL00256/262/265 +12 gold.
     run.current_room_override = Some(crate::map::RoomKind::Victory);
+    run.apply_floor_entry_relics()?;
     run.phase = RunPhase::Event;
     run.combat = None;
     run.reward = None;
@@ -4188,6 +4231,20 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
     Ok(true)
 }
 
+/// Elite event fights (Dead Adventurer, Mysterious Sphere, …) temporarily mark
+/// the room as Elite so Slaver's Collar / Preserved Insect fire, then restore
+/// the Event override so post-combat room identity stays event-backed.
+fn enter_event_elite_combat(
+    run: &mut RunState,
+    definitions: &[&MonsterDefinition],
+) -> SimResult<()> {
+    let previous = run.current_room_override;
+    run.current_room_override = Some(crate::map::RoomKind::Elite);
+    let result = enter_event_combat(run, definitions);
+    run.current_room_override = previous;
+    result
+}
+
 fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) -> SimResult<()> {
     let (mut shuffle_rng, mut monster_rng, mut monster_hp_rng, mut card_random_rng) =
         if let Some(rng) = run.pending_event_combat_rng.take() {
@@ -4227,6 +4284,12 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) ->
             if let Some(range) =
                 target_monster_hp_range_for_content_id(definition.content_id, run.ascension)
             {
+                // OrbWalker constructor burns one monsterHpRng draw before setHp
+                // (see target_orb_walker_hp). Without it both walkers can collapse
+                // to the same roll (FIDL00228: 96/96 vs 96/90).
+                if definition.content_id == ORB_WALKER_ID {
+                    let _constructor_hp_roll = monster_hp_rng.random_int(0);
+                }
                 let max_hp = range.roll(&mut monster_hp_rng);
                 monster.hp = max_hp;
                 monster.max_hp = max_hp;
@@ -5327,7 +5390,8 @@ mod tests {
         let fight = apply_event_action(&reveal, EventAction::Choose { choice_index: 0 })
             .expect("fight should enter combat");
         assert_eq!(fight.phase, RunPhase::Combat);
-        assert!((25..=35).contains(&fight.pending_event_combat_gold_offer));
+        // goldAmount (25–35) + unclaimed search GOLD loot (30).
+        assert!((55..=65).contains(&fight.pending_event_combat_gold_offer));
         assert_eq!(fight.misc_rng_counter, misc_counter_before_fight + 1);
         assert_eq!(fight.treasure_rng_counter, treasure_counter_before_fight);
         assert_eq!(fight.pending_event_combat_relic_offer, Some(expected_relic));
@@ -6543,7 +6607,7 @@ mod tests {
     }
 
     #[test]
-    fn secret_portal_fails_closed_at_unmodeled_act_three_boss_combat() {
+    fn secret_portal_enters_supported_act_three_boss_combat() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 3;
         run.playtime_seconds = 800;
@@ -6552,14 +6616,19 @@ mod tests {
 
         let after_accept = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("Secret Portal accept applies");
-        let before_transition = after_accept.clone();
-        assert_eq!(
-            apply_event_action(&after_accept, EventAction::Choose { choice_index: 0 }),
-            Err(SimError::UnsupportedMechanic(
-                crate::content::monsters::AWAKENED_ONE_ID
-            ))
-        );
-        assert_eq!(after_accept, before_transition);
+        let after_continue =
+            apply_event_action(&after_accept, EventAction::Choose { choice_index: 0 })
+                .expect("Secret Portal boss combat is source-backed");
+        assert_eq!(after_continue.phase, RunPhase::Combat);
+        let monsters = &after_continue
+            .combat
+            .as_ref()
+            .expect("boss combat")
+            .monsters;
+        assert_eq!(monsters.len(), 3);
+        assert!(monsters
+            .iter()
+            .any(|monster| monster.content_id == crate::content::monsters::AWAKENED_ONE_ID));
     }
     #[test]
     fn transmogrifier_pray_returns_to_leave_after_transform() {
@@ -7659,7 +7728,7 @@ mod tests {
             ),
             (
                 Event::MysteriousSphere,
-                2,
+                3,
                 "Mysterious Sphere stage is invalid",
                 "Mysterious Sphere retains unexpected event data",
                 "Mysterious Sphere choices do not match its stage",
@@ -8254,19 +8323,32 @@ mod tests {
             .deck
             .iter()
             .any(|card| matches!(card.content_id, STRIKE_R_ID | STRIKE_R_PLUS_ID)));
+        // Bites stay pending until Leave (Ceramic Fish gold timing).
+        assert_eq!(
+            accepted.pending_obtain_cards,
+            vec![BITE_ID; VAMPIRES_BITE_COUNT]
+        );
         assert_eq!(
             accepted
                 .deck
                 .iter()
                 .filter(|card| card.content_id == BITE_ID)
                 .count(),
-            VAMPIRES_BITE_COUNT
+            0
         );
 
         let left = apply_event_action(&accepted, EventAction::Choose { choice_index: 0 })
             .expect("Vampires leave returns to map");
         assert_eq!(left.phase, RunPhase::Idle);
         assert!(left.event.is_none());
+        assert!(left.pending_obtain_cards.is_empty());
+        assert_eq!(
+            left.deck
+                .iter()
+                .filter(|card| card.content_id == BITE_ID)
+                .count(),
+            VAMPIRES_BITE_COUNT
+        );
     }
 
     #[test]
@@ -8625,6 +8707,35 @@ mod tests {
     }
 
     #[test]
+    fn fountain_of_cleansing_root_leave_opens_intermediate_leave_page() {
+        // FIDL00245/FIDL00383: Leave from the Drink|Leave root still stages a
+        // single Leave page before returning to the map.
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::FountainOfCleansing));
+
+        let after_root_leave = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("Fountain root Leave opens leave page");
+        assert_eq!(after_root_leave.phase, RunPhase::Event);
+        let screen = after_root_leave.event.as_ref().expect("leave page");
+        assert_eq!(screen.stage, 1);
+        assert_eq!(
+            screen
+                .choices
+                .iter()
+                .map(|c| c.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Leave"]
+        );
+
+        let after_confirm =
+            apply_event_action(&after_root_leave, EventAction::Choose { choice_index: 0 })
+                .expect("Leave confirm exits");
+        assert_eq!(after_confirm.phase, RunPhase::Idle);
+        assert!(after_confirm.event.is_none());
+    }
+
+    #[test]
     fn fountain_of_cleansing_drink_applies_parasite_max_hp_loss() {
         // Target: Parasite "If transformed or removed from your deck, lose 3 Max HP."
         // Fountain of Cleansing removes cleansable curses via deck removal, so
@@ -8932,17 +9043,11 @@ mod tests {
         );
         assert_eq!(after_open.phase, RunPhase::Event);
 
-        let after_fight =
-            apply_event_action(&after_open, EventAction::Choose { choice_index: 0 })
-                .expect("Fight enters Orb Walker combat");
+        let after_fight = apply_event_action(&after_open, EventAction::Choose { choice_index: 0 })
+            .expect("Fight enters Orb Walker combat");
         assert_eq!(after_fight.phase, RunPhase::Combat);
         assert_eq!(
-            after_fight
-                .combat
-                .as_ref()
-                .expect("combat")
-                .monsters
-                .len(),
+            after_fight.combat.as_ref().expect("combat").monsters.len(),
             2
         );
     }
@@ -9060,6 +9165,31 @@ mod tests {
     }
 
     #[test]
+    fn forgotten_altar_offer_idol_replaces_golden_idol_in_place() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.relics = vec![
+            Relic::BurningBlood,
+            Relic::GoldenIdol,
+            Relic::RedSkull,
+            Relic::PandorasBox,
+        ];
+        run.event = Some(event_screen_for_run(&run, Event::ForgottenAltar));
+
+        let after = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Forgotten Altar offer idol applies");
+        assert_eq!(
+            after.relics,
+            vec![
+                Relic::BurningBlood,
+                Relic::BloodyIdol,
+                Relic::RedSkull,
+                Relic::PandorasBox,
+            ]
+        );
+    }
+
+    #[test]
     fn mind_bloom_third_choice_changes_after_floor_forty() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_floor = 39;
@@ -9102,9 +9232,24 @@ mod tests {
                 .iter()
                 .filter(|card| card.content_id == NORMALITY_ID)
                 .count(),
-            2
+            0
+        );
+        assert_eq!(
+            after_gold.pending_obtain_cards,
+            vec![NORMALITY_ID, NORMALITY_ID]
         );
         assert_eq!(after_gold.event.as_ref().expect("leave screen").stage, 1);
+
+        let settled = apply_event_action(&after_gold, EventAction::Choose { choice_index: 0 })
+            .expect("Mind Bloom leave settles cards");
+        assert_eq!(
+            settled
+                .deck
+                .iter()
+                .filter(|card| card.content_id == NORMALITY_ID)
+                .count(),
+            2
+        );
     }
 
     #[test]

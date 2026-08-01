@@ -144,42 +144,32 @@ function expectedHashes(candidate) {
 function snapshotPermanentCorpus(sourceCorpus, destinationCorpus) {
   fs.rmSync(destinationCorpus, { recursive: true, force: true });
   fs.mkdirSync(path.join(destinationCorpus, "permanent_traces"), { recursive: true });
-  fs.copyFileSync(
-    path.join(sourceCorpus, "permanent_traces.json"),
-    path.join(destinationCorpus, "permanent_traces.json"),
-  );
-  for (const name of fs.readdirSync(path.join(sourceCorpus, "permanent_traces"))) {
+  const sourceTraces = path.join(sourceCorpus, "permanent_traces");
+  if (!fs.existsSync(sourceTraces)) return;
+  for (const name of fs.readdirSync(sourceTraces)) {
     fs.symlinkSync(
-      path.join(sourceCorpus, "permanent_traces", name),
+      path.join(sourceTraces, name),
       path.join(destinationCorpus, "permanent_traces", name),
     );
+  }
+  // Optional non-gating witness shelf.
+  const sourceOpen = path.join(sourceCorpus, "open_failures");
+  if (fs.existsSync(sourceOpen)) {
+    fs.mkdirSync(path.join(destinationCorpus, "open_failures"), { recursive: true });
+    for (const name of fs.readdirSync(sourceOpen)) {
+      fs.symlinkSync(
+        path.join(sourceOpen, name),
+        path.join(destinationCorpus, "open_failures", name),
+      );
+    }
   }
 }
 
 function retainResolvedPrefix(stageRoot, fingerprint) {
-  const manifestPath = path.join(
-    stageRoot,
-    "simulator",
-    "verification",
-    "corpus",
-    "permanent_traces.json",
-  );
-  const traceName = `random-fidelity-${fingerprint}.jsonl`;
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  const entry = manifest.entries.find((value) => value.trace === traceName);
-  if (!entry) throw new Error(`staging manifest has no ${traceName}`);
-  const traceText = fs.readFileSync(
-    path.join(stageRoot, "simulator", "verification", "corpus", "permanent_traces", traceName),
-    "utf8",
-  );
-  const { expectationForTask } = require(
-    path.join(stageRoot, "tools", "communication", "random_fidelity_corpus_promoter.js"),
-  );
-  entry.expectation = expectationForTask(
-    { fingerprint, status: "resolved" },
-    traceText,
-  );
-  writeJsonAtomic(manifestPath, manifest);
+  // No expectation manifest to update. Green corpus is clean-through-EOF files
+  // under permanent_traces/; resolved repairs keep the jsonl already present.
+  void stageRoot;
+  void fingerprint;
 }
 
 async function verifyFocused({ stageRoot, task, stageOutput, targetDir }) {

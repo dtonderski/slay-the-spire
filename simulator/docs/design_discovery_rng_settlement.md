@@ -23,8 +23,22 @@ does not change potion or typed Discovery settlement.
   superseded by this cleaner Infernal Blade oracle; residual True Grit RNG may
   have included non-Discovery card-random uses.
 
+## Hand-played staged settlement
+
+The active FIDL00226 source sequence provides a second lifecycle oracle. After
+hand-played Discovery's seven immediate post-pick generations, the source
+emits Magnetism cards in this order: Dramatic Entrance, Transmutation, Blind,
+Dark Shackles, Enlightenment, and Mayhem. The intervening `cardRandomRng`
+stream requires the selected action's remaining invisible updates to settle
+across END boundaries: 26 unique-choice generations plus one draw, then 11
+generations plus two draws, followed by one, two, and one final settlement
+draws. These are modeled as pending action lifecycle stages, not seed- or
+observation-specific rebinding. The same trace then plays Transmutation and
+source-generates Deep Breath, covering the next colorless RNG call.
+
 ## Verification
 
 Pin the eight-draw counter delta in the focused Discovery choice test
-(fixture counter 16 → 24), then replay
-`random-fidelity-1a50b5ada2264b05` through Infernal Blade (`category=none`).
+(fixture counter 16 → 24), replay `random-fidelity-1a50b5ada2264b05` through
+Infernal Blade (`category=none`), and replay the FIDL00226 active witness
+through EOF.

@@ -22,7 +22,6 @@ pub(crate) fn apply_end_of_player_turn_powers_before_hand(
     state: &mut CombatState,
 ) -> SimResult<()> {
     apply_player_end_of_turn_powers_for_combat_state(state, false)?;
-    apply_end_of_turn_constricted(state)?;
     if state.player.hp <= 0 {
         return Ok(());
     }
@@ -83,7 +82,7 @@ fn apply_player_end_of_turn_powers_for_combat_state(
     Ok(())
 }
 
-fn apply_end_of_turn_constricted(state: &mut CombatState) -> SimResult<()> {
+pub(crate) fn apply_end_of_turn_constricted(state: &mut CombatState) -> SimResult<()> {
     if state.player.powers.constricted <= 0 {
         return Ok(());
     }
@@ -188,12 +187,16 @@ fn deal_unmodified_damage_to_living_monsters(
         .collect::<Vec<MonsterId>>();
 
     for target in targets {
+        // Prior death hooks (e.g. Gremlin Horn / multi-enemy) may already have
+        // killed a later collected target — skip rather than panic (FIDL00408).
+        let Some(monster) = state
+            .monsters
+            .iter_mut()
+            .find(|monster| monster.id == target && monster.alive)
+        else {
+            continue;
+        };
         let killed = {
-            let monster = state
-                .monsters
-                .iter_mut()
-                .find(|monster| monster.id == target && monster.alive)
-                .expect("target was collected from living monsters");
             // End-of-turn damage (Combust, bombs) must not enter Guardian Mode
             // Shift immediately: defensive block is queued after monster
             // pre-turn loseBlock in the target action manager. Accumulate only
@@ -228,17 +231,23 @@ fn apply_end_of_monster_turn_powers_with_ritual(
     monster: &mut MonsterState,
     apply_ritual: bool,
 ) -> SimResult<()> {
-    let strength = if apply_ritual && monster.powers.ritual > 0 {
-        monster
-            .powers
-            .strength
+    let mut strength = monster.powers.strength;
+    if apply_ritual && monster.powers.ritual > 0 {
+        strength = strength
             .checked_add(monster.powers.ritual)
             .ok_or(SimError::InvalidState(
                 "monster end-turn arithmetic overflow",
-            ))?
-    } else {
-        monster.powers.strength
-    };
+            ))?;
+    }
+    // GenericStrengthUpPower (Orb Walker): gain Strength at end of turn.
+    if monster.powers.strength_up > 0 {
+        strength =
+            strength
+                .checked_add(monster.powers.strength_up)
+                .ok_or(SimError::InvalidState(
+                    "monster end-turn arithmetic overflow",
+                ))?;
+    }
     let mut block = monster.block;
     if monster.powers.metallicize > 0 {
         block = block
@@ -405,6 +414,30 @@ mod tests {
         assert_eq!(state.player.hp, 100);
         assert_eq!(state.player.block, 1);
         assert_eq!(state.relic_counters.self_forming_clay_next_turn_block, 0);
+    }
+
+    #[test]
+    fn end_turn_decay_is_blocked_before_constricted_and_does_not_trigger_rupture() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 100;
+        state.player.block = 6;
+        state.player.powers.metallicize = 6;
+        state.player.powers.constricted = 10;
+        state.player.powers.rupture = 1;
+        state.piles.hand = vec![crate::CardInstance::new(
+            crate::CardId::new(1),
+            crate::content::cards::DECAY_ID,
+        )];
+
+        apply_end_of_player_turn_powers_before_hand(&mut state)
+            .expect("pre-hand end-turn powers resolve");
+        crate::combat::hand::resolve_end_of_turn_hand(&mut state)
+            .expect("Decay resolves in hand order");
+        apply_end_of_turn_constricted(&mut state).expect("Constricted resolves after hand");
+
+        assert_eq!(state.player.hp, 100);
+        assert_eq!(state.player.block, 0);
+        assert_eq!(state.player.powers.strength, 0);
     }
 
     #[test]

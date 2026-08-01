@@ -2466,7 +2466,9 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<(
             checked_add_relic_value(&mut state.player.block, HORN_CLEAT_BLOCK)?;
         }
         CAPTAINS_WHEEL_TURN if state.relics.contains(&Relic::CaptainsWheel) => {
-            checked_add_relic_value(&mut state.player.block, CAPTAINS_WHEEL_BLOCK)?;
+            // Captain's Wheel uses GainBlockAction; Juggernaut reacts to the
+            // relic's block just as it does to card block (FIDL00244).
+            crate::combat::transition::apply_player_direct_block_gain(state, CAPTAINS_WHEEL_BLOCK)?;
         }
         _ => {}
     }
@@ -2763,6 +2765,9 @@ pub fn apply_on_card_play_relics(
         checked_increment_relic_counter(&mut state.relic_counters.pen_nib_attacks_played)?;
         if state.relic_counters.pen_nib_attacks_played >= PEN_NIB_THRESHOLD {
             state.relic_counters.pen_nib_attacks_played = 0;
+            // 10th attack deals double damage for this card (including a Double
+            // Tap copy that is the wrapping play — FIDL00421).
+            state.pen_nib_double_active = true;
         }
     }
 
@@ -2878,11 +2883,28 @@ fn deal_unmodified_damage_to_living_monsters(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<()> {
+    let targets = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| monster.id)
+        .collect::<Vec<_>>();
     let mut dead = Vec::new();
-    for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
-        crate::combat::damage::deal_unmodified_damage_to_monster(monster, amount);
-        if !monster.alive {
-            dead.push(monster.id);
+    for monster_id in targets {
+        let killed = {
+            let monster = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == monster_id)
+                .expect("Stone Calendar target still exists");
+            crate::combat::damage::deal_unmodified_damage_to_monster(monster, amount);
+            !monster.alive
+        };
+        // Relic damage crosses Slime Boss's split threshold just like card and
+        // power damage; the split must queue before the next end-turn phase.
+        crate::content::monsters::check_slime_boss_split(state, monster_id);
+        if killed {
+            dead.push(monster_id);
         }
     }
     for monster_id in dead {

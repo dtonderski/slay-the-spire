@@ -7,8 +7,7 @@ use crate::{
     content::{
         cards::{
             card_instance_is_upgradeable, get_card_definition, is_pandoras_box_removed_starter,
-            is_purgeable_card, required_upgrade_content_id, upgrade_card_instance,
-            CURSE_OF_THE_BELL_ID,
+            is_purgeable_card, upgrade_card_instance, CURSE_OF_THE_BELL_ID,
         },
         reward_pool::{
             ironclad_transform_card_content_id, ironclad_truly_random_card_pool,
@@ -1505,11 +1504,15 @@ fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) -> SimR
         .iter()
         .enumerate()
         .map(|(index, card)| -> SimResult<CardInstance> {
+            // Astrolabe transforms, then upgrades the result. Use upgrade_card_instance
+            // so Searing Blow+ carries searing_blow_upgrades (and similar metadata).
             let transformed = transform_card_content_id(card.content_id, &mut rng);
-            let content_id = required_upgrade_content_id(transformed)?;
-            Ok(CardInstance::new(
+            let base = CardInstance::new(
                 crate::ids::CardId::new(next_card_id + index as u64),
-                content_id,
+                transformed,
+            );
+            upgrade_card_instance(base)?.ok_or(SimError::InvalidState(
+                "Astrolabe transform result must be upgradeable",
             ))
         })
         .collect::<SimResult<Vec<_>>>()?;
@@ -2216,6 +2219,33 @@ mod tests {
                 Some(astrolabe_card.content_id)
             );
         }
+    }
+
+    #[test]
+    fn astrolabe_searing_blow_transform_sets_upgrade_count() {
+        use crate::content::cards::{
+            validate_searing_blow_metadata, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+        };
+
+        let mut run = RunState::map_fixture();
+        let source = run.deck[0];
+        // Astrolabe upgrades via upgrade_card_instance so Searing Blow+ keeps count.
+        let upgraded = upgrade_card_instance(CardInstance::new(
+            crate::ids::CardId::new(9001),
+            SEARING_BLOW_ID,
+        ))
+        .expect("upgrade")
+        .expect("Searing Blow upgrades");
+        assert_eq!(upgraded.content_id, SEARING_BLOW_PLUS_ID);
+        assert_eq!(upgraded.searing_blow_upgrades, 1);
+        validate_searing_blow_metadata(&upgraded).expect("metadata");
+
+        let card = upgrade_card_instance(CardInstance::new(source.id, SEARING_BLOW_ID))
+            .expect("upgrade")
+            .expect("upgradeable");
+        run.deck[0] = card;
+        run.validate()
+            .expect("deck with Astrolabe Searing Blow+ remains valid");
     }
 
     #[test]

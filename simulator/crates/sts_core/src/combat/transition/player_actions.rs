@@ -170,6 +170,16 @@ pub(super) fn gain_corruption(
     Ok(Vec::new())
 }
 
+pub(super) fn enter_divinity(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    state.player.powers.divinity = 1;
+    Ok(Vec::new())
+}
+
+pub(super) fn apply_end_turn_death(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    state.player.powers.end_turn_death = 1;
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_sadistic_nature(
     state: &mut CombatState,
     amount: i32,

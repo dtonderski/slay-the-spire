@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde::{Deserializer, Serializer};
 
 /// Largest RNG draw counter representable by the target game's signed Java
 /// `int` field.
@@ -29,6 +30,34 @@ pub struct StsRng {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JavaRng {
     seed: u64,
+}
+
+/// Call-time state of libGDX's process-global `MathUtils.random`.
+///
+/// Unlike [StsRng], this state is not derived from a run seed. Strict replay
+/// receives it as explicit external input immediately before a gameplay draw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MathUtilsRngState {
+    #[serde(with = "hex_u64")]
+    pub state0: u64,
+    #[serde(with = "hex_u64")]
+    pub state1: u64,
+}
+
+/// Instrumented process-global RNG call sites supported by strict replay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExternalRngKind {
+    CardGroupGetRandomCardByType,
+}
+
+/// One ordered, call-time external RNG input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalRngInput {
+    pub kind: ExternalRngKind,
+    pub state: MathUtilsRngState,
+    /// Inclusive range passed to `MathUtils.random(int)`.
+    pub range_inclusive: u32,
 }
 
 /// Derives the target game's per-floor RNG seed with Java `long` overflow
@@ -230,6 +259,58 @@ impl JavaRng {
     }
 }
 
+impl MathUtilsRngState {
+    /// Match libGDX `MathUtils.random(maxInclusive)`.
+    #[must_use]
+    pub fn random_int(&mut self, max_inclusive: u32) -> u32 {
+        self.next_long_bound(u64::from(max_inclusive) + 1) as u32
+    }
+
+    fn next_long_bound(&mut self, bound_exclusive: u64) -> u64 {
+        loop {
+            let bits = self.next_long() >> 1;
+            let value = bits % bound_exclusive;
+            if (bits.wrapping_sub(value).wrapping_add(bound_exclusive - 1) as i64) >= 0 {
+                return value;
+            }
+        }
+    }
+
+    fn next_long(&mut self) -> u64 {
+        let mut s1 = self.state0;
+        let s0 = self.state1;
+        self.state0 = s0;
+        s1 ^= s1 << 23;
+        self.state1 = s1 ^ s0 ^ (s1 >> 17) ^ (s0 >> 26);
+        self.state1.wrapping_add(s0)
+    }
+}
+
+mod hex_u64 {
+    use super::*;
+    use serde::de::Error as _;
+
+    pub fn serialize<S>(value: &u64, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{value:016x}"))
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<u64, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let encoded = String::deserialize(deserializer)?;
+        if encoded.len() != 16 || !encoded.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(D::Error::custom(
+                "RandomXS128 state word must be exactly 16 hexadecimal digits",
+            ));
+        }
+        u64::from_str_radix(&encoded, 16).map_err(D::Error::custom)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -314,5 +395,45 @@ mod tests {
         JavaRng::new(0).collections_shuffle(&mut values);
 
         assert_eq!(values, vec![4, 8, 9, 6, 3, 5, 2, 1, 7, 0]);
+    }
+
+    #[test]
+    fn math_utils_state_matches_target_randomxs128_bounded_draw() {
+        let mut rng = MathUtilsRngState {
+            state0: 0x0123_4567_89ab_cdef,
+            state1: 0xfedc_ba98_7654_3210,
+        };
+
+        // Verified against the target desktop jar's RandomXS128 and
+        // MathUtils.random(16).
+        assert_eq!(rng.random_int(16), 10);
+        assert_eq!(
+            rng,
+            MathUtilsRngState {
+                state0: 0xfedc_ba98_7654_3210,
+                state1: 0x4c3b_7355_7711_e6f7,
+            }
+        );
+    }
+
+    #[test]
+    fn math_utils_state_serializes_losslessly_as_hex_strings() {
+        let input = ExternalRngInput {
+            kind: ExternalRngKind::CardGroupGetRandomCardByType,
+            state: MathUtilsRngState {
+                state0: u64::MAX,
+                state1: 0x8000_0000_0000_0001,
+            },
+            range_inclusive: 16,
+        };
+
+        let json = serde_json::to_string(&input).expect("external RNG input serializes");
+        assert!(json.contains(r#""state0":"ffffffffffffffff""#));
+        assert!(json.contains(r#""state1":"8000000000000001""#));
+        assert_eq!(
+            serde_json::from_str::<ExternalRngInput>(&json)
+                .expect("external RNG input deserializes"),
+            input
+        );
     }
 }

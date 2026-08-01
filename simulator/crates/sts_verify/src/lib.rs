@@ -15,9 +15,8 @@ pub use minimize::{
     MinimizeFailureKind, MinimizeReport,
 };
 pub use outcome::{
-    assess_verification, ExpectedBoundary, RetainedPrefixEndpoint, VerificationCorpusEntry,
-    VerificationCorpusManifest, VerificationExpectation, VerificationFailure,
-    VerificationIntegrity, VerificationOutcome, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
+    assess_verification, assess_verification_with_options, AssessmentOptions, VerificationFailure,
+    VerificationIntegrity, VerificationOutcome,
 };
 pub use seed::{
     sts_seed_long_to_string, sts_seed_string_to_long, try_sts_seed_string_to_long,
@@ -46,7 +45,8 @@ pub use slaythedata::{
 };
 pub use trace::{
     import_communication_mod_trace, parse_trace_jsonl, CommunicationModTrace, ManualFixture,
-    TraceAction, TraceError, TraceLine, TraceMetadata, TraceProfile, TraceRunConfig, TraceState,
+    TraceAction, TraceError, TraceExternalRng, TraceLine, TraceMetadata, TraceProfile,
+    TraceRunConfig, TraceState,
 };
 
 use std::path::{Path, PathBuf};

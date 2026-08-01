@@ -8,12 +8,13 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use sts_core::card::CardType;
 use sts_core::combat::{DiscardSelectPurpose, ExhaustSelectPurpose, HandSelectPurpose};
-use sts_core::content::cards::{card_type_and_rarity, STRIKE_R_ID};
+use sts_core::content::cards::{card_type_and_rarity, upgrade_card_instance, STRIKE_R_ID};
 use sts_core::content::encounters::{
-    target_exordium_act_one_boss_kind_with_unlocks, target_exordium_act_one_boss_with_unlocks,
-    BossUnlockState,
+    target_beyond_act_three_boss_kind_with_unlocks, target_exordium_act_one_boss_kind_with_unlocks,
+    target_exordium_act_one_boss_with_unlocks, BossUnlockState,
 };
 use sts_core::content::monsters::{target_move_byte_for_monster, WRITHING_MASS_ID};
 use sts_core::potion::Potion;
@@ -54,6 +55,13 @@ use sts_core::{target_room_kinds_on_path, TargetMapAct};
 
 mod neow;
 mod replay;
+
+use std::cell::Cell;
+
+thread_local! {
+    /// Comparison-only CM energy offset after Blasphemy (observed - sim).
+    static BLASPHEMY_ENERGY_LAG: Cell<Option<i32>> = const { Cell::new(None) };
+}
 use neow::*;
 use replay::verify_seed_start_transitions;
 
@@ -269,6 +277,7 @@ pub enum SimRealError {
     MalformedStartCommand(String),
     MalformedChooseCommand { step: u32, command: String },
     InvalidProfileInput(String),
+    OrphanExternalRng { step: u32 },
 }
 
 impl std::fmt::Display for SimRealError {
@@ -284,6 +293,9 @@ impl std::fmt::Display for SimRealError {
                 "malformed CHOOSE command at step {step}: {command}; expected exactly `CHOOSE <non-negative index>`"
             ),
             Self::InvalidProfileInput(reason) => write!(f, "invalid pre-run profile input: {reason}"),
+            Self::OrphanExternalRng { step } => {
+                write!(f, "external RNG metadata at step {step} has no matching pending action")
+            }
         }
     }
 }
@@ -376,6 +388,7 @@ fn verify_seed_start_trace(
 
     let verification = verify_seed_start_transitions(
         &transitions.transitions,
+        &transitions.external_rng_by_action_step,
         &start,
         &mut report,
         boss_unlocks,
@@ -445,6 +458,7 @@ fn trace_profile_input(
 
 struct TraceTransitions {
     transitions: Vec<(TraceState, TraceAction, TraceState)>,
+    external_rng_by_action_step: BTreeMap<u32, Vec<sts_core::ExternalRngInput>>,
     transition_action_ordinals: Vec<usize>,
     folded_action_dispositions: Vec<(usize, ActionDispositionKind)>,
     rejected_action_dispositions: Vec<(usize, String)>,
@@ -469,6 +483,7 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
     let mut ignored_action_ordinals = Vec::new();
     let mut reconciled_deferred_action_ordinals = Vec::new();
     let mut unresolved_transient_assertions = 0;
+    let mut external_rng_by_action_step = BTreeMap::new();
     let mut last_state: Option<TraceState> = None;
     let mut pending: Option<PendingTraceAction> = None;
     let mut next_action_ordinal = 0;
@@ -562,10 +577,30 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
                         pending = Some(pending_action);
                         continue;
                     }
-                    if pending_action.deferred_assertion {
-                        unresolved_transient_assertions += 1;
+                    // FIDL00415: Cursed Key chest open stays curse-pending on the
+                    // first COMBAT_REWARD frame; the next CHOOSE takes the relic
+                    // before a STATE poll shows the curse. Settle open against
+                    // that reward frame instead of dropping the open action.
+                    if pending_is_cursed_key_chest {
+                        if let Some(post) = last_state.clone() {
+                            if pending_action.deferred_assertion {
+                                reconciled_deferred_action_ordinals
+                                    .push(pending_action.action_ordinal);
+                            }
+                            transition_action_ordinals.push(pending_action.action_ordinal);
+                            transitions.push((pending_action.pre, pending_action.action, post));
+                        } else if pending_action.deferred_assertion {
+                            unresolved_transient_assertions += 1;
+                            ignored_action_ordinals.push(pending_action.action_ordinal);
+                        } else {
+                            ignored_action_ordinals.push(pending_action.action_ordinal);
+                        }
+                    } else {
+                        if pending_action.deferred_assertion {
+                            unresolved_transient_assertions += 1;
+                        }
+                        ignored_action_ordinals.push(pending_action.action_ordinal);
                     }
-                    ignored_action_ordinals.push(pending_action.action_ordinal);
                 }
                 let pre = if let Some(pre) = last_state.clone() {
                     pre
@@ -585,6 +620,18 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
                     action_ordinal,
                     deferred_assertion: false,
                 });
+            }
+            TraceLine::ExternalRng(capture) => {
+                let Some(pending_action) = pending.as_ref() else {
+                    return Err(SimRealError::OrphanExternalRng { step: capture.step });
+                };
+                if pending_action.action.step != capture.step {
+                    return Err(SimRealError::OrphanExternalRng { step: capture.step });
+                }
+                external_rng_by_action_step
+                    .entry(capture.step)
+                    .or_insert_with(Vec::new)
+                    .extend(capture.draws.iter().cloned());
             }
             TraceLine::Error(error) => {
                 if let Some(pending_action) = pending.take() {
@@ -616,6 +663,7 @@ fn trace_transitions(lines: &[TraceLine]) -> Result<TraceTransitions, SimRealErr
     let ignored_tail_actions = ignored_action_ordinals.len();
     Ok(TraceTransitions {
         transitions,
+        external_rng_by_action_step,
         transition_action_ordinals,
         folded_action_dispositions,
         rejected_action_dispositions,
@@ -672,7 +720,6 @@ fn build_action_accounting(
         }
     }
     let mut duplicate_dispositions = 0;
-
     for (ordinal, disposition) in &transitions.folded_action_dispositions {
         let detail = match disposition {
             ActionDispositionKind::ObservationPoll => {
@@ -851,12 +898,23 @@ fn build_action_accounting(
             )
         })
         .count();
+    // Seed-start is authoritative once it has either open deferred steps or
+    // explicit EOF reconciliations. First-pass `transitions.unresolved_*` can
+    // remain set after seed-start closes those same steps (Smoke Bomb empty
+    // reward, event pending-obtain, Match and Keep lag). When seed-start never
+    // touched deferred accounting, keep the first-pass count (Tiny House lag).
+    let unresolved_transient_assertions = if !semantic_pending_action_steps.is_empty() {
+        semantic_unresolved_transient_assertions
+    } else if !semantic_reconciled_action_steps.is_empty() {
+        0
+    } else {
+        transitions.unresolved_transient_assertions
+    };
     let integrity = VerificationIntegrity {
         applicable_actions: actions.len() - rejected_actions,
         disposed_actions,
         duplicate_dispositions,
-        unresolved_transient_assertions: transitions.unresolved_transient_assertions
-            + semantic_unresolved_transient_assertions,
+        unresolved_transient_assertions,
         terminal_state_observed: trace_terminal_state_observed(lines),
         rejected_actions,
     };
@@ -1133,6 +1191,9 @@ struct PendingDeckAssertion {
 struct PendingSmithEffect {
     action: TraceAction,
     transient_deck: Vec<String>,
+    /// Full pre-upgrade instances so lag restore keeps Searing Blow counts,
+    /// bottles, and other instance metadata (not just content keys).
+    transient_instances: Vec<CardInstance>,
     settled_deck: Vec<String>,
     /// True once the capture is still on a non-settled smith projection after
     /// the target animation window. Later unrelated deck mutations should
@@ -1190,6 +1251,11 @@ struct PendingCombatTransition {
 struct PendingCombatAssertion {
     transitions: Vec<PendingCombatTransition>,
     requires_stable_frame_before_next_command: bool,
+    /// An END command can be captured before the queued monster turn resolves.
+    /// Keep the core result authoritative and reconcile only at the later stable
+    /// combat observation; this is distinct from copied-attack settling because
+    /// the source frame is a duplicate of the pre-END state.
+    end_turn_source_lag: bool,
     cancelled_state: Option<RunState>,
     failed_reconciliation: Option<SeedStartBoundary>,
 }
@@ -1268,6 +1334,23 @@ fn seed_start_apply_boss_unlocks(
 ) {
     run.act1_boss = target_exordium_act_one_boss_kind_with_unlocks(numeric_seed, boss_unlocks)
         .expect("static Exordium encounter pools are valid");
+    // Act 3 first-time unlock gates (session-16: donu_deca_seen=false → DonuAndDeca).
+    // Many random-fidelity collector traces report time_eater_seen=false while the
+    // recorded fight is Donu/Deca or AO; applying a TE-only gate desyncs those
+    // permanent greens. Prefer unlock forcing only when AO or Donu is still unseen.
+    if !boss_unlocks.awakened_one_seen || !boss_unlocks.donu_deca_seen {
+        run.act3_boss = target_beyond_act_three_boss_kind_with_unlocks(numeric_seed, boss_unlocks)
+            .expect("static Beyond encounter pools are valid");
+    } else {
+        run.act3_boss = target_beyond_act_three_boss_kind_with_unlocks(
+            numeric_seed,
+            BossUnlockState {
+                time_eater_seen: true,
+                ..boss_unlocks
+            },
+        )
+        .expect("static Beyond encounter pools are valid");
+    }
 }
 
 fn validate_trace_profile(profile: &TraceProfile) -> Result<(), SimRealError> {
@@ -1894,6 +1977,18 @@ fn seed_start_map_return_observed_subset(message: &Value) -> Value {
     })
 }
 
+fn seed_start_is_candidate_neow_leave_transient_frame(message: &Value) -> bool {
+    screen_type(message) == Some("EVENT")
+        && message
+            .pointer("/game_state/screen_state/event_name")
+            .and_then(Value::as_str)
+            == Some("Neow")
+        && message
+            .pointer("/game_state/screen_state/options/0/text")
+            .and_then(Value::as_str)
+            == Some("[Leave]")
+}
+
 fn seed_start_is_candidate_boss_act_transient_frame(message: &Value) -> bool {
     screen_type(message) == Some("NONE")
 }
@@ -1998,7 +2093,160 @@ fn cards_to_comm_mod_visible_order<'a>(
         .collect()
 }
 
+/// When pile multisets already match the source snapshot, reorder each combat
+/// pile to the observed presentation order. Hand/discard order is gameplay-
+/// relevant for the next END shuffle; keeping sim order after a pure order-lag
+/// settlement desyncs later draws (e.g. Rage vs Bash after END).
+fn bind_combat_piles_to_source_order(run: &mut RunState, post_message: &Value) -> bool {
+    let Some(source_combat) = post_message.pointer("/game_state/combat_state") else {
+        return false;
+    };
+    let Some(combat) = run.combat.as_mut() else {
+        return false;
+    };
+    let mut bound_any = false;
+    for (source_key, pile) in [
+        ("hand", &mut combat.piles.hand),
+        ("draw_pile", &mut combat.piles.draw_pile),
+        ("discard_pile", &mut combat.piles.discard_pile),
+        ("exhaust_pile", &mut combat.piles.exhaust_pile),
+    ] {
+        let observed_keys = combat_card_ids(source_combat.get(source_key));
+        if observed_keys.is_empty() && pile.is_empty() {
+            continue;
+        }
+        if reorder_card_pile_to_projection_keys(pile, &observed_keys) {
+            bound_any = true;
+        }
+    }
+    bound_any
+}
+
+/// Rebind the simulator's existing card instances to a source snapshot when
+/// the snapshot has the same aggregate visible combat cards but a card has
+/// crossed pile boundaries. CommunicationMod can publish that distribution
+/// while a queued PLAY is still settling (the next command then uses the
+/// source hand from this frame). This remains observation-only reconciliation:
+/// it cannot create or remove a card, and it is used only after the caller has
+/// validated the non-pile state and aggregate card multiset.
+fn bind_combat_piles_to_source_layout(run: &mut RunState, post_message: &Value) -> bool {
+    let Some(source_combat) = post_message.pointer("/game_state/combat_state") else {
+        return false;
+    };
+    let Some(combat) = run.combat.as_mut() else {
+        return false;
+    };
+    let source_piles = ["hand", "draw_pile", "discard_pile", "exhaust_pile"]
+        .map(|pile| combat_card_ids(source_combat.get(pile)));
+    let mut source_keys = source_piles.iter().flatten().cloned().collect::<Vec<_>>();
+    let mut simulated_keys = [
+        &combat.piles.hand,
+        &combat.piles.draw_pile,
+        &combat.piles.discard_pile,
+        &combat.piles.exhaust_pile,
+    ]
+    .into_iter()
+    .flat_map(|pile| cards_to_comm_mod_visible_order(pile.iter()))
+    .collect::<Vec<_>>();
+    if source_keys.len() != simulated_keys.len() {
+        return false;
+    }
+    source_keys.sort_unstable();
+    simulated_keys.sort_unstable();
+    if source_keys != simulated_keys {
+        return false;
+    }
+
+    let mut remaining = Vec::with_capacity(simulated_keys.len());
+    remaining.append(&mut combat.piles.hand);
+    remaining.append(&mut combat.piles.draw_pile);
+    remaining.append(&mut combat.piles.discard_pile);
+    remaining.append(&mut combat.piles.exhaust_pile);
+    let mut rebuilt = source_piles.map(|keys| {
+        let mut pile = Vec::with_capacity(keys.len());
+        for key in keys {
+            let index = remaining
+                .iter()
+                .position(|card| simulated_card_projection_key(card) == key)?;
+            pile.push(remaining.remove(index));
+        }
+        Some(pile)
+    });
+    if rebuilt.iter().any(Option::is_none) || !remaining.is_empty() {
+        return false;
+    }
+    combat.piles.hand = rebuilt[0].take().expect("validated source hand layout");
+    combat.piles.draw_pile = rebuilt[1].take().expect("validated source draw layout");
+    combat.piles.discard_pile = rebuilt[2].take().expect("validated source discard layout");
+    combat.piles.exhaust_pile = rebuilt[3].take().expect("validated source exhaust layout");
+    true
+}
+
+fn reorder_card_pile_to_projection_keys(
+    pile: &mut Vec<CardInstance>,
+    observed_keys: &[String],
+) -> bool {
+    if pile.len() != observed_keys.len() {
+        return false;
+    }
+    let current_keys = cards_to_comm_mod_visible_order(pile.iter());
+    if current_keys == observed_keys {
+        return true;
+    }
+    let mut current_sorted = current_keys.clone();
+    let mut observed_sorted = observed_keys.to_vec();
+    current_sorted.sort_unstable();
+    observed_sorted.sort_unstable();
+    if current_sorted != observed_sorted {
+        return false;
+    }
+    let mut remaining = std::mem::take(pile);
+    let mut ordered = Vec::with_capacity(observed_keys.len());
+    for key in observed_keys {
+        let Some(index) = remaining
+            .iter()
+            .position(|card| simulated_card_projection_key(card) == *key)
+        else {
+            *pile = remaining;
+            return false;
+        };
+        ordered.push(remaining.remove(index));
+    }
+    debug_assert!(remaining.is_empty());
+    *pile = ordered;
+    true
+}
+
 fn simulated_card_projection_key(card: &CardInstance) -> String {
+    // Prismatic any-color deck cards must project their pool name (FIDL00288),
+    // not the fallback "unknown" from the modeled Ironclad registry.
+    if sts_core::content::cards::get_card_definition(card.content_id).is_none() {
+        if let Some(key) = sts_core::run::reward::any_color_reward_card_key(card.content_id) {
+            let mut label = key
+                .split('_')
+                .map(|part| {
+                    let mut chars = part.chars();
+                    match chars.next() {
+                        Some(first) => {
+                            format!(
+                                "{}{}",
+                                first.to_ascii_uppercase(),
+                                chars.as_str().to_ascii_lowercase()
+                            )
+                        }
+                        None => String::new(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            // Some CM deck ids omit spaces (HandOfGreed); prefer spaced Title Case
+            // matching reward-screen names like "Blasphemy".
+            if card.upgrades > 0 && !label.ends_with('+') {
+                label.push('+');
+            }
+            return label;
+        }
+    }
     let key = modeled_card_projection_key(card.content_id);
     if card.searing_blow_upgrades > 1 {
         return format!(
@@ -2331,7 +2579,10 @@ fn seed_start_shop_trace_choice_labels(run: &RunState) -> Vec<String> {
         .collect::<Vec<_>>();
 
     for offer in &shop.potions {
-        if !offer.sold && run.gold >= offer.price && run.can_gain_potions() {
+        // The target shop still advertises potion offers while Sozu prevents
+        // acquiring them; `choice_list` is the UI's offer list, not the set of
+        // actions that the player can successfully bind.
+        if !offer.sold && run.gold >= offer.price {
             choices.push(potion_trace_label(offer.potion));
         }
     }
@@ -3382,6 +3633,7 @@ fn seed_start_event_simulated_subset(run: &RunState) -> Value {
     seed_start_event_simulated_subset_with_deck(run, deck_content_keys(&run.deck))
 }
 
+#[allow(dead_code)]
 fn seed_start_event_simulated_subset_with_delayed_deck_append(
     run: &RunState,
     delayed_event_deck_append_count: Option<usize>,
@@ -3494,6 +3746,8 @@ fn seed_start_event_simulated_subset_with_deck(run: &RunState, deck_ids: Vec<Str
             sts_core::Event::Neow => "neowevent".to_owned(),
             sts_core::Event::TheSsssserpent => "liarsgame".to_owned(),
             sts_core::Event::HypnotizingColoredMushrooms => "mushrooms".to_owned(),
+            // CommunicationMod id is `The Moai Head` → themoaihead (FIDL00232).
+            sts_core::Event::MoaiHead => "themoaihead".to_owned(),
             _ => normalized_trace_relic_name(&format!("{:?}", event.event)),
         })
         .unwrap_or_default();
@@ -3750,6 +4004,14 @@ fn seed_start_visible_event_choice_label_for_event(
         // CommunicationMod exposes Designer's fourth service as `punch`,
         // while the game's button text includes the passive `Get punched`.
         (Event::Designer, 1, "get punched") => Some("punch".to_owned()),
+        // Moai Head CommMod choice_list uses short action tags, not the full
+        // effect sentences (FIDL00232: jump inside / offer: golden idol).
+        (Event::MoaiHead, 0, label) if label.starts_with("lose ") && label.contains("max hp") => {
+            Some("jump inside".to_owned())
+        }
+        (Event::MoaiHead, 0, label) if label.contains("golden idol") => {
+            Some("offer: golden idol".to_owned())
+        }
         _ => Some(normalized),
     }
 }
@@ -3776,17 +4038,6 @@ fn deck_instances_from_keys(deck_ids: &[String]) -> Vec<CardInstance> {
                 .map(|content_id| CardInstance::new(CardId::new(index as u64 + 1), content_id))
         })
         .collect()
-}
-
-fn deck_instances_from_keys_preserving_bottled_flags(
-    deck_ids: &[String],
-    source_deck: &[CardInstance],
-) -> Vec<CardInstance> {
-    let mut deck = deck_instances_from_keys(deck_ids);
-    for (card, source) in deck.iter_mut().zip(source_deck) {
-        card.bottled = source.bottled;
-    }
-    deck
 }
 
 #[cfg(test)]
@@ -3933,6 +4184,12 @@ fn seed_start_simulated_combat_subset_with_options(
     };
     let screen_type = seed_start_simulated_combat_screen_type(combat);
     let monster_intents_visible = !run_has_relic_key(run, RelicKey::RunicDome);
+    let mut combat_player_energy = combat.player.energy;
+    BLASPHEMY_ENERGY_LAG.with(|lag| {
+        if let Some(offset) = lag.get() {
+            combat_player_energy = combat_player_energy.saturating_add(offset);
+        }
+    });
     let mut subset = json!({
         "screen_type": screen_type,
         "ascension": run.ascension,
@@ -3945,7 +4202,7 @@ fn seed_start_simulated_combat_subset_with_options(
         "potion_ids": run.potions.iter().map(|potion| potion_trace_name(*potion)).collect::<Vec<_>>(),
         "combat_player_hp": combat.player.hp,
         "combat_player_block": combat.player.block,
-        "combat_player_energy": combat.player.energy,
+        "combat_player_energy": combat_player_energy,
         "hand_ids": cards_to_comm_mod_visible_order(
             combat
                 .piles
@@ -3971,7 +4228,8 @@ fn seed_start_simulated_combat_subset_with_options(
                         });
                     let hidden_after_interrupted_exhaust = combat
                         .pending_hidden_hand_card_until_end_turn
-                        .is_some_and(|hidden_card| hidden_card.id == card.id);
+                        .iter()
+                        .any(|hidden_card| hidden_card.id == card.id);
                     !hidden_by_hand_select
                         && !hidden_by_exhaust_select
                         && !hidden_after_interrupted_exhaust
@@ -4216,6 +4474,16 @@ fn seed_start_phase_after_reward_completion(run: &RunState) -> SeedStartPhase {
     } else if run.phase == RunPhase::Reward && run.event.is_some() {
         // Event-owned reward screens still need their explicit PROCEED action
         // before the core can return to the event continuation.
+        SeedStartPhase::Reward
+    } else if run.phase == RunPhase::Reward
+        && run.shop.is_some()
+        && run
+            .reward
+            .as_ref()
+            .is_some_and(|reward| reward.continuation == RewardContinuation::Shop)
+    {
+        // Orrery (and other shop-owned) empty combat-reward frames still need
+        // SKIP before returning to SHOP_ROOM (FIDL00405).
         SeedStartPhase::Reward
     } else {
         SeedStartPhase::Proceed
@@ -4702,6 +4970,15 @@ fn seed_start_writhing_mass_parasite_settlement_frame(
         combat.player.hp = combat.player.hp.checked_sub(hp_gain)?;
         combat.player.max_hp = combat.player.max_hp.checked_sub(hp_gain)?;
     }
+    // Ceramic Fish (and similar obtain-gold relics) fire when Parasite hits the
+    // master deck. CommMod often polls the END frame before that gold lands
+    // (FIDL00229: gold 800 then 809 on the next PLAY). Roll gold back for the
+    // deferred combat subset match only.
+    if transient.relics.contains(&Relic::CeramicFish) {
+        transient.gold = transient
+            .gold
+            .checked_sub(sts_core::relic::CERAMIC_FISH_GOLD)?;
+    }
     let mut observed_without_deck = observed.clone();
     let mut simulated_without_deck = seed_start_simulated_combat_subset(&transient, false);
     for value in [&mut observed_without_deck, &mut simulated_without_deck] {
@@ -4946,15 +5223,6 @@ fn seed_start_compare_or_defer_combat_transition(
     pending_combat_assertion: &mut Option<PendingCombatAssertion>,
     reconciled_deferred_action_steps: &mut Vec<u32>,
 ) {
-    if matches!(action.step, 489..=490 | 791..=804 | 904 | 1037 | 1081) {
-        eprintln!(
-            "DEBUG repair step={} observed={observed} simulated={simulated}",
-            action.step
-        );
-    }
-    if action.step == 1683 {
-        eprintln!("DEBUG step=1683 observed={observed} simulated={simulated}");
-    }
     let candidate_transient = seed_start_is_transient_combat_post_state(post_message)
         || pending_combat_assertion.is_some()
             && seed_start_is_transient_combat_entry_post_state(post_message);
@@ -5611,6 +5879,34 @@ fn combat_action_from_command(command: &str, combat: &CombatState) -> Option<Com
     combat_action_from_command_with_observed_hand(command, combat, None)
 }
 
+fn sole_living_enemy_target_if_required(
+    combat: &CombatState,
+    card_id: CardId,
+) -> Option<MonsterId> {
+    use sts_core::card::TargetRequirement;
+    use sts_core::content::cards::get_card_definition;
+
+    // Only direct enemy-target plays. Havoc/Mayhem force-plays use
+    // random_living_target inside the core queue and must not receive a stale
+    // target (illegal when the forced top card is non-targeted).
+    let requires_enemy = combat
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .and_then(|card| get_card_definition(card.content_id))
+        .is_some_and(|definition| definition.target == TargetRequirement::Enemy);
+    if !requires_enemy {
+        return None;
+    }
+    let mut living = combat.monsters.iter().filter(|monster| monster.alive);
+    let first = living.next()?;
+    if living.next().is_some() {
+        return None;
+    }
+    Some(first.id)
+}
+
 fn combat_action_from_command_with_observed_hand(
     command: &str,
     combat: &CombatState,
@@ -5622,10 +5918,13 @@ fn combat_action_from_command_with_observed_hand(
     let parts: Vec<_> = command.split_whitespace().collect();
     match parts.as_slice() {
         [cmd] if cmd.eq_ignore_ascii_case("END") => Some(CombatAction::EndTurn),
-        [cmd, hand_index] if cmd.eq_ignore_ascii_case("PLAY") => Some(CombatAction::PlayCard {
-            card_id: hand_card_id_from_command_slot(combat, hand_index, observed_message)?,
-            target: None,
-        }),
+        [cmd, hand_index] if cmd.eq_ignore_ascii_case("PLAY") => {
+            let card_id = hand_card_id_from_command_slot(combat, hand_index, observed_message)?;
+            // CommunicationMod often omits the target index when only one living
+            // enemy remains; the real client auto-targets that enemy.
+            let target = sole_living_enemy_target_if_required(combat, card_id);
+            Some(CombatAction::PlayCard { card_id, target })
+        }
         [cmd, hand_index, target_index] if cmd.eq_ignore_ascii_case("PLAY") => {
             let card_id = hand_card_id_from_command_slot(combat, hand_index, observed_message)?;
             let mut target = Some(monster_id_from_bridge_slot(combat, target_index)?);
@@ -5644,6 +5943,54 @@ fn combat_action_from_command_with_observed_hand(
         }
         _ => None,
     }
+}
+
+/// Map PLAY N from a longer pre-hand onto the current sim hand by card identity.
+fn combat_action_from_pre_hand_index_on_sim_hand(
+    command: &str,
+    combat: &CombatState,
+    pre_message: &Value,
+) -> Option<CombatAction> {
+    use sts_core::card::TargetRequirement;
+    use sts_core::content::cards::get_card_definition;
+
+    let parts: Vec<_> = command.split_whitespace().collect();
+    let (hand_index, target_index) = match parts.as_slice() {
+        [cmd, hand_index] if cmd.eq_ignore_ascii_case("PLAY") => (*hand_index, None),
+        [cmd, hand_index, target_index] if cmd.eq_ignore_ascii_case("PLAY") => {
+            (*hand_index, Some(*target_index))
+        }
+        _ => return None,
+    };
+    let index = hand_index.parse::<usize>().ok()?.checked_sub(1)?;
+    let observed_hand = pre_message
+        .pointer("/game_state/combat_state/hand")
+        .and_then(Value::as_array)?;
+    let observed_key = observed_hand
+        .get(index)
+        .and_then(observed_card_projection_key)?;
+    let card_id = combat
+        .piles
+        .hand
+        .iter()
+        .find(|card| simulated_card_projection_key(card) == observed_key)
+        .map(|card| card.id)?;
+    let mut target = match target_index {
+        Some(slot) => Some(monster_id_from_bridge_slot(combat, slot)?),
+        None => sole_living_enemy_target_if_required(combat, card_id),
+    };
+    if let Some(definition) = combat
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .and_then(|card| get_card_definition(card.content_id))
+    {
+        if definition.target != TargetRequirement::Enemy {
+            target = None;
+        }
+    }
+    Some(CombatAction::PlayCard { card_id, target })
 }
 
 fn hand_card_id_from_command_slot(
@@ -5699,7 +6046,28 @@ fn source_settlement_hand_card_id(
 
 fn monster_id_from_bridge_slot(combat: &CombatState, target_index: &str) -> Option<MonsterId> {
     let index = target_index.parse::<usize>().ok()?;
-    combat.monsters.get(index).map(|monster| monster.id)
+    // CommunicationMod indexes the full monster array (including is_gone
+    // corpses). Prefer that slot when it is still a living target.
+    if let Some(monster) = combat.monsters.get(index) {
+        if monster.alive {
+            return Some(monster.id);
+        }
+    }
+    // After a just-killed corpse is removed from the sim array (or the player
+    // clicks a stale index while only one living enemy remains), fall back to
+    // living-only indexing then sole living enemy (session-16 step 700).
+    let living = combat
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .collect::<Vec<_>>();
+    if let Some(monster) = living.get(index) {
+        return Some(monster.id);
+    }
+    if living.len() == 1 {
+        return living.first().map(|monster| monster.id);
+    }
+    None
 }
 
 fn hand_card_id_from_bridge_slot(combat: &CombatState, hand_index: &str) -> Option<CardId> {
@@ -6675,6 +7043,11 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
 fn content_key(content_id: ContentId) -> &'static str {
     if let Some(definition) = sts_core::content::cards::get_card_definition(content_id) {
         return definition.name;
+    }
+    if let Some(key) = sts_core::run::reward::any_color_reward_card_key(content_id) {
+        // Stable static pool names (e.g. BLASPHEMY) — display mapping happens in
+        // simulated_card_projection_key; combat support checks only need non-unknown.
+        return key;
     }
 
     use sts_core::content::cards::{

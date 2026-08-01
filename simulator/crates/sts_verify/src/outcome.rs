@@ -1,40 +1,17 @@
 //! Typed verification outcomes and the evidence required to claim them.
+//!
+//! Default success is **clean through EOF**: every verifiable transition in the
+//! file matches, with first-boundary `category=none`. Incomplete / non-terminal
+//! traces pass. Optional strict terminal mode is a flag only.
 
-use crate::{ActionDispositionKind, SeedStartBoundary, SimRealError, SimRealReport};
+use crate::{SeedStartBoundary, SimRealError, SimRealReport};
 use serde::{Deserialize, Serialize};
 
-pub const VERIFICATION_CORPUS_MANIFEST_SCHEMA: u32 = 2;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VerificationCorpusManifest {
-    pub schema: u32,
-    pub entries: Vec<VerificationCorpusEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct VerificationCorpusEntry {
-    pub trace: String,
-    pub expectation: VerificationExpectation,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum VerificationExpectation {
-    Complete,
-    RetainedPrefix { endpoint: RetainedPrefixEndpoint },
-    ExpectedBoundary { boundary: ExpectedBoundary },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RetainedPrefixEndpoint {
-    pub action_step: u32,
-    pub label: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ExpectedBoundary {
-    pub path: String,
-    pub category: String,
+/// Options for [`assess_verification`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssessmentOptions {
+    /// When true, require `terminal_state_observed` (full game-over run).
+    pub require_terminal: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,21 +27,19 @@ pub struct VerificationIntegrity {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum VerificationOutcome {
+    /// Clean through EOF (and terminal when [`AssessmentOptions::require_terminal`]).
     CompletePass,
-    RetainedPrefixPass { endpoint: RetainedPrefixEndpoint },
-    ExpectedBoundaryPass { boundary: ExpectedBoundary },
-    InvalidInput { reason: String },
-    Failed { failures: Vec<VerificationFailure> },
+    InvalidInput {
+        reason: String,
+    },
+    Failed {
+        failures: Vec<VerificationFailure>,
+    },
 }
 
 impl VerificationOutcome {
     pub fn is_success(&self) -> bool {
-        matches!(
-            self,
-            Self::CompletePass
-                | Self::RetainedPrefixPass { .. }
-                | Self::ExpectedBoundaryPass { .. }
-        )
+        matches!(self, Self::CompletePass)
     }
 }
 
@@ -88,17 +63,10 @@ pub enum VerificationFailure {
     UnexpectedBoundary {
         boundary: SeedStartBoundary,
     },
-    ExpectedBoundaryMismatch {
-        expected: ExpectedBoundary,
-        actual: Option<SeedStartBoundary>,
-    },
+    /// Only emitted when [`AssessmentOptions::require_terminal`] is set.
     CompleteTraceNotTerminal,
     CompleteTraceHasRejectedActions {
         count: usize,
-    },
-    RetainedPrefixEndpointMismatch {
-        expected: RetainedPrefixEndpoint,
-        actual_action_step: Option<u32>,
     },
     MissingActionIntegrity,
     IncompleteActionAccounting {
@@ -113,10 +81,19 @@ pub enum VerificationFailure {
     },
 }
 
+/// Assess a seed-start / parity report under clean-through-EOF rules.
 pub fn assess_verification(
     result: Result<&SimRealReport, &SimRealError>,
-    expectation: &VerificationExpectation,
     integrity: Option<&VerificationIntegrity>,
+) -> VerificationOutcome {
+    assess_verification_with_options(result, integrity, AssessmentOptions::default())
+}
+
+/// Assess with optional strict terminal requirement.
+pub fn assess_verification_with_options(
+    result: Result<&SimRealReport, &SimRealError>,
+    integrity: Option<&VerificationIntegrity>,
+    options: AssessmentOptions,
 ) -> VerificationOutcome {
     let report = match result {
         Ok(report) => report,
@@ -128,11 +105,7 @@ pub fn assess_verification(
     };
 
     let mut failures = Vec::new();
-    let expected_boundary = match expectation {
-        VerificationExpectation::ExpectedBoundary { boundary } => Some(boundary),
-        _ => None,
-    };
-    if expected_boundary.is_none() && !report.unexpected_diffs.is_empty() {
+    if !report.unexpected_diffs.is_empty() {
         failures.push(VerificationFailure::UnexpectedDiffs {
             count: report.unexpected_diffs.len(),
         });
@@ -173,23 +146,13 @@ pub fn assess_verification(
         }
     }
 
-    if expected_boundary.is_none() && !report.unsupported.is_empty() {
+    if !report.unsupported.is_empty() {
         failures.push(VerificationFailure::UnsupportedTransitions {
             count: report.unsupported.len(),
         });
     }
 
-    if let Some(expected) = expected_boundary {
-        let matches = actual_boundary.as_ref().is_some_and(|actual| {
-            actual.path == expected.path && actual.category == expected.category
-        });
-        if !matches {
-            failures.push(VerificationFailure::ExpectedBoundaryMismatch {
-                expected: expected.clone(),
-                actual: actual_boundary.clone(),
-            });
-        }
-    } else if let Some(actual) = actual_boundary
+    if let Some(actual) = actual_boundary
         .as_ref()
         .filter(|boundary| boundary.category != "none")
     {
@@ -216,14 +179,12 @@ pub fn assess_verification(
                     count: integrity.unresolved_transient_assertions,
                 });
             }
-            if matches!(expectation, VerificationExpectation::Complete)
-                && !integrity.terminal_state_observed
-            {
+            if options.require_terminal && !integrity.terminal_state_observed {
                 failures.push(VerificationFailure::CompleteTraceNotTerminal);
             }
-            if matches!(expectation, VerificationExpectation::Complete)
-                && integrity.rejected_actions != 0
-            {
+            // Rejected-action accounting is only required for full terminal runs.
+            // Clean truncated prefixes may still record out-of-scope rejections.
+            if options.require_terminal && integrity.rejected_actions != 0 {
                 failures.push(VerificationFailure::CompleteTraceHasRejectedActions {
                     count: integrity.rejected_actions,
                 });
@@ -232,38 +193,11 @@ pub fn assess_verification(
         None => failures.push(VerificationFailure::MissingActionIntegrity),
     }
 
-    if let VerificationExpectation::RetainedPrefix { endpoint } = expectation {
-        let actual_action_step = report
-            .action_dispositions
-            .iter()
-            .rev()
-            .find(|entry| entry.disposition == ActionDispositionKind::Verified)
-            .map(|entry| entry.action_step);
-        if actual_action_step != Some(endpoint.action_step) {
-            failures.push(VerificationFailure::RetainedPrefixEndpointMismatch {
-                expected: endpoint.clone(),
-                actual_action_step,
-            });
-        }
-    }
-
     if !failures.is_empty() {
         return VerificationOutcome::Failed { failures };
     }
 
-    match expectation {
-        VerificationExpectation::Complete => VerificationOutcome::CompletePass,
-        VerificationExpectation::RetainedPrefix { endpoint } => {
-            VerificationOutcome::RetainedPrefixPass {
-                endpoint: endpoint.clone(),
-            }
-        }
-        VerificationExpectation::ExpectedBoundary { boundary } => {
-            VerificationOutcome::ExpectedBoundaryPass {
-                boundary: boundary.clone(),
-            }
-        }
-    }
+    VerificationOutcome::CompletePass
 }
 
 #[cfg(test)]
@@ -304,7 +238,7 @@ mod tests {
         }
     }
 
-    fn complete_integrity() -> VerificationIntegrity {
+    fn clean_integrity() -> VerificationIntegrity {
         VerificationIntegrity {
             applicable_actions: 1,
             disposed_actions: 1,
@@ -316,110 +250,44 @@ mod tests {
     }
 
     #[test]
-    fn complete_pass_requires_clean_report_and_complete_integrity() {
+    fn clean_through_eof_passes_without_terminal() {
         let report = report();
+        let integrity = VerificationIntegrity {
+            terminal_state_observed: false,
+            ..clean_integrity()
+        };
         assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::Complete,
-                Some(&complete_integrity()),
-            ),
+            assess_verification(Ok(&report), Some(&integrity)),
             VerificationOutcome::CompletePass
         );
     }
 
     #[test]
-    fn retained_prefix_pass_preserves_declared_endpoint() {
+    fn require_terminal_rejects_non_terminal() {
         let report = report();
-        let endpoint = RetainedPrefixEndpoint {
-            action_step: 548,
-            label: "floor 37 shop return to map".to_owned(),
+        let integrity = VerificationIntegrity {
+            terminal_state_observed: false,
+            ..clean_integrity()
         };
-        let mut report = report;
-        report.action_dispositions.push(crate::ActionDisposition {
-            action_ordinal: 0,
-            action_step: endpoint.action_step,
-            command: "CHOOSE 0".to_owned(),
-            disposition: ActionDispositionKind::Verified,
-            detail: Some(endpoint.label.clone()),
-            deferred_assertion_reconciled: false,
-        });
-        assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::RetainedPrefix {
-                    endpoint: endpoint.clone(),
-                },
-                Some(&complete_integrity()),
-            ),
-            VerificationOutcome::RetainedPrefixPass { endpoint }
-        );
-    }
-
-    #[test]
-    fn retained_prefix_cannot_accept_a_replay_boundary() {
-        let endpoint = RetainedPrefixEndpoint {
-            action_step: 12,
-            label: "captured trace endpoint".to_owned(),
-        };
-        let boundary = SeedStartBoundary {
-            path: "$.actions[step=12].command".to_owned(),
-            category: "unsupported_mechanic".to_owned(),
-            reason: "mechanic is not implemented".to_owned(),
-        };
-        let mut report = report();
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = boundary.clone();
-        report.action_dispositions.push(crate::ActionDisposition {
-            action_ordinal: 0,
-            action_step: endpoint.action_step,
-            command: "CHOOSE 0".to_owned(),
-            disposition: ActionDispositionKind::Verified,
-            detail: None,
-            deferred_assertion_reconciled: false,
-        });
-
-        let outcome = assess_verification(
+        let outcome = assess_verification_with_options(
             Ok(&report),
-            &VerificationExpectation::RetainedPrefix { endpoint },
-            Some(&complete_integrity()),
+            Some(&integrity),
+            AssessmentOptions {
+                require_terminal: true,
+            },
         );
         let VerificationOutcome::Failed { failures } = outcome else {
-            panic!("replay boundary unexpectedly passed: {outcome:?}");
+            panic!("expected failure: {outcome:?}");
         };
-        assert!(failures.contains(&VerificationFailure::UnexpectedBoundary { boundary }));
+        assert!(failures.contains(&VerificationFailure::CompleteTraceNotTerminal));
     }
 
     #[test]
-    fn expected_boundary_pass_requires_the_exact_path_and_category() {
-        let expected = ExpectedBoundary {
-            path: "$.actions[step=12].command".to_owned(),
-            category: "unsupported_mechanic".to_owned(),
-        };
-        let mut report = report();
-        let seed_start = report.seed_start.as_mut().expect("seed-start report");
-        seed_start.failed = true;
-        seed_start.first_boundary = SeedStartBoundary {
-            path: expected.path.clone(),
-            category: expected.category.clone(),
-            reason: "mechanic is not implemented".to_owned(),
-        };
-        report.unsupported.push(UnsupportedTransition {
-            action_step: 12,
-            command: "CHOOSE 0".to_owned(),
-            reason: "mechanic is not implemented".to_owned(),
-        });
-
+    fn complete_pass_requires_clean_report_and_integrity() {
+        let report = report();
         assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::ExpectedBoundary {
-                    boundary: expected.clone(),
-                },
-                Some(&complete_integrity()),
-            ),
-            VerificationOutcome::ExpectedBoundaryPass { boundary: expected }
+            assess_verification(Ok(&report), Some(&clean_integrity())),
+            VerificationOutcome::CompletePass
         );
     }
 
@@ -427,7 +295,7 @@ mod tests {
     fn parse_and_start_errors_are_invalid_input() {
         let error = SimRealError::MissingStartCommand;
         assert_eq!(
-            assess_verification(Err(&error), &VerificationExpectation::Complete, None),
+            assess_verification(Err(&error), None),
             VerificationOutcome::InvalidInput {
                 reason: "trace does not contain START command".to_owned(),
             }
@@ -453,11 +321,7 @@ mod tests {
         });
 
         assert_eq!(
-            assess_verification(
-                Ok(&report),
-                &VerificationExpectation::Complete,
-                Some(&complete_integrity()),
-            ),
+            assess_verification(Ok(&report), Some(&clean_integrity())),
             VerificationOutcome::InvalidInput {
                 reason: format!("{}: {}", boundary.path, boundary.reason),
             }
@@ -478,11 +342,7 @@ mod tests {
             .expect("seed-start report")
             .first_boundary = boundary.clone();
 
-        let outcome = assess_verification(
-            Ok(&report),
-            &VerificationExpectation::Complete,
-            Some(&complete_integrity()),
-        );
+        let outcome = assess_verification(Ok(&report), Some(&clean_integrity()));
         let VerificationOutcome::Failed { failures } = outcome else {
             panic!("inconsistent boundary was not a verifier failure: {outcome:?}");
         };
@@ -503,7 +363,7 @@ mod tests {
                 Some(VerificationIntegrity {
                     applicable_actions: 2,
                     disposed_actions: 1,
-                    ..complete_integrity()
+                    ..clean_integrity()
                 }),
                 VerificationFailure::IncompleteActionAccounting {
                     applicable_actions: 2,
@@ -513,46 +373,50 @@ mod tests {
             (
                 Some(VerificationIntegrity {
                     duplicate_dispositions: 1,
-                    ..complete_integrity()
+                    ..clean_integrity()
                 }),
                 VerificationFailure::DuplicateActionDispositions { count: 1 },
             ),
             (
                 Some(VerificationIntegrity {
                     unresolved_transient_assertions: 1,
-                    ..complete_integrity()
+                    ..clean_integrity()
                 }),
                 VerificationFailure::UnresolvedTransientAssertions { count: 1 },
-            ),
-            (
-                Some(VerificationIntegrity {
-                    terminal_state_observed: false,
-                    ..complete_integrity()
-                }),
-                VerificationFailure::CompleteTraceNotTerminal,
-            ),
-            (
-                Some(VerificationIntegrity {
-                    applicable_actions: 0,
-                    disposed_actions: 0,
-                    rejected_actions: 1,
-                    ..complete_integrity()
-                }),
-                VerificationFailure::CompleteTraceHasRejectedActions { count: 1 },
             ),
         ];
 
         for (integrity, expected_failure) in cases {
-            let outcome = assess_verification(
-                Ok(&report),
-                &VerificationExpectation::Complete,
-                integrity.as_ref(),
-            );
+            let outcome = assess_verification(Ok(&report), integrity.as_ref());
             let VerificationOutcome::Failed { failures } = outcome else {
                 panic!("integrity gap unexpectedly passed: {outcome:?}");
             };
             assert!(failures.contains(&expected_failure), "{failures:?}");
         }
+    }
+
+    #[test]
+    fn require_terminal_rejects_rejected_actions() {
+        let report = report();
+        let integrity = VerificationIntegrity {
+            applicable_actions: 0,
+            disposed_actions: 0,
+            rejected_actions: 1,
+            ..clean_integrity()
+        };
+        let outcome = assess_verification_with_options(
+            Ok(&report),
+            Some(&integrity),
+            AssessmentOptions {
+                require_terminal: true,
+            },
+        );
+        let VerificationOutcome::Failed { failures } = outcome else {
+            panic!("expected failure: {outcome:?}");
+        };
+        assert!(
+            failures.contains(&VerificationFailure::CompleteTraceHasRejectedActions { count: 1 })
+        );
     }
 
     #[test]
@@ -611,49 +475,11 @@ mod tests {
         ));
 
         for (report, expected_failure) in cases {
-            let outcome = assess_verification(
-                Ok(&report),
-                &VerificationExpectation::Complete,
-                Some(&complete_integrity()),
-            );
+            let outcome = assess_verification(Ok(&report), Some(&clean_integrity()));
             let VerificationOutcome::Failed { failures } = outcome else {
                 panic!("report gap unexpectedly passed: {outcome:?}");
             };
             assert!(failures.contains(&expected_failure), "{failures:?}");
         }
-    }
-
-    #[test]
-    fn retained_prefix_endpoint_must_be_the_last_verified_action() {
-        let mut report = report();
-        report.action_dispositions.push(crate::ActionDisposition {
-            action_ordinal: 0,
-            action_step: 12,
-            command: "CHOOSE 0".to_owned(),
-            disposition: ActionDispositionKind::Verified,
-            detail: Some("floor 1 map".to_owned()),
-            deferred_assertion_reconciled: false,
-        });
-        let endpoint = RetainedPrefixEndpoint {
-            action_step: 13,
-            label: "wrong endpoint".to_owned(),
-        };
-
-        let outcome = assess_verification(
-            Ok(&report),
-            &VerificationExpectation::RetainedPrefix {
-                endpoint: endpoint.clone(),
-            },
-            Some(&complete_integrity()),
-        );
-        let VerificationOutcome::Failed { failures } = outcome else {
-            panic!("wrong retained endpoint unexpectedly passed: {outcome:?}");
-        };
-        assert!(
-            failures.contains(&VerificationFailure::RetainedPrefixEndpointMismatch {
-                expected: endpoint,
-                actual_action_step: Some(12),
-            })
-        );
     }
 }

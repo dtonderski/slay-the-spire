@@ -61,8 +61,9 @@ combat.
 Guided collection then exposed a structural limit: event, item, reward, and
 other RNG trajectories often stop matching the source run. Keeping guidance
 legal requires brittle mapping even when the simulator is coherent. In July
-2026 the collection loop therefore switched to reproducible random legal
-actions in the real game with 10,000 verification HP. Collection writes
+2026 the collection loop therefore switched to reproducible random actions
+from a guarded CommunicationMod command set in the real game with 10,000
+verification HP. Collection writes
 immutable complete traces without waiting for the simulator. Independent
 workers strictly replay those traces, retain the first valid prefix, minimize
 the first divergence, and deduplicate repair tasks. Repairs can then replay the
@@ -70,8 +71,27 @@ same full trace farther to reveal its next divergence. This separation made
 real-game action throughput and verifier throughput independently scalable and
 removed SlayTheData legality from the fidelity-discovery loop.
 
+Random collection subsequently acquired two explicitly separate roles.
+Adaptive traces remain discovery evidence used to find and repair defects; they
+cannot be reused as a certification holdout. The Phase 3A exit instead combines
+a fresh frozen batch of 6,605 clean full runs with zero known in-scope failures,
+green permanent regressions, and targeted coverage of rare or collector-excluded
+mechanics. The run count gives a one-sided 3σ bound below one failure per 1,000
+runs only for its declared test distribution. “Full fidelity” is therefore a
+high-confidence engineering conclusion within pinned scope, not a proof over
+every reachable state or future agent policy.
+
+One later fidelity discovery narrowed an important exception to the named-RNG
+model: the UI-advanced, process-global `MathUtils.random` also chooses the
+identity of a colored Courier restock. That state cannot be reconstructed from
+a run seed or named-stream counters, so source-backed gameplay draws of this
+kind are now captured as typed call-time trace inputs rather than inferred from
+post-state. The vanilla audit found this exact card-selection path only for
+Courier; any later path needs separate evidence and metadata.
+
 Sources: `simulator/SLAYTHEDATA_CLI_COLLECTION_STATUS.md` and the July 2026
-SlayTheData and fidelity history.
+SlayTheData and fidelity history; [`research.md`](research.md);
+[`phase3a_statistical_fidelity_gate.md`](../simulator/docs/phase3a_statistical_fidelity_gate.md).
 
 ## The Trace UI Rewrite
 

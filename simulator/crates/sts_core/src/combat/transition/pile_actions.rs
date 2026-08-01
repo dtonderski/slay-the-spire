@@ -123,7 +123,9 @@ pub(super) fn add_generated_cards_to_hand_while_source_in_limbo(
         .iter()
         .position(|card| card.id == source_card_id)
         .ok_or(SimError::UnknownCard(source_card_id))?;
+    // Keep the source on limbo so ID allocation cannot collide with it.
     let source = state.piles.hand.remove(source_index);
+    state.piles.limbo.push(source);
     let result = (0..count).try_for_each(|_| {
         add_generated_card_to_pile(
             state,
@@ -133,6 +135,12 @@ pub(super) fn add_generated_cards_to_hand_while_source_in_limbo(
             temp_cost_turn_only,
         )
     });
+    let source = state.piles.limbo.pop().ok_or(SimError::InvalidState(
+        "limbo source card missing after generate",
+    ))?;
+    if source.id != source_card_id {
+        return Err(SimError::InvalidState("limbo source card id mismatch"));
+    }
     state
         .piles
         .hand
@@ -202,6 +210,50 @@ pub(super) fn add_random_colorless_card_to_hand(
         temp_cost,
         temp_cost.is_some(),
     )?;
+    Ok(Vec::new())
+}
+
+pub(super) fn add_random_colorless_cards_to_hand_while_source_in_limbo(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    count: usize,
+    temp_cost: Option<u8>,
+    upgrade: bool,
+) -> SimResult<Vec<InternalAction>> {
+    let source_index = state
+        .piles
+        .hand
+        .iter()
+        .position(|card| card.id == source_card_id)
+        .ok_or(SimError::UnknownCard(source_card_id))?;
+    // Park in limbo (not a bare local) so instance-ID allocation cannot reuse
+    // the source id while it is off the hand.
+    let source = state.piles.hand.remove(source_index);
+    state.piles.limbo.push(source);
+    let result = (0..count).try_for_each(|_| {
+        state.reserve_card_instance_ids(1)?;
+        let content_id = random_colorless_card(state, upgrade)?;
+        add_generated_card_to_pile(
+            state,
+            content_id,
+            CardPile::Hand,
+            temp_cost,
+            temp_cost.is_some(),
+        )
+    });
+    let source = state.piles.limbo.pop().ok_or(SimError::InvalidState(
+        "Transmutation source missing from limbo",
+    ))?;
+    if source.id != source_card_id {
+        return Err(SimError::InvalidState(
+            "Transmutation limbo source id mismatch",
+        ));
+    }
+    state
+        .piles
+        .hand
+        .insert(source_index.min(state.piles.hand.len()), source);
+    result?;
     Ok(Vec::new())
 }
 

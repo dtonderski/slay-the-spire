@@ -34,6 +34,28 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
     deal_unmodified_damage_to_monster_inner(monster, amount, true)
 }
 
+/// HP_LOSS-style damage (e.g. Charon's Ashes): ignores Block, does not trigger Malleable.
+pub fn deal_hp_loss_damage_to_monster(monster: &mut MonsterState, amount: i32) -> i32 {
+    let amount = cap_monster_damage_with_intangible(monster, amount);
+    let hp_damage = monster.hp.max(0).min(amount);
+    monster.hp -= hp_damage;
+    if monster.hp <= 0 {
+        monster.hp = 0;
+        monster.alive = false;
+        monster.block = 0;
+        if mark_awakened_one_half_dead(monster) {
+        } else if monster.content_id == DARKLING_ID {
+            monster.escaped = true;
+            monster.intent = crate::MonsterIntent::Attack { damage: 0 };
+            monster.powers = Default::default();
+        }
+    }
+    guardian_on_hp_damage(monster, hp_damage);
+    large_acid_slime_on_hp_damage(monster, hp_damage);
+    transient_shifting_on_hp_damage(monster, hp_damage);
+    hp_damage
+}
+
 /// Darkling Life Link (RegrowPower): when every Darkling is half-dead, they all
 /// die for real and the encounter can end.
 ///
@@ -277,6 +299,10 @@ fn calculate_player_attack_damage(
     }
     if target_slow > 0 {
         amount *= 1.0 + f64::from(target_slow) * 0.1;
+    }
+    // Divinity stance (Blasphemy): triple attack damage.
+    if player.divinity > 0 {
+        amount *= 3.0;
     }
     amount.floor().max(0.0) as i32
 }

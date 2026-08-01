@@ -35,7 +35,7 @@ use crate::{
         apply_discard_select_choice, apply_discard_select_confirm, apply_draw_select_choice,
         apply_draw_select_confirm, apply_exhaust_select_choice, apply_exhaust_select_confirm,
         apply_hand_select_choice, apply_hand_select_confirm, apply_potion_action,
-        settle_pending_potion_card_reward_rng,
+        settle_pending_hand_discovery_card_reward_rng, settle_pending_potion_card_reward_rng,
     },
     run::shop::apply_shop_action,
     run::state::{
@@ -155,10 +155,16 @@ fn combat_reward_continuation(run: &RunState) -> RewardContinuation {
     }
 }
 
-/// Prepare the reward overlay that Orrery opens while preserving the shop
-/// underneath it. The relic pickup itself adds the five pending card rewards.
+/// Prepare the reward overlay that Orrery opens from the shop.
+///
+/// CommunicationMod leaves the shop on the CombatRewardScreen path (FIDL00405):
+/// buying Orrery closes the merchant UI (`shop_merchant_open = false`) and shows
+/// five CARD rewards. After the last pick/skip the overlay stays as an empty
+/// combat-reward frame until SKIP returns to `SHOP_ROOM`; CHOOSE re-opens the
+/// merchant. The relic pickup itself still queues the five pending card rewards.
 pub(crate) fn enter_orrery_reward_screen(run: &mut RunState) {
     run.phase = RunPhase::Reward;
+    run.shop_merchant_open = false;
     run.reward = Some(RewardScreen {
         continuation: RewardContinuation::Shop,
         choices: Vec::new(),
@@ -265,15 +271,6 @@ fn roll_reward_rarity(
 ) -> CardRarity {
     let raw_roll = rng.random_int(99);
     let roll = raw_roll + card_rarity_factor;
-    eprintln!(
-        "TRACE_DEBUG rarity counter={} raw={} factor={} effective={} rare={} uncommon={}",
-        rng.counter(),
-        raw_roll,
-        card_rarity_factor,
-        roll,
-        chances.rare,
-        chances.uncommon
-    );
     if roll < chances.rare {
         CardRarity::Rare
     } else if roll < chances.rare + chances.uncommon {
@@ -1010,17 +1007,6 @@ pub fn target_potion_reward_offer(
     };
     *rng = next_rng;
     *potion_chance = next_potion_chance;
-    eprintln!(
-        "DEBUG potion floor={} counter_start={} reward_count={} chance={} roll={} offer={:?} counter_end={} potion_chance_end={}",
-        0,
-        rng.counter().saturating_sub(1),
-        reward_count,
-        chance,
-        roll,
-        offer,
-        rng.counter(),
-        *potion_chance
-    );
     Ok(offer)
 }
 
@@ -1389,18 +1375,36 @@ fn enter_normal_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> 
         .map(|combat| suppress_gold_for_all_escaped_monsters(&combat.monsters))
         .unwrap_or(false);
     let pending_event_gold_offer = std::mem::take(&mut run.pending_event_combat_gold_offer);
+    let pending_event_gold_bonus = std::mem::take(&mut run.pending_event_combat_gold_bonus);
+    let pending_event_elite_gold = std::mem::take(&mut run.pending_event_combat_elite_gold);
     let relic_offer = run.pending_event_combat_relic_offer.take();
-    let gold_offer = if pending_event_gold_offer > 0 {
-        combat_gold_offer_with_relics(run, pending_event_gold_offer)
-    } else if all_monsters_escaped {
-        0
-    } else {
-        let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
-        let gold_offer =
-            combat_gold_offer_with_relics(run, target_normal_combat_gold(&mut treasure_rng));
-        run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
-        gold_offer
-    };
+    // pending_event_combat_gold_offer replaces the combat roll (DA no-search-relic,
+    // Sphere, mushrooms). pending_event_combat_gold_bonus stacks on top (DA after
+    // search relic — FIDL00229). pending_event_combat_elite_gold selects elite range.
+    // Colosseum keeps replace semantics via pending_event_combat_gold_offer = 100.
+    let gold_offer =
+        if all_monsters_escaped && pending_event_gold_offer == 0 && pending_event_gold_bonus == 0 {
+            0
+        } else {
+            let combat_base = if all_monsters_escaped {
+                0
+            } else if pending_event_gold_offer > 0 {
+                pending_event_gold_offer
+            } else {
+                let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
+                let rolled = if pending_event_elite_gold {
+                    target_elite_combat_gold(&mut treasure_rng)
+                } else {
+                    target_normal_combat_gold(&mut treasure_rng)
+                };
+                run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
+                rolled
+            };
+            let total = combat_base
+                .checked_add(pending_event_gold_bonus)
+                .ok_or(SimError::InvalidState("event combat gold overflows i32"))?;
+            combat_gold_offer_with_relics(run, total)
+        };
     let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
     let potion_capacity = run.potion_capacity();
     let potion_offer = if all_monsters_escaped && !run.relics.contains(&Relic::WhiteBeastStatue) {
@@ -1458,12 +1462,6 @@ fn suppress_gold_for_all_escaped_monsters(monsters: &[MonsterState]) -> bool {
 }
 
 pub fn enter_reward_screen(run: &mut RunState) -> SimResult<()> {
-    if run.current_floor == 44 {
-        eprintln!(
-            "DEBUG enter reward floor44 counter={} chance={}",
-            run.potion_rng_counter, run.potion_chance
-        );
-    }
     validate_combat_reward_entry(run)?;
     let stolen_gold_offer = run
         .combat
@@ -1478,14 +1476,6 @@ pub fn enter_reward_screen(run: &mut RunState) -> SimResult<()> {
                 .ok_or(SimError::InvalidState("stolen gold reward overflows i32"))
         })?;
     enter_normal_combat_reward_screen(run)?;
-    if run.current_floor == 44 {
-        eprintln!(
-            "DEBUG after normal reward floor44 counter={} chance={} potion={:?}",
-            run.potion_rng_counter,
-            run.potion_chance,
-            run.reward.as_ref().and_then(|reward| reward.potion_offer)
-        );
-    }
     if let Some(reward) = run.reward.as_mut() {
         reward.stolen_gold_offer = stolen_gold_offer;
     }
@@ -1504,7 +1494,7 @@ fn enter_colosseum_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
     let potion_rng_counter = run.potion_rng_counter;
     let potion_chance = run.potion_chance;
     run.pending_event_combat_gold_offer = 100;
-    run.pending_event_combat_relic_offer = Some(relic_offer.into());
+    run.pending_event_combat_relic_offer = Some(relic_offer);
     enter_normal_combat_reward_screen(run)?;
     // The event has two relics and gold in the reward list before the normal
     // potion helper runs. Restore the normal helper's temporary effects and
@@ -1525,7 +1515,7 @@ fn enter_colosseum_combat_reward_screen(run: &mut RunState) -> SimResult<()> {
     let reward = run.reward.as_mut().expect("Colosseum reward screen");
     reward.continuation = RewardContinuation::Map;
     reward.potion_offer = potion_offer;
-    reward.pending_relic_offer = Some(pending_relic_offer.into());
+    reward.pending_relic_offer = Some(pending_relic_offer);
     Ok(())
 }
 
@@ -1895,6 +1885,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     let transition = apply_combat_action_with_events(&combat_for_action, action)?;
     let mut next_combat = transition.state;
     if matches!(action, CombatAction::EndTurn) {
+        settle_pending_hand_discovery_card_reward_rng(&mut next_combat);
         settle_pending_potion_card_reward_rng(&mut next_combat)?;
     }
     let mut next = run.clone();
@@ -2194,7 +2185,6 @@ fn apply_fairy_if_lethal(
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     run.validate()?;
-    let debug_potion_counter = run.potion_rng_counter;
 
     let next = match action {
         RunAction::OpenChest => apply_treasure_action(run, action),
@@ -2222,20 +2212,6 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
         RunAction::ConfirmExhaustSelect => apply_exhaust_select_confirm(run),
         _ => apply_reward_action(run, action),
     }?;
-    if run.current_floor >= 31
-        && (next.potion_rng_counter != debug_potion_counter
-            || next.potion_chance != run.potion_chance)
-    {
-        eprintln!(
-            "DEBUG potion action floor={} action={:?} before={} after={} chance_before={} chance_after={}",
-            run.current_floor,
-            action,
-            debug_potion_counter,
-            next.potion_rng_counter,
-            run.potion_chance,
-            next.potion_chance
-        );
-    }
     next.validate()?;
     Ok(next)
 }
@@ -2602,13 +2578,14 @@ fn return_to_reward_continuation_if_empty(run: &mut RunState) {
     {
         return;
     }
-    // Event rewards remain as an empty CombatRewardScreen until the event's
-    // Leave/Proceed command closes the overlay. This is also how event relic
-    // and potion rewards are represented, and keeps the event continuation
-    // available after the final card choice.
+    // Event and Shop (Orrery) rewards remain as an empty CombatRewardScreen until
+    // Leave/Proceed/SKIP closes the overlay (FIDL00405: empty combat-reward after
+    // the last Orrery card, then SKIP → SHOP_ROOM). Map continuations also hold.
+    // This is also how event relic and potion rewards are represented.
     if reward.continuation != RewardContinuation::None
         && reward.continuation != RewardContinuation::Event
         && reward.continuation != RewardContinuation::Map
+        && reward.continuation != RewardContinuation::Shop
     {
         close_reward_overlay(run, RewardCloseReason::Automatic)
             .expect("closing an empty reward overlay must settle pending obtain cards");
@@ -3000,6 +2977,7 @@ mod tests {
         assert_eq!(next.phase, RunPhase::Event);
         assert_eq!(next.current_floor, 51);
         assert_eq!(next.current_room_kind(), Some(RoomKind::Victory));
+        // No Maw Bank on this fixture — gold unchanged on Heart entry.
         assert_eq!(next.gold, run.gold);
         assert!(next.reward.is_none());
         let event = next.event.as_ref().expect("Spire Heart event screen");
@@ -3039,6 +3017,44 @@ mod tests {
         let json = serde_json::to_string(&completed).expect("serialize completed run state");
         let restored: RunState = serde_json::from_str(&json).expect("restore completed run state");
         assert_eq!(restored, completed);
+    }
+
+    #[test]
+    fn spire_heart_entry_applies_maw_bank_gold() {
+        use crate::relic::{Relic, MAW_BANK_GOLD};
+
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Reward;
+        run.current_act = 3;
+        run.current_floor = 50;
+        run.current_room_override = Some(RoomKind::Boss);
+        run.gold = 100;
+        run.maw_bank_broken = false;
+        run.relics = vec![Relic::BurningBlood, Relic::MawBank];
+        run.event = None;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: crate::run::CardRewardFlow::None,
+        });
+
+        let next = apply_run_action(&run, RunAction::Proceed)
+            .expect("final boss victory can enter the Spire Heart event");
+        assert_eq!(next.current_floor, 51);
+        assert_eq!(next.gold, 100 + MAW_BANK_GOLD);
+        assert_eq!(
+            next.event.as_ref().map(|event| event.event),
+            Some(Event::SpireHeart)
+        );
     }
 
     #[test]
@@ -3414,6 +3430,39 @@ mod tests {
     }
 
     #[test]
+    fn take_card_reward_grants_ceramic_fish_gold() {
+        // FIDL00426: claiming a combat card reward with Ceramic Fish must add
+        // CERAMIC_FISH_GOLD on the same transition as the deck obtain.
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Reward;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![Relic::CeramicFish];
+        let starting_gold = run.gold;
+        let starting_deck = run.deck.len();
+        let card = CardInstance::new(CardId::new(9_501), crate::content::cards::ANGER_ID);
+        let card_id = card.id;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: vec![card],
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: crate::run::CardRewardFlow::active(1),
+        });
+
+        let next = apply_run_action(&run, RunAction::TakeCardReward { card_id })
+            .expect("card reward claim succeeds");
+        assert_eq!(next.deck.len(), starting_deck + 1);
+        assert_eq!(next.gold, starting_gold + crate::relic::CERAMIC_FISH_GOLD);
+    }
+
+    #[test]
     fn half_dead_darklings_still_allow_combat_gold_reward() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Combat;
@@ -3729,7 +3778,10 @@ mod tests {
             .expect("max HP gain");
 
         assert_eq!(run.player_max_hp, 82);
-        assert_eq!(run.player_hp, 50, "Mark of the Bloom must block Singing Bowl heal");
+        assert_eq!(
+            run.player_hp, 50,
+            "Mark of the Bloom must block Singing Bowl heal"
+        );
     }
 
     #[test]

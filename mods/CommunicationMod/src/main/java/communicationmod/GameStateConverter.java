@@ -58,6 +58,10 @@ public class GameStateConverter {
         if(isInGame) {
             response.put("game_state", getGameState());
         }
+        ArrayList<HashMap<String, Object>> externalRng = ExternalRngCapture.drainPending();
+        if(!externalRng.isEmpty()) {
+            response.put("external_rng", externalRng);
+        }
         Gson gson = new Gson();
         return gson.toJson(response);
     }

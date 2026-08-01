@@ -1,8 +1,7 @@
 use crate::{
     combat::{
         transition::{
-            apply_on_exhaust_effects_without_dark_embrace, dead_branch_card_for_end_turn,
-            player_draw_cards,
+            apply_on_exhaust_effects_for_end_turn, dead_branch_card_for_end_turn, player_draw_cards,
         },
         CombatState,
     },
@@ -16,6 +15,7 @@ use crate::{
 pub(crate) struct EndOfTurnHandResolution {
     pub(crate) deferred_dark_embrace_draws: usize,
     pub(crate) dead_branch_cards: Vec<CardInstance>,
+    pub(crate) deferred_juggernaut_damage: Vec<i32>,
 }
 
 pub fn resolve_end_of_turn_hand(state: &mut CombatState) -> SimResult<()> {
@@ -49,6 +49,16 @@ fn resolve_end_of_turn_hand_inner(state: &mut CombatState) -> SimResult<EndOfTur
 
 pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
     discard_non_retain_hand(state);
+}
+
+/// Resolve only the end-turn cards that auto-play before the bulk hand discard.
+/// CommunicationMod can observe this queue boundary when Time Warp ends a turn
+/// while a hand-selection action is closing.
+pub fn resolve_end_of_turn_playing_cards_for_time_warp_lag(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    let hand_size = state.piles.hand.len() as i32;
+    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size)
 }
 
 fn apply_end_of_turn_for_playing_cards_in_hand_order(
@@ -88,22 +98,17 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                 )?;
                 state.piles.discard_pile.push(hand[index]);
             }
+            // Doubt is auto-played via CardQueueItem at end of turn (see
+            // Doubt.triggerOnEndOfTurnForPlayingCard). That removes it from hand
+            // before DiscardAtEndOfTurnAction. Runic Pyramid only skips the bulk
+            // hand discard — it does not keep auto-played curses (FIDL00288).
             DOUBT_ID => {
-                if state.relics.contains(&crate::Relic::RunicPyramid) {
-                    crate::relic::apply_player_weak_with_relics(
-                        &mut state.player.powers,
-                        &state.relics,
-                        1,
-                    )?;
-                    remaining_indices.push(index);
-                } else {
-                    crate::relic::apply_player_weak_with_relics(
-                        &mut state.player.powers,
-                        &state.relics,
-                        1,
-                    )?;
-                    state.piles.discard_pile.push(card);
-                }
+                crate::relic::apply_player_weak_with_relics(
+                    &mut state.player.powers,
+                    &state.relics,
+                    1,
+                )?;
+                state.piles.discard_pile.push(card);
             }
             SHAME_ID => {
                 crate::relic::apply_player_frail_with_relics(
@@ -146,13 +151,16 @@ fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) -> SimResult<EndOfTu
         .then(|| state.reserve_card_instance_ids(ethereal_ids.len()))
         .transpose()?;
     let mut deferred_dark_embrace_draws: usize = 0;
+    let mut deferred_juggernaut_damage = Vec::new();
     let mut dead_branch_cards = Vec::new();
     let mut dead_branch_count = 0_u64;
     for card_id in ethereal_ids {
         if let Some(index) = state.piles.hand.iter().position(|card| card.id == card_id) {
             let card = state.piles.hand.remove(index);
             state.piles.exhaust_pile.push(card);
-            apply_on_exhaust_effects_without_dark_embrace(state, card_id)?;
+            if let Some(amount) = apply_on_exhaust_effects_for_end_turn(state, card_id)? {
+                deferred_juggernaut_damage.push(amount);
+            }
             let generated_id = CardId::new(
                 first_dead_branch_id.expect("ethereal cards reserve a Dead Branch ID range")
                     + dead_branch_count,
@@ -171,6 +179,7 @@ fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) -> SimResult<EndOfTu
     Ok(EndOfTurnHandResolution {
         deferred_dark_embrace_draws,
         dead_branch_cards,
+        deferred_juggernaut_damage,
     })
 }
 
@@ -237,6 +246,41 @@ mod tests {
             vec![REGRET_ID, BURN_ID, DOUBT_ID]
         );
         assert_eq!(state.player.powers.weak, 1);
+    }
+
+    #[test]
+    fn end_turn_doubt_leaves_hand_even_with_runic_pyramid() {
+        // Doubt is card-queue auto-played at EOT; Pyramid only skips bulk discard.
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![crate::Relic::RunicPyramid];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), DEFEND_R_ID),
+            CardInstance::new(CardId::new(2), DOUBT_ID),
+        ];
+        state.piles.discard_pile.clear();
+
+        resolve_end_of_turn_hand(&mut state).expect("end-turn hand resolves");
+
+        assert_eq!(state.player.powers.weak, 1);
+        assert!(state
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id != DOUBT_ID));
+        assert_eq!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DOUBT_ID]
+        );
+        assert!(state
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
     }
 
     #[test]

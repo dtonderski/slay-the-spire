@@ -1,14 +1,14 @@
 use crate::{
     card::{CardInstance, CardRarity, CardType},
     content::shop_pool::{
-        assign_random_class_card_excluding, random_class_card_of_type_and_rarity,
-        random_class_card_of_type_and_rarity_with_fallback, random_colorless_from_pool,
-        roll_card_rarity_shop, shop_card_is_colorless, shop_card_price_rarity, shop_card_type,
+        assign_random_class_card_excluding, class_card_pool_of_type_and_rarity_with_fallback,
+        random_class_card_of_type_and_rarity, random_colorless_from_pool, roll_card_rarity_shop,
+        shop_card_is_colorless, shop_card_price_rarity, shop_card_type,
     },
     ids::CardId,
     potion::Potion,
     relic::{Relic, RelicKey, RelicTier},
-    rng::StsRng,
+    rng::{ExternalRngKind, StsRng},
     run::grid::open_shop_remove_grid,
     run::reward::{
         enter_orrery_reward_screen, queue_orrery_card_reward_choices, target_random_potion,
@@ -321,28 +321,40 @@ fn restock_courier_card_slot(
     let mut card_rng = StsRng::with_counter(next.reward_rng_seed as i64, next.card_rng_counter);
     let mut merchant_rng =
         StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
-    let content_id = if shop_card_is_colorless(purchased.content_id) {
-        let rarity = if merchant_rng.random_float() < SHOP_COLORLESS_RARE_CHANCE {
-            CardRarity::Rare
+    let content_id =
+        if shop_card_is_colorless(purchased.content_id) {
+            let rarity = if merchant_rng.random_float() < SHOP_COLORLESS_RARE_CHANCE {
+                CardRarity::Rare
+            } else {
+                CardRarity::Uncommon
+            };
+            random_colorless_from_pool(&mut card_rng, rarity)
         } else {
-            CardRarity::Uncommon
-        };
-        random_colorless_from_pool(&mut card_rng, rarity)
-    } else {
-        let card_type = shop_card_type(purchased.content_id)
-            .ok_or(SimError::UnsupportedMechanic(purchased.content_id))?;
-        loop {
-            let rarity = roll_card_rarity_shop(&mut card_rng, next.card_rarity_factor);
-            let id = random_class_card_of_type_and_rarity_with_fallback(
-                &mut card_rng,
-                card_type,
-                rarity,
-            );
-            if !shop_card_is_colorless(id) {
-                break id;
+            let card_type = shop_card_type(purchased.content_id)
+                .ok_or(SimError::UnsupportedMechanic(purchased.content_id))?;
+            loop {
+                let rarity = roll_card_rarity_shop(&mut card_rng, next.card_rarity_factor);
+                let pool = class_card_pool_of_type_and_rarity_with_fallback(card_type, rarity);
+                let range_inclusive = u32::try_from(pool.len().saturating_sub(1))
+                    .map_err(|_| SimError::InvalidState("Courier card pool exceeds u32"))?;
+                let input = next.pending_external_rng.first().copied().ok_or(
+                    SimError::MissingExternalRng("courier_colored_card_selection"),
+                )?;
+                if input.kind != ExternalRngKind::CardGroupGetRandomCardByType
+                    || input.range_inclusive != range_inclusive
+                {
+                    return Err(SimError::ExternalRngMismatch(
+                        "courier_colored_card_selection",
+                    ));
+                }
+                next.pending_external_rng.remove(0);
+                let mut math_utils_rng = input.state;
+                let id = pool[math_utils_rng.random_int(range_inclusive) as usize];
+                if !shop_card_is_colorless(id) {
+                    break id;
+                }
             }
-        }
-    };
+        };
     next.card_rng_counter = card_rng.counter();
 
     let card = CardInstance::new(CardId::new(next_card_id), content_id);
@@ -471,12 +483,6 @@ pub fn generate_shop_screen(run: &mut RunState) -> SimResult<ShopScreen> {
         });
     }
     run.potion_rng_counter = potion_rng.counter();
-    eprintln!(
-        "DEBUG shop floor={} potion_counter={} potions={:?}",
-        run.current_floor,
-        run.potion_rng_counter,
-        potions.iter().map(|slot| slot.potion).collect::<Vec<_>>()
-    );
     run.merchant_rng_counter = merchant_rng.counter();
 
     let cards = card_contents
@@ -516,6 +522,8 @@ pub fn generate_shop_screen(run: &mut RunState) -> SimResult<ShopScreen> {
 pub fn enter_shop_room(run: &mut RunState) -> SimResult<()> {
     let mut next = run.clone();
     next.phase = RunPhase::Shop;
+    // ShopRoom.onPlayerEntry constructs Merchant, whose constructor initializes
+    // ShopScreen before the merchant UI is opened.
     next.shop = Some(generate_shop_screen(&mut next)?);
     next.shop_merchant_open = false;
     next.card_grid = None;
@@ -865,20 +873,19 @@ mod tests {
     }
 
     #[test]
-    fn missing_shop_inventory_is_invalid_for_legal_actions() {
+    fn entered_shop_room_can_leave_without_opening_merchant() {
         let mut run = RunState::map_fixture();
-        run.phase = RunPhase::Shop;
-        run.shop = None;
-        run.shop_merchant_open = false;
+        enter_shop_room(&mut run).expect("shop entry succeeds");
 
+        assert!(run.shop.is_some());
         assert_eq!(
             legal_shop_actions(&run),
-            Err(SimError::InvalidState("shop phase has no shop screen"))
+            Ok(vec![RunAction::EnterShop, RunAction::Proceed])
         );
-        assert_eq!(
-            validate_shop_action(&run, RunAction::EnterShop),
-            Err(SimError::InvalidState("shop phase has no shop screen"))
-        );
+        assert_eq!(validate_shop_action(&run, RunAction::EnterShop), Ok(()));
+        let left = apply_shop_action(&run, RunAction::Proceed).expect("shop room can close");
+        assert_eq!(left.phase, RunPhase::Idle);
+        assert!(left.shop.is_none());
     }
 
     #[test]
@@ -934,6 +941,72 @@ mod tests {
         run.relics.push(Relic::TheCourier);
         restock_courier_potion_slot(&mut run, 0);
         assert_eq!(run.potion_rng_counter, before_restock + 1);
+    }
+
+    #[test]
+    fn courier_colored_restock_uses_card_rng_only_for_rarity() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.gold = 999;
+        run.relics.push(Relic::TheCourier);
+        run.shop = Some(generate_shop_screen(&mut run).expect("shop generates"));
+        run.shop_merchant_open = true;
+        let purchased = CardInstance::new(
+            run.shop.as_ref().unwrap().cards[0].card.id,
+            crate::content::cards::HAVOC_ID,
+        );
+        run.shop.as_mut().unwrap().cards[0].card = purchased;
+        run.shop.as_mut().unwrap().cards[0].price = 0;
+
+        let card_rng_before = run.card_rng_counter;
+        let mut rarity_rng = StsRng::with_counter(run.reward_rng_seed as i64, card_rng_before);
+        let rarity = roll_card_rarity_shop(&mut rarity_rng, run.card_rarity_factor);
+        let pool = class_card_pool_of_type_and_rarity_with_fallback(CardType::Skill, rarity);
+        let range_inclusive = (pool.len() - 1) as u32;
+        let state = crate::rng::MathUtilsRngState {
+            state0: 0x0123_4567_89ab_cdef,
+            state1: 0xfedc_ba98_7654_3210,
+        };
+        let mut expected_rng = state;
+        let expected = pool[expected_rng.random_int(range_inclusive) as usize];
+        run.pending_external_rng.push(crate::rng::ExternalRngInput {
+            kind: ExternalRngKind::CardGroupGetRandomCardByType,
+            state,
+            range_inclusive,
+        });
+
+        let next = apply_shop_action(&run, RunAction::BuyShopCard { slot: 0 })
+            .expect("instrumented Courier restock succeeds");
+
+        assert_eq!(next.card_rng_counter, card_rng_before + 1);
+        assert_eq!(
+            next.shop.as_ref().unwrap().cards[0].card.content_id,
+            expected
+        );
+        assert!(next.pending_external_rng.is_empty());
+    }
+
+    #[test]
+    fn courier_colored_restock_fails_closed_without_external_rng() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.gold = 999;
+        run.relics.push(Relic::TheCourier);
+        run.shop = Some(generate_shop_screen(&mut run).expect("shop generates"));
+        run.shop_merchant_open = true;
+        run.shop.as_mut().unwrap().cards[0].card.content_id = crate::content::cards::HAVOC_ID;
+        run.shop.as_mut().unwrap().cards[0].price = 0;
+        let before = run.clone();
+
+        assert_eq!(
+            apply_shop_action(&run, RunAction::BuyShopCard { slot: 0 }),
+            Err(SimError::MissingExternalRng(
+                "courier_colored_card_selection"
+            ))
+        );
+        assert_eq!(run, before);
     }
 
     #[test]
@@ -1000,7 +1073,8 @@ mod tests {
             next.reward.as_ref().unwrap().remaining_card_reward_count(),
             crate::relic::ORRERY_CARD_REWARDS
         );
-        assert!(next.shop_merchant_open);
+        // Merchant UI closes while the Orrery combat-reward overlay is up.
+        assert!(!next.shop_merchant_open);
 
         let fifth_reward = next
             .reward
@@ -1032,17 +1106,28 @@ mod tests {
             next =
                 crate::run::reward::apply_run_action(&next, RunAction::TakeCardReward { card_id })
                     .expect("Orrery card reward can be taken");
-            if remaining > 0 {
-                assert_eq!(next.phase, RunPhase::Reward);
-                assert_eq!(
-                    next.reward.as_ref().unwrap().remaining_card_reward_count(),
-                    remaining
-                );
-            }
+            assert_eq!(next.phase, RunPhase::Reward);
+            assert_eq!(
+                next.reward.as_ref().unwrap().remaining_card_reward_count(),
+                remaining
+            );
         }
 
+        // Final pick leaves an empty combat-reward frame (merchant still closed).
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert!(next
+            .reward
+            .as_ref()
+            .is_some_and(crate::run::reward::reward_is_empty));
+        assert!(!next.shop_merchant_open);
+
+        next = crate::run::reward::apply_run_action(&next, RunAction::SkipReward)
+            .expect("empty Orrery reward SKIP returns to shop room");
         assert_eq!(next.phase, RunPhase::Shop);
         assert!(next.reward.is_none());
+        assert!(!next.shop_merchant_open);
+
+        next = apply_shop_action(&next, RunAction::EnterShop).expect("re-open merchant");
         assert!(next.shop_merchant_open);
     }
 }

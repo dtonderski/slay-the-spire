@@ -19,25 +19,23 @@ observation.
 
 ## Verification Outcome Contract
 
-Verification verdict and coverage scope are explicit. A report is assessed
-against one declared expectation: complete replay, a retained prefix with a
-named endpoint. The resulting typed outcome is one of complete pass,
-retained-prefix pass, invalid input, or failure. Any replay boundary is a
-failure diagnostic and can never be declared as a passing expectation.
+Default success is **clean through EOF**: every verifiable transition in the
+file matches with first-boundary `category=none`. Incomplete / half-finished
+runs pass when the recorded prefix is clean. Full clean runs also pass.
+
+Corrupt or invalid traces are invalid input (or quarantine). Genuine simulator
+divergences fail verification and remain evidence — they are not greenwashed
+via expectation grades or silent truncation.
 
 No passing outcome may be produced from empty diff lists alone. It also
 requires zero unsupported transitions, zero ignored-tail actions, no replay
-boundary, and complete action-integrity
-evidence. That evidence must show exactly one disposition for every applicable
-action, no duplicate dispositions, and no unresolved transient assertions.
-Missing integrity evidence is itself a failure.
+boundary, and complete action-integrity evidence (one disposition per
+applicable action, no duplicates, no unresolved transient assertions).
 
-The `parity` command is strict complete verification: it exits `0` only for a
-`complete_pass`, `1` for invalid input, and `2` for a valid trace that fails the
-complete contract. Retained prefixes must be declared in a corpus manifest and
-assessed with `status`; status uses the same exit-code policy across all
-entries. A prefix that has no raw diff therefore cannot pass when invoked as
-complete parity.
+The `parity` command uses clean-through-EOF by default: exit `0` for
+`complete_pass`, `1` for invalid input, and `2` for a valid trace that fails.
+Optional `--require-terminal` requires a full game-over run. There is no
+expectation manifest.
 
 ## Real-Game Comparison
 
@@ -96,19 +94,28 @@ Replay and parity share the same transition engine. CommunicationMod post-state
 observations are comparison evidence only, including when a trace is replayed
 with `--at-step` or `--timeline`.
 
-Use the typed permanent manifest for corpus-wide status:
+Use directory discovery for corpus-wide status:
 
 ```powershell
 cd simulator
 uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown permanent_traces
 ```
 
-[`permanent_traces.json`](../verification/corpus/permanent_traces.json) is the
-only permanent-corpus expectation authority. Its entries declare complete replay,
-or retained-prefix coverage with an exact named action endpoint. The status
-command and permanent corpus test require the
-manifest to match the `permanent_traces/` filesystem exactly. Raw traces do not
-become passing evidence merely because they have no current diffs.
+The green permanent corpus is every `permanent_traces/*.jsonl` file. Each must
+verify clean through EOF. There is no `permanent_traces.json` expectation
+manifest. Open simulator-fail witnesses live outside that gate (for example
+`open_failures/`). Parallel jobs default to a small worker cap (`STS_VERIFY_JOBS`)
+to avoid OOM on large traces.
+
+The permanent corpus is a **regression lock**, not a residual-rate proof. For the
+combined Phase 3A fidelity confidence gate—zero known failures, permanent and
+targeted regression evidence, coverage review, and the prospective 6,605-run
+statistical certificate—see
+[`phase3a_statistical_fidelity_gate.md`](phase3a_statistical_fidelity_gate.md).
+Its statistical component bounds full-run failure probability only under the
+declared frozen test distribution. A large green corpus can still coexist with
+a high live fail rate on unseen mass, and a long random green streak does not
+replace promoted witnesses or targeted coverage.
 
 The overnight CommunicationMod collector can harvest longer traces for missing elite coverage. Validate harvested traces before promoting them:
 

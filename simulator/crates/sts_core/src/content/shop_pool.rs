@@ -159,6 +159,30 @@ fn ironclad_pool(card_type: CardType, rarity: CardRarity) -> &'static [&'static 
     }
 }
 
+fn ironclad_pool_with_fallback(card_type: CardType, rarity: CardRarity) -> &'static [&'static str] {
+    let effective_rarity = if card_type == CardType::Power && rarity == CardRarity::Common {
+        CardRarity::Uncommon
+    } else {
+        rarity
+    };
+    ironclad_pool(card_type, effective_rarity)
+}
+
+/// Target `CardGroup.getRandomCard(CardType, ...)` candidate order.
+///
+/// `CardGroup` sorts matching cards by `AbstractCard.cardID` before selecting.
+/// The static Ironclad pools above use that same order.
+#[must_use]
+pub fn class_card_pool_of_type_and_rarity_with_fallback(
+    card_type: CardType,
+    rarity: CardRarity,
+) -> Vec<ContentId> {
+    ironclad_pool_with_fallback(card_type, rarity)
+        .iter()
+        .map(|name| shop_card_content_id(name))
+        .collect()
+}
+
 /// Target `rollCardRarityShop` from `sts_lightspeed` `Shop.cpp`.
 #[must_use]
 pub fn roll_card_rarity_shop(rng: &mut StsRng, card_rarity_factor: i32) -> CardRarity {
@@ -277,6 +301,7 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "METAMORPHOSIS" => METAMORPHOSIS_ID,
         "SECRET_TECHNIQUE" => SECRET_TECHNIQUE_ID,
         "SECRET_WEAPON" => SECRET_WEAPON_ID,
+        "BLASPHEMY" => crate::content::cards::BLASPHEMY_ID,
         "THE_BOMB" => THE_BOMB_ID,
         "THINKING_AHEAD" => THINKING_AHEAD_ID,
         "TRANSMUTATION" => TRANSMUTATION_ID,
@@ -309,11 +334,10 @@ pub fn random_class_card_of_type_and_rarity_with_fallback(
     card_type: CardType,
     rarity: CardRarity,
 ) -> ContentId {
-    let mut effective_rarity = rarity;
-    if card_type == CardType::Power && rarity == CardRarity::Common {
-        effective_rarity = CardRarity::Uncommon;
-    }
-    random_class_card_of_type_and_rarity(rng, card_type, effective_rarity)
+    let pool = ironclad_pool_with_fallback(card_type, rarity);
+    assert!(!pool.is_empty(), "empty shop type/rarity pool");
+    let idx = rng.random_int((pool.len() - 1) as i32) as usize;
+    shop_card_content_id(pool[idx])
 }
 
 #[must_use]

@@ -977,13 +977,7 @@ fn spawn_monster_powers(
             // Thievery is represented by AttackStealGold intent rather than a
             // persistent core monster power.
             "Thievery" => {}
-            _ => {
-                eprintln!(
-                    "DEBUG unsupported spawn content={content_id:?} name={} power={:?}",
-                    spawn.name, power
-                );
-                return Err(SimError::UnsupportedMechanic(content_id));
-            }
+            _ => return Err(SimError::UnsupportedMechanic(content_id)),
         }
     }
     Ok(powers)

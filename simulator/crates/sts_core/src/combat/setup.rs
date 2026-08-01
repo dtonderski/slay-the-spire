@@ -10,9 +10,14 @@ use crate::{
 const OPENING_HAND_SIZE: usize = 5;
 
 pub fn card_has_innate(content_id: ContentId) -> SimResult<bool> {
-    get_card_definition(content_id)
-        .map(|definition| definition.keywords.innate)
-        .ok_or(SimError::UnknownContent(content_id))
+    if let Some(definition) = get_card_definition(content_id) {
+        return Ok(definition.keywords.innate);
+    }
+    // Prismatic synthetic cards have no modeled definition; treat as non-innate.
+    if crate::run::reward::any_color_reward_card_key(content_id).is_some() {
+        return Ok(false);
+    }
+    Err(SimError::UnknownContent(content_id))
 }
 
 pub fn card_starts_in_opening_hand(card: &CardInstance) -> SimResult<bool> {
@@ -34,13 +39,20 @@ pub fn initialize_combat_piles_with_relics(
     let shuffled = order_deck_for_combat_shuffle(deck);
     let mut prepared = Vec::with_capacity(shuffled.len());
     for card in shuffled {
-        let definition = get_card_definition(card.content_id)
-            .ok_or(SimError::UnknownContent(card.content_id))?;
-        prepared.push((
-            card,
-            card.bottled || definition.keywords.innate,
-            definition.keywords.unplayable,
-        ));
+        let (starts_in_opening_hand, unplayable) =
+            if let Some(definition) = get_card_definition(card.content_id) {
+                (
+                    card.bottled || definition.keywords.innate,
+                    definition.keywords.unplayable,
+                )
+            } else if crate::run::reward::any_color_reward_card_key(card.content_id).is_some() {
+                // Unmodeled Prismatic cards may sit in the deck; mark unplayable
+                // until their effects are implemented (FIDL00288).
+                (card.bottled, true)
+            } else {
+                return Err(SimError::UnknownContent(card.content_id));
+            };
+        prepared.push((card, starts_in_opening_hand, unplayable));
     }
 
     JavaRng::new(shuffle_rng.random_long()).collections_shuffle(&mut prepared);
@@ -93,7 +105,11 @@ fn opening_hand_size(relics: &[Relic]) -> usize {
 
 pub fn starter_only_deck(deck: &[CardInstance]) -> SimResult<bool> {
     for card in deck {
-        get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
+        if get_card_definition(card.content_id).is_none()
+            && crate::run::reward::any_color_reward_card_key(card.content_id).is_none()
+        {
+            return Err(SimError::UnknownContent(card.content_id));
+        }
     }
     Ok(deck
         .iter()

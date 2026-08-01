@@ -76,7 +76,16 @@ pub(super) fn await_hand_select(
             })
             .map(|(index, _)| index)
             .collect();
-        if eligible.len() == 1 {
+        if eligible.len() == 1
+            && !state
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.id == source_card_id)
+        {
+            // Force-played Dual Wield (Havoc/Mayhem/etc.) has its source in
+            // limbo and the target auto-resolves a singleton choice. A
+            // hand-played Dual Wield still opens the visible select screen.
             super::confirm_dual_wield_select(state, source_card_id, eligible[0])?;
             return Ok(Vec::new());
         }
@@ -98,6 +107,18 @@ pub(super) fn await_draw_select(
     source_card_id: CardId,
     purpose: DrawSelectPurpose,
 ) -> SimResult<Vec<crate::action::InternalAction>> {
+    // STS removes Secret Technique/Weapon from hand (cardInUse) before the
+    // filtered grid opens. Keeping the source in hand makes a full 10-card hand
+    // overflow the retrieved skill into discard (FIDL00413).
+    if let Some(source_index) = state
+        .piles
+        .hand
+        .iter()
+        .position(|card| card.id == source_card_id)
+    {
+        let source = state.piles.hand.remove(source_index);
+        state.piles.limbo.push(source);
+    }
     let mut selectable_card_ids = Vec::new();
     for card in &state.piles.draw_pile {
         let selectable = match purpose {

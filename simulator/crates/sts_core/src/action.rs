@@ -175,6 +175,15 @@ pub enum InternalAction {
         temp_cost: Option<u8>,
         upgrade: bool,
     },
+    /// Transmutation: MakeTempCardInHand sees the played card in limbo (removed
+    /// from hand), so hand capacity is computed without the X-cost source
+    /// (FIDL00413: X=16 must fill to 10, not stall at 9).
+    AddRandomColorlessCardsToHandWhileSourceInLimbo {
+        source_card_id: CardId,
+        count: usize,
+        temp_cost: Option<u8>,
+        upgrade: bool,
+    },
     MoveCard {
         card_id: CardId,
         from: CardPile,
@@ -189,6 +198,14 @@ pub enum InternalAction {
     },
     ExhaustRandomHandCardExcept {
         excluded_card_id: CardId,
+    },
+    /// Exhaust every other hand card, then deal `amount` once per exhausted card.
+    /// Hit count is decided at resolve time so Double Tap / Necronomicon copies
+    /// with an empty hand deal zero hits (FIDL00237 Fiend Fire + Double Tap).
+    ResolveFiendFire {
+        source_card_id: CardId,
+        target: MonsterId,
+        amount: i32,
     },
     RemoveCard {
         card_id: CardId,
@@ -286,6 +303,10 @@ pub enum InternalAction {
     GainCorruption {
         amount: i32,
     },
+    /// Enter Watcher Divinity stance (triple attack damage).
+    EnterDivinity,
+    /// Blasphemy EndTurnDeathPower — die at end of this turn.
+    ApplyEndTurnDeath,
     GainSadisticNature {
         amount: i32,
     },

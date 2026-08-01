@@ -106,6 +106,8 @@ pub(super) fn apply_act_three_event_action(
                 next.pending_event_combat_relic_offer = Some(
                     super::super::super::reward::roll_relic_reward(next, RelicTier::Rare),
                 );
+                // Elite-like rewards, but room stays EventRoom — Slaver's Collar
+                // does not fire (FIDL00228: energy is base+Lantern only).
                 enter_event_combat(next, &[&ORB_WALKER_A0, &ORB_WALKER_A0])?;
             }
             2 if choice_index == 0 => {
@@ -301,8 +303,8 @@ pub(super) fn apply_act_three_event_action(
         Event::MindBloom if screen.stage == 0 && choice_index == 2 => {
             if next.current_floor % 50 <= 40 {
                 next.gain_gold(999)?;
-                next.gain_deck_card(NORMALITY_ID)?;
-                next.gain_deck_card(NORMALITY_ID)?;
+                next.queue_pending_obtain_card(NORMALITY_ID);
+                next.queue_pending_obtain_card(NORMALITY_ID);
             } else {
                 next.heal_player(next.player_max_hp)?;
                 next.gain_deck_card(DOUBT_ID)?;
@@ -314,6 +316,7 @@ pub(super) fn apply_act_three_event_action(
             ));
         }
         Event::MindBloom if screen.stage == 1 && choice_index == 0 => {
+            next.flush_pending_obtain_cards()?;
             next.phase = RunPhase::Idle;
             next.event = None;
         }

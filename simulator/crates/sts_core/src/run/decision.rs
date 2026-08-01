@@ -142,7 +142,6 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
 /// Applies one top-level run decision and validates both sides of the boundary.
 pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> SimResult<RunState> {
     validate_run_decision_action(run, action)?;
-    let debug_potion_counter = run.potion_rng_counter;
     let next = match action {
         RunDecisionAction::Combat(action) => apply_combat_action_on_run(run, action),
         RunDecisionAction::Event(action) => apply_event_action(run, action),
@@ -153,12 +152,6 @@ pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> S
         RunDecisionAction::Rest(action) => apply_rest_action(run, action),
         RunDecisionAction::Run(action) => apply_run_action(run, action),
     }?;
-    if next.potion_rng_counter != debug_potion_counter {
-        eprintln!(
-            "DEBUG decision floor={} action={:?} before={} after={}",
-            run.current_floor, action, debug_potion_counter, next.potion_rng_counter
-        );
-    }
     next.validate()?;
     Ok(next)
 }

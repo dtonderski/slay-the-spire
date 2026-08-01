@@ -76,7 +76,7 @@ pub(super) fn apply_monster_vulnerable(
     target: MonsterId,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    apply_player_vulnerable_debuff(state, target, amount)?;
+    apply_player_vulnerable_debuff(state, target, amount, false)?;
     Ok(Vec::new())
 }
 

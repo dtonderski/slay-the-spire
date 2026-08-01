@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use sts_core::content::encounters::BossUnlockState;
+use sts_core::ExternalRngInput;
 
 /// One line from a CommunicationMod-style trace file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -13,12 +14,19 @@ pub enum TraceLine {
     Metadata(TraceMetadata),
     State(TraceState),
     Action(TraceAction),
+    ExternalRng(TraceExternalRng),
     Error(TraceError),
     CommandAccept(TraceCommandAccept),
     Response(TraceResponse),
     SlayTheData(TraceSlayTheData),
     Automation(TraceAutomation),
     CommandObservedTimeout(TraceCommandObservedTimeout),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceExternalRng {
+    pub step: u32,
+    pub draws: Vec<ExternalRngInput>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -153,6 +161,7 @@ pub fn parse_trace_jsonl(content: &str) -> Result<Vec<TraceLine>, serde_json::Er
             Some("metadata") => TraceLine::Metadata(parse_metadata_line(value)?),
             Some("state") => TraceLine::State(parse_state_line(value)?),
             Some("action") => TraceLine::Action(parse_action_line(value)?),
+            Some("external_rng") => TraceLine::ExternalRng(serde_json::from_value(value)?),
             Some("error") => TraceLine::Error(serde_json::from_value(value)?),
             Some("command_accept") => TraceLine::CommandAccept(parse_command_accept_line(value)?),
             Some("response") => TraceLine::Response(parse_response_line(value)?),
@@ -550,7 +559,7 @@ fn validate_visible_screen_schema(
         "CHEST" => return validate_chest_screen_schema(step, game),
         "COMBAT_REWARD" => Some("rewards"),
         "EVENT" => return validate_event_screen_schema(step, game, command_ready),
-        "MAP" => return validate_map_screen_schema(step, game),
+        "MAP" => return validate_map_screen_schema(step, game, command_ready),
         "GRID" => return validate_grid_screen_schema(step, game),
         "HAND_SELECT" => return validate_hand_select_screen_schema(step, game),
         "REST" => return validate_rest_screen_schema(step, game),
@@ -924,6 +933,7 @@ fn validate_grid_screen_schema(
 fn validate_map_screen_schema(
     step: u32,
     game: &serde_json::Map<String, Value>,
+    command_ready: Option<bool>,
 ) -> Result<(), serde_json::Error> {
     let screen = game
         .get("screen_state")
@@ -957,7 +967,7 @@ fn validate_map_screen_schema(
         }
     }
     let symbol = current_node.get("symbol");
-    if first_node_chosen {
+    if first_node_chosen && command_ready != Some(false) {
         if symbol
             .and_then(Value::as_str)
             .is_none_or(|symbol| symbol.trim().is_empty())
@@ -975,7 +985,9 @@ fn validate_map_screen_schema(
             "trace state at step {step} MAP unchosen current_node must omit symbol"
         )));
     }
-    validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    if command_ready != Some(false) {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    }
     if screen.get("next_nodes").and_then(Value::as_array).is_none() {
         return Err(serde_json::Error::custom(format!(
             "trace state at step {step} MAP screen requires an array game_state.screen_state.next_nodes"
@@ -1497,6 +1509,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_trace_allows_unready_chosen_map_transition_without_symbol() {
+        let content = r#"{"type":"state","step":18,"message":{"ready_for_command":false,"game_state":{"screen_type":"MAP","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":[],"screen_state":{"first_node_chosen":true,"current_node":{"x":0,"y":-1},"next_nodes":[]}}}}"#;
+
+        parse_trace_jsonl(content)
+            .expect("target map transition frame has no settled room symbol yet");
+    }
+
+    #[test]
     fn parse_trace_accepts_unselected_map_sentinel() {
         let content = r#"{"type":"state","step":19,"message":{"game_state":{"screen_type":"MAP","ascension_level":0,"floor":0,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["x=0"],"screen_state":{"first_node_chosen":false,"current_node":{"x":0,"y":-1},"next_nodes":[{"symbol":"M","x":0,"y":0}]}}}}"#;
 
@@ -1677,6 +1697,23 @@ mod tests {
         assert!(error
             .to_string()
             .contains("trace action command must not be empty"));
+    }
+
+    #[test]
+    fn parse_trace_preserves_external_rng_state_words_exactly() {
+        let lines = parse_trace_jsonl(
+            r#"{"type":"external_rng","step":12,"draws":[{"kind":"card_group_get_random_card_by_type","state":{"state0":"fedcba9876543210","state1":"0123456789abcdef"},"range_inclusive":16}]}"#,
+        )
+        .expect("external RNG input parses");
+
+        let TraceLine::ExternalRng(capture) = &lines[0] else {
+            panic!("expected external RNG line");
+        };
+        assert_eq!(capture.step, 12);
+        assert_eq!(capture.draws.len(), 1);
+        assert_eq!(capture.draws[0].state.state0, 0xfedc_ba98_7654_3210);
+        assert_eq!(capture.draws[0].state.state1, 0x0123_4567_89ab_cdef);
+        assert_eq!(capture.draws[0].range_inclusive, 16);
     }
 
     #[test]

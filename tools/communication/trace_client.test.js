@@ -108,7 +108,11 @@ async function testCommandMetadataIsPreservedInTraceActions() {
   });
 
   try {
-    await waitFor(() => stdout.includes("ready\n"), 3000, "bridge ready");
+    await waitFor(
+      () => stdout.includes("ready\n"),
+      3000,
+      `bridge ready; stdout=${stdout}; stderr=${stderr}`,
+    );
     child.stdin.write(`${JSON.stringify({
       in_game: true,
       ready_for_command: true,
@@ -653,6 +657,87 @@ async function testTcpControlRecordsObservedUpdateTimeout() {
   }
 }
 
+async function testExternalRngIsRecordedAgainstProducingAction() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-rng-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_AUTO_STATE_MS: "25",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"), 3000, "RNG bridge ready");
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose"],
+      game_state: { screen_type: "SHOP", floor: 8 },
+    })}\n`);
+    await waitFor(() => fs.existsSync(path.join(sessionDir, "status.json"))
+      && JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8")).status === "waiting",
+    3000, "RNG bridge waiting");
+    fs.writeFileSync(path.join(sessionDir, "next_command.txt"), "CHOOSE 0\n");
+    await waitFor(() => stdout.includes("CHOOSE 0\n"), 3000, "Courier purchase output");
+
+    const draws = [{
+      kind: "card_group_get_random_card_by_type",
+      state: {
+        state0: "fedcba9876543210",
+        state1: "0123456789abcdef",
+      },
+      range_inclusive: 16,
+    }];
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["state"],
+      external_rng: draws,
+      game_state: { screen_type: "SHOP", floor: 8 },
+    })}\n`);
+
+    const tracePath = await waitFor(() => {
+      const files = fs.readdirSync(outDir).filter((name) => name.endsWith(".jsonl"));
+      if (files.length !== 1) return null;
+      const candidate = path.join(outDir, files[0]);
+      return fs.readFileSync(candidate, "utf8").includes("\"type\":\"external_rng\"")
+        ? candidate
+        : null;
+    }, 3000, "external RNG trace record");
+    child.stdin.end();
+    await new Promise((resolve) => child.on("exit", resolve));
+
+    const records = readJsonLines(tracePath);
+    const capture = records.find((record) => record.type === "external_rng");
+    assert.ok(capture, `missing external_rng record; stderr=${stderr}`);
+    assert.strictEqual(capture.step, 1);
+    assert.deepStrictEqual(capture.draws, draws);
+    const postState = records.find((record) => record.type === "state" && record.step === 1);
+    assert.ok(postState, "missing post-action state");
+    assert.strictEqual(postState.message.external_rng, undefined);
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function testTcpControlCancelsCommandQueuedBehindStalledGame() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-queued-timeout-"));
   const sessionDir = path.join(root, "session");
@@ -1135,6 +1220,7 @@ async function testTcpControlAllowsStartupStartBeforeObservedState() {
 
 Promise.resolve()
   .then(() => runTest(testCommandMetadataIsPreservedInTraceActions))
+  .then(() => runTest(testExternalRngIsRecordedAgainstProducingAction))
   .then(() => runTest(testAutoStatePollsAreMarkedAsPassive))
   .then(() => runTest(testTcpControlRejectsStaleAndAcceptsGuardedCommand))
   .then(() => runTest(testTcpControlAllowsExplicitStaleControllerTakeover))

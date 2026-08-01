@@ -34,7 +34,7 @@ use crate::{
         TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
         WING_BOOTS_CHARGES,
     },
-    rng::{rng_counter_is_supported, JavaRng, StsRng},
+    rng::{rng_counter_is_supported, ExternalRngInput, JavaRng, StsRng},
     SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
@@ -897,6 +897,9 @@ pub struct RunState {
     /// this parallel metadata; those entries retain the old flush behavior.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_obtain_cards_bypass_omamori: Vec<bool>,
+    /// Ordered call-time inputs for gameplay draws from process-global RNG.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_external_rng: Vec<ExternalRngInput>,
     #[serde(default)]
     pub event_rng_seed: u64,
     #[serde(default)]
@@ -986,6 +989,13 @@ pub struct RunState {
     pub misc_rng_counter: u32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_event_combat_gold_offer: i32,
+    /// Extra gold stacked on top of combat (or replace) gold. Dead Adventurer
+    /// uses this when search already claimed the event relic (FIDL00229).
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub pending_event_combat_gold_bonus: i32,
+    /// When true, the combat gold roll uses the elite range.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pending_event_combat_elite_gold: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_event_combat_relic_offer: Option<Relic>,
     /// Combat RNG continues across chained fights in events such as the
@@ -1339,9 +1349,17 @@ impl RewardScreen {
 fn validate_run_card_content(card: &CardInstance) -> SimResult<()> {
     validate_run_card_instance_id(card)?;
     validate_run_card_metadata(card)?;
-    get_card_definition(card.content_id)
-        .map(|_| ())
-        .ok_or(SimError::UnknownContent(card.content_id))
+    // Prismatic Shard any-color reward cards use synthetic content ids outside
+    // the modeled registry (FIDL00288 Blasphemy). Allow the same keys as reward
+    // choice validation so they can enter the master deck.
+    if get_card_definition(card.content_id).is_some()
+        || ironclad_reward_card_rarity(card.content_id).is_some()
+        || super::reward::any_color_reward_card_key(card.content_id).is_some()
+    {
+        Ok(())
+    } else {
+        Err(SimError::UnknownContent(card.content_id))
+    }
 }
 
 fn validate_run_choice_card_content(card: &CardInstance) -> SimResult<()> {
@@ -1602,7 +1620,14 @@ impl RunState {
                 "pending event combat gold reward is negative",
             ));
         }
+        if self.pending_event_combat_gold_bonus < 0 {
+            return Err(SimError::InvalidState(
+                "pending event combat gold bonus is negative",
+            ));
+        }
         if (self.pending_event_combat_gold_offer > 0
+            || self.pending_event_combat_gold_bonus > 0
+            || self.pending_event_combat_elite_gold
             || self.pending_event_combat_relic_offer.is_some())
             && self.phase != RunPhase::Combat
         {
@@ -1667,11 +1692,9 @@ impl RunState {
                 "open merchant exists outside shop or reward phase",
             ));
         }
-        if self.phase == RunPhase::Reward && self.shop.is_some() && !self.shop_merchant_open {
-            return Err(SimError::InvalidState(
-                "reward-retained shop has no open merchant",
-            ));
-        }
+        // Orrery (and similar shop reward overlays) close the merchant UI while
+        // CombatRewardScreen is up; shop state is retained under Reward phase with
+        // shop_merchant_open=false until SKIP returns to SHOP_ROOM (FIDL00405).
         if self.treasure_room.is_some()
             && !matches!(self.phase, RunPhase::Treasure | RunPhase::Reward)
         {
@@ -1853,7 +1876,9 @@ impl RunState {
             let retained_event = self.event.is_some();
             let retained_event_map =
                 self.current_room_kind() == Some(RoomKind::Event) && !retained_event;
-            let retained_shop = self.shop.is_some() && self.shop_merchant_open;
+            // Shop may retain under Reward with the merchant closed (Orrery
+            // combat-reward overlay; FIDL00405).
+            let retained_shop = self.shop.is_some();
             let retained_rest =
                 self.rest_room_complete && self.current_room_kind() == Some(RoomKind::Rest);
             let retained_map_treasure = self.treasure_room.is_some()
@@ -1889,7 +1914,7 @@ impl RunState {
                     if !retained_shop || retained_event || retained_rest || retained_treasure =>
                 {
                     return Err(SimError::InvalidState(
-                        "shop reward continuation has no open merchant",
+                        "shop reward continuation has no retained shop",
                     ));
                 }
                 RewardContinuation::Map
@@ -2202,14 +2227,6 @@ impl RunState {
     }
 
     pub fn store_rng_counter(&mut self, stream: RunRngStream, rng: &StsRng) {
-        if stream == RunRngStream::Potion && self.current_floor >= 31 {
-            eprintln!(
-                "DEBUG potion store floor={} phase={:?} counter={}",
-                self.current_floor,
-                self.phase,
-                rng.counter()
-            );
-        }
         self.set_rng_stream_counter(stream, rng.counter());
     }
 
@@ -2437,6 +2454,7 @@ impl RunState {
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
             pending_obtain_cards_bypass_omamori: Vec::new(),
+            pending_external_rng: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
@@ -2478,6 +2496,8 @@ impl RunState {
             misc_rng_seed: 0,
             misc_rng_counter: 0,
             pending_event_combat_gold_offer: 0,
+            pending_event_combat_gold_bonus: 0,
+            pending_event_combat_elite_gold: false,
             pending_event_combat_relic_offer: None,
             pending_event_combat_rng: None,
             monster_rng_seed: 0,
@@ -2537,6 +2557,7 @@ impl RunState {
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
             pending_obtain_cards_bypass_omamori: Vec::new(),
+            pending_external_rng: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
             card_rng_counter: 0,
@@ -2578,6 +2599,8 @@ impl RunState {
             misc_rng_seed: 0,
             misc_rng_counter: 0,
             pending_event_combat_gold_offer: 0,
+            pending_event_combat_gold_bonus: 0,
+            pending_event_combat_elite_gold: false,
             pending_event_combat_relic_offer: None,
             pending_event_combat_rng: None,
             monster_rng_seed: 0,
@@ -2674,6 +2697,11 @@ impl RunState {
         run.merchant_rng_seed = seed;
         run.misc_rng_seed = seed;
         run.monster_rng_seed = seed;
+        // AbstractDungeon.initializeRelicList runs during dungeon setup,
+        // before Neow and any later relic rewards advance relicRng. Keep the
+        // shuffled pools authoritative from the start instead of initializing
+        // them lazily at the first shop/reward boundary.
+        run.ensure_ironclad_relic_pools();
         Ok(run)
     }
 
@@ -2862,8 +2890,22 @@ impl RunState {
         mut card: CardInstance,
     ) -> SimResult<CardInstance> {
         let content_id = self.content_id_after_card_add_relics(card.content_id)?;
-        let definition = get_card_definition(card.content_id)
-            .ok_or(SimError::UnknownContent(card.content_id))?;
+        // Prismatic synthetic cards have no local CardDefinition; egg relics still
+        // bump upgrades via upgrade_card_instance's unknown-id path when present.
+        let Some(definition) = get_card_definition(card.content_id) else {
+            if super::reward::any_color_reward_card_key(card.content_id).is_some() {
+                if self.relics.iter().any(|relic| {
+                    matches!(relic, Relic::MoltenEgg | Relic::ToxicEgg | Relic::FrozenEgg)
+                }) {
+                    if let Some(upgraded) = upgrade_card_instance(card)? {
+                        return Ok(upgraded);
+                    }
+                }
+                card.content_id = content_id;
+                return Ok(card);
+            }
+            return Err(SimError::UnknownContent(card.content_id));
+        };
         let has_matching_egg = match definition.card_type {
             CardType::Attack => self.relics.contains(&Relic::MoltenEgg),
             CardType::Skill => self.relics.contains(&Relic::ToxicEgg),
@@ -3037,12 +3079,16 @@ impl RunState {
         }
         // AbstractCreature.increaseMaxHp(amount, true) heals the same amount,
         // but Mark of the Bloom blocks all healing (Singing Bowl on 13efa069:
-        // max 9000→9002, current_hp stays 8361).
+        // max 9000→9002, current_hp stays 8361). Compute both checked updates
+        // before committing so overflow leaves the run unchanged.
         let player_max_hp = checked_run_add(self.player_max_hp, amount)?;
+        let player_hp = if self.has_mark_of_bloom() {
+            self.player_hp
+        } else {
+            checked_run_add(self.player_hp, amount)?
+        };
         self.player_max_hp = player_max_hp;
-        if !self.has_mark_of_bloom() {
-            self.player_hp = checked_run_add(self.player_hp, amount)?;
-        }
+        self.player_hp = player_hp;
         Ok(())
     }
 

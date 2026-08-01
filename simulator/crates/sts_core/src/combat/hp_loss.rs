@@ -79,7 +79,7 @@ pub(crate) fn apply_player_card_hp_loss_hooks_with_pending_hand(
         hp_loss,
         crate::relic::HpLossDrawPolicy::Immediate,
     )?;
-    reduce_blood_for_blood_costs_in_cards(&mut next_pending_hand)?;
+    reduce_blood_for_blood_costs_in_cards(&mut next_pending_hand, next.card_in_use)?;
     next.player.powers.strength = next
         .player
         .powers
@@ -110,19 +110,28 @@ fn apply_player_hp_loss_hooks_in_place_with_draw_policy(
 }
 
 fn reduce_blood_for_blood_costs(state: &mut CombatState) -> SimResult<()> {
+    let skip_id = state.card_in_use;
     for pile in [
         &mut state.piles.hand,
         &mut state.piles.draw_pile,
         &mut state.piles.discard_pile,
         &mut state.piles.exhaust_pile,
     ] {
-        reduce_blood_for_blood_costs_in_cards(pile)?;
+        reduce_blood_for_blood_costs_in_cards(pile, skip_id)?;
     }
     Ok(())
 }
 
-fn reduce_blood_for_blood_costs_in_cards(cards: &mut [CardInstance]) -> SimResult<()> {
+fn reduce_blood_for_blood_costs_in_cards(
+    cards: &mut [CardInstance],
+    skip_id: Option<crate::ids::CardId>,
+) -> SimResult<()> {
     for card in cards {
+        if skip_id == Some(card.id) {
+            // Mid-play cardInUse is outside STS tookDamage pile scans until
+            // UseCardAction settles it (Pain during BfB play — FIDL00409).
+            continue;
+        }
         if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
             card.blood_for_blood_cost_reduction =
                 card.blood_for_blood_cost_reduction.checked_add(1).ok_or(
@@ -163,6 +172,22 @@ mod tests {
             ))
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn blood_for_blood_skips_card_in_use_during_mid_play_hp_loss() {
+        // FIDL00409: Pain LoseHP while Blood for Blood is resolving must not
+        // reduce that instance (STS cardInUse is outside tookDamage piles).
+        let mut state = CombatState::initial_fixture();
+        let playing = CardInstance::new(CardId::new(100), BLOOD_FOR_BLOOD_ID);
+        let other = CardInstance::new(CardId::new(101), BLOOD_FOR_BLOOD_ID);
+        state.piles.hand = vec![playing, other];
+        state.card_in_use = Some(CardId::new(100));
+
+        apply_player_hp_loss_hooks(&mut state, 1).expect("hooks succeed");
+
+        assert_eq!(state.piles.hand[0].blood_for_blood_cost_reduction, 0);
+        assert_eq!(state.piles.hand[1].blood_for_blood_cost_reduction, 1);
     }
 
     #[test]

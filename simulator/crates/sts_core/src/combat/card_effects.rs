@@ -13,20 +13,20 @@ use crate::{
         ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, APPARITION_ID, APPARITION_PLUS_ID,
         ARMAMENTS_ID, ARMAMENTS_PLUS_ID, BANDAGE_UP_ID, BANDAGE_UP_PLUS_ID, BARRICADE_ID,
         BARRICADE_PLUS_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
-        BERSERK_ID, BERSERK_PLUS_ID, BITE_ID, BITE_PLUS_ID, BLIND_ID, BLIND_PLUS_ID,
-        BLOODLETTING_ID, BLOODLETTING_PLUS_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID,
-        BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BRUTALITY_ID, BRUTALITY_PLUS_ID, BURNING_PACT_ID,
-        BURNING_PACT_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID, CLEAVE_ID,
-        CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID,
-        CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID,
-        DARK_SHACKLES_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID,
-        DEFEND_R_PLUS_ID, DEMON_FORM_ID, DEMON_FORM_PLUS_ID, DISARM_ID, DISARM_PLUS_ID,
-        DISCOVERY_ID, DISCOVERY_PLUS_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID,
-        DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_ID,
-        DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, ENTRENCH_PLUS_ID,
-        EVOLVE_ID, EVOLVE_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID,
-        FEEL_NO_PAIN_ID, FEEL_NO_PAIN_PLUS_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID,
-        FINESSE_PLUS_ID, FIRE_BREATHING_ID, FIRE_BREATHING_PLUS_ID, FLAME_BARRIER_ID,
+        BERSERK_ID, BERSERK_PLUS_ID, BITE_ID, BITE_PLUS_ID, BLASPHEMY_ID, BLASPHEMY_PLUS_ID,
+        BLIND_ID, BLIND_PLUS_ID, BLOODLETTING_ID, BLOODLETTING_PLUS_ID, BLOOD_FOR_BLOOD_ID,
+        BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BRUTALITY_ID, BRUTALITY_PLUS_ID,
+        BURNING_PACT_ID, BURNING_PACT_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID,
+        CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, COMBUST_ID,
+        COMBUST_PLUS_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID,
+        DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID,
+        DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DEMON_FORM_PLUS_ID, DISARM_ID,
+        DISARM_PLUS_ID, DISCOVERY_ID, DISCOVERY_PLUS_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID,
+        DRAMATIC_ENTRANCE_ID, DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID,
+        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID,
+        ENTRENCH_PLUS_ID, EVOLVE_ID, EVOLVE_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID,
+        FEED_PLUS_ID, FEEL_NO_PAIN_ID, FEEL_NO_PAIN_PLUS_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID,
+        FINESSE_ID, FINESSE_PLUS_ID, FIRE_BREATHING_ID, FIRE_BREATHING_PLUS_ID, FLAME_BARRIER_ID,
         FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID,
         FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, HAND_OF_GREED_ID, HAND_OF_GREED_PLUS_ID, HAVOC_ID,
         HAVOC_PLUS_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID,
@@ -61,7 +61,7 @@ use crate::{
         ironclad_combat_discovery_pool, ironclad_combat_skill_discovery_pool,
     },
     ids::{CardId, ContentId, MonsterId},
-    relic::{strike_damage_with_relics, Relic, CHEMICAL_X_BONUS_X, PEN_NIB_THRESHOLD},
+    relic::{strike_damage_with_relics, Relic, CHEMICAL_X_BONUS_X},
     CardInstance, MonsterIntent, SimError, SimResult,
 };
 use std::collections::VecDeque;
@@ -340,6 +340,7 @@ pub(super) fn play_card_queue(
             secret_technique_queue(state, card_id, definition)
         }
         SECRET_WEAPON_ID | SECRET_WEAPON_PLUS_ID => secret_weapon_queue(state, card_id, definition),
+        BLASPHEMY_ID | BLASPHEMY_PLUS_ID => blasphemy_queue(card_id, definition),
         HAVOC_ID | HAVOC_PLUS_ID => havoc_queue(state, card_id, definition, target),
         WARCRY_ID | WARCRY_PLUS_ID => warcry_queue(state, card_id, definition),
         THINKING_AHEAD_ID | THINKING_AHEAD_PLUS_ID => {
@@ -385,11 +386,10 @@ pub(super) fn play_card_queue(
     if definition.card_type == CardType::Attack && state.double_tap_pending > 0 {
         queue = apply_double_tap_to_queue(queue, card_id);
     }
-    // Pen Nib is consumed by the original card play. Expand copied-card
-    // effects first, then modify only the original effects before its card
-    // move; otherwise Double Tap/Necronomicon clone the already-doubled
-    // damage and incorrectly receive Pen Nib too.
-    apply_pen_nib_to_tenth_attack_queue(state, definition.card_type, card_id, &mut queue);
+    // Pen Nib doubles at damage resolution when the 10th attack play wraps the
+    // counter (see apply_on_card_play_relics + pen_nib_double_active). Build-time
+    // rewriting only saw the pre-play counter, so a Double Tap copy that is the
+    // 10th attack never got the bonus (FIDL00421: 7+14 with counter 8→0).
     // Vigor applies at damage resolution time (like Strength). Consume it after
     // the original Attack card's hits so multi-hit attacks keep the bonus and
     // Double Tap / Necronomicon copies do not.
@@ -737,74 +737,7 @@ fn apply_vigor_consumption_to_attack_queue(
     queue.push_back(InternalAction::ConsumeVigor);
 }
 
-fn apply_pen_nib_to_tenth_attack_queue(
-    state: &CombatState,
-    card_type: CardType,
-    card_id: CardId,
-    queue: &mut VecDeque<InternalAction>,
-) {
-    if card_type != CardType::Attack
-        || !state.relics.contains(&Relic::PenNib)
-        || state.relic_counters.pen_nib_attacks_played + 1 != PEN_NIB_THRESHOLD
-    {
-        return;
-    }
-
-    for action in queue {
-        if is_card_move_for(*action, card_id) {
-            break;
-        }
-        match action {
-            InternalAction::DealDamage {
-                info:
-                    DamageInfo {
-                        source: DamageSource::Card(source),
-                        amount,
-                        ..
-                    },
-            } if *source == card_id => {
-                *amount = pen_nib_queue_amount(state, *amount);
-            }
-            InternalAction::DealDamageRandomEnemy { source, amount } if *source == card_id => {
-                *amount = pen_nib_queue_amount(state, *amount);
-            }
-            InternalAction::DealDamageAll { source, amount } if *source == card_id => {
-                *amount = pen_nib_queue_amount(state, *amount);
-            }
-            InternalAction::DealDamageAllAndHealUnblocked { source, amount }
-                if *source == card_id =>
-            {
-                *amount = pen_nib_queue_amount(state, *amount);
-            }
-            InternalAction::DealFeedDamage {
-                info:
-                    DamageInfo {
-                        source: DamageSource::Card(source),
-                        amount,
-                        ..
-                    },
-                ..
-            } if *source == card_id => {
-                *amount = pen_nib_queue_amount(state, *amount);
-            }
-            // Body Slam resolves block at deal-time via DealBodySlamDamage, so it
-            // never hit the DealDamage amount rewrite path. Convert to doubled
-            // DealDamage here (FIDL00221 step 1609: 0 block + Str 11 → 22).
-            InternalAction::DealBodySlamDamage { source, target } if *source == card_id => {
-                *action = InternalAction::DealDamage {
-                    info: DamageInfo {
-                        source: DamageSource::Card(*source),
-                        target: *target,
-                        amount: pen_nib_queue_amount(state, state.player.block),
-                    },
-                };
-            }
-            _ => {}
-        }
-    }
-}
-
-fn pen_nib_queue_amount(state: &CombatState, amount: i32) -> i32 {
+pub(crate) fn pen_nib_queue_amount(state: &CombatState, amount: i32) -> i32 {
     // Pen Nib doubles the pre-Weak/Vulnerable attack total, including Strength
     // and Vigor. Bake the double into the queued base so later
     // `base + strength + vigor` yields `2 * (base + strength + vigor)`.
@@ -2207,6 +2140,7 @@ fn reckless_charge_queue(
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
+    // Card text: shuffle a Dazed (one) into the draw pile.
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -2754,6 +2688,9 @@ pub(crate) fn magnetism_generated_colorless_card(state: &mut CombatState) -> Con
 }
 
 pub(crate) fn magnetism_modeled_colorless_pool() -> Vec<ContentId> {
+    // AbstractDungeon copies colorlessCardPool into srcColorlessCardPool with
+    // CardGroup.addToBottom, which prepends each entry. The modeled pool is
+    // already the resulting source-pool order; filter out unsupported cards.
     colorless_discovery_pool()
         .into_iter()
         .filter(|content_id| get_card_definition(*content_id).is_some())
@@ -2953,33 +2890,23 @@ fn fiend_fire_queue(
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let exhaust_count = other_hand_cards(state, card_id).len();
-    let mut queue = VecDeque::from([
+    let _ = state; // hand size is resolved at action time (Double Tap copies).
+    Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-    ]);
-    for _ in 0..exhaust_count {
-        queue.push_back(InternalAction::ExhaustRandomHandCardExcept {
-            excluded_card_id: card_id,
-        });
-    }
-    for _ in 0..exhaust_count {
-        queue.push_back(InternalAction::DealDamage {
-            info: DamageInfo {
-                source: DamageSource::Card(card_id),
-                target,
-                amount: required_damage(definition)?,
-            },
-        });
-    }
-    queue.push_back(InternalAction::MoveCard {
-        card_id,
-        from: CardPile::Hand,
-        to: card_move_destination(definition),
-    });
-    Ok(queue)
+        InternalAction::ResolveFiendFire {
+            source_card_id: card_id,
+            target,
+            amount: required_damage(definition)?,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn other_hand_cards(state: &CombatState, exclude_id: CardId) -> Vec<CardId> {
@@ -3239,25 +3166,24 @@ fn transmutation_queue(
     let x = state.player.energy;
     let uses = x_cost_uses_with_chemical_x(state);
 
-    let mut queue = VecDeque::from([
+    // STS removes the played card from hand before MakeTempCardInHandAction
+    // resolves (cardInUse / limbo). Generating while Transmutation still occupies
+    // a hand slot under-fills by one (FIDL00413 X-cost → PLAY 10).
+    Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy { amount: x },
-    ]);
-
-    for _ in 0..uses {
-        queue.push_back(InternalAction::AddRandomColorlessCardToHand {
+        InternalAction::AddRandomColorlessCardsToHandWhileSourceInLimbo {
+            source_card_id: card_id,
+            count: uses.max(0) as usize,
             temp_cost: Some(0),
             upgrade: definition.id == TRANSMUTATION_PLUS_ID,
-        });
-    }
-
-    queue.push_back(InternalAction::MoveCard {
-        card_id,
-        from: CardPile::Hand,
-        to: CardPile::ExhaustPile,
-    });
-
-    Ok(queue)
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        },
+    ]))
 }
 
 fn havoc_queue(
@@ -3289,7 +3215,8 @@ fn havoc_queue(
     // Empty draw pile also forces PlayTop-first so a reshuffle cannot include
     // Havoc before the forced card is chosen. With a non-empty draw pile and a
     // non-exhausting source, settle first so discard-sensitive forced cards
-    // (Headbutt) can return Havoc to the draw pile.
+    // (Headbutt) can return Havoc to the draw pile. (Always-PlayTop-first
+    // broke 32 permanent traces — FIDL00410 Hex/SB needs a narrower fix.)
     let source_exhausts = definition.keywords.exhaust
         || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0);
     let settle = InternalAction::MoveCard {
@@ -3426,6 +3353,26 @@ fn secret_technique_queue(
     }
 
     Ok(queue)
+}
+
+fn blasphemy_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    // Blasphemy: ChangeStance(Divinity) + EndTurnDeathPower, then exhaust.
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::EnterDivinity,
+        InternalAction::ApplyEndTurnDeath,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn secret_weapon_queue(
@@ -4304,6 +4251,12 @@ fn offering_queue(
     } else {
         3
     };
+    // Target Offering.use() addToBot's LoseHP → GainEnergy → DrawCard while the
+    // played card is in limbo (not occupying a hand slot), then UseCardAction
+    // exhausts. Hex onUseCard inserts Dazed after those draws (push_follow_up
+    // places Hex before MoveCard). Plain DrawCards after MoveCard let Hex steal
+    // a draw (18-33-54); plain DrawCards before Move with the source still in
+    // hand hits max-hand and skips a draw (live-regression-2026-07-02).
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -4314,12 +4267,15 @@ fn offering_queue(
             source: HpLossSource::Card(card_id),
         },
         InternalAction::GainEnergy { amount: 2 },
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo {
+            card_id,
+            count: draw_count,
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
             to: card_move_destination(definition),
         },
-        InternalAction::DrawCards { count: draw_count },
     ]))
 }
 
@@ -4365,38 +4321,80 @@ fn monster_intends_attack(state: &CombatState, target: MonsterId) -> bool {
         .iter()
         .find(|monster| monster.id == target && monster.alive)
         .is_some_and(|monster| {
-            // Mirror AbstractMonster attack-intent buckets used by Spot Weakness
-            // (isAttackIntent). AttackAddVoidToDraw is Awakened One Sludge
-            // (CM ATTACK_DEBUFF); omitting it under-dealt Whirlwind after SW
-            // on FIDL00221 step 1596 (str 8 vs 11 → 143 HP vs 133).
-            matches!(
-                monster.intent,
+            // Mirror AbstractMonster.isAttacking / CM attack intent buckets.
+            // AttackAddVoidToDraw is Awakened One Sludge (ATTACK_DEBUFF).
+            // Nemesis pure burn: AddBurnToDiscard { damage: 0 } → DEBUFF (FIDL00395).
+            // Time Eater Ripple: AttackAndBlock { damage: 0 } → DEFEND_DEBUFF (FIDL00402).
+            match monster.intent {
                 MonsterIntent::Attack { .. }
-                    | MonsterIntent::AttackAndBlock { .. }
-                    | MonsterIntent::AttackApplyPlayerWeak { .. }
-                    | MonsterIntent::AttackApplyPlayerFrail { .. }
-                    | MonsterIntent::AttackApplyPlayerVulnerable { .. }
-                    | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
-                    | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { .. }
-                    | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
-                    | MonsterIntent::AttackHealSelf { .. }
-                    | MonsterIntent::AttackAddWoundsToDiscard { .. }
-                    | MonsterIntent::AttackAddSlimedToDiscard { .. }
-                    | MonsterIntent::AttackAddVoidToDraw { .. }
-                    | MonsterIntent::AttackMultiple { .. }
-                    | MonsterIntent::AttackStealGold { .. }
-                    | MonsterIntent::AddBurnToDiscard { .. }
-                    | MonsterIntent::AddBurnToDiscardAndDraw { .. }
-                    | MonsterIntent::AttackMultipleUpgradeBurns { .. }
-                    | MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
-                    | MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
-            )
+                | MonsterIntent::AttackApplyPlayerWeak { .. }
+                | MonsterIntent::AttackApplyPlayerFrail { .. }
+                | MonsterIntent::AttackApplyPlayerVulnerable { .. }
+                | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
+                | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { .. }
+                | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
+                | MonsterIntent::AttackHealSelf { .. }
+                | MonsterIntent::AttackAddWoundsToDiscard { .. }
+                | MonsterIntent::AttackAddSlimedToDiscard { .. }
+                | MonsterIntent::AttackAddVoidToDraw { .. }
+                | MonsterIntent::AttackMultiple { .. }
+                | MonsterIntent::AttackStealGold { .. }
+                | MonsterIntent::AddBurnToDiscardAndDraw { .. }
+                | MonsterIntent::AttackMultipleUpgradeBurns { .. }
+                | MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
+                | MonsterIntent::AttackMultipleAddDazedToDiscard { .. } => true,
+                MonsterIntent::AttackAndBlock { damage, .. } => damage > 0,
+                MonsterIntent::AddBurnToDiscard { damage, .. } => damage > 0,
+                _ => false,
+            }
         })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::CombatState;
+    use crate::content::monsters::NEMESIS_ID;
+    use crate::ids::MonsterId;
+
+    #[test]
+    fn spot_weakness_ignores_pure_debuff_and_defend_debuff_intents() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].content_id = NEMESIS_ID;
+        let target = state.monsters[0].id;
+        state.monsters[0].intent = MonsterIntent::AddBurnToDiscard {
+            count: 3,
+            damage: 0,
+        };
+        assert!(
+            !monster_intends_attack(&state, target),
+            "Nemesis burn DEBUFF must not count as attack intent"
+        );
+        state.monsters[0].intent = MonsterIntent::AttackAndBlock {
+            damage: 0,
+            block: 20,
+        };
+        assert!(
+            !monster_intends_attack(&state, target),
+            "Time Eater Ripple DEFEND_DEBUFF must not count as attack intent"
+        );
+        state.monsters[0].intent = MonsterIntent::AddBurnToDiscard {
+            count: 3,
+            damage: 10,
+        };
+        assert!(
+            monster_intends_attack(&state, target),
+            "burn with damage is ATTACK_DEBUFF"
+        );
+        state.monsters[0].intent = MonsterIntent::AttackAndBlock {
+            damage: 12,
+            block: 5,
+        };
+        assert!(
+            monster_intends_attack(&state, target),
+            "attack+block with damage is attack intent"
+        );
+    }
 
     #[test]
     fn card_effect_builders_reject_missing_required_values() {

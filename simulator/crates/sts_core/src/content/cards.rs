@@ -138,6 +138,9 @@ pub const SECRET_TECHNIQUE_ID: ContentId = ContentId::new(2_746_448_811_048_118_
 pub const SECRET_TECHNIQUE_PLUS_ID: ContentId = ContentId::new(2_746_448_811_048_118_714);
 pub const SECRET_WEAPON_ID: ContentId = ContentId::new(11_846_108_130_828_291_299);
 pub const SECRET_WEAPON_PLUS_ID: ContentId = ContentId::new(11_846_108_130_828_291_300);
+/// Prismatic/Watcher Blasphemy — id matches `shop_card_content_id("BLASPHEMY")`.
+pub const BLASPHEMY_ID: ContentId = ContentId::new(58_441_907_198_357);
+pub const BLASPHEMY_PLUS_ID: ContentId = ContentId::new(58_441_907_198_358);
 pub const VIOLENCE_ID: ContentId = ContentId::new(2_433_206_606_067);
 pub const VIOLENCE_PLUS_ID: ContentId = ContentId::new(2_433_206_606_068);
 pub const THE_BOMB_ID: ContentId = ContentId::new(2_377_025_041_448);
@@ -2880,6 +2883,49 @@ pub const SECRET_WEAPON_PLUS: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+/// Enter Divinity (3× attack damage) and die at end of turn. Exhaust.
+pub const BLASPHEMY: CardDefinition = CardDefinition {
+    id: BLASPHEMY_ID,
+    key: "BLASPHEMY",
+    name: "Blasphemy",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: Some(BLASPHEMY_PLUS_ID),
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub const BLASPHEMY_PLUS: CardDefinition = CardDefinition {
+    id: BLASPHEMY_PLUS_ID,
+    key: "BLASPHEMY+",
+    name: "Blasphemy+",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: BLASPHEMY.values,
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: true,
+        unplayable: false,
+    },
+};
+
 pub const VIOLENCE: CardDefinition = CardDefinition {
     id: VIOLENCE_ID,
     key: "VIOLENCE",
@@ -4777,7 +4823,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub static ALL_CARDS: [CardDefinition; 247] = [
+pub static ALL_CARDS: [CardDefinition; 249] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -4939,6 +4985,8 @@ pub static ALL_CARDS: [CardDefinition; 247] = [
     SECRET_TECHNIQUE_PLUS,
     SECRET_WEAPON,
     SECRET_WEAPON_PLUS,
+    BLASPHEMY,
+    BLASPHEMY_PLUS,
     VIOLENCE,
     VIOLENCE_PLUS,
     THE_BOMB,
@@ -5078,7 +5126,16 @@ pub fn is_basic_starter_card(id: ContentId) -> bool {
 
 #[must_use]
 pub fn is_pandoras_box_removed_starter(id: ContentId) -> bool {
-    matches!(id, id if id == STRIKE_R_ID || id == STRIKE_R_PLUS_ID || id == DEFEND_R_ID)
+    // Target Pandora's Box removes every Strike/Defend including upgrades
+    // (cardID Strike_R / Defend_R with upgradeLevel). DEFEND_R+ was missing
+    // (FIDL00240/244 boss relic grid size/order).
+    matches!(
+        id,
+        id if id == STRIKE_R_ID
+            || id == STRIKE_R_PLUS_ID
+            || id == DEFEND_R_ID
+            || id == DEFEND_R_PLUS_ID
+    )
 }
 
 #[must_use]
@@ -5274,6 +5331,16 @@ mod tests {
     }
 
     #[test]
+    fn pandoras_box_removes_upgraded_strikes_and_defends() {
+        assert!(is_pandoras_box_removed_starter(STRIKE_R_ID));
+        assert!(is_pandoras_box_removed_starter(STRIKE_R_PLUS_ID));
+        assert!(is_pandoras_box_removed_starter(DEFEND_R_ID));
+        assert!(is_pandoras_box_removed_starter(DEFEND_R_PLUS_ID));
+        assert!(!is_pandoras_box_removed_starter(BASH_ID));
+        assert!(!is_pandoras_box_removed_starter(BASH_PLUS_ID));
+    }
+
+    #[test]
     fn upgrade_card_instance_tracks_synthetic_pool_card_upgrades() {
         // Prismatic shard any-color cards use stable synthetic content ids
         // without a CardDefinition / upgrade ContentId pair.
@@ -5358,8 +5425,8 @@ mod tests {
             assert_eq!(upgrade_content_id(definition.id), Some(upgraded_id));
         }
 
-        assert_eq!((common, uncommon, rare, unrated), (46, 114, 67, 18));
-        assert_eq!(upgrades, 114);
+        assert_eq!((common, uncommon, rare, unrated), (46, 114, 69, 20));
+        assert_eq!(upgrades, 115);
     }
 
     #[test]

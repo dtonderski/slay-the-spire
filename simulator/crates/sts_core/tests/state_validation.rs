@@ -7,7 +7,7 @@ use sts_core::{
         CombatDecisionState, CombatPhase, DrawSelectPurpose, DrawSelectState, HandSelectState,
     },
     content::cards,
-    content::monsters::{monster_state, AWAKENED_ONE_A0},
+    content::monsters::{monster_state, CORRUPT_HEART_A0},
     content::shop_pool::shop_card_content_id,
     enter_reward_screen, legal_event_actions, legal_rest_actions, legal_run_decision_actions,
     legal_shop_actions, open_shop_merchant, CardGridScreen, CardId, CardRewardFlow, CombatAction,
@@ -153,16 +153,17 @@ fn unknown_content_fails_validation() {
 #[test]
 fn known_approximate_monster_fails_before_action_execution() {
     let mut state = CombatState::initial_fixture();
-    state.monsters = vec![monster_state(&AWAKENED_ONE_A0, MonsterId::new(1))];
+    let unsupported = CORRUPT_HEART_A0;
+    state.monsters = vec![monster_state(&unsupported, MonsterId::new(1))];
     let original = state.clone();
 
     assert_eq!(
         state.validate(),
-        Err(SimError::UnsupportedMechanic(AWAKENED_ONE_A0.content_id))
+        Err(SimError::UnsupportedMechanic(unsupported.content_id))
     );
     assert_eq!(
         apply_combat_action(&state, CombatAction::EndTurn),
-        Err(SimError::UnsupportedMechanic(AWAKENED_ONE_A0.content_id))
+        Err(SimError::UnsupportedMechanic(unsupported.content_id))
     );
     assert_eq!(state, original);
 }
@@ -574,7 +575,7 @@ fn known_pending_card_without_event_authority_is_invalid() {
 }
 
 #[test]
-fn known_unmodeled_reward_identity_is_valid_until_selected() {
+fn known_prismatic_reward_identity_is_valid_in_reward_and_deck() {
     let mut run = RunState::map_fixture();
     let mut combat = CombatState::initial_fixture();
     combat.phase = CombatPhase::Won;
@@ -604,5 +605,18 @@ fn known_unmodeled_reward_identity_is_valid_until_selected() {
             .expect("fixture has card ID allocation headroom"),
     );
     run.deck.push(CardInstance::new(deck_id, content_id));
-    assert_eq!(run.validate(), Err(SimError::UnknownContent(content_id)));
+    run.validate()
+        .expect("known Prismatic reward identity may enter the master deck");
+
+    let unknown_content = ContentId::new(u64::MAX - 1);
+    let unknown_id = CardId::new(
+        run.next_card_instance_id()
+            .expect("fixture has card ID allocation headroom"),
+    );
+    run.deck
+        .push(CardInstance::new(unknown_id, unknown_content));
+    assert_eq!(
+        run.validate(),
+        Err(SimError::UnknownContent(unknown_content))
+    );
 }

@@ -153,13 +153,19 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 return Err(SimError::IllegalAction("Normality card play limit reached"));
             }
 
-            let definition = card_definition_for_hand_card(state, card_id)?;
             let card = state
                 .piles
                 .hand
                 .iter()
                 .find(|card| card.id == card_id)
                 .ok_or(SimError::UnknownCard(card_id))?;
+            // Unmodeled Prismatic cards are deck-legal but not playable yet.
+            let Some(definition) = get_card_definition(card.content_id) else {
+                if crate::run::reward::any_color_reward_card_key(card.content_id).is_some() {
+                    return Err(SimError::IllegalAction("card is unplayable"));
+                }
+                return Err(SimError::UnknownContent(card.content_id));
+            };
 
             if definition.keywords.unplayable
                 && !can_play_unplayable_card_with_relics(
@@ -263,20 +269,6 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
             }
         }
     }
-}
-
-fn card_definition_for_hand_card(
-    state: &CombatState,
-    card_id: CardId,
-) -> SimResult<&'static CardDefinition> {
-    let card = state
-        .piles
-        .hand
-        .iter()
-        .find(|card| card.id == card_id)
-        .ok_or(SimError::UnknownCard(card_id))?;
-
-    get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))
 }
 
 fn is_affordable(

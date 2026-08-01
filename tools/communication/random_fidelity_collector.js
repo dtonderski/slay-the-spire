@@ -478,48 +478,40 @@ function normalizeSettledGameplayRecords(records) {
   return normalized;
 }
 
-function promoteDistinctFailure({ minimizedPath, fingerprint: id, boundaryPath, boundaryCategory }) {
+function promoteDistinctFailure({ minimizedPath, fingerprint: id }) {
   if (!minimizedPath || !fs.existsSync(minimizedPath)) return null;
   const corpusDir = path.join(root, "simulator", "verification", "corpus", "permanent_traces");
-  const manifestPath = path.join(root, "simulator", "verification", "corpus", "permanent_traces.json");
   const lockPath = path.join(root, "simulator", "verification", "corpus", ".permanent-traces.lock");
   const traceName = `random-fidelity-${id}.jsonl`;
   const destination = path.join(corpusDir, traceName);
+  fs.mkdirSync(corpusDir, { recursive: true });
   acquireDirectoryLock(lockPath);
   try {
-    const manifestText = fs.readFileSync(manifestPath, "utf8");
-    const manifest = JSON.parse(manifestText);
-    if (manifest.entries.some((entry) => entry.trace === traceName)) {
+    // Copy-only: no permanent_traces.json expectation manifest.
+    // Prefer promoting clean-through-EOF traces; green gate rejects fidelity fails.
+    if (fs.existsSync(destination)) {
       return { trace: destination, added: false };
     }
     fs.copyFileSync(minimizedPath, destination, fs.constants.COPYFILE_EXCL);
-    const entry = {
-      trace: traceName,
-      expectation: {
-        kind: "expected_boundary",
-        boundary: { path: boundaryPath, category: boundaryCategory },
-      },
-    };
-    const formattedEntry = JSON.stringify(entry, null, 2)
-      .split("\n")
-      .map((line) => `    ${line}`)
-      .join("\n");
-    const updatedManifest = manifestText.replace(/\n  \]\s*\}\s*$/, `,\n${formattedEntry}\n  ]\n}\n`);
-    if (updatedManifest === manifestText) throw new Error("permanent trace manifest terminator not found");
-    const temporaryManifest = `${manifestPath}.tmp-${process.pid}`;
-    fs.writeFileSync(temporaryManifest, updatedManifest);
-    fs.renameSync(temporaryManifest, manifestPath);
     return { trace: destination, added: true };
   } catch (error) {
+    if (error && error.code === "EEXIST") {
+      return { trace: destination, added: false };
+    }
     if (fs.existsSync(destination)) {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-      if (!manifest.entries.some((entry) => entry.trace === traceName)) {
+      try {
         fs.unlinkSync(destination);
+      } catch {
+        // ignore cleanup races
       }
     }
     throw error;
   } finally {
-    fs.rmdirSync(lockPath);
+    try {
+      fs.rmdirSync(lockPath);
+    } catch {
+      // ignore unlock races
+    }
   }
 }
 

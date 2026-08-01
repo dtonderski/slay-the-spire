@@ -640,3 +640,25 @@ Sources inspected: target 12-18-2022 desktop-jar bytecode for
 - Strict verification now compares the observed grid with the core-generated
   grid and carries only the core state; it never replaces generated cards or
   their order from the observed post-state.
+
+## Process-global MathUtils RNG audit: Courier colored restock
+
+Source inspected: target 12-18-2022 `desktop-1.0.jar` bytecode for
+`CardGroup`, `AbstractDungeon`, `Merchant`, and `ShopScreen`.
+
+- `MathUtils.random` is process-global and is used broadly by UI and visual
+  code, so its position is not a run-seed property.
+- The audited vanilla gameplay call path for unseeded *colored-card identity*
+  selection is narrow: `ShopScreen.purchaseCard` checks for The Courier and
+  calls `AbstractDungeon.getCardFromPool(rarity, cardType, false)` for the
+  replacement. `AbstractDungeon` forwards that `false` to
+  `CardGroup.getRandomCard(cardType, false)`, which selects with
+  `MathUtils.random`.
+- Initial Merchant stock uses the same helper with `true`, so it remains on
+  the normal seeded path. Courier colorless replacement uses the separate
+  seeded colorless-pool path.
+- This is therefore not evidence that every `MathUtils.random` use requires
+  trace metadata. The current external-RNG contract deliberately captures only
+  this source-backed gameplay call site. Future vanilla or modded call sites
+  that affect observable gameplay must be audited and added as distinct,
+  call-time external inputs rather than inferred from post-state.

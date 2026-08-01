@@ -82,6 +82,10 @@ pub struct CombatState {
     /// Pending Double Tap stacks: the next played Attack resolves twice per stack.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub double_tap_pending: i32,
+    /// Pen Nib: the current attack card's damage is doubled (set when the 10th
+    /// attack play wraps the counter; cleared when that card finishes).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pen_nib_double_active: bool,
     /// Pending The Bomb explosions. Each entry ticks down at end of player turn.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bomb_timers: Vec<BombTimer>,
@@ -89,6 +93,11 @@ pub struct CombatState {
     /// Sharp Hide.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_player_spikes_damage: i32,
+    /// STS `AbstractPlayer.cardInUse` for the card currently resolving. Blood for
+    /// Blood `tookDamage` skips this instance (FIDL00409: Pain LoseHP while BfB
+    /// is mid-play must not reduce that copy).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card_in_use: Option<CardId>,
     /// Energy actions queued by start-of-turn relics behind an opening combat choice.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_start_of_turn_relic_energy: i32,
@@ -101,11 +110,23 @@ pub struct CombatState {
     /// Deferred DiscoveryAction generations after a potion reward selection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_potion_card_reward_settlement: Option<PendingPotionCardRewardSettlement>,
-    /// A target-game hand-select screen can retain a selected card outside
-    /// every visible pile after a Cultist Potion interleaving. The card is
-    /// appended to discard after the visible hand's end-turn cleanup.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_hidden_hand_card_until_end_turn: Option<CardInstance>,
+    /// Hand-played DiscoveryAction updates that remain after the first
+    /// post-pick turn boundary. The target action can expose Magnetism before
+    /// these invisible updates finish.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub pending_hand_discovery_card_reward_stage: u8,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub pending_hand_discovery_card_reward_end_turns_remaining: u8,
+    /// Leftover HandCardSelectScreen.selectedCards held off every serialized
+    /// pile until a non-empty-hand end-turn DiscardAction (skipped retrieval).
+    /// Covers Cultist-potion interleaving, Dual Wield / Armaments / Burning Pact
+    /// skipped retrieval, and multi-card Elixir / Gambling Chip selects.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_hidden_hand_card_until_end_turn: Vec<CardInstance>,
+    /// A deferred Burning Pact selection under Runic Pyramid remains hidden
+    /// through END and is reclaimed by Fiend Fire's exhaust-all action.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending_hidden_hand_card_exhausts_with_fiend_fire: bool,
     /// Set when Nilry's Codex paused end-of-turn; resume discards + monster turn
     /// after the card-reward decision closes.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -116,6 +137,10 @@ pub struct CombatState {
     /// Dark Embrace draws deferred across the Nilry pause.
     #[serde(default, skip_serializing_if = "is_zero_usize")]
     pub pending_end_turn_dark_embrace_draws: usize,
+    /// Juggernaut damage queued by end-turn ethereal exhaust until monster
+    /// pre-turn block clearing has run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_end_turn_juggernaut_damage: Vec<i32>,
     /// Legacy fields retained for snapshot deserialization compatibility.
     /// Elixir permanently exhausts selected cards; these are no longer written.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -349,6 +374,8 @@ pub struct MonsterState {
     pub alive: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub escaped: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub vulnerable_just_applied: bool,
     pub powers: MonsterPowers,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub temp_strength_down: i32,
@@ -823,16 +850,22 @@ impl CombatState {
             duplication_potion_pending: false,
             duplication_potion_stacks: 0,
             double_tap_pending: 0,
+            pen_nib_double_active: false,
             bomb_timers: Vec::new(),
             pending_player_spikes_damage: 0,
+            card_in_use: None,
             pending_start_of_turn_relic_energy: 0,
             pending_monster_death_relic_triggers: 0,
             combat_gold_gained: 0,
             pending_potion_card_reward_settlement: None,
-            pending_hidden_hand_card_until_end_turn: None,
+            pending_hand_discovery_card_reward_stage: 0,
+            pending_hand_discovery_card_reward_end_turns_remaining: 0,
+            pending_hidden_hand_card_until_end_turn: Vec::new(),
+            pending_hidden_hand_card_exhausts_with_fiend_fire: false,
             resume_end_turn_after_nilrys_codex: false,
             pending_end_turn_dead_branch_cards: Vec::new(),
             pending_end_turn_dark_embrace_draws: 0,
+            pending_end_turn_juggernaut_damage: Vec::new(),
             pending_elixir_exhaust_card_ids: Vec::new(),
             pending_elixir_exhaust_turns_remaining: 0,
             time_warp_end_turn: false,
@@ -882,7 +915,11 @@ impl CombatState {
 
     pub fn validate_unique_card_piles(&self) -> SimResult<()> {
         let mut seen = BTreeSet::new();
-        for card in self.piles.all_cards() {
+        for card in self
+            .piles
+            .all_cards()
+            .chain(self.pending_hidden_hand_card_until_end_turn.iter())
+        {
             if !seen.insert(card.id) {
                 return Err(SimError::InvalidState(
                     "card instance appears in more than one pile",
@@ -1073,6 +1110,10 @@ impl CombatState {
 
     fn authoritative_cards(&self) -> Vec<&CardInstance> {
         let mut cards = self.piles.all_cards().collect::<Vec<_>>();
+        // Skipped-retrieval / deferred exhaust selections park cards here until
+        // END. They must reserve instance IDs so generated wounds (Wild Strike)
+        // cannot collide and later fail unique-pile validation (FIDL00222).
+        cards.extend(self.pending_hidden_hand_card_until_end_turn.iter());
         if let Some(decision) = &self.decision {
             extend_decision_cards(&mut cards, decision);
         }
@@ -1089,7 +1130,9 @@ fn validate_combat_card(card: &CardInstance) -> SimResult<()> {
             "card instance ID is outside the supported allocation range",
         ));
     }
-    if get_card_definition(card.content_id).is_none() {
+    if get_card_definition(card.content_id).is_none()
+        && crate::run::reward::any_color_reward_card_key(card.content_id).is_none()
+    {
         return Err(SimError::UnknownContent(card.content_id));
     }
     validate_searing_blow_metadata(card)?;
@@ -1450,5 +1493,23 @@ mod tests {
                 "consumed combat fairy retains a revival percentage"
             ))
         );
+    }
+
+    #[test]
+    fn next_card_instance_id_skips_pending_hidden_hand_cards() {
+        use crate::content::cards::STRIKE_R_ID;
+
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.pending_hidden_hand_card_until_end_turn =
+            vec![CardInstance::new(CardId::new(15), STRIKE_R_ID)];
+
+        let next = state
+            .next_card_instance_id()
+            .expect("allocate past pending_hidden");
+        assert_eq!(next, 16);
     }
 }

@@ -2,7 +2,6 @@
 
 const assert = require("assert");
 const {
-  expectationForTask,
   promotionCandidate,
 } = require("./random_fidelity_corpus_promoter");
 
@@ -57,33 +56,5 @@ assert.strictEqual(
   null,
 );
 assert.strictEqual(promotionCandidate(task, () => false), null);
-assert.deepStrictEqual(
-  expectationForTask(
-    { ...task, status: "queued" },
-    '{"type":"action","step":12}\n',
-  ),
-  {
-    kind: "expected_boundary",
-    boundary: task.boundary,
-  },
-);
-assert.deepStrictEqual(
-  expectationForTask(
-    { ...task, status: "resolved" },
-    [
-      '{"type":"metadata","schema":1}',
-      '{"type":"action","step":12}',
-      '{"type":"state","step":12}',
-      '{"type":"action","step":15}',
-    ].join("\n"),
-  ),
-  {
-    kind: "retained_prefix",
-    endpoint: {
-      action_step: 15,
-      label: "resolved random-fidelity regression 0123456789abcdef",
-    },
-  },
-);
 
 console.log("random fidelity corpus promoter tests passed");

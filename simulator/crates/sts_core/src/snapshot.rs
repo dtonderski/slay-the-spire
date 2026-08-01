@@ -801,6 +801,32 @@ mod tests {
     }
 
     #[test]
+    fn run_snapshot_round_trip_preserves_pending_external_rng() {
+        let mut run = RunState::map_fixture();
+        run.pending_external_rng.push(crate::ExternalRngInput {
+            kind: crate::ExternalRngKind::CardGroupGetRandomCardByType,
+            state: crate::MathUtilsRngState {
+                state0: 0xfedc_ba98_7654_3210,
+                state1: 0x0123_4567_89ab_cdef,
+            },
+            range_inclusive: 16,
+        });
+        let snapshot = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        };
+        let json = snapshot
+            .canonical_json()
+            .expect("external RNG snapshot serializes");
+
+        assert!(json.contains(r#""state0":"fedcba9876543210""#));
+        assert!(json.contains(r#""state1":"0123456789abcdef""#));
+        let restored =
+            restore_run_snapshot_json(&json).expect("external RNG snapshot restores exactly");
+        assert_eq!(restored, snapshot);
+    }
+
+    #[test]
     fn schema_four_combat_snapshot_migrates_missing_combust_damage() {
         let mut combat = CombatState::initial_fixture();
         combat.player.powers.combust = 2;

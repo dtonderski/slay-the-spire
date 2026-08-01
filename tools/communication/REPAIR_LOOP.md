@@ -22,21 +22,21 @@ Deferred traces are created with exclusive writes under `traces/`; their names
 contain the seed, policy seed, collection timestamp, and process id. Metadata
 schema 1 records `source_version` (set `STS_RANDOM_SOURCE_VERSION` for a build
 identifier), so restarting a seed cannot overwrite earlier evidence.
-Every distinct unexpected simulator/real-game divergence is also minimized and
-added to `simulator/verification/corpus/permanent_traces.json`. Manifest
-promotion is serialized across verifier workers, so parallel verification
-cannot drop a permanent regression entry. Typed gameplay divergences are
-permanent too; only verifier crashes and trace-integrity failures are excluded.
-The directory lock is stale-recovering, so killing a promoter during its
-critical section cannot permanently block later promotion.
+Every distinct unexpected simulator/real-game divergence may be minimized and
+copied into the permanent corpus directory as a JSONL witness. Promotion is
+**copy-only** (no expectation manifest). The green gate requires every
+`permanent_traces/*.jsonl` to verify **clean through EOF**; incomplete clean
+prefixes pass. Prefer promoting a clean retained prefix. Full failing witnesses
+for open sim bugs should live outside the green gate (for example
+`open_failures/`). Typed gameplay divergences are permanent evidence; only
+verifier crashes and trace-integrity failures are excluded. The directory lock
+is stale-recovering, so killing a promoter during its critical section cannot
+permanently block later promotion.
 During rolling upgrades, run `random_fidelity_corpus_promoter.js` beside the
-verifiers. It continuously reconciles repair tasks into the permanent corpus,
-so a still-running older verifier cannot bypass promotion while workers are
-being replaced. Queued/in-progress tasks retain an exact `expected_boundary`;
-after a successful full-trace recheck resolves a task, the reconciler changes
-that entry to a retained-prefix expectation at the minimized trace endpoint.
-The batch corpus gate therefore accepts a known unresolved witness but requires
-resolved fixes to replay cleanly.
+verifiers. It continuously copies eligible repair-task traces into
+`permanent_traces/` so a still-running older verifier cannot bypass promotion
+while workers are being replaced. The batch corpus gate requires clean-through-EOF
+replay for every permanent file.
 
 Verifier workers use deterministic queue sharding when more than one is needed.
 The normal topology uses one verifier with `STS_RANDOM_VERIFY_WORKERS=1` and

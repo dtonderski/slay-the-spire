@@ -10,12 +10,12 @@ use std::{
 };
 
 use sts_verify::{
-    assess_verification, canonical_diff, corpus_path, import_communication_mod_trace,
-    import_slaythedata_jsonl_line, import_slaythedata_run_json, load_corpus_file,
-    minimize_communication_mod_trace, replay_communication_mod_trace, slaythedata_replay_plan,
-    slaythedata_replay_preflight, verify_communication_mod_trace, MinimizeError,
-    SlayTheDataDiagnosticSeverity, VerificationCorpusManifest, VerificationExpectation,
-    VerificationOutcome, REPLAY_ARTIFACT_SCHEMA, VERIFICATION_CORPUS_MANIFEST_SCHEMA,
+    assess_verification, assess_verification_with_options, canonical_diff, corpus_path,
+    import_communication_mod_trace, import_slaythedata_jsonl_line, import_slaythedata_run_json,
+    load_corpus_file, minimize_communication_mod_trace, replay_communication_mod_trace,
+    slaythedata_replay_plan, slaythedata_replay_preflight, verify_communication_mod_trace,
+    AssessmentOptions, MinimizeError, SlayTheDataDiagnosticSeverity, VerificationOutcome,
+    REPLAY_ARTIFACT_SCHEMA,
 };
 
 fn main() {
@@ -83,8 +83,21 @@ fn main() {
             }
         }
         "parity" => {
-            let Some(path) = args.next() else {
-                eprintln!("usage: sts_verify parity <trace.jsonl>");
+            let mut require_terminal = false;
+            let mut path = None;
+            for arg in args.by_ref() {
+                match arg.as_str() {
+                    "--require-terminal" => require_terminal = true,
+                    other if path.is_none() => path = Some(other.to_owned()),
+                    other => {
+                        eprintln!("unknown parity argument: {other}");
+                        eprintln!("usage: sts_verify parity [--require-terminal] <trace.jsonl>");
+                        exit(1);
+                    }
+                }
+            }
+            let Some(path) = path else {
+                eprintln!("usage: sts_verify parity [--require-terminal] <trace.jsonl>");
                 exit(1);
             };
             let content = if path == "-" {
@@ -100,19 +113,22 @@ fn main() {
                     exit(1);
                 })
             };
-            let expectation = VerificationExpectation::Complete;
+            let options = AssessmentOptions { require_terminal };
             let result = verify_communication_mod_trace(&content);
             let report = match result {
                 Ok(report) => report,
                 Err(err) => {
-                    let outcome = assess_verification(Err(&err), &expectation, None);
+                    let outcome = assess_verification_with_options(Err(&err), None, options);
                     print_verification_outcome(&outcome);
                     eprintln!("failed to verify trace: {err}");
                     exit(verification_outcome_exit_code(&outcome));
                 }
             };
-            let outcome =
-                assess_verification(Ok(&report), &expectation, report.action_integrity.as_ref());
+            let outcome = assess_verification_with_options(
+                Ok(&report),
+                report.action_integrity.as_ref(),
+                options,
+            );
             print_verification_outcome(&outcome);
             println!("total_actions={}", report.total_actions);
             println!("ignored_tail_actions={}", report.ignored_tail_actions);
@@ -665,7 +681,6 @@ fn main() {
 #[derive(Debug)]
 struct TraceStatusEntry {
     trace: String,
-    expectation: String,
     verified_floor: u32,
     total_actions: usize,
     verified: usize,
@@ -685,7 +700,6 @@ struct TraceStatusEntry {
 struct StatusTraceInput {
     path: PathBuf,
     trace: String,
-    expectation: VerificationExpectation,
 }
 
 fn status_path(input: &str) -> PathBuf {
@@ -735,39 +749,40 @@ fn trace_status_entries(root: &Path) -> Result<Vec<TraceStatusEntry>, String> {
         .collect())
 }
 
+/// Parallelism for heavy trace jobs (status / migrate). Default is intentionally
+/// low: each seed-start replay can retain multi‑10MB JSONL plus a much larger
+/// in-memory report. Unbounded `available_parallelism()` OOMs on 16GB hosts.
+///
+/// Override with `STS_VERIFY_JOBS` (positive integer).
+fn heavy_trace_worker_count(trace_count: usize) -> usize {
+    const DEFAULT_CAP: usize = 4;
+    let cpus = thread::available_parallelism().map_or(1, usize::from);
+    let from_env = env::var("STS_VERIFY_JOBS")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value >= 1);
+    let cap = from_env.unwrap_or(DEFAULT_CAP.min(cpus).max(1));
+    trace_count.min(cap).max(1)
+}
+
 fn status_worker_count(trace_count: usize) -> usize {
-    trace_count
-        .min(thread::available_parallelism().map_or(1, usize::from))
-        .max(1)
+    heavy_trace_worker_count(trace_count)
 }
 
 fn trace_status_entry(input: &StatusTraceInput) -> TraceStatusEntry {
-    let expectation = expectation_label(&input.expectation);
     let content = match fs::read_to_string(&input.path) {
         Ok(content) => content,
         Err(err) => {
-            return trace_error_entry(
-                input.trace.clone(),
-                expectation,
-                format!("read error: {err}"),
-            );
+            return trace_error_entry(input.trace.clone(), format!("read error: {err}"));
         }
     };
     let report = match verify_communication_mod_trace(&content) {
         Ok(report) => report,
         Err(err) => {
-            return trace_error_entry(
-                input.trace.clone(),
-                expectation,
-                format!("parse error: {err}"),
-            );
+            return trace_error_entry(input.trace.clone(), format!("parse error: {err}"));
         }
     };
-    let outcome = assess_verification(
-        Ok(&report),
-        &input.expectation,
-        report.action_integrity.as_ref(),
-    );
+    let outcome = assess_verification(Ok(&report), report.action_integrity.as_ref());
     let integrity = report.action_integrity.unwrap_or_default();
     let boundary = report.seed_start.as_ref().map(|seed_start| {
         format!(
@@ -777,7 +792,6 @@ fn trace_status_entry(input: &StatusTraceInput) -> TraceStatusEntry {
     });
     TraceStatusEntry {
         trace: input.trace.clone(),
-        expectation,
         verified_floor: report
             .seed_start
             .as_ref()
@@ -802,68 +816,6 @@ fn trace_status_entry(input: &StatusTraceInput) -> TraceStatusEntry {
 }
 
 fn status_trace_inputs(root: &Path) -> Result<Vec<StatusTraceInput>, String> {
-    let manifest_path = root.with_extension("json");
-    if manifest_path.exists() {
-        let content = fs::read_to_string(&manifest_path).map_err(|err| err.to_string())?;
-        let manifest: VerificationCorpusManifest =
-            serde_json::from_str(&content).map_err(|err| err.to_string())?;
-        if manifest.schema != VERIFICATION_CORPUS_MANIFEST_SCHEMA {
-            return Err(format!(
-                "unsupported verification corpus manifest schema {} in {}",
-                manifest.schema,
-                manifest_path.display()
-            ));
-        }
-        let mut actual = fs::read_dir(root)
-            .map_err(|err| err.to_string())?
-            .map(|entry| {
-                entry
-                    .map(|entry| entry.path())
-                    .map_err(|err| err.to_string())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        actual.retain(|path| {
-            path.extension().and_then(|extension| extension.to_str()) == Some("jsonl")
-        });
-        let mut actual_names = actual
-            .iter()
-            .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        actual_names.sort();
-        let mut declared_names = manifest
-            .entries
-            .iter()
-            .map(|entry| entry.trace.clone())
-            .collect::<Vec<_>>();
-        declared_names.sort();
-        if declared_names != actual_names {
-            return Err(format!(
-                "manifest {} does not exactly match trace directory {}",
-                manifest_path.display(),
-                root.display()
-            ));
-        }
-        return manifest
-            .entries
-            .into_iter()
-            .map(|entry| {
-                let path = Path::new(&entry.trace);
-                if path.file_name().and_then(|name| name.to_str()) != Some(entry.trace.as_str()) {
-                    return Err(format!(
-                        "manifest trace must be a filename, found {:?}",
-                        entry.trace
-                    ));
-                }
-                Ok(StatusTraceInput {
-                    path: root.join(&entry.trace),
-                    trace: entry.trace,
-                    expectation: entry.expectation,
-                })
-            })
-            .collect();
-    }
-
     let mut paths = fs::read_dir(root)
         .map_err(|err| err.to_string())?
         .map(|entry| {
@@ -883,30 +835,13 @@ fn status_trace_inputs(root: &Path) -> Result<Vec<StatusTraceInput>, String> {
                 .unwrap_or("<unknown>")
                 .to_owned(),
             path,
-            expectation: VerificationExpectation::Complete,
         })
         .collect())
-}
-
-fn expectation_label(expectation: &VerificationExpectation) -> String {
-    match expectation {
-        VerificationExpectation::Complete => "complete".to_owned(),
-        VerificationExpectation::RetainedPrefix { endpoint } => format!(
-            "retained_prefix through step {} ({})",
-            endpoint.action_step, endpoint.label
-        ),
-        VerificationExpectation::ExpectedBoundary { boundary } => format!(
-            "expected_boundary {} at {}",
-            boundary.category, boundary.path
-        ),
-    }
 }
 
 fn outcome_status(outcome: &VerificationOutcome) -> &'static str {
     match outcome {
         VerificationOutcome::CompletePass => "complete_pass",
-        VerificationOutcome::RetainedPrefixPass { .. } => "retained_prefix_pass",
-        VerificationOutcome::ExpectedBoundaryPass { .. } => "expected_boundary_pass",
         VerificationOutcome::InvalidInput { .. } => "invalid_input",
         VerificationOutcome::Failed { .. } => "failed",
     }
@@ -914,9 +849,7 @@ fn outcome_status(outcome: &VerificationOutcome) -> &'static str {
 
 fn verification_outcome_exit_code(outcome: &VerificationOutcome) -> i32 {
     match outcome {
-        VerificationOutcome::CompletePass
-        | VerificationOutcome::RetainedPrefixPass { .. }
-        | VerificationOutcome::ExpectedBoundaryPass { .. } => 0,
+        VerificationOutcome::CompletePass => 0,
         VerificationOutcome::InvalidInput { .. } => 1,
         VerificationOutcome::Failed { .. } => 2,
     }
@@ -939,16 +872,13 @@ fn print_verification_outcome(outcome: &VerificationOutcome) {
                 println!("failure={failure:?}");
             }
         }
-        VerificationOutcome::CompletePass
-        | VerificationOutcome::RetainedPrefixPass { .. }
-        | VerificationOutcome::ExpectedBoundaryPass { .. } => {}
+        VerificationOutcome::CompletePass => {}
     }
 }
 
-fn trace_error_entry(trace: String, expectation: String, error: String) -> TraceStatusEntry {
+fn trace_error_entry(trace: String, error: String) -> TraceStatusEntry {
     TraceStatusEntry {
         trace,
-        expectation,
         verified_floor: 0,
         total_actions: 0,
         verified: 0,
@@ -1025,25 +955,13 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
         .count();
     let passing = entries
         .iter()
-        .filter(|entry| {
-            matches!(
-                entry.status.as_str(),
-                "complete_pass" | "retained_prefix_pass"
-            )
-        })
+        .filter(|entry| entry.status == "complete_pass")
         .count();
     let errors = entries
         .iter()
         .filter(|entry| entry.status == "invalid_input")
         .count();
-    let complete_passes = entries
-        .iter()
-        .filter(|entry| entry.status == "complete_pass")
-        .count();
-    let prefix_passes = entries
-        .iter()
-        .filter(|entry| entry.status == "retained_prefix_pass")
-        .count();
+    let complete_passes = passing;
     let raw_diffs: usize = entries.iter().map(|entry| entry.raw_diffs).sum();
     let unsupported: usize = entries.iter().map(|entry| entry.unsupported).sum();
     let verified: usize = entries.iter().map(|entry| entry.verified).sum();
@@ -1064,7 +982,6 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     println!("trace_errors={errors}");
     println!("passing_traces={passing}");
     println!("complete_passes={complete_passes}");
-    println!("retained_prefix_passes={prefix_passes}");
     println!("raw_unexpected_diffs={raw_diffs}");
     println!("unsupported_transitions={unsupported}");
     println!("verified_transitions={verified}");
@@ -1077,13 +994,12 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
 
     if markdown {
         println!();
-        println!("| Trace | Expectation | Floor | Actions | Disposed | Rejected | Verified | Status | Raw diffs | Unsupported | Ignored tail | Duplicates | Unresolved transient | Boundary | Frontier |");
-        println!("|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|---|");
+        println!("| Trace | Floor | Actions | Disposed | Rejected | Verified | Status | Raw diffs | Unsupported | Ignored tail | Duplicates | Unresolved transient | Boundary | Frontier |");
+        println!("|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|---|");
         for entry in entries {
             println!(
-                "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` | {} |",
+                "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` | {} |",
                 escape_markdown_cell(&entry.trace),
-                escape_markdown_cell(&entry.expectation),
                 entry.verified_floor,
                 entry.total_actions,
                 entry.disposed_actions,
@@ -1102,9 +1018,8 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     } else {
         for entry in entries {
             println!(
-                "trace=\"{}\" expectation=\"{}\" floor={} actions={} applicable={} disposed={} rejected={} verified={} status={} raw_diffs={} unsupported={} ignored_tail={} duplicates={} unresolved_transient={} boundary=\"{}\" frontier=\"{}\"",
+                "trace=\"{}\" floor={} actions={} applicable={} disposed={} rejected={} verified={} status={} raw_diffs={} unsupported={} ignored_tail={} duplicates={} unresolved_transient={} boundary=\"{}\" frontier=\"{}\"",
                 entry.trace,
-                entry.expectation,
                 entry.verified_floor,
                 entry.total_actions,
                 entry.applicable_actions,
@@ -1139,15 +1054,6 @@ mod tests {
             0
         );
         assert_eq!(
-            verification_outcome_exit_code(&VerificationOutcome::RetainedPrefixPass {
-                endpoint: sts_verify::RetainedPrefixEndpoint {
-                    action_step: 12,
-                    label: "retained endpoint".to_owned(),
-                },
-            }),
-            0
-        );
-        assert_eq!(
             verification_outcome_exit_code(&VerificationOutcome::InvalidInput {
                 reason: "bad trace".to_owned(),
             }),
@@ -1163,30 +1069,17 @@ mod tests {
 
     #[test]
     fn status_exit_code_distinguishes_failed_and_invalid_traces() {
-        let passing = trace_error_entry(
-            "pass.jsonl".to_owned(),
-            "complete".to_owned(),
-            String::new(),
-        );
-        let mut passing = passing;
+        let mut passing = trace_error_entry("pass.jsonl".to_owned(), String::new());
         passing.status = "complete_pass".to_owned();
         assert_eq!(trace_status_exit_code(&[passing]), 0);
 
         let failed = TraceStatusEntry {
             status: "failed".to_owned(),
-            ..trace_error_entry(
-                "failed.jsonl".to_owned(),
-                "complete".to_owned(),
-                String::new(),
-            )
+            ..trace_error_entry("failed.jsonl".to_owned(), String::new())
         };
         assert_eq!(trace_status_exit_code(&[failed]), 2);
 
-        let invalid = trace_error_entry(
-            "invalid.jsonl".to_owned(),
-            "complete".to_owned(),
-            "parse error".to_owned(),
-        );
+        let invalid = trace_error_entry("invalid.jsonl".to_owned(), "parse error".to_owned());
         assert_eq!(trace_status_exit_code(&[invalid]), 1);
     }
 
@@ -1194,6 +1087,7 @@ mod tests {
     fn status_worker_count_is_bounded_by_trace_count() {
         assert_eq!(status_worker_count(1), 1);
         assert!(status_worker_count(3) >= 1);
-        assert!(status_worker_count(3) <= 3);
+        // Default cap is 4 even when more traces/CPUs exist.
+        assert!(status_worker_count(100) <= 4 || std::env::var_os("STS_VERIFY_JOBS").is_some());
     }
 }

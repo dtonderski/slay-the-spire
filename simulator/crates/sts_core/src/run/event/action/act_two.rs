@@ -109,6 +109,7 @@ pub(super) fn apply_act_two_event_action(
             });
         }
         Event::Vampires if screen.stage == 1 && choice_index == 0 => {
+            next.flush_pending_obtain_cards()?;
             next.phase = RunPhase::Idle;
             next.event = None;
         }
