@@ -1,3 +1,8 @@
+> **Historical note — superseded.** The multi-generation and cross-command
+> Discovery settlement model below is retained as evidence of an abandoned
+> hypothesis. See [design_discovery_action_update_lifecycle.md](design_discovery_action_update_lifecycle.md)
+> for the current source-backed lifecycle.
+
 # Played Discovery RNG settlement
 
 ## Scope
