@@ -470,3 +470,30 @@ fn neow_card_reward_pick_closes_to_the_leave_event_boundary() {
         "Leave"
     );
 }
+
+#[test]
+fn reward_choose_routes_a_bottle_overlay_to_the_active_grid() {
+    let mut run = RunState::map_fixture();
+    run.current_room_override = Some(RoomKind::Treasure);
+    run.phase = RunPhase::Treasure;
+    sts_core::enter_chest_relic_reward_screen(&mut run).expect("chest reward opens");
+    run.reward
+        .as_mut()
+        .expect("chest reward screen")
+        .relic_offer = Some(Relic::BottledFlame);
+
+    let opened = sts_core::apply_run_action(&run, RunAction::TakeRelicReward)
+        .expect("bottled relic pickup opens its card grid");
+    assert!(opened.card_grid.is_some());
+    assert_eq!(opened.phase, RunPhase::Reward);
+
+    let (action, label) = replay::direct_decision(&opened, "CHOOSE 0")
+        .expect("Reward CHOOSE binds to the active bottle grid");
+    assert_eq!(label, "direct Reward transition");
+    assert_eq!(action, RunDecisionAction::GridSelect { index: 0 });
+
+    let settled = apply_run_decision_action(&opened, action)
+        .expect("bottle grid selection settles through the authoritative boundary");
+    assert!(settled.card_grid.is_none());
+    assert!(settled.deck.iter().any(|card| card.bottled));
+}

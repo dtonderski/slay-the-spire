@@ -192,20 +192,26 @@ fn combat_decision(run: &RunState, command: &str) -> Result<(RunDecisionAction, 
     ))
 }
 
-fn direct_decision(run: &RunState, command: &str) -> Result<(RunDecisionAction, String), String> {
+pub(super) fn direct_decision(
+    run: &RunState,
+    command: &str,
+) -> Result<(RunDecisionAction, String), String> {
     if run.phase == RunPhase::Combat {
         let (action, label) = combat_decision(run, command)?;
         return Ok((action, label));
     }
     let legal = legal_run_decision_actions(run).map_err(|error| error.to_string())?;
     let selected = if let Some(index) = choose_index(command) {
-        if run.phase == RunPhase::Reward {
+        if run.phase == RunPhase::Reward && run.card_grid.is_none() {
             // Reward CHOOSE indices follow CommunicationMod choice_list order,
             // not the denser legal-action vector (which also includes Proceed/Skip).
             Some(RunDecisionAction::Run(
                 seed_start_bind_reward_choose_action(run, index)?,
             ))
         } else {
+            // A relic pickup can open a card grid without leaving Reward phase
+            // (for example Bottled Flame/Lightning/Tornado). CommunicationMod
+            // CHOOSE then addresses the active grid, not the outer reward list.
             legal.get(index).copied()
         }
     } else if command_head_eq(command, "CONFIRM") {
