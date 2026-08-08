@@ -228,6 +228,11 @@ fn direct_decision(run: &RunState, command: &str) -> Result<(RunDecisionAction, 
                     | RunDecisionAction::Rest(RestAction::Proceed)
             )
         })
+    } else if command_head_eq(command, "LEAVE") {
+        legal
+            .iter()
+            .copied()
+            .find(|action| matches!(action, RunDecisionAction::Run(RunAction::LeaveShop)))
     } else if command_head_eq(command, "SKIP") {
         // CommunicationMod SKIP on an open CardRewardScreen closes back to the
         // outer combat-reward list (card item remains). Prefer CloseCardReward
