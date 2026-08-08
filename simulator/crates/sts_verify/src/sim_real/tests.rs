@@ -417,3 +417,56 @@ fn strict_replay_binds_leave_to_the_simulator_shop_action() {
         .iter()
         .any(|transition| transition.action_step == 94));
 }
+
+#[test]
+fn neow_card_reward_pick_closes_to_the_leave_event_boundary() {
+    let run = RunState::seeded_ironclad(34_961_238_661_095, 0);
+    let talked = apply_run_decision_action(
+        &run,
+        RunDecisionAction::Event(sts_core::EventAction::Choose { choice_index: 0 }),
+    )
+    .expect("Neow talk opens reward options");
+    let option_index =
+        sts_core::generate_neow_options(talked.event_rng_seed as i64, talked.player_max_hp)
+            .iter()
+            .position(|option| {
+                matches!(
+                    option.reward,
+                    sts_core::NeowRewardType::ThreeCards
+                        | sts_core::NeowRewardType::OneRandomRareCard
+                        | sts_core::NeowRewardType::RandomColorless
+                        | sts_core::NeowRewardType::RandomColorlessTwo
+                        | sts_core::NeowRewardType::ThreeRareCards
+                )
+            })
+            .expect("fixture offers a Neow card reward");
+    let reward = apply_run_decision_action(
+        &talked,
+        RunDecisionAction::Event(sts_core::EventAction::Choose {
+            choice_index: option_index,
+        }),
+    )
+    .expect("Neow card reward opens");
+    assert_eq!(
+        reward
+            .reward
+            .as_ref()
+            .expect("card reward screen")
+            .continuation,
+        RewardContinuation::Neow
+    );
+
+    let card_index = 0;
+    let card_id = reward.reward.as_ref().expect("card reward screen").choices[card_index].id;
+    let bound = seed_start_bind_reward_choose_action(&reward, card_index)
+        .expect("CHOOSE binds to the visible card");
+    assert_eq!(bound, RunAction::TakeCardReward { card_id });
+    let settled = apply_run_decision_action(&reward, RunDecisionAction::Run(bound))
+        .expect("card pick settles its Neow reward overlay");
+    assert_eq!(settled.phase, RunPhase::Event);
+    assert!(settled.reward.is_none());
+    assert_eq!(
+        settled.event.as_ref().expect("Neow leave screen").choices[0].label,
+        "Leave"
+    );
+}

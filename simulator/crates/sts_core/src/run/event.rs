@@ -4023,7 +4023,9 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) -> S
     run.phase = RunPhase::Reward;
     run.event = Some(make_event_screen(Event::Neow, neow_leave_choices(), 2));
     run.reward = Some(RewardScreen {
-        continuation: crate::RewardContinuation::Event,
+        // Picking a Neow card closes this overlay before the stage-2 Leave
+        // event boundary; Neow continuation triggers that automatic settlement.
+        continuation: crate::RewardContinuation::Neow,
         choices,
         queued_card_rewards: Vec::new(),
         gold_offer: 0,
