@@ -6329,6 +6329,24 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(choices, vec!["Pray", "Leave"]);
 
+        let after_leave = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("leave choice applies");
+        assert_eq!(after_leave.phase, RunPhase::Event);
+        let leave_screen = after_leave.event.as_ref().expect("leave screen");
+        assert_eq!(leave_screen.stage, 1);
+        assert_eq!(
+            leave_screen
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Leave"]
+        );
+        let after_close = apply_event_action(&after_leave, EventAction::Choose { choice_index: 0 })
+            .expect("leave screen closes the shrine");
+        assert_eq!(after_close.phase, RunPhase::Idle);
+        assert!(after_close.event.is_none());
+
         let after_pray = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("pray choice applies");
         assert!(matches!(

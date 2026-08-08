@@ -74,8 +74,11 @@ pub(super) fn apply_shrine_event_action(
             open_event_upgrade_return_to_event_grid(next, Event::UpgradeShrine);
         }
         Event::UpgradeShrine if screen.stage == 0 && choice_index == 1 => {
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            next.event = Some(make_event_screen(
+                Event::UpgradeShrine,
+                labeled_choices(&["Leave"]),
+                1,
+            ));
         }
         Event::UpgradeShrine if screen.stage == 1 && choice_index == 0 => {
             next.phase = RunPhase::Idle;
