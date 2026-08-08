@@ -5,10 +5,11 @@ use sts_core::{
     content::cards::{PARASITE_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID},
     content::character::IRONCLAD_A0_BASE_HP,
     enter_event_screen, leave_shop_room, legal_event_actions, legal_map_actions_on_run,
-    legal_rest_actions, legal_shop_actions, rest_heal_amount, CardId, CardInstance, Event,
-    EventAction, MapAction, MapNodeId, Potion, Relic, RelicKey, RestAction, RoomKind, RunAction,
-    RunPhase, RunState, ShopCardSlot, ShopPotionSlot, ShopRelicSlot, ShopScreen, SimError,
-    FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, VAJRA_STRENGTH,
+    legal_rest_actions, legal_shop_actions, rest_heal_amount, validate_event_action, CardId,
+    CardInstance, Event, EventAction, EventChoice, EventScreen, MapAction, MapNodeId, Potion,
+    Relic, RelicKey, RestAction, RoomKind, RunAction, RunPhase, RunState, ShopCardSlot,
+    ShopPotionSlot, ShopRelicSlot, ShopScreen, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD,
+    VAJRA_STRENGTH,
 };
 
 const SHOP_ANGER_PRICE: i32 = 50;
@@ -437,6 +438,44 @@ fn entering_event_fixture_exposes_canonical_golden_shrine() {
         ]
     );
     assert!(valid_map_actions(&run).is_empty());
+}
+
+#[test]
+fn locked_event_choices_are_not_legal_or_valid() {
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.phase = RunPhase::Event;
+    run.event = Some(EventScreen {
+        event: Event::WingStatue,
+        choices: vec![
+            EventChoice {
+                label: "Pray".to_owned(),
+            },
+            EventChoice {
+                label: "Locked".to_owned(),
+            },
+            EventChoice {
+                label: "Leave".to_owned(),
+            },
+        ],
+        stage: 0,
+        event_data: 0,
+    });
+
+    assert_eq!(
+        valid_event_actions(&run),
+        vec![
+            EventAction::Choose { choice_index: 0 },
+            EventAction::Choose { choice_index: 2 },
+        ]
+    );
+    assert_eq!(
+        validate_event_action(&run, EventAction::Choose { choice_index: 1 }),
+        Err(SimError::IllegalAction("event choice is locked"))
+    );
+    assert_eq!(
+        apply_event_action(&run, EventAction::Choose { choice_index: 1 }),
+        Err(SimError::IllegalAction("event choice is locked"))
+    );
 }
 
 #[test]

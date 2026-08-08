@@ -4045,6 +4045,10 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) -> S
     Ok(())
 }
 
+fn event_choice_is_locked(choice: &EventChoice) -> bool {
+    choice.label.eq_ignore_ascii_case("locked")
+}
+
 pub fn legal_event_actions(run: &RunState) -> SimResult<Vec<EventAction>> {
     run.validate()?;
     if run.phase != RunPhase::Event {
@@ -4059,7 +4063,9 @@ pub fn legal_event_actions(run: &RunState) -> SimResult<Vec<EventAction>> {
         .choices
         .iter()
         .enumerate()
-        .map(|(choice_index, _)| EventAction::Choose { choice_index })
+        .filter_map(|(choice_index, choice)| {
+            (!event_choice_is_locked(choice)).then_some(EventAction::Choose { choice_index })
+        })
         .collect())
 }
 
@@ -4076,13 +4082,11 @@ pub fn validate_event_action(run: &RunState, action: EventAction) -> SimResult<(
         .ok_or(SimError::InvalidState("event screen is missing"))?;
 
     match action {
-        EventAction::Choose { choice_index } => {
-            if event.choices.get(choice_index).is_some() {
-                Ok(())
-            } else {
-                Err(SimError::IllegalAction("event choice is not available"))
-            }
-        }
+        EventAction::Choose { choice_index } => match event.choices.get(choice_index) {
+            Some(choice) if !event_choice_is_locked(choice) => Ok(()),
+            Some(_) => Err(SimError::IllegalAction("event choice is locked")),
+            None => Err(SimError::IllegalAction("event choice is not available")),
+        },
     }
 }
 
