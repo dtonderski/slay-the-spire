@@ -9006,6 +9006,14 @@ mod tests {
         );
         assert_eq!(after_buy.event.as_ref().expect("result screen").stage, 1);
 
+        // FIDL01283 step 95 (also FIDL01338/01364): CommunicationMod
+        // exposes PROCEED while Woman in Blue's potion items remain offered.
+        let skipped = apply_run_action(&after_buy, RunAction::Proceed)
+            .expect("non-empty Woman in Blue reward can be abandoned with proceed");
+        assert_eq!(skipped.phase, RunPhase::Event);
+        assert!(skipped.reward.is_none());
+        assert_eq!(skipped.event.as_ref().expect("result screen").stage, 1);
+
         let mut after_rewards = after_buy;
         for _ in 0..3 {
             after_rewards =

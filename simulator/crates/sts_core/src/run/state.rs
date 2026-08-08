@@ -3703,8 +3703,13 @@ impl RunState {
                             // empty combat-reward screen via CommunicationMod PROCEED.
                             | Some(RoomKind::Event),
                     );
+                // Event-owned CombatRewardScreen frames expose PROCEED even when
+                // non-card items remain (for example Woman in Blue potions). The
+                // active CARD_REWARD sub-screen is choose/skip-only.
                 if final_boss_victory
                     || reward.continuation == RewardContinuation::Neow
+                    || (reward.continuation == RewardContinuation::Event
+                        && !reward.card_reward_is_active())
                     || map_or_boss_combat_reward
                     || (reward.continuation != RewardContinuation::None
                         && super::reward::reward_is_empty(reward))
