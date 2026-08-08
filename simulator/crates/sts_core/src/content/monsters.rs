@@ -6459,7 +6459,8 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
         return match intent {
             MonsterIntent::AttackMultiple { .. } => Some(1),
             MonsterIntent::Block { .. } | MonsterIntent::StrengthAndBlock { .. } => Some(2),
-            MonsterIntent::Attack { damage: 0 } => Some(4),
+            MonsterIntent::DarklingCount => Some(4),
+            MonsterIntent::StrengthSelf { amount: 0 } => Some(5),
             MonsterIntent::Attack { .. } => Some(3),
             MonsterIntent::Stun => Some(5),
             _ => None,
@@ -10089,6 +10090,11 @@ fn apply_monster_intent_with_card_rng_inner(
         MonsterIntent::PendingAiRoll => {
             return Err(SimError::InvalidState(
                 "combat monster intent is pending AI roll",
+            ));
+        }
+        MonsterIntent::DarklingCount => {
+            return Err(SimError::InvalidState(
+                "Darkling COUNT must resolve through its special intent stage",
             ));
         }
         MonsterIntent::Attack { damage } => {

@@ -465,7 +465,7 @@ fn intent_public_fields(monster: &MonsterState) -> (FairIntentCategory, Option<i
 
     let attack = |category, damage| (category, Some(damage), Some(1));
     match monster.intent {
-        I::PendingAiRoll => (C::Unknown, None, None),
+        I::PendingAiRoll | I::DarklingCount => (C::Unknown, None, None),
         I::Attack { damage } | I::AttackStealGold { damage, .. } => attack(C::Attack, damage),
         I::AttackAddSlimedToDiscard { damage, .. }
         | I::AttackAddWoundsToDiscard { damage, .. }

@@ -525,6 +525,9 @@ pub enum MonsterIntent {
     /// Encounter construction has not yet consumed this monster's initial AI
     /// roll. Authoritative combat validation rejects this transient state.
     PendingAiRoll,
+    /// Darkling's half-dead COUNT pose before its next REINCARNATE turn.
+    /// The target exposes this as `Intent.NONE` / UNKNOWN with move byte 4.
+    DarklingCount,
     Attack {
         damage: i32,
     },

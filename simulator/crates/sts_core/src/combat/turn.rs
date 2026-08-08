@@ -1111,9 +1111,7 @@ fn execute_state_oriented_special_intent(
             awaken_one_after_first_death(&mut state.monsters[index]);
             Ok(true)
         }
-        crate::MonsterIntent::Attack { damage }
-            if is_half_dead_darkling(&state.monsters[index]) && damage == 0 =>
-        {
+        crate::MonsterIntent::DarklingCount if is_half_dead_darkling(&state.monsters[index]) => {
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             let _ = state.rng.monster_rng.random_int(99);
             state.monsters[index].intent = crate::MonsterIntent::Stun;
@@ -4752,7 +4750,7 @@ mod tests {
     fn half_dead_darkling_count_sets_reincarnate_after_one_roll() {
         let mut state = three_darklings_with_one_half_dead(17);
         state.monsters[0].rolled_attack_damage = Some(8);
-        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 0 };
+        state.monsters[0].intent = crate::MonsterIntent::DarklingCount;
         state.monsters[0].move_history = vec![4];
         // Living siblings hold block intents so they do not attack the fixture player.
         state.monsters[1].intent = crate::MonsterIntent::Block { block: 12 };
@@ -4766,6 +4764,10 @@ mod tests {
         assert_eq!(
             state.monsters[0].intent,
             crate::MonsterIntent::StrengthSelf { amount: 0 }
+        );
+        assert_eq!(
+            crate::content::monsters::target_move_byte_for_monster(&state.monsters[0]),
+            Some(5)
         );
         assert_eq!(state.monsters[0].move_history, vec![4, 5]);
         assert_eq!(state.monsters[0].moves_executed, 1);

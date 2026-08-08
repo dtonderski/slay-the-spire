@@ -46,7 +46,7 @@ pub fn deal_hp_loss_damage_to_monster(monster: &mut MonsterState, amount: i32) -
         if mark_awakened_one_half_dead(monster) {
         } else if monster.content_id == DARKLING_ID {
             monster.escaped = true;
-            monster.intent = crate::MonsterIntent::Attack { damage: 0 };
+            monster.intent = crate::MonsterIntent::DarklingCount;
             monster.powers = Default::default();
         }
     }
@@ -137,7 +137,7 @@ fn deal_unmodified_damage_to_monster_inner(
             // The first death resolves on the Awakened One's next monster turn.
         } else if monster.content_id == DARKLING_ID {
             monster.escaped = true;
-            monster.intent = crate::MonsterIntent::Attack { damage: 0 };
+            monster.intent = crate::MonsterIntent::DarklingCount;
             monster.powers = Default::default();
         }
     }
@@ -177,7 +177,7 @@ fn deal_attack_damage_to_monster(
             // The first death resolves on the Awakened One's next monster turn.
         } else if monster.content_id == DARKLING_ID {
             monster.escaped = true;
-            monster.intent = crate::MonsterIntent::Attack { damage: 0 };
+            monster.intent = crate::MonsterIntent::DarklingCount;
             monster.powers = Default::default();
         }
     }
@@ -320,4 +320,44 @@ pub fn reflect_spikes_to_player(player: &mut PlayerState, relics: &[Relic], spik
     let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut player.powers, mitigated);
     player.hp -= hp_loss;
     hp_loss
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        content::monsters::{monster_state, target_move_byte_for_monster, DARKLING_A0},
+        ids::MonsterId,
+    };
+
+    fn assert_darkling_count_pose(monster: &MonsterState) {
+        assert!(!monster.alive);
+        assert!(monster.escaped);
+        assert_eq!(monster.intent, crate::MonsterIntent::DarklingCount);
+        assert_eq!(target_move_byte_for_monster(monster), Some(4));
+    }
+
+    #[test]
+    fn darkling_first_death_uses_unknown_count_pose_for_attack_damage_paths() {
+        let mut attack = monster_state(&DARKLING_A0, MonsterId::new(1));
+        attack.hp = 1;
+        let result = deal_damage_info_to_monster_with_result(
+            &mut attack,
+            DamageInfo {
+                source: DamageSource::Card(CardId::new(1)),
+                target: MonsterId::new(1),
+                amount: 1,
+            },
+            PlayerPowers::default(),
+            0,
+            &[],
+        );
+        assert_eq!(result.hp_damage, 1);
+        assert_darkling_count_pose(&attack);
+
+        let mut unmodified = monster_state(&DARKLING_A0, MonsterId::new(2));
+        unmodified.hp = 1;
+        assert_eq!(deal_unmodified_damage_to_monster(&mut unmodified, 1), 1);
+        assert_darkling_count_pose(&unmodified);
+    }
 }
