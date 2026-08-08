@@ -6,9 +6,8 @@ use crate::{
     card::{CardInstance, CardType},
     content::{
         cards::{
-            card_instance_is_upgradeable, get_card_definition, is_curse_content_id,
-            is_pandoras_box_removed_starter, is_purgeable_card, upgrade_card_instance,
-            CURSE_OF_THE_BELL_ID,
+            card_instance_is_upgradeable, get_card_definition, is_pandoras_box_removed_starter,
+            is_purgeable_card, upgrade_card_instance, CURSE_OF_THE_BELL_ID,
         },
         reward_pool::{
             ironclad_transform_card_content_id, ironclad_truly_random_card_pool,
@@ -289,14 +288,7 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
         | GridPurpose::PandorasBox => None,
     };
 
-    let matches_deferred_neow_curse = matches!(grid.purpose, GridPurpose::NeowTransform { .. })
-        && run.deck.len() == grid.cards.len() + 1
-        && run.deck[..grid.cards.len()] == grid.cards
-        && run
-            .deck
-            .last()
-            .is_some_and(|card| is_curse_content_id(card.content_id));
-    if expected.as_ref().is_some_and(|cards| cards != &grid.cards) && !matches_deferred_neow_curse {
+    if expected.as_ref().is_some_and(|cards| cards != &grid.cards) {
         return Err(SimError::InvalidState(
             "card grid payload does not match its deck-derived authority",
         ));

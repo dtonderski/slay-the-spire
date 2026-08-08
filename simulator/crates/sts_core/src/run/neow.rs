@@ -399,12 +399,11 @@ pub fn apply_neow_simple_drawback(run: &mut RunState, drawback: NeowDrawback) ->
 }
 
 pub fn apply_neow_curse_drawback(run: &mut RunState) -> SimResult<NeowCurseDrawback> {
+    run.reserve_card_instance_ids(1)?;
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
     let curse = neow_modeled_random_curse(&mut card_rng);
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
-    // Neow uses ShowCardAndObtainEffect for its curse drawback. The Leave
-    // screen is visible before that effect commits the card to masterDeck.
-    run.queue_pending_obtain_card(curse);
+    run.gain_deck_card(curse)?;
 
     Ok(NeowCurseDrawback {
         curse,
