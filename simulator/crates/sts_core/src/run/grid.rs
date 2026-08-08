@@ -264,8 +264,17 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
                 .copied()
                 .collect::<Vec<_>>(),
         ),
-        GridPurpose::EmptyCage { .. }
-        | GridPurpose::NeowRemove { .. }
+        // Empty Cage opens the same purgeable-card subset as target remove
+        // screens; special unremovable curses (and bottled cards) are not
+        // eligible even though they remain in the deck.
+        GridPurpose::EmptyCage { .. } => Some(
+            run.deck
+                .iter()
+                .filter(|card| is_purgeable_card(card))
+                .copied()
+                .collect::<Vec<_>>(),
+        ),
+        GridPurpose::NeowRemove { .. }
         | GridPurpose::NeowTransform { .. }
         | GridPurpose::DollysMirror
         | GridPurpose::Astrolabe => Some(run.deck.clone()),
@@ -683,8 +692,18 @@ pub fn open_empty_cage_grid(run: &mut RunState) {
         return;
     }
 
+    let cards = run
+        .deck
+        .iter()
+        .filter(|card| is_purgeable_card(card))
+        .copied()
+        .collect::<Vec<_>>();
+    if cards.is_empty() {
+        return;
+    }
+
     run.card_grid = Some(CardGridScreen {
-        cards: run.deck.clone(),
+        cards,
         purpose: GridPurpose::EmptyCage { remaining: 2 },
         selected: None,
         selected_indices: Vec::new(),
@@ -2117,6 +2136,28 @@ mod tests {
             .cards
             .iter()
             .all(|card| card.content_id != CURSE_OF_THE_BELL_ID));
+    }
+
+    #[test]
+    fn empty_cage_grid_excludes_target_non_purgeable_cards() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::EmptyCage);
+        run.gain_deck_card(ASCENDERS_BANE_ID)
+            .expect("Ascender's Bane gain succeeds");
+        run.gain_deck_card(CURSE_OF_THE_BELL_ID)
+            .expect("Curse of the Bell gain succeeds");
+
+        open_empty_cage_grid(&mut run);
+
+        let grid = run.card_grid.as_ref().expect("Empty Cage grid");
+        assert!(grid
+            .cards
+            .iter()
+            .all(|card| !matches!(card.content_id, ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID)));
+        run.validate().expect("Empty Cage grid is authoritative");
     }
 
     #[test]
