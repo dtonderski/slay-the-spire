@@ -280,6 +280,8 @@ fn combat_decisions_have_one_active_value_and_an_ordered_queue() {
             source_card_id,
             selected_hand_index: None,
             selected_hand_indices: Vec::new(),
+            dual_wield_restore_on_confirm: Vec::new(),
+            dual_wield_force_exhaust: false,
         },
         pending_actions: Default::default(),
     });
@@ -291,6 +293,7 @@ fn combat_decisions_have_one_active_value_and_an_ordered_queue() {
                 source_card_id,
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
+                pending_actions: Default::default(),
             },
         });
 
@@ -313,6 +316,7 @@ fn queued_combat_decision_without_active_predecessor_fails_validation() {
                 source_card_id,
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
+                pending_actions: Default::default(),
             },
         });
 

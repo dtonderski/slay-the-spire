@@ -86,6 +86,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     }
 
     public void receivePreUpdate() {
+        GameStateListener.signalGameUpdate();
         if(listener != null && !listener.isAlive() && writeThread != null && writeThread.isAlive()) {
             logger.info("Child process has died...");
             writeThread.interrupt();
@@ -155,7 +156,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
         if(!mustSendGameState && GameStateListener.checkForMenuStateChange()) {
             mustSendGameState = true;
         }
-        if(mustSendGameState) {
+        if(mustSendGameState && GameStateListener.hasCompletingBoundary()) {
             publishOnGameStateChange();
             mustSendGameState = false;
         }
@@ -163,6 +164,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     }
 
     public void receivePostDungeonUpdate() {
+        GameStateListener.signalDungeonUpdate();
         if (GameStateListener.checkForDungeonStateChange()) {
             mustSendGameState = true;
         }

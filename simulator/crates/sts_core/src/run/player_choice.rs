@@ -564,6 +564,8 @@ mod tests {
                 source_card_id,
                 selected_hand_index: None,
                 selected_hand_indices: Vec::new(),
+                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_force_exhaust: false,
             },
             pending_actions: Default::default(),
         });

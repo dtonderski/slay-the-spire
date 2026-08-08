@@ -200,6 +200,7 @@ function markExit(reason, details = {}) {
 
 function summarize(message) {
   const gs = message.game_state ?? {};
+  const screenState = gs.screen_state ?? {};
   const combat = gs.combat_state ?? null;
   const potions = gs.potions ?? [];
   const occupiedPotions = potions
@@ -213,10 +214,22 @@ function summarize(message) {
   const summary = {
     step,
     client_pid: clientPid,
+    type: message.type ?? null,
+    profile: message.type === "profile" ? message.profile ?? null : null,
     error: message.error ?? null,
     available_commands: message.available_commands ?? [],
     in_game: message.in_game ?? false,
     ready_for_command: message.ready_for_command ?? false,
+    boundary_schema: message.boundary_schema ?? null,
+    boundary_kind: message.boundary_kind ?? null,
+    game_update_seq: message.game_update_seq ?? null,
+    dungeon_update_seq: message.dungeon_update_seq ?? null,
+    current_action: message.current_action ?? gs.current_action ?? null,
+    current_action_instance: message.current_action_instance ?? null,
+    current_action_update_count: message.current_action_update_count ?? null,
+    actions_queued: message.actions_queued ?? null,
+    card_queue_size: message.card_queue_size ?? null,
+    pre_turn_actions_size: message.pre_turn_actions_size ?? null,
     screen_type: gs.screen_type ?? null,
     screen_name: gs.screen_name ?? null,
     room_phase: gs.room_phase ?? null,
@@ -239,6 +252,11 @@ function summarize(message) {
     potion_capacity: potions.length,
     open_potion_slots: openPotionSlots,
     choices: gs.choice_list ?? null,
+    shop_potions: (screenState.potions ?? []).map((potion) => ({
+      id: potion.id ?? null,
+      name: potion.name ?? null,
+      price: potion.price ?? null,
+    })),
   };
 
   if (combat) {
@@ -276,10 +294,28 @@ function summarize(message) {
   return summary;
 }
 
+const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
+
+function stateCompletesCommand(command, summary) {
+  if (summary?.error) return true;
+  const verb = String(command ?? "").trim().split(/\s+/)[0].toLowerCase();
+  if (verb === "profile") return summary?.type === "profile";
+  if (summary?.boundary_schema !== 1) return false;
+  if (verb === "state") return summary.boundary_kind === "poll";
+  return GAMEPLAY_BOUNDARY_KINDS.has(summary?.boundary_kind);
+}
+
 function publishState(message) {
+  const auxiliaryProfile = message?.type === "profile";
+  const previousState = latestState;
+  const previousSummary = latestSummary;
   const summary = summarize(message);
   stateSeq += 1;
-  if (commandInFlight && stateSeq > commandInFlight.accepted_state_seq) {
+  if (
+    commandInFlight
+    && stateSeq > commandInFlight.accepted_state_seq
+    && stateCompletesCommand(commandInFlight.command, summary)
+  ) {
     commandInFlight = null;
   }
   const stateId = stateIdFor(message, summary);
@@ -302,25 +338,36 @@ function publishState(message) {
   });
   writeJsonDeferred(summaryPath, latestSummary);
   notifyStateWaiters();
-  return latestSummary;
+  const publishedSummary = latestSummary;
+  if (auxiliaryProfile) {
+    latestState = previousState;
+    latestSummary = previousSummary;
+    if (latestState) writeJsonDeferred(statePath, latestState);
+    if (latestSummary) writeJsonDeferred(summaryPath, latestSummary);
+  }
+  return publishedSummary;
 }
 
 function notifyStateWaiters() {
   for (let index = stateWaiters.length - 1; index >= 0; index -= 1) {
     const waiter = stateWaiters[index];
     if (stateSeq <= waiter.afterSeq) continue;
+    const current = currentProtocolState();
+    if (!waiter.accept(current)) continue;
     stateWaiters.splice(index, 1);
-    waiter.resolve(currentProtocolState());
+    waiter.resolve(current);
   }
 }
 
-function waitForStateAfterSeq(afterSeq, timeoutMs) {
-  if (stateSeq > afterSeq) {
-    return Promise.resolve(currentProtocolState());
+function waitForStateAfterSeq(afterSeq, timeoutMs, accept = () => true) {
+  const current = currentProtocolState();
+  if (stateSeq > afterSeq && accept(current)) {
+    return Promise.resolve(current);
   }
   return new Promise((resolve) => {
     const waiter = {
       afterSeq,
+      accept,
       resolve(value) {
         if (timer) clearTimeout(timer);
         resolve(value);
@@ -512,9 +559,7 @@ function validateProtocolCommand(payload) {
     available.has(verb);
   if (!latestSummary && !startupStart) return "no observed state is available";
   if (queuedCommands.length > 0) return "a command is already queued";
-  if (commandInFlight && stateSeq <= commandInFlight.accepted_state_seq) {
-    return "a command is already in flight";
-  }
+  if (commandInFlight) return "a command is already in flight";
   if (verb !== "state" && !startupStart && !payload.expected_state_id) {
     return "expected_state_id is required";
   }
@@ -542,9 +587,7 @@ function validateProtocolCommand(payload) {
 function validateAbandonRun(payload) {
   if (!latestSummary) return "no observed state is available";
   if (queuedCommands.length > 0) return "a command is already queued";
-  if (commandInFlight && stateSeq <= commandInFlight.accepted_state_seq) {
-    return "a command is already in flight";
-  }
+  if (commandInFlight) return "a command is already in flight";
   if (controlOwner && payload.owner_token !== controlOwner.owner_token) {
     return "controller owner_token is required";
   }
@@ -622,7 +665,11 @@ async function enqueueAbandonRun(payload) {
   };
   if (payload.wait_for_state_update) {
     const timeoutMs = Math.max(1, Math.min(30000, Number(payload.update_timeout_ms ?? 10000)));
-    const observed = await waitForStateAfterSeq(acceptedStateSeq, timeoutMs);
+    const observed = await waitForStateAfterSeq(
+      acceptedStateSeq,
+      timeoutMs,
+      (state) => stateCompletesCommand(commandMeta.command, state.summary),
+    );
     const observedChanged = observed ? observed.state_id !== acceptedStateId : false;
     response.observed_update = observed
       ? {
@@ -644,7 +691,7 @@ async function enqueueAbandonRun(payload) {
         step,
       };
     if (!observed) {
-      cancelQueuedCommand(commandId);
+      const cancelled = cancelQueuedCommand(commandId);
       writeRecord({
         type: "command_observed_timeout",
         step,
@@ -653,18 +700,13 @@ async function enqueueAbandonRun(payload) {
         command_id: commandId,
         accepted_state_id: acceptedStateId,
         accepted_state_seq: acceptedStateSeq,
+        command_cancelled_before_dispatch: cancelled,
       });
+      if (cancelled && commandInFlight?.command_id === commandId) {
+        commandInFlight = null;
+        writePendingStatus();
+      }
     }
-    if (
-      commandInFlight
-      && commandInFlight.command_id === commandId
-    ) {
-      commandInFlight = null;
-      writePendingStatus();
-    }
-  } else if (commandInFlight && commandInFlight.command_id === commandId) {
-    commandInFlight = null;
-    writePendingStatus();
   }
   return response;
 }
@@ -823,7 +865,11 @@ async function handleControlMessage(payload) {
     };
     if (payload.wait_for_state_update) {
       const timeoutMs = Math.max(1, Math.min(30000, Number(payload.update_timeout_ms ?? 5000)));
-      const observed = await waitForStateAfterSeq(acceptedStateSeq, timeoutMs);
+      const observed = await waitForStateAfterSeq(
+        acceptedStateSeq,
+        timeoutMs,
+        (state) => stateCompletesCommand(commandMeta.command, state.summary),
+      );
       const observedChanged = observed ? observed.state_id !== acceptedStateId : false;
       response.observed_update = observed
         ? {
@@ -845,7 +891,7 @@ async function handleControlMessage(payload) {
           step,
         };
       if (!observed) {
-        cancelQueuedCommand(commandId);
+        const cancelled = cancelQueuedCommand(commandId);
         writeRecord({
           type: "command_observed_timeout",
           step,
@@ -854,19 +900,14 @@ async function handleControlMessage(payload) {
           command_id: commandId,
           accepted_state_id: acceptedStateId,
           accepted_state_seq: acceptedStateSeq,
+          command_cancelled_before_dispatch: cancelled,
         });
+        if (cancelled && commandInFlight?.command_id === commandId) {
+          commandInFlight = null;
+          writePendingStatus();
+        }
       }
-      if (
-        commandInFlight
-        && commandInFlight.command_id === commandId
-    ) {
-      commandInFlight = null;
-      writePendingStatus();
     }
-  } else if (commandInFlight && commandInFlight.command_id === commandId) {
-    commandInFlight = null;
-    writePendingStatus();
-  }
     return response;
   }
   return { ok: false, error: `unknown control message type "${type}"` };
@@ -922,10 +963,18 @@ async function waitForCommand(message) {
     auto_state_ms: autoStateMs,
     allow_file_commands: allowFileCommands,
     summary,
+    pending_command: Boolean(commandInFlight),
+    command_in_flight: commandInFlight,
   });
+
+  // An unsolicited state can overtake the response to the command already in
+  // flight. Publish it for diagnostics, but do not let it consume another
+  // command or block a later completing boundary in the input queue.
+  if (commandInFlight) return null;
 
   const started = Date.now();
   while (true) {
+    if (exiting) return null;
     const elapsedMs = Date.now() - started;
     if (Number.isFinite(autoStateMs) && autoStateMs > 0 && elapsedMs >= autoStateMs) {
       return {
@@ -991,6 +1040,7 @@ async function handleLine(line) {
   });
 
   const commandResult = await waitForCommand(message);
+  if (commandResult === null) return;
   const command = commandResult.command;
   const commandMeta = commandResult.command_meta;
   step += 1;

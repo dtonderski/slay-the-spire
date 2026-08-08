@@ -18,7 +18,7 @@ use crate::{
             SLAVER_BLUE_A0, SLAVER_RED_A0, SLIME_BOSS_A0, TASKMASTER_A0,
         },
         reward_pool::{random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
-        shop_pool::{colorless_match_and_keep_pool, random_colorless_from_pool},
+        shop_pool::{colorless_match_and_keep_pool, return_colorless_card_from_pool},
     },
     ids::ContentId,
     relic::{Relic, RelicKey, RelicTier},
@@ -1625,6 +1625,13 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             }
             (Event::DrugDealer, 1) => pending.is_empty() || pending == [JAX_ID],
             (Event::Addict, 1) => pending.is_empty() || pending == [SHAME_ID],
+            // Knowing Skull Success queues one uncommon colorless via
+            // ShowCardAndObtainEffect; multi-Success can leave one pending.
+            (Event::KnowingSkull, 1) | (Event::KnowingSkull, 2) => {
+                pending.is_empty()
+                    || (pending.len() == 1
+                        && crate::content::shop_pool::shop_card_is_colorless(pending[0]))
+            }
             (Event::Duplicator, 2) => pending.is_empty() || pending.len() == 1,
             (Event::TheLibrary, 1) => pending.is_empty() || pending.len() == 1,
             (Event::MatchAndKeep, 2) => {
@@ -1804,10 +1811,23 @@ fn knowing_skull_event_data(costs: KnowingSkullCosts) -> SimResult<u32> {
 
 fn knowing_skull_gain_random_colorless(run: &mut RunState) -> SimResult<()> {
     run.reserve_card_instance_ids(1)?;
-    let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
-    let content_id = random_colorless_from_pool(&mut card_rng, CardRarity::Uncommon);
-    run.store_rng_counter(RunRngStream::CardReward, &card_rng);
-    run.gain_deck_card(content_id)
+    // Target KnowingSkull Success calls AbstractDungeon.returnColorlessCard(UNCOMMON),
+    // which shuffles the live colorlessCardPool via shuffleRng.randomLong() and returns
+    // the first uncommon. It does not use cardRng / random_colorless_from_pool.
+    // The card is obtained through ShowCardAndObtainEffect, so it stays pending until
+    // the next event update flushes it (rapid multi-Success can lag a frame).
+    if run.colorless_card_pool.is_empty() {
+        run.colorless_card_pool = colorless_match_and_keep_pool();
+    }
+    let mut shuffle_rng = run.rng_for_stream(RunRngStream::Shuffle);
+    let content_id = return_colorless_card_from_pool(
+        &mut run.colorless_card_pool,
+        &mut shuffle_rng,
+        CardRarity::Uncommon,
+    );
+    run.store_rng_counter(RunRngStream::Shuffle, &shuffle_rng);
+    run.queue_pending_obtain_card(content_id);
+    Ok(())
 }
 
 fn knowing_skull_gain_random_potion(run: &mut RunState) {
@@ -3477,6 +3497,9 @@ fn match_and_keep_card_choices(run: &RunState) -> SimResult<Vec<EventChoice>> {
 fn initialize_match_and_keep_state(run: &mut RunState) -> SimResult<MatchAndKeepState> {
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
     let mut shuffle_rng = run.rng_for_stream(RunRngStream::Shuffle);
+    if run.colorless_card_pool.is_empty() {
+        run.colorless_card_pool = colorless_match_and_keep_pool();
+    }
     let mut contents = if run.ascension >= 15 {
         vec![
             random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Rare)?,
@@ -3487,11 +3510,18 @@ fn initialize_match_and_keep_state(run: &mut RunState) -> SimResult<MatchAndKeep
             BASH_ID,
         ]
     } else {
+        // Match and Keep's colorless slot uses returnColorlessCard, which mutates
+        // the shared colorlessCardPool (same path as Knowing Skull Success).
+        let colorless = return_colorless_card_from_pool(
+            &mut run.colorless_card_pool,
+            &mut shuffle_rng,
+            CardRarity::Uncommon,
+        );
         vec![
             random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Rare)?,
             random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Uncommon)?,
             random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Common)?,
-            random_colorless_for_match_and_keep(&mut shuffle_rng, CardRarity::Uncommon)?,
+            colorless,
             random_normal_curse(&mut card_rng),
             BASH_ID,
         ]
@@ -3523,13 +3553,7 @@ fn initialize_match_and_keep_state(run: &mut RunState) -> SimResult<MatchAndKeep
     })
 }
 
-fn random_colorless_for_match_and_keep(
-    rng: &mut StsRng,
-    rarity: CardRarity,
-) -> SimResult<ContentId> {
-    random_colorless_for_match_and_keep_from_pool(rng, rarity, colorless_match_and_keep_pool())
-}
-
+#[cfg(test)]
 fn random_colorless_for_match_and_keep_from_pool(
     rng: &mut StsRng,
     rarity: CardRarity,
@@ -4786,6 +4810,34 @@ mod tests {
 
         run.current_floor = 26;
         assert!(event_is_available(&run, Event::Colosseum));
+    }
+
+    #[test]
+    fn colosseum_cowardice_clears_pending_event_combat_rng() {
+        use crate::combat::CombatRngState;
+        use crate::rng::StsRng;
+
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_floor = 28;
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::Colosseum,
+            choices: colosseum_choices(2),
+            stage: 2,
+            event_data: 0,
+        });
+        run.pending_event_combat_rng = Some(CombatRngState {
+            shuffle_rng: StsRng::new(99),
+            monster_rng: StsRng::new(99),
+            monster_hp_rng: StsRng::new(99),
+            card_random_rng: StsRng::new(99),
+        });
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("COWARDICE leaves Colosseum");
+        assert!(next.pending_event_combat_rng.is_none());
+        assert!(next.event.is_none());
+        assert_eq!(next.phase, RunPhase::Idle);
     }
 
     #[test]
@@ -8458,8 +8510,7 @@ mod tests {
     #[test]
     fn knowing_skull_success_appends_uncommon_colorless_and_stays_open() {
         // Target Success? pays HP then ShowCardAndObtainEffect for a random
-        // Uncommon colorless (Finesse/Flash of Steel/…). Core settles the deck;
-        // CM may lag one frame (see seed-start delayed append for d3437983).
+        // Uncommon colorless. The obtain is pending until the next event update.
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         let event_data =
@@ -8478,8 +8529,9 @@ mod tests {
             .expect("Knowing Skull Success obtains a colorless card");
 
         assert_eq!(after.player_hp, initial_hp - KNOWING_SKULL_STARTING_COST);
-        assert_eq!(after.deck.len(), initial_deck_len + 1);
-        let gained = after.deck[initial_deck_len].content_id;
+        assert_eq!(after.deck.len(), initial_deck_len);
+        assert_eq!(after.pending_obtain_cards.len(), 1);
+        let gained = after.pending_obtain_cards[0];
         assert!(
             crate::content::shop_pool::shop_card_is_colorless(gained),
             "Success? must grant a colorless card, got {gained:?}"
@@ -8489,6 +8541,12 @@ mod tests {
             knowing_skull_costs(after.event.as_ref().expect("open").event_data).card,
             KNOWING_SKULL_STARTING_COST + 1
         );
+
+        let settled = apply_event_action(&after, EventAction::Choose { choice_index: 1 })
+            .expect("next option flushes the pending colorless");
+        assert_eq!(settled.deck.len(), initial_deck_len + 1);
+        assert!(settled.pending_obtain_cards.is_empty());
+        assert_eq!(settled.deck[initial_deck_len].content_id, gained);
     }
 
     #[test]
@@ -9402,5 +9460,27 @@ mod tests {
         assert!(monsters
             .iter()
             .all(|monster| monster.hp == monster.max_hp * 3 / 4));
+    }
+
+    #[test]
+    fn addict_rob_then_leave_reaches_idle_with_shame() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 2;
+        run.gold = 200;
+        run.relics.push(Relic::CeramicFish);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::Addict));
+        let after_rob =
+            apply_event_action(&run, EventAction::Choose { choice_index: 1 }).expect("rob");
+        assert_eq!(after_rob.event.as_ref().unwrap().stage, 1);
+        assert!(
+            after_rob.pending_obtain_cards == vec![SHAME_ID]
+                || after_rob.deck.iter().any(|c| c.content_id == SHAME_ID)
+        );
+        let after_leave =
+            apply_event_action(&after_rob, EventAction::Choose { choice_index: 0 }).expect("leave");
+        assert!(after_leave.event.is_none(), "event={:?}", after_leave.event);
+        assert_eq!(after_leave.phase, RunPhase::Idle);
+        assert!(after_leave.deck.iter().any(|c| c.content_id == SHAME_ID));
     }
 }

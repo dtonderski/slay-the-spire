@@ -1,5 +1,6 @@
 package communicationmod;
 
+import com.megacrit.cardcrawl.actions.AbstractGameAction;
 import com.megacrit.cardcrawl.actions.GameActionManager;
 import com.megacrit.cardcrawl.core.CardCrawlGame;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
@@ -21,6 +22,14 @@ public class GameStateListener {
     private static boolean hasPresentedOutOfGameState = false;
     private static boolean waitOneUpdate = false;
     private static int timeout = 0;
+    private static final int BOUNDARY_SCHEMA = 1;
+    private static String boundaryKind = "unknown";
+    private static boolean pollPending = false;
+    private static long gameUpdateSeq = 0L;
+    private static long dungeonUpdateSeq = 0L;
+    private static AbstractGameAction trackedAction = null;
+    private static long currentActionInstance = 0L;
+    private static long currentActionUpdateCount = 0L;
 
     /**
      * Used to indicate that something (in game logic, not external command) has been done that will change the game state,
@@ -44,6 +53,45 @@ public class GameStateListener {
      */
     public static void registerCommandExecution() {
         waitingForCommand = false;
+        boundaryKind = "unknown";
+        pollPending = false;
+    }
+
+    /** Marks an explicit STATE response, which is observation rather than gameplay settlement. */
+    public static void registerStatePoll() {
+        pollPending = true;
+    }
+
+    /** Counts one process update without changing target game behavior. */
+    public static void signalGameUpdate() {
+        gameUpdateSeq += 1L;
+    }
+
+    /** Counts one dungeon update without changing target game behavior. */
+    public static void signalDungeonUpdate() {
+        dungeonUpdateSeq += 1L;
+    }
+
+    /**
+     * Records an invocation of the current action's update method. The
+     * GameActionManager patch calls this only on the bytecode path that invokes
+     * currentAction.update().
+     */
+    public static void signalCurrentActionUpdate(AbstractGameAction action) {
+        observeCurrentAction(action);
+        if (action != null) {
+            currentActionUpdateCount += 1L;
+        }
+    }
+
+    private static void observeCurrentAction(AbstractGameAction action) {
+        if (action != trackedAction) {
+            trackedAction = action;
+            if (action != null) {
+                currentActionInstance += 1L;
+            }
+            currentActionUpdateCount = 0L;
+        }
     }
 
     /**
@@ -90,6 +138,10 @@ public class GameStateListener {
         blocked = false;
         waitingForCommand = false;
         waitOneUpdate = false;
+        boundaryKind = "unknown";
+        pollPending = false;
+        trackedAction = null;
+        currentActionUpdateCount = 0L;
     }
 
     /**
@@ -212,6 +264,7 @@ public class GameStateListener {
         if (stateChange) {
             externalChange = false;
             waitingForCommand = true;
+            boundaryKind = "terminal";
         }
         return stateChange;
     }
@@ -230,6 +283,7 @@ public class GameStateListener {
             if (stateChange) {
                 externalChange = false;
                 waitingForCommand = true;
+                boundaryKind = classifyDungeonBoundary();
                 previousPhase = AbstractDungeon.getCurrRoom().phase;
                 previousScreen = AbstractDungeon.screen;
                 previousScreenUp = AbstractDungeon.isScreenUp;
@@ -243,7 +297,91 @@ public class GameStateListener {
         return stateChange;
     }
 
+    private static boolean actionManagerIsQuiescent() {
+        if (!CommandExecutor.isInDungeon() || AbstractDungeon.actionManager == null) {
+            return true;
+        }
+        GameActionManager manager = AbstractDungeon.actionManager;
+        return manager.phase == GameActionManager.Phase.WAITING_ON_USER
+                && manager.currentAction == null
+                && manager.preTurnActions.isEmpty()
+                && manager.actions.isEmpty()
+                && manager.cardQueue.isEmpty();
+    }
+
+    private static String classifyDungeonBoundary() {
+        if (!CommandExecutor.isInDungeon()
+                || AbstractDungeon.screen == AbstractDungeon.CurrentScreen.DEATH) {
+            return "terminal";
+        }
+        return actionManagerIsQuiescent() ? "quiescent" : "interaction_ready";
+    }
+
     public static boolean isWaitingForCommand() {
         return waitingForCommand;
+    }
+
+    public static int getBoundarySchema() {
+        return BOUNDARY_SCHEMA;
+    }
+
+    /** Whether the current state is an authoritative completion for one command. */
+    public static boolean hasCompletingBoundary() {
+        String kind = getBoundaryKind();
+        return kind.equals("poll")
+                || kind.equals("interaction_ready")
+                || kind.equals("quiescent")
+                || kind.equals("terminal");
+    }
+
+    public static String getBoundaryKind() {
+        return pollPending ? "poll" : boundaryKind;
+    }
+
+    /** Returns the boundary for one response and consumes an explicit poll marker. */
+    public static String consumeBoundaryKind() {
+        String result = getBoundaryKind();
+        pollPending = false;
+        return result;
+    }
+
+    public static long getGameUpdateSeq() {
+        return gameUpdateSeq;
+    }
+
+    public static long getDungeonUpdateSeq() {
+        return dungeonUpdateSeq;
+    }
+
+    public static String getCurrentActionName() {
+        if (!CommandExecutor.isInDungeon() || AbstractDungeon.actionManager == null) {
+            return null;
+        }
+        AbstractGameAction action = AbstractDungeon.actionManager.currentAction;
+        observeCurrentAction(action);
+        return action == null ? null : action.getClass().getSimpleName();
+    }
+
+    public static Long getCurrentActionInstance() {
+        return getCurrentActionName() == null ? null : currentActionInstance;
+    }
+
+    public static Long getCurrentActionUpdateCount() {
+        return getCurrentActionName() == null ? null : currentActionUpdateCount;
+    }
+
+    public static int getActionQueueSize() {
+        return CommandExecutor.isInDungeon() && AbstractDungeon.actionManager != null
+                ? AbstractDungeon.actionManager.actions.size() : 0;
+    }
+
+    public static int getCardQueueSize() {
+        return CommandExecutor.isInDungeon() && AbstractDungeon.actionManager != null
+                ? AbstractDungeon.actionManager.cardQueue.size() : 0;
+    }
+
+    public static int getPreTurnActionQueueSize() {
+        return CommandExecutor.isInDungeon() && AbstractDungeon.actionManager != null
+                ? AbstractDungeon.actionManager.preTurnActions.size() : 0;
     }
 }

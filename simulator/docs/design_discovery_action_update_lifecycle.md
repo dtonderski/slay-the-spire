@@ -10,9 +10,10 @@ For the installed Slay the Spire 1.0 target with SuperFastMode configured for
 2. The reward screen pauses the action manager. On `CHOOSE`, the resumed
    `DiscoveryAction.update()` performs exactly one discarded three-card
    generation before retrieving the selected card.
-3. Retrieval adds the selected card with its temporary zero cost. The source
-   card closes through the ordinary card-settlement/action queue, including
-   exhaust hooks such as Feel No Pain, Dead Branch, and Strange Spoon.
+3. Retrieval adds the selected card with its temporary zero cost. Deferred
+   `onUseCard` follow-ups then resolve before `UseCardAction` closes the source
+   through the ordinary card-settlement/action queue, including exhaust hooks
+   such as Feel No Pain, Dead Branch, and Strange Spoon.
 4. The action is complete at that response boundary. There is no staged
    Discovery RNG settlement, deferred cross-command generation, combat-end
    flush, or source-card state to carry into a later `PLAY` or `END` command.
@@ -43,6 +44,12 @@ CommunicationMod exposes the open reward while the action is pending and
 does not expose the post-`CHOOSE` state as ready until the action/card queues
 are empty. Therefore a simulator model that leaves Discovery pending across
 ordinary later commands is source-incompatible.
+
+`AbstractPlayer.useCard()` appends `UseCardAction` after `card.use()` and its
+`onUseCard` follow-ups. Consequently, after CHOOSE the target order is the
+discarded Discovery generation, selected-card retrieval, deferred follow-ups,
+then source settlement. For an exhausting source, Dead Branch consumes its
+card RNG from `moveToExhaustPile` only after those earlier actions.
 
 ## Historical notes superseded by this decision
 

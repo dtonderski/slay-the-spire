@@ -78,21 +78,26 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
                 .combat
                 .as_ref()
                 .ok_or(SimError::InvalidState("combat state is missing"))?;
-            let select_actions = legal_combat_select_actions_on_run(run, combat)?;
-            if !select_actions.is_empty() {
-                actions.extend(select_actions.into_iter().map(RunDecisionAction::Run));
+            if combat.phase == crate::combat::CombatPhase::Lost {
+                // CommunicationMod exposes PROCEED on the death GAME_OVER screen.
+                actions.push(RunDecisionAction::Run(RunAction::Proceed));
             } else {
+                let select_actions = legal_combat_select_actions_on_run(run, combat)?;
+                if !select_actions.is_empty() {
+                    actions.extend(select_actions.into_iter().map(RunDecisionAction::Run));
+                } else {
+                    actions.extend(
+                        legal_combat_actions(combat)?
+                            .into_iter()
+                            .map(RunDecisionAction::Combat),
+                    );
+                }
                 actions.extend(
-                    legal_combat_actions(combat)?
+                    legal_potion_actions_on_run(run)?
                         .into_iter()
-                        .map(RunDecisionAction::Combat),
+                        .map(RunDecisionAction::Run),
                 );
             }
-            actions.extend(
-                legal_potion_actions_on_run(run)?
-                    .into_iter()
-                    .map(RunDecisionAction::Run),
-            );
         }
         RunPhase::Reward => {
             actions.extend(
@@ -161,6 +166,19 @@ fn validate_run_action(run: &RunState, action: RunAction) -> SimResult<()> {
         RunAction::OpenChest => super::reward::validate_treasure_action(run, action),
         RunAction::Proceed if run.phase == RunPhase::Reward => run.validate_reward_action(action),
         RunAction::Proceed if run.phase == RunPhase::Shop => validate_shop_action(run, action),
+        RunAction::Proceed if run.phase == RunPhase::Combat => {
+            if run
+                .combat
+                .as_ref()
+                .is_some_and(|combat| combat.phase == crate::combat::CombatPhase::Lost)
+            {
+                Ok(())
+            } else {
+                Err(SimError::IllegalAction(
+                    "proceed from combat requires a lost combat",
+                ))
+            }
+        }
         RunAction::Proceed => super::reward::validate_treasure_action(run, action),
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
@@ -508,6 +526,8 @@ mod tests {
                 source_card_id,
                 selected_hand_index: None,
                 selected_hand_indices: Vec::new(),
+                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_force_exhaust: false,
             },
             pending_actions: Default::default(),
         });
@@ -556,6 +576,7 @@ mod tests {
                 source_card_id,
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
+                pending_actions: Default::default(),
             },
         });
 
@@ -649,6 +670,8 @@ mod tests {
                     source_card_id,
                     selected_hand_index: None,
                     selected_hand_indices: Vec::new(),
+                    dual_wield_restore_on_confirm: Vec::new(),
+                    dual_wield_force_exhaust: false,
                 },
                 pending_actions: Default::default(),
             });

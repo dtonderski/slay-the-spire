@@ -469,6 +469,12 @@ pub(super) fn apply_act_two_event_action(
                 enter_event_combat(next, &[&SLAVER_BLUE_A0, &SLAVER_RED_A0])?;
             }
             2 if choice_index == 0 => {
+                // COWARDICE: leave after the first fight. The first-fight end
+                // path parks combat RNG for a possible second Colosseum bout
+                // (`pending_event_combat_rng`). Discard it so a later event
+                // combat (e.g. Mind Bloom) does not inherit that shuffle stream
+                // (FIDL00438).
+                next.pending_event_combat_rng = None;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }

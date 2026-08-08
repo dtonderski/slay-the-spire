@@ -1,5 +1,10 @@
 # Simulated deck authority
 
+> **Historical and superseded.** Boundary schema v1 deleted deferred deck
+> assertions and delayed-deck projections. Every action now compares its
+> immediate same-step authoritative boundary; this document records the retired
+> design only.
+
 ## Problem
 
 The seed-start verifier keeps a `deck_ids` list alongside `RunState::deck`.

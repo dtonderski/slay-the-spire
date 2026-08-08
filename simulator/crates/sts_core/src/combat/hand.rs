@@ -135,7 +135,9 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
     Ok(())
 }
 
-fn exhaust_unplayed_ethereal_cards(state: &mut CombatState) -> SimResult<EndOfTurnHandResolution> {
+pub(crate) fn exhaust_unplayed_ethereal_cards(
+    state: &mut CombatState,
+) -> SimResult<EndOfTurnHandResolution> {
     let ethereal_ids: Vec<CardId> = state
         .piles
         .hand

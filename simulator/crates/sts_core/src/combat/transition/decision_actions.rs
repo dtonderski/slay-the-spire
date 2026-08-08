@@ -64,29 +64,74 @@ pub(super) fn await_hand_select(
         }
     }
     // Dual Wield with a single eligible attack/power: CM does not surface a
-    // HAND_SELECT frame (Havoc-forced Dual Wield with one Clash → two Clashes).
+    // HAND_SELECT frame for force-played Dual Wield (source already out of hand).
+    // Hand-played Dual Wield still opens the select even with one eligible card.
+    let mut dual_wield_restore_on_confirm = Vec::new();
+    let mut dual_wield_force_exhaust = false;
     if purpose == HandSelectPurpose::DualWieldCopy {
+        let source_started_in_hand = state
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == source_card_id);
+        // PlayTop stages Dual Wield into hand before await, so hand membership
+        // is not a reliable force-play signal. Havoc sets play_top_force_exhaust.
+        dual_wield_force_exhaust = state.play_top_force_exhaust_active || !source_started_in_hand;
+        // Park the source in limbo while the select is open so combat hand
+        // projection matches CommunicationMod (source already in cardInUse).
+        if let Some(index) = state
+            .piles
+            .hand
+            .iter()
+            .position(|card| card.id == source_card_id)
+        {
+            let source = state.piles.hand.remove(index);
+            state.piles.limbo.push(source);
+        }
+        // CommunicationMod Dual Wield hand only exposes Attack/Power candidates.
+        // Force-play multi-select: skills re-enter hand on CONFIRM (9074cf38
+        // Defend_R uuids), while statuses/curses leave every combat pile for the
+        // rest of the fight (FIDL00242 Shame).
+        let eligible_count = state
+            .piles
+            .hand
+            .iter()
+            .filter(|card| super::dual_wield_select_allows_card(card))
+            .count();
+        // Multi-select Dual Wield (force or hand-play after source is parked in
+        // limbo) drops non-Attack/Power cards from the serialized hand. Skills
+        // restore on CONFIRM (9074cf38 Defend_R); statuses stay gone (FIDL00242
+        // Shame). Note: PlayTop stages Dual Wield into hand before await, so
+        // source_started_in_hand is not a reliable force-play signal here.
+        if eligible_count > 1 {
+            let mut eligible = Vec::new();
+            for card in state.piles.hand.drain(..) {
+                if super::dual_wield_select_allows_card(&card) {
+                    eligible.push(card);
+                } else if super::dual_wield_non_eligible_restores_on_confirm(&card) {
+                    dual_wield_restore_on_confirm.push(card);
+                }
+                // else: status/curse dropped from combat piles for this fight
+            }
+            state.piles.hand = eligible;
+        }
         let eligible: Vec<usize> = state
             .piles
             .hand
             .iter()
             .enumerate()
-            .filter(|(_, card)| {
-                card.id != source_card_id && super::dual_wield_select_allows_card(card)
-            })
+            .filter(|(_, card)| super::dual_wield_select_allows_card(card))
             .map(|(index, _)| index)
             .collect();
-        if eligible.len() == 1
-            && !state
-                .piles
-                .hand
-                .iter()
-                .any(|card| card.id == source_card_id)
-        {
-            // Force-played Dual Wield (Havoc/Mayhem/etc.) has its source in
-            // limbo and the target auto-resolves a singleton choice. A
-            // hand-played Dual Wield still opens the visible select screen.
-            super::confirm_dual_wield_select(state, source_card_id, eligible[0])?;
+        if eligible.len() == 1 && !source_started_in_hand {
+            // Force-played Dual Wield already left hand (early exhaust path).
+            super::confirm_dual_wield_select(
+                state,
+                source_card_id,
+                eligible[0],
+                dual_wield_restore_on_confirm,
+                dual_wield_force_exhaust,
+            )?;
             return Ok(Vec::new());
         }
     }
@@ -96,6 +141,8 @@ pub(super) fn await_hand_select(
             source_card_id,
             selected_hand_index: None,
             selected_hand_indices: Vec::new(),
+            dual_wield_restore_on_confirm,
+            dual_wield_force_exhaust,
         },
         pending_actions: VecDeque::new(),
     });
@@ -153,6 +200,7 @@ pub(super) fn await_draw_select(
             source_card_id,
             selectable_card_ids,
             selected_draw_index: None,
+            pending_actions: Default::default(),
         },
     });
     Ok(Vec::new())
@@ -279,6 +327,7 @@ pub(super) fn await_exhaust_select(
         ExhaustSelectPurpose::BurningPactDraw2
             | ExhaustSelectPurpose::BurningPactDraw3
             | ExhaustSelectPurpose::ExhumeReturnToHand
+            | ExhaustSelectPurpose::TrueGritExhaustOne,
     ) {
         if state
             .piles
@@ -317,6 +366,7 @@ pub(super) fn await_exhaust_select(
             purpose,
             source_card_id: Some(source_card_id),
             source_card,
+            source_card_force_exhaust: state.play_top_force_exhaust_active,
             selected_hand_indices: Vec::new(),
             interrupted_by_cultist_potion: false,
             pending_actions: VecDeque::new(),
@@ -329,6 +379,12 @@ pub(super) fn open_discovery_card_reward(
     state: &mut CombatState,
     source_card_id: CardId,
 ) -> SimResult<Vec<crate::action::InternalAction>> {
+    if !matches!(
+        state.decision,
+        Some(CombatDecisionState::DiscoveryCardReward { .. })
+    ) {
+        crate::combat::card_effects::open_discovery_card_reward_for_play(state, source_card_id)?;
+    }
     let source_card = state
         .piles
         .hand
@@ -345,5 +401,12 @@ pub(super) fn open_discovery_card_reward(
         ));
     };
     *decision_source = source_card;
+    if let Some(CombatDecisionState::DiscoveryCardReward {
+        source_card_force_exhaust,
+        ..
+    }) = state.decision.as_mut()
+    {
+        *source_card_force_exhaust = state.play_top_force_exhaust_active;
+    }
     Ok(Vec::new())
 }

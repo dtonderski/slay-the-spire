@@ -5165,6 +5165,21 @@ pub fn upgrade_content_id(id: ContentId) -> Option<ContentId> {
     get_card_definition(id)?.upgrade
 }
 
+/// Maps an upgraded card content id back to its base form.
+///
+/// STS `transformCard` keys exclusion off `cardID` (shared by base and +).
+/// Our upgraded cards use distinct `ContentId`s, so transforms must normalize
+/// before excluding the source from the pool (FIDL00263 Astrolabe Thunderclap+).
+#[must_use]
+pub fn base_content_id(id: ContentId) -> ContentId {
+    for definition in &ALL_CARDS {
+        if definition.upgrade == Some(id) {
+            return definition.id;
+        }
+    }
+    id
+}
+
 pub(crate) fn required_upgrade_content_id(id: ContentId) -> SimResult<ContentId> {
     get_card_definition(id)
         .ok_or(SimError::UnknownContent(id))?

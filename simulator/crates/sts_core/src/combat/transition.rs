@@ -21,8 +21,9 @@ use crate::{
     content::cards::{
         card_instance_is_upgradeable, get_card_definition, required_upgrade_content_id,
         upgrade_card_instance, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID,
-        CLASH_PLUS_ID, DAZED_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID,
-        NORMALITY_ID, PAIN_ID, PURITY_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
+        CLASH_PLUS_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DAZED_ID, DUAL_WIELD_ID,
+        DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, NORMALITY_ID, PAIN_ID, PURITY_PLUS_ID,
+        SENTINEL_ID, SENTINEL_PLUS_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape,
@@ -148,7 +149,17 @@ fn apply_play_card(
     Ok(transition)
 }
 
-fn process_internal_queue(
+/// Public wrapper for verifier skipped-retrieval candidates that must drain
+/// ExhaustSelect `pending_actions` (Ink Bottle, Hex, etc.) after a custom
+/// CONFIRM rebuild.
+pub fn process_internal_queue_public(
+    state: &mut CombatState,
+    queue: VecDeque<InternalAction>,
+) -> SimResult<CombatTransition> {
+    process_internal_queue(state, queue)
+}
+
+pub(crate) fn process_internal_queue(
     state: &CombatState,
     mut queue: VecDeque<InternalAction>,
 ) -> SimResult<CombatTransition> {
@@ -205,7 +216,48 @@ fn process_internal_queue(
                         )
                 })
         );
-        let follow_ups = apply_internal_action(&mut next, internal_action)?;
+        // Havoc/Mayhem PlayTopCardAction removes the top card then queues the
+        // forced play with addToTop. Hex's MakeTempCardInDrawPile is addToBot
+        // after Havoc.use, so it can land after the top card is removed but
+        // before Pommel (etc.) draws — size n-1 after remove, not n-1-draws
+        // (FIDL00381). Drain trailing Hex inserts before nested card resolve.
+        let follow_ups = if let InternalAction::PlayTopDrawCard {
+            target,
+            exhaust_played_card,
+            random_living_target,
+        } = internal_action
+        {
+            let mid_hex: Vec<InternalAction> = {
+                let mut drained = Vec::new();
+                while let Some(front) = queue.front() {
+                    if matches!(
+                        front,
+                        InternalAction::AddGeneratedCardToDrawPileRandomSpot { content_id }
+                            if *content_id == DAZED_ID
+                    ) || matches!(
+                        front,
+                        InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost {
+                            content_id,
+                            ..
+                        } if *content_id == DAZED_ID
+                    ) {
+                        drained.push(queue.pop_front().expect("front exists"));
+                    } else {
+                        break;
+                    }
+                }
+                drained
+            };
+            apply_play_top_with_mid_hex(
+                &mut next,
+                target,
+                exhaust_played_card,
+                random_living_target,
+                mid_hex,
+            )?
+        } else {
+            apply_internal_action(&mut next, internal_action)?
+        };
         event_log.push(internal_action);
         for follow_up in follow_ups {
             if pain_before_reaper
@@ -272,6 +324,22 @@ fn process_internal_queue(
                     state.pending_actions.extend(queue.drain(..));
                     break;
                 }
+                Some(CombatDecisionState::DrawSelect { state }) => {
+                    // Draw-selection screens are also opened before queued
+                    // on-use follow-ups (Hex/Dazed, etc.) resolve. Keep those
+                    // actions behind the grid so CONFIRM settles the selected
+                    // card before mutating the remaining draw pile.
+                    state.pending_actions.extend(queue.drain(..));
+                    break;
+                }
+                Some(CombatDecisionState::DiscoveryCardReward {
+                    pending_actions, ..
+                }) => {
+                    // FIDL00233: Hex onUseCard Dazed must wait until Discovery
+                    // reward CHOOSE closes, not land while CARD_REWARD is open.
+                    pending_actions.extend(queue.drain(..));
+                    break;
+                }
                 _ => {}
             }
         }
@@ -310,6 +378,7 @@ fn process_internal_queue(
     }
 
     if next.time_warp_end_turn
+        && !next.defer_time_warp_end_turn
         && next.player.hp > 0
         && next.monsters.iter().any(|monster| monster.alive)
         && next.decision.is_none()
@@ -322,6 +391,7 @@ fn process_internal_queue(
         next.player.hp = 0;
         next.player.block = 0;
         next.phase = CombatPhase::Lost;
+        next.clear_decisions_on_combat_end();
     } else if next
         .monsters
         .iter()
@@ -332,6 +402,7 @@ fn process_internal_queue(
         // (13efa069: 8060+6+6 → 8072 vs real 8066).
         let already_won = next.phase == CombatPhase::Won;
         next.phase = CombatPhase::Won;
+        next.clear_decisions_on_combat_end();
         if !already_won {
             apply_burning_blood(&mut next)?;
         }
@@ -464,11 +535,26 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         // Double Tap / Echo Form card-queue copies are modeled as PlayCardCopy
         // and must stay behind Malleable/Curl Up so the copy encounters the
         // block (design_curl_up_action_order.md).
+        //
+        // Havoc PlayTop defers Malleable until after the outer skill's bot work.
+        // Letter Opener (DealUnmodifiedDamage) must resolve first (FIDL00428);
+        // without LO, keep Malleable before the outer MoveCard/UseCard settle so
+        // Dead Branch / exhaust RNG stays aligned (trace-2026-07-06 Havoc).
         if let Some(index) = queue
             .iter()
             .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
         {
             queue.insert(index, follow_up);
+            return;
+        }
+        // After Letter Opener (and similar unmodified blasts) already on the bot
+        // queue from the outer Havoc skill (FIDL00428). Otherwise push_back so
+        // Juggernaut thorns from earlier GainBlock stay ahead of Malleable.
+        if let Some(index) = queue
+            .iter()
+            .rposition(|action| matches!(action, InternalAction::DealUnmodifiedDamage { .. }))
+        {
+            queue.insert(index + 1, follow_up);
             return;
         }
         queue.push_back(follow_up);
@@ -502,6 +588,26 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         if let Some(index) = queue
             .iter()
             .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    if matches!(
+        follow_up,
+        InternalAction::AddGeneratedCardToPile {
+            to: CardPile::Hand,
+            ..
+        }
+    ) {
+        // Dead Branch onExhaust is addToBot(MakeTempCardInHand). When Havoc
+        // self-exhaust still sits ahead of its PlayTop (Corruption settle-before-
+        // PlayTop), keep the DB hand-add before that PlayTop so forced-card RNG
+        // cannot run first (FIDL00441 Dual Wield → Power Through).
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::PlayTopDrawCard { .. }))
         {
             queue.insert(index, follow_up);
             return;
@@ -803,6 +909,9 @@ fn apply_internal_action(
             player_actions::arm_the_bomb(state, turns, damage)
         }
         InternalAction::DealUnmodifiedDamage { target, amount } => {
+            if state.pending_letter_opener_blasts > 0 {
+                state.pending_letter_opener_blasts -= 1;
+            }
             deal_unmodified_damage_to_living_monster(state, target, amount)?;
             Ok(Vec::new())
         }
@@ -824,6 +933,12 @@ fn apply_internal_action(
         InternalAction::GainRitual { amount } => player_actions::gain_ritual(state, amount),
         InternalAction::GainArtifact { amount } => player_actions::gain_artifact(state, amount),
         InternalAction::UpgradeCombatCards => player_actions::upgrade_all_combat_cards(state),
+        InternalAction::UnceasingTopDraw => {
+            if state.piles.hand.is_empty() {
+                player_draw_cards(state, crate::relic::UNCEASING_TOP_DRAW)?;
+            }
+            Ok(Vec::new())
+        }
         InternalAction::CardExhausted { card_id } => {
             // Feel No Pain and Dark Embrace both queue via addToBot on exhaust
             // (after remaining card.use / onUseCard / UseCardAction settlement).
@@ -858,6 +973,8 @@ fn apply_internal_action(
             // queue so Sever Soul cannot snapshot it into exhaust targets
             // (FIDL00418 UnknownCard).
             let previous_in_use = state.card_in_use;
+            let previous_play_top_force_exhaust = state.play_top_force_exhaust_active;
+            state.play_top_force_exhaust_active = exhaust_played_card;
             let mut parked_outer_source = false;
             if let Some(outer_id) = previous_in_use {
                 if let Some(index) = state.piles.hand.iter().position(|card| card.id == outer_id) {
@@ -869,6 +986,7 @@ fn apply_internal_action(
             let actions =
                 apply_play_top_draw_card(state, target, exhaust_played_card, random_living_target)?;
             if actions.is_empty() {
+                state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
                 if parked_outer_source {
                     if let Some(outer_id) = previous_in_use {
                         if let Some(index) = state
@@ -891,8 +1009,34 @@ fn apply_internal_action(
                 if let Some(card_id) = forced_id {
                     state.card_in_use = Some(card_id);
                 }
-                let transition = process_internal_queue(state, actions.into_iter().collect())?;
+                // PlayTopCardAction addToTop's the forced card play while the
+                // outer Havoc/Mayhem UseCardAction is already on the bot queue.
+                // Nested card.use() addToBot power applications (Feel No Pain,
+                // Inflame, …) therefore land *after* that outer settlement.
+                // Resolving them inside the nested queue made FNP active before
+                // Havoc exhausted under Corruption (FIDL00253: block 4 vs 0).
+                let mut immediate = VecDeque::new();
+                let mut deferred_power_gains = Vec::new();
+                for action in actions {
+                    if is_play_top_deferred_power_gain(&action) {
+                        deferred_power_gains.push(action);
+                    } else {
+                        immediate.push_back(action);
+                    }
+                }
+                state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_add(1);
+                let transition = process_internal_queue(state, immediate)?;
                 *state = transition.state;
+                state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_sub(1);
+                // Flush nested Malleable/Curl Up after parent bot actions by
+                // returning them as PlayTop follow-ups (behind Letter Opener).
+                let nested_blocks = std::mem::take(&mut state.deferred_play_top_monster_blocks);
+                for (target, amount) in nested_blocks {
+                    deferred_power_gains.push(InternalAction::GainMonsterBlock { target, amount });
+                }
+                if state.decision.is_none() {
+                    state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
+                }
                 if parked_outer_source {
                     if let Some(outer_id) = previous_in_use {
                         if let Some(index) = state
@@ -907,7 +1051,7 @@ fn apply_internal_action(
                     }
                 }
                 state.card_in_use = previous_in_use;
-                Ok(Vec::new())
+                Ok(deferred_power_gains)
             }
         }
         InternalAction::PutHandCardOnTopOfDraw { card_id } => {
@@ -958,6 +1102,16 @@ fn apply_mummified_hand_on_power_play(
         return;
     }
 
+    // Mummified Hand's on-use hook observes the hand after a newly played
+    // Power's cost-changing effect has taken effect. In particular, playing
+    // Corruption leaves only non-Skills eligible for the relic's random pick.
+    let corruption_active = state.player.powers.corruption > 0
+        || state
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == played_card_id)
+            .is_some_and(|card| matches!(card.content_id, CORRUPTION_ID | CORRUPTION_PLUS_ID));
     let candidates = state
         .piles
         .hand
@@ -968,8 +1122,11 @@ fn apply_mummified_hand_on_power_play(
                 return None;
             }
             let definition = get_card_definition(card.content_id)?;
-            let cost_for_turn = card.temp_cost.map_or(definition.cost, |cost| cost as i8);
-            (definition.cost > 0 && cost_for_turn > 0).then_some(index)
+            let cost_for_turn = effective_card_cost(card).ok()?;
+            let corruption_zeroed = corruption_active && definition.card_type == CardType::Skill;
+            // STS MummifiedHand filters on costForTurn > 0 only (not base cost),
+            // so X-cost cards with a positive turn cost remain eligible.
+            (cost_for_turn > 0 && !corruption_zeroed).then_some(index)
         })
         .collect::<Vec<_>>();
 
@@ -1015,6 +1172,8 @@ fn apply_on_card_play_powers(
     if time_warp_triggered {
         state.time_warp_end_turn = true;
         for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
+            // Time Warp's source power applies +2 Strength and calls the early
+            // end-turn sequence; it does not grant monster block.
             checked_add_combat_value(&mut monster.powers.strength, 2)?;
         }
     }
@@ -1155,12 +1314,12 @@ fn deal_attack_damage_to_all_living(
             malleable_block,
         );
         if still_alive && hand_drill_applies {
-            apply_player_vulnerable_debuff(
+            follow_ups.extend(apply_player_vulnerable_debuff(
                 state,
                 target,
                 crate::relic::HAND_DRILL_VULNERABLE,
                 true,
-            )?;
+            )?);
         }
         total_hp_damage += hp_damage;
         check_slime_boss_split(state, target);
@@ -1207,11 +1366,28 @@ fn push_attack_block_follow_ups(
         crate::combat::turn::reroll_writhing_mass_after_attack(state, target);
     }
     if still_alive {
+        // Only delay Malleable/Curl Up when Letter Opener blasts are already on
+        // the parent queue (FIDL00428). Plain Havoc PlayTop keeps immediate
+        // Malleable so multi-hit / Dead Branch ordering stays stable.
+        let defer_monster_block =
+            state.play_top_resolving_depth > 0 && state.pending_letter_opener_blasts > 0;
         if let Some(amount) = curl_up_block {
-            follow_ups.push(InternalAction::GainMonsterBlock { target, amount });
+            if defer_monster_block {
+                state
+                    .deferred_play_top_monster_blocks
+                    .push((target, amount));
+            } else {
+                follow_ups.push(InternalAction::GainMonsterBlock { target, amount });
+            }
         }
         if let Some(amount) = malleable_block {
-            follow_ups.push(InternalAction::GainMonsterBlock { target, amount });
+            if defer_monster_block {
+                state
+                    .deferred_play_top_monster_blocks
+                    .push((target, amount));
+            } else {
+                follow_ups.push(InternalAction::GainMonsterBlock { target, amount });
+            }
         }
     }
 }
@@ -1245,13 +1421,22 @@ fn deal_unmodified_damage_to_living_monster(
     Ok(())
 }
 
+/// Combat continues after a death when another monster is alive or Awakened One
+/// is in the half-dead phase (FIDL00378 Gremlin Horn on first form kill).
+fn combat_continues_after_monster_death(state: &CombatState) -> bool {
+    state
+        .monsters
+        .iter()
+        .any(|monster| monster.alive || awakened_one_is_half_dead(monster))
+}
+
 pub(crate) fn apply_monster_death_hooks(
     state: &mut CombatState,
     monster_id: MonsterId,
 ) -> SimResult<()> {
     let mut next = state.clone();
     apply_monster_death_non_relic_hooks(&mut next, monster_id)?;
-    if next.monsters.iter().any(|monster| monster.alive) {
+    if combat_continues_after_monster_death(&next) {
         crate::relic::apply_monster_death_relics(&mut next)?;
     }
     *state = next;
@@ -1268,9 +1453,7 @@ fn queue_monster_death_hooks(
         .find(|monster| monster.id == monster_id)
         .and_then(|monster| monster.stasis_card.take());
     apply_monster_death_non_stasis_hooks(state, monster_id)?;
-    if state.monsters.iter().any(|monster| monster.alive)
-        && state.relics.contains(&Relic::GremlinHorn)
-    {
+    if combat_continues_after_monster_death(state) && state.relics.contains(&Relic::GremlinHorn) {
         state.pending_monster_death_relic_triggers = state
             .pending_monster_death_relic_triggers
             .checked_add(1)
@@ -1321,32 +1504,46 @@ fn apply_spore_cloud_on_monster_death(
         return Ok(());
     }
 
+    // Flame Barrier kill mid-monster-turn: Spore Cloud Vulnerable must survive
+    // the same cleanup tick (FIDL00227). Player-turn kills while FB is still
+    // up must not set justApplied (random-fidelity-09774f3d). Monster-turn
+    // deaths without temp thorns also leave justApplied false (permanent
+    // random-fidelity-15465 / 450f84).
     let had_no_vulnerable = state.player.powers.vulnerable == 0;
     let applied = apply_player_vulnerable(&mut state.player.powers, amount)?;
-    if state.player.temp_thorns > 0 && had_no_vulnerable && applied {
+    if applied
+        && had_no_vulnerable
+        && state.player.temp_thorns > 0
+        && state.phase == crate::combat::state::CombatPhase::MonsterTurn
+    {
         state.player.vulnerable_just_applied = true;
     }
     Ok(())
 }
 
-fn apply_sadistic_nature_after_monster_debuff(
-    state: &mut CombatState,
+/// Sadistic NaturePower.onApplyPower addToBot's DamageAction, so it must land
+/// behind same-card Malleable/Curl Up bot block (FIDL00242 Bash → Malleable then
+/// Sadistic eats the block).
+pub(super) fn sadistic_nature_follow_up_after_monster_debuff(
+    state: &CombatState,
     target: MonsterId,
     applied: bool,
-) -> SimResult<()> {
+) -> Option<InternalAction> {
     if !applied || state.player.powers.sadistic_nature <= 0 {
-        return Ok(());
+        return None;
     }
-
-    deal_unmodified_damage_to_living_monster(state, target, state.player.powers.sadistic_nature)
+    Some(InternalAction::DealUnmodifiedDamage {
+        target,
+        amount: state.player.powers.sadistic_nature,
+    })
 }
 
-fn apply_player_vulnerable_debuff(
+pub(super) fn apply_player_vulnerable_debuff(
     state: &mut CombatState,
     target: MonsterId,
     amount: i32,
     preserve_vulnerable_through_end_turn: bool,
-) -> SimResult<()> {
+) -> SimResult<Vec<InternalAction>> {
     let applies_champion_belt = state.relics.contains(&crate::Relic::ChampionBelt);
     let mut vulnerable_applied = false;
     let mut champion_belt_weak_applied = false;
@@ -1362,8 +1559,18 @@ fn apply_player_vulnerable_debuff(
         monster.powers = next_powers;
     }
 
-    apply_sadistic_nature_after_monster_debuff(state, target, vulnerable_applied)?;
-    apply_sadistic_nature_after_monster_debuff(state, target, champion_belt_weak_applied)
+    let mut follow_ups = Vec::new();
+    if let Some(action) =
+        sadistic_nature_follow_up_after_monster_debuff(state, target, vulnerable_applied)
+    {
+        follow_ups.push(action);
+    }
+    if let Some(action) =
+        sadistic_nature_follow_up_after_monster_debuff(state, target, champion_belt_weak_applied)
+    {
+        follow_ups.push(action);
+    }
+    Ok(follow_ups)
 }
 
 fn juggernaut_follow_up_for_positive_block_gain(
@@ -1470,7 +1677,7 @@ fn random_hand_card_id_except(state: &mut CombatState, excluded_card_id: CardId)
     candidates.get(index).copied()
 }
 
-fn dead_branch_card_content(state: &mut CombatState) -> Option<ContentId> {
+pub(crate) fn reserve_dead_branch_card_content(state: &mut CombatState) -> Option<ContentId> {
     if !state.relics.contains(&Relic::DeadBranch)
         || !state.monsters.iter().any(|monster| monster.alive)
     {
@@ -1486,8 +1693,9 @@ fn dead_branch_card_content(state: &mut CombatState) -> Option<ContentId> {
 }
 
 fn dead_branch_follow_up(state: &mut CombatState) -> Option<InternalAction> {
+    let content_id = reserve_dead_branch_card_content(state)?;
     Some(InternalAction::AddGeneratedCardToPile {
-        content_id: dead_branch_card_content(state)?,
+        content_id,
         to: CardPile::Hand,
         temp_cost: None,
         temp_cost_turn_only: false,
@@ -1511,6 +1719,7 @@ fn dead_branch_follow_up_before_pending_draw(state: &mut CombatState) -> Option<
 }
 
 fn dead_branch_card_pool() -> Vec<ContentId> {
+    // returnTrulyRandomCardInCombat filters HEALING-tagged cards (Feed/Reaper).
     ironclad_combat_discovery_pool().to_vec()
 }
 
@@ -1763,7 +1972,7 @@ pub(crate) fn dead_branch_card_for_end_turn(
     state: &mut CombatState,
     card_id: CardId,
 ) -> SimResult<Option<CardInstance>> {
-    dead_branch_card_content(state)
+    reserve_dead_branch_card_content(state)
         .map(|content_id| {
             let mut card = CardInstance::new(card_id, content_id);
             card.combat_only = true;
@@ -1827,6 +2036,93 @@ fn add_generated_card_to_draw_pile_random_spot(
     let index = state.rng.card_random_rng.random_int(bound) as usize;
     state.piles.draw_pile.insert(index, card);
     Ok(())
+}
+
+/// PlayTop remove + optional Hex insert (post-remove / pre-forced-card) + resolve.
+fn apply_play_top_with_mid_hex(
+    state: &mut CombatState,
+    target: Option<crate::ids::MonsterId>,
+    exhaust_played_card: bool,
+    random_living_target: bool,
+    mid_hex: Vec<InternalAction>,
+) -> SimResult<Vec<InternalAction>> {
+    let previous_in_use = state.card_in_use;
+    let previous_play_top_force_exhaust = state.play_top_force_exhaust_active;
+    state.play_top_force_exhaust_active = exhaust_played_card;
+    let mut parked_outer_source = false;
+    if let Some(outer_id) = previous_in_use {
+        if let Some(index) = state.piles.hand.iter().position(|card| card.id == outer_id) {
+            let card = state.piles.hand.remove(index);
+            state.piles.limbo.push(card);
+            parked_outer_source = true;
+        }
+    }
+    let actions =
+        apply_play_top_draw_card(state, target, exhaust_played_card, random_living_target)?;
+    // Top card is already removed. Land Havoc Hex Dazed against this size
+    // before the forced card draws (FIDL00381).
+    for hex_action in mid_hex {
+        let _ = apply_internal_action(state, hex_action)?;
+    }
+    if actions.is_empty() {
+        state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
+        if parked_outer_source {
+            if let Some(outer_id) = previous_in_use {
+                if let Some(index) = state
+                    .piles
+                    .limbo
+                    .iter()
+                    .position(|card| card.id == outer_id)
+                {
+                    let card = state.piles.limbo.remove(index);
+                    state.piles.hand.push(card);
+                }
+            }
+        }
+        return Ok(Vec::new());
+    }
+    let forced_id = actions.iter().find_map(|action| match action {
+        InternalAction::PlayCard { card_id } => Some(*card_id),
+        _ => None,
+    });
+    if let Some(card_id) = forced_id {
+        state.card_in_use = Some(card_id);
+    }
+    let mut immediate = VecDeque::new();
+    let mut deferred_power_gains = Vec::new();
+    for action in actions {
+        if is_play_top_deferred_power_gain(&action) {
+            deferred_power_gains.push(action);
+        } else {
+            immediate.push_back(action);
+        }
+    }
+    state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_add(1);
+    let transition = process_internal_queue(state, immediate)?;
+    *state = transition.state;
+    state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_sub(1);
+    let nested_blocks = std::mem::take(&mut state.deferred_play_top_monster_blocks);
+    for (target, amount) in nested_blocks {
+        deferred_power_gains.push(InternalAction::GainMonsterBlock { target, amount });
+    }
+    if state.decision.is_none() {
+        state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
+    }
+    if parked_outer_source {
+        if let Some(outer_id) = previous_in_use {
+            if let Some(index) = state
+                .piles
+                .limbo
+                .iter()
+                .position(|card| card.id == outer_id)
+            {
+                let card = state.piles.limbo.remove(index);
+                state.piles.hand.push(card);
+            }
+        }
+    }
+    state.card_in_use = previous_in_use;
+    Ok(deferred_power_gains)
 }
 
 fn apply_generated_card_metadata(state: &CombatState, card: &mut CardInstance) {
@@ -1998,6 +2294,36 @@ fn upgrade_hand_card(state: &mut CombatState, card_id: CardId) -> SimResult<()> 
     Ok(())
 }
 
+fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
+    matches!(
+        action,
+        InternalAction::GainFeelNoPain { .. }
+            | InternalAction::GainDarkEmbrace { .. }
+            | InternalAction::GainBarricade { .. }
+            | InternalAction::GainEvolve { .. }
+            | InternalAction::GainBerserk { .. }
+            | InternalAction::GainRupture { .. }
+            | InternalAction::GainJuggernaut { .. }
+            | InternalAction::GainBrutality { .. }
+            | InternalAction::GainMayhem { .. }
+            | InternalAction::GainPanache { .. }
+            | InternalAction::GainCombust { .. }
+            | InternalAction::GainDoubleTap { .. }
+            | InternalAction::GainFireBreathing { .. }
+            | InternalAction::GainCorruption { .. }
+            | InternalAction::GainSadisticNature { .. }
+            | InternalAction::GainMagnetism { .. }
+            | InternalAction::GainMetallicize { .. }
+            | InternalAction::GainStrength { .. }
+            | InternalAction::GainDexterity { .. }
+            | InternalAction::GainTempStrength { .. }
+            | InternalAction::GainIntangible { .. }
+            | InternalAction::GainRitual { .. }
+            | InternalAction::GainArtifact { .. }
+            | InternalAction::GainRage { .. }
+    )
+}
+
 fn apply_play_top_draw_card(
     state: &mut CombatState,
     target: Option<MonsterId>,
@@ -2012,6 +2338,14 @@ fn apply_play_top_draw_card(
         .then(|| random_living_monster_id(state))
         .flatten();
 
+    if random_living_target && !state.monsters.iter().any(|monster| monster.alive) {
+        // A lagged Awakened One phase can expose a post-lethal PLAY before the
+        // next END revives the boss. PlayTopCardAction still removes its top
+        // card into cardInUse, but the dead combat publishes neither a played
+        // effect nor a pile destination for that transient card.
+        let _ = state.piles.draw_pile.pop();
+        return Ok(Vec::new());
+    }
     if state.piles.draw_pile.is_empty() {
         if state.piles.discard_pile.is_empty() {
             return Ok(Vec::new());
@@ -2026,13 +2360,14 @@ fn apply_play_top_draw_card(
         .ok_or(SimError::IllegalAction("draw pile is empty"))?;
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
-    let target = target.or_else(|| {
-        if definition.target == TargetRequirement::Enemy {
-            preselected_random_target
-        } else {
-            None
-        }
-    });
+    // PlayTop may carry a use()-time getRandomMonster roll (Corruption Havoc).
+    // Only Enemy tops consume it; non-targeted tops must not keep the monster id
+    // or validate_havoc_target rejects "cannot have a target".
+    let target = if definition.target == TargetRequirement::Enemy {
+        target.or(preselected_random_target)
+    } else {
+        None
+    };
 
     let clash_is_unplayable = matches!(definition.id, CLASH_ID | CLASH_PLUS_ID)
         && state.piles.hand.iter().any(|card| {
@@ -2093,8 +2428,12 @@ fn apply_play_top_draw_card(
         return Ok(follow_ups);
     }
 
-    let (queued_state, queue) =
+    let force_exhaust_flag = state.play_top_force_exhaust_active || exhaust_played_card;
+    let (mut queued_state, queue) =
         card_effects::play_top_draw_card_queue(state, card, target, exhaust_played_card)?;
+    // play_top_draw_card_queue clones CombatState; preserve the force-exhaust
+    // marker so nested Dual Wield await can see Havoc's exhaustOnUseOnce.
+    queued_state.play_top_force_exhaust_active = force_exhaust_flag;
     *state = queued_state;
     Ok(queue.into())
 }
@@ -2124,12 +2463,19 @@ pub fn hand_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> Sim
     let hand_select = state
         .hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    // Forethought+ (and similar multi put-on-draw) drops selected cards from the
+    // CommunicationMod choice_list. CHOOSE indices are therefore among the
+    // remaining unselected hand cards only (FIDL00269: three CHOOSE 1 picks).
+    let exclude_selected = hand_select.purpose == HandSelectPurpose::ForethoughtPutAnyOnDraw;
     let selectable: Vec<usize> = state
         .piles
         .hand
         .iter()
         .enumerate()
-        .filter(|(_, card)| hand_select_allows_card(hand_select, card))
+        .filter(|(index, card)| {
+            hand_select_allows_card(hand_select, card)
+                && !(exclude_selected && hand_select.selected_hand_indices.contains(index))
+        })
         .map(|(index, _)| index)
         .collect();
     selectable
@@ -2172,6 +2518,13 @@ pub fn confirm_hand_select_with_time_warp_policy(
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    let source_settlement_after_pending = matches!(
+        hand_select.purpose,
+        HandSelectPurpose::WarcryPutOnDraw
+            | HandSelectPurpose::ThinkingAheadPutOnDraw
+            | HandSelectPurpose::ForethoughtPutOnDraw
+            | HandSelectPurpose::ForethoughtPutAnyOnDraw
+    );
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw => {
             confirm_warcry_select(
@@ -2213,10 +2566,19 @@ pub fn confirm_hand_select_with_time_warp_policy(
                 state,
                 hand_select.source_card_id,
                 required_hand_select_index(&hand_select)?,
+                hand_select.dual_wield_restore_on_confirm,
+                hand_select.dual_wield_force_exhaust,
             )?;
         }
     };
     resume_actions_after_hand_select(state, pending_actions)?;
+    // PutOnDeckAction's queued follow-ups (notably Hex's generated Dazed)
+    // resolve before UseCardAction settles the source. With Dark Embrace this
+    // preserves the source order: selected card is put on draw, deferred
+    // on-use cards are inserted, then source exhaust draws the selected card.
+    if source_settlement_after_pending {
+        move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
+    }
     state.activate_next_queued_decision_if_idle();
     if settle_time_warp {
         settle_time_warp_end_turn_if_ready(state)?;
@@ -2233,7 +2595,7 @@ pub fn settle_time_warp_end_turn_if_ready_public(state: &mut CombatState) -> Sim
 /// deferred until the select closes (process_internal_queue skips it while a
 /// decision is open). Honor it once CONFIRM leaves combat idle (15ab4cc Warcry
 /// as 12th card → forced end before the rejected PLAY / next-turn hand).
-fn settle_time_warp_end_turn_if_ready(state: &mut CombatState) -> SimResult<()> {
+pub(crate) fn settle_time_warp_end_turn_if_ready(state: &mut CombatState) -> SimResult<()> {
     if state.time_warp_end_turn
         && state.player.hp > 0
         && state.monsters.iter().any(|monster| monster.alive)
@@ -2448,6 +2810,10 @@ pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<()> {
             confirm_secret_weapon_select(state, draw_select.source_card_id, index)
         }
     }?;
+    // The source card and selected draw card settle before deferred on-use
+    // follow-ups. This matches the action queue order while keeping the draw
+    // grid itself stable until CONFIRM.
+    resume_actions_after_hand_select(state, draw_select.pending_actions)?;
     state.activate_next_queued_decision_if_idle();
     Ok(())
 }
@@ -2563,7 +2929,7 @@ fn move_selected_draw_card_to_hand_or_discard(state: &mut CombatState, index: us
 
 fn confirm_warcry_select(
     state: &mut CombatState,
-    source_card_id: CardId,
+    _source_card_id: CardId,
     index: usize,
 ) -> SimResult<()> {
     // PutOnDeckAction completes before UseCardAction exhausts Warcry. Dark
@@ -2572,7 +2938,7 @@ fn confirm_warcry_select(
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
     state.piles.draw_pile.push(card);
-    finish_warcry_source(state, source_card_id)
+    Ok(())
 }
 
 fn finish_warcry_source(state: &mut CombatState, source_card_id: CardId) -> SimResult<()> {
@@ -2581,7 +2947,7 @@ fn finish_warcry_source(state: &mut CombatState, source_card_id: CardId) -> SimR
 
 fn confirm_thinking_ahead_select(
     state: &mut CombatState,
-    source_card_id: CardId,
+    _source_card_id: CardId,
     index: usize,
 ) -> SimResult<()> {
     // Same PutOnDeck-before-exhaust ordering as Warcry: the selected card is
@@ -2589,10 +2955,10 @@ fn confirm_thinking_ahead_select(
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
     state.piles.draw_pile.push(card);
-    move_delayed_played_source_with_strange_spoon(state, source_card_id)
+    Ok(())
 }
 
-fn move_delayed_played_source_with_strange_spoon(
+pub(crate) fn move_delayed_played_source_with_strange_spoon(
     state: &mut CombatState,
     source_card_id: CardId,
 ) -> SimResult<()> {
@@ -2627,20 +2993,31 @@ fn move_delayed_played_source_with_strange_spoon(
 }
 
 pub fn close_discovery_card_reward_source(state: &mut CombatState) -> SimResult<()> {
-    let source = {
-        let Some(CombatDecisionState::DiscoveryCardReward { source_card, .. }) =
-            state.decision.as_mut()
+    let (source, force_exhaust) = {
+        let Some(CombatDecisionState::DiscoveryCardReward {
+            source_card,
+            source_card_force_exhaust,
+            ..
+        }) = state.decision.as_mut()
         else {
             return Ok(());
         };
-        source_card.take()
+        (source_card.take(), *source_card_force_exhaust)
     };
-    close_discovery_source_card(state, source)
+    close_discovery_source_card_with_force_exhaust(state, source, force_exhaust)
 }
 
 pub fn close_discovery_source_card(
     state: &mut CombatState,
     source: Option<CardInstance>,
+) -> SimResult<()> {
+    close_discovery_source_card_with_force_exhaust(state, source, false)
+}
+
+pub fn close_discovery_source_card_with_force_exhaust(
+    state: &mut CombatState,
+    source: Option<CardInstance>,
+    force_exhaust: bool,
 ) -> SimResult<()> {
     let Some(source) = source else {
         return Ok(());
@@ -2648,17 +3025,41 @@ pub fn close_discovery_source_card(
     let source_card_id = source.id;
     let definition = get_card_definition(source.content_id)
         .ok_or(SimError::UnknownContent(source.content_id))?;
-    let destination = delayed_source_card_destination(state, definition);
+    let destination = if force_exhaust {
+        forced_source_card_destination(state, definition)
+    } else {
+        delayed_source_card_destination(state, definition)
+    };
     match destination {
         CardPile::ExhaustPile => {
             state.piles.exhaust_pile.push(source);
-            apply_on_exhaust_effects(state, source_card_id)?;
+            let transition = process_internal_queue(
+                state,
+                VecDeque::from([InternalAction::CardExhausted {
+                    card_id: source_card_id,
+                }]),
+            )?;
+            *state = transition.state;
         }
         CardPile::DiscardPile => state.piles.discard_pile.push(source),
         CardPile::Hand => state.piles.hand.push(source),
         CardPile::DrawPile => state.piles.draw_pile.push(source),
     }
     Ok(())
+}
+
+fn forced_source_card_destination(
+    state: &mut CombatState,
+    definition: &crate::card::CardDefinition,
+) -> CardPile {
+    if definition.card_type == CardType::Power {
+        return CardPile::DiscardPile;
+    }
+    if state.relics.contains(&Relic::StrangeSpoon) && state.rng.card_random_rng.random_bool() {
+        CardPile::DiscardPile
+    } else {
+        CardPile::ExhaustPile
+    }
 }
 
 fn delayed_source_card_destination(
@@ -2790,6 +3191,53 @@ fn confirm_forethought_multi_select(
     move_forethought_source_card(state, source_card_id, source_definition)
 }
 
+/// Forethought+ CONFIRM when PutOnDeck skipped retrieval for every selected card
+/// (FIDL00269 step 1190: draw pile identity unchanged; selected cards leave hand
+/// but are not on draw until end-turn discard reintroduces them).
+pub fn confirm_forethought_multi_select_skipped_retrieval(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    let (hand_select, pending_actions) = state
+        .take_hand_select()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    if hand_select.purpose != HandSelectPurpose::ForethoughtPutAnyOnDraw {
+        return Err(SimError::IllegalAction(
+            "skipped Forethought+ retrieval requires ForethoughtPutAnyOnDraw",
+        ));
+    }
+    let source_card_id = hand_select.source_card_id;
+    let mut parked = Vec::with_capacity(hand_select.selected_hand_indices.len());
+    // Remove highest indices first so earlier indices stay valid.
+    let mut indices = hand_select.selected_hand_indices;
+    indices.sort_unstable();
+    indices.dedup();
+    for index in indices.into_iter().rev() {
+        if index >= state.piles.hand.len() {
+            return Err(SimError::IllegalAction("hand select index out of range"));
+        }
+        let card = state.piles.hand.remove(index);
+        if card.id == source_card_id {
+            return Err(SimError::IllegalAction("cannot choose Forethought"));
+        }
+        let mut card = card;
+        card.temp_cost = Some(0);
+        parked.push(card);
+    }
+    parked.reverse();
+    if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Err(SimError::InvalidState(
+            "pending hidden hand card already set for skipped Forethought+",
+        ));
+    }
+    state.pending_hidden_hand_card_until_end_turn = parked;
+    let source_definition = forethought_source_definition(state, source_card_id)?;
+    move_forethought_source_card(state, source_card_id, source_definition)?;
+    resume_actions_after_hand_select(state, pending_actions)?;
+    state.activate_next_queued_decision_if_idle();
+    settle_time_warp_end_turn_if_ready(state)?;
+    Ok(())
+}
+
 fn move_forethought_card_to_draw_bottom(
     state: &mut CombatState,
     source_card_id: CardId,
@@ -2829,9 +3277,22 @@ pub(super) fn confirm_dual_wield_select(
     state: &mut CombatState,
     source_card_id: CardId,
     index: usize,
+    restore_on_confirm: Vec<CardInstance>,
+    force_exhaust: bool,
 ) -> SimResult<()> {
     if index >= state.piles.hand.len() {
         return Err(SimError::IllegalAction("hand select index out of range"));
+    }
+    // await_hand_select parks Dual Wield in limbo (cardInUse). Return it to hand
+    // so delayed source settlement can exhaust/discard it after copies.
+    if let Some(limbo_index) = state
+        .piles
+        .limbo
+        .iter()
+        .position(|card| card.id == source_card_id)
+    {
+        let source = state.piles.limbo.remove(limbo_index);
+        state.piles.hand.push(source);
     }
     let source_card_in_hand = state
         .piles
@@ -2845,7 +3306,16 @@ pub(super) fn confirm_dual_wield_select(
     } else {
         1
     };
+    // Restore cards are held outside piles after take_hand_select; park them in
+    // limbo so reserve_card_instance_ids cannot reuse their IDs for copies
+    // (trace-session-8 Dual Wield + Defend/Ghostly Armor).
+    state.piles.limbo.extend(restore_on_confirm.iter().copied());
     let mut next_id = state.reserve_card_instance_ids(copy_count)?;
+    state.piles.limbo.retain(|card| {
+        !restore_on_confirm
+            .iter()
+            .any(|restore| restore.id == card.id)
+    });
     let mut selected = None;
     let mut unselected_selectable = Vec::new();
     let mut nonselectable = Vec::new();
@@ -2865,7 +3335,11 @@ pub(super) fn confirm_dual_wield_select(
         }
     }
     let selected = selected.ok_or(SimError::IllegalAction("hand select index out of range"))?;
+    // Force-play multi-select order (9074cf38): remaining attacks/powers, then
+    // skills restored from the open-screen drop, then other leftovers, then the
+    // selected card and its MakeTempCardInHand copies.
     state.piles.hand = unselected_selectable;
+    state.piles.hand.extend(restore_on_confirm);
     state.piles.hand.extend(nonselectable);
     state.piles.hand.push(selected);
     for _ in 0..copy_count {
@@ -2878,7 +3352,114 @@ pub(super) fn confirm_dual_wield_select(
     if let Some(source_card) = source_card_in_hand {
         state.piles.hand.push(source_card);
     }
-    move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+    if force_exhaust {
+        // Havoc/Mayhem/Distilled Chaos: exhaustOnUseOnce, not the card keyword.
+        if let Some(position) = state
+            .piles
+            .hand
+            .iter()
+            .position(|card| card.id == source_card_id)
+        {
+            let source = state.piles.hand.remove(position);
+            state.piles.exhaust_pile.push(source);
+            apply_on_exhaust_effects(state, source_card_id)?;
+        } else if !state
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == source_card_id)
+        {
+            return Err(SimError::UnknownCard(source_card_id));
+        }
+    } else {
+        move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+    }
+    state.play_top_force_exhaust_active = false;
+    Ok(())
+}
+
+/// DualWieldAction skipped-retrieval: no MakeTempCardInHand copies; selected card
+/// stays outside serialized piles until end-turn discard flush; Dual Wield source
+/// still exhausts (force-play / exhaust keyword) so Dark Embrace can draw.
+pub fn confirm_dual_wield_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
+    let (hand_select, pending_actions) = state
+        .take_hand_select()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    if hand_select.purpose != HandSelectPurpose::DualWieldCopy {
+        return Err(SimError::IllegalAction(
+            "skipped Dual Wield retrieval requires DualWieldCopy hand select",
+        ));
+    }
+    let index = hand_select
+        .selected_hand_index
+        .ok_or(SimError::IllegalAction(
+            "Dual Wield requires a selected card",
+        ))?;
+    if index >= state.piles.hand.len() {
+        return Err(SimError::IllegalAction("hand select index out of range"));
+    }
+    if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Err(SimError::IllegalAction(
+            "pending hidden hand card already occupied",
+        ));
+    }
+    let selected = state.piles.hand.remove(index);
+    state.pending_hidden_hand_card_until_end_turn = vec![selected];
+    // Skills dropped for the CM hand projection return even on skipped retrieval.
+    state
+        .piles
+        .hand
+        .extend(hand_select.dual_wield_restore_on_confirm);
+
+    // Restore limbo-parked source then settle.
+    if let Some(limbo_index) = state
+        .piles
+        .limbo
+        .iter()
+        .position(|card| card.id == hand_select.source_card_id)
+    {
+        let source = state.piles.limbo.remove(limbo_index);
+        state.piles.hand.push(source);
+    }
+    if hand_select.dual_wield_force_exhaust {
+        if let Some(position) = state
+            .piles
+            .hand
+            .iter()
+            .position(|card| card.id == hand_select.source_card_id)
+        {
+            let source = state.piles.hand.remove(position);
+            state.piles.exhaust_pile.push(source);
+            apply_on_exhaust_effects(state, hand_select.source_card_id)?;
+        } else if !state
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == hand_select.source_card_id)
+        {
+            return Err(SimError::UnknownCard(hand_select.source_card_id));
+        }
+    } else if state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.id == hand_select.source_card_id)
+        || state
+            .piles
+            .exhaust_pile
+            .iter()
+            .chain(state.piles.discard_pile.iter())
+            .any(|card| card.id == hand_select.source_card_id)
+    {
+        move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
+    }
+    state.play_top_force_exhaust_active = false;
+    if !pending_actions.is_empty() {
+        let transition = process_internal_queue(state, pending_actions)?;
+        *state = transition.state;
+    }
+    state.activate_next_queued_decision_if_idle();
+    settle_time_warp_end_turn_if_ready(state)?;
     Ok(())
 }
 
@@ -2886,6 +3467,13 @@ pub(super) fn dual_wield_select_allows_card(card: &CardInstance) -> bool {
     get_card_definition(card.content_id).is_some_and(|definition| {
         matches!(definition.card_type, CardType::Attack | CardType::Power)
     })
+}
+
+/// Skills hidden by force Dual Wield multi-select return on CONFIRM; statuses
+/// (including curses modeled as Status) do not (FIDL00242 Shame vs 9074cf38).
+pub(super) fn dual_wield_non_eligible_restores_on_confirm(card: &CardInstance) -> bool {
+    get_card_definition(card.content_id)
+        .is_some_and(|definition| definition.card_type == CardType::Skill)
 }
 
 pub fn open_discard_select_with_max_choices(
@@ -3041,6 +3629,7 @@ pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
             purpose: crate::combat::ExhaustSelectPurpose::Exhaust,
             source_card_id: None,
             source_card: None,
+            source_card_force_exhaust: false,
             selected_hand_indices: Vec::new(),
             interrupted_by_cultist_potion: false,
             pending_actions: VecDeque::new(),
@@ -3058,6 +3647,7 @@ pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
             purpose: crate::combat::ExhaustSelectPurpose::GamblingChip,
             source_card_id: None,
             source_card: None,
+            source_card_force_exhaust: false,
             selected_hand_indices: Vec::new(),
             interrupted_by_cultist_potion: false,
             pending_actions: VecDeque::new(),
@@ -3258,10 +3848,32 @@ fn confirm_true_grit_select(
         .position(|card| card.id == target_card_id)
         .ok_or(SimError::UnknownCard(target_card_id))?;
     let target_card = state.piles.hand.remove(target_position);
+    // ExhaustAction always moves the selection to exhaust. Force-play skipped
+    // retrieval (FIDL00253) is a separate verifier candidate that parks the
+    // selection without exhausting it when CM never retrieves.
     state.piles.exhaust_pile.push(target_card);
     apply_on_exhaust_effects(state, target_card_id)?;
 
-    if let Some(source_card_id) = source_card_id {
+    if let Some(source_card) = exhaust_select.source_card {
+        let source_id = source_card.id;
+        if exhaust_select.source_card_force_exhaust {
+            let definition = get_card_definition(source_card.content_id)
+                .ok_or(SimError::UnknownContent(source_card.content_id))?;
+            match forced_source_card_destination(state, definition) {
+                CardPile::ExhaustPile => {
+                    state.piles.exhaust_pile.push(source_card);
+                    apply_on_exhaust_effects(state, source_id)?;
+                }
+                CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
+                CardPile::Hand => state.piles.hand.push(source_card),
+                CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+            }
+        } else {
+            // Ordinary hand-played True Grit+ exhausts only the selected card;
+            // its source follows the normal UseCardAction discard settlement.
+            state.piles.discard_pile.push(source_card);
+        }
+    } else if let Some(source_card_id) = source_card_id {
         if let Some(source_position) = state
             .piles
             .hand
@@ -3269,7 +3881,21 @@ fn confirm_true_grit_select(
             .position(|card| card.id == source_card_id)
         {
             let source_card = state.piles.hand.remove(source_position);
-            state.piles.discard_pile.push(source_card);
+            if exhaust_select.source_card_force_exhaust {
+                let definition = get_card_definition(source_card.content_id)
+                    .ok_or(SimError::UnknownContent(source_card.content_id))?;
+                match forced_source_card_destination(state, definition) {
+                    CardPile::ExhaustPile => {
+                        state.piles.exhaust_pile.push(source_card);
+                        apply_on_exhaust_effects(state, source_card_id)?;
+                    }
+                    CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
+                    CardPile::Hand => state.piles.hand.push(source_card),
+                    CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+                }
+            } else {
+                state.piles.discard_pile.push(source_card);
+            }
         } else if !state
             .piles
             .exhaust_pile
@@ -3279,6 +3905,72 @@ fn confirm_true_grit_select(
             return Err(SimError::UnknownCard(source_card_id));
         }
     }
+    Ok(())
+}
+
+/// True Grit ExhaustAction skipped-retrieval (force-played True Grit+).
+///
+/// When ExhaustAction completes before CONFIRM, the selected card stays owned by
+/// the closed HandCardSelectScreen and only re-enters via end-turn DiscardAction
+/// leftover selectedCards. True Grit itself still exhausts (force-play / exhaust
+/// path) so Feel No Pain / Dead Branch fire once for the source.
+pub fn confirm_true_grit_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
+    let exhaust_select = state
+        .take_exhaust_select()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if exhaust_select.purpose != crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne {
+        return Err(SimError::IllegalAction(
+            "skipped True Grit retrieval requires TrueGritExhaustOne",
+        ));
+    }
+    let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
+    let target_index = selected.first().copied().ok_or(SimError::IllegalAction(
+        "True Grit requires a selected card",
+    ))?;
+    if target_index >= state.piles.hand.len() {
+        return Err(SimError::IllegalAction("exhaust select index out of range"));
+    }
+    if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Err(SimError::IllegalAction(
+            "pending hidden hand card already occupied",
+        ));
+    }
+    let target_card_id = state.piles.hand[target_index].id;
+    if Some(target_card_id) == exhaust_select.source_card_id {
+        return Err(SimError::IllegalAction("True Grit cannot exhaust itself"));
+    }
+    let selected_card = state.piles.hand.remove(target_index);
+    state.pending_hidden_hand_card_until_end_turn = vec![selected_card];
+
+    let mut follow_ups = exhaust_select.pending_actions;
+    if let Some(source_card) = exhaust_select.source_card {
+        let source_id = source_card.id;
+        state.piles.exhaust_pile.push(source_card);
+        // Use CardExhausted so Feel No Pain / Dark Embrace / Dead Branch all
+        // resolve as addToBot follow-ups (FIDL00253 Evolve from Dead Branch).
+        follow_ups.push_front(InternalAction::CardExhausted { card_id: source_id });
+    } else if let Some(source_card_id) = exhaust_select.source_card_id {
+        // Early-exhausted force path already settled the source.
+        if !state
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == source_card_id)
+            && state
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.id == source_card_id)
+        {
+            move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+        }
+    }
+    if !follow_ups.is_empty() {
+        let transition = process_internal_queue(state, follow_ups)?;
+        *state = transition.state;
+    }
+    state.activate_next_queued_decision_if_idle();
+    settle_time_warp_end_turn_if_ready(state)?;
     Ok(())
 }
 
@@ -3431,6 +4123,93 @@ fn confirm_purity_select(
             apply_on_exhaust_effects(state, source_card_id)?;
         }
     }
+    Ok(())
+}
+
+/// Purity ExhaustAction skipped-retrieval.
+///
+/// When ExhaustAction completes before CONFIRM retrieves `selectedCards`, only
+/// Purity itself exhausts (Feel No Pain / Dead Branch once). The chosen cards
+/// stay owned by the closed HandCardSelectScreen and re-enter discard on the
+/// next END (FIDL00405).
+pub fn confirm_purity_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
+    let exhaust_select = state
+        .take_exhaust_select()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if exhaust_select.purpose != crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 {
+        return Err(SimError::IllegalAction(
+            "skipped Purity retrieval requires PurityExhaustUpTo3",
+        ));
+    }
+    let source_card_id = exhaust_select
+        .source_card_id
+        .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
+    let cap = if let Some(source) = exhaust_select.source_card.as_ref() {
+        if source.content_id == PURITY_PLUS_ID {
+            5
+        } else {
+            3
+        }
+    } else {
+        purity_select_cap(state, source_card_id)?
+    };
+    let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
+    if selected.len() > cap {
+        return Err(purity_too_many_cards_error(cap));
+    }
+    if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Err(SimError::IllegalAction(
+            "pending hidden hand card already occupied",
+        ));
+    }
+    for index in &selected {
+        let card = state
+            .piles
+            .hand
+            .get(*index)
+            .copied()
+            .ok_or(SimError::IllegalAction("exhaust select index out of range"))?;
+        if card.id == source_card_id {
+            return Err(SimError::IllegalAction("Purity cannot select itself"));
+        }
+    }
+    let mut removal_order = selected.clone();
+    removal_order.sort_unstable();
+    let mut hidden = Vec::with_capacity(selected.len());
+    for index in removal_order.into_iter().rev() {
+        hidden.push(state.piles.hand.remove(index));
+    }
+    hidden.reverse();
+    state.pending_hidden_hand_card_until_end_turn = hidden;
+
+    let mut follow_ups = exhaust_select.pending_actions;
+    if let Some(source_card) = exhaust_select.source_card {
+        let source_destination = purity_source_destination(state);
+        let source_id = source_card.id;
+        push_card_to_pile(state, source_card, source_destination);
+        if source_destination == CardPile::ExhaustPile {
+            follow_ups.push_front(InternalAction::CardExhausted { card_id: source_id });
+        }
+    } else if state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.id == source_card_id)
+    {
+        let source_destination = purity_source_destination(state);
+        move_card(state, source_card_id, CardPile::Hand, source_destination)?;
+        if source_destination == CardPile::ExhaustPile {
+            follow_ups.push_front(InternalAction::CardExhausted {
+                card_id: source_card_id,
+            });
+        }
+    }
+    if !follow_ups.is_empty() {
+        let transition = process_internal_queue(state, follow_ups)?;
+        *state = transition.state;
+    }
+    state.activate_next_queued_decision_if_idle();
+    settle_time_warp_end_turn_if_ready(state)?;
     Ok(())
 }
 
@@ -3871,6 +4650,43 @@ mod tests {
     }
 
     #[test]
+    fn forethought_multi_choose_indexes_unselected_only() {
+        // FIDL00269: CM choice_list drops selected cards; repeated CHOOSE 1
+        // must pick three different hand cards, not toggle the same slot.
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        let ft = CardInstance::new(CardId::new(1), FORETHOUGHT_PLUS_ID);
+        let a = CardInstance::new(CardId::new(2), STRIKE_R_ID);
+        let b = CardInstance::new(CardId::new(3), DEFEND_R_ID);
+        let c = CardInstance::new(CardId::new(4), BASH_ID);
+        let d = CardInstance::new(CardId::new(5), STRIKE_R_ID);
+        state.piles.hand = vec![ft, a, b, c, d];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(6), WOUND_ID)];
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("play Forethought+");
+        assert!(next.decision.is_some());
+        let mut next = next;
+        choose_hand_select(&mut next, 1).expect("choose 1");
+        choose_hand_select(&mut next, 1).expect("choose 1 again");
+        choose_hand_select(&mut next, 1).expect("choose 1 third");
+        let selected = next
+            .hand_select()
+            .expect("select open")
+            .selected_hand_indices
+            .clone();
+        assert_eq!(selected.len(), 3, "selected={selected:?}");
+        // Hand keeps source Forethought at 0 (limbo/cardInUse may differ); selectable
+        // unselected slots are 1..4. CHOOSE 1 thrice → 2,3,4 not toggling slot 1.
+        assert_eq!(selected, vec![2, 3, 4]);
+    }
+
+    #[test]
     fn havoc_with_ink_bottle_plays_original_top_then_draws_next() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 1;
@@ -3924,6 +4740,235 @@ mod tests {
             "forced Whirlwind should deal damage"
         );
         assert_eq!(next.relic_counters.ink_bottle_cards_played, 1); // Havoc + Whirlwind
+    }
+
+    #[test]
+    fn havoc_hex_after_pommel_plus_inserts_after_remove_before_draws() {
+        // Havoc (skill) under Hex force-plays Pommel+ (draw 2). PlayTop removes
+        // Pommel first; Hex MakeTempCard (bot after Havoc.use) inserts against
+        // the post-remove pile (size 8) before Pommel's draws run (FIDL00381).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.hex = 1;
+        // Deterministic: counter 0 → monster roll then Hex insert.
+        state.rng.card_random_rng = StsRng::new(0);
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        // bottom → top; unique markers under Pommel so draws are identifiable.
+        // After Pommel removed: 8 cards. Hex inserts here. Then draw 2 from top.
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID), // bottom = index 0
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+            CardInstance::new(CardId::new(12), BASH_ID),
+            CardInstance::new(CardId::new(13), CLEAVE_ID),
+            CardInstance::new(CardId::new(14), ANGER_ID),
+            CardInstance::new(CardId::new(15), IRON_WAVE_ID),
+            CardInstance::new(CardId::new(16), BODY_SLAM_ID), // drawn 2nd
+            CardInstance::new(CardId::new(17), CLOTHESLINE_ID), // drawn 1st (top under Pommel)
+            CardInstance::new(CardId::new(18), POMMEL_STRIKE_PLUS_ID), // top
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
+        state.monsters[0].max_hp = 99;
+        state.monsters[0].hp = 99;
+
+        // Expected Hex insert index against post-remove size 8 (bound 7):
+        let mut expect_rng = StsRng::new(0);
+        let _monster = expect_rng.random_int(0); // single living target
+        let expected_index = expect_rng.random_int(7) as usize;
+        // Wrong: post-draw size 6 (bound 5):
+        let mut wrong_rng = StsRng::new(0);
+        let _ = wrong_rng.random_int(0);
+        let wrong_index = wrong_rng.random_int(5) as usize;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ under Hex with Pommel+ top");
+
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|c| c.content_id == POMMEL_STRIKE_PLUS_ID),
+            "Pommel+ must be force-played and exhausted"
+        );
+        let hand_ids: Vec<_> = next.piles.hand.iter().map(|c| c.content_id).collect();
+        assert!(
+            hand_ids.contains(&CLOTHESLINE_ID) && hand_ids.contains(&BODY_SLAM_ID),
+            "Pommel+ must draw the two cards under it, got {hand_ids:?}"
+        );
+        // 8 post-remove + Hex - 2 draws = 7
+        assert_eq!(next.piles.draw_pile.len(), 7, "post-remove Hex then draw 2");
+        let dazed_pos = next
+            .piles
+            .draw_pile
+            .iter()
+            .position(|c| c.content_id == DAZED_ID)
+            .expect("Hex Dazed in draw");
+        // If Hex inserted at expected_index and the two drawn cards were above
+        // that index, dazed_pos stays expected_index; if draws came from below
+        // the insert, position shifts. With top-of-pile draws, insert below the
+        // top two keeps dazed_pos == expected_index when expected_index < 6.
+        let mut expect_final = expected_index;
+        if expected_index >= 6 {
+            // insert among the two cards that will be drawn — Dazed may leave.
+            expect_final = dazed_pos; // accept observed when in draw zone
+        }
+        if expected_index < 6 {
+            assert_eq!(
+                dazed_pos, expected_index,
+                "Hex must insert post-remove pre-draw (index {expected_index}, wrong post-draw index {wrong_index}); pile={:?}",
+                next.piles.draw_pile.iter().map(|c| c.content_id).collect::<Vec<_>>()
+            );
+        } else {
+            let _ = expect_final;
+            assert!(
+                next.piles
+                    .draw_pile
+                    .iter()
+                    .any(|c| c.content_id == DAZED_ID)
+                    || hand_ids.contains(&DAZED_ID),
+                "Hex Dazed must exist after insert near top"
+            );
+        }
+        assert_ne!(
+            expected_index, wrong_index,
+            "test seed must distinguish post-remove vs post-draw insert bounds"
+        );
+    }
+
+    #[test]
+    fn havoc_empty_draw_dual_havoc_chain_exhausts_both() {
+        // Empty draw + discard-only-Havoc: settle source into the refill so nested
+        // force-play can chain-exhaust both (FIDL00238 step 953 block 9 / dual
+        // exhaust). Mixed discards stay PlayTop-first (Sever Soul / step 873).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.block = 3;
+        state.player.powers.feel_no_pain = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(2), HAVOC_ID)];
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
+        state.monsters[0].max_hp = 99;
+        state.monsters[0].hp = 99;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("empty-draw Havoc+ with Havoc in discard");
+
+        assert_eq!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .filter(|c| matches!(c.content_id, HAVOC_ID | HAVOC_PLUS_ID))
+                .count(),
+            2,
+            "both Havocs force-exhaust via dual-Havoc settle-first chain"
+        );
+        assert!(
+            next.piles
+                .discard_pile
+                .iter()
+                .all(|c| !matches!(c.content_id, HAVOC_ID | HAVOC_PLUS_ID)),
+            "no Havoc remains in discard"
+        );
+        assert_eq!(
+            next.player.block, 9,
+            "FNP twice: discard Havoc + source Havoc+"
+        );
+    }
+
+    #[test]
+    fn corruption_havoc_empty_draw_force_plays_enemy_top_with_use_time_target_roll() {
+        // Corruption Havoc.use always rolls getRandomMonster for PlayTop even when
+        // the draw pile is empty (top unknown until shuffle). Dropping that roll
+        // when attach-at-build fails rejects Clothesline after refill (FIDL00428).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.corruption = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(2), CLOTHESLINE_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
+        state.monsters[0].max_hp = 99;
+        state.monsters[0].hp = 99;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Corruption empty-draw Havoc force-plays enemy top");
+
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|c| c.content_id == HAVOC_ID),
+            "Corruption exhausts Havoc source"
+        );
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|c| matches!(c.content_id, CLOTHESLINE_ID | STRIKE_R_ID)),
+            "force-exhausted top card from refill"
+        );
+    }
+
+    #[test]
+    fn havoc_empty_draw_mixed_discard_play_top_first_keeps_source_out_of_reshuffle() {
+        // Mixed discard must not settle-first (FIDL00238 step 873 / Sever Soul).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.block = 0;
+        state.player.powers.feel_no_pain = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(2), SEVER_SOUL_ID),
+            CardInstance::new(CardId::new(3), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
+        state.monsters[0].max_hp = 99;
+        state.monsters[0].hp = 99;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("empty-draw Havoc with mixed discard");
+
+        assert!(
+            next.piles
+                .discard_pile
+                .iter()
+                .any(|c| c.content_id == HAVOC_ID),
+            "source Havoc settles to discard under mixed empty-draw PlayTop-first"
+        );
     }
 
     #[test]
@@ -4013,6 +5058,49 @@ mod tests {
 
         assert_eq!(next.phase, CombatPhase::Won);
         assert!(next.monsters.iter().all(|monster| !monster.alive));
+    }
+
+    #[test]
+    fn gremlin_horn_triggers_on_awakened_one_half_death() {
+        // FIDL00378: killing Awakened One form 1 still grants Horn energy+draw
+        // because combat continues into form 2.
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(
+            &crate::content::monsters::AWAKENED_ONE_A0,
+            target,
+        )];
+        state.monsters[0].hp = 5;
+        state.monsters[0].max_hp = 300;
+        state.monsters[0].mode_shift = 0;
+        state.player.energy = 3;
+        state.relics.push(Relic::GremlinHorn);
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), DEFEND_R_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Strike kills form 1");
+        assert!(!next.monsters[0].alive);
+        assert!(crate::content::monsters::awakened_one_is_half_dead(
+            &next.monsters[0]
+        ));
+        assert_eq!(
+            next.player.energy,
+            3 - 1 + 1,
+            "pay Strike, gain Horn energy"
+        );
+        assert!(
+            next.piles.hand.iter().any(|c| c.content_id == DEFEND_R_ID),
+            "Horn draws a card"
+        );
     }
 
     #[test]
@@ -4296,7 +5384,9 @@ mod tests {
         // after Transmutation exhausts (source not counted during generation).
         let mut state = CombatState::initial_fixture();
         state.player.energy = 8;
-        state.rng.card_random_rng = crate::rng::StsRng::new(1);
+        // FIDL00394 floor 44: cardRandom seed = runSeed + floor.
+        let seed = 34_961_238_619_619i64.wrapping_add(44);
+        state.rng.card_random_rng = crate::rng::StsRng::new(seed);
         state.piles.hand = vec![
             CardInstance::new(CardId::new(10), STRIKE_R_ID),
             CardInstance::new(CardId::new(11), STRIKE_R_ID),
@@ -5374,6 +6464,71 @@ mod tests {
     }
 
     #[test]
+    fn spore_cloud_player_turn_kill_does_not_set_vulnerable_just_applied() {
+        // Player-turn Fungi kill (even with Flame Barrier up) must allow the
+        // upcoming monster-turn cleanup to tick Vulnerable.
+        let fungi_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.phase = CombatPhase::WaitingForPlayer;
+        state.player.temp_thorns = 4;
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, fungi_id),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].alive = false;
+        state.monsters[0].powers.spore_cloud = 2;
+
+        apply_monster_death_hooks(&mut state, fungi_id).expect("death hooks resolve");
+
+        assert_eq!(state.player.powers.vulnerable, 2);
+        assert!(
+            !state.player.vulnerable_just_applied,
+            "player-turn Spore Cloud must not set just_applied"
+        );
+    }
+
+    #[test]
+    fn spore_cloud_monster_turn_without_temp_thorns_does_not_set_just_applied() {
+        let fungi_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.phase = CombatPhase::MonsterTurn;
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, fungi_id),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].alive = false;
+        state.monsters[0].powers.spore_cloud = 2;
+
+        apply_monster_death_hooks(&mut state, fungi_id).expect("death hooks resolve");
+
+        assert_eq!(state.player.powers.vulnerable, 2);
+        assert!(!state.player.vulnerable_just_applied);
+    }
+
+    #[test]
+    fn spore_cloud_monster_turn_flame_barrier_sets_vulnerable_just_applied() {
+        // Mid-monster-turn Flame Barrier kill must survive the same cleanup tick.
+        let fungi_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.phase = CombatPhase::MonsterTurn;
+        state.player.temp_thorns = 4;
+        state.monsters = vec![
+            monster_state(&FUNGI_BEAST_A0, fungi_id),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].alive = false;
+        state.monsters[0].powers.spore_cloud = 2;
+
+        apply_monster_death_hooks(&mut state, fungi_id).expect("death hooks resolve");
+
+        assert_eq!(state.player.powers.vulnerable, 2);
+        assert!(
+            state.player.vulnerable_just_applied,
+            "monster-turn FB Spore Cloud must set just_applied"
+        );
+    }
+
+    #[test]
     fn spore_cloud_releases_only_when_battle_is_not_ending() {
         let fungi_id = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
@@ -6202,6 +7357,149 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.content_id == PAIN_ID));
+    }
+
+    #[test]
+    fn corruption_havoc_dead_branch_before_forced_card_rng() {
+        // FIDL00441: Corruption Havoc → Sword Boomerang. Target RNG burns in
+        // Havoc.use, Havoc self-exhaust DB runs before SB hit RNG, then SB DB.
+        use crate::content::cards::{
+            ANGER_ID, BODY_SLAM_ID, DUAL_WIELD_ID, EXHUME_ID, HAVOC_ID, POWER_THROUGH_ID,
+            SWORD_BOOMERANG_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID,
+        };
+        use crate::content::monsters::monster_state_for_ascension;
+        use crate::relic::Relic;
+        let seed = 34_961_238_620_666i64.wrapping_add(41);
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::DeadBranch];
+        state.player.powers.corruption = 1;
+        state.player.energy = 3;
+        let mut ms = Vec::new();
+        for i in 0..3u64 {
+            let mut m = monster_state_for_ascension(
+                &crate::content::monsters::JAW_WORM_A0,
+                MonsterId::new(i + 1),
+                0,
+            );
+            if i != 1 {
+                m.hp = 0;
+                m.alive = false;
+            } else {
+                m.hp = 37;
+            }
+            ms.push(m);
+        }
+        state.monsters = ms;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), TRUE_GRIT_PLUS_ID),
+            CardInstance::new(CardId::new(2), EXHUME_ID),
+            CardInstance::new(CardId::new(3), HAVOC_ID),
+            CardInstance::new(CardId::new(4), TRUE_GRIT_ID),
+            CardInstance::new(CardId::new(5), TRUE_GRIT_ID),
+            CardInstance::new(CardId::new(6), HAVOC_ID),
+            CardInstance::new(CardId::new(7), ANGER_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), BODY_SLAM_ID),
+            CardInstance::new(CardId::new(11), SWORD_BOOMERANG_ID),
+        ];
+        state.rng.card_random_rng = crate::rng::StsRng::with_counter(seed, 0);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(3),
+                target: None,
+            },
+        )
+        .expect("corruption havoc");
+
+        let exhaust: Vec<_> = next
+            .piles
+            .exhaust_pile
+            .iter()
+            .map(|c| c.content_id)
+            .collect();
+        assert_eq!(
+            exhaust,
+            vec![HAVOC_ID, SWORD_BOOMERANG_ID],
+            "Havoc self-exhaust before SB force-exhaust"
+        );
+        // Two Dead Branch cards after the remaining 6 hand cards.
+        assert_eq!(next.piles.hand.len(), 8);
+        assert_eq!(next.rng.card_random_rng.counter(), 6); // T + 3 SB hits + 2 DB
+        let _ = (DUAL_WIELD_ID, POWER_THROUGH_ID);
+    }
+
+    #[test]
+    fn dual_havoc_doubt_dead_branch_probe() {
+        use crate::content::cards::{
+            DOUBT_ID, EVOLVE_PLUS_ID, FIEND_FIRE_ID, HAVOC_PLUS_ID, IRON_WAVE_PLUS_ID, STRIKE_R_ID,
+            SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID,
+        };
+        use crate::content::monsters::monster_state_for_ascension;
+        use crate::relic::Relic;
+        // FIDL00394 floor 44: dual Havoc top-play → nested Havoc exhausts after its
+        // PlayTop resolves Doubt; Dead Branch order is T,T,DB,DB → Fiend Fire, SB.
+        let seed = 34_961_238_619_619i64.wrapping_add(44);
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::DeadBranch, Relic::LetterOpener];
+        state.monsters = (0..4)
+            .map(|i| {
+                let mut m = monster_state_for_ascension(
+                    &crate::content::monsters::SPIKER_A0,
+                    MonsterId::new(i + 1),
+                    0,
+                );
+                m.hp = 40;
+                m
+            })
+            .collect();
+        state.player.energy = 3;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), EVOLVE_PLUS_ID),
+            CardInstance::new(CardId::new(2), IRON_WAVE_PLUS_ID),
+            CardInstance::new(CardId::new(3), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(4), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(5), SWORD_BOOMERANG_PLUS_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), DOUBT_ID),
+            CardInstance::new(CardId::new(12), HAVOC_PLUS_ID),
+        ];
+        state.rng.card_random_rng = crate::rng::StsRng::with_counter(seed, 0);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(3),
+                target: None,
+            },
+        )
+        .expect("play havoc");
+
+        let exhaust: Vec<_> = next
+            .piles
+            .exhaust_pile
+            .iter()
+            .map(|c| c.content_id)
+            .collect();
+        // Doubt first (nested PlayTop), then nested Havoc (UseCardAction exhaust).
+        assert_eq!(exhaust, vec![DOUBT_ID, HAVOC_PLUS_ID], "exhaust order");
+        let db: Vec<_> = next
+            .piles
+            .hand
+            .iter()
+            .skip(4)
+            .map(|c| c.content_id)
+            .collect();
+        assert_eq!(
+            db,
+            vec![FIEND_FIRE_ID, SWORD_BOOMERANG_ID],
+            "dead branch picks"
+        );
+        assert_eq!(next.rng.card_random_rng.counter(), 4);
     }
 
     #[test]
@@ -7409,6 +8707,191 @@ mod tests {
     }
 
     #[test]
+    fn havoc_dual_wield_multi_select_defers_exhaust_until_confirm_with_dark_embrace() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.player.powers.dark_embrace = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_ID),
+            CardInstance::new(CardId::new(2), HEMOKINESIS_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), JUGGERNAUT_PLUS_ID),
+            CardInstance::new(CardId::new(5), SHAME_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), BITE_ID),
+            CardInstance::new(CardId::new(11), DUAL_WIELD_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc opens Dual Wield select");
+
+        assert!(next.hand_select().is_some());
+        assert_eq!(
+            next.hand_select().map(|s| s.dual_wield_force_exhaust),
+            Some(true),
+            "Havoc PlayTop marks Dual Wield force-exhaust"
+        );
+        assert!(
+            !next
+                .piles
+                .exhaust_pile
+                .iter()
+                .any(|c| c.content_id == DUAL_WIELD_ID),
+            "Dual Wield must not exhaust before CONFIRM"
+        );
+        assert!(
+            !next.piles.hand.iter().any(|c| c.content_id == SHAME_ID),
+            "non-eligible Shame leaves the hand when Dual Wield select opens"
+        );
+        assert_eq!(next.piles.hand.len(), 3);
+
+        choose_hand_select(&mut next, 1).expect("select Bash");
+        confirm_dual_wield_select_skipped_retrieval(&mut next)
+            .expect("skipped Dual Wield retrieval");
+
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|c| c.content_id == DUAL_WIELD_ID));
+        assert!(
+            next.piles.hand.iter().any(|c| c.content_id == BITE_ID),
+            "DE draws"
+        );
+        assert!(
+            !next.piles.hand.iter().any(|c| c.content_id == BASH_ID),
+            "selected Bash stays hidden"
+        );
+        assert_eq!(next.pending_hidden_hand_card_until_end_turn.len(), 1);
+    }
+
+    #[test]
+    fn havoc_letter_opener_resolves_before_play_top_malleable_block() {
+        // FIDL00428: Havoc → Bash under Letter Opener. Bash damage, then LO 5,
+        // then Malleable block (3) so HP 33 block 3 — not LO after Malleable.
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(
+            &crate::content::monsters::WRITHING_MASS_A0,
+            target,
+        )];
+        state.monsters[0].hp = 46;
+        state.monsters[0].max_hp = 46;
+        state.monsters[0].block = 0;
+        state.monsters[0].powers.malleable = 3;
+        state.monsters[0].powers.malleable_base = 3;
+        state.player.energy = 1;
+        state.relics.push(Relic::LetterOpener);
+        state.relic_counters.letter_opener_skills_this_turn = 2; // next skill trips
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), BASH_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc plays Bash");
+        assert_eq!(next.monsters[0].hp, 33, "Bash 8 + LO 5");
+        assert_eq!(next.monsters[0].block, 3, "Malleable after LO");
+        assert_eq!(next.monsters[0].powers.malleable, 4);
+    }
+
+    #[test]
+    fn bash_malleable_block_applies_before_sadistic_nature_damage() {
+        // FIDL00242: Bash damage queues Malleable addToBot block before Sadistic
+        // Nature's addToBot damage from ApplyVulnerable, so Sadistic eats block.
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(
+            &crate::content::monsters::SNAKE_PLANT_A0,
+            target,
+        )];
+        state.monsters[0].hp = 27;
+        state.monsters[0].block = 0;
+        state.monsters[0].powers.malleable = 3;
+        state.player.energy = 2;
+        state.player.powers.sadistic_nature = 5;
+        state.player.powers.weak = 0;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BASH_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Bash resolves");
+
+        assert_eq!(next.monsters[0].powers.vulnerable, 2);
+        assert_eq!(
+            next.monsters[0].block, 0,
+            "Sadistic must consume Malleable block"
+        );
+        // Bash 8 then Malleable 3 block then Sadistic 5 => 2 hp after block => 17.
+        assert_eq!(next.monsters[0].hp, 17);
+    }
+
+    #[test]
+    fn havoc_play_top_feel_no_pain_applies_after_source_exhaust_under_corruption() {
+        // FIDL00253: PlayTop Feel No Pain+ queues ApplyPower addToBot behind the
+        // outer Havoc UseCardAction, so Corruption exhausts Havoc before FNP is
+        // active (no block from that exhaust). Dead Branch still rolls.
+        let mut state = CombatState::cultist_fixture();
+        state.player.energy = 1;
+        state.player.powers.corruption = 1;
+        state.relics.push(crate::relic::Relic::DeadBranch);
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), FEEL_NO_PAIN_PLUS_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        // Deterministic Dead Branch: reserve by running once is RNG-based; just
+        // assert FNP timing and exhaust destination.
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc → Feel No Pain+ under Corruption");
+
+        assert_eq!(
+            next.player.block, 0,
+            "FNP must not block for the Havoc exhaust that played it"
+        );
+        assert_eq!(next.player.powers.feel_no_pain, 4, "FNP+ still applies");
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == HAVOC_ID),
+            "Corruption exhausts Havoc"
+        );
+        assert!(
+            !next.piles.hand.is_empty(),
+            "Dead Branch adds a generated card after Havoc exhausts"
+        );
+    }
+
+    #[test]
     fn havoc_played_true_grit_exhausts_a_random_hand_card() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 3;
@@ -7447,6 +8930,8 @@ mod tests {
 
     #[test]
     fn havoc_played_true_grit_plus_selects_without_moving_it_from_exhaust() {
+        // FIDL00253: force-played True Grit+ stays out of exhaust until CONFIRM,
+        // then exhausts the selection and the source together.
         let mut state = CombatState::initial_fixture();
         state.player.energy = 3;
         state.piles.hand = vec![
@@ -7469,27 +8954,129 @@ mod tests {
 
         assert_eq!(next.player.block, 9);
         assert!(next.exhaust_select().is_some());
-        assert!(next
-            .piles
-            .exhaust_pile
-            .iter()
-            .any(|card| card.content_id == TRUE_GRIT_PLUS_ID));
+        assert!(
+            !next
+                .piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == TRUE_GRIT_PLUS_ID),
+            "True Grit+ must not exhaust before CONFIRM"
+        );
 
         choose_exhaust_select(&mut next, 0).expect("select Defend");
         confirm_exhaust_select(&mut next).expect("confirm forced True Grit+ selection");
 
         assert_eq!(next.piles.hand.len(), 1);
         assert_eq!(next.piles.hand[0].content_id, STRIKE_R_ID);
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == DEFEND_R_ID),
+            "force-play True Grit+ selection exhausts on CONFIRM"
+        );
         assert!(next
             .piles
             .exhaust_pile
             .iter()
-            .any(|card| card.content_id == DEFEND_R_ID));
+            .any(|card| card.content_id == TRUE_GRIT_PLUS_ID));
         assert!(!next
             .piles
             .discard_pile
             .iter()
             .any(|card| card.content_id == TRUE_GRIT_PLUS_ID));
+    }
+
+    #[test]
+    fn havoc_played_true_grit_plus_skipped_retrieval_hides_selection() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.feel_no_pain = 4;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(4), TRUE_GRIT_PLUS_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc+ plays True Grit+");
+        assert_eq!(next.player.block, 9);
+        choose_exhaust_select(&mut next, 0).expect("select Defend");
+        confirm_true_grit_select_skipped_retrieval(&mut next).expect("skipped retrieval");
+
+        assert_eq!(next.player.block, 13, "only True Grit exhaust procs FNP");
+        assert!(next
+            .pending_hidden_hand_card_until_end_turn
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == TRUE_GRIT_PLUS_ID));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
+    }
+
+    #[test]
+    fn purity_skipped_retrieval_exhausts_only_source_and_hides_selection() {
+        // FIDL00405: ExhaustAction can finish before CONFIRM retrieves
+        // selectedCards. Only Purity exhausts; selection re-enters on END.
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.feel_no_pain = 3;
+        state.player.block = 8;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), PURITY_ID),
+            CardInstance::new(CardId::new(2), BASH_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+            CardInstance::new(CardId::new(4), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Purity opens exhaust select");
+        choose_exhaust_select(&mut next, 0).expect("select Bash");
+        choose_exhaust_select(&mut next, 0).expect("select Strike");
+        confirm_purity_select_skipped_retrieval(&mut next).expect("skipped retrieval");
+
+        assert_eq!(next.player.block, 11, "only Purity exhaust procs FNP");
+        assert_eq!(next.pending_hidden_hand_card_until_end_turn.len(), 2);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == PURITY_ID));
+        assert!(!next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == BASH_ID || card.content_id == STRIKE_R_ID));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use super::{
-    apply_player_card_block_gain, apply_player_vulnerable_debuff,
-    apply_sadistic_nature_after_monster_debuff, checked_add_combat_value,
+    apply_player_card_block_gain, apply_player_vulnerable_debuff, checked_add_combat_value,
     juggernaut_follow_up_for_positive_block_gain, living_monster_mut_opt,
+    sadistic_nature_follow_up_after_monster_debuff,
 };
 use crate::{
     action::InternalAction,
@@ -76,8 +76,7 @@ pub(super) fn apply_monster_vulnerable(
     target: MonsterId,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    apply_player_vulnerable_debuff(state, target, amount, false)?;
-    Ok(Vec::new())
+    apply_player_vulnerable_debuff(state, target, amount, false)
 }
 
 pub(super) fn apply_player_vulnerable(
@@ -97,8 +96,11 @@ pub(super) fn apply_weak(
     if let Some(monster) = living_monster_mut_opt(state, target) {
         applied = apply_monster_weak(&mut monster.powers, amount)?;
     }
-    apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
-    Ok(Vec::new())
+    Ok(
+        sadistic_nature_follow_up_after_monster_debuff(state, target, applied)
+            .into_iter()
+            .collect(),
+    )
 }
 
 pub(super) fn reduce_strength(
@@ -110,8 +112,11 @@ pub(super) fn reduce_strength(
     if let Some(monster) = living_monster_mut_opt(state, target) {
         applied = reduce_monster_strength(&mut monster.powers, amount)?;
     }
-    apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
-    Ok(Vec::new())
+    Ok(
+        sadistic_nature_follow_up_after_monster_debuff(state, target, applied)
+            .into_iter()
+            .collect(),
+    )
 }
 
 pub(super) fn reduce_strength_this_turn(
@@ -126,6 +131,9 @@ pub(super) fn reduce_strength_this_turn(
             checked_add_combat_value(&mut monster.temp_strength_down, amount)?;
         }
     }
-    apply_sadistic_nature_after_monster_debuff(state, target, applied)?;
-    Ok(Vec::new())
+    Ok(
+        sadistic_nature_follow_up_after_monster_debuff(state, target, applied)
+            .into_iter()
+            .collect(),
+    )
 }

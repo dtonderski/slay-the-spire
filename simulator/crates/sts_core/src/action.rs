@@ -353,6 +353,8 @@ pub enum InternalAction {
     CardExhausted {
         card_id: CardId,
     },
+    /// Unceasing Top draws after the exhaust callback queue has settled.
+    UnceasingTopDraw,
     HandCardExhausted {
         card_id: CardId,
     },

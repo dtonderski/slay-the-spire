@@ -66,9 +66,6 @@ use crate::{
 };
 use std::collections::VecDeque;
 
-const DISCOVERY_ACTION_HIDDEN_GENERATIONS: usize = 4;
-const DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS: usize = 0;
-
 pub(super) fn play_card_queue(
     state: &CombatState,
     card_id: CardId,
@@ -341,7 +338,7 @@ pub(super) fn play_card_queue(
         }
         SECRET_WEAPON_ID | SECRET_WEAPON_PLUS_ID => secret_weapon_queue(state, card_id, definition),
         BLASPHEMY_ID | BLASPHEMY_PLUS_ID => blasphemy_queue(card_id, definition),
-        HAVOC_ID | HAVOC_PLUS_ID => havoc_queue(state, card_id, definition, target),
+        HAVOC_ID | HAVOC_PLUS_ID => havoc_queue(&mut queued_state, card_id, definition, target),
         WARCRY_ID | WARCRY_PLUS_ID => warcry_queue(state, card_id, definition),
         THINKING_AHEAD_ID | THINKING_AHEAD_PLUS_ID => {
             thinking_ahead_queue(state, card_id, definition)
@@ -481,12 +478,24 @@ pub(super) fn play_top_draw_card_queue(
             } if *card_id == card.id
         )
     });
-    let destination = top_draw_card_destination(
-        &mut queued_state,
-        definition,
-        force_exhaust,
-        shared_destination,
-    );
+    // Discovery's reward screen pauses the queue before this movement. Defer
+    // its exhaust/Spoon decision until CHOOSE, after DiscoveryAction's final
+    // discarded choice generation, while keeping an exhaust destination for
+    // the queue shape used by the source-card builder.
+    let destination = if matches!(definition.id, DISCOVERY_ID | DISCOVERY_PLUS_ID)
+        && (force_exhaust
+            || definition.keywords.exhaust
+            || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0))
+    {
+        CardPile::ExhaustPile
+    } else {
+        top_draw_card_destination(
+            &mut queued_state,
+            definition,
+            force_exhaust,
+            shared_destination,
+        )
+    };
     queue.retain(|action| !is_card_move_for(*action, card.id));
     let movement = InternalAction::MoveCard {
         card_id: card.id,
@@ -503,23 +512,36 @@ pub(super) fn play_top_draw_card_queue(
                     if *source_card_id == card.id
             )
         });
-    // Force-play (Havoc / Mayhem / Distilled Chaos) must not exhaust Exhume
-    // before its exhaust-select closes. Early exhaust queues Dark Embrace as
-    // pending_actions, so the drawn card lands on CHOOSE rather than after
-    // Exhume returns its target (6a06a48 step 561). await_exhaust_select parks
-    // the source on the decision; confirm_exhume settles exhaust + on-exhaust
-    // after the choice. Burning Pact / True Grit+ still force-exhaust early
-    // (their permanent-trace / unit coverage depends on that ordering).
-    let force_exhaust_opens_exhume_select = force_exhaust
+    // Force-play (Havoc / Mayhem / Distilled Chaos) must not exhaust Exhume or
+    // True Grit+ before its exhaust-select closes. Early exhaust queues Dark
+    // Embrace / Feel No Pain / Dead Branch as pending_actions under the open
+    // screen, desyncing FIDL00253 (True Grit+ still in play at select open;
+    // exhaust + on-exhaust settle on CONFIRM). await_exhaust_select parks the
+    // source on the decision; confirm_* settles exhaust after the choice.
+    // Burning Pact still force-exhausts early (permanent-trace coverage).
+    let force_exhaust_opens_deferred_source_select = force_exhaust
         && queue.iter().any(|action| {
             matches!(
                 action,
                 InternalAction::AwaitExhaustSelect {
                     source_card_id,
-                    purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
+                    purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand
+                        | crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
                 } if *source_card_id == card.id
+            ) || matches!(
+                action,
+                // FIDL00242: multi-eligible force-played Dual Wield settles on
+                // CONFIRM so Dark Embrace draws after the select closes. Singleton
+                // force-play still early-exhausts and auto-confirms.
+                InternalAction::AwaitHandSelect {
+                    source_card_id,
+                    purpose: crate::combat::HandSelectPurpose::DualWieldCopy,
+                } if *source_card_id == card.id
+                    && dual_wield_force_play_defers_source_settlement(state, card.id)
             )
         });
+    let discovery_reward_defers_source_settlement =
+        matches!(definition.id, DISCOVERY_ID | DISCOVERY_PLUS_ID);
     let played_index = queue
         .iter()
         .position(
@@ -528,8 +550,26 @@ pub(super) fn play_top_draw_card_queue(
         .ok_or(SimError::InvalidState(
             "top-draw card queue has no play action",
         ))?;
-    if !delayed_hand_select_moves_source && !force_exhaust_opens_exhume_select {
-        queue.insert(shared_movement_index.unwrap_or(played_index + 1), movement);
+    if !delayed_hand_select_moves_source
+        && !force_exhaust_opens_deferred_source_select
+        && !discovery_reward_defers_source_settlement
+    {
+        // Hand-play builders place MoveCard at the UseCardAction slot among *that*
+        // card's bot actions (after damage, before nothing, etc.). Nested Havoc /
+        // Mayhem are special: card.use() queues PlayTop before UseCardAction, so a
+        // force-exhausted top-played Havoc must settle only after its own PlayTop
+        // finishes. Otherwise Dead Branch rolls between the two target burns
+        // (T,DB,T,DB) instead of after both (T,T,DB,DB) — FIDL00394 dual Havoc.
+        let has_nested_play_top = queue
+            .iter()
+            .any(|action| matches!(action, InternalAction::PlayTopDrawCard { .. }));
+        if has_nested_play_top {
+            queue.push_back(movement);
+        } else if let Some(index) = shared_movement_index {
+            queue.insert(index, movement);
+        } else {
+            queue.insert(played_index + 1, movement);
+        }
     }
 
     Ok((queued_state, queue))
@@ -1795,7 +1835,10 @@ fn discovery_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    open_discovery_card_reward(state, card_id)?;
+    // Do not open the reward during queue build: Hex onUseCard follow-ups after
+    // PlayCard must still run SpendEnergy / OpenDiscovery first. Opening early
+    // parked those actions behind the reward (FIDL00233 energy/source lag).
+    let _ = state;
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -1807,26 +1850,16 @@ fn discovery_queue(
     ]))
 }
 
-#[allow(clippy::reversed_empty_ranges)]
-fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) -> SimResult<()> {
+pub(crate) fn open_discovery_card_reward_for_play(
+    state: &mut CombatState,
+    _source_card_id: CardId,
+) -> SimResult<()> {
     let next_card_id = state.reserve_card_instance_ids(3)?;
     let pool = discovery_modeled_card_pool();
-    let rng = &mut state.rng.card_random_rng;
-    let content_choices = discovery_choices_from_pool(rng, &pool);
-    // Target DiscoveryAction.generate*Choices runs at the top of every update(),
-    // before checking whether the reward screen is already open. Fast-mode actions
-    // therefore burn extra invisible choice generations after the visible choices.
-    for _ in 0..DISCOVERY_ACTION_HIDDEN_GENERATIONS {
-        let _ = discovery_choices_from_pool(rng, &pool);
-    }
-    // The live CommunicationMod/SuperFastMode verifier environment consistently advances
-    // one more card-random draw while the card reward screen settles before control
-    // returns to the next combat action. Keep this as a named generic DiscoveryAction
-    // timing draw rather than folding it into the full hidden-generation count.
-    for _ in 0..DISCOVERY_ACTION_SCREEN_SETTLE_DRAWS {
-        let _ = rng.random_int((pool.len() - 1) as i32);
-    }
-
+    let content_choices = discovery_choices_from_pool(&mut state.rng.card_random_rng, &pool);
+    // DiscoveryAction generates this visible offer during its opening update.
+    // Any discarded post-selection update belongs to CHOOSE, after the reward
+    // screen has closed and before the selected card is retrieved.
     state.decision = Some(CombatDecisionState::DiscoveryCardReward {
         choices: content_choices
             .into_iter()
@@ -1836,6 +1869,8 @@ fn open_discovery_card_reward(state: &mut CombatState, _source_card_id: CardId) 
             })
             .collect(),
         source_card: None,
+        source_card_force_exhaust: state.play_top_force_exhaust_active,
+        pending_actions: std::collections::VecDeque::new(),
     });
     Ok(())
 }
@@ -2689,8 +2724,9 @@ pub(crate) fn magnetism_generated_colorless_card(state: &mut CombatState) -> Con
 
 pub(crate) fn magnetism_modeled_colorless_pool() -> Vec<ContentId> {
     // AbstractDungeon copies colorlessCardPool into srcColorlessCardPool with
-    // CardGroup.addToBottom, which prepends each entry. The modeled pool is
-    // already the resulting source-pool order; filter out unsupported cards.
+    // CardGroup.addToBottom, which prepends each entry. Combat Magnetism rolls
+    // that source pool after HEALING-tagged Bandage Up is filtered the same way
+    // discovery generation filters it (FIDL00226 Dramatic Entrance oracles).
     colorless_discovery_pool()
         .into_iter()
         .filter(|content_id| get_card_definition(*content_id).is_some())
@@ -3011,6 +3047,9 @@ fn immolate_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
+    // Trace-backed surface: single all-enemy hit + Burn in discard. Full
+    // ImmolateAction non-Attack exhaust × damage-per-exhaust is not what
+    // CommunicationMod witnesses show (FIDL00238 step 196 keeps skills).
     let mut queue = cleave_queue(card_id, definition)?;
     let move_card = queue
         .pop_back()
@@ -3187,7 +3226,7 @@ fn transmutation_queue(
 }
 
 fn havoc_queue(
-    state: &CombatState,
+    state: &mut CombatState,
     card_id: CardId,
     definition: &CardDefinition,
     target: Option<MonsterId>,
@@ -3208,31 +3247,113 @@ fn havoc_queue(
     ]);
 
     // Havoc's source settlement is normally a discard MoveCard; Corruption
-    // rewrites that move to exhaust. Self-exhaust must finish after the forced
-    // top-card play: otherwise Dark Embrace (and similar on-exhaust draws)
-    // pulls the top card into hand before Havoc can play it.
+    // rewrites that move to exhaust.
     //
-    // Empty draw pile also forces PlayTop-first so a reshuffle cannot include
-    // Havoc before the forced card is chosen. With a non-empty draw pile and a
-    // non-exhausting source, settle first so discard-sensitive forced cards
-    // (Headbutt) can return Havoc to the draw pile. (Always-PlayTop-first
-    // broke 32 permanent traces — FIDL00410 Hex/SB needs a narrower fix.)
+    // Empty draw pile normally uses PlayTop-first so the reshuffle cannot
+    // include Havoc before the forced card is chosen. Exceptions that settle
+    // first (source enters the refill):
+    // - Headbutt preview (discard-sensitive put-on-draw)
+    // - Discard is only Havoc/Havoc+ (FIDL00238 step 953): nested force-play
+    //   must be able to chain-exhaust the settled source. Mixed discards keep
+    //   PlayTop-first (Sever Soul / FIDL00238 step 873).
     let source_exhausts = definition.keywords.exhaust
         || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0);
+    let discard_is_only_havoc = !state.piles.discard_pile.is_empty()
+        && state
+            .piles
+            .discard_pile
+            .iter()
+            .all(|card| matches!(card.content_id, HAVOC_ID | HAVOC_PLUS_ID));
+    // When an empty draw pile is refilled, a forced Headbutt can select the
+    // played Havoc from discard and put it on top of the new draw pile. Preview
+    // the Java-equivalent reshuffle with the source settled; the preview does
+    // not consume the real shuffle RNG. Dark Embrace is excluded because its
+    // exhaust-triggered draw must see the forced card before Havoc settles.
+    let empty_draw_headbutt_needs_source_in_discard = if state.piles.draw_pile.is_empty()
+        && !state.piles.discard_pile.is_empty()
+        && !source_exhausts
+        && state.player.powers.dark_embrace == 0
+    {
+        let mut preview = state.clone();
+        if let Some(index) = preview
+            .piles
+            .hand
+            .iter()
+            .position(|card| card.id == card_id)
+        {
+            let source = preview.piles.hand.remove(index);
+            preview.piles.discard_pile.push(source);
+            crate::combat::transition::player_shuffle_discard_into_draw(&mut preview)?;
+            preview
+                .piles
+                .draw_pile
+                .last()
+                .is_some_and(|card| matches!(card.content_id, HEADBUTT_ID | HEADBUTT_PLUS_ID))
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    let empty_draw_dual_havoc_needs_source_in_discard = state.piles.draw_pile.is_empty()
+        && discard_is_only_havoc
+        && !source_exhausts
+        && state.player.powers.dark_embrace == 0;
     let settle = InternalAction::MoveCard {
         card_id,
         from: CardPile::Hand,
-        to: CardPile::DiscardPile,
+        to: if source_exhausts {
+            CardPile::ExhaustPile
+        } else {
+            CardPile::DiscardPile
+        },
+    };
+    // Havoc.use constructs PlayTopCardAction(getRandomMonster(...), exhaust).
+    // Corruption burns that roll at use-time before self-exhaust / Dead Branch
+    // (FIDL00441). Empty-draw Corruption still burns before refill (FIDL00428).
+    // Non-Corruption uses PlayTop-time random_living_target (Hex mid-insert
+    // order on FIDL00428 with Letter Opener).
+    let (play_top_target, random_living_target) = if source_exhausts {
+        let rolled = target.or_else(|| {
+            let living: Vec<_> = state
+                .monsters
+                .iter()
+                .filter(|monster| monster.alive)
+                .map(|monster| monster.id)
+                .collect();
+            if living.is_empty() {
+                None
+            } else {
+                let index = state
+                    .rng
+                    .card_random_rng
+                    .random_int((living.len() - 1) as i32) as usize;
+                living.get(index).copied()
+            }
+        });
+        (rolled, false)
+    } else {
+        (target, true)
     };
     let play_top = InternalAction::PlayTopDrawCard {
-        target,
+        target: play_top_target,
         exhaust_played_card: true,
-        random_living_target: true,
+        random_living_target,
     };
-    if state.piles.draw_pile.is_empty() || source_exhausts {
+    let empty_draw_play_top_first = state.piles.draw_pile.is_empty()
+        && !empty_draw_headbutt_needs_source_in_discard
+        && !empty_draw_dual_havoc_needs_source_in_discard;
+    if empty_draw_play_top_first {
+        // Empty-draw mixed discard: choose forced card before source reshuffles in.
         queue.push_back(play_top);
         queue.push_back(settle);
+    } else if source_exhausts {
+        // Corruption/exhaust keyword: self-exhaust (and its Dead Branch) before
+        // resolving the forced top card, matching T → DB_havoc → hits → DB_top.
+        queue.push_back(settle);
+        queue.push_back(play_top);
     } else {
+        // Non-empty draw, Headbutt empty-draw preview, or dual-Havoc empty-draw.
         queue.push_back(settle);
         queue.push_back(play_top);
     }
@@ -3258,7 +3379,12 @@ fn warcry_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DrawCards {
+        // UseCardAction temporarily removes the played card from hand while
+        // DrawCardAction resolves. This matters at the 10-card hand limit:
+        // Warcry draws before its PutOnDeckAction selection opens, so the
+        // source must not consume a hand slot during that draw.
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo {
+            card_id,
             count: warcry_draw_count(definition),
         },
         InternalAction::AwaitHandSelect {
@@ -3278,7 +3404,10 @@ fn thinking_ahead_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DrawCards { count: 2 },
+        // Thinking Ahead also draws before opening its hand selection. Mirror
+        // UseCardAction's temporary cardInUse/limbo slot so a full hand can
+        // receive both drawn cards before the selection settles.
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count: 2 },
     ]);
 
     if lowest_other_hand_card(state, card_id).is_some() {
@@ -3427,6 +3556,26 @@ fn has_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> bool 
                 definition.card_type == CardType::Attack || definition.card_type == CardType::Power
             })
         })
+}
+
+fn dual_wield_force_play_defers_source_settlement(
+    state: &CombatState,
+    source_card_id: CardId,
+) -> bool {
+    // Count Attack/Power cards that would remain eligible after Dual Wield leaves
+    // the hand (force-play stages the source in hand briefly).
+    let eligible = state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != source_card_id)
+        .filter(|card| {
+            get_card_definition(card.content_id).is_some_and(|definition| {
+                matches!(definition.card_type, CardType::Attack | CardType::Power)
+            })
+        })
+        .count();
+    eligible > 1
 }
 
 fn dual_wield_queue(
@@ -4076,8 +4225,8 @@ fn master_of_strategy_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     // Draw while the played card is in limbo (not occupying a hand slot). Plain
     // DrawCards at max hand size skips every draw, then exhausts the source and
-    // leaves the hand one short (permanent_traces random-fidelity-809d00fe
-    // PLAY 10 after Master of Strategy under Runic Pyramid).
+    // leaves the hand one short (archived schema-v0 witness
+    // random-fidelity-809d00fe, PLAY 10 after Master of Strategy under Runic Pyramid).
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {

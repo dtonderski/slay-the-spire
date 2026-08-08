@@ -30,6 +30,15 @@ public class ExternalRngCaptureTest {
             assert state.get("state0").equals("0123456789abcdef");
             assert state.get("state1").equals("fedcba9876543210");
             assert ExternalRngCapture.drainPending().isEmpty();
+
+            GameStateListener.resetStateVariables();
+            assert !GameStateListener.hasCompletingBoundary();
+            GameStateListener.registerCommandExecution();
+            assert !GameStateListener.hasCompletingBoundary();
+            GameStateListener.registerStatePoll();
+            assert GameStateListener.hasCompletingBoundary();
+            assert GameStateListener.consumeBoundaryKind().equals("poll");
+            assert !GameStateListener.hasCompletingBoundary();
         } finally {
             MathUtils.random = original;
             ExternalRngCapture.clearPending();

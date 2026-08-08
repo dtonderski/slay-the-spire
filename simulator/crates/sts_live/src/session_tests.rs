@@ -164,7 +164,7 @@ fn stale_action_can_be_rebound_only_to_the_same_refreshed_live_action() {
 }
 
 #[test]
-fn active_trace_can_be_snapshotted_to_permanent_corpus_without_overwrite() {
+fn active_non_v1_trace_cannot_enter_permanent_corpus() {
     let root = temp_dir("permanent-corpus-source");
     let permanent_root = temp_dir("permanent-corpus-destination");
     let mut store = fake_store(&root);
@@ -180,22 +180,11 @@ fn active_trace_can_be_snapshotted_to_permanent_corpus_without_overwrite() {
         )
         .unwrap();
 
-    let destination = store
-        .copy_trace_to_permanent_corpus(&snapshot.session_id, &permanent_root)
-        .unwrap();
-
-    assert_eq!(destination.file_name().unwrap(), "trace-session-1.jsonl");
-    assert_eq!(
-        fs::read_to_string(&destination).unwrap(),
-        fs::read_to_string(&snapshot.trace_path).unwrap()
-    );
-    assert!(std::path::Path::new(&snapshot.trace_path).exists());
-    assert_eq!(
-        store
-            .copy_trace_to_permanent_corpus(&snapshot.session_id, &permanent_root)
-            .unwrap(),
-        destination
-    );
+    let error = store
+        .copy_verified_trace_to_permanent_corpus(&snapshot.session_id, &permanent_root)
+        .expect_err("non-v1 active trace must not be promoted");
+    assert!(error.to_string().contains("schema-v1 trace"));
+    assert!(!permanent_root.join("trace-session-1.jsonl").exists());
 
     fs::remove_dir_all(root).ok();
     fs::remove_dir_all(permanent_root).ok();

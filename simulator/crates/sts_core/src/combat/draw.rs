@@ -228,9 +228,13 @@ pub(crate) fn apply_fire_breathing_damage(state: &mut CombatState) -> SimResult<
         .filter(|monster| monster.alive)
         .map(|monster| monster.id)
         .collect::<Vec<MonsterId>>();
+    let hand_drill = state.relics.contains(&Relic::HandDrill);
 
     for target in targets {
-        let still_alive = {
+        // FireBreathingPower queues DamageAllEnemiesAction (NORMAL damage):
+        // block is consumed, and Hand Drill applies when a hit breaks block
+        // (FIDL00367 Deca Square → draw Status → FB clears leftover block).
+        let (still_alive, broke_block) = {
             let Some(monster) = state
                 .monsters
                 .iter_mut()
@@ -238,10 +242,31 @@ pub(crate) fn apply_fire_breathing_damage(state: &mut CombatState) -> SimResult<
             else {
                 continue;
             };
+            let block_before = monster.block;
             let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
+            let blocked = block_before - monster.block;
+            let broke_block = block_before > 0 && blocked == block_before;
             wake_lagavulin_on_damage(monster, hp_damage);
-            monster.alive
+            (monster.alive, broke_block)
         };
+        if still_alive && hand_drill && broke_block {
+            if let Some(monster) = state
+                .monsters
+                .iter_mut()
+                .find(|monster| monster.id == target && monster.alive)
+            {
+                let mut powers = monster.powers;
+                crate::relic::apply_monster_vulnerable_with_relics(
+                    &mut powers,
+                    &state.relics,
+                    crate::relic::HAND_DRILL_VULNERABLE,
+                )?;
+                // Hand Drill's Vulnerable is applied mid-turn from a bot action;
+                // it must survive the current end-of-round decay (justApplied).
+                monster.vulnerable_just_applied = true;
+                monster.powers = powers;
+            }
+        }
         check_slime_boss_split(state, target);
         if !still_alive {
             crate::combat::transition::apply_monster_death_hooks(state, target)?;
@@ -321,4 +346,35 @@ pub(crate) fn deep_breath_shuffle_discard_into_draw_with_combat_rng(
     let draw_shuffle_seed = state.rng.shuffle_rng.random_long();
     JavaRng::new(draw_shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
     crate::relic::apply_shuffle_relics(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::content::monsters::{monster_state, DECA_A0, DONU_A0};
+    use crate::ids::MonsterId;
+
+    #[test]
+    fn fire_breathing_breaking_block_applies_hand_drill_vulnerable() {
+        // FIDL00367: Deca Square block + draw Status Fire Breathing + Hand Drill.
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::HandDrill);
+        state.player.powers.fire_breathing = 6;
+        state.monsters = vec![
+            monster_state(&DECA_A0, MonsterId::new(1)),
+            monster_state(&DONU_A0, MonsterId::new(2)),
+        ];
+        for monster in &mut state.monsters {
+            monster.block = 4;
+            monster.hp = 50;
+            monster.max_hp = 50;
+        }
+        apply_fire_breathing_damage(&mut state).expect("FB");
+        for monster in &state.monsters {
+            assert_eq!(monster.block, 0);
+            assert_eq!(monster.hp, 48);
+            assert_eq!(monster.powers.vulnerable, 2);
+            assert!(monster.vulnerable_just_applied);
+        }
+    }
 }

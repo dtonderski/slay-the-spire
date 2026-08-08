@@ -34,7 +34,7 @@ use crate::{
         TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
         WING_BOOTS_CHARGES,
     },
-    rng::{rng_counter_is_supported, ExternalRngInput, JavaRng, StsRng},
+    rng::{rng_counter_is_supported, ExternalRngInput, JavaRng, RngTraceStream, StsRng},
     SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
@@ -928,6 +928,11 @@ pub struct RunState {
     pub shuffle_rng_seed: u64,
     #[serde(default)]
     pub shuffle_rng_counter: u32,
+    /// Live target `AbstractDungeon.colorlessCardPool` order. Empty means the
+    /// canonical CardLibrary-derived order has not been materialized yet;
+    /// `returnColorlessCard` initializes and mutates this in place.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub colorless_card_pool: Vec<ContentId>,
     #[serde(default)]
     pub relic_pools: Option<RelicPoolState>,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
@@ -2223,7 +2228,18 @@ impl RunState {
     #[must_use]
     pub fn rng_for_stream(&self, stream: RunRngStream) -> StsRng {
         let state = self.rng_stream_state(stream);
-        StsRng::with_counter(state.seed as i64, state.counter)
+        let trace_stream = match stream {
+            RunRngStream::CardReward => RngTraceStream::CardReward,
+            RunRngStream::CardRandom => RngTraceStream::CardRandom,
+            RunRngStream::Event => RngTraceStream::Event,
+            RunRngStream::Merchant => RngTraceStream::Merchant,
+            RunRngStream::Misc => RngTraceStream::Misc,
+            RunRngStream::Potion => RngTraceStream::Potion,
+            RunRngStream::Relic => RngTraceStream::Relic,
+            RunRngStream::Shuffle => RngTraceStream::Shuffle,
+            RunRngStream::Treasure => RngTraceStream::Treasure,
+        };
+        StsRng::with_counter_for_stream(state.seed as i64, state.counter, trace_stream)
     }
 
     pub fn store_rng_counter(&mut self, stream: RunRngStream, rng: &StsRng) {
@@ -2469,6 +2485,7 @@ impl RunState {
             relic_rng_counter: 0,
             shuffle_rng_seed: 0,
             shuffle_rng_counter: 0,
+            colorless_card_pool: Vec::new(),
             relic_pools: None,
             omamori_charges_used: 0,
             maw_bank_broken: false,
@@ -2572,6 +2589,7 @@ impl RunState {
             relic_rng_counter: 0,
             shuffle_rng_seed: 0,
             shuffle_rng_counter: 0,
+            colorless_card_pool: Vec::new(),
             relic_pools: None,
             omamori_charges_used: 0,
             maw_bank_broken: false,
@@ -2720,14 +2738,26 @@ impl RunState {
 
     pub fn ensure_ironclad_relic_pools(&mut self) {
         if self.relic_pools.is_none() {
-            let mut rng = StsRng::with_counter(self.relic_rng_seed as i64, self.relic_rng_counter);
-            self.relic_pools = Some(initialize_ironclad_relic_pools(&mut rng));
-            self.relic_rng_counter = rng.counter();
-            let owned_keys: Vec<_> = self.relics.iter().map(|relic| relic.key()).collect();
-            if let Some(pools) = self.relic_pools.as_mut() {
-                for key in owned_keys {
-                    pools.remove_relic(key);
-                }
+            self.reinitialize_ironclad_relic_pools_for_new_act();
+        }
+    }
+
+    /// Target `AbstractDungeon.initializeRelicList` runs at every act/dungeon
+    /// setup: clear pools, repopulate, shuffle each tier with a fresh
+    /// `relicRng.randomLong()`, then strip currently owned relics
+    /// (`relicsToRemoveOnStart` when `floorNum >= 1`).
+    pub fn reinitialize_ironclad_relic_pools_for_new_act(&mut self) {
+        let mut rng = StsRng::with_counter_for_stream(
+            self.relic_rng_seed as i64,
+            self.relic_rng_counter,
+            RngTraceStream::Relic,
+        );
+        self.relic_pools = Some(initialize_ironclad_relic_pools(&mut rng));
+        self.relic_rng_counter = rng.counter();
+        let owned_keys: Vec<_> = self.relics.iter().map(|relic| relic.key()).collect();
+        if let Some(pools) = self.relic_pools.as_mut() {
+            for key in owned_keys {
+                pools.remove_relic(key);
             }
         }
     }
@@ -2813,14 +2843,32 @@ impl RunState {
         Ok(())
     }
 
+    /// Add a reward-screen card instance that was already finalized at generation
+    /// (natural upgrade rolls + egg preview). Do not re-apply obtain eggs.
+    pub fn add_finalized_reward_deck_card(&mut self, card: CardInstance) -> SimResult<()> {
+        let mut next = self.clone();
+        next.add_deck_card_inner_with_options(card, true, false)?;
+        *self = next;
+        Ok(())
+    }
+
     fn add_deck_card_inner(&mut self, card: CardInstance) -> SimResult<()> {
-        self.add_deck_card_inner_with_omamori(card, true)
+        self.add_deck_card_inner_with_options(card, true, true)
     }
 
     fn add_deck_card_inner_with_omamori(
         &mut self,
+        card: CardInstance,
+        apply_omamori: bool,
+    ) -> SimResult<()> {
+        self.add_deck_card_inner_with_options(card, apply_omamori, true)
+    }
+
+    fn add_deck_card_inner_with_options(
+        &mut self,
         mut card: CardInstance,
         apply_omamori: bool,
+        apply_obtain_eggs: bool,
     ) -> SimResult<()> {
         validate_run_card_content(&card)?;
         if self.deck.iter().any(|existing| existing.id == card.id) {
@@ -2835,7 +2883,9 @@ impl RunState {
                 .ok_or(SimError::InvalidState("Omamori charge usage overflows u32"))?;
             return Ok(());
         }
-        card = self.card_after_card_add_relics(card)?;
+        if apply_obtain_eggs {
+            card = self.card_after_card_add_relics(card)?;
+        }
         let content_id = card.content_id;
         self.deck.push(card);
         self.apply_card_added_relics(content_id)
@@ -3639,8 +3689,23 @@ impl RunState {
             RunAction::Proceed => {
                 let final_boss_victory =
                     self.current_act == 3 && self.current_room_kind() == Some(RoomKind::Boss);
+                // Ordinary map combat/elite rewards use continuation=None. CommunicationMod
+                // leaves via PROCEED, which abandons any still-unclaimed reward items
+                // (for example an unpicked potion) and returns to the map. Act 1/2 boss
+                // combat rewards likewise leave via PROCEED into the boss chest room.
+                let map_or_boss_combat_reward = reward.continuation == RewardContinuation::None
+                    && matches!(
+                        self.current_room_kind(),
+                        Some(RoomKind::Combat)
+                            | Some(RoomKind::Elite)
+                            | Some(RoomKind::Boss)
+                            // Event-room fights (e.g. Masked Bandits) also leave the
+                            // empty combat-reward screen via CommunicationMod PROCEED.
+                            | Some(RoomKind::Event),
+                    );
                 if final_boss_victory
                     || reward.continuation == RewardContinuation::Neow
+                    || map_or_boss_combat_reward
                     || (reward.continuation != RewardContinuation::None
                         && super::reward::reward_is_empty(reward))
                 {

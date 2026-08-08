@@ -545,6 +545,9 @@ pub(super) fn apply_special_event_action(
                 });
             }
             1 if choice_index == 0 => {
+                // ShowCardAndObtainEffect from a prior Success settles on the next
+                // update before this option's HP/reward apply.
+                next.flush_pending_obtain_cards()?;
                 let mut costs = knowing_skull_costs(screen.event_data);
                 lose_event_hp(next, costs.potion);
                 costs.potion += 1;
@@ -558,6 +561,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             1 if choice_index == 1 => {
+                next.flush_pending_obtain_cards()?;
                 let mut costs = knowing_skull_costs(screen.event_data);
                 lose_event_hp(next, costs.gold);
                 costs.gold += 1;
@@ -571,6 +575,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             1 if choice_index == 2 => {
+                next.flush_pending_obtain_cards()?;
                 let mut costs = knowing_skull_costs(screen.event_data);
                 lose_event_hp(next, costs.card);
                 costs.card += 1;
@@ -584,6 +589,8 @@ pub(super) fn apply_special_event_action(
                 });
             }
             1 if choice_index == 3 => {
+                // Do not flush pending Success cards here: CM's stage-2 Leave
+                // frame can still show the pre-obtain deck (FIDL00445).
                 let costs = knowing_skull_costs(screen.event_data);
                 lose_event_hp(next, costs.leave);
                 next.event = Some(EventScreen {
@@ -594,6 +601,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             2 if choice_index == 0 => {
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }

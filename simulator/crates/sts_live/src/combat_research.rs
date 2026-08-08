@@ -414,6 +414,7 @@ fn default_metadata() -> TraceMetadata {
     TraceMetadata {
         schema: 1,
         source: "communication_mod".to_owned(),
+        boundary_schema: None,
         client: None,
         mode: None,
         started_at: None,

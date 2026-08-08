@@ -152,6 +152,7 @@ fn minimized_metadata(original: Option<&TraceMetadata>, failure_step: u32) -> Tr
     let mut metadata = original.cloned().unwrap_or(TraceMetadata {
         schema: 1,
         source: "communication_mod".to_owned(),
+        boundary_schema: None,
         client: None,
         mode: None,
         started_at: None,
@@ -220,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn passing_seed_start_trace_has_no_minimize_target() {
+    fn schema_v0_trace_is_rejected_instead_of_minimized() {
         let deck = [
             "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R",
             "Defend_R", "Defend_R", "Bash",
@@ -272,8 +273,10 @@ mod tests {
             .map(|line| line.to_string())
             .collect::<Vec<_>>()
             .join("\n");
-        let err = minimize_communication_mod_trace(&content).expect_err("passing trace");
-        assert_eq!(err, MinimizeError::NoFailure);
+        let err = minimize_communication_mod_trace(&content).expect_err("v0 is unsupported");
+        assert!(
+            matches!(err, MinimizeError::Parse(reason) if reason.contains("boundary_schema=1"))
+        );
     }
 
     #[test]

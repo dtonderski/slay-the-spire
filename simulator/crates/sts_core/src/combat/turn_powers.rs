@@ -18,12 +18,22 @@ pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()>
     Ok(())
 }
 
-pub(crate) fn apply_end_of_player_turn_powers_before_hand(
-    state: &mut CombatState,
-) -> SimResult<()> {
+pub fn apply_end_of_player_turn_powers_before_hand(state: &mut CombatState) -> SimResult<()> {
     apply_player_end_of_turn_powers_for_combat_state(state, false)?;
     if state.player.hp <= 0 {
         return Ok(());
+    }
+    // When Combust will run, Constricted resolves first (power-list order:
+    // older Constricted before later Combust). Orichalcum block is already on
+    // the player, so Constricted THORNS can consume it before Combust LoseHP
+    // and the lethal all-enemy hit (FIDL00440: +6 block, Constricted 10, two
+    // Combust stacks → −6 HP). Without Combust, Constricted stays after hand
+    // so Metallicize can absorb Decay (FIDL00415).
+    if state.player.powers.combust > 0 {
+        apply_end_of_turn_constricted(state)?;
+        if state.player.hp <= 0 {
+            return Ok(());
+        }
     }
     apply_end_of_turn_combust(state)?;
     if state.player.hp <= 0 {
@@ -31,6 +41,15 @@ pub(crate) fn apply_end_of_player_turn_powers_before_hand(
     }
     apply_end_of_turn_bomb_timers(state)?;
     Ok(())
+}
+
+/// Whether Constricted already ran in the pre-hand Combust window this end-turn.
+#[must_use]
+pub(crate) fn constricted_resolved_before_hand_with_combust(state: &CombatState) -> bool {
+    // After before_hand, combust stacks are unchanged; the flag is "had combust
+    // when before_hand ran". Callers invoke this after before_hand with the
+    // same combust > 0 check used inside before_hand.
+    state.player.powers.combust > 0
 }
 
 pub(crate) fn apply_end_of_player_turn_regeneration(state: &mut CombatState) -> SimResult<()> {
@@ -152,7 +171,14 @@ fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
 }
 
 fn deal_combust_damage_to_living_monsters(state: &mut CombatState) -> SimResult<()> {
-    deal_unmodified_damage_to_living_monsters(state, state.player.powers.combust_damage)
+    // Combust is end-of-turn player power damage before the enemy phase. A form-1
+    // Awakened One first-kill here still receives REBIRTH on that same enemy
+    // phase (permanent FIDL00368 / FIDL00395). Do not set defer_awakened_one_rebirth:
+    // deferring matches open FIDL00391's half-dead player turn but breaks those
+    // permanents' same-END Dark Echo. Mid-turn kills (FIDL00378) already rebirth
+    // on the next END without a flag.
+    deal_unmodified_damage_to_living_monsters(state, state.player.powers.combust_damage)?;
+    Ok(())
 }
 
 fn apply_end_of_turn_bomb_timers(state: &mut CombatState) -> SimResult<()> {

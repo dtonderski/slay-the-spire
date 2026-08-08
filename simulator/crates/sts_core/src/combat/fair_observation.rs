@@ -1486,6 +1486,7 @@ mod tests {
                 source_card_id: CardId::new(777),
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
+                pending_actions: Default::default(),
             },
         });
         let mut right = left.clone();
@@ -1523,6 +1524,7 @@ mod tests {
                 source_card_id: CardId::new(777),
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: Some(0),
+                pending_actions: Default::default(),
             },
         });
 
@@ -1560,6 +1562,7 @@ mod tests {
                 purpose: ExhaustSelectPurpose::PurityExhaustUpTo3,
                 source_card_id: None,
                 source_card: None,
+                source_card_force_exhaust: false,
                 selected_hand_indices: Vec::new(),
                 interrupted_by_cultist_potion: false,
                 pending_actions: Default::default(),
@@ -1588,6 +1591,8 @@ mod tests {
                 source_card_id: CardId::new(201),
                 selected_hand_index: None,
                 selected_hand_indices: Vec::new(),
+                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_force_exhaust: false,
             },
             pending_actions: Default::default(),
         });

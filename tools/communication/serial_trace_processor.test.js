@@ -35,7 +35,7 @@ assert.strictEqual(summarizeVerification(failed).boundary.path, "$.actions[step=
 
 assert.deepStrictEqual(parseArgs(["--max-traces", "2", "--no-repair"]), {
   traceRoot: require("path").resolve(__dirname, "..", "..", "random_traces_loop"),
-  verifier: require("path").resolve(__dirname, "..", "..", "simulator", "target", "debug", "sts_verify"),
+  verifier: require("path").resolve(__dirname, "..", "..", "simulator", "target", "release", "sts_verify"),
   maxTraces: 2,
   maxRepairAttempts: Infinity,
   repairAgents: 3,
@@ -46,7 +46,7 @@ assert.deepStrictEqual(parseArgs(["--max-traces", "2", "--no-repair"]), {
 
 assert.deepStrictEqual(parseArgs(["--repair-agents", "3", "--max-repair-attempts", "2", "--skip-blocked"]), {
   traceRoot: require("path").resolve(__dirname, "..", "..", "random_traces_loop"),
-  verifier: require("path").resolve(__dirname, "..", "..", "simulator", "target", "debug", "sts_verify"),
+  verifier: require("path").resolve(__dirname, "..", "..", "simulator", "target", "release", "sts_verify"),
   maxTraces: null,
   maxRepairAttempts: 2,
   repairAgents: 3,

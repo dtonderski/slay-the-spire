@@ -9,7 +9,7 @@ const { spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..", "..");
 const defaultTraceRoot = path.join(root, "random_traces_loop");
-const defaultVerifier = path.join(root, "simulator", "target", "debug", "sts_verify");
+const defaultVerifier = path.join(root, "simulator", "target", "release", "sts_verify");
 
 function parseArgs(argv) {
   const options = {

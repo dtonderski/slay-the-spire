@@ -30,10 +30,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use sts_verify::{
-    import_communication_mod_trace, serialize_communication_mod_trace,
-    verify_seed_start_communication_mod_trace, TraceLine, TraceMetadata,
-};
+use sts_verify::verify_communication_mod_trace_reader;
 
 // CommunicationMod advances queued game actions as it services state requests.
 // A 100 ms sleep here turned the 20-30 update frames needed to settle some
@@ -235,7 +232,7 @@ where
         Ok(deleted)
     }
 
-    pub fn copy_trace_to_permanent_corpus(
+    pub fn copy_verified_trace_to_permanent_corpus(
         &self,
         session_id: &SessionId,
         permanent_root: &Path,
@@ -244,139 +241,37 @@ where
         let file_name = source.file_name().ok_or_else(|| {
             LiveError::Blocked(format!("trace path has no file name: {}", source.display()))
         })?;
-        fs::create_dir_all(permanent_root)?;
-        let destination = permanent_root.join(format!("trace-{}", file_name.to_string_lossy()));
-        if destination.exists() {
-            return Ok(destination);
-        }
-        fs::copy(source, &destination)?;
-        Ok(destination)
-    }
-
-    pub fn copy_verified_trace_prefix_to_permanent_corpus(
-        &self,
-        session_id: &SessionId,
-        permanent_root: &Path,
-    ) -> LiveResult<PathBuf> {
-        let source = self.session(session_id)?.trace_writer.path();
-        let file_name = source.file_name().ok_or_else(|| {
-            LiveError::Blocked(format!("trace path has no file name: {}", source.display()))
-        })?;
-        fs::create_dir_all(permanent_root)?;
-        let content = fs::read_to_string(source)?;
-        let report = verify_seed_start_communication_mod_trace(&content).map_err(|error| {
+        let trace = BufReader::new(File::open(source)?);
+        let report = verify_communication_mod_trace_reader(trace).map_err(|error| {
             LiveError::Blocked(format!(
-                "cannot verify trace before adding it to the permanent corpus: {error}"
+                "cannot verify strict schema-v1 trace before permanent promotion: {error}"
             ))
         })?;
-        let first_failing_step = report
-            .unexpected_diffs
-            .iter()
-            .map(|diff| diff.action_step)
-            .chain(
-                report
-                    .unsupported
-                    .iter()
-                    .map(|transition| transition.action_step),
-            )
-            .min();
-        if first_failing_step.is_none()
-            && (report.ignored_tail_actions != 0
-                || report
-                    .seed_start
-                    .as_ref()
-                    .is_some_and(|seed_start| seed_start.failed))
-        {
+        let seed_start = report.seed_start.as_ref().ok_or_else(|| {
+            LiveError::Blocked("permanent promotion requires a START replay report".to_owned())
+        })?;
+        let integrity = report.action_integrity.as_ref().ok_or_else(|| {
+            LiveError::Blocked("permanent promotion requires action-integrity evidence".to_owned())
+        })?;
+        let clean = report.unexpected_diffs.is_empty()
+            && report.unsupported.is_empty()
+            && !seed_start.failed
+            && seed_start.first_boundary.category == "none"
+            && report.action_dispositions.len() == report.total_actions
+            && integrity.eof_validated
+            && integrity.applicable_actions == integrity.disposed_actions
+            && integrity.rejected_actions == 0
+            && integrity.duplicate_dispositions == 0
+            && integrity.terminal_state_observed;
+        if !clean {
             return Err(LiveError::Blocked(
-                "trace has an unverified tail action or failed strict seed-start boundary"
+                "permanent promotion requires a genuine terminal schema-v1 complete parity pass"
                     .to_owned(),
             ));
         }
-
-        let (destination, retained_content) = if let Some(failing_step) = first_failing_step {
-            let trace = import_communication_mod_trace(&content).map_err(|error| {
-                LiveError::Blocked(format!(
-                    "cannot retain the verified trace prefix before step {failing_step}: {error}"
-                ))
-            })?;
-            let failure_index = trace
-                .lines
-                .iter()
-                .position(
-                    |line| matches!(line, TraceLine::Action(action) if action.step == failing_step),
-                )
-                .ok_or_else(|| {
-                    LiveError::Blocked(format!(
-                        "cannot locate failing action step {failing_step} in the imported trace"
-                    ))
-                })?;
-            let retained_lines = trace.lines[..failure_index]
-                .iter()
-                .filter(|line| !matches!(line, TraceLine::Metadata(_)))
-                .cloned()
-                .collect::<Vec<_>>();
-            let retained_step = retained_lines
-                .iter()
-                .filter_map(|line| match line {
-                    TraceLine::Action(action) => Some(action.step),
-                    _ => None,
-                })
-                .max()
-                .ok_or_else(|| {
-                    LiveError::Blocked(
-                        "trace has no verified action before its first failure".to_owned(),
-                    )
-                })?;
-            let mut metadata = trace.metadata.unwrap_or(TraceMetadata {
-                schema: 1,
-                source: "communication_mod".to_owned(),
-                client: None,
-                mode: None,
-                started_at: None,
-                ended_at: None,
-                event: None,
-                boss_unlocks: None,
-                run_config: None,
-            });
-            metadata.event = Some(format!(
-                "retained_verified_prefix_through_step={retained_step}; excluded_failure_step={failing_step}"
-            ));
-            let retained_content = serialize_communication_mod_trace(&metadata, &retained_lines);
-            let retained_report = verify_seed_start_communication_mod_trace(&retained_content)
-                .map_err(|error| {
-                    LiveError::Blocked(format!(
-                        "cannot verify retained corpus prefix through step {retained_step}: {error}"
-                    ))
-                })?;
-            if !retained_report.unexpected_diffs.is_empty()
-                || !retained_report.unsupported.is_empty()
-                || retained_report.ignored_tail_actions != 0
-                || retained_report
-                    .seed_start
-                    .as_ref()
-                    .is_some_and(|seed_start| seed_start.failed)
-            {
-                return Err(LiveError::Blocked(format!(
-                    "retained corpus prefix through step {retained_step} is not fidelity-clean"
-                )));
-            }
-            let source_stem = source
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or("session");
-            (
-                permanent_root.join(format!(
-                    "trace-{source_stem}.retained.step{retained_step}.jsonl"
-                )),
-                Some(retained_content),
-            )
-        } else {
-            (
-                permanent_root.join(format!("trace-{}", file_name.to_string_lossy())),
-                None,
-            )
-        };
-        persist_verified_trace(source, &destination, retained_content.as_deref())?;
+        fs::create_dir_all(permanent_root)?;
+        let destination = permanent_root.join(format!("trace-{}", file_name.to_string_lossy()));
+        persist_verified_trace(source, &destination, None)?;
         Ok(destination)
     }
 

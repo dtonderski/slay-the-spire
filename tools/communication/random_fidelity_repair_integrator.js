@@ -105,7 +105,7 @@ function runCaptured(command, args, options = {}) {
 function verifierBinaryPath(targetDir) {
   return path.join(
     targetDir,
-    "debug",
+    "release",
     process.platform === "win32" ? "sts_verify.exe" : "sts_verify",
   );
 }
@@ -119,7 +119,18 @@ function uvCommand(environment = process.env) {
 async function buildVerifier(stageRoot, targetDir) {
   const result = await runCaptured(
     uvCommand(),
-    ["run", "--python", "3.12", "cargo", "build", "-p", "sts_verify", "--bin", "sts_verify"],
+    [
+      "run",
+      "--python",
+      "3.12",
+      "cargo",
+      "build",
+      "--release",
+      "-p",
+      "sts_verify",
+      "--bin",
+      "sts_verify",
+    ],
     {
       cwd: path.join(stageRoot, "simulator"),
       env: {

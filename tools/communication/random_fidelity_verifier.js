@@ -22,7 +22,7 @@ const tasksDir = path.join(outputDir, "repair_tasks");
 const taskLocksDir = path.join(outputDir, "repair_task_locks");
 const verifierPath = path.resolve(
   process.env.STS_VERIFY_BIN ||
-    path.join(root, "simulator", "target", "debug", "sts_verify"),
+    path.join(root, "simulator", "target", "release", "sts_verify"),
 );
 const pollMs = Number.parseInt(process.env.STS_RANDOM_VERIFY_POLL_MS || "250", 10);
 const workerCount = Number.parseInt(process.env.STS_RANDOM_VERIFY_WORKERS || "1", 10);
@@ -262,6 +262,7 @@ module.exports = {
   isVerifierInfrastructureError,
   readJsonl,
   verificationDisposition,
+  verifierPath,
   verifyEntry,
   writeJsonAtomic,
 };

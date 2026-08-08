@@ -463,6 +463,10 @@ pub fn ironclad_transform_card_pool(source: ContentId) -> Vec<ContentId> {
     // CardLibrary.getCurse(source, rng), which excludes the source and special curses.
     // Colorless cards use the colorless card library pool; non-curse Ironclad
     // cards use the character transform pool below.
+    //
+    // STS compares `cardID` strings, so upgraded copies share the base identity
+    // for exclusion. Normalize before filtering (FIDL00263 Thunderclap+).
+    let source = crate::content::cards::base_content_id(source);
     if is_colorless_for_transform(source) {
         return crate::content::shop_pool::colorless_transform_pool()
             .into_iter()
@@ -509,6 +513,16 @@ pub fn ironclad_truly_random_card_pool() -> Vec<ContentId> {
 mod tests {
     use super::*;
     use crate::content::cards::{CHRYSALIS_ID, CURSE_OF_THE_BELL_ID, MASTER_OF_STRATEGY_ID};
+
+    #[test]
+    fn upgraded_source_excludes_base_id_from_transform_pool() {
+        use crate::content::cards::THUNDERCLAP_PLUS_ID;
+        let from_base = ironclad_transform_card_pool(THUNDERCLAP_ID);
+        let from_plus = ironclad_transform_card_pool(THUNDERCLAP_PLUS_ID);
+        assert_eq!(from_base, from_plus);
+        assert!(!from_plus.contains(&THUNDERCLAP_ID));
+        assert_eq!(from_plus.len(), IRONCLAD_TRANSFORM_POOL.len() - 1);
+    }
 
     #[test]
     fn curse_transform_pool_uses_normal_curses_and_excludes_source() {

@@ -920,6 +920,8 @@ mod tests {
             source_card_id,
             selected_hand_index: None,
             selected_hand_indices: Vec::new(),
+            dual_wield_restore_on_confirm: Vec::new(),
+            dual_wield_force_exhaust: false,
         })
         .expect("hand selection serializes");
 
@@ -950,6 +952,7 @@ mod tests {
             purpose: ExhaustSelectPurpose::GamblingChip,
             source_card_id: None,
             source_card: None,
+            source_card_force_exhaust: false,
             selected_hand_indices: Vec::new(),
             interrupted_by_cultist_potion: false,
             pending_actions: VecDeque::new(),
@@ -985,6 +988,8 @@ mod tests {
             source_card_id,
             selected_hand_index: None,
             selected_hand_indices: Vec::new(),
+            dual_wield_restore_on_confirm: Vec::new(),
+            dual_wield_force_exhaust: false,
         })
         .expect("hand selection serializes");
 

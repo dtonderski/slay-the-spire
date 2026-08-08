@@ -1,5 +1,7 @@
 use std::{
     env, fs,
+    fs::File,
+    io::{stdin, BufReader},
     path::{Path, PathBuf},
     process::exit,
     sync::{
@@ -12,16 +14,53 @@ use std::{
 use sts_verify::{
     assess_verification, assess_verification_with_options, canonical_diff, corpus_path,
     import_communication_mod_trace, import_slaythedata_jsonl_line, import_slaythedata_run_json,
-    load_corpus_file, minimize_communication_mod_trace, replay_communication_mod_trace,
+    load_corpus_file, minimize_communication_mod_trace, replay_communication_mod_trace_reader,
     slaythedata_replay_plan, slaythedata_replay_preflight, verify_communication_mod_trace,
-    AssessmentOptions, MinimizeError, SlayTheDataDiagnosticSeverity, VerificationOutcome,
-    REPLAY_ARTIFACT_SCHEMA,
+    verify_communication_mod_trace_diagnostic_reader, verify_communication_mod_trace_reader,
+    AssessmentOptions, MinimizeError, SimRealError, SimRealReport, SlayTheDataDiagnosticSeverity,
+    VerificationOutcome, REPLAY_ARTIFACT_SCHEMA,
 };
+
+fn verify_trace_path(
+    path: &str,
+    diagnostic_early_exit: bool,
+) -> Result<SimRealReport, SimRealError> {
+    if path == "-" {
+        let input = stdin();
+        let reader = input.lock();
+        if diagnostic_early_exit {
+            verify_communication_mod_trace_diagnostic_reader(reader)
+        } else {
+            verify_communication_mod_trace_reader(reader)
+        }
+    } else {
+        let reader = BufReader::new(File::open(path)?);
+        if diagnostic_early_exit {
+            verify_communication_mod_trace_diagnostic_reader(reader)
+        } else {
+            verify_communication_mod_trace_reader(reader)
+        }
+    }
+}
+
+fn replay_trace_path(
+    path: &str,
+    requested_step: Option<u32>,
+) -> Result<sts_verify::ReplayResult, SimRealError> {
+    if path == "-" {
+        let input = stdin();
+        replay_communication_mod_trace_reader(input.lock(), requested_step)
+    } else {
+        replay_communication_mod_trace_reader(BufReader::new(File::open(path)?), requested_step)
+    }
+}
 
 fn main() {
     let mut args = env::args().skip(1);
     let Some(command) = args.next() else {
-        eprintln!("usage: sts_verify <trace|diff|parity|replay|minimize|status|corpus> ...");
+        eprintln!(
+            "usage: sts_verify <trace|diff|parity|rng-trace|replay|minimize|status|corpus> ..."
+        );
         exit(1);
     };
 
@@ -82,39 +121,107 @@ fn main() {
                 exit(2);
             }
         }
+        "rng-trace" => {
+            let mut from_step = None;
+            let mut through_step = None;
+            let mut stream = None;
+            let mut path = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--step" => {
+                        let step = parse_rng_trace_step(args.next(), "--step");
+                        from_step = Some(step);
+                        through_step = Some(step);
+                    }
+                    "--from-step" => {
+                        from_step = Some(parse_rng_trace_step(args.next(), "--from-step"));
+                    }
+                    "--through-step" => {
+                        through_step = Some(parse_rng_trace_step(args.next(), "--through-step"));
+                    }
+                    "--stream" => {
+                        let Some(value) = args.next() else {
+                            rng_trace_usage_and_exit("--stream requires a value");
+                        };
+                        stream = Some(parse_rng_trace_stream(&value).unwrap_or_else(|| {
+                            rng_trace_usage_and_exit(&format!("unknown RNG stream: {value}"))
+                        }));
+                    }
+                    other if path.is_none() => path = Some(other.to_owned()),
+                    other => {
+                        rng_trace_usage_and_exit(&format!("unknown rng-trace argument: {other}"))
+                    }
+                }
+            }
+            let Some(path) = path else {
+                rng_trace_usage_and_exit("missing trace path");
+            };
+            if from_step
+                .zip(through_step)
+                .is_some_and(|(from, through)| from > through)
+            {
+                rng_trace_usage_and_exit("--from-step must not exceed --through-step");
+            }
+            let content = fs::read_to_string(&path).unwrap_or_else(|err| {
+                eprintln!("failed to read {path}: {err}");
+                exit(1);
+            });
+            let (result, events) =
+                sts_core::capture_rng_trace(|| verify_communication_mod_trace(&content));
+            let mut emitted = 0usize;
+            for event in events {
+                if from_step.is_some_and(|step| event.action_step.is_none_or(|value| value < step))
+                    || through_step
+                        .is_some_and(|step| event.action_step.is_none_or(|value| value > step))
+                    || stream.is_some_and(|selected| event.stream != selected)
+                {
+                    continue;
+                }
+                println!(
+                    "{}",
+                    serde_json::to_string(&event).expect("RNG trace event serializes")
+                );
+                emitted += 1;
+            }
+            match result {
+                Ok(report) => {
+                    eprintln!("rng_trace_events={emitted}");
+                    eprintln!("unexpected_diffs={}", report.unexpected_diffs.len());
+                    eprintln!("unsupported={}", report.unsupported.len());
+                }
+                Err(err) => {
+                    eprintln!("rng_trace_events={emitted}");
+                    eprintln!("failed to verify trace: {err}");
+                    exit(1);
+                }
+            }
+        }
         "parity" => {
             let mut require_terminal = false;
+            let mut diagnostic_early_exit = false;
             let mut path = None;
             for arg in args.by_ref() {
                 match arg.as_str() {
                     "--require-terminal" => require_terminal = true,
+                    "--diagnostic-early-exit" => diagnostic_early_exit = true,
                     other if path.is_none() => path = Some(other.to_owned()),
                     other => {
                         eprintln!("unknown parity argument: {other}");
-                        eprintln!("usage: sts_verify parity [--require-terminal] <trace.jsonl>");
+                        eprintln!(
+                            "usage: sts_verify parity [--require-terminal] [--diagnostic-early-exit] <trace.jsonl>"
+                        );
                         exit(1);
                     }
                 }
             }
             let Some(path) = path else {
-                eprintln!("usage: sts_verify parity [--require-terminal] <trace.jsonl>");
+                eprintln!(
+                    "usage: sts_verify parity [--require-terminal] [--diagnostic-early-exit] <trace.jsonl>"
+                );
                 exit(1);
             };
-            let content = if path == "-" {
-                use std::io::Read;
-                let mut buffer = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut buffer)
-                    .expect("read stdin");
-                buffer
-            } else {
-                fs::read_to_string(&path).unwrap_or_else(|err| {
-                    eprintln!("failed to read {path}: {err}");
-                    exit(1);
-                })
-            };
             let options = AssessmentOptions { require_terminal };
-            let result = verify_communication_mod_trace(&content);
+            let result = verify_trace_path(&path, diagnostic_early_exit);
             let report = match result {
                 Ok(report) => report,
                 Err(err) => {
@@ -131,21 +238,17 @@ fn main() {
             );
             print_verification_outcome(&outcome);
             println!("total_actions={}", report.total_actions);
-            println!("ignored_tail_actions={}", report.ignored_tail_actions);
             println!("verified={}", report.verified.len());
             println!("unsupported={}", report.unsupported.len());
             println!("unexpected_diffs={}", report.unexpected_diffs.len());
             if let Some(integrity) = &report.action_integrity {
+                println!("eof_validated={}", integrity.eof_validated);
                 println!("applicable_actions={}", integrity.applicable_actions);
                 println!("disposed_actions={}", integrity.disposed_actions);
                 println!("target_rejected_actions={}", integrity.rejected_actions);
                 println!(
                     "duplicate_dispositions={}",
                     integrity.duplicate_dispositions
-                );
-                println!(
-                    "unresolved_transient_assertions={}",
-                    integrity.unresolved_transient_assertions
                 );
                 println!(
                     "terminal_state_observed={}",
@@ -236,6 +339,7 @@ fn main() {
                             exit(1);
                         }));
                     }
+                    "-" if path.is_none() => path = Some("-".to_owned()),
                     other if other.starts_with('-') => {
                         eprintln!("unknown replay flag: {other}");
                         exit(1);
@@ -258,24 +362,10 @@ fn main() {
                 );
                 exit(1);
             };
-            let content = if path == "-" {
-                use std::io::Read;
-                let mut buffer = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut buffer)
-                    .expect("read stdin");
-                buffer
-            } else {
-                fs::read_to_string(&path).unwrap_or_else(|err| {
-                    eprintln!("failed to read {path}: {err}");
-                    exit(1);
-                })
-            };
-            let result =
-                replay_communication_mod_trace(&content, requested_step).unwrap_or_else(|err| {
-                    eprintln!("failed to replay trace: {err}");
-                    exit(1);
-                });
+            let result = replay_trace_path(&path, requested_step).unwrap_or_else(|err| {
+                eprintln!("failed to replay trace: {err}");
+                exit(1);
+            });
             let outcome = replay_outcome(&result.report);
             let final_snapshot_hash = result
                 .final_snapshot
@@ -686,12 +776,10 @@ struct TraceStatusEntry {
     verified: usize,
     raw_diffs: usize,
     unsupported: usize,
-    ignored_tail: usize,
     applicable_actions: usize,
     disposed_actions: usize,
     rejected_actions: usize,
     duplicate_dispositions: usize,
-    unresolved_transient_assertions: usize,
     status: String,
     boundary: String,
     frontier: String,
@@ -749,19 +837,27 @@ fn trace_status_entries(root: &Path) -> Result<Vec<TraceStatusEntry>, String> {
         .collect())
 }
 
-/// Parallelism for heavy trace jobs (status / migrate). Default is intentionally
-/// low: each seed-start replay can retain multi‑10MB JSONL plus a much larger
-/// in-memory report. Unbounded `available_parallelism()` OOMs on 16GB hosts.
-///
-/// Override with `STS_VERIFY_JOBS` (positive integer).
+/// Parallelism for streaming trace jobs. The default uses at most four
+/// workers; explicit overrides remain bounded by CPU count and a hard ceiling.
 fn heavy_trace_worker_count(trace_count: usize) -> usize {
     const DEFAULT_CAP: usize = 4;
+    const HARD_CAP: usize = 8;
     let cpus = thread::available_parallelism().map_or(1, usize::from);
-    let from_env = env::var("STS_VERIFY_JOBS")
+    let requested = env::var("STS_VERIFY_JOBS")
         .ok()
         .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value >= 1);
-    let cap = from_env.unwrap_or(DEFAULT_CAP.min(cpus).max(1));
+        .filter(|value| *value >= 1)
+        .unwrap_or(DEFAULT_CAP);
+    bounded_worker_count(trace_count, requested, cpus, HARD_CAP)
+}
+
+fn bounded_worker_count(
+    trace_count: usize,
+    requested: usize,
+    cpus: usize,
+    hard_cap: usize,
+) -> usize {
+    let cap = requested.min(cpus).clamp(1, hard_cap);
     trace_count.min(cap).max(1)
 }
 
@@ -770,13 +866,13 @@ fn status_worker_count(trace_count: usize) -> usize {
 }
 
 fn trace_status_entry(input: &StatusTraceInput) -> TraceStatusEntry {
-    let content = match fs::read_to_string(&input.path) {
-        Ok(content) => content,
+    let file = match File::open(&input.path) {
+        Ok(file) => file,
         Err(err) => {
             return trace_error_entry(input.trace.clone(), format!("read error: {err}"));
         }
     };
-    let report = match verify_communication_mod_trace(&content) {
+    let report = match verify_communication_mod_trace_reader(BufReader::new(file)) {
         Ok(report) => report,
         Err(err) => {
             return trace_error_entry(input.trace.clone(), format!("parse error: {err}"));
@@ -803,12 +899,10 @@ fn trace_status_entry(input: &StatusTraceInput) -> TraceStatusEntry {
         verified: report.verified.len(),
         raw_diffs: report.unexpected_diffs.len(),
         unsupported: report.unsupported.len(),
-        ignored_tail: report.ignored_tail_actions,
         applicable_actions: integrity.applicable_actions,
         disposed_actions: integrity.disposed_actions,
         rejected_actions: integrity.rejected_actions,
         duplicate_dispositions: integrity.duplicate_dispositions,
-        unresolved_transient_assertions: integrity.unresolved_transient_assertions,
         status: outcome_status(&outcome).to_owned(),
         boundary: boundary.unwrap_or_else(|| "-".to_owned()),
         frontier: trace_frontier(&report, &outcome),
@@ -855,6 +949,45 @@ fn verification_outcome_exit_code(outcome: &VerificationOutcome) -> i32 {
     }
 }
 
+fn rng_trace_usage_and_exit(reason: &str) -> ! {
+    eprintln!("{reason}");
+    eprintln!(
+        "usage: sts_verify rng-trace [--step N | --from-step N --through-step N] \\\n         [--stream STREAM] <trace.jsonl>"
+    );
+    eprintln!(
+        "streams: unknown, card_reward, card_random, event, merchant, misc, monster, \\\n         monster_hp, potion, relic, shuffle, treasure"
+    );
+    exit(1);
+}
+
+fn parse_rng_trace_step(value: Option<String>, flag: &str) -> u32 {
+    let Some(value) = value else {
+        rng_trace_usage_and_exit(&format!("{flag} requires a value"));
+    };
+    value
+        .parse()
+        .unwrap_or_else(|_| rng_trace_usage_and_exit(&format!("invalid {flag} value: {value}")))
+}
+
+fn parse_rng_trace_stream(value: &str) -> Option<sts_core::RngTraceStream> {
+    use sts_core::RngTraceStream;
+    match value {
+        "unknown" => Some(RngTraceStream::Unknown),
+        "card_reward" => Some(RngTraceStream::CardReward),
+        "card_random" => Some(RngTraceStream::CardRandom),
+        "event" => Some(RngTraceStream::Event),
+        "merchant" => Some(RngTraceStream::Merchant),
+        "misc" => Some(RngTraceStream::Misc),
+        "monster" => Some(RngTraceStream::Monster),
+        "monster_hp" => Some(RngTraceStream::MonsterHp),
+        "potion" => Some(RngTraceStream::Potion),
+        "relic" => Some(RngTraceStream::Relic),
+        "shuffle" => Some(RngTraceStream::Shuffle),
+        "treasure" => Some(RngTraceStream::Treasure),
+        _ => None,
+    }
+}
+
 fn replay_outcome(report: &sts_verify::SimRealReport) -> &'static str {
     match report.seed_start.as_ref() {
         Some(seed_start) if !seed_start.failed => "complete",
@@ -884,12 +1017,10 @@ fn trace_error_entry(trace: String, error: String) -> TraceStatusEntry {
         verified: 0,
         raw_diffs: 0,
         unsupported: 0,
-        ignored_tail: 0,
         applicable_actions: 0,
         disposed_actions: 0,
         rejected_actions: 0,
         duplicate_dispositions: 0,
-        unresolved_transient_assertions: 0,
         status: "invalid_input".to_owned(),
         boundary: "-".to_owned(),
         frontier: error,
@@ -965,17 +1096,12 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     let raw_diffs: usize = entries.iter().map(|entry| entry.raw_diffs).sum();
     let unsupported: usize = entries.iter().map(|entry| entry.unsupported).sum();
     let verified: usize = entries.iter().map(|entry| entry.verified).sum();
-    let ignored_tail: usize = entries.iter().map(|entry| entry.ignored_tail).sum();
     let applicable_actions: usize = entries.iter().map(|entry| entry.applicable_actions).sum();
     let disposed_actions: usize = entries.iter().map(|entry| entry.disposed_actions).sum();
     let rejected_actions: usize = entries.iter().map(|entry| entry.rejected_actions).sum();
     let duplicate_dispositions: usize = entries
         .iter()
         .map(|entry| entry.duplicate_dispositions)
-        .sum();
-    let unresolved_transient_assertions: usize = entries
-        .iter()
-        .map(|entry| entry.unresolved_transient_assertions)
         .sum();
     println!("traces={}", entries.len());
     println!("trace_failures={failures}");
@@ -985,20 +1111,18 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     println!("raw_unexpected_diffs={raw_diffs}");
     println!("unsupported_transitions={unsupported}");
     println!("verified_transitions={verified}");
-    println!("ignored_tail_actions={ignored_tail}");
     println!("applicable_actions={applicable_actions}");
     println!("disposed_actions={disposed_actions}");
     println!("target_rejected_actions={rejected_actions}");
     println!("duplicate_dispositions={duplicate_dispositions}");
-    println!("unresolved_transient_assertions={unresolved_transient_assertions}");
 
     if markdown {
         println!();
-        println!("| Trace | Floor | Actions | Disposed | Rejected | Verified | Status | Raw diffs | Unsupported | Ignored tail | Duplicates | Unresolved transient | Boundary | Frontier |");
-        println!("|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|---|");
+        println!("| Trace | Floor | Actions | Disposed | Rejected | Verified | Status | Raw diffs | Unsupported | Duplicates | Boundary | Frontier |");
+        println!("|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---|---|");
         for entry in entries {
             println!(
-                "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` | {} |",
+                "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} | `{}` | {} |",
                 escape_markdown_cell(&entry.trace),
                 entry.verified_floor,
                 entry.total_actions,
@@ -1008,9 +1132,7 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
                 entry.status,
                 entry.raw_diffs,
                 entry.unsupported,
-                entry.ignored_tail,
                 entry.duplicate_dispositions,
-                entry.unresolved_transient_assertions,
                 escape_markdown_cell(&entry.boundary),
                 escape_markdown_cell(&entry.frontier)
             );
@@ -1018,7 +1140,7 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
     } else {
         for entry in entries {
             println!(
-                "trace=\"{}\" floor={} actions={} applicable={} disposed={} rejected={} verified={} status={} raw_diffs={} unsupported={} ignored_tail={} duplicates={} unresolved_transient={} boundary=\"{}\" frontier=\"{}\"",
+                "trace=\"{}\" floor={} actions={} applicable={} disposed={} rejected={} verified={} status={} raw_diffs={} unsupported={} duplicates={} boundary=\"{}\" frontier=\"{}\"",
                 entry.trace,
                 entry.verified_floor,
                 entry.total_actions,
@@ -1029,9 +1151,7 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
                 entry.status,
                 entry.raw_diffs,
                 entry.unsupported,
-                entry.ignored_tail,
                 entry.duplicate_dispositions,
-                entry.unresolved_transient_assertions,
                 entry.boundary,
                 entry.frontier
             );
@@ -1087,7 +1207,12 @@ mod tests {
     fn status_worker_count_is_bounded_by_trace_count() {
         assert_eq!(status_worker_count(1), 1);
         assert!(status_worker_count(3) >= 1);
-        // Default cap is 4 even when more traces/CPUs exist.
-        assert!(status_worker_count(100) <= 4 || std::env::var_os("STS_VERIFY_JOBS").is_some());
+        assert!(status_worker_count(100) <= 8);
+        if std::env::var_os("STS_VERIFY_JOBS").is_none() {
+            assert!(status_worker_count(100) <= 4);
+        }
+        assert_eq!(bounded_worker_count(100, 1_000, 64, 8), 8);
+        assert_eq!(bounded_worker_count(3, 1_000, 64, 8), 3);
+        assert_eq!(bounded_worker_count(100, 1_000, 2, 8), 2);
     }
 }

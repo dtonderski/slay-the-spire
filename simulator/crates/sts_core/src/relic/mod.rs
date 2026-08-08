@@ -982,6 +982,10 @@ impl RelicPoolState {
         if relic_can_spawn(relic, context) {
             relic
         } else {
+            // STS AbstractDungeon.returnRandomRelicKey on !canSpawn calls
+            // returnEndRandomRelicKey (front → end). returnEndRandomRelicKey on
+            // !canSpawn calls itself (end → end). Both retries therefore pop from
+            // the end; never preserve a front-only retry loop.
             self.return_random_relic_from(tier, context, false)
         }
     }
@@ -2625,6 +2629,37 @@ pub fn open_nilrys_codex_card_reward(state: &mut CombatState) -> SimResult<()> {
     Ok(())
 }
 
+/// Park a Nilry choice without inserting into the draw pile (FIDL00451 first/second
+/// offer frames where CommMod keeps pre-discard piles unchanged).
+pub fn nilrys_codex_park_choice_without_insert(
+    state: &mut CombatState,
+    index: usize,
+) -> SimResult<()> {
+    use crate::combat::state::CombatDecisionState;
+
+    let Some(CombatDecisionState::NilrysCodexCardReward { choices }) = state.decision.take() else {
+        return Err(SimError::IllegalAction("no Nilry Codex reward is open"));
+    };
+    let choice = choices.get(index).ok_or(SimError::IllegalAction(
+        "Nilry Codex choice index out of range",
+    ))?;
+    state
+        .pending_nilrys_codex_draw_inserts
+        .push(choice.content_id);
+    Ok(())
+}
+
+/// Insert every parked Nilry card into a random draw-pile spot.
+pub fn nilrys_codex_flush_pending_draw_inserts(state: &mut CombatState) -> SimResult<()> {
+    let pending = std::mem::take(&mut state.pending_nilrys_codex_draw_inserts);
+    for content_id in pending {
+        crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
+            state, content_id,
+        )?;
+    }
+    Ok(())
+}
+
 #[must_use]
 pub fn mitigate_unblocked_attack_damage(relics: &[Relic], amount: i32) -> i32 {
     let mut mitigated = amount;
@@ -2795,12 +2830,21 @@ pub fn apply_on_card_play_relics(
         checked_increment_relic_counter(&mut state.relic_counters.letter_opener_skills_this_turn)?;
         if state.relic_counters.letter_opener_skills_this_turn >= LETTER_OPENER_THRESHOLD {
             state.relic_counters.letter_opener_skills_this_turn = 0;
-            follow_ups.extend(state.monsters.iter().filter(|monster| monster.alive).map(
-                |monster| InternalAction::DealUnmodifiedDamage {
-                    target: monster.id,
+            let targets = state
+                .monsters
+                .iter()
+                .filter(|monster| monster.alive)
+                .map(|monster| monster.id)
+                .collect::<Vec<_>>();
+            state.pending_letter_opener_blasts = state
+                .pending_letter_opener_blasts
+                .saturating_add(targets.len() as u32);
+            follow_ups.extend(targets.into_iter().map(|target| {
+                InternalAction::DealUnmodifiedDamage {
+                    target,
                     amount: LETTER_OPENER_DAMAGE,
-                },
-            ));
+                }
+            }));
         }
     }
 

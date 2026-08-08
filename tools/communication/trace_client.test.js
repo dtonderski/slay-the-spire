@@ -247,10 +247,23 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
       in_game: true,
       ready_for_command: true,
       available_commands: ["choose", "state"],
+      boundary_schema: 1,
+      boundary_kind: "interaction_ready",
+      game_update_seq: 101,
+      dungeon_update_seq: 99,
+      current_action: "DiscoveryAction",
+      current_action_instance: 4,
+      current_action_update_count: 2,
+      actions_queued: 1,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
       game_state: {
         screen_type: "EVENT",
         floor: 2,
         choice_list: ["Pray"],
+        screen_state: {
+          potions: [{ id: "GamblersBrew", name: "Gambler's Brew", price: 77 }],
+        },
       },
     })}\n`);
 
@@ -265,6 +278,15 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.strictEqual(liveState.ok, true);
     assert.ok(liveState.state_id);
     assert.ok(liveState.state_seq);
+    assert.strictEqual(liveState.summary.boundary_schema, 1);
+    assert.strictEqual(liveState.summary.boundary_kind, "interaction_ready");
+    assert.strictEqual(liveState.summary.current_action, "DiscoveryAction");
+    assert.strictEqual(liveState.summary.current_action_instance, 4);
+    assert.strictEqual(liveState.summary.current_action_update_count, 2);
+    assert.strictEqual(liveState.summary.actions_queued, 1);
+    assert.deepStrictEqual(liveState.summary.shop_potions, [
+      { id: "GamblersBrew", name: "Gambler's Brew", price: 77 },
+    ]);
 
     const acquired = await controlRequest(port, {
       type: "acquire",
@@ -333,6 +355,38 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
       in_game: true,
       ready_for_command: true,
       available_commands: ["state"],
+      boundary_schema: 1,
+      boundary_kind: "poll",
+      game_update_seq: 102,
+      dungeon_update_seq: 100,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
+      game_state: {
+        screen_type: "EVENT",
+        floor: 2,
+        choice_list: [],
+      },
+    })}\n`);
+    await waitFor(() => {
+      const summaryPath = path.join(sessionDir, "summary.json");
+      if (!fs.existsSync(summaryPath)) return false;
+      return JSON.parse(fs.readFileSync(summaryPath, "utf8")).boundary_kind === "poll";
+    });
+    const pendingAfterPoll = await controlRequest(port, { type: "state" });
+    assert.strictEqual(pendingAfterPoll.pending_command, true);
+    assert.strictEqual(pendingAfterPoll.command_in_flight.command, "CHOOSE 0");
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["state"],
+      boundary_schema: 1,
+      boundary_kind: "quiescent",
+      game_update_seq: 103,
+      dungeon_update_seq: 101,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
       game_state: {
         screen_type: "EVENT",
         floor: 2,
@@ -552,8 +606,8 @@ async function testTcpControlDisablesLegacyFileCommandsByDefault() {
       const parsed = JSON.parse(fs.readFileSync(acceptedStatusPath, "utf8"));
       return parsed.status === "sent" && parsed.command === "CHOOSE 0" ? parsed : null;
     });
-    assert.strictEqual(sentStatus.pending_command, false);
-    assert.strictEqual(sentStatus.command_in_flight, null);
+    assert.strictEqual(sentStatus.pending_command, true);
+    assert.strictEqual(sentStatus.command_in_flight.command, "CHOOSE 0");
 
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
@@ -631,12 +685,30 @@ async function testTcpControlRecordsObservedUpdateTimeout() {
     assert.strictEqual(accepted.observed_update.observed_changed, false);
     assert.strictEqual(accepted.observed_update.application_status, "timeout");
     await waitFor(() => stdout.includes("CHOOSE 0\n"));
-    const clearedStatus = await waitFor(() => {
+    const pendingStatus = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
+    assert.strictEqual(pendingStatus.pending_command, true);
+    assert.strictEqual(pendingStatus.command_in_flight.command, "CHOOSE 0");
+
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["state"],
+      boundary_schema: 1,
+      boundary_kind: "quiescent",
+      game_update_seq: 2,
+      dungeon_update_seq: 1,
+      current_action: null,
+      current_action_instance: null,
+      current_action_update_count: null,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
+      game_state: { screen_type: "EVENT", floor: 2, choice_list: [] },
+    })}\n`);
+    await waitFor(() => {
       const parsed = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
-      return parsed.pending_command === false && parsed.command_in_flight === null ? parsed : null;
+      return parsed.pending_command === false ? parsed : null;
     });
-    assert.strictEqual(clearedStatus.pending_command, false);
-    assert.strictEqual(clearedStatus.command_in_flight, null);
 
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
@@ -738,7 +810,7 @@ async function testExternalRngIsRecordedAgainstProducingAction() {
   }
 }
 
-async function testTcpControlCancelsCommandQueuedBehindStalledGame() {
+async function testTcpControlRejectsAbandonBehindDispatchedCommand() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-queued-timeout-"));
   const sessionDir = path.join(root, "session");
   const outDir = path.join(root, "out");
@@ -798,15 +870,25 @@ async function testTcpControlCancelsCommandQueuedBehindStalledGame() {
       wait_for_state_update: true,
       update_timeout_ms: 50,
     });
-    assert.strictEqual(abandon.ok, true);
-    assert.strictEqual(abandon.observed_update.application_status, "timeout");
-    const cleared = await controlRequest(status.control.port, { type: "state" });
-    assert.strictEqual(cleared.pending_command, false);
+    assert.strictEqual(abandon.ok, false);
+    assert.match(abandon.error, /already in flight/);
+    const pending = await controlRequest(status.control.port, { type: "state" });
+    assert.strictEqual(pending.pending_command, true);
 
     child.stdin.write(`${JSON.stringify({
       in_game: true,
       ready_for_command: true,
       available_commands: ["choose", "state"],
+      boundary_schema: 1,
+      boundary_kind: "quiescent",
+      game_update_seq: 2,
+      dungeon_update_seq: 1,
+      current_action: null,
+      current_action_instance: null,
+      current_action_update_count: null,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
       game_state: { screen_type: "COMBAT_REWARD", floor: 13 },
     })}\n`);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -843,7 +925,7 @@ async function testTcpControlAbandonRunBypassesAvailableCommands() {
       TRACE_SESSION_DIR: sessionDir,
       TRACE_OUT_DIR: outDir,
       TRACE_CONTROL_PORT: "0",
-      TRACE_AUTO_STATE_MS: "50",
+      TRACE_AUTO_STATE_MS: "0",
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -893,6 +975,16 @@ async function testTcpControlAbandonRunBypassesAvailableCommands() {
       in_game: false,
       ready_for_command: true,
       available_commands: ["start", "state"],
+      boundary_schema: 1,
+      boundary_kind: "terminal",
+      game_update_seq: 2,
+      dungeon_update_seq: 0,
+      current_action: null,
+      current_action_instance: null,
+      current_action_update_count: null,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
     })}\n`);
     const result = await abandon;
     assert.strictEqual(result.ok, true);
@@ -1030,12 +1122,25 @@ async function testTcpControlRejectsSecondCommandUntilStateUpdate() {
       update_timeout_ms: 3000,
     });
     await waitFor(() => stdout.includes("CHOOSE 0\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose", "state"],
+      boundary_schema: 0,
+      boundary_kind: "quiescent",
+      game_state: { screen_type: "EVENT", floor: 2, choice_list: [] },
+    })}\n`);
+    await waitFor(() => {
+      const current = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
+      return current.pending_command === true && current.summary?.boundary_schema === 0;
+    }, 3000, "non-v1 state remains non-completing");
 
+    const overtakenState = await controlRequest(status.control.port, { type: "state" });
     const second = await controlRequest(status.control.port, {
       type: "command",
       command: "CHOOSE 1",
-      expected_state_id: liveState.state_id,
-      expected_state_seq: liveState.state_seq,
+      expected_state_id: overtakenState.state_id,
+      expected_state_seq: overtakenState.state_seq,
       owner_token: acquired.owner_token,
     });
     assert.strictEqual(second.ok, false);
@@ -1045,6 +1150,16 @@ async function testTcpControlRejectsSecondCommandUntilStateUpdate() {
       in_game: true,
       ready_for_command: true,
       available_commands: ["state"],
+      boundary_schema: 1,
+      boundary_kind: "quiescent",
+      game_update_seq: 2,
+      dungeon_update_seq: 1,
+      current_action: null,
+      current_action_instance: null,
+      current_action_update_count: null,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
       game_state: {
         screen_type: "EVENT",
         floor: 2,
@@ -1070,7 +1185,7 @@ async function testTcpControlRejectsSecondCommandUntilStateUpdate() {
   }
 }
 
-async function testTcpControlClearsInFlightAfterUnchangedCommandTimeout() {
+async function testTcpControlKeepsDispatchedTimeoutInFlightUntilError() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-"));
   const sessionDir = path.join(root, "session");
   const outDir = path.join(root, "corpus");
@@ -1134,11 +1249,27 @@ async function testTcpControlClearsInFlightAfterUnchangedCommandTimeout() {
     assert.strictEqual(cancelResult.observed_update.ok, false);
     assert.strictEqual(cancelResult.observed_update.application_status, "timeout");
 
-    const second = await controlRequest(status.control.port, {
+    const blocked = await controlRequest(status.control.port, {
       type: "command",
       command: "STATE",
       expected_state_id: liveState.state_id,
       expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(blocked.ok, false);
+    assert.match(blocked.error, /already in flight/);
+
+    child.stdin.write(`${JSON.stringify({ error: "cancel rejected" })}\n`);
+    await waitFor(() => {
+      const current = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
+      return current.pending_command === false && current.summary?.error ? current : null;
+    }, 3000, "matching error releases dispatched timeout");
+    const releasedState = await controlRequest(status.control.port, { type: "state" });
+    const second = await controlRequest(status.control.port, {
+      type: "command",
+      command: "STATE",
+      expected_state_id: releasedState.state_id,
+      expected_state_seq: releasedState.state_seq,
       owner_token: acquired.owner_token,
     });
     assert.strictEqual(second.ok, true, second.error);
@@ -1226,12 +1357,12 @@ Promise.resolve()
   .then(() => runTest(testTcpControlAllowsExplicitStaleControllerTakeover))
   .then(() => runTest(testTcpControlDisablesLegacyFileCommandsByDefault))
   .then(() => runTest(testTcpControlRecordsObservedUpdateTimeout))
-  .then(() => runTest(testTcpControlCancelsCommandQueuedBehindStalledGame))
+  .then(() => runTest(testTcpControlRejectsAbandonBehindDispatchedCommand))
   .then(() => runTest(testTcpControlAbandonRunBypassesAvailableCommands))
   .then(() => runTest(testTcpControlAcceptsAdvertisedStartFromUnreadyMenu))
   .then(() => runTest(testTcpControlRejectsSecondCommandUntilStateUpdate))
   .then(() => runTest(testTcpControlAllowsStartupStartBeforeObservedState))
-  .then(() => runTest(testTcpControlClearsInFlightAfterUnchangedCommandTimeout))
+  .then(() => runTest(testTcpControlKeepsDispatchedTimeoutInFlightUntilError))
   .then(() => {
     console.log("trace_client tests passed");
   })

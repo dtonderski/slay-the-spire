@@ -10,6 +10,10 @@ const { spawnSync } = require("child_process");
 const root = path.resolve(__dirname, "..", "..");
 const defaultSessionDir = path.join(__dirname, "session");
 
+function defaultVerifierPath() {
+  return path.join(root, "simulator", "target", "release", "sts_verify");
+}
+
 function seededRandom(seed) {
   let state = Number(seed) >>> 0;
   return () => {
@@ -35,6 +39,9 @@ function enumerateGameplayActions(summary) {
   const available = availableSet(summary);
   const actions = [];
   const choices = Array.isArray(summary?.choices) ? summary.choices : [];
+  const shopPotionNames = new Set(
+    (summary?.shop_potions || []).map((potion) => String(potion?.name).toLowerCase()),
+  );
 
   if (available.has("choose")) {
     const normalizedChoices = choices.map((choice) => String(choice).toLowerCase());
@@ -50,7 +57,7 @@ function enumerateGameplayActions(summary) {
       const normalizedChoice = String(choice).toLowerCase();
       if (
         String(summary?.screen_type).toUpperCase() === "SHOP_SCREEN" &&
-        normalizedChoice.includes("potion")
+        (normalizedChoice.includes("potion") || shopPotionNames.has(normalizedChoice))
       ) {
         // CommunicationMod accepts shop potion purchases but does not expose
         // the resulting potion-selection/settlement flow to strict replay.
@@ -222,30 +229,64 @@ function chooseRandomAction(summary, random) {
   return actions[Math.floor(random() * actions.length)];
 }
 
-function semanticStateKey(protocolState) {
-  const state = protocolState?.state?.message ?? protocolState?.summary;
-  if (!state) return null;
-  const scrub = (value) => {
-    if (Array.isArray(value)) return value.map(scrub);
-    if (!value || typeof value !== "object") return value;
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key]) => !["step", "state_id", "state_seq", "playtime_seconds"].includes(key))
-        .map(([key, nested]) => [key, scrub(nested)]),
-    );
-  };
-  return JSON.stringify(scrub(state));
-}
+const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
 
-function stateAdvanced(previousStateKey, protocolState) {
-  const next = semanticStateKey(protocolState);
-  return Boolean(previousStateKey && next && next !== previousStateKey);
-}
-
-function needsGameplaySettlePoll(previousStateKey, protocolState) {
-  return (
-    !protocolState?.summary?.ready_for_command || !stateAdvanced(previousStateKey, protocolState)
-  );
+function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
+  const message =
+    protocolState?.state?.message ?? protocolState?.message ?? protocolState?.summary ?? protocolState;
+  const schema = message?.boundary_schema;
+  if (schema !== 1) {
+    throw new Error(`CommunicationMod boundary_schema=1 is required, received ${message?.boundary_schema ?? "missing"}`);
+  }
+  const kind = String(message?.boundary_kind ?? "");
+  const allowedKinds = [...GAMEPLAY_BOUNDARY_KINDS, "poll"];
+  if (allowUnsettled) allowedKinds.push("unknown");
+  if (!allowedKinds.includes(kind)) {
+    throw new Error(`unknown CommunicationMod boundary_kind: ${kind || "missing"}`);
+  }
+  for (const field of [
+    "game_update_seq",
+    "dungeon_update_seq",
+    "actions_queued",
+    "card_queue_size",
+    "pre_turn_actions_size",
+  ]) {
+    const value = message?.[field];
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`CommunicationMod ${field} must be a non-negative integer`);
+    }
+  }
+  if (message?.current_action != null) {
+    for (const field of ["current_action_instance", "current_action_update_count"]) {
+      const value = message?.[field];
+      if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+        throw new Error(`CommunicationMod ${field} must identify the current action`);
+      }
+    }
+  }
+  if (kind === "quiescent") {
+    if (
+      message?.current_action != null ||
+      ["actions_queued", "card_queue_size", "pre_turn_actions_size"].some(
+        (field) => message[field] !== 0,
+      )
+    ) {
+      throw new Error("quiescent CommunicationMod boundary has active or queued work");
+    }
+  }
+  if (
+    kind === "interaction_ready" &&
+    message?.current_action == null &&
+    ["actions_queued", "card_queue_size", "pre_turn_actions_size"].every(
+      (field) => message[field] === 0,
+    )
+  ) {
+    throw new Error("interaction_ready CommunicationMod boundary has no active or queued work");
+  }
+  if (GAMEPLAY_BOUNDARY_KINDS.has(kind) && message?.ready_for_command !== true) {
+    throw new Error(`${kind} CommunicationMod boundary is not ready for input`);
+  }
+  return { kind, message };
 }
 
 function needsMapChoiceSettle(summary) {
@@ -407,17 +448,22 @@ function parseSeenBossesPreferences(value) {
     collector_seen: seen("COLLECTOR"),
     awakened_one_seen: seen("CROW", "AWAKENED ONE"),
     donu_deca_seen: seen("DONUT", "DONU AND DECA"),
-    time_eater_seen: seen("TIME", "TIME EATER", "TIME_EATER"),
+    // STS stores Time Eater under the prefs key WIZARD (not TIME).
+    time_eater_seen: seen("WIZARD", "TIME", "TIME EATER", "TIME_EATER"),
   };
 }
 
 function loadBossUnlocks(environment = process.env) {
+  // Prefer live STS prefs when available so a stale STS_BOSS_UNLOCKS_JSON cannot
+  // override the profile the game is actually using.
+  if (environment.STS_SEEN_BOSSES_PATH) {
+    const preferencesPath = path.resolve(environment.STS_SEEN_BOSSES_PATH);
+    return parseSeenBossesPreferences(fs.readFileSync(preferencesPath, "utf8"));
+  }
   if (environment.STS_BOSS_UNLOCKS_JSON) {
     return parseBossUnlocks(environment.STS_BOSS_UNLOCKS_JSON);
   }
-  if (!environment.STS_SEEN_BOSSES_PATH) return parseBossUnlocks();
-  const preferencesPath = path.resolve(environment.STS_SEEN_BOSSES_PATH);
-  return parseSeenBossesPreferences(fs.readFileSync(preferencesPath, "utf8"));
+  return parseBossUnlocks();
 }
 
 function addCollectionMetadata(
@@ -426,15 +472,18 @@ function addCollectionMetadata(
   policySeed,
   gameSeed,
   startingHp,
+  profile,
   sourceVersion = "working-tree",
 ) {
   const metadata = {
     type: "metadata",
     schema: 1,
+    boundary_schema: 1,
     source: "communication_mod",
     client: "tools/communication/random_fidelity_collector.js",
     source_version: sourceVersion,
     boss_unlocks: bossUnlocks,
+    run_config: { profile },
     collection: { policy_seed: policySeed, game_seed: gameSeed, starting_hp: startingHp },
   };
   return [metadata, ...records.filter((record) => record.type !== "metadata")];
@@ -442,38 +491,83 @@ function addCollectionMetadata(
 
 function normalizeSettledGameplayRecords(records) {
   records = records.filter((record) =>
-    ["metadata", "action", "state", "error"].includes(record.type),
+    ["metadata", "action", "state", "error", "external_rng"].includes(record.type),
   );
+  for (const state of records.filter((record) => record.type === "state")) {
+    communicationBoundary(state, { allowUnsettled: true });
+  }
+
   const normalized = [];
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index];
-    if (record.type !== "action" || String(record.command).toUpperCase() === "STATE") {
+    if (record.type === "metadata") {
       normalized.push(record);
       continue;
     }
-    const immediate = records[index + 1];
-    if (!immediate || immediate.type !== "state") {
-      normalized.push(record);
-      continue;
+    if (record.type !== "action") {
+      throw new Error(`orphan ${record.type} record at step ${record.step ?? "missing"}`);
     }
-    let settled = immediate;
-    let cursor = index + 2;
-    while (cursor + 1 < records.length) {
-      const poll = records[cursor];
-      const pollState = records[cursor + 1];
-      if (
-        poll.type !== "action" ||
-        poll.command_meta?.metadata?.operator_control !== "settle_gameplay" ||
-        poll.command_meta?.metadata?.reason === "confirm_event_leave" ||
-        pollState.type !== "state"
-      ) {
+    if (!Number.isSafeInteger(record.step) || record.step < 0) {
+      throw new Error("action step must be a non-negative integer");
+    }
+    normalized.push(record);
+
+    const stateCommand = String(record.command).trim().split(/\s+/)[0].toUpperCase() === "STATE";
+    let responseIndex = index + 1;
+    let lastBoundaryKind = "missing";
+    let completed = false;
+    while (responseIndex < records.length) {
+      const response = records[responseIndex];
+      if (response.type === "metadata") {
+        normalized.push(response);
+        responseIndex += 1;
+        continue;
+      }
+      if (response.type === "external_rng") {
+        if (response.step !== record.step) {
+          throw new Error(`external_rng step ${response.step} does not match action step ${record.step}`);
+        }
+        normalized.push(response);
+        responseIndex += 1;
+        continue;
+      }
+      if (response.type === "error") {
+        if (response.step !== record.step) {
+          throw new Error(`error step ${response.step} does not match action step ${record.step}`);
+        }
+        normalized.push(response);
+        index = responseIndex;
+        completed = true;
         break;
       }
-      settled = pollState;
-      cursor += 2;
+      if (response.type !== "state") break;
+      if (response.step !== record.step) {
+        throw new Error(`state step ${response.step} does not match action step ${record.step}`);
+      }
+      const boundary = communicationBoundary(response, { allowUnsettled: true });
+      lastBoundaryKind = boundary.kind;
+      const completesCommand = stateCommand
+        ? boundary.kind === "poll"
+        : GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind);
+      if (!completesCommand) {
+        const expected = stateCommand
+          ? "poll"
+          : "interaction_ready, quiescent, or terminal";
+        throw new Error(
+          `${record.command} completed on ${boundary.kind}; expected ${expected}`,
+        );
+      }
+      normalized.push(response);
+      index = responseIndex;
+      completed = true;
+      break;
     }
-    normalized.push(record, { ...settled, step: record.step });
-    index = cursor - 1;
+    if (!completed) {
+      const commandKind = stateCommand ? "STATE" : "gameplay";
+      throw new Error(
+        `${commandKind} action at step ${record.step} produced ${lastBoundaryKind}, not a completing boundary`,
+      );
+    }
   }
   return normalized;
 }
@@ -701,6 +795,37 @@ function verifyTrace(verifierPath, tracePath) {
   return { ...parseParityOutput(output), exitCode: child.status, output };
 }
 
+function requireCommandCompletion(protocolState, command, acceptedStep, priorStateSeq) {
+  const current = protocolState?.state ?? protocolState;
+  if (!current || current.ok === false) {
+    throw new Error(`bridge did not return a completion for ${command}`);
+  }
+  if (current.step !== acceptedStep) {
+    throw new Error(`bridge completion step ${current.step} does not match action step ${acceptedStep}`);
+  }
+  if (!Number.isSafeInteger(current.state_seq) || current.state_seq <= priorStateSeq) {
+    throw new Error(`bridge completion for ${command} did not advance state_seq`);
+  }
+  const summary = current.summary;
+  if (summary?.error) return current;
+  const commandHead = String(command).trim().split(/\s+/)[0].toUpperCase();
+  if (commandHead === "PROFILE") {
+    if (summary?.type !== "profile" || typeof summary.profile !== "object" || summary.profile === null) {
+      throw new Error("PROFILE did not return typed profile metadata");
+    }
+    return current;
+  }
+  const boundary = communicationBoundary(summary);
+  const stateCommand = commandHead === "STATE";
+  const valid = stateCommand
+    ? boundary.kind === "poll"
+    : GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind);
+  if (!valid) {
+    throw new Error(`${command} completed on invalid ${boundary.kind} boundary`);
+  }
+  return current;
+}
+
 async function send(control, ownerToken, protocolState, command, metadata) {
   const response = await controlRequest(
     control,
@@ -718,12 +843,14 @@ async function send(control, ownerToken, protocolState, command, metadata) {
     25000,
   );
   if (!response.ok) throw new Error(response.error || `bridge rejected ${command}`);
-  if (
-    response.observed_update &&
-    !response.observed_update.pending_command &&
-    Number(response.observed_update.state_seq) > Number(protocolState.state_seq)
-  ) {
-    return response.observed_update;
+  const acceptedActionStep = response.step + (protocolState.summary ? 1 : 0);
+  if (response.observed_update?.ok) {
+    return requireCommandCompletion(
+      response.observed_update,
+      command,
+      acceptedActionStep,
+      protocolState.state_seq,
+    );
   }
 
   // A long animation can outlive update_timeout_ms even though the bridge has
@@ -731,12 +858,8 @@ async function send(control, ownerToken, protocolState, command, metadata) {
   // occupied slot; wait for the accepted command to finish instead.
   for (let attempt = 0; attempt < 240; attempt += 1) {
     const current = await controlRequest(control, { type: "state" });
-    if (
-      current.ok &&
-      !current.pending_command &&
-      Number(current.state_seq) > Number(protocolState.state_seq)
-    ) {
-      return current;
+    if (current.ok && !current.pending_command && current.state_seq > protocolState.state_seq) {
+      return requireCommandCompletion(current, command, acceptedActionStep, protocolState.state_seq);
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -750,7 +873,7 @@ async function main() {
     throw new Error("a live TCP-enabled CommunicationMod bridge is required");
   }
   const verifierPath = path.resolve(
-    process.env.STS_VERIFY_BIN || path.join(root, "simulator", "target", "debug", "sts_verify.exe"),
+    process.env.STS_VERIFY_BIN || defaultVerifierPath(),
   );
   if (!fs.existsSync(verifierPath)) throw new Error(`verifier binary not found: ${verifierPath}`);
 
@@ -763,15 +886,8 @@ async function main() {
   const deferVerification = process.env.STS_RANDOM_DEFER_VERIFICATION === "1";
   const sourceVersion = process.env.STS_RANDOM_SOURCE_VERSION || "working-tree";
   const traceStartedAt = new Date();
-  const gameplaySettleTimeoutMs = Number.parseInt(
-    process.env.STS_RANDOM_SETTLE_TIMEOUT_MS || "20000",
-    10,
-  );
   if (!Number.isInteger(verifyEvery) || verifyEvery < 1) {
     throw new Error("STS_RANDOM_VERIFY_EVERY must be a positive integer");
-  }
-  if (!Number.isInteger(gameplaySettleTimeoutMs) || gameplaySettleTimeoutMs < 1) {
-    throw new Error("STS_RANDOM_SETTLE_TIMEOUT_MS must be a positive integer");
   }
   // Snapshot this immediately before starting the run: the game mutates this
   // profile-scoped preference as previously unseen bosses are encountered.
@@ -848,6 +964,28 @@ async function main() {
         !availableSet(protocolState.summary).has("start_verify")) {
       throw new Error("START_VERIFY did not become available at the main menu");
     }
+    const profileState = await send(
+      status.control,
+      acquired.owner_token,
+      protocolState,
+      "PROFILE",
+      { source: "random_fidelity_collector", reason: "capture_pre_run_profile" },
+    );
+    const profile = profileState.summary?.profile;
+    if (
+      typeof profile?.note_card !== "string" ||
+      profile.note_card.trim() === "" ||
+      !Number.isSafeInteger(profile.note_upgrades) ||
+      profile.note_upgrades < 0 ||
+      profile.note_upgrades > 255
+    ) {
+      throw new Error("PROFILE returned invalid note_card or note_upgrades");
+    }
+    protocolState = await controlRequest(status.control, { type: "state" });
+    if (!protocolState.ok || !availableSet(protocolState.summary).has("start_verify")) {
+      throw new Error("bridge did not restore the command boundary after PROFILE");
+    }
+
     // The bridge-level trace is intentionally append-only for the lifetime of
     // CommunicationMod. Remember this run's byte boundary so verification does
     // not rescan every prior campaign run (or an old multi-gigabyte prefix).
@@ -862,9 +1000,7 @@ async function main() {
     });
 
     let runObserved = false;
-    let pendingGameplaySummaryKey = null;
     let pendingEventLeave = null;
-    let gameplaySettleStartedAt = null;
     let lastVerifiedActionCount = null;
     let lastVerifiedCheckpointKey = null;
     // The extra sentinel iteration settles and verifies the final commanded
@@ -894,30 +1030,6 @@ async function main() {
         continue;
       }
       if (pendingEventLeave) pendingEventLeave = false;
-      if (
-        pendingGameplaySummaryKey &&
-        needsGameplaySettlePoll(pendingGameplaySummaryKey, protocolState)
-      ) {
-        if (
-          gameplaySettleStartedAt !== null
-          && Date.now() - gameplaySettleStartedAt >= gameplaySettleTimeoutMs
-        ) {
-          throw new Error("game state did not advance after accepted gameplay command");
-        }
-        await send(status.control, acquired.owner_token, protocolState, "STATE", {
-          source: "random_fidelity_collector",
-          policy_seed: policySeed,
-          game_seed: gameSeed,
-          action_index: actionIndex,
-          operator_control: "settle_gameplay",
-        });
-        actionIndex -= 1;
-        continue;
-      }
-      if (pendingGameplaySummaryKey) {
-        pendingGameplaySummaryKey = null;
-        gameplaySettleStartedAt = null;
-      }
       if (!summary.in_game && !runObserved) {
         await send(status.control, acquired.owner_token, protocolState, "STATE", {
           source: "random_fidelity_collector",
@@ -973,6 +1085,7 @@ async function main() {
           policySeed,
           gameSeed,
           startingHp,
+          profile,
           sourceVersion,
         );
         const records = normalizeSettledGameplayRecords(rawRecords);
@@ -992,6 +1105,7 @@ async function main() {
             path.join(campaignDir, "verification_queue.jsonl"),
             `${JSON.stringify(entry)}\n`,
           );
+          fs.appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
           console.log(JSON.stringify(entry));
           return;
         }
@@ -1091,7 +1205,6 @@ async function main() {
         );
       }
       if (logActions) console.log(`[${actionIndex}] ${command}`);
-      const sourceSummaryKey = semanticStateKey(protocolState);
       const eventChoice =
         String(summary.screen_type).toUpperCase() === "EVENT" && command.startsWith("CHOOSE ");
       const neowEvent = String(summary.room_type).toLowerCase() === "neowroom";
@@ -1118,8 +1231,6 @@ async function main() {
         action_index: actionIndex,
         action_count: enumerateGameplayActions(summary).length,
       });
-      pendingGameplaySummaryKey = sourceSummaryKey;
-      gameplaySettleStartedAt = Date.now();
       pendingEventLeave = eventLeaveMode;
     }
   } finally {
@@ -1148,6 +1259,7 @@ module.exports = {
   addCollectionMetadata,
   chooseRandomAction,
   currentRunRecords,
+  defaultVerifierPath,
   enumerateGameplayActions,
   expectedFailureBoundary,
   fingerprint,
@@ -1156,7 +1268,7 @@ module.exports = {
   localBridgeTracePath,
   isPromotableFailure,
   isSoleEventLeaveScreen,
-  needsGameplaySettlePoll,
+  communicationBoundary,
   needsMapChoiceSettle,
   normalizeSettledGameplayRecords,
   parseParityOutput,
@@ -1164,9 +1276,7 @@ module.exports = {
   parseSeenBossesPreferences,
   promoteDistinctFailure,
   seededRandom,
-  semanticStateKey,
   shouldVerifyTrace,
-  stateAdvanced,
   verificationCheckpointKey,
   verifierInvocationFailed,
   verifyTrace,

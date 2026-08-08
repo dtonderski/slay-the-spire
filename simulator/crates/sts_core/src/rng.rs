@@ -1,5 +1,203 @@
 use serde::{Deserialize, Serialize};
 use serde::{Deserializer, Serializer};
+use std::{
+    cell::RefCell,
+    panic::Location,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+/// Authoritative RNG stream associated with a forensic trace event.
+///
+/// `Unknown` is intentional: callers that own an unclassified scratch RNG must
+/// not guess a stream from its seed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RngTraceStream {
+    #[default]
+    Unknown,
+    CardReward,
+    CardRandom,
+    Event,
+    Merchant,
+    Misc,
+    Monster,
+    MonsterHp,
+    Potion,
+    Relic,
+    Shuffle,
+    Treasure,
+}
+
+/// Replay command that was active when an RNG draw occurred.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct RngTraceContext {
+    pub action_step: Option<u32>,
+    pub command: Option<String>,
+}
+
+/// One target-compatible RNG operation and its returned value.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RngTraceOperation {
+    RandomInt {
+        max_inclusive: i32,
+        result: i32,
+    },
+    RandomIntRange {
+        min_inclusive: i32,
+        max_inclusive: i32,
+        result: i32,
+    },
+    RandomBool {
+        result: bool,
+    },
+    RandomFloat {
+        result: f32,
+    },
+    RandomFloatRange {
+        min_inclusive: f32,
+        max_inclusive: f32,
+        result: f32,
+    },
+    RandomLong {
+        result: i64,
+    },
+    RawNextInt {
+        bound_exclusive: i32,
+        result: i32,
+    },
+    CollectionsShuffleSwap {
+        item_count: usize,
+        source_index: usize,
+        target_index: usize,
+    },
+}
+
+/// Structured, non-semantic record of one simulator RNG call.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RngTraceEvent {
+    pub sequence: u64,
+    pub action_step: Option<u32>,
+    pub command: Option<String>,
+    pub stream: RngTraceStream,
+    pub counter_before: u32,
+    pub counter_after: u32,
+    pub operation: RngTraceOperation,
+    pub source_file: String,
+    pub source_line: u32,
+    pub source_column: u32,
+}
+
+static RNG_TRACE_ACTIVE: AtomicUsize = AtomicUsize::new(0);
+
+thread_local! {
+    static RNG_TRACE_EVENTS: RefCell<Option<Vec<RngTraceEvent>>> = const { RefCell::new(None) };
+    static RNG_TRACE_CONTEXT: RefCell<RngTraceContext> = RefCell::new(RngTraceContext::default());
+}
+
+struct RngTraceCaptureGuard {
+    previous_events: Option<Option<Vec<RngTraceEvent>>>,
+    previous_context: Option<RngTraceContext>,
+}
+
+impl RngTraceCaptureGuard {
+    fn start() -> Self {
+        RNG_TRACE_ACTIVE.fetch_add(1, Ordering::Relaxed);
+        let previous_events = RNG_TRACE_EVENTS.with(|events| events.replace(Some(Vec::new())));
+        let previous_context =
+            RNG_TRACE_CONTEXT.with(|context| context.replace(RngTraceContext::default()));
+        Self {
+            previous_events: Some(previous_events),
+            previous_context: Some(previous_context),
+        }
+    }
+
+    fn finish(mut self) -> Vec<RngTraceEvent> {
+        let events = RNG_TRACE_EVENTS.with(|slot| {
+            slot.replace(
+                self.previous_events
+                    .take()
+                    .expect("RNG trace capture guard finishes once"),
+            )
+        });
+        RNG_TRACE_CONTEXT.with(|slot| {
+            slot.replace(
+                self.previous_context
+                    .take()
+                    .expect("RNG trace context restores once"),
+            );
+        });
+        RNG_TRACE_ACTIVE.fetch_sub(1, Ordering::Relaxed);
+        events.expect("active RNG trace capture owns an event buffer")
+    }
+}
+
+impl Drop for RngTraceCaptureGuard {
+    fn drop(&mut self) {
+        let Some(previous_events) = self.previous_events.take() else {
+            return;
+        };
+        RNG_TRACE_ACTIVE.fetch_sub(1, Ordering::Relaxed);
+        RNG_TRACE_EVENTS.with(|slot| {
+            slot.replace(previous_events);
+        });
+        if let Some(previous_context) = self.previous_context.take() {
+            RNG_TRACE_CONTEXT.with(|slot| {
+                slot.replace(previous_context);
+            });
+        }
+    }
+}
+
+/// Captures RNG calls made synchronously on the current thread while `f` runs.
+/// Tracing is inactive outside this scope and does not affect RNG state.
+pub fn capture_rng_trace<T>(f: impl FnOnce() -> T) -> (T, Vec<RngTraceEvent>) {
+    let guard = RngTraceCaptureGuard::start();
+    let value = f();
+    let events = guard.finish();
+    (value, events)
+}
+
+/// Sets the replay command attached to subsequent events in the active capture.
+/// This is diagnostic context only and is ignored when tracing is inactive.
+pub fn set_rng_trace_context(context: RngTraceContext) {
+    RNG_TRACE_CONTEXT.with(|slot| {
+        slot.replace(context);
+    });
+}
+
+fn record_rng_trace_event(
+    stream: RngTraceStream,
+    counter_before: u32,
+    counter_after: u32,
+    operation: RngTraceOperation,
+    caller: &'static Location<'static>,
+) {
+    // Normal simulation and corpus verification never touch thread-local trace
+    // state beyond this predictable disabled branch.
+    if RNG_TRACE_ACTIVE.load(Ordering::Relaxed) == 0 {
+        return;
+    }
+    RNG_TRACE_EVENTS.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let Some(events) = slot.as_mut() else {
+            return;
+        };
+        let context = RNG_TRACE_CONTEXT.with(|context| context.borrow().clone());
+        events.push(RngTraceEvent {
+            sequence: events.len() as u64,
+            action_step: context.action_step,
+            command: context.command,
+            stream,
+            counter_before,
+            counter_after,
+            operation,
+            source_file: caller.file().to_owned(),
+            source_line: caller.line(),
+            source_column: caller.column(),
+        });
+    });
+}
 
 /// Largest RNG draw counter representable by the target game's signed Java
 /// `int` field.
@@ -15,12 +213,23 @@ pub(crate) const fn rng_counter_is_supported(counter: u32) -> bool {
 /// The game class `com.megacrit.cardcrawl.random.Random` wraps libGDX
 /// `RandomXS128`, increments `counter` once per public draw, and uses inclusive
 /// integer bounds for `random(min, max)`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StsRng {
     seed0: u64,
     seed1: u64,
     counter: u32,
+    /// Diagnostic metadata only; snapshots and equality intentionally ignore it.
+    #[serde(skip)]
+    trace_stream: RngTraceStream,
 }
+
+impl PartialEq for StsRng {
+    fn eq(&self, other: &Self) -> bool {
+        self.seed0 == other.seed0 && self.seed1 == other.seed1 && self.counter == other.counter
+    }
+}
+
+impl Eq for StsRng {}
 
 /// Java `java.util.Random` compatibility helper.
 ///
@@ -85,6 +294,7 @@ impl StsRng {
             seed0,
             seed1,
             counter: 0,
+            trace_stream: RngTraceStream::Unknown,
         }
     }
 
@@ -95,6 +305,21 @@ impl StsRng {
         rng
     }
 
+    /// Constructs a restored RNG with an explicit non-semantic trace label.
+    #[must_use]
+    pub fn with_counter_for_stream(seed: i64, counter: u32, trace_stream: RngTraceStream) -> Self {
+        let mut rng = Self::with_counter(seed, counter);
+        rng.trace_stream = trace_stream;
+        rng
+    }
+
+    /// Attaches an explicit non-semantic trace label to this RNG.
+    #[must_use]
+    pub fn for_stream(mut self, trace_stream: RngTraceStream) -> Self {
+        self.trace_stream = trace_stream;
+        self
+    }
+
     /// Restore a mid-stream RandomXS128 state (seed pair + public draw counter).
     /// Used by seed-start diagnostics and tests that continue from a snapshot.
     #[must_use]
@@ -103,6 +328,7 @@ impl StsRng {
             seed0,
             seed1,
             counter,
+            trace_stream: RngTraceStream::Unknown,
         }
     }
 
@@ -125,57 +351,158 @@ impl StsRng {
             target >= self.counter,
             "STS RNG counter cannot move backwards"
         );
+        // Restoring a counter reconstructs hidden state; it is not a new
+        // gameplay draw and therefore must not emit synthetic trace events.
         while self.counter < target {
-            self.random_bool();
+            self.counter += 1;
+            let _ = self.next_long();
         }
     }
 
+    #[track_caller]
     pub fn random_int(&mut self, max_inclusive: i32) -> i32 {
         assert!(max_inclusive >= 0, "STS RNG max must be non-negative");
+        let counter_before = self.counter;
         self.counter += 1;
-        self.next_int(max_inclusive + 1)
+        let result = self.next_int(max_inclusive + 1);
+        record_rng_trace_event(
+            self.trace_stream,
+            counter_before,
+            self.counter,
+            RngTraceOperation::RandomInt {
+                max_inclusive,
+                result,
+            },
+            Location::caller(),
+        );
+        result
     }
 
+    #[track_caller]
     pub fn random_int_range(&mut self, min_inclusive: i32, max_inclusive: i32) -> i32 {
         assert!(
             max_inclusive >= min_inclusive,
             "STS RNG range must be ordered"
         );
+        let counter_before = self.counter;
         self.counter += 1;
-        min_inclusive + self.next_int(max_inclusive - min_inclusive + 1)
+        let result = min_inclusive + self.next_int(max_inclusive - min_inclusive + 1);
+        record_rng_trace_event(
+            self.trace_stream,
+            counter_before,
+            self.counter,
+            RngTraceOperation::RandomIntRange {
+                min_inclusive,
+                max_inclusive,
+                result,
+            },
+            Location::caller(),
+        );
+        result
     }
 
+    #[track_caller]
     pub fn random_bool(&mut self) -> bool {
+        let counter_before = self.counter;
         self.counter += 1;
-        (self.next_long() & 1) != 0
+        let result = (self.next_long() & 1) != 0;
+        record_rng_trace_event(
+            self.trace_stream,
+            counter_before,
+            self.counter,
+            RngTraceOperation::RandomBool { result },
+            Location::caller(),
+        );
+        result
     }
 
+    #[track_caller]
     pub fn random_float(&mut self) -> f32 {
+        let counter_before = self.counter;
         self.counter += 1;
-        ((self.next_long() >> 40) as f64 * 5.960_464_477_539_063e-8) as f32
+        let result = ((self.next_long() >> 40) as f64 * 5.960_464_477_539_063e-8) as f32;
+        record_rng_trace_event(
+            self.trace_stream,
+            counter_before,
+            self.counter,
+            RngTraceOperation::RandomFloat { result },
+            Location::caller(),
+        );
+        result
     }
 
+    #[track_caller]
     pub fn random_float_range(&mut self, min_inclusive: f32, max_inclusive: f32) -> f32 {
         assert!(
             max_inclusive >= min_inclusive,
             "STS RNG float range must be ordered"
         );
-        min_inclusive + self.random_float() * (max_inclusive - min_inclusive)
-    }
-
-    pub fn random_long(&mut self) -> i64 {
+        let counter_before = self.counter;
         self.counter += 1;
-        self.next_long() as i64
+        let unit = ((self.next_long() >> 40) as f64 * 5.960_464_477_539_063e-8) as f32;
+        let result = min_inclusive + unit * (max_inclusive - min_inclusive);
+        record_rng_trace_event(
+            self.trace_stream,
+            counter_before,
+            self.counter,
+            RngTraceOperation::RandomFloatRange {
+                min_inclusive,
+                max_inclusive,
+                result,
+            },
+            Location::caller(),
+        );
+        result
     }
 
+    #[track_caller]
+    pub fn random_long(&mut self) -> i64 {
+        let counter_before = self.counter;
+        self.counter += 1;
+        let result = self.next_long() as i64;
+        record_rng_trace_event(
+            self.trace_stream,
+            counter_before,
+            self.counter,
+            RngTraceOperation::RandomLong { result },
+            Location::caller(),
+        );
+        result
+    }
+
+    #[track_caller]
     pub fn raw_next_int(&mut self, bound_exclusive: i32) -> i32 {
-        self.next_int(bound_exclusive)
+        let result = self.next_int(bound_exclusive);
+        record_rng_trace_event(
+            self.trace_stream,
+            self.counter,
+            self.counter,
+            RngTraceOperation::RawNextInt {
+                bound_exclusive,
+                result,
+            },
+            Location::caller(),
+        );
+        result
     }
 
     /// Fisher-Yates shuffle matching Java `Collections.shuffle` with raw `RandomXS128`.
+    #[track_caller]
     pub fn collections_shuffle<T>(&mut self, items: &mut [T]) {
-        for i in (2..=items.len()).rev() {
-            let j = self.raw_next_int(i as i32) as usize;
+        let item_count = items.len();
+        for i in (2..=item_count).rev() {
+            let j = self.next_int(i as i32) as usize;
+            record_rng_trace_event(
+                self.trace_stream,
+                self.counter,
+                self.counter,
+                RngTraceOperation::CollectionsShuffleSwap {
+                    item_count,
+                    source_index: i - 1,
+                    target_index: j,
+                },
+                Location::caller(),
+            );
             items.swap(i - 1, j);
         }
     }
@@ -355,6 +682,64 @@ mod tests {
         assert_eq!(
             advanced.clone().random_int(99),
             stepped.clone().random_int(99)
+        );
+    }
+
+    #[test]
+    fn rng_trace_records_named_stream_context_result_and_call_site() {
+        let ((first, second), events) = capture_rng_trace(|| {
+            set_rng_trace_context(RngTraceContext {
+                action_step: Some(41),
+                command: Some("END".to_owned()),
+            });
+            let mut rng =
+                StsRng::with_counter_for_stream(22_079_335_079, 2, RngTraceStream::CardRandom);
+            (rng.random_int(99), rng.random_bool())
+        });
+
+        assert_eq!((first, second), (52, true));
+        assert_eq!(events.len(), 2, "counter restoration must not emit draws");
+        assert_eq!(events[0].sequence, 0);
+        assert_eq!(events[0].action_step, Some(41));
+        assert_eq!(events[0].command.as_deref(), Some("END"));
+        assert_eq!(events[0].stream, RngTraceStream::CardRandom);
+        assert_eq!((events[0].counter_before, events[0].counter_after), (2, 3));
+        assert!(matches!(
+            events[0].operation,
+            RngTraceOperation::RandomInt {
+                max_inclusive: 99,
+                result: 52
+            }
+        ));
+        assert!(events[0].source_file.ends_with("rng.rs"));
+        assert!(events[0].source_line > 0);
+    }
+
+    #[test]
+    fn rng_trace_capture_restores_disabled_fast_path_after_panic() {
+        let result = std::panic::catch_unwind(|| {
+            let _ = capture_rng_trace(|| {
+                let mut rng = StsRng::new(1);
+                let _ = rng.random_bool();
+                panic!("test panic");
+            });
+        });
+
+        assert!(result.is_err());
+        assert_eq!(RNG_TRACE_ACTIVE.load(Ordering::Relaxed), 0);
+        let (_, events) = capture_rng_trace(|| StsRng::new(2).random_bool());
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn trace_label_is_nonsemantic_and_not_serialized() {
+        let unknown = StsRng::new(7);
+        let named = unknown.clone().for_stream(RngTraceStream::Monster);
+
+        assert_eq!(unknown, named);
+        assert_eq!(
+            serde_json::to_value(&unknown).expect("serialize unknown RNG"),
+            serde_json::to_value(&named).expect("serialize named RNG")
         );
     }
 

@@ -13,6 +13,8 @@ __pycache__/
 # Scratch / local handoff artifacts
 tmp/
 sendToDevs/
+.pi-subagents/
+HANDOFF.md
 *.log
 
 # Live trace UI frontend dependencies/build output
@@ -54,6 +56,10 @@ random_traces_loop/repair_*/
 random_traces_loop/repair_integration/
 random_traces_loop/complete_pass_overnight/inventory/inventory.pid
 random_traces_loop/complete_pass_overnight/inventory/INVENTORY_*
+random_traces_loop/*.pid
+random_traces_loop/schema_v1_smoke/
+# Generated frozen patch payload; the small manifests and hashes remain durable.
+random_traces_loop/schema_v1_strict_inventory_2026-08-07/source.patch
 
 # Local live captures / agent scratch
 live_traces/

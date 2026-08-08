@@ -35,7 +35,7 @@ use crate::{
         apply_discard_select_choice, apply_discard_select_confirm, apply_draw_select_choice,
         apply_draw_select_confirm, apply_exhaust_select_choice, apply_exhaust_select_confirm,
         apply_hand_select_choice, apply_hand_select_confirm, apply_potion_action,
-        settle_pending_hand_discovery_card_reward_rng, settle_pending_potion_card_reward_rng,
+        settle_pending_potion_card_reward_rng,
     },
     run::shop::apply_shop_action,
     run::state::{
@@ -1249,6 +1249,9 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) -> SimResult<
     );
     consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run))?;
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
+    // Egg preview on the reward screen upgrades content ids for display. Searing
+    // Blow's multi-upgrade counter is applied only by natural upgrade rolls here;
+    // TakeCardReward must not re-apply obtain eggs on these finalized instances.
     for choice in &mut choices {
         choice.content_id = run.content_id_after_card_add_relics(choice.content_id)?;
     }
@@ -1713,6 +1716,12 @@ fn enter_next_act_map(run: &mut RunState) -> SimResult<()> {
     run.current_room_override = None;
     run.normal_combat_count = 0;
     run.elite_combat_count = 0;
+    // NOTE: Target AbstractDungeon.initializeRelicList reshuffles every act.
+    // Calling reinitialize_ironclad_relic_pools_for_new_act() here is source-
+    // correct but currently desyncs act-2 treasure fronts on FIDL00241 (Singing
+    // Bowl vs Kunai at step 551) — likely relic_rng counter drift before the
+    // act boundary. Do not enable until that counter is proven aligned; shop
+    // tail desync (FIDL00241 choices[8]) remains open under depleted act-1 pools.
     if !run.has_mark_of_bloom() {
         run.player_hp = run.player_max_hp;
     }
@@ -1885,7 +1894,6 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     let transition = apply_combat_action_with_events(&combat_for_action, action)?;
     let mut next_combat = transition.state;
     if matches!(action, CombatAction::EndTurn) {
-        settle_pending_hand_discovery_card_reward_rng(&mut next_combat);
         settle_pending_potion_card_reward_rng(&mut next_combat)?;
     }
     let mut next = run.clone();
@@ -1941,6 +1949,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     if next_combat.phase == CombatPhase::Won {
+        next.store_rng_counter(RunRngStream::CardRandom, &next_combat.rng.card_random_rng);
         let colosseum_first_fight = next_combat.monsters.len() == 2
             && next_combat.monsters[0].content_id == SLAVER_BLUE_ID
             && next_combat.monsters[1].content_id == SLAVER_RED_ID;
@@ -2183,6 +2192,26 @@ fn apply_fairy_if_lethal(
     Ok(true)
 }
 
+fn apply_combat_loss_proceed(run: &RunState) -> SimResult<RunState> {
+    if run.phase != RunPhase::Combat
+        || !run
+            .combat
+            .as_ref()
+            .is_some_and(|combat| combat.phase == CombatPhase::Lost)
+    {
+        return Err(SimError::IllegalAction(
+            "proceed from combat requires a lost combat",
+        ));
+    }
+    let mut next = run.clone();
+    next.phase = RunPhase::Complete;
+    next.combat = None;
+    next.reward = None;
+    next.event = None;
+    next.card_grid = None;
+    Ok(next)
+}
+
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     run.validate()?;
 
@@ -2190,6 +2219,7 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
         RunAction::OpenChest => apply_treasure_action(run, action),
         RunAction::Proceed if run.phase == RunPhase::Reward => apply_reward_action(run, action),
         RunAction::Proceed if run.phase == RunPhase::Shop => apply_shop_action(run, action),
+        RunAction::Proceed if run.phase == RunPhase::Combat => apply_combat_loss_proceed(run),
         RunAction::Proceed => apply_treasure_action(run, action),
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
@@ -2234,6 +2264,11 @@ pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<
             }
             if run.treasure_room.is_some() {
                 Ok(())
+            } else if run.current_room_kind() == Some(RoomKind::Boss) && run.boss_chest_opened {
+                // After a boss relic is claimed the room stays Treasure until PROCEED,
+                // but the chest is no longer openable. Treat as illegal rather than
+                // invalid so legal-action enumeration can still surface Proceed.
+                Err(SimError::IllegalAction("boss chest is already resolved"))
             } else {
                 Err(SimError::InvalidState("treasure room is missing"))
             }
@@ -2334,7 +2369,10 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .retain(|queued| *queued != choices);
             reward.choices.clear();
             reward.consume_active_card_reward()?;
-            next.add_deck_card(choice)?;
+            // Reward choices are already egg-previewed / upgrade-rolled at generation.
+            // Adding them as ordinary obtains would re-apply Molten/Toxic/Frozen Egg and
+            // double-upgrade Searing Blow (FIDL01326 step 691).
+            next.add_finalized_reward_deck_card(choice)?;
             return_to_reward_continuation_if_empty(&mut next);
         }
         RunAction::TakeSingingBowlReward => {
@@ -2486,7 +2524,21 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 enter_spire_heart_event(&mut next)?;
                 return Ok(next);
             }
-            close_reward_overlay(&mut next, RewardCloseReason::Proceed)?;
+            // Act 1/2 boss combat-reward PROCEED advances into the boss chest room,
+            // matching SkipReward on the empty post-boss combat-reward screen.
+            let is_boss_combat_reward = next.current_room_kind() == Some(RoomKind::Boss)
+                && !next.boss_chest_opened
+                && next.reward.as_ref().is_some_and(|reward| {
+                    reward.continuation == RewardContinuation::None
+                        && reward.boss_relic_choices.is_empty()
+                        && reward.pending_relic_offer.is_none()
+                        && reward.queued_relic_offers.is_empty()
+                });
+            if is_boss_combat_reward {
+                enter_boss_reward_chest(&mut next)?;
+            } else {
+                close_reward_overlay(&mut next, RewardCloseReason::Proceed)?;
+            }
         }
         RunAction::OpenChest => {
             unreachable!("validated reward action")
@@ -2876,7 +2928,7 @@ mod tests {
 
     #[test]
     fn combat_entropic_brew_fill_matches_fidelity_trace_5f3f2d8c() {
-        // permanent_traces/random-fidelity-5f3f2d8cafb4a224.jsonl
+        // Archived schema-v0 witness random-fidelity-5f3f2d8cafb4a224.jsonl.
         // After floor-1 Entropic Brew reward, potion_rng_counter is 6. Combat use
         // fills three empty slots with Attack, Attack, Swift.
         let mut potion_rng = StsRng::with_counter(34961238620706_i64, 6);
@@ -3806,6 +3858,47 @@ mod tests {
 
         assert_eq!(run.current_act, 3);
         assert_eq!(run.potion_chance, 0);
+    }
+
+    #[test]
+    fn reinitialize_relic_pools_reshuffles_and_strips_owned() {
+        // AbstractDungeon.initializeRelicList: five relicRng.randomLong shuffles
+        // + remove owned. Helper is unit-tested; act-transition wiring waits on
+        // relic_rng counter parity (see design_act_relic_pool_reinit.md).
+        let mut run = RunState::map_fixture();
+        run.ensure_ironclad_relic_pools();
+        let counter_after_first = run.relic_rng_counter;
+        let common_len = run.relic_pools.as_ref().expect("pools").common.len();
+        if let Some(pools) = run.relic_pools.as_mut() {
+            pools.common.clear();
+            pools.remove_relic(crate::relic::RelicKey::MawBank);
+        }
+        run.relics.push(Relic::MawBank);
+
+        run.reinitialize_ironclad_relic_pools_for_new_act();
+
+        assert_eq!(
+            run.relic_rng_counter,
+            counter_after_first + 5,
+            "each init burns five randomLong shuffles"
+        );
+        let pools = run.relic_pools.as_ref().expect("pools after reinit");
+        assert_eq!(
+            pools.common.len(),
+            common_len - 1,
+            "reinit repopulates common minus owned MawBank"
+        );
+        assert!(
+            pools
+                .common
+                .iter()
+                .chain(pools.uncommon.iter())
+                .chain(pools.rare.iter())
+                .chain(pools.shop.iter())
+                .chain(pools.boss.iter())
+                .all(|key| *key != crate::relic::RelicKey::MawBank),
+            "owned relics must be stripped after reshuffle"
+        );
     }
 
     #[test]

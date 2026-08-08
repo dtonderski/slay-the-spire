@@ -32,15 +32,20 @@ pub(super) fn move_card_between_piles(
     };
     move_card(state, card_id, from, to)?;
     let mut follow_ups = Vec::new();
-    if from == CardPile::Hand && state.piles.hand.is_empty() {
-        apply_unceasing_top_after_hand_emptied(state)?;
-    }
+    let hand_emptied = from == CardPile::Hand && state.piles.hand.is_empty();
     if to == CardPile::ExhaustPile {
         if hand_exhaust_is_attack {
             follow_ups.push(InternalAction::HandCardExhausted { card_id });
         } else {
             follow_ups.push(InternalAction::CardExhausted { card_id });
         }
+    }
+    // Unceasing Top is an addToBot-style follow-up after the exhaust callback
+    // queue. Dead Branch/Feel No Pain/Dark Embrace must get the first chance to
+    // refill the hand, otherwise the immediate draw steals the source card's
+    // next RNG/card-order slot when the last hand card exhausts.
+    if hand_emptied && state.relics.contains(&crate::relic::Relic::UnceasingTop) {
+        follow_ups.push(InternalAction::UnceasingTopDraw);
     }
     Ok(follow_ups)
 }

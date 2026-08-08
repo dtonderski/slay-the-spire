@@ -28,13 +28,15 @@ divergences fail verification and remain evidence — they are not greenwashed
 via expectation grades or silent truncation.
 
 No passing outcome may be produced from empty diff lists alone. It also
-requires zero unsupported transitions, zero ignored-tail actions, no replay
-boundary, and complete action-integrity evidence (one disposition per
-applicable action, no duplicates, no unresolved transient assertions).
+requires zero unsupported transitions, no replay boundary, and complete
+action-integrity evidence: one disposition per applicable action and no
+duplicates.
 
-The `parity` command uses clean-through-EOF by default: exit `0` for
+The `parity` command streams clean-through-EOF by default: exit `0` for
 `complete_pass`, `1` for invalid input, and `2` for a valid trace that fails.
-Optional `--require-terminal` requires a full game-over run. There is no
+Optional `--require-terminal` requires a full game-over run. Diagnostic
+`--diagnostic-early-exit` stops at the first semantic boundary but records
+`eof_validated=false`, so it can never pass or promote a trace. There is no
 expectation manifest.
 
 ## Real-Game Comparison
@@ -61,15 +63,18 @@ simulated projection <-> observed projection
 
 The simulated projection accepts simulator state only. The observed post-state
 is expected output and cannot select content, repair RNG, reconstruct a screen,
-or otherwise mutate authoritative simulation state. Busy or otherwise transient
-frames create deferred assertions. A later stable frame must reconcile them;
-an unresolved assertion is not verified coverage.
+or otherwise mutate authoritative simulation state. Every action must complete
+immediately with its same-step authoritative state or error. `STATE` completes
+only on `poll`; gameplay completes only on `interaction_ready`, `quiescent`, or
+`terminal`. Intermediate, transient, delayed, or later-frame completion is
+invalid input rather than deferred verification.
 
 Use `parity` for a trace that claims complete terminal replay:
 
 ```powershell
 cd simulator
-uv run -- cargo run -q -p sts_verify --bin sts_verify -- parity verification\corpus\permanent_traces\trace-session-8.jsonl
+uv run -- cargo build --release -p sts_verify --bin sts_verify
+target\release\sts_verify parity --require-terminal verification\corpus\permanent_traces\trace-session-8.jsonl
 ```
 
 Use `replay` when the goal is to inspect or persist the simulator state
@@ -90,9 +95,11 @@ returns the simulator state at the frontier, but exits `2`; it is not silently
 treated as a successful complete replay. The exit codes are `0` for complete,
 `1` for invalid input, and `2` for a valid trace that reaches a boundary.
 
-Replay and parity share the same transition engine. CommunicationMod post-state
-observations are comparison evidence only, including when a trace is replayed
-with `--at-step` or `--timeline`.
+Replay and parity share the same streaming transition engine. After the first
+semantic difference, simulator execution stops but strict input parsing,
+terminality, and disposition accounting continue through EOF. CommunicationMod
+post-state observations are comparison evidence only, including when a trace is
+replayed with `--at-step` or `--timeline`.
 
 Use directory discovery for corpus-wide status:
 
@@ -104,8 +111,9 @@ uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown perma
 The green permanent corpus is every `permanent_traces/*.jsonl` file. Each must
 verify clean through EOF. There is no `permanent_traces.json` expectation
 manifest. Open simulator-fail witnesses live outside that gate (for example
-`open_failures/`). Parallel jobs default to a small worker cap (`STS_VERIFY_JOBS`)
-to avoid OOM on large traces.
+`open_failures/`). Parallel jobs render deterministically in input order and default to at most
+four workers. `STS_VERIFY_JOBS` is bounded by trace count, available CPUs, and a
+hard cap of eight.
 
 The permanent corpus is a **regression lock**, not a residual-rate proof. For the
 combined Phase 3A fidelity confidence gate—zero known failures, permanent and
@@ -165,16 +173,14 @@ exceptions are:
 | RNG counters not exported by CommunicationMod | Do not compare the counter directly; verify its effects in later visible offers, piles, encounters, and intents | The observation contains outcomes, not hidden stream positions |
 | Runic Dome monster intent and move ID | Omit both from observed and simulated projections while the relic hides intent | The player cannot observe them |
 | Missing target `move_id` | Omit the simulated `move_id` only for that monster and frame | Some CommunicationMod frames do not export it |
-| `DEBUG` monster intent | Omit intent only on the unsettled frame and require later stable reconciliation | `DEBUG` is an animation/update sentinel, not a settled intent |
 | Dead-monster Strength, Ritual, and Vulnerable | Omit only after that monster is dead | CommunicationMod exposes terminal powers inconsistently and they cannot affect future transitions |
 | Intent and move ID after player or monster death | Omit only on the terminal frame | No later player decision can observe or act on them |
-| Busy combat fields | Compare the stable portion immediately and defer HP, block, energy, piles, and monsters until a stable frame | Animation frames can precede the authoritative settled observation |
 
 These exceptions affect comparison projections only. They never authorize
-mutation of simulator state. Living-monster powers and stable-frame intent,
-HP, block, energy, pile order, rewards, relics, potions, deck, and choices remain
-strict. Any deferred assertion that does not reconcile fails the integrity
-gate.
+mutation of simulator state. Living-monster powers and authoritative-boundary
+intent, HP, block, energy, pile order, rewards, relics, potions, deck, and
+choices remain strict. A non-authoritative intermediate frame invalidates the
+trace; it is never folded into or reconciled by a later observation.
 
 Seed conversion status:
 

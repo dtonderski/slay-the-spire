@@ -152,8 +152,8 @@ where
                 let session_id = SessionId((*session_id).to_owned());
                 let permanent_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                     .join("../../verification/corpus/permanent_traces");
-                let path = store
-                    .copy_verified_trace_prefix_to_permanent_corpus(&session_id, &permanent_root)?;
+                let path =
+                    store.copy_verified_trace_to_permanent_corpus(&session_id, &permanent_root)?;
                 let run_id = store.attached_slaythedata_run_id(&session_id)?;
                 if let Some(run_id) = run_id {
                     store.mark_slaythedata_run_in_corpus(run_id, &path)?;

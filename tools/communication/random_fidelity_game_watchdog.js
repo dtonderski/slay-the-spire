@@ -181,7 +181,7 @@ async function main() {
       process.exit(stopping ? 0 : childExitCode || 1);
     }
     const endpoint = readControlEndpoint(sessionDir);
-    const stalePending = endpoint?.pendingSinceMs !== null &&
+    const stalePending = endpoint?.pendingSinceMs != null &&
       Date.now() - endpoint.pendingSinceMs >= pendingTimeoutMs;
     const healthy = !stalePending && await probeControl(endpoint);
     if (healthy) {

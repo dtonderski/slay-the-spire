@@ -9,7 +9,7 @@ pub mod sim_real;
 pub mod slaythedata;
 pub mod trace;
 
-pub use diff::canonical_diff;
+pub use diff::{canonical_diff, canonical_value_diff};
 pub use minimize::{
     minimize_communication_mod_trace, serialize_communication_mod_trace, MinimizeError,
     MinimizeFailureKind, MinimizeReport,
@@ -23,11 +23,13 @@ pub use seed::{
     STS_SEED_ALPHABET,
 };
 pub use sim_real::{
-    replay_communication_mod_trace, verify_communication_mod_trace,
-    verify_seed_start_communication_mod_trace, ActionDisposition, ActionDispositionKind,
-    ReplayCheckpoint, ReplayCheckpointState, ReplayResult, SeedStartBoundary, SeedStartReport,
-    SimRealError, SimRealReport, StartRunCommand, UnexpectedDiff, UnsupportedTransition,
-    VerifiedTransition, REPLAY_ARTIFACT_SCHEMA,
+    replay_communication_mod_trace, replay_communication_mod_trace_reader,
+    verify_communication_mod_trace, verify_communication_mod_trace_diagnostic_reader,
+    verify_communication_mod_trace_reader, verify_seed_start_communication_mod_trace,
+    ActionDisposition, ActionDispositionKind, ReplayCheckpoint, ReplayCheckpointState,
+    ReplayResult, SeedStartBoundary, SeedStartReport, SimRealError, SimRealReport, StartRunCommand,
+    UnexpectedDiff, UnsupportedTransition, VerificationReadMode, VerifiedTransition,
+    REPLAY_ARTIFACT_SCHEMA,
 };
 pub use slaythedata::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,
@@ -44,9 +46,9 @@ pub use slaythedata::{
     SLAYTHEDATA_IMPORT_SCHEMA_VERSION, SLAYTHEDATA_NORMAL_MAX_FLOOR_REACHED,
 };
 pub use trace::{
-    import_communication_mod_trace, parse_trace_jsonl, CommunicationModTrace, ManualFixture,
-    TraceAction, TraceError, TraceExternalRng, TraceLine, TraceMetadata, TraceProfile,
-    TraceRunConfig, TraceState,
+    import_communication_mod_trace, parse_trace_jsonl, parse_trace_jsonl_line,
+    CommunicationModTrace, ManualFixture, TraceAction, TraceError, TraceExternalRng, TraceLine,
+    TraceMetadata, TraceProfile, TraceRunConfig, TraceState,
 };
 
 use std::path::{Path, PathBuf};

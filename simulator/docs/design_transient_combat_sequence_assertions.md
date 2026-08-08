@@ -1,5 +1,9 @@
 # Transient combat sequence assertions
 
+> **Historical and superseded.** Boundary schema v1 removed transient combat
+> sequences, pending dispositions, and deferred reconciliation. Intermediate
+> same-step states are invalid rather than foldable verification evidence.
+
 ## Problem
 
 CommunicationMod can expose a command-ready `GRID` or `HAND_SELECT` while its

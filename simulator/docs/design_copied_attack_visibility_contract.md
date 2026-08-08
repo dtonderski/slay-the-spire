@@ -1,5 +1,9 @@
 # Copied-attack visibility contract
 
+> **Historical and superseded.** Boundary schema v1 removed copied-attack
+> visibility deferral and later-frame reconciliation. Active replay requires an
+> immediate same-step authoritative completion.
+
 ## Problem
 
 The seed-start verifier used one predicate to combine three different facts:

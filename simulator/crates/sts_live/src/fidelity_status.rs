@@ -103,7 +103,6 @@ mod tests {
 
         let status = unexpected_diff_status(&SimRealReport {
             total_actions: 1,
-            ignored_tail_actions: 0,
             action_dispositions: Vec::new(),
             action_integrity: None,
             verified: Vec::new(),
@@ -121,7 +120,6 @@ mod tests {
     fn seed_start_unexpected_diff_takes_priority_over_later_boundary() {
         let status = seed_start_status(&SimRealReport {
             total_actions: 2,
-            ignored_tail_actions: 0,
             action_dispositions: Vec::new(),
             action_integrity: None,
             verified: Vec::new(),

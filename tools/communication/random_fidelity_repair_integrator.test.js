@@ -45,8 +45,8 @@ assert.strictEqual(
 assert.strictEqual(
   verifierBinaryPath("/tmp/integration-target"),
   process.platform === "win32"
-    ? "\\tmp\\integration-target\\debug\\sts_verify.exe"
-    : "/tmp/integration-target/debug/sts_verify",
+    ? "\\tmp\\integration-target\\release\\sts_verify.exe"
+    : "/tmp/integration-target/release/sts_verify",
 );
 assert.strictEqual(
   uvCommand({ STS_RANDOM_UV_BIN: "/opt/tools/uv" }),

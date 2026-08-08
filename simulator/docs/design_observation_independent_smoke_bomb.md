@@ -1,5 +1,9 @@
 # Observation-independent Smoke Bomb verification
 
+> **Historical and superseded.** Boundary schema v1 removed Smoke Bomb UI
+> staging and deferred visibility reconciliation. Active replay accepts only an
+> immediate same-step authoritative completion and never carries later frames.
+
 ## Problem
 
 The target game exposes Smoke Bomb escape through asynchronous UI frames. The

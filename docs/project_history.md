@@ -89,6 +89,15 @@ kind are now captured as typed call-time trace inputs rather than inferred from
 post-state. The vanilla audit found this exact card-selection path only for
 Courier; any later path needs separate evidence and metadata.
 
+Timing-dependent action screens later exposed a second trace-contract problem:
+CommunicationMod can emit a natural state while a command is still crossing the
+process pipe, so arrival order is not causal order. Boundary schema 1 now labels
+poll, interaction-ready, quiescent, and terminal responses and records action
+identity/update and queue metadata. The bridge keeps one command in flight,
+settles it only on the matching declared boundary class, and ignores overtaking
+transport states without semantic state guessing. Complete live runs validated
+this contract before continuous random collection resumed.
+
 Sources: `simulator/SLAYTHEDATA_CLI_COLLECTION_STATUS.md` and the July 2026
 SlayTheData and fidelity history; [`research.md`](research.md);
 [`phase3a_statistical_fidelity_gate.md`](../simulator/docs/phase3a_statistical_fidelity_gate.md).
@@ -157,6 +166,29 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   audits.
 - Fairness belongs at explicit observation boundaries; debug state may remain
   omniscient while final policies receive only public information.
+- Communication boundary schema v1 made command settlement contractual rather
+  than observational: `STATE` closes only on `poll`, gameplay closes only on an
+  explicit ready/quiescent/terminal boundary, and steps and timing metadata fail
+  closed. On 2026-08-07 the project ended schema-v0 compatibility entirely:
+  1,258 old traces were byte-verified into immutable forensic archives before
+  active copies and the legacy constructor, folding, hydration, candidate, and
+  deferred-frame paths were removed. Replay now accepts explicit metadata/state
+  schema 1 with typed profile/RNG input and executes one simulator-owned
+  transition. Old passes are evidence, not supported inputs; honest early v1
+  failures are a more trustworthy simulator backlog than re-anchored parity.
+  Final independent review also made archive/discovery tooling fail closed on
+  missing roots and non-Communication provenance, reconciled aggregate entries
+  against every declared archive manifest, and removed stale positional combat
+  target fallback from both replay and live automation. The final strict path
+  streams JSONL through EOF, preserving first differences and full accounting
+  without retaining observations; diagnostic early exit is explicitly
+  non-promotable. Typed projection comparison and bounded deterministic workers
+  reduced FIDL01288 release RSS to 5,376 KiB and median time to 0.26 seconds,
+  versus 755,136 KiB and 2.32 seconds for the old debug baseline. The command
+  producer now withholds non-completing `unknown` states while the collector
+  continues to reject any intermediate same-step state rather than choosing a
+  later observation. Fresh terminal FIDL01303 bound the final release verifier
+  hash and advanced the strict collection ledger with exact EOF accounting.
 
 ## Open Strategic Questions
 

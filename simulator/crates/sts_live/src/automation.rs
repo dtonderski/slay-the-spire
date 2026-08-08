@@ -1424,15 +1424,14 @@ fn live_hand_slot(state: &LiveState, hand_position: usize) -> Option<usize> {
 
 fn live_monster_slot(state: &LiveState, combat: &CombatState, target: MonsterId) -> Option<usize> {
     let position = monster_position(combat, target)?;
-    let live_slot = state
+    state
         .raw
         .pointer("/summary/combat/monsters")
         .and_then(Value::as_array)
         .and_then(|monsters| monsters.get(position))
         .and_then(|monster| monster.get("index"))
         .and_then(Value::as_u64)
-        .and_then(|slot| usize::try_from(slot).ok());
-    live_slot.or(Some(position))
+        .and_then(|slot| usize::try_from(slot).ok())
 }
 
 fn monster_position(combat: &CombatState, target: MonsterId) -> Option<usize> {
@@ -2010,6 +2009,8 @@ mod tests {
                 source_card_id: source.id,
                 selected_hand_index: None,
                 selected_hand_indices: Vec::new(),
+                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_force_exhaust: false,
             },
             pending_actions: Default::default(),
         });
@@ -2090,6 +2091,56 @@ mod tests {
         assert_eq!(
             expected_command(&state, &run, &action),
             Some("PLAY 2".to_owned())
+        );
+    }
+
+    #[test]
+    fn explicit_targets_require_authoritative_live_monster_slots() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::Fire];
+        let combat = run.combat.as_ref().expect("combat fixture");
+        let card_id = combat.piles.hand[0].id;
+        let target = combat
+            .monsters
+            .iter()
+            .find(|monster| monster.alive)
+            .expect("living monster")
+            .id;
+        let state = LiveState {
+            sequence: 1,
+            phase: LivePhase::Combat,
+            legal_actions: Vec::new(),
+            raw: json!({
+                "summary": {
+                    "combat": {
+                        "hand": [{ "index": 0 }],
+                        "monsters": [{}]
+                    }
+                }
+            }),
+        };
+
+        assert_eq!(
+            expected_command(
+                &state,
+                &run,
+                &PlannerAction::Combat(CombatAction::PlayCard {
+                    card_id,
+                    target: Some(target),
+                }),
+            ),
+            None
+        );
+        assert_eq!(
+            expected_command(
+                &state,
+                &run,
+                &PlannerAction::Potion(RunAction::UsePotion {
+                    slot: 0,
+                    target: Some(target),
+                }),
+            ),
+            None
         );
     }
 
@@ -2525,6 +2576,7 @@ mod tests {
         let metadata = trace.metadata.unwrap_or(TraceMetadata {
             schema: 1,
             source: "communication_mod".to_owned(),
+            boundary_schema: None,
             client: None,
             mode: None,
             started_at: None,

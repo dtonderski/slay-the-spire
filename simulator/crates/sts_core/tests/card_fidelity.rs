@@ -82,7 +82,6 @@ fn decay_deals_two_blockable_end_turn_damage_and_discards() {
     state.piles.discard_pile.clear();
     state.piles.exhaust_pile.clear();
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
-
     let mut next = state.clone();
     resolve_end_of_turn_hand(&mut next).expect("end-turn hand resolves");
 
@@ -3492,6 +3491,7 @@ fn discovery_plus_spends_one_energy_and_delays_non_exhausting_source() {
     state.piles.discard_pile.clear();
     state.piles.exhaust_pile.clear();
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    let card_random_counter = state.rng.card_random_rng.counter();
 
     let mut next = apply_combat_action(
         &state,
@@ -3503,6 +3503,11 @@ fn discovery_plus_spends_one_energy_and_delays_non_exhausting_source() {
     .expect("Discovery+ plays without a target");
 
     assert_eq!(next.player.energy, 0);
+    assert_eq!(
+        next.rng.card_random_rng.counter(),
+        card_random_counter + 3,
+        "Discovery opening consumes only its visible three-card offer"
+    );
     assert!(next.piles.hand.is_empty());
     assert!(next.piles.exhaust_pile.is_empty());
     assert!(next.discovery_card_reward_choices().is_some());
@@ -3646,7 +3651,9 @@ fn forethought_plus_places_multiple_selected_cards_on_bottom_of_draw_pile() {
     .expect("Forethought+ opens any-number hand selection");
 
     choose_hand_select(&mut next, 0).expect("select Bash");
-    choose_hand_select(&mut next, 1).expect("select Defend");
+    // The selected Bash is removed from the visible choice list, so Defend is
+    // now visible at UI index 0.
+    choose_hand_select(&mut next, 0).expect("select Defend");
     confirm_hand_select(&mut next).expect("confirm Forethought+ hand selection");
 
     assert_eq!(next.piles.hand.len(), 1);

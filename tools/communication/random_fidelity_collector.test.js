@@ -2,12 +2,15 @@
 
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const {
   acquireDirectoryLock,
   addCollectionMetadata,
   chooseRandomAction,
+  communicationBoundary,
   currentRunRecords,
+  defaultVerifierPath,
   enumerateGameplayActions,
   expectedFailureBoundary,
   fingerprint,
@@ -16,20 +19,22 @@ const {
   isSoleEventLeaveScreen,
   loadBossUnlocks,
   localBridgeTracePath,
-  needsGameplaySettlePoll,
   needsMapChoiceSettle,
   normalizeSettledGameplayRecords,
   parseParityOutput,
   parseBossUnlocks,
   parseSeenBossesPreferences,
   seededRandom,
-  semanticStateKey,
   shouldVerifyTrace,
-  stateAdvanced,
   verificationCheckpointKey,
   verifierInvocationFailed,
   writeTrace,
 } = require("./random_fidelity_collector");
+
+assert.strictEqual(
+  defaultVerifierPath(),
+  path.resolve(__dirname, "..", "..", "simulator", "target", "release", "sts_verify"),
+);
 
 const traceWriteRoot = fs.mkdtempSync(path.join("/tmp", "sts-trace-write-"));
 try {
@@ -84,46 +89,44 @@ assert.strictEqual(
   false,
 );
 
-const beforeSummary = {
-  step: 10,
-  state_id: "before",
-  state_seq: 1,
-  playtime_seconds: 0.1,
-  choices: ["talk"],
-  floor: 0,
+const boundaryMessage = {
+  boundary_schema: 1,
+  boundary_kind: "interaction_ready",
+  ready_for_command: true,
+  game_update_seq: 100,
+  dungeon_update_seq: 90,
+  current_action: "DiscoveryAction",
+  current_action_instance: 7,
+  current_action_update_count: 3,
+  actions_queued: 1,
+  card_queue_size: 0,
+  pre_turn_actions_size: 0,
 };
-const beforeKey = semanticStateKey({ summary: beforeSummary });
+const interactionBoundary = { state: { message: boundaryMessage } };
 assert.strictEqual(
-  stateAdvanced(beforeKey, {
-    summary: { ...beforeSummary, step: 11, state_id: "after", state_seq: 2, playtime_seconds: 0.2 },
-  }),
-  false,
+  communicationBoundary(interactionBoundary).kind,
+  "interaction_ready",
 );
-assert.strictEqual(
-  stateAdvanced(beforeKey, { summary: { ...beforeSummary, choices: ["upgrade a card"] } }),
-  true,
+assert.throws(
+  () => communicationBoundary({ message: { ...boundaryMessage, boundary_kind: "quiescent" } }),
+  /quiescent.*queued work/,
 );
-assert.strictEqual(stateAdvanced(beforeKey, {}), false);
-const gridBefore = {
-  state: { message: { game_state: { screen_type: "GRID", screen_state: { selected_cards: [] } } } },
-};
-const gridAfter = {
-  state: {
-    message: {
-      game_state: {
-        screen_type: "GRID",
-        screen_state: { selected_cards: [{ id: "Defend_R" }] },
-      },
-    },
-  },
-};
-assert.strictEqual(stateAdvanced(semanticStateKey(gridBefore), gridAfter), true);
-const readyGridAfter = { ...gridAfter, summary: { ready_for_command: true } };
-assert.strictEqual(needsGameplaySettlePoll(semanticStateKey(gridBefore), readyGridAfter), false);
-assert.strictEqual(
-  needsGameplaySettlePoll(semanticStateKey(gridBefore), { ...gridAfter, summary: { ready_for_command: false } }),
-  true,
+assert.throws(
+  () => communicationBoundary({ message: { ...boundaryMessage, ready_for_command: undefined } }),
+  /interaction_ready.*not ready for input/,
 );
+for (const invalid of ["1", null, false, 1.5]) {
+  assert.throws(
+    () => communicationBoundary({ message: { ...boundaryMessage, boundary_schema: invalid } }),
+    /boundary_schema=1 is required/,
+  );
+}
+for (const invalid of ["100", null, false, 1.5]) {
+  assert.throws(
+    () => communicationBoundary({ message: { ...boundaryMessage, game_update_seq: invalid } }),
+    /game_update_seq must be a non-negative integer/,
+  );
+}
 assert.deepStrictEqual(
   enumerateGameplayActions({
     available_commands: ["choose"],
@@ -309,18 +312,88 @@ assert.deepStrictEqual(
     time_eater_seen: false,
   },
 );
+// STS persists Time Eater as WIZARD in STSSeenBosses.
+assert.deepStrictEqual(
+  parseSeenBossesPreferences(JSON.stringify({
+    GUARDIAN: "1",
+    GHOST: "1",
+    SLIME: "1",
+    CHAMP: "1",
+    AUTOMATON: "1",
+    COLLECTOR: "1",
+    CROW: "1",
+    DONUT: "1",
+    WIZARD: "1",
+  })),
+  {
+    guardian_seen: true,
+    hexaghost_seen: true,
+    slime_boss_seen: true,
+    champ_seen: true,
+    automaton_seen: true,
+    collector_seen: true,
+    awakened_one_seen: true,
+    donu_deca_seen: true,
+    time_eater_seen: true,
+  },
+);
+{
+  const prefsPath = path.join(os.tmpdir(), `sts-seen-bosses-${process.pid}.json`);
+  fs.writeFileSync(
+    prefsPath,
+    JSON.stringify({
+      GUARDIAN: "1",
+      GHOST: "1",
+      SLIME: "1",
+      CHAMP: "1",
+      AUTOMATON: "1",
+      COLLECTOR: "1",
+      CROW: "1",
+      DONUT: "1",
+      WIZARD: "1",
+    }),
+  );
+  try {
+    assert.strictEqual(
+      loadBossUnlocks({
+        STS_SEEN_BOSSES_PATH: prefsPath,
+        STS_BOSS_UNLOCKS_JSON: JSON.stringify({
+          guardian_seen: true,
+          hexaghost_seen: true,
+          slime_boss_seen: true,
+          champ_seen: true,
+          automaton_seen: true,
+          collector_seen: true,
+          awakened_one_seen: true,
+          donu_deca_seen: true,
+          time_eater_seen: false,
+        }),
+      }).time_eater_seen,
+      true,
+      "live prefs path must win over a stale unlocks JSON",
+    );
+  } finally {
+    fs.rmSync(prefsPath, { force: true });
+  }
+}
 const enriched = addCollectionMetadata(
   [{ type: "metadata", source: "bridge" }, { type: "action", step: 1 }],
   bossUnlocks,
   7,
   "SEED7",
   10000,
+  { note_card: "Strike_R", note_upgrades: 1 },
   "test-source-v1",
 );
 assert.strictEqual(enriched.length, 2);
 assert.deepStrictEqual(enriched[0].boss_unlocks, bossUnlocks);
 assert.strictEqual(enriched[0].schema, 1);
+assert.strictEqual(enriched[0].boundary_schema, 1);
 assert.strictEqual(enriched[0].source_version, "test-source-v1");
+assert.deepStrictEqual(enriched[0].run_config.profile, {
+  note_card: "Strike_R",
+  note_upgrades: 1,
+});
 assert.deepStrictEqual(enriched[0].collection, {
   policy_seed: 7,
   game_seed: "SEED7",
@@ -340,65 +413,118 @@ assert.strictEqual(
     "SEED_7-p7-2026-07-25T01-02-03-456Z-123.jsonl",
   ),
 );
-const normalized = normalizeSettledGameplayRecords([
-  { type: "action", step: 10, command: "CHOOSE 0" },
-  { type: "state", step: 10, message: { game_state: { choice_list: ["talk"] } } },
+assert.throws(
+  () => normalizeSettledGameplayRecords([
+    { type: "action", step: 20, command: "CHOOSE 1" },
+    { type: "state", step: 20, message: { game_state: { choice_list: ["leave"] } } },
+  ]),
+  /boundary_schema=1 is required/,
+);
+
+const quiescentBoundaryMessage = {
+  ...boundaryMessage,
+  boundary_kind: "quiescent",
+  current_action: null,
+  current_action_instance: null,
+  current_action_update_count: null,
+  actions_queued: 0,
+};
+const schemaOneRecords = [
+  { type: "action", step: 30, command: "END" },
+  { type: "metadata", event: "command_sent", step: 30 },
+  { type: "state", step: 30, message: quiescentBoundaryMessage },
+];
+assert.deepStrictEqual(normalizeSettledGameplayRecords(schemaOneRecords), schemaOneRecords);
+assert.deepStrictEqual(
+  normalizeSettledGameplayRecords(normalizeSettledGameplayRecords(schemaOneRecords)),
+  schemaOneRecords,
+);
+const externalRng = { type: "external_rng", step: 30, draws: [{ stream: "misc", value: 2 }] };
+assert.deepStrictEqual(
+  normalizeSettledGameplayRecords([schemaOneRecords[0], externalRng, schemaOneRecords[2]]),
+  [schemaOneRecords[0], externalRng, schemaOneRecords[2]],
+);
+const rejectedRecords = [
+  { type: "action", step: 33, command: "CHOOSE 99" },
+  { type: "error", step: 33, message: { error: "invalid choice" } },
+];
+assert.deepStrictEqual(normalizeSettledGameplayRecords(rejectedRecords), rejectedRecords);
+assert.throws(
+  () => normalizeSettledGameplayRecords([
+    { type: "action", step: 34, command: "END" },
+    { type: "state", step: 35, message: quiescentBoundaryMessage },
+  ]),
+  /state step 35 does not match action step 34/,
+);
+assert.throws(
+  () => normalizeSettledGameplayRecords([
+    { type: "action", step: 34, command: "END" },
+    { type: "external_rng", step: 35, draws: [] },
+    { type: "state", step: 34, message: quiescentBoundaryMessage },
+  ]),
+  /external_rng step 35 does not match action step 34/,
+);
+assert.throws(
+  () => normalizeSettledGameplayRecords([
+    { type: "error", step: 34, message: { error: "orphan" } },
+  ]),
+  /orphan error record/,
+);
+assert.throws(
+  () => normalizeSettledGameplayRecords([{ type: "action", step: 30, command: "END" }]),
+  /produced missing, not a completing boundary/,
+);
+assert.throws(
+  () => normalizeSettledGameplayRecords([
+    ...schemaOneRecords,
+    { type: "action", step: 31, command: "END" },
+    { type: "state", step: 31, message: { game_state: {} } },
+  ]),
+  /boundary_schema=1 is required/,
+);
+const schemaOneStateRecords = [
+  { type: "action", step: 31, command: "STATE" },
+  { type: "state", step: 31, message: quiescentBoundaryMessage },
   {
-    type: "action",
-    step: 11,
-    command: "CHOOSE 0",
-    command_meta: {
-      metadata: {
-        operator_control: "settle_gameplay",
-        reason: "confirm_event_leave",
+    type: "state",
+    step: 31,
+    message: { ...quiescentBoundaryMessage, boundary_kind: "poll" },
+  },
+];
+assert.throws(
+  () => normalizeSettledGameplayRecords(schemaOneStateRecords),
+  /STATE completed on quiescent; expected poll/,
+);
+const schemaOneOvertakenGameplayRecords = [
+  { type: "action", step: 32, command: "CHOOSE 0" },
+  {
+    type: "state",
+    step: 32,
+    message: { ...quiescentBoundaryMessage, boundary_kind: "unknown", ready_for_command: false },
+  },
+  {
+    type: "state",
+    step: 32,
+    message: { ...quiescentBoundaryMessage, boundary_kind: "poll" },
+  },
+  { type: "state", step: 32, message: quiescentBoundaryMessage },
+];
+assert.throws(
+  () => normalizeSettledGameplayRecords(schemaOneOvertakenGameplayRecords),
+  /CHOOSE 0 completed on unknown; expected interaction_ready, quiescent, or terminal/,
+);
+assert.throws(
+  () =>
+    normalizeSettledGameplayRecords([
+      { type: "action", step: 31, command: "END" },
+      {
+        type: "state",
+        step: 31,
+        message: { ...quiescentBoundaryMessage, boundary_kind: "poll" },
       },
-    },
-  },
-  { type: "state", step: 11, message: { game_state: { choice_list: ["talk"] } } },
-  {
-    type: "action",
-    step: 12,
-    command: "STATE",
-    command_meta: { metadata: { operator_control: "settle_gameplay" } },
-  },
-  { type: "state", step: 12, message: { game_state: { choice_list: ["upgrade"] } } },
-]);
-assert.deepStrictEqual(normalized, [
-  { type: "action", step: 10, command: "CHOOSE 0" },
-  { type: "state", step: 10, message: { game_state: { choice_list: ["talk"] } } },
-  {
-    type: "action",
-    step: 11,
-    command: "CHOOSE 0",
-    command_meta: {
-      metadata: {
-        operator_control: "settle_gameplay",
-        reason: "confirm_event_leave",
-      },
-    },
-  },
-  { type: "state", step: 11, message: { game_state: { choice_list: ["upgrade"] } } },
-]);
-const foldedSelectedLeave = normalizeSettledGameplayRecords([
-  { type: "action", step: 20, command: "CHOOSE 1" },
-  { type: "state", step: 20, message: { game_state: { choice_list: ["leave"] } } },
-  {
-    type: "action",
-    step: 21,
-    command: "CHOOSE 0",
-    command_meta: {
-      metadata: {
-        operator_control: "settle_gameplay",
-        reason: "confirm_selected_event_leave",
-      },
-    },
-  },
-  { type: "state", step: 21, message: { game_state: { screen_type: "MAP" } } },
-]);
-assert.deepStrictEqual(foldedSelectedLeave, [
-  { type: "action", step: 20, command: "CHOOSE 1" },
-  { type: "state", step: 20, message: { game_state: { screen_type: "MAP" } } },
-]);
+    ]),
+  /END completed on poll; expected interaction_ready, quiescent, or terminal/,
+);
 
 const summary = {
   available_commands: ["play", "end", "potion", "state", "abandon"],
@@ -457,7 +583,8 @@ assert.deepStrictEqual(
   enumerateGameplayActions({
     available_commands: ["choose", "leave"],
     screen_type: "SHOP_SCREEN",
-    choices: ["purge", "weak potion", "strength potion", "armaments"],
+    choices: ["purge", "weak potion", "gambler's brew", "armaments"],
+    shop_potions: [{ id: "GamblersBrew", name: "Gambler's Brew" }],
   }),
   ["CHOOSE 0", "CHOOSE 3", "LEAVE"],
 );

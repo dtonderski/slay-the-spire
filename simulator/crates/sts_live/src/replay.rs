@@ -17,14 +17,15 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    fs,
+    fs::{self, File},
+    io::{BufRead, BufReader, Seek, SeekFrom},
     path::{Path, PathBuf},
     thread,
     time::Duration,
 };
 use sts_verify::{
-    import_communication_mod_trace, verify_seed_start_communication_mod_trace, StartRunCommand,
-    TraceAction, TraceLine, TraceProfile,
+    parse_trace_jsonl_line, verify_communication_mod_trace_reader, StartRunCommand, TraceAction,
+    TraceLine, TraceMetadata, TraceProfile,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,13 +181,77 @@ where
     ))
 }
 
-fn load_replay_plan(path: &Path) -> LiveResult<ReplayPlan> {
-    let content = fs::read_to_string(path)?;
-    let trace = import_communication_mod_trace(&content)?;
-    let report = verify_seed_start_communication_mod_trace(&content)
-        .map_err(|error| invalid_source(path, error.to_string()))?;
+struct ReplaySourceRecords {
+    metadata: Option<TraceMetadata>,
+    actions: Vec<TraceAction>,
+    recorded_failure: Option<String>,
+}
 
-    if trace
+fn extract_replay_source(
+    source: &mut impl BufRead,
+    path: &Path,
+) -> LiveResult<ReplaySourceRecords> {
+    let mut metadata = None;
+    let mut actions = Vec::new();
+    let mut recorded_failure = None;
+    let mut encoded = String::new();
+    let mut line_index = 0usize;
+    loop {
+        encoded.clear();
+        if source.read_line(&mut encoded)? == 0 {
+            break;
+        }
+        line_index += 1;
+        let Some(line) = parse_trace_jsonl_line(&encoded).map_err(|error| {
+            LiveError::InvalidAction(format!(
+                "replay source changed or became invalid at {}:{line_index}: {error}",
+                path.display()
+            ))
+        })?
+        else {
+            continue;
+        };
+        match line {
+            TraceLine::Metadata(value) => metadata = Some(value),
+            TraceLine::Action(action) => actions.push(action),
+            TraceLine::Error(error) => {
+                recorded_failure
+                    .get_or_insert_with(|| format!("recorded bridge error at step {}", error.step));
+            }
+            TraceLine::CommandObservedTimeout(timeout) => {
+                recorded_failure.get_or_insert_with(|| {
+                    format!(
+                        "recorded command timeout at step {} for {:?}",
+                        timeout.step, timeout.command
+                    )
+                });
+            }
+            TraceLine::State(_)
+            | TraceLine::ExternalRng(_)
+            | TraceLine::CommandAccept(_)
+            | TraceLine::Response(_)
+            | TraceLine::SlayTheData(_)
+            | TraceLine::Automation(_) => {}
+        }
+    }
+    Ok(ReplaySourceRecords {
+        metadata,
+        actions,
+        recorded_failure,
+    })
+}
+
+fn load_replay_plan(path: &Path) -> LiveResult<ReplayPlan> {
+    let mut source = BufReader::new(File::open(path)?);
+    let initial_metadata = source.get_ref().metadata()?;
+    let report = verify_communication_mod_trace_reader(&mut source)
+        .map_err(|error| invalid_source(path, error.to_string()))?;
+    source.seek(SeekFrom::Start(0))?;
+    let records = extract_replay_source(&mut source, path)?;
+    let final_metadata = source.get_ref().metadata()?;
+    reject_changed_trace(path, &initial_metadata, &final_metadata)?;
+
+    if records
         .metadata
         .as_ref()
         .is_some_and(|metadata| metadata.boss_unlocks.is_some())
@@ -196,14 +261,7 @@ fn load_replay_plan(path: &Path) -> LiveResult<ReplayPlan> {
             "explicit boss-unlock inputs cannot be asserted through the live bridge",
         ));
     }
-    if let Some(error) = trace.lines.iter().find_map(|line| match line {
-        TraceLine::Error(error) => Some(format!("recorded bridge error at step {}", error.step)),
-        TraceLine::CommandObservedTimeout(timeout) => Some(format!(
-            "recorded command timeout at step {} for {:?}",
-            timeout.step, timeout.command
-        )),
-        _ => None,
-    }) {
+    if let Some(error) = records.recorded_failure {
         return Err(invalid_source(path, error));
     }
     if let Some(diff) = report.unexpected_diffs.first() {
@@ -226,33 +284,21 @@ fn load_replay_plan(path: &Path) -> LiveResult<ReplayPlan> {
             ),
         ));
     }
-    if report.ignored_tail_actions != 0 {
-        return Err(invalid_source(
-            path,
-            format!(
-                "{} action(s) were not verified at the end of the trace",
-                report.ignored_tail_actions
-            ),
-        ));
-    }
     let integrity = report
         .action_integrity
         .as_ref()
         .ok_or_else(|| invalid_source(path, "missing action-integrity report"))?;
     if integrity.applicable_actions != integrity.disposed_actions
         || integrity.duplicate_dispositions != 0
-        || integrity.unresolved_transient_assertions != 0
         || integrity.rejected_actions != 0
     {
         return Err(invalid_source(
             path,
             format!(
-                "incomplete action accounting: applicable={}, disposed={}, duplicates={}, \
-                 unresolved_transients={}, rejected={}",
+                "incomplete action accounting: applicable={}, disposed={}, duplicates={}, rejected={}",
                 integrity.applicable_actions,
                 integrity.disposed_actions,
                 integrity.duplicate_dispositions,
-                integrity.unresolved_transient_assertions,
                 integrity.rejected_actions
             ),
         ));
@@ -271,14 +317,7 @@ fn load_replay_plan(path: &Path) -> LiveResult<ReplayPlan> {
         ));
     }
 
-    let all_actions = trace
-        .lines
-        .iter()
-        .filter_map(|line| match line {
-            TraceLine::Action(action) => Some(action.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    let all_actions = records.actions;
     let start_indexes = all_actions
         .iter()
         .enumerate()
@@ -313,7 +352,7 @@ fn load_replay_plan(path: &Path) -> LiveResult<ReplayPlan> {
         ));
     }
 
-    let profile = trace
+    let profile = records
         .metadata
         .as_ref()
         .and_then(|metadata| metadata.run_config.as_ref())
@@ -331,23 +370,20 @@ fn load_replay_plan(path: &Path) -> LiveResult<ReplayPlan> {
 }
 
 fn load_action_template_plan(path: &Path) -> LiveResult<ReplayPlan> {
-    let content = fs::read_to_string(path)?;
-    let trace = import_communication_mod_trace(&content)?;
-    let report = verify_seed_start_communication_mod_trace(&content)
+    let mut source = BufReader::new(File::open(path)?);
+    let initial_metadata = source.get_ref().metadata()?;
+    let report = verify_communication_mod_trace_reader(&mut source)
         .map_err(|error| invalid_template_source(path, error.to_string()))?;
+    source.seek(SeekFrom::Start(0))?;
+    let records = extract_replay_source(&mut source, path)?;
+    let final_metadata = source.get_ref().metadata()?;
+    reject_changed_trace(path, &initial_metadata, &final_metadata)?;
     let seed_start = report
         .seed_start
         .as_ref()
         .ok_or_else(|| invalid_template_source(path, "missing START command"))?;
 
-    let all_actions = trace
-        .lines
-        .iter()
-        .filter_map(|line| match line {
-            TraceLine::Action(action) => Some(action.clone()),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    let all_actions = records.actions;
     let start_indexes = all_actions
         .iter()
         .enumerate()
@@ -717,6 +753,22 @@ fn normalize_command(command: &str) -> String {
         .join(" ")
 }
 
+fn reject_changed_trace(
+    path: &Path,
+    initial: &fs::Metadata,
+    final_metadata: &fs::Metadata,
+) -> LiveResult<()> {
+    if initial.len() != final_metadata.len()
+        || initial.modified().ok() != final_metadata.modified().ok()
+    {
+        return Err(LiveError::InvalidAction(format!(
+            "trace changed while it was being verified: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
 fn invalid_source(path: &Path, reason: impl Into<String>) -> LiveError {
     LiveError::InvalidAction(format!(
         "replay source {} is not safe to execute: {}",
@@ -749,89 +801,7 @@ fn replay_blocked(
 mod tests {
     use super::*;
     use crate::model::{LegalActionKind, LivePhase, LiveState};
-    use crate::{FakeBridgeManager, TraceFidelityChecker};
     use serde_json::json;
-
-    fn fixture_path() -> PathBuf {
-        sts_verify::simulator_root()
-            .join("verification/corpus/permanent_traces/trace-2026-07-03T20-12-12-408Z.jsonl")
-    }
-
-    #[test]
-    fn verified_partial_trace_builds_a_replay_plan() {
-        let plan = load_replay_plan(&fixture_path()).unwrap();
-
-        assert_eq!(plan.source_actions, 3);
-        assert_eq!(plan.actions.len(), 2);
-        assert_eq!(plan.actions[0].command, "CHOOSE 0");
-        assert_eq!(plan.config.ascension, 0);
-        assert_eq!(
-            plan.config.seed,
-            RunSeed::External("4CAD260DLFGRM".to_owned())
-        );
-    }
-
-    #[test]
-    fn dry_run_validates_without_touching_the_bridge() {
-        let root =
-            std::env::temp_dir().join(format!("sts-live-replay-dry-run-{}", std::process::id()));
-        let mut store = SessionStore::new(
-            FakeBridgeManager::with_default_bridge(),
-            TraceFidelityChecker,
-            &root,
-        );
-
-        let report = replay_existing_trace(
-            &mut store,
-            ReplayRequest {
-                source_path: fixture_path(),
-                bridge_id: BridgeId("missing-bridge-is-not-read".to_owned()),
-                reset_bridge: false,
-                max_actions: None,
-                dry_run: true,
-                action_template: false,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(report.status, ReplayStatus::Validated);
-        assert_eq!(report.mode, ReplayMode::Verified);
-        assert_eq!(report.planned_actions, 2);
-        assert!(report.session_id.is_none());
-        fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn quarantined_start_verify_trace_builds_an_action_template_plan() {
-        let source = sts_verify::simulator_root().join(
-            "verification/corpus/quarantined_traces/note_profile_missing/\
-             random-fidelity-573e04950e8c3758.jsonl",
-        );
-
-        let plan = load_action_template_plan(&source).unwrap();
-
-        assert_eq!(plan.mode, ReplayMode::ActionTemplate);
-        assert_eq!(plan.start_command.external_seed, "FIDL00055");
-        assert_eq!(plan.start_command.verification_starting_hp, Some(10_000));
-        assert_eq!(plan.config.profile, None);
-        assert_eq!(plan.actions.first().unwrap().command, "STATE");
-        assert!(plan
-            .actions
-            .iter()
-            .any(|action| action.command == "PLAY 1 0"));
-    }
-
-    #[test]
-    fn normal_replay_still_rejects_quarantined_start_verify_trace() {
-        let source = sts_verify::simulator_root().join(
-            "verification/corpus/quarantined_traces/note_profile_missing/\
-             random-fidelity-573e04950e8c3758.jsonl",
-        );
-
-        let error = load_replay_plan(&source).unwrap_err();
-
-        assert!(error.to_string().contains("not safe to execute"));
-    }
 
     #[test]
     fn command_matching_ignores_case_and_whitespace() {

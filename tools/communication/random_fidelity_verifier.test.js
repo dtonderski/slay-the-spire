@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
 const assert = require("assert");
+const path = require("path");
 const {
   assignedToWorker,
   isVerifierInfrastructureError,
   verificationDisposition,
+  verifierPath,
 } = require("./random_fidelity_verifier");
 const { isPromotableFailure } = require("./random_fidelity_collector");
+
+assert.strictEqual(
+  verifierPath,
+  path.resolve(__dirname, "..", "..", "simulator", "target", "release", "sts_verify"),
+);
 
 for (let queueIndex = 0; queueIndex < 100; queueIndex += 1) {
   const owners = [0, 1, 2].filter((workerIndex) =>

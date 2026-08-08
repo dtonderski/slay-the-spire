@@ -3924,6 +3924,7 @@ pub fn monster_state_for_ascension(
         stasis_card: None,
         initial_intent_locked: false,
         burns_upgraded: false,
+        defer_awakened_one_rebirth: false,
         intent: prepare_monster_intent_for_monster(
             definition,
             lagavulin_opening_moves_executed(definition),
@@ -5400,6 +5401,9 @@ pub fn awaken_one_after_first_death(monster: &mut MonsterState) -> bool {
 
     // REBIRTH heals to max HP. Debuffs/Shackled were already stripped on the
     // first death; surviving buff Strength is left as-is.
+    // Keep form-one + REBIRTH (move 3) history: CommMod last_move_id after rebirth
+    // is 3 (Stun) with next 5 (Dark Echo) — FIDL00391 step 1767. Do not clear;
+    // phase-two last_two_moves(6/8) still false until those moves actually play.
     monster.alive = true;
     monster.hp = monster.max_hp;
     monster.mode_shift = 1;
@@ -5422,6 +5426,8 @@ pub fn mark_awakened_one_half_dead(monster: &mut MonsterState) -> bool {
     strip_awakened_one_half_death_powers(monster);
     monster.intent = MonsterIntent::Stun;
     record_target_move(monster);
+    // defer_awakened_one_rebirth is set by the damage caller when death lands
+    // during end-of-turn powers (see apply_end_of_turn_combust).
     true
 }
 
@@ -10282,7 +10288,11 @@ fn apply_monster_intent_with_card_rng_inner(
         MonsterIntent::AttackAddVoidToDraw { damage, count } => {
             let damage_taken =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
-            if player.hp > 0 {
+            // AwakenedOne.takeTurn queues DamageAction before
+            // MakeTempCardInDrawPileAction. A lethal hit clears the remaining
+            // combat queue, unless a Fairy/Lizard-style revival keeps combat alive.
+            if player_can_revive || player_survives_monster_hit(player_before, damage_taken, relics)
+            {
                 add_cards_to_draw_random_spot(
                     piles,
                     VOID_ID,
@@ -12100,6 +12110,60 @@ mod tests {
             target_move_byte(BRONZE_AUTOMATON_ID, MonsterIntent::Stun),
             Some(3)
         );
+    }
+
+    #[test]
+    fn awakened_one_rebirth_keeps_rebirth_move_then_dark_echo() {
+        let mut monster = monster_state_for_ascension(&AWAKENED_ONE_A0, MonsterId::new(1), 0);
+        monster.content_id = AWAKENED_ONE_ID;
+        monster.move_history = vec![1, 2, 3];
+        monster.alive = false;
+        monster.hp = 0;
+        monster.mode_shift = -1;
+        monster.intent = MonsterIntent::Stun;
+
+        assert!(awaken_one_after_first_death(&mut monster));
+        assert_eq!(monster.mode_shift, 1);
+        assert_eq!(
+            monster.move_history,
+            vec![1, 2, 3, 5],
+            "REBIRTH (3) remains; Dark Echo (5) appends (FIDL00391 last_move_id=3)"
+        );
+    }
+
+    #[test]
+    fn lethal_awakened_one_sludge_does_not_resolve_queued_void() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&AWAKENED_ONE_A0, MonsterId::new(1));
+        monster.mode_shift = 1;
+        monster.intent = MonsterIntent::AttackAddVoidToDraw {
+            damage: 18,
+            count: 1,
+        };
+        let mut player = state.player.clone();
+        player.hp = 11;
+        player.block = 0;
+        let player_before = player.clone();
+        let draw_before = state.piles.draw_pile.clone();
+        let counter_before = state.rng.card_random_rng.counter();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        let damage = apply_monster_intent_with_card_rng_and_revival(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            false,
+            &mut state.rng.card_random_rng,
+        )
+        .expect("lethal Sludge intent resolves its damage action");
+
+        assert_eq!(damage, 18);
+        assert_eq!(state.piles.draw_pile, draw_before);
+        assert_eq!(state.rng.card_random_rng.counter(), counter_before);
     }
 
     #[test]

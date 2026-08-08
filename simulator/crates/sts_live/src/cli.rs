@@ -13,13 +13,13 @@ use crate::{
 use serde_json::{json, Value};
 use std::{
     collections::HashSet,
-    fs::{self, OpenOptions},
-    io::Write,
+    fs::{self, File, OpenOptions},
+    io::{BufRead, BufReader, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use sts_verify::{
-    import_communication_mod_trace, verify_seed_start_communication_mod_trace, SimRealReport,
+    parse_trace_jsonl_line, verify_communication_mod_trace_reader, SimRealReport,
     SlayTheDataReplayStepKind, TraceLine,
 };
 
@@ -913,19 +913,37 @@ where
 }
 
 fn strict_trace_analysis(path: &Path) -> LiveResult<StrictTraceAnalysis> {
-    let content = fs::read_to_string(path)?;
-    let report = verify_seed_start_communication_mod_trace(&content).map_err(|error| {
+    let mut trace = BufReader::new(File::open(path)?);
+    let initial_metadata = trace.get_ref().metadata()?;
+    let report = verify_communication_mod_trace_reader(&mut trace).map_err(|error| {
         LiveError::Blocked(format!(
             "strict seed-start verification failed for {}: {error}",
             path.display()
         ))
     })?;
+    trace.seek(SeekFrom::Start(0))?;
+
     let first_failing_step = first_failing_step(&report);
-    let trace = import_communication_mod_trace(&content)?;
     let mut max_floor = None;
     let mut verified_prefix_max_floor = None;
     let mut before_failure = true;
-    for line in trace.lines {
+    let mut line_index = 0usize;
+    let mut encoded = String::new();
+    loop {
+        encoded.clear();
+        if trace.read_line(&mut encoded)? == 0 {
+            break;
+        }
+        line_index += 1;
+        let Some(line) = parse_trace_jsonl_line(&encoded).map_err(|error| {
+            LiveError::Blocked(format!(
+                "strict trace changed or became invalid at {}:{line_index}: {error}",
+                path.display()
+            ))
+        })?
+        else {
+            continue;
+        };
         if matches!(
             &line,
             TraceLine::Action(action) if Some(action.step) == first_failing_step
@@ -943,6 +961,15 @@ fn strict_trace_analysis(path: &Path) -> LiveResult<StrictTraceAnalysis> {
             verified_prefix_max_floor =
                 Some(verified_prefix_max_floor.map_or(floor, |current: u32| current.max(floor)));
         }
+    }
+    let final_metadata = trace.get_ref().metadata()?;
+    if initial_metadata.len() != final_metadata.len()
+        || initial_metadata.modified().ok() != final_metadata.modified().ok()
+    {
+        return Err(LiveError::Blocked(format!(
+            "strict trace changed while it was being analyzed: {}",
+            path.display()
+        )));
     }
     Ok(StrictTraceAnalysis {
         report,
@@ -983,7 +1010,6 @@ fn trace_state_floor(message: &Value) -> Option<u32> {
 fn strict_report_is_clean(report: &SimRealReport) -> bool {
     report.unexpected_diffs.is_empty()
         && report.unsupported.is_empty()
-        && report.ignored_tail_actions == 0
         && report
             .seed_start
             .as_ref()
@@ -998,7 +1024,6 @@ fn strict_trace_summary(analysis: &StrictTraceAnalysis) -> Value {
         "verified_actions": analysis.report.verified.len(),
         "unsupported_actions": analysis.report.unsupported.len(),
         "unexpected_diff_actions": analysis.report.unexpected_diffs.len(),
-        "ignored_tail_actions": analysis.report.ignored_tail_actions,
         "max_floor": analysis.max_floor,
         "verified_prefix_max_floor": analysis.verified_prefix_max_floor,
         "first_failing_step": analysis.first_failing_step,
@@ -1034,8 +1059,7 @@ where
         }));
     }
 
-    let destination =
-        store.copy_verified_trace_prefix_to_permanent_corpus(session_id, permanent_root)?;
+    let destination = store.copy_verified_trace_to_permanent_corpus(session_id, permanent_root)?;
     let promoted = strict_trace_analysis(&destination)?;
     if !strict_report_is_clean(&promoted.report) {
         return Err(LiveError::Blocked(format!(
@@ -2695,58 +2719,6 @@ mod tests {
 
         let actions = run_cli(&mut store, strings(["actions", "list", "session-1"])).unwrap();
         assert!(!actions["legal_actions"].as_array().unwrap().is_empty());
-        fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn cli_replay_dry_run_validates_without_a_bridge() {
-        let root = temp_dir("cli-replay-dry-run");
-        let mut store = fake_store(&root);
-        let trace = sts_verify::simulator_root()
-            .join("verification/corpus/permanent_traces/trace-2026-07-03T20-12-12-408Z.jsonl");
-
-        let replay = run_cli(
-            &mut store,
-            vec![
-                "replay".to_owned(),
-                trace.to_string_lossy().into_owned(),
-                "--dry-run".to_owned(),
-            ],
-        )
-        .unwrap();
-
-        assert_eq!(replay["status"], "validated");
-        assert_eq!(replay["source_actions"], 3);
-        assert_eq!(replay["planned_actions"], 2);
-        assert!(replay["session_id"].is_null());
-        fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn cli_action_template_dry_run_accepts_quarantined_start_verify_trace() {
-        let root = temp_dir("cli-action-template-dry-run");
-        let mut store = fake_store(&root);
-        let trace = sts_verify::simulator_root().join(
-            "verification/corpus/quarantined_traces/note_profile_missing/\
-             random-fidelity-573e04950e8c3758.jsonl",
-        );
-
-        let replay = run_cli(
-            &mut store,
-            vec![
-                "replay".to_owned(),
-                trace.to_string_lossy().into_owned(),
-                "--dry-run".to_owned(),
-                "--action-template".to_owned(),
-            ],
-        )
-        .unwrap();
-
-        assert_eq!(replay["status"], "template_validated");
-        assert_eq!(replay["mode"], "action_template");
-        assert_eq!(replay["verification_starting_hp"], 10_000);
-        assert!(replay["captured_profile"].is_null());
-        assert!(replay["session_id"].is_null());
         fs::remove_dir_all(root).ok();
     }
 

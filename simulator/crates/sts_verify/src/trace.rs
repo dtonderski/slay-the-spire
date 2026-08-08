@@ -73,6 +73,10 @@ pub struct TraceMetadata {
     pub schema: u32,
     #[serde(default)]
     pub source: String,
+    /// Explicit CommunicationMod action/boundary contract version. This is
+    /// distinct from the trace envelope `schema` used by historical captures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub boundary_schema: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -148,33 +152,42 @@ pub struct CommunicationModTrace {
     pub lines: Vec<TraceLine>,
 }
 
+/// Parse one JSONL record into a known typed trace line.
+///
+/// Blank lines return `None`, allowing collecting and streaming callers to use
+/// exactly the same record parser and validation rules.
+pub fn parse_trace_jsonl_line(line: &str) -> Result<Option<TraceLine>, serde_json::Error> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Ok(None);
+    }
+    let value: Value = serde_json::from_str(line)?;
+    let parsed = match value.get("type").and_then(Value::as_str) {
+        Some("metadata") => TraceLine::Metadata(parse_metadata_line(value)?),
+        Some("state") => TraceLine::State(parse_state_line(value)?),
+        Some("action") => TraceLine::Action(parse_action_line(value)?),
+        Some("external_rng") => TraceLine::ExternalRng(serde_json::from_value(value)?),
+        Some("error") => TraceLine::Error(serde_json::from_value(value)?),
+        Some("command_accept") => TraceLine::CommandAccept(parse_command_accept_line(value)?),
+        Some("response") => TraceLine::Response(parse_response_line(value)?),
+        Some("slay_the_data") => TraceLine::SlayTheData(parse_slay_the_data_line(value)?),
+        Some("automation") => TraceLine::Automation(parse_automation_line(value)?),
+        Some("command_observed_timeout") => {
+            TraceLine::CommandObservedTimeout(parse_command_observed_timeout_line(value)?)
+        }
+        _ => serde_json::from_value::<TraceLine>(value)?,
+    };
+    Ok(Some(parsed))
+}
+
 /// Parse every nonblank JSONL record into one known typed trace line.
 pub fn parse_trace_jsonl(content: &str) -> Result<Vec<TraceLine>, serde_json::Error> {
-    let mut lines = Vec::new();
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+    content.lines().try_fold(Vec::new(), |mut lines, line| {
+        if let Some(parsed) = parse_trace_jsonl_line(line)? {
+            lines.push(parsed);
         }
-        let value: Value = serde_json::from_str(line)?;
-        let parsed = match value.get("type").and_then(Value::as_str) {
-            Some("metadata") => TraceLine::Metadata(parse_metadata_line(value)?),
-            Some("state") => TraceLine::State(parse_state_line(value)?),
-            Some("action") => TraceLine::Action(parse_action_line(value)?),
-            Some("external_rng") => TraceLine::ExternalRng(serde_json::from_value(value)?),
-            Some("error") => TraceLine::Error(serde_json::from_value(value)?),
-            Some("command_accept") => TraceLine::CommandAccept(parse_command_accept_line(value)?),
-            Some("response") => TraceLine::Response(parse_response_line(value)?),
-            Some("slay_the_data") => TraceLine::SlayTheData(parse_slay_the_data_line(value)?),
-            Some("automation") => TraceLine::Automation(parse_automation_line(value)?),
-            Some("command_observed_timeout") => {
-                TraceLine::CommandObservedTimeout(parse_command_observed_timeout_line(value)?)
-            }
-            _ => serde_json::from_value::<TraceLine>(value)?,
-        };
-        lines.push(parsed);
-    }
-    Ok(lines)
+        Ok(lines)
+    })
 }
 
 fn parse_metadata_line(value: Value) -> Result<TraceMetadata, serde_json::Error> {

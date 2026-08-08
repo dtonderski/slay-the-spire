@@ -1,4 +1,5 @@
 use crate::card::{CardRarity, CardType};
+use crate::content::cards::card_type_and_rarity;
 use crate::content::cards::{
     get_card_definition, ANGER_ID, APOTHEOSIS_ID, ARMAMENTS_ID, BANDAGE_UP_ID, BARRICADE_ID,
     BATTLE_TRANCE_ID, BERSERK_ID, BLIND_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLUDGEON_ID,
@@ -20,7 +21,7 @@ use crate::content::cards::{
     UPPERCUT_ID, VIOLENCE_ID, WARCRY_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
 };
 use crate::content::reward_pool::ironclad_reward_card_rarity;
-use crate::rng::StsRng;
+use crate::rng::{JavaRng, StsRng};
 use crate::ContentId;
 
 const IRONCLAD_ATTACK_COMMON: &[&str] = &[
@@ -345,6 +346,40 @@ pub fn random_colorless_from_pool(rng: &mut StsRng, rarity: CardRarity) -> Conte
     let pool = colorless_pool_for_rarity(rarity);
     let idx = rng.random_int((pool.len() - 1) as i32) as usize;
     shop_card_content_id(pool[idx])
+}
+
+/// Target `AbstractDungeon.returnColorlessCard(rarity)`.
+///
+/// Shuffles the live `colorlessCardPool` with a Java `Collections.shuffle`
+/// seeded from `shuffleRng.randomLong()`, then returns the first card of the
+/// requested rarity. A rare miss falls through to the first uncommon; if the
+/// pool is empty of both, the target falls back to Swift Strike. The shuffle
+/// mutates the pool order, so later callers must reuse the same vector.
+#[must_use]
+pub fn return_colorless_card_from_pool(
+    pool: &mut [ContentId],
+    shuffle_rng: &mut StsRng,
+    rarity: CardRarity,
+) -> ContentId {
+    let shuffle_seed = shuffle_rng.random_long();
+    JavaRng::new(shuffle_seed).collections_shuffle(pool);
+
+    if let Some(content_id) = pool.iter().copied().find(|content_id| {
+        card_type_and_rarity(*content_id).is_some_and(|(_, card_rarity)| card_rarity == rarity)
+    }) {
+        return content_id;
+    }
+
+    if rarity == CardRarity::Rare {
+        if let Some(content_id) = pool.iter().copied().find(|content_id| {
+            card_type_and_rarity(*content_id)
+                .is_some_and(|(_, card_rarity)| card_rarity == CardRarity::Uncommon)
+        }) {
+            return content_id;
+        }
+    }
+
+    SWIFT_STRIKE_ID
 }
 
 #[must_use]

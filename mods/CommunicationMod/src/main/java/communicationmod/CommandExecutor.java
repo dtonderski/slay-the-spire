@@ -194,6 +194,7 @@ public class CommandExecutor {
     }
 
     private static void executeStateCommand() {
+        GameStateListener.registerStatePoll();
         CommunicationMod.mustSendGameState = true;
     }
 

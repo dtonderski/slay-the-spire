@@ -3,8 +3,9 @@ use crate::{
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
         apply_monster_death_hooks, apply_play_top_draw_card_action, choose_discard_select,
-        choose_draw_select, choose_exhaust_select, choose_hand_select, close_discovery_source_card,
-        confirm_discard_select, confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
+        choose_draw_select, choose_exhaust_select, choose_hand_select,
+        close_discovery_source_card_with_force_exhaust, confirm_discard_select,
+        confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
         confirm_hand_select_skipped_put_on_deck_retrieval, discard_select_ui_to_discard_index,
         draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
         flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
@@ -19,8 +20,7 @@ use crate::{
     content::cards::{get_card_definition, upgrade_card_instance},
     content::monsters::wake_lagavulin_on_damage,
     content::shop_pool::{
-        burn_all_discovery_card_choice_draws, burn_all_discovery_card_choice_generations,
-        burn_colorless_discovery_card_choice_draws,
+        burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
         burn_discovery_card_choice_generations, colorless_discovery_card_choices,
         discovery_card_choices,
@@ -56,33 +56,6 @@ const COLORLESS_DISCOVERY_ACTION_PICKED_HIDDEN_GENERATIONS: usize = 11;
 const DISCOVERY_ACTION_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
 const DISCOVERY_ACTION_SKIPPED_HIDDEN_GENERATIONS: usize = 6;
 const DISCOVERY_ACTION_SKIPPED_SCREEN_SETTLE_DRAWS: usize = 3;
-// Post-pick DiscoveryAction settlement. Target update() always regenerates three
-// unique choices at the top of every call until isDone (ACTION_DUR_FAST under
-// SuperFastMode). Two settlement shapes appear in live CommMod traces:
-//
-// Force-exhausted Discovery (Havoc/Mayhem PlayTop; decision.source_card is None,
-// card already in exhaust) — permanent random-fidelity-1a50b5ada2264b05:
-// after open (1 visible + 4 hidden gens) the pick path advances cardRandomRng by
-// eight draws (two three-card generations + two settle draws) before Infernal
-// Blade. Four hidden gens over-burns and selects Rampage instead of Blood for Blood.
-//
-// Hand-played Discovery (decision.source_card holds the limbo source; card not yet
-// exhausted) — permanent random-fidelity-f019eccf586137c4: after the same open,
-// seven full post-pick generations are required before Magnetism's start-of-turn
-// source-pool colorless roll (Dramatic Entrance). The selected-card action can
-// remain active across later END boundaries; its invisible updates are settled
-// in the staged lifecycle below rather than re-anchoring a later observation.
-const FORCE_EXHAUST_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 2;
-const FORCE_EXHAUST_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS: usize = 2;
-const HAND_PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS: usize = 7;
-const HAND_PLAYED_DISCOVERY_DEFERRED_HIDDEN_GENERATIONS: u32 = 26;
-const HAND_PLAYED_DISCOVERY_DEFERRED_SETTLE_DRAWS: usize = 1;
-const HAND_PLAYED_DISCOVERY_SECOND_DEFERRED_HIDDEN_GENERATIONS: usize = 11;
-const HAND_PLAYED_DISCOVERY_SECOND_DEFERRED_SETTLE_DRAWS: usize = 2;
-const HAND_PLAYED_DISCOVERY_THIRD_DEFERRED_SETTLE_DRAWS: usize = 1;
-const HAND_PLAYED_DISCOVERY_FOURTH_DEFERRED_SETTLE_DRAWS: usize = 2;
-const HAND_PLAYED_DISCOVERY_FINAL_DEFERRED_SETTLE_DRAWS: usize = 1;
-const HAND_PLAYED_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS: usize = 0;
 const POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS: usize = 12;
 const POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
 
@@ -566,45 +539,38 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
         CombatDecisionState::DiscoveryCardReward {
             choices,
             source_card,
+            source_card_force_exhaust,
+            pending_actions,
         } => {
             let card_id = if let Some(card_id) = played_discovery_card_id {
                 card_id
             } else {
                 CardId::new(combat.next_card_instance_id()?)
             };
-            // DiscoveryAction.update always regenerates choices while the fast
-            // action settles. Hand-played Discovery parks the source on the
-            // decision (source_card = Some); force-exhaust PlayTop leaves it in
-            // exhaust with source_card = None. Those paths burn different
-            // post-pick generation counts under SuperFastMode/CommMod.
-            let (hidden_generations, settle_draws) = if source_card.is_some() {
-                (
-                    HAND_PLAYED_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
-                    HAND_PLAYED_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS,
-                )
-            } else {
-                (
-                    FORCE_EXHAUST_DISCOVERY_PICKED_HIDDEN_GENERATIONS,
-                    FORCE_EXHAUST_DISCOVERY_PICKED_SCREEN_SETTLE_DRAWS,
-                )
-            };
-            burn_all_discovery_card_choice_generations(
-                &mut combat.rng.card_random_rng,
-                3,
-                hidden_generations,
-            );
-            burn_all_discovery_card_choice_draws(&mut combat.rng.card_random_rng, settle_draws);
+            // DiscoveryAction.update generates one discarded three-card offer
+            // at the start of its post-selection update before retrieving the
+            // selected card. This is the complete hand-played lifecycle; no
+            // Discovery RNG remains after this response.
+            burn_all_discovery_card_choice_generations(&mut combat.rng.card_random_rng, 3, 1);
             let choice = choices[index];
             let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
             card.temp_cost_turn_only = true;
             // DiscoveryAction adds the generated card after the cards already in hand.
             combat.piles.hand.push(card);
-            let hand_played_discovery = source_card.is_some();
-            close_discovery_source_card(combat, source_card)?;
-            if hand_played_discovery {
-                combat.pending_hand_discovery_card_reward_stage = 1;
-                combat.pending_hand_discovery_card_reward_end_turns_remaining = 1;
+            // card.use() follow-ups queued behind DiscoveryAction (for example
+            // Hex's Dazed insertion) resolve after the selected card is
+            // retrieved but before UseCardAction settles the Discovery source.
+            if !pending_actions.is_empty() {
+                let transition =
+                    crate::combat::transition::process_internal_queue(combat, pending_actions)?;
+                *combat = transition.state;
             }
+            close_discovery_source_card_with_force_exhaust(
+                combat,
+                source_card,
+                source_card_force_exhaust,
+            )?;
+            combat.play_top_force_exhaust_active = false;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
         }
         CombatDecisionState::ToolboxCardReward { choices } => {
@@ -712,73 +678,6 @@ fn settle_potion_card_reward_rng(
         PotionCardRewardKind::Colorless => {
             burn_colorless_discovery_card_choice_generations(rng, 3, hidden_generations);
             burn_colorless_discovery_card_choice_draws(rng, settle_draws);
-        }
-    }
-}
-
-pub(crate) fn settle_pending_hand_discovery_card_reward_rng(combat: &mut CombatState) {
-    let stage = combat.pending_hand_discovery_card_reward_stage;
-    if stage == 0 {
-        return;
-    }
-    let remaining = &mut combat.pending_hand_discovery_card_reward_end_turns_remaining;
-    if *remaining > 1 {
-        *remaining -= 1;
-        return;
-    }
-    *remaining = 0;
-    match stage {
-        1 => {
-            burn_all_discovery_card_choice_generations(
-                &mut combat.rng.card_random_rng,
-                3,
-                HAND_PLAYED_DISCOVERY_DEFERRED_HIDDEN_GENERATIONS as usize,
-            );
-            burn_all_discovery_card_choice_draws(
-                &mut combat.rng.card_random_rng,
-                HAND_PLAYED_DISCOVERY_DEFERRED_SETTLE_DRAWS,
-            );
-            combat.pending_hand_discovery_card_reward_stage = 2;
-            combat.pending_hand_discovery_card_reward_end_turns_remaining = 2;
-        }
-        2 => {
-            burn_all_discovery_card_choice_generations(
-                &mut combat.rng.card_random_rng,
-                3,
-                HAND_PLAYED_DISCOVERY_SECOND_DEFERRED_HIDDEN_GENERATIONS,
-            );
-            burn_all_discovery_card_choice_draws(
-                &mut combat.rng.card_random_rng,
-                HAND_PLAYED_DISCOVERY_SECOND_DEFERRED_SETTLE_DRAWS,
-            );
-            combat.pending_hand_discovery_card_reward_stage = 3;
-            combat.pending_hand_discovery_card_reward_end_turns_remaining = 1;
-        }
-        3 => {
-            burn_all_discovery_card_choice_draws(
-                &mut combat.rng.card_random_rng,
-                HAND_PLAYED_DISCOVERY_THIRD_DEFERRED_SETTLE_DRAWS,
-            );
-            combat.pending_hand_discovery_card_reward_stage = 4;
-            combat.pending_hand_discovery_card_reward_end_turns_remaining = 1;
-        }
-        4 => {
-            burn_all_discovery_card_choice_draws(
-                &mut combat.rng.card_random_rng,
-                HAND_PLAYED_DISCOVERY_FOURTH_DEFERRED_SETTLE_DRAWS,
-            );
-            combat.pending_hand_discovery_card_reward_stage = 5;
-            combat.pending_hand_discovery_card_reward_end_turns_remaining = 1;
-        }
-        5 => {
-            burn_all_discovery_card_choice_draws(
-                &mut combat.rng.card_random_rng,
-                HAND_PLAYED_DISCOVERY_FINAL_DEFERRED_SETTLE_DRAWS,
-            );
-            combat.pending_hand_discovery_card_reward_stage = 0;
-        }
-        _ => {
-            combat.pending_hand_discovery_card_reward_stage = 0;
         }
     }
 }
@@ -1910,7 +1809,16 @@ mod tests {
         combat
             .validate()
             .expect("queued and generated card IDs remain unique");
-        assert!(combat.piles.limbo.is_empty());
+        assert_eq!(
+            combat
+                .piles
+                .limbo
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DUAL_WIELD_ID],
+            "the force-played Dual Wield remains cardInUse while its select is open"
+        );
         assert!(matches!(
             &combat.decision,
             Some(CombatDecisionState::HandSelect {
@@ -1921,7 +1829,7 @@ mod tests {
                 ..
             })
         ));
-        assert!(combat
+        assert!(!combat
             .piles
             .hand
             .iter()
@@ -2309,6 +2217,8 @@ mod tests {
                 choice_content,
             )],
             source_card: None,
+            source_card_force_exhaust: false,
+            pending_actions: Default::default(),
         });
 
         let next = apply_combat_card_reward_choice(&run, 0).expect("Discovery card choice");
@@ -2325,8 +2235,8 @@ mod tests {
         assert_eq!(hand.last().map(|card| card.id), Some(chosen_id));
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            24,
-            "two hidden DiscoveryAction generations plus two settle draws consume eight draws"
+            19,
+            "one post-selection DiscoveryAction generation consumes three draws"
         );
     }
 
@@ -2347,6 +2257,8 @@ mod tests {
         combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
             choices: vec![CardInstance::new(choice_id, choice_content)],
             source_card: Some(CardInstance::new(source_id, DISCOVERY_ID)),
+            source_card_force_exhaust: false,
+            pending_actions: Default::default(),
         });
 
         let next = apply_combat_card_reward_choice(&run, 0).expect("Discovery card choice");

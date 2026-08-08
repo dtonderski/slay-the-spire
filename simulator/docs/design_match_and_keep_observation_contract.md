@@ -1,5 +1,9 @@
 # Match and Keep observation contract
 
+> **Historical and superseded.** Boundary schema v1 no longer permits choice
+> lag, deferred assertions, or later-frame reconciliation. This document records
+> the retired design; active verification requires immediate same-step parity.
+
 ## Problem
 
 Seed-start verification previously passed Match and Keep choice mismatches by

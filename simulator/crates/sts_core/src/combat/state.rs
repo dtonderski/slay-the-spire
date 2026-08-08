@@ -16,7 +16,7 @@ use crate::{
     potion::FAIRY_HEAL_PERCENT,
     power::{MonsterPowers, PlayerPowers},
     relic::{Relic, RelicCounters},
-    rng::{rng_counter_is_supported, StsRng},
+    rng::{rng_counter_is_supported, RngTraceStream, StsRng},
     ContentId, SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
 };
 use serde::{Deserialize, Serialize};
@@ -42,11 +42,19 @@ impl CombatRngState {
     #[must_use]
     pub fn deterministic_fixture(seed: i64) -> Self {
         Self {
-            shuffle_rng: StsRng::new(seed),
-            monster_rng: StsRng::new(seed),
-            monster_hp_rng: StsRng::new(seed),
-            card_random_rng: StsRng::new(seed),
+            shuffle_rng: StsRng::new(seed).for_stream(RngTraceStream::Shuffle),
+            monster_rng: StsRng::new(seed).for_stream(RngTraceStream::Monster),
+            monster_hp_rng: StsRng::new(seed).for_stream(RngTraceStream::MonsterHp),
+            card_random_rng: StsRng::new(seed).for_stream(RngTraceStream::CardRandom),
         }
+    }
+
+    fn with_trace_streams(mut self) -> Self {
+        self.shuffle_rng = self.shuffle_rng.for_stream(RngTraceStream::Shuffle);
+        self.monster_rng = self.monster_rng.for_stream(RngTraceStream::Monster);
+        self.monster_hp_rng = self.monster_hp_rng.for_stream(RngTraceStream::MonsterHp);
+        self.card_random_rng = self.card_random_rng.for_stream(RngTraceStream::CardRandom);
+        self
     }
 }
 
@@ -98,6 +106,20 @@ pub struct CombatState {
     /// is mid-play must not reduce that copy).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_in_use: Option<CardId>,
+    /// Set while expanding `PlayTopDrawCard` with `exhaust_played_card` so nested
+    /// Dual Wield select knows to force-exhaust on CONFIRM (no exhaust keyword).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub play_top_force_exhaust_active: bool,
+    /// Malleable/Curl Up GainMonsterBlock from nested PlayTop attacks, flushed
+    /// after the outer skill's bot actions (Letter Opener) — FIDL00428.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deferred_play_top_monster_blocks: Vec<(crate::ids::MonsterId, i32)>,
+    /// Depth while expanding nested PlayTop card queues (not sticky across turns).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub play_top_resolving_depth: u32,
+    /// Letter Opener all-enemy hits still on the action queue (FIDL00428).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub pending_letter_opener_blasts: u32,
     /// Energy actions queued by start-of-turn relics behind an opening combat choice.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_start_of_turn_relic_energy: i32,
@@ -110,13 +132,6 @@ pub struct CombatState {
     /// Deferred DiscoveryAction generations after a potion reward selection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_potion_card_reward_settlement: Option<PendingPotionCardRewardSettlement>,
-    /// Hand-played DiscoveryAction updates that remain after the first
-    /// post-pick turn boundary. The target action can expose Magnetism before
-    /// these invisible updates finish.
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
-    pub pending_hand_discovery_card_reward_stage: u8,
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
-    pub pending_hand_discovery_card_reward_end_turns_remaining: u8,
     /// Leftover HandCardSelectScreen.selectedCards held off every serialized
     /// pile until a non-empty-hand end-turn DiscardAction (skipped retrieval).
     /// Covers Cultist-potion interleaving, Dual Wield / Armaments / Burning Pact
@@ -129,8 +144,22 @@ pub struct CombatState {
     pub pending_hidden_hand_card_exhausts_with_fiend_fire: bool,
     /// Set when Nilry's Codex paused end-of-turn; resume discards + monster turn
     /// after the card-reward decision closes.
+    ///
+    /// CommunicationMod publishes a two-step Codex end-turn (FIDL00451):
+    /// END → first 3-card offer (hand still held) → CHOOSE/SKIP → END →
+    /// second 3-card offer (hand discarded) → CHOOSE/SKIP → monster/draw.
     #[serde(default, skip_serializing_if = "is_false")]
     pub resume_end_turn_after_nilrys_codex: bool,
+    /// Nilry two-offer end-turn stage (FIDL00451):
+    /// 0 inactive, 1 first offer open, 2 await END for second offer,
+    /// 3 second offer open.
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub nilrys_codex_end_turn_stage: u8,
+    /// Cards chosen from Nilry offers this end-turn; inserted into the draw
+    /// pile only when end-turn finally resumes (FIDL00451 first pick stays out
+    /// of the draw pile during the second offer frame).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_nilrys_codex_draw_inserts: Vec<crate::ContentId>,
     /// Dead Branch cards held across the Nilry pause until post-discard hand rebuild.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_end_turn_dead_branch_cards: Vec<CardInstance>,
@@ -150,6 +179,21 @@ pub struct CombatState {
     /// Time Eater ends the current player turn after the twelfth card resolves.
     #[serde(default, skip_serializing_if = "is_false")]
     pub time_warp_end_turn: bool,
+    /// The Time Warp lag frame already resolved end-of-player-turn powers and
+    /// auto-playing hand cards; the next forced-turn settlement starts at
+    /// ethereal exhaustion/discard rather than replaying that queue.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub time_warp_end_turn_pre_discard_settled: bool,
+    /// The source action manager has two monster queue entries pending after a
+    /// Time Warp hand/exhaust-select lag frame. Each entry captured the same
+    /// intent before its RollMoveAction ran.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub time_warp_duplicate_monster_queue: bool,
+    /// Start-of-turn queued draws must finish before a Time Warp forced end-turn.
+    /// This mirrors GameActionManager's FIFO: Mayhem resolves, then Evolve's
+    /// DrawCardAction, then the EndTurnAction appended by Time Warp.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub defer_time_warp_end_turn: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -185,6 +229,17 @@ pub struct HandSelectState {
     pub selected_hand_index: Option<usize>,
     #[serde(default)]
     pub selected_hand_indices: Vec<usize>,
+    /// Force-play Dual Wield multi-select hides non-Attack/Power cards from the
+    /// CommunicationMod hand. Skills (Defend, etc.) re-enter hand on CONFIRM
+    /// (random-fidelity-9074); statuses/curses stay out of every combat pile for
+    /// the rest of the fight (FIDL00242 Shame).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dual_wield_restore_on_confirm: Vec<CardInstance>,
+    /// Havoc/Mayhem/Distilled Chaos force-play exhausts Dual Wield even though the
+    /// card definition has no exhaust keyword (hand-play discards; FIDL00242 vs
+    /// trace-session-8).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dual_wield_force_exhaust: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -208,6 +263,11 @@ pub struct DrawSelectState {
     #[serde(default)]
     pub selectable_card_ids: Vec<CardId>,
     pub selected_draw_index: Option<usize>,
+    /// Follow-ups queued after the draw-selection screen opens. CommunicationMod
+    /// can publish the grid before on-use generated cards resolve, so preserve
+    /// them until CONFIRM rather than mutating the visible draw pile early.
+    #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+    pub pending_actions: VecDeque<InternalAction>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -250,6 +310,11 @@ pub struct ExhaustSelectState {
     pub source_card_id: Option<CardId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_card: Option<CardInstance>,
+    /// Force-played sources (Havoc, Mayhem, or Distilled Chaos) settle with
+    /// exhaust-on-use semantics after the selection closes. Ordinary hand-play
+    /// True Grit+ parks its source here too, but that source discards.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub source_card_force_exhaust: bool,
     pub selected_hand_indices: Vec<usize>,
     /// Cultist Potion can be used while Burning Pact is waiting for an
     /// exhaust selection. The target action queue leaves the selected card
@@ -274,6 +339,14 @@ pub enum CombatDecisionState {
         choices: Vec<CardInstance>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         source_card: Option<CardInstance>,
+        /// A forced PlayTop source settles with exhaustOnUseOnce after the
+        /// reward closes, even when the card itself has no Exhaust keyword.
+        #[serde(default, skip_serializing_if = "is_false")]
+        source_card_force_exhaust: bool,
+        /// Hex/onUseCard bot follow-ups that must wait until the reward closes
+        /// (FIDL00233: Hex Dazed lands on Discovery CHOOSE, not on PLAY open).
+        #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+        pending_actions: VecDeque<InternalAction>,
     },
     /// Nilry's Codex end-of-turn offer: pick one card to shuffle into the draw
     /// pile (or skip). End-turn continues after the decision closes.
@@ -413,6 +486,12 @@ pub struct MonsterState {
     /// A survived Hexaghost Inferno makes later Sear-generated Burns upgraded.
     #[serde(default, skip_serializing_if = "is_false")]
     pub burns_upgraded: bool,
+    /// When set, the next half-dead Stun/REBIRTH takeTurn only holds the
+    /// half-dead pose; heal + Dark Echo wait for the following monster turn.
+    /// Set when first death lands during player end-of-turn powers (Combust),
+    /// matching FIDL00391 (death END stays half-dead through one player turn).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub defer_awakened_one_rebirth: bool,
     pub intent: MonsterIntent,
 }
 
@@ -761,6 +840,15 @@ impl CombatState {
         }
     }
 
+    /// Drop open hand/exhaust selects when combat is already over (FIDL00243:
+    /// lethal play can leave a stale decision while phase is Won).
+    pub fn clear_decisions_on_combat_end(&mut self) {
+        if matches!(self.phase, CombatPhase::Won | CombatPhase::Lost) {
+            self.decision = None;
+            self.queued_decisions.clear();
+        }
+    }
+
     pub(crate) fn queue_or_activate_decision(&mut self, decision: CombatDecisionState) {
         if self.decision.is_some() {
             self.queued_decisions.push_back(decision);
@@ -785,7 +873,14 @@ impl CombatState {
         if ascension > 20 {
             return Err(SimError::InvalidState("combat ascension exceeds 20"));
         }
-        let state = Self::from_entry_parts(player, monsters, piles, relics, ascension, rng);
+        let state = Self::from_entry_parts(
+            player,
+            monsters,
+            piles,
+            relics,
+            ascension,
+            rng.with_trace_streams(),
+        );
         state.validate_unique_card_piles()?;
         Ok(state)
     }
@@ -854,21 +949,28 @@ impl CombatState {
             bomb_timers: Vec::new(),
             pending_player_spikes_damage: 0,
             card_in_use: None,
+            play_top_force_exhaust_active: false,
+            deferred_play_top_monster_blocks: Vec::new(),
+            play_top_resolving_depth: 0,
+            pending_letter_opener_blasts: 0,
             pending_start_of_turn_relic_energy: 0,
             pending_monster_death_relic_triggers: 0,
             combat_gold_gained: 0,
             pending_potion_card_reward_settlement: None,
-            pending_hand_discovery_card_reward_stage: 0,
-            pending_hand_discovery_card_reward_end_turns_remaining: 0,
             pending_hidden_hand_card_until_end_turn: Vec::new(),
             pending_hidden_hand_card_exhausts_with_fiend_fire: false,
             resume_end_turn_after_nilrys_codex: false,
+            nilrys_codex_end_turn_stage: 0,
+            pending_nilrys_codex_draw_inserts: Vec::new(),
             pending_end_turn_dead_branch_cards: Vec::new(),
             pending_end_turn_dark_embrace_draws: 0,
             pending_end_turn_juggernaut_damage: Vec::new(),
             pending_elixir_exhaust_card_ids: Vec::new(),
             pending_elixir_exhaust_turns_remaining: 0,
             time_warp_end_turn: false,
+            time_warp_end_turn_pre_discard_settled: false,
+            time_warp_duplicate_monster_queue: false,
+            defer_time_warp_end_turn: false,
         }
     }
 
@@ -915,10 +1017,18 @@ impl CombatState {
 
     pub fn validate_unique_card_piles(&self) -> SimResult<()> {
         let mut seen = BTreeSet::new();
+        let mut decision_cards = Vec::new();
+        if let Some(decision) = &self.decision {
+            extend_decision_cards(&mut decision_cards, decision);
+        }
+        for decision in &self.queued_decisions {
+            extend_decision_cards(&mut decision_cards, decision);
+        }
         for card in self
             .piles
             .all_cards()
             .chain(self.pending_hidden_hand_card_until_end_turn.iter())
+            .chain(decision_cards)
         {
             if !seen.insert(card.id) {
                 return Err(SimError::InvalidState(
@@ -1161,7 +1271,10 @@ fn extend_decision_cards<'a>(cards: &mut Vec<&'a CardInstance>, decision: &'a Co
         | CombatDecisionState::NilrysCodexCardReward { choices } => cards.extend(choices),
         CombatDecisionState::DiscardSelect { state } => cards.extend(state.source_card.iter()),
         CombatDecisionState::ExhaustSelect { state } => cards.extend(state.source_card.iter()),
-        CombatDecisionState::HandSelect { .. } | CombatDecisionState::DrawSelect { .. } => {}
+        CombatDecisionState::HandSelect { state, .. } => {
+            cards.extend(state.dual_wield_restore_on_confirm.iter());
+        }
+        CombatDecisionState::DrawSelect { .. } => {}
     }
     if let CombatDecisionState::DiscoveryCardReward { source_card, .. } = decision {
         cards.extend(source_card.iter());
