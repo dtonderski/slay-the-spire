@@ -159,7 +159,7 @@ pub(super) fn play_card_queue(
             target.expect("validated Rampage has a target"),
             definition,
         ),
-        POWER_THROUGH_ID | POWER_THROUGH_PLUS_ID => power_through_queue(state, card_id, definition),
+        POWER_THROUGH_ID | POWER_THROUGH_PLUS_ID => power_through_queue(card_id, definition),
         APOTHEOSIS_ID | APOTHEOSIS_PLUS_ID => apotheosis_queue(card_id, definition),
         ARMAMENTS_ID | ARMAMENTS_PLUS_ID => armaments_queue(state, card_id, definition),
         HEADBUTT_ID | HEADBUTT_PLUS_ID => headbutt_queue(
@@ -1685,7 +1685,6 @@ fn rampage_queue(
 }
 
 fn power_through_queue(
-    state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
@@ -1694,35 +1693,18 @@ fn power_through_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-    ]);
-    if state.piles.hand.len() >= 10 {
-        // The target MakeTempCardInHandAction sees the played card in limbo,
-        // so it can place one of two Wounds in a full hand. Preserve the
-        // existing queue shape for non-full hands; only the hand-capacity
-        // boundary requires the limbo-aware batch action.
-        queue.push_back(InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
+        // MakeTempCardInHandAction runs while the played card is in limbo. It
+        // must not count Power Through against either Wound's hand capacity:
+        // with nine visible cards, retaining the source would incorrectly
+        // discard the second Wound before the source itself is discarded.
+        InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
             content_id: WOUND_ID,
             source_card_id: card_id,
             count: 2,
             temp_cost: None,
             temp_cost_turn_only: false,
-        });
-    } else {
-        queue.extend([
-            InternalAction::AddGeneratedCardToPile {
-                content_id: WOUND_ID,
-                to: CardPile::Hand,
-                temp_cost: None,
-                temp_cost_turn_only: false,
-            },
-            InternalAction::AddGeneratedCardToPile {
-                content_id: WOUND_ID,
-                to: CardPile::Hand,
-                temp_cost: None,
-                temp_cost_turn_only: false,
-            },
-        ]);
-    }
+        },
+    ]);
     queue.extend([
         InternalAction::GainBlock {
             amount: required_block(definition)?,

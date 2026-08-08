@@ -447,6 +447,48 @@ fn power_through_plus_adds_two_generated_wounds_then_gains_twenty_block() {
 }
 
 #[test]
+fn power_through_with_nine_card_hand_keeps_both_wounds_before_source_discard() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::POWER_THROUGH_ID)];
+    for id in 2..=9 {
+        state
+            .piles
+            .hand
+            .push(CardInstance::new(CardId::new(id), cards::STRIKE_R_ID));
+    }
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Power Through plays");
+
+    assert_eq!(next.piles.hand.len(), 10);
+    assert_eq!(
+        next.piles.hand[8..]
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::WOUND_ID, cards::WOUND_ID]
+    );
+    assert!(next.piles.hand[8..].iter().all(|card| card.combat_only));
+    assert_eq!(next.piles.hand[8].id, CardId::new(10));
+    assert_eq!(next.piles.hand[9].id, CardId::new(11));
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::POWER_THROUGH_ID
+    );
+}
+
+#[test]
 fn rage_plus_grants_five_block_when_next_attack_is_played() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
