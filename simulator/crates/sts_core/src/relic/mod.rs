@@ -1034,9 +1034,14 @@ pub fn relic_can_spawn(relic: RelicKey, context: &RelicSpawnContext) -> bool {
         MawBank | OldCoin | SmilingMask => context.floor_num <= 48 && !context.shop_room,
         AncientTeaSet | CeramicFish | DarkstonePeriapt | DreamCatcher | FrozenEgg
         | JuzuBracelet | MealTicket | MeatOnTheBone | MoltenEgg | Omamori | PotionBelt
-        | PrayerWheel | QuestionCard | RegalPillow | SingingBowl | TheCourier | ToxicEgg => {
+        | PrayerWheel | QuestionCard | RegalPillow | SingingBowl | ToxicEgg => {
             context.floor_num <= 48
         }
+        // Vanilla `Courier.canSpawn` rejects shop rooms even though the relic
+        // remains eligible for ordinary rewards through floor 48. The target
+        // `returnRandomRelicEnd` consumes this rejected tail offer before
+        // returning the next eligible relic.
+        TheCourier => context.floor_num <= 48 && !context.shop_room,
         PreservedInsect => context.floor_num <= 52,
         _ => true,
     }
@@ -2961,6 +2966,37 @@ fn deal_unmodified_damage_to_living_monsters(
 mod tests {
     use super::*;
     use crate::power::{MonsterPowers, PlayerPowers};
+
+    #[test]
+    fn courier_is_rejected_in_shop_and_end_offer_falls_through() {
+        let ordinary = RelicSpawnContext {
+            floor_num: 28,
+            shop_room: false,
+            ..RelicSpawnContext::default()
+        };
+        assert!(relic_can_spawn(RelicKey::TheCourier, &ordinary));
+
+        let shop = RelicSpawnContext {
+            floor_num: 28,
+            shop_room: true,
+            has_non_basic_attack: true,
+            ..RelicSpawnContext::default()
+        };
+        assert!(!relic_can_spawn(RelicKey::TheCourier, &shop));
+
+        let mut pools = RelicPoolState {
+            common: Vec::new(),
+            uncommon: vec![RelicKey::BottledFlame, RelicKey::TheCourier],
+            rare: Vec::new(),
+            shop: Vec::new(),
+            boss: Vec::new(),
+        };
+        assert_eq!(
+            pools.return_random_relic_end(RelicTier::Uncommon, &shop),
+            RelicKey::BottledFlame
+        );
+        assert!(pools.uncommon.is_empty());
+    }
 
     #[test]
     fn orange_pellets_type_flags_reset_each_turn_and_do_not_cross_cleanse() {
