@@ -3921,11 +3921,30 @@ pub fn neow_screen_for_stage(run: &RunState, stage: u32) -> EventScreen {
 }
 
 fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption) -> SimResult<()> {
-    match option.drawback {
-        NeowDrawback::Curse => {
-            apply_neow_curse_drawback(next)?;
+    // Neow's curse drawback is queued by the source as a visual obtain effect.
+    // For a grid reward, the grid opens from the pre-curse master deck, then
+    // the effect resolves and adds the curse while that grid remains open.
+    let curse_grid_reward = option.drawback == NeowDrawback::Curse
+        && matches!(
+            option.reward,
+            NeowRewardType::RemoveCard
+                | NeowRewardType::RemoveTwo
+                | NeowRewardType::UpgradeCard
+                | NeowRewardType::TransformCard
+                | NeowRewardType::TransformTwoCards
+        );
+    let curse_card_reward = option.drawback == NeowDrawback::Curse
+        && matches!(
+            option.reward,
+            NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo
+        );
+    if !curse_grid_reward && !curse_card_reward {
+        match option.drawback {
+            NeowDrawback::Curse => {
+                apply_neow_curse_drawback(next)?;
+            }
+            drawback => apply_neow_simple_drawback(next, drawback)?,
         }
-        drawback => apply_neow_simple_drawback(next, drawback)?,
     }
 
     match option.reward {
@@ -3956,6 +3975,10 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
         | NeowRewardType::TransformCard
         | NeowRewardType::TransformTwoCards => {
             open_neow_reward_grid(next, option.reward)?;
+            if curse_grid_reward {
+                apply_neow_curse_drawback(next)?;
+                next.flush_pending_obtain_cards()?;
+            }
             return Ok(());
         }
         NeowRewardType::ThreeCards | NeowRewardType::ThreeRareCards => {
@@ -3963,7 +3986,15 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
             return Ok(());
         }
         NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo => {
+            // The target builds the three colorless choices before its queued
+            // Neow curse obtains a card. This preserves cardRng call order;
+            // the ShowCardAndObtain effect has settled by the open reward frame
+            // in this screen-owned lifecycle.
             open_neow_colorless_card_reward(next, option.reward)?;
+            if curse_card_reward {
+                apply_neow_curse_drawback(next)?;
+                next.flush_pending_obtain_cards()?;
+            }
             return Ok(());
         }
     }
@@ -4778,6 +4809,67 @@ mod tests {
         assert!(next.card_grid.is_some());
         next.validate()
             .expect("Neow grid result is owned by the leave stage");
+    }
+
+    #[test]
+    fn neow_curse_transform_grid_snapshots_before_curse_obtain() {
+        let mut run = RunState::seeded_ironclad(34_961_238_662_212, 0);
+        let talk = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Neow talk advances to option choices");
+        run = talk;
+
+        let options = generate_neow_options(run.event_rng_seed as i64, run.player_max_hp);
+        assert_eq!(options[2].drawback, NeowDrawback::Curse);
+        assert_eq!(options[2].reward, NeowRewardType::TransformTwoCards);
+        let original_deck = run.deck.clone();
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
+            .expect("Neow curse plus TransformTwo opens its grid");
+
+        assert_eq!(next.deck.len(), original_deck.len() + 1);
+        assert_eq!(
+            next.deck.last().map(|card| card.content_id),
+            Some(REGRET_ID)
+        );
+        let grid = next.card_grid.as_ref().expect("Neow transform grid");
+        assert_eq!(grid.purpose, GridPurpose::NeowTransform { count: 2 });
+        assert_eq!(grid.cards, original_deck);
+        assert!(!grid.cards.iter().any(|card| card.content_id == REGRET_ID));
+        next.validate()
+            .expect("curse obtain and pre-obtain grid snapshot remain valid");
+    }
+
+    #[test]
+    fn neow_curse_rare_colorless_rolls_reward_before_curse() {
+        use crate::content::cards::{MASTER_OF_STRATEGY_ID, SECRET_TECHNIQUE_ID, VIOLENCE_ID};
+
+        let mut run = RunState::seeded_ironclad(34_961_238_662_282, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(neow_screen_for_stage(&run, 1));
+        let options = generate_neow_options(run.event_rng_seed as i64, run.player_max_hp);
+        assert_eq!(
+            (options[2].drawback, options[2].reward),
+            (NeowDrawback::Curse, NeowRewardType::RandomColorlessTwo)
+        );
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
+            .expect("Neow curse plus rare colorless reward opens");
+        let reward = next.reward.as_ref().expect("colorless reward screen");
+        assert_eq!(
+            reward
+                .choices
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![SECRET_TECHNIQUE_ID, MASTER_OF_STRATEGY_ID, VIOLENCE_ID]
+        );
+        assert_eq!(next.card_rng_counter, 4);
+        assert_eq!(
+            next.deck.last().map(|card| card.content_id),
+            Some(REGRET_ID)
+        );
+        assert!(next.pending_obtain_cards.is_empty());
+        next.validate()
+            .expect("Neow reward and settled curse remain authoritative");
     }
 
     #[test]
