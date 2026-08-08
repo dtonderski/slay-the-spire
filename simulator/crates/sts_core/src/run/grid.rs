@@ -830,7 +830,7 @@ pub fn open_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
         return Ok(());
     }
     if cards.len() <= ASTROLABE_TRANSFORM_COUNT {
-        transform_astrolabe_cards(run, &cards)?;
+        transform_astrolabe_cards(run, &cards, astrolabe_obtain_is_pending(run))?;
         return Ok(());
     }
 
@@ -1373,7 +1373,7 @@ fn confirm_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
                 .ok_or(SimError::IllegalAction("grid index out of range"))
         })
         .collect::<SimResult<Vec<_>>>()?;
-    transform_astrolabe_cards(run, &cards)?;
+    transform_astrolabe_cards(run, &cards, astrolabe_obtain_is_pending(run))?;
     run.card_grid = None;
     Ok(())
 }
@@ -1515,8 +1515,24 @@ fn transform_neow_cards(
     Ok(())
 }
 
-fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResult<()> {
-    let next_card_id = run.reserve_card_instance_ids(cards.len())?;
+fn astrolabe_obtain_is_pending(run: &RunState) -> bool {
+    run.phase == RunPhase::Event
+        && run
+            .event
+            .as_ref()
+            .is_some_and(|screen| screen.event == Event::Neow && screen.stage == 2)
+}
+
+fn transform_astrolabe_cards(
+    run: &mut RunState,
+    cards: &[CardInstance],
+    defer_obtains: bool,
+) -> SimResult<()> {
+    let next_card_id = if defer_obtains {
+        None
+    } else {
+        Some(run.reserve_card_instance_ids(cards.len())?)
+    };
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
     let transformed = cards
         .iter()
@@ -1525,10 +1541,10 @@ fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) -> SimR
             // Astrolabe transforms, then upgrades the result. Use upgrade_card_instance
             // so Searing Blow+ carries searing_blow_upgrades (and similar metadata).
             let transformed = transform_card_content_id(card.content_id, &mut rng);
-            let base = CardInstance::new(
-                crate::ids::CardId::new(next_card_id + index as u64),
-                transformed,
-            );
+            let card_id = next_card_id
+                .map(|first_id| first_id + index as u64)
+                .unwrap_or_else(|| card.id.get());
+            let base = CardInstance::new(crate::ids::CardId::new(card_id), transformed);
             upgrade_card_instance(base)?.ok_or(SimError::InvalidState(
                 "Astrolabe transform result must be upgradeable",
             ))
@@ -1540,8 +1556,16 @@ fn transform_astrolabe_cards(run: &mut RunState, cards: &[CardInstance]) -> SimR
         run.remove_deck_card(card.id)
             .expect("transform selected a deck card");
     }
-    for card in transformed {
-        run.add_deck_card(card)?;
+    if defer_obtains {
+        // Astrolabe's ShowCardAndObtainEffect removes the selected sources while
+        // its generated cards remain pending until the Neow Leave screen settles.
+        for card in transformed {
+            run.queue_pending_obtain_card(card.content_id);
+        }
+    } else {
+        for card in transformed {
+            run.add_deck_card(card)?;
+        }
     }
     Ok(())
 }
@@ -2244,6 +2268,47 @@ mod tests {
     }
 
     #[test]
+    fn astrolabe_neow_auto_confirms_and_defers_obtains_until_leave() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::neow_screen_for_stage(&run, 2));
+        run.relics.push(crate::Relic::Astrolabe);
+        let original_deck = run.deck.clone();
+        let sources = original_deck[..3].to_vec();
+        open_astrolabe_grid(&mut run).expect("Astrolabe opens its grid");
+
+        let after_first = select_grid_card(&run, 0).expect("first Astrolabe source");
+        let after_second = select_grid_card(&after_first, 1).expect("second Astrolabe source");
+        let after_final = select_grid_card(&after_second, 2).expect("third Astrolabe source");
+
+        assert!(after_final.card_grid.is_none());
+        assert_eq!(after_final.deck.len(), original_deck.len() - 3);
+        assert_eq!(after_final.pending_obtain_cards.len(), 3);
+        assert!(sources
+            .iter()
+            .all(|source| !after_final.deck.iter().any(|card| card.id == source.id)));
+        assert_eq!(after_final.event.as_ref().map(|event| event.stage), Some(2));
+        after_final
+            .validate()
+            .expect("Astrolabe pending obtains are authoritative on Neow Leave");
+
+        let pending = after_final.pending_obtain_cards.clone();
+        let left =
+            crate::apply_event_action(&after_final, crate::EventAction::Choose { choice_index: 0 })
+                .expect("Neow Leave flushes Astrolabe transformed cards");
+        assert!(left.pending_obtain_cards.is_empty());
+        assert_eq!(left.deck.len(), original_deck.len());
+        assert_eq!(
+            left.deck[original_deck.len() - 3..]
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            pending
+        );
+        left.validate().expect("Neow Leave produces a valid run");
+    }
+
+    #[test]
     fn empty_cage_removes_two_cards_after_the_second_selection() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Treasure;
@@ -2286,7 +2351,7 @@ mod tests {
         let mut astrolabe_run = run;
 
         transform_event_cards(&mut event_run, &sources).expect("event transforms allocate cards");
-        transform_astrolabe_cards(&mut astrolabe_run, &sources)
+        transform_astrolabe_cards(&mut astrolabe_run, &sources, false)
             .expect("Astrolabe transforms allocate cards");
 
         let event_results = &event_run.deck[event_run.deck.len() - sources.len()..];

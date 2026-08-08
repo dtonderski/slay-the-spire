@@ -1625,10 +1625,14 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             }
             (Event::DrugDealer, 1) => pending.is_empty() || pending == [JAX_ID],
             (Event::Addict, 1) => pending.is_empty() || pending == [SHAME_ID],
-            // Neow transform uses ShowCardAndObtainEffect for each selected
-            // source. The sources are removed before Leave, while one or two
-            // generated cards remain pending until the stage-2 Leave action.
-            (Event::Neow, 2) => pending.len() <= 2,
+            // Neow transforms and an Astrolabe granted by Neow use
+            // ShowCardAndObtainEffect. The selected sources are removed before
+            // Leave, while their generated cards remain pending until the
+            // stage-2 Leave action. Three pending cards are authoritative only
+            // when the pending Astrolabe relic is present.
+            (Event::Neow, 2) => {
+                pending.len() <= 2 || (pending.len() == 3 && run.relics.contains(&Relic::Astrolabe))
+            }
             // Knowing Skull Success queues one uncommon colorless via
             // ShowCardAndObtainEffect; multi-Success can leave one pending.
             (Event::KnowingSkull, 1) | (Event::KnowingSkull, 2) => {
