@@ -885,14 +885,15 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
         } else {
             grid.selected_indices.push(index);
         }
-        // Empty Cage and Astrolabe resolve as soon as the required cards have
-        // been selected; neither target grid exposes a separate confirmation
-        // click. Other multi-select grids retain their selections until the
-        // explicit GridConfirm action.
-        if matches!(
+        // Empty Cage, Astrolabe, and Neow transform resolve as soon as the
+        // required cards have been selected; none of these target grids
+        // exposes a separate confirmation click. Other multi-select grids
+        // retain their selections until the explicit GridConfirm action.
+        if (matches!(
             grid.purpose,
             GridPurpose::EmptyCage { .. } | GridPurpose::Astrolabe
-        ) && grid.selected_indices.len() >= required
+        ) || matches!(grid.purpose, GridPurpose::NeowTransform { count } if count > 1))
+            && grid.selected_indices.len() >= required
         {
             return apply_validated_grid_confirmation(&next);
         }
@@ -1399,7 +1400,7 @@ fn confirm_neow_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
                 .ok_or(SimError::IllegalAction("grid index out of range"))
         })
         .collect::<SimResult<Vec<_>>>()?;
-    transform_neow_cards(run, &cards)?;
+    transform_neow_cards(run, &cards, count > 1)?;
     run.card_grid = None;
     finish_neow_grid_reward(run);
     Ok(())
@@ -1470,29 +1471,46 @@ fn confirm_event_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> 
     Ok(())
 }
 
-fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResult<()> {
-    let next_card_id = run.reserve_card_instance_ids(cards.len())?;
+fn transform_neow_cards(
+    run: &mut RunState,
+    cards: &[CardInstance],
+    defer_obtains: bool,
+) -> SimResult<()> {
     let sources = cards.iter().map(|card| card.content_id).collect::<Vec<_>>();
     let reward =
         crate::run::neow::generate_neow_transform_reward(run.reward_rng_seed as i64, &sources);
-    let transformed = reward
-        .cards
-        .into_iter()
-        .enumerate()
-        .map(|(index, content_id)| -> SimResult<CardInstance> {
-            Ok(CardInstance::new(
-                crate::ids::CardId::new(next_card_id + index as u64),
-                run.content_id_after_card_add_relics(content_id)?,
-            ))
-        })
-        .collect::<SimResult<Vec<_>>>()?;
 
-    for card in cards {
-        run.remove_deck_card(card.id)
-            .expect("transform selected a deck card");
-    }
-    for card in transformed {
-        run.add_deck_card(card)?;
+    if defer_obtains {
+        for card in cards {
+            run.remove_deck_card(card.id)
+                .expect("transform selected a deck card");
+        }
+        // Multi-card Neow transform closes on the final selection. The target
+        // removes both sources in that command while its ShowCardAndObtainEffect
+        // results remain pending until Leave.
+        for content_id in reward.cards {
+            run.queue_pending_obtain_card(content_id);
+        }
+    } else {
+        let next_card_id = run.reserve_card_instance_ids(cards.len())?;
+        let transformed = reward
+            .cards
+            .into_iter()
+            .enumerate()
+            .map(|(index, content_id)| -> SimResult<CardInstance> {
+                Ok(CardInstance::new(
+                    crate::ids::CardId::new(next_card_id + index as u64),
+                    run.content_id_after_card_add_relics(content_id)?,
+                ))
+            })
+            .collect::<SimResult<Vec<_>>>()?;
+        for card in cards {
+            run.remove_deck_card(card.id)
+                .expect("transform selected a deck card");
+        }
+        for card in transformed {
+            run.add_deck_card(card)?;
+        }
     }
     Ok(())
 }
@@ -2119,6 +2137,67 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn neow_transform_auto_confirms_and_defers_obtains_until_leave() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        let original_deck = run.deck.clone();
+        let sources = original_deck
+            .iter()
+            .take(2)
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>();
+        let expected =
+            crate::generate_neow_transform_reward(run.reward_rng_seed as i64, &sources).cards;
+        open_neow_transform_grid(&mut run, 2);
+
+        let after_first = select_grid_card(&run, 0).expect("first transform source");
+        assert_eq!(after_first.deck, original_deck);
+        let after_final = select_grid_card(&after_first, 1).expect("second transform source");
+
+        assert!(after_final.card_grid.is_none());
+        assert_eq!(after_final.deck.len(), original_deck.len() - 2);
+        assert_eq!(after_final.pending_obtain_cards, expected);
+        assert!(after_final
+            .deck
+            .iter()
+            .all(|card| !original_deck[..2].contains(card)));
+        assert_eq!(after_final.event.as_ref().map(|event| event.stage), Some(2));
+        after_final
+            .validate()
+            .expect("Neow transform pending obtains are authoritative");
+
+        let left =
+            crate::apply_event_action(&after_final, crate::EventAction::Choose { choice_index: 0 })
+                .expect("Neow Leave flushes transformed obtains");
+        assert!(left.pending_obtain_cards.is_empty());
+        assert_eq!(left.deck.len(), original_deck.len());
+        assert_eq!(
+            left.deck[original_deck.len() - 2..]
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        left.validate().expect("Neow Leave produces a valid run");
+    }
+
+    #[test]
+    fn neow_single_transform_requires_confirm_and_settles_immediately() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        let original_deck = run.deck.clone();
+        open_neow_transform_grid(&mut run, 1);
+
+        let selected = select_grid_card(&run, 0).expect("single transform source");
+        assert!(selected.card_grid.is_some());
+        assert_eq!(selected.deck, original_deck);
+        assert!(selected.pending_obtain_cards.is_empty());
+
+        let confirmed = confirm_grid(&selected).expect("single transform confirms explicitly");
+        assert!(confirmed.card_grid.is_none());
+        assert_eq!(confirmed.deck.len(), original_deck.len());
+        assert!(confirmed.pending_obtain_cards.is_empty());
     }
 
     #[test]

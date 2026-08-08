@@ -19,6 +19,7 @@ pub(super) fn apply_lifecycle_event_action(
                 apply_neow_immediate_option(next, option)?;
             }
             2 if choice_index == 0 => {
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }

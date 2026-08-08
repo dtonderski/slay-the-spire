@@ -5,7 +5,7 @@ use std::{
 
 use sts_verify::{
     assess_verification, import_communication_mod_trace, verify_communication_mod_trace,
-    VerificationOutcome,
+    ActionDispositionKind, VerificationOutcome,
 };
 
 fn corpus_root() -> PathBuf {
@@ -120,4 +120,35 @@ fn schema_v1_failure_witnesses_are_honest_and_fully_accounted() {
             path.display()
         );
     }
+}
+
+#[test]
+fn fidl01249_neow_transform_final_pick_and_leave_verify_strictly() {
+    let path =
+        corpus_root().join("open_failures/FIDL01249-p1249-2026-08-07T11-59-56-924Z-2112761.jsonl");
+    let content = fs::read_to_string(&path).expect("FIDL01249 witness is readable");
+    let report =
+        verify_communication_mod_trace(&content).expect("strict trace is structurally valid");
+
+    for step in [7, 8] {
+        let disposition = report
+            .action_dispositions
+            .iter()
+            .find(|entry| entry.action_step == step)
+            .unwrap_or_else(|| panic!("step {step} disposition"));
+        assert_eq!(disposition.disposition, ActionDispositionKind::Verified);
+        assert!(report
+            .unexpected_diffs
+            .iter()
+            .all(|diff| diff.action_step != step));
+    }
+    assert_eq!(
+        report
+            .seed_start
+            .as_ref()
+            .expect("seed-start report")
+            .first_boundary
+            .path,
+        "$.actions[step=243].command"
+    );
 }
