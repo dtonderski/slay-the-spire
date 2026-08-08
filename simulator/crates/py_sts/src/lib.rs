@@ -1710,7 +1710,7 @@ fn run_current_decision(state: &RunState) -> &'static str {
         RunPhase::Shop => "shop",
         RunPhase::Idle if state.map.is_some() => "map",
         RunPhase::Idle => "idle",
-        RunPhase::Complete => "complete",
+        RunPhase::Victory | RunPhase::Complete => "complete",
     }
 }
 
@@ -1736,7 +1736,7 @@ fn run_phase_name(phase: RunPhase) -> &'static str {
         RunPhase::Event => "event",
         RunPhase::Shop => "shop",
         RunPhase::Idle => "idle",
-        RunPhase::Complete => "complete",
+        RunPhase::Victory | RunPhase::Complete => "complete",
     }
 }
 

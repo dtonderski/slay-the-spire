@@ -1091,6 +1091,10 @@ pub enum RunPhase {
     Event,
     Shop,
     Idle,
+    /// The final act boss has been defeated and the target exposes its
+    /// COMPLETE boundary before PROCEED enters the Spire Heart event.
+    Victory,
+    /// The terminal Spire Heart screen after the final event choice.
     Complete,
 }
 
@@ -1663,6 +1667,15 @@ impl RunState {
             {
                 return Err(SimError::InvalidState(
                     "treasure phase has no treasure room",
+                ));
+            }
+            RunPhase::Victory
+                if self.current_act != 3
+                    || self.current_room_kind() != Some(RoomKind::Boss)
+                    || self.player_hp <= 0 =>
+            {
+                return Err(SimError::InvalidState(
+                    "victory phase requires a living final boss room",
                 ));
             }
             _ => {}
@@ -3595,6 +3608,25 @@ impl RunState {
             self.deck[deck_index] = upgraded;
         }
         Ok(())
+    }
+
+    pub(crate) fn validate_final_boss_victory_action(&self, action: RunAction) -> SimResult<()> {
+        if self.phase != RunPhase::Victory {
+            return Err(SimError::IllegalAction(
+                "final boss victory actions require victory phase",
+            ));
+        }
+        if self.current_act != 3 || self.current_room_kind() != Some(RoomKind::Boss) {
+            return Err(SimError::InvalidState(
+                "victory phase requires a final boss room",
+            ));
+        }
+        match action {
+            RunAction::Proceed => Ok(()),
+            _ => Err(SimError::IllegalAction(
+                "only proceed is legal after final boss victory",
+            )),
+        }
     }
 
     pub fn validate_reward_action(&self, action: RunAction) -> SimResult<()> {

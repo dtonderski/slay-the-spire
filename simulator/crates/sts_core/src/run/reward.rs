@@ -1983,6 +1983,10 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
             && next_combat.monsters[1].content_id == GREMLIN_NOB_ID
         {
             enter_colosseum_combat_reward_screen(&mut next)?;
+        } else if next.current_act == 3
+            && next.current_room_kind() == Some(crate::map::RoomKind::Boss)
+        {
+            enter_final_boss_victory(&mut next)?;
         } else if next.current_room_kind() == Some(crate::map::RoomKind::Boss) {
             enter_boss_combat_reward_screen(&mut next)?;
         } else if next.current_room_kind() == Some(crate::map::RoomKind::Elite) {
@@ -2212,6 +2216,29 @@ fn apply_combat_loss_proceed(run: &RunState) -> SimResult<RunState> {
     Ok(next)
 }
 
+fn enter_final_boss_victory(run: &mut RunState) -> SimResult<()> {
+    if run.phase != RunPhase::Combat
+        || run.current_act != 3
+        || run.current_room_kind() != Some(crate::map::RoomKind::Boss)
+        || !run
+            .combat
+            .as_ref()
+            .is_some_and(|combat| combat.phase == CombatPhase::Won)
+    {
+        return Err(SimError::InvalidState(
+            "final boss victory requires a won combat in the final boss room",
+        ));
+    }
+
+    // The target exposes COMPLETE at this boundary and does not make the
+    // ordinary boss CombatRewardItems reachable. Preserve no reward overlay or
+    // reward RNG state; PROCEED below enters the Spire Heart event.
+    run.phase = RunPhase::Victory;
+    run.combat = None;
+    run.reward = None;
+    Ok(())
+}
+
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     run.validate()?;
 
@@ -2220,6 +2247,9 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
         RunAction::Proceed if run.phase == RunPhase::Reward => apply_reward_action(run, action),
         RunAction::Proceed if run.phase == RunPhase::Shop => apply_shop_action(run, action),
         RunAction::Proceed if run.phase == RunPhase::Combat => apply_combat_loss_proceed(run),
+        RunAction::Proceed if run.phase == RunPhase::Victory => {
+            apply_final_boss_victory_proceed(run)
+        }
         RunAction::Proceed => apply_treasure_action(run, action),
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
@@ -2308,6 +2338,14 @@ pub fn apply_treasure_action(run: &RunState, action: RunAction) -> SimResult<Run
         }
         _ => unreachable!("validated treasure action"),
     }
+}
+
+fn apply_final_boss_victory_proceed(run: &RunState) -> SimResult<RunState> {
+    run.validate_final_boss_victory_action(RunAction::Proceed)?;
+    let mut next = run.clone();
+    enter_spire_heart_event(&mut next)?;
+    next.validate()?;
+    Ok(next)
 }
 
 fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
@@ -2998,6 +3036,55 @@ mod tests {
             .copied()
             .collect::<Vec<_>>();
         assert_eq!(remaining, offered[..2]);
+    }
+
+    #[test]
+    fn final_boss_combat_victory_exposes_complete_before_proceed() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.current_act = 3;
+        run.current_floor = 50;
+        prepare_won_combat_reward_fixture(&mut run);
+        run.current_room_override = Some(RoomKind::Boss);
+        let reward_rng_counters = (
+            run.misc_rng_counter,
+            run.potion_rng_counter,
+            run.card_rng_counter,
+        );
+
+        enter_final_boss_victory(&mut run).expect("won final boss enters victory boundary");
+
+        assert_eq!(run.phase, RunPhase::Victory);
+        assert!(run.combat.is_none());
+        assert!(run.reward.is_none());
+        assert_eq!(
+            (
+                run.misc_rng_counter,
+                run.potion_rng_counter,
+                run.card_rng_counter,
+            ),
+            reward_rng_counters,
+            "final boss completion must not generate inaccessible rewards"
+        );
+        run.validate().expect("victory boundary validates");
+        assert_eq!(
+            crate::legal_run_decision_actions(&run).expect("victory legal actions"),
+            vec![crate::RunDecisionAction::Run(RunAction::Proceed)]
+        );
+
+        let encoded = serde_json::to_string(&run).expect("serialize victory boundary");
+        let restored: RunState = serde_json::from_str(&encoded).expect("restore victory boundary");
+        assert_eq!(restored, run);
+
+        let next = apply_run_action(&run, RunAction::Proceed)
+            .expect("victory proceed enters the Spire Heart event");
+        assert_eq!(next.phase, RunPhase::Event);
+        assert_eq!(next.current_floor, 51);
+        assert_eq!(next.current_room_kind(), Some(RoomKind::Victory));
+        assert!(next.reward.is_none());
+        assert_eq!(
+            next.event.as_ref().map(|event| event.event),
+            Some(Event::SpireHeart)
+        );
     }
 
     #[test]

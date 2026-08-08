@@ -138,6 +138,7 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
                 .into_iter()
                 .map(RunDecisionAction::Run),
         ),
+        RunPhase::Victory => actions.push(RunDecisionAction::Run(RunAction::Proceed)),
         RunPhase::Complete => {}
     }
 
@@ -178,6 +179,9 @@ fn validate_run_action(run: &RunState, action: RunAction) -> SimResult<()> {
                     "proceed from combat requires a lost combat",
                 ))
             }
+        }
+        RunAction::Proceed if run.phase == RunPhase::Victory => {
+            run.validate_final_boss_victory_action(action)
         }
         RunAction::Proceed => super::reward::validate_treasure_action(run, action),
         RunAction::BuyShopCard { .. }

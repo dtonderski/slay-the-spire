@@ -1623,7 +1623,7 @@ fn slaythedata_map_candidate_evidence(
             }
             None
         }
-        RunPhase::Treasure | RunPhase::Idle | RunPhase::Complete => None,
+        RunPhase::Treasure | RunPhase::Idle | RunPhase::Victory | RunPhase::Complete => None,
     }
 }
 

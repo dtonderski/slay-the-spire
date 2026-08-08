@@ -12,9 +12,9 @@ The final-boss branch also recorded success without comparing visible state.
 
 Destination is selected from simulator pre-state:
 
-- an Act 3 boss victory applies core `Proceed`, discards the inaccessible
-  ordinary boss reward offers, advances one floor, and enters the typed Spire
-  Heart event;
+- an Act 3 boss victory enters the typed core `Victory` boundary without
+  generating inaccessible ordinary boss reward offers; its sole `PROCEED`
+  action advances one floor and enters the typed Spire Heart event;
 - a non-final boss `Reward` in a boss room applies core `SkipReward` and must
   produce `Treasure`;
 - all other map-bound cases use the separately validated proceed-to-map binder.

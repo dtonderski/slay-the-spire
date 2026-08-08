@@ -42,7 +42,7 @@ pub fn fair_run_observation(run: &RunState) -> Result<Value, FairObservationErro
                 Some(_) => ("map", map_screen(run)?),
                 None => ("idle", json!({})),
             },
-            RunPhase::Complete => ("complete", json!({})),
+            RunPhase::Victory | RunPhase::Complete => ("complete", json!({})),
         }
     };
 
@@ -299,6 +299,6 @@ fn run_phase_name(phase: RunPhase) -> &'static str {
         RunPhase::Event => "event",
         RunPhase::Shop => "shop",
         RunPhase::Idle => "idle",
-        RunPhase::Complete => "complete",
+        RunPhase::Victory | RunPhase::Complete => "complete",
     }
 }

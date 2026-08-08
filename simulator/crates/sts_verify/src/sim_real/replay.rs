@@ -109,6 +109,10 @@ fn compare_direct_run(
                 seed_start_map_return_observed_subset(&post.message),
                 seed_start_simulated_map_return(run)?,
             ),
+            RunPhase::Victory => (
+                seed_start_victory_observed_subset(&post.message),
+                seed_start_victory_simulated_subset(run),
+            ),
             RunPhase::Rest => (
                 seed_start_rest_observed_subset(&post.message),
                 seed_start_rest_simulated_subset(run),
