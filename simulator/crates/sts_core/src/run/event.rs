@@ -4735,6 +4735,46 @@ mod tests {
     }
 
     #[test]
+    fn neow_option_enters_leave_stage_before_hp_changing_grid_result() {
+        let mut run = RunState::seeded_ironclad(34_961_238_661_169, 0);
+        run.player_hp = 10_000;
+        run.player_max_hp = 10_000;
+        run.phase = RunPhase::Event;
+        run.event = Some(neow_screen_for_stage(&run, 1));
+
+        let option_index = generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)
+            .iter()
+            .position(|option| {
+                option.drawback == NeowDrawback::TenPercentHpLoss
+                    && option.reward == NeowRewardType::RemoveTwo
+            })
+            .expect("fixture offers a max-HP-loss Neow remove grid option");
+
+        let next = apply_event_action(
+            &run,
+            EventAction::Choose {
+                choice_index: option_index,
+            },
+        )
+        .expect("Neow grid option applies without stale stage-1 choices");
+
+        assert_eq!(next.player_max_hp, 9_000);
+        assert_eq!(next.player_hp, 9_000);
+        assert_eq!(next.phase, RunPhase::Event);
+        assert_eq!(next.event.as_ref().map(|event| event.stage), Some(2));
+        assert_eq!(
+            next.event
+                .as_ref()
+                .expect("Neow result retains its event owner")
+                .choices,
+            neow_leave_choices()
+        );
+        assert!(next.card_grid.is_some());
+        next.validate()
+            .expect("Neow grid result is owned by the leave stage");
+    }
+
+    #[test]
     fn neow_three_potions_remain_reward_items_until_core_picks_and_proceed() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;

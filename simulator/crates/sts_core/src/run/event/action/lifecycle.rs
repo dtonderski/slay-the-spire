@@ -16,6 +16,12 @@ pub(super) fn apply_lifecycle_event_action(
                     .into_iter()
                     .find(|option| option.slot == choice_index)
                     .ok_or(SimError::IllegalAction("Neow option is not available"))?;
+                // The option screen is consumed as soon as Neow activates the
+                // selected reward.  The result overlay (grid/reward) and its
+                // eventual Leave action are owned by the stage-2 screen; keep
+                // that authority in place before applying drawbacks that can
+                // change values used by stage-1 labels (for example max HP).
+                next.event = Some(neow_screen_for_stage(next, 2));
                 apply_neow_immediate_option(next, option)?;
             }
             2 if choice_index == 0 => {
