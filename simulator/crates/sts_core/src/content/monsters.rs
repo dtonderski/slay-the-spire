@@ -8595,6 +8595,9 @@ fn apply_large_spike_slime_split_inner(
     monsters[slime_index].hp = 0;
     monsters[slime_index].alive = false;
     monsters[slime_index].block = 0;
+    // SplitPower records SPLIT before the target's parent AI roll; preserve it
+    // so Spike Slime (L)'s last-two-move guards see the current move.
+    record_target_move(&mut monsters[slime_index]);
     let parent_roll = rng.random_int(99);
     monsters[slime_index].intent = target_medium_or_large_spike_slime_next_intent_from_roll(
         monsters[slime_index].max_hp,
@@ -11730,6 +11733,8 @@ mod tests {
         let mut parent = monster_state(&SPIKE_SLIME_A0, parent_id);
         parent.hp = 20;
         parent.max_hp = SPIKE_SLIME_L_A7_HP_RANGE.max;
+        parent.intent = MonsterIntent::SummonGremlins { count: 2 };
+        parent.move_history = vec![4, 4];
         let mut monsters = vec![parent];
         let mut rng = StsRng::new(0);
 
@@ -11747,6 +11752,15 @@ mod tests {
         assert!(children
             .iter()
             .all(|monster| monster.slime_size == Some(SlimeSize::Medium)));
+        let parent = monsters
+            .iter()
+            .find(|monster| monster.id == parent_id)
+            .expect("split retains the dead parent for trace projection");
+        assert_eq!(parent.move_history, vec![4, 4, 3]);
+        assert_eq!(
+            parent.intent,
+            MonsterIntent::ApplyPlayerFrailAndWeak { frail: 3, weak: 0 }
+        );
         assert_eq!(rng.counter(), 3);
     }
 
