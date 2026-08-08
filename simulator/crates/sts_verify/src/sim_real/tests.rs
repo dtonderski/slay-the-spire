@@ -419,6 +419,144 @@ fn strict_replay_binds_leave_to_the_simulator_shop_action() {
 }
 
 #[test]
+fn fidl01271_neow_remove_two_final_choose_and_leave_verify_strictly() {
+    let mut metadata = metadata(Some(1), true);
+    metadata["run_config"]["profile"]["note_card"] = json!("Normality");
+    let deck = |ids: &[&str]| {
+        ids.iter()
+            .map(|id| json!({"id": id, "upgrades": 0}))
+            .collect::<Vec<_>>()
+    };
+    let starting_deck = deck(&[
+        "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R",
+        "Defend_R", "Defend_R", "Bash",
+    ]);
+    let settled_deck = deck(&[
+        "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Strike_R", "Defend_R", "Defend_R", "Bash",
+    ]);
+    let relics = vec![json!({"id": "Burning Blood"})];
+    let state = |step, game_state| {
+        let mut message = boundary_message("quiescent");
+        message["game_state"] = game_state;
+        json!({"type": "state", "step": step, "message": message})
+    };
+    let event_state = |hp, choices, cards| {
+        json!({
+            "screen_type": "EVENT",
+            "ascension_level": 0,
+            "floor": 0,
+            "gold": 99,
+            "current_hp": hp,
+            "max_hp": 10000,
+            "deck": cards,
+            "relics": relics.clone(),
+            "potions": [],
+            "choice_list": choices,
+            "screen_state": {
+                "event_id": "Neow Event",
+                "options": []
+            }
+        })
+    };
+    let grid_state = |hp, selected_cards| {
+        json!({
+            "screen_type": "GRID",
+            "ascension_level": 0,
+            "floor": 0,
+            "gold": 99,
+            "current_hp": hp,
+            "max_hp": 10000,
+            "deck": starting_deck.clone(),
+            "relics": relics.clone(),
+            "potions": [],
+            "choice_list": [
+                "strike", "strike", "strike", "strike", "strike",
+                "defend", "defend", "defend", "defend", "bash"
+            ],
+            "screen_state": {
+                "cards": starting_deck.clone(),
+                "selected_cards": selected_cards,
+                "confirm_up": false,
+                "for_purge": false,
+                "for_transform": false,
+                "for_upgrade": false,
+                "any_number": false,
+                "num_cards": 2
+            }
+        })
+    };
+    let map_state = json!({
+        "screen_type": "MAP",
+        "ascension_level": 0,
+        "floor": 0,
+        "gold": 99,
+        "current_hp": 7000,
+        "max_hp": 10000,
+        "deck": settled_deck,
+        "relics": relics,
+        "potions": [],
+        "choice_list": ["x=0", "x=3", "x=5"],
+        "screen_state": {
+            "first_node_chosen": false,
+            "current_node": {"x": 0, "y": -1},
+            "next_nodes": [
+                {"symbol": "M", "x": 0, "y": 0},
+                {"symbol": "M", "x": 3, "y": 0},
+                {"symbol": "M", "x": 5, "y": 0}
+            ]
+        }
+    });
+    let content = trace(vec![
+        metadata,
+        json!({
+            "type": "action",
+            "step": 1,
+            "command": "START_VERIFY IRONCLAD 0 FIDL01271 10000"
+        }),
+        state(1, event_state(10000, vec!["talk"], starting_deck.clone())),
+        json!({"type": "action", "step": 2, "command": "CHOOSE 0"}),
+        state(
+            2,
+            event_state(
+                10000,
+                vec![
+                    "choose a colorless card to obtain",
+                    "obtain 3 random potions",
+                    "take 3000 damage remove 2 cards",
+                    "lose your starting relic obtain a random boss relic",
+                ],
+                starting_deck.clone(),
+            ),
+        ),
+        json!({"type": "action", "step": 3, "command": "CHOOSE 2"}),
+        state(3, grid_state(7000, Vec::<Value>::new())),
+        json!({"type": "action", "step": 4, "command": "CHOOSE 8"}),
+        state(
+            4,
+            grid_state(7000, vec![json!({"id": "Defend_R", "upgrades": 0})]),
+        ),
+        json!({"type": "action", "step": 5, "command": "CHOOSE 6"}),
+        state(5, event_state(7000, vec!["leave"], settled_deck.clone())),
+        json!({"type": "action", "step": 6, "command": "CHOOSE 0"}),
+        state(6, map_state),
+    ]);
+    let report = verify_communication_mod_trace(&content).expect("strict trace verifies");
+    assert!(report.unexpected_diffs.is_empty(), "{report:#?}");
+    assert!(report.unsupported.is_empty(), "{report:#?}");
+    for step in [5, 6] {
+        assert_eq!(
+            report
+                .action_dispositions
+                .iter()
+                .find(|entry| entry.action_step == step)
+                .map(|entry| entry.disposition),
+            Some(ActionDispositionKind::Verified),
+            "step {step} should verify: {report:#?}"
+        );
+    }
+}
+
+#[test]
 fn neow_card_reward_pick_closes_to_the_leave_event_boundary() {
     let run = RunState::seeded_ironclad(34_961_238_661_095, 0);
     let talked = apply_run_decision_action(

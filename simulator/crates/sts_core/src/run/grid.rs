@@ -885,13 +885,13 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
         } else {
             grid.selected_indices.push(index);
         }
-        // Empty Cage, Astrolabe, and Neow transform resolve as soon as the
-        // required cards have been selected; none of these target grids
+        // Empty Cage, Astrolabe, and multi-card Neow rewards resolve as soon
+        // as the required cards have been selected; none of these target grids
         // exposes a separate confirmation click. Other multi-select grids
         // retain their selections until the explicit GridConfirm action.
         if (matches!(
             grid.purpose,
-            GridPurpose::EmptyCage { .. } | GridPurpose::Astrolabe
+            GridPurpose::EmptyCage { .. } | GridPurpose::Astrolabe | GridPurpose::NeowRemove { .. }
         ) || matches!(grid.purpose, GridPurpose::NeowTransform { count } if count > 1))
             && grid.selected_indices.len() >= required
         {
@@ -2133,7 +2133,7 @@ mod tests {
     }
 
     #[test]
-    fn neow_remove_two_keeps_full_grid_until_two_cards_are_selected() {
+    fn neow_remove_two_auto_confirms_on_the_final_selection() {
         let mut run = RunState::seeded_ironclad(1, 0);
         open_neow_remove_grid(&mut run, 2);
         let original_deck = run.deck.clone();
@@ -2148,10 +2148,18 @@ mod tests {
         assert_eq!(first_selected.deck, original_deck);
         assert!(confirm_grid(&first_selected).is_err());
 
-        let second_selected = select_grid_card(&first_selected, 1).expect("second select");
-        let confirmed = confirm_grid(&second_selected).expect("confirm two removals");
+        let confirmed =
+            select_grid_card(&first_selected, 1).expect("final selection auto-confirms removal");
 
         assert!(confirmed.card_grid.is_none());
+        assert_eq!(confirmed.phase, RunPhase::Event);
+        assert_eq!(confirmed.event.as_ref().map(|event| event.stage), Some(2));
+        assert_eq!(
+            confirmed.event.as_ref().expect("Neow leave screen").choices,
+            vec![crate::EventChoice {
+                label: "Leave".to_owned(),
+            }]
+        );
         assert_eq!(confirmed.deck.len(), original_deck.len() - 2);
         assert_eq!(
             confirmed
@@ -2161,6 +2169,23 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn neow_remove_one_still_requires_explicit_confirm() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        open_neow_remove_grid(&mut run, 1);
+        let original_deck = run.deck.clone();
+
+        let selected = select_grid_card(&run, 0).expect("single remove select");
+        assert!(selected.card_grid.is_some());
+        assert_eq!(selected.deck, original_deck);
+
+        let confirmed = confirm_grid(&selected).expect("single remove confirm");
+        assert!(confirmed.card_grid.is_none());
+        assert_eq!(confirmed.deck.len(), original_deck.len() - 1);
+        assert_eq!(confirmed.phase, RunPhase::Event);
+        assert_eq!(confirmed.event.as_ref().map(|event| event.stage), Some(2));
     }
 
     #[test]
