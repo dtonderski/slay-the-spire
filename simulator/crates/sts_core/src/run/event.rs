@@ -4000,7 +4000,6 @@ fn open_neow_three_potion_reward(run: &mut RunState) -> SimResult<()> {
 fn open_neow_card_reward(run: &mut RunState, reward_type: NeowRewardType) -> SimResult<()> {
     let reward = generate_neow_card_reward(run.event_rng_seed as i64, reward_type)?;
     open_neow_card_reward_choices(run, reward.cards)?;
-    run.event_rng_counter = reward.neow_rng_counter;
     Ok(())
 }
 
@@ -4014,7 +4013,6 @@ fn open_neow_colorless_card_reward(
         run.card_rng_counter,
     )?;
     open_neow_card_reward_choices(run, reward.cards)?;
-    run.event_rng_counter = reward.neow_rng_counter;
     run.card_rng_counter = reward.card_rng_counter;
     Ok(())
 }
@@ -4852,6 +4850,39 @@ mod tests {
         enter_event_screen(&mut run).expect("event entry succeeds");
 
         assert_eq!(run.event_rng_counter, 9);
+    }
+
+    #[test]
+    fn neow_card_reward_does_not_advance_event_rng_stream() {
+        let mut run = RunState::seeded_ironclad(34_961_238_662_253, 0);
+        run.player_hp = 10_000;
+        run.player_max_hp = 10_000;
+        run.phase = RunPhase::Event;
+        run.event = Some(neow_screen_for_stage(&run, 1));
+
+        let option_index = generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)
+            .iter()
+            .position(|option| {
+                matches!(
+                    option.reward,
+                    NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo
+                )
+            })
+            .expect("fixture offers a Neow colorless card reward");
+        let next = apply_event_action(
+            &run,
+            EventAction::Choose {
+                choice_index: option_index,
+            },
+        )
+        .expect("Neow colorless card reward opens");
+
+        // NeowEvent.rng is a separate target stream. Its card generation must
+        // not move the persistent eventRng used by the next ? room.
+        assert_eq!(next.event_rng_counter, 0);
+        assert!(next.reward.as_ref().is_some_and(|reward| {
+            reward.choices.len() == 3 && reward.card_reward_flow.is_active()
+        }));
     }
 
     #[test]
