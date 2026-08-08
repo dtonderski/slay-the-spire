@@ -2419,22 +2419,29 @@ fn seed_start_victory_observed_subset(message: &Value) -> Value {
     })
 }
 
-fn seed_start_is_final_boss_victory(run: &RunState) -> bool {
-    run.current_act == 3 && run.current_room_kind() == Some(RoomKind::Boss)
+fn seed_start_victory_simulated_subset(run: &RunState) -> Value {
+    // RunPhase::Victory is the typed final-boss COMPLETE boundary before the
+    // presentation-only PROCEED into the Spire Heart event.
+    debug_assert_eq!(run.phase, RunPhase::Victory);
+    json!({
+        "screen_type": "COMPLETE",
+        "floor": run.current_floor,
+        "gold": run.gold,
+        "current_hp": run.player_hp,
+        "max_hp": run.player_max_hp,
+    })
 }
 
-fn seed_start_victory_simulated_subset(run: &RunState) -> Value {
-    // Match the terminal no-game_state death frame after combat-loss PROCEED.
+fn seed_start_complete_simulated_subset(run: &RunState) -> Value {
+    debug_assert_eq!(run.phase, RunPhase::Complete);
+    // A positive-HP Complete run is the terminal Spire Heart outcome. The
+    // Heart event has already advanced the room to Victory, so phase—not the
+    // prior room kind—owns the GAME_OVER presentation.
     if run.player_hp <= 0 {
         return json!({ "run_over": true });
     }
-    let screen_type = if seed_start_is_final_boss_victory(run) {
-        "COMPLETE"
-    } else {
-        "COMBAT_REWARD"
-    };
     json!({
-        "screen_type": screen_type,
+        "screen_type": "GAME_OVER",
         "floor": run.current_floor,
         "gold": run.gold,
         "current_hp": run.player_hp,

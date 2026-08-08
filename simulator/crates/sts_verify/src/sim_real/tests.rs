@@ -356,6 +356,56 @@ fn terminality_comes_from_the_final_valid_tail_state() {
 }
 
 #[test]
+fn spire_heart_sleep_uses_complete_phase_for_terminal_game_over_projection() {
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.current_act = 3;
+    run.current_floor = 51;
+    run.current_room_override = Some(RoomKind::Victory);
+    run.phase = RunPhase::Event;
+    let mut heart = sts_core::event_screen(Event::SpireHeart);
+    heart.stage = 3;
+    heart.choices = vec![sts_core::EventChoice {
+        label: "Sleep".to_owned(),
+    }];
+    run.event = Some(heart);
+
+    let completed = apply_run_decision_action(
+        &run,
+        RunDecisionAction::Event(sts_core::EventAction::Choose { choice_index: 0 }),
+    )
+    .expect("Spire Heart Sleep enters the terminal core phase");
+
+    assert_eq!(completed.phase, RunPhase::Complete);
+    assert_eq!(completed.current_room_kind(), Some(RoomKind::Victory));
+    assert!(legal_run_decision_actions(&completed)
+        .expect("terminal legal actions")
+        .is_empty());
+    completed
+        .validate()
+        .expect("terminal Heart state validates");
+    assert_eq!(
+        seed_start_complete_simulated_subset(&completed),
+        json!({
+            "screen_type": "GAME_OVER",
+            "floor": 51,
+            "gold": completed.gold,
+            "current_hp": completed.player_hp,
+            "max_hp": completed.player_max_hp,
+        })
+    );
+
+    let mut pre_heart = completed.clone();
+    pre_heart.phase = RunPhase::Victory;
+    pre_heart.current_floor = 50;
+    pre_heart.current_room_override = Some(RoomKind::Boss);
+    pre_heart.event = None;
+    assert_eq!(
+        seed_start_victory_simulated_subset(&pre_heart)["screen_type"],
+        json!("COMPLETE")
+    );
+}
+
+#[test]
 fn observation_metadata_never_selects_or_mutates_simulator_state() {
     let content = |game_update_seq| {
         let mut boundary = boundary_message("quiescent");

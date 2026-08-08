@@ -144,7 +144,7 @@ fn compare_direct_run(
             ),
             RunPhase::Complete => (
                 seed_start_victory_observed_subset(&post.message),
-                seed_start_victory_simulated_subset(run),
+                seed_start_complete_simulated_subset(run),
             ),
         }
     };
@@ -369,7 +369,35 @@ pub(super) fn verify_seed_start_transition(
                 replay_capture,
             ));
         };
-        if command_head_eq(&action.command, "STATE") || command_head_eq(&action.command, "WAIT") {
+        if current.phase == RunPhase::Complete
+            && current.event.as_ref().is_some_and(|event| {
+                event.event == sts_core::Event::SpireHeart
+                    && event.stage == 4
+                    && event.choices.is_empty()
+            })
+            && action.command.trim().eq_ignore_ascii_case("PROCEED")
+        {
+            if !external_rng.is_empty() {
+                Some(boundary(
+                    action,
+                    "unconsumed_external_rng",
+                    "terminal presentation exit cannot consume external RNG",
+                ))
+            } else {
+                compare_subset(
+                    report,
+                    action,
+                    "leave completed run",
+                    json!({
+                        "in_game": post.message.get("in_game").and_then(Value::as_bool),
+                    }),
+                    json!({ "in_game": false }),
+                );
+                seed_start_take_first_diff_boundary(report)
+            }
+        } else if command_head_eq(&action.command, "STATE")
+            || command_head_eq(&action.command, "WAIT")
+        {
             if !external_rng.is_empty() {
                 Some(boundary(
                     action,
@@ -454,4 +482,85 @@ pub(super) fn finish_streaming_seed_start_replay(
         state.seed_sim.as_ref(),
     );
     state.seed_sim.clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn completed_spire_heart_proceed_is_terminal_and_accounted() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 3;
+        run.current_floor = 51;
+        run.current_room_override = Some(RoomKind::Victory);
+        run.phase = RunPhase::Complete;
+        let mut heart = sts_core::event_screen(Event::SpireHeart);
+        heart.stage = 4;
+        heart.choices.clear();
+        run.event = Some(heart);
+        run.validate().expect("completed Heart state validates");
+
+        let expected_state = run.clone();
+        let mut replay = StreamingSeedStartReplay {
+            seed_sim: Some(run),
+            replay_action: None,
+        };
+        let start = StartRunCommand {
+            action_step: 1,
+            character: "IRONCLAD".to_owned(),
+            ascension: 0,
+            external_seed: "1".to_owned(),
+            numeric_seed: 1,
+            verification_starting_hp: None,
+        };
+        let profile = TraceProfile {
+            note_card: "Strike".to_owned(),
+            note_upgrades: 0,
+        };
+        let action = TraceAction {
+            step: 2,
+            command: "PROCEED".to_owned(),
+            sent_at: None,
+            playtime_seconds: None,
+        };
+        let post = TraceState {
+            step: 2,
+            received_at: None,
+            message: json!({"in_game": false}),
+        };
+        let mut report = SimRealReport {
+            total_actions: 1,
+            action_dispositions: Vec::new(),
+            action_integrity: None,
+            verified: Vec::new(),
+            unsupported: Vec::new(),
+            unexpected_diffs: Vec::new(),
+            seed_start: None,
+        };
+        let mut replay_capture: Option<&mut ReplayCapture> = None;
+
+        let boundary = verify_seed_start_transition(
+            &mut replay,
+            &action,
+            &post,
+            &[],
+            &mut report,
+            SeedStartReplayInputs {
+                start: &start,
+                boss_unlocks: BossUnlockState::default(),
+                profile: &profile,
+            },
+            &mut replay_capture,
+        );
+
+        assert!(boundary.is_none());
+        assert_eq!(report.unexpected_diffs, Vec::new());
+        assert_eq!(report.unsupported, Vec::new());
+        assert_eq!(report.verified.len(), 1);
+        assert_eq!(report.verified[0].action_step, 2);
+        assert_eq!(report.verified[0].label, "leave completed run");
+        assert_eq!(replay.seed_sim, Some(expected_state));
+    }
 }
