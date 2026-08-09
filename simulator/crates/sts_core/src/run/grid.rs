@@ -1433,7 +1433,7 @@ fn confirm_neow_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
                 .ok_or(SimError::IllegalAction("grid index out of range"))
         })
         .collect::<SimResult<Vec<_>>>()?;
-    transform_neow_cards(run, &cards, count > 1)?;
+    transform_neow_cards(run, &cards)?;
     run.card_grid = None;
     finish_neow_grid_reward(run);
     Ok(())
@@ -1508,46 +1508,21 @@ fn confirm_event_transform_grid(
     Ok(())
 }
 
-fn transform_neow_cards(
-    run: &mut RunState,
-    cards: &[CardInstance],
-    defer_obtains: bool,
-) -> SimResult<()> {
+fn transform_neow_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResult<()> {
     let sources = cards.iter().map(|card| card.content_id).collect::<Vec<_>>();
     let reward =
         crate::run::neow::generate_neow_transform_reward(run.reward_rng_seed as i64, &sources);
 
-    if defer_obtains {
-        for card in cards {
-            run.remove_deck_card(card.id)
-                .expect("transform selected a deck card");
-        }
-        // Multi-card Neow transform closes on the final selection. The target
-        // removes both sources in that command while its ShowCardAndObtainEffect
-        // results remain pending until Leave.
-        for content_id in reward.cards {
-            run.queue_pending_obtain_card(content_id);
-        }
-    } else {
-        let next_card_id = run.reserve_card_instance_ids(cards.len())?;
-        let transformed = reward
-            .cards
-            .into_iter()
-            .enumerate()
-            .map(|(index, content_id)| -> SimResult<CardInstance> {
-                Ok(CardInstance::new(
-                    crate::ids::CardId::new(next_card_id + index as u64),
-                    run.content_id_after_card_add_relics(content_id)?,
-                ))
-            })
-            .collect::<SimResult<Vec<_>>>()?;
-        for card in cards {
-            run.remove_deck_card(card.id)
-                .expect("transform selected a deck card");
-        }
-        for card in transformed {
-            run.add_deck_card(card)?;
-        }
+    // Neow uses ShowCardAndObtainEffect for every transformed card. The source
+    // cards leave the master deck at grid confirmation, while replacements
+    // commit only when the stage-2 Leave screen settles that effect. Keep this
+    // lifecycle shared by one-card and two-card transforms.
+    for card in cards {
+        run.remove_deck_card(card.id)
+            .expect("transform selected a deck card");
+    }
+    for content_id in reward.cards {
+        run.queue_pending_obtain_card(content_id);
     }
     Ok(())
 }
@@ -2324,9 +2299,13 @@ mod tests {
     }
 
     #[test]
-    fn neow_single_transform_requires_confirm_and_settles_immediately() {
+    fn neow_single_transform_requires_confirm_and_defers_obtain_until_leave() {
         let mut run = RunState::seeded_ironclad(1, 0);
         let original_deck = run.deck.clone();
+        let source = original_deck[0];
+        let expected =
+            crate::generate_neow_transform_reward(run.reward_rng_seed as i64, &[source.content_id])
+                .cards;
         open_neow_transform_grid(&mut run, 1);
 
         let selected = select_grid_card(&run, 0).expect("single transform source");
@@ -2334,10 +2313,30 @@ mod tests {
         assert_eq!(selected.deck, original_deck);
         assert!(selected.pending_obtain_cards.is_empty());
 
-        let confirmed = confirm_grid(&selected).expect("single transform confirms explicitly");
-        assert!(confirmed.card_grid.is_none());
-        assert_eq!(confirmed.deck.len(), original_deck.len());
-        assert!(confirmed.pending_obtain_cards.is_empty());
+        let before_leave = confirm_grid(&selected).expect("single transform confirms explicitly");
+        assert!(before_leave.card_grid.is_none());
+        assert_eq!(before_leave.deck.len(), original_deck.len() - 1);
+        assert_eq!(before_leave.pending_obtain_cards, expected);
+        assert_eq!(
+            before_leave.event.as_ref().map(|event| event.stage),
+            Some(2)
+        );
+        before_leave
+            .validate()
+            .expect("single Neow transform pending obtain is authoritative");
+
+        let left = crate::apply_event_action(
+            &before_leave,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Neow Leave flushes transformed obtain");
+        assert!(left.pending_obtain_cards.is_empty());
+        assert_eq!(left.deck.len(), original_deck.len());
+        assert_eq!(
+            left.deck.last().map(|card| card.content_id),
+            expected.first().copied()
+        );
+        left.validate().expect("Neow Leave produces a valid run");
     }
 
     #[test]
