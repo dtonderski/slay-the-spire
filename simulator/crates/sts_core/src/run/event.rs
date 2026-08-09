@@ -1668,12 +1668,26 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             "pending event transform has no owning Leave stage",
         ));
     }
+    if run.pending_neow_transform.is_some()
+        && !(run.phase == RunPhase::Event
+            && run
+                .event
+                .as_ref()
+                .is_some_and(|screen| screen.event == Event::Neow && screen.stage == 2))
+    {
+        return Err(SimError::InvalidState(
+            "pending Neow transform has no owning Leave stage",
+        ));
+    }
     if run.pending_astrolabe_transform.is_some() && !astrolabe_pending_owner(run) {
         return Err(SimError::InvalidState(
             "pending Astrolabe transform has no owning boundary",
         ));
     }
-    if run.pending_event_transform.is_some() && run.pending_astrolabe_transform.is_some() {
+    if (run.pending_event_transform.is_some()
+        && (run.pending_neow_transform.is_some() || run.pending_astrolabe_transform.is_some()))
+        || (run.pending_neow_transform.is_some() && run.pending_astrolabe_transform.is_some())
+    {
         return Err(SimError::InvalidState(
             "pending obtain has conflicting transform provenance",
         ));
@@ -1770,9 +1784,10 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             (Event::Neow, 2) => {
                 if run.pending_astrolabe_transform.is_some() {
                     pending_astrolabe_transform_is_authoritative(run)
+                } else if run.pending_neow_transform.is_some() {
+                    pending_neow_transform_is_authoritative(run)
                 } else {
-                    pending.len() <= 2
-                        && (pending.is_empty() || !run.pending_obtain_provenance.is_empty())
+                    pending_obtain_is_necronomicon_curse(run, pending)
                 }
             }
             // Knowing Skull Success queues one uncommon colorless via
@@ -1901,6 +1916,57 @@ fn pending_astrolabe_transform_is_authoritative(run: &RunState) -> bool {
         && omamori_charges_used == run.omamori_charges_used
         && expected_pending == run.pending_obtain_cards
         && pending_obtain_source_matches(run, &expected_provenance)
+}
+
+fn pending_neow_transform_is_authoritative(run: &RunState) -> bool {
+    if !(run.phase == RunPhase::Event
+        && run
+            .event
+            .as_ref()
+            .is_some_and(|screen| screen.event == Event::Neow && screen.stage == 2))
+    {
+        return false;
+    }
+    let Some(transform) = run.pending_neow_transform.as_ref() else {
+        return pending_obtain_source_is_empty(run);
+    };
+    if !(1..=2).contains(&transform.sources.len())
+        || run.pending_obtain_cards_bypass_omamori.len() != run.pending_obtain_cards.len()
+        || run
+            .pending_obtain_provenance
+            .first()
+            .is_none_or(|entry| entry.omamori_charges_used_before != transform.omamori_charges_used)
+        || transform.sources.iter().enumerate().any(|(index, source)| {
+            validate_run_card_content(source).is_err()
+                || transform.sources[..index]
+                    .iter()
+                    .any(|previous| previous.id == source.id)
+                || run.deck.iter().any(|card| card.id == source.id)
+        })
+    {
+        return false;
+    }
+
+    let sources = transform
+        .sources
+        .iter()
+        .map(|card| card.content_id)
+        .collect::<Vec<_>>();
+    let reward =
+        crate::run::neow::generate_neow_transform_reward(run.reward_rng_seed as i64, &sources);
+    if reward.neow_rng_counter != transform.neow_rng_counter {
+        return false;
+    }
+    let expected = reward
+        .cards
+        .into_iter()
+        .map(|content_id| run.content_id_after_card_add_relics(content_id))
+        .collect::<SimResult<Vec<_>>>();
+    let Ok(expected) = expected else {
+        return false;
+    };
+
+    pending_obtain_source_matches(run, &expected)
 }
 
 fn pending_event_transform_is_authoritative(
