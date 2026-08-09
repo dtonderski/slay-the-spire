@@ -5576,10 +5576,13 @@ mod tests {
         };
         state.monsters[0].moves_executed = 0;
         state.monsters[0].move_history.clear();
+        state.monsters[0].powers.strength = 1;
         state.player.temp_thorns = 4;
         let monster_hp_before_burn = state.monsters[0].hp;
+        let player_hp_before_burn = state.player.hp;
         run_monster_turn(&mut state).expect("supported monster intent");
 
+        assert_eq!(state.player.hp, player_hp_before_burn);
         assert_eq!(state.monsters[0].powers.intangible, 1);
         assert_eq!(state.monsters[0].hp, monster_hp_before_burn);
         assert_eq!(

@@ -10409,10 +10409,15 @@ fn apply_monster_intent_with_card_rng_inner(
         MonsterIntent::AddBurnToDiscard { count, damage } => {
             add_cards_to_discard(piles, BURN_ID, count, allocated_card_id_through)?;
             let thorns_hits = i32::from(damage > 0);
-            (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
-                thorns_hits,
-            )
+            let damage_taken = if damage > 0 {
+                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?
+            } else {
+                // A pure status/debuff move does not attack. In particular,
+                // Nemesis's Burn move carries damage 0; feeding that zero
+                // through monster damage would incorrectly add its Strength.
+                0
+            };
+            (damage_taken, thorns_hits)
         }
         MonsterIntent::AddBurnToDiscardAndDraw { damage, .. } => (
             monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
