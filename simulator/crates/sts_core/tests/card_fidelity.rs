@@ -911,6 +911,63 @@ fn warcry_plus_puts_selected_card_on_top_of_draw() {
 }
 
 #[test]
+fn havoc_force_played_warcry_keeps_source_until_put_on_deck_confirm() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::HAVOC_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::WARCRY_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Havoc should resolve Warcry's draw before its selection");
+
+    assert!(next.hand_select().is_some());
+    assert!(next
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.content_id == cards::WARCRY_ID));
+    assert!(!next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::WARCRY_ID));
+
+    choose_hand_select(&mut next, 0).expect("select a card for forced Warcry");
+    confirm_hand_select(&mut next).expect("confirm forced Warcry selection");
+
+    assert!(next.hand_select().is_none());
+    assert_eq!(
+        next.piles.draw_pile.last().map(|card| card.content_id),
+        Some(cards::STRIKE_R_ID)
+    );
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::WARCRY_ID));
+    assert!(next
+        .piles
+        .discard_pile
+        .iter()
+        .any(|card| card.content_id == cards::HAVOC_ID));
+}
+
+#[test]
 fn warcry_with_dark_embrace_draws_the_card_put_on_top() {
     // PutOnDeckAction finishes before Warcry exhausts. Dark Embrace must
     // therefore draw the just-selected top card (e.g. Havoc) rather than the

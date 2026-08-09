@@ -490,8 +490,11 @@ pub(super) fn play_top_draw_card_queue(
         from: CardPile::Hand,
         to: destination,
     };
-    // Non-force hand-select (Warcry / Armaments / …) still settles the source
-    // inside confirm_*; do not queue a MoveCard here.
+    // PutOnDeckAction completes before UseCardAction settles its source. For a
+    // force-played top card, keep the source staged until the selection closes
+    // and queue the source MoveCard after AwaitHandSelect. Other force-played
+    // selects (for example Armaments/Dual Wield) retain their source-specific
+    // settlement.
     let delayed_hand_select_moves_source = !force_exhaust
         && queue.iter().any(|action| {
             matches!(
@@ -500,6 +503,18 @@ pub(super) fn play_top_draw_card_queue(
                     if *source_card_id == card.id
             )
         });
+    let put_on_deck_select_index = queue.iter().position(|action| {
+        matches!(
+            action,
+            InternalAction::AwaitHandSelect {
+                source_card_id,
+                purpose: HandSelectPurpose::WarcryPutOnDraw
+                    | HandSelectPurpose::ThinkingAheadPutOnDraw
+                    | HandSelectPurpose::ForethoughtPutOnDraw
+                    | HandSelectPurpose::ForethoughtPutAnyOnDraw,
+            } if *source_card_id == card.id
+        )
+    });
     // Force-play (Havoc / Mayhem / Distilled Chaos) must not exhaust Exhume or
     // True Grit+ before its exhaust-select closes. Early exhaust queues Dark
     // Embrace / Feel No Pain / Dead Branch as pending_actions under the open
@@ -553,6 +568,11 @@ pub(super) fn play_top_draw_card_queue(
             .any(|action| matches!(action, InternalAction::PlayTopDrawCard { .. }));
         if has_nested_play_top {
             queue.push_back(movement);
+        } else if let Some(index) = put_on_deck_select_index {
+            // The source stays in the staged hand while PutOnDeckAction is open;
+            // CONFIRM resumes this pending MoveCard after the selected card is
+            // placed on top of the draw pile.
+            queue.insert(index + 1, movement);
         } else if let Some(index) = shared_movement_index {
             queue.insert(index, movement);
         } else {
