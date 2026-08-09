@@ -7338,6 +7338,7 @@ mod tests {
         state.player.energy = 1;
         state.player.hp = 50;
         state.player.max_hp = 50;
+        state.player.powers.rupture = 1;
         state.relics.push(Relic::BlueCandle);
         state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), PAIN_ID)];
@@ -7354,6 +7355,10 @@ mod tests {
         .expect("Havoc+ → Pain resolves");
 
         assert_eq!(next.player.hp, 49, "Blue Candle HP loss on forced Pain");
+        assert_eq!(
+            next.player.powers.strength, 1,
+            "Blue Candle's card-caused HP loss triggers Rupture"
+        );
         assert!(next
             .piles
             .exhaust_pile

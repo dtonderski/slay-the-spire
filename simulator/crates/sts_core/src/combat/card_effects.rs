@@ -963,7 +963,9 @@ fn unplayable_relic_queue(
     if is_curse_content_id(content_id) {
         queue.push_back(InternalAction::LoseHp {
             amount: crate::relic::BLUE_CANDLE_HP_LOSS,
-            source: HpLossSource::Other,
+            // Blue Candle's HP loss is caused by playing this Curse, so card
+            // HP-loss powers such as Rupture must observe the event.
+            source: HpLossSource::Card(card_id),
         });
     }
     queue.push_back(InternalAction::MoveCard {
