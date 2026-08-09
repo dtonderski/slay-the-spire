@@ -271,6 +271,27 @@ pub(super) fn apply_act_one_event_action(
         },
         Event::HypnotizingColoredMushrooms => match screen.stage {
             0 if choice_index == 0 => {
+                // Stomp first exposes the source's intermediate Fight page;
+                // combat starts only when that page is confirmed.
+                next.event = Some(EventScreen {
+                    event: Event::HypnotizingColoredMushrooms,
+                    choices: hypnotizing_colored_mushrooms_choices(1),
+                    stage: 1,
+                    event_data: 0,
+                });
+            }
+            0 if choice_index == 1 => {
+                let heal = next.player_max_hp * 25 / 100;
+                next.heal_player(heal)?;
+                next.queue_pending_obtain_card(PARASITE_ID);
+                next.event = Some(EventScreen {
+                    event: Event::HypnotizingColoredMushrooms,
+                    choices: hypnotizing_colored_mushrooms_choices(2),
+                    stage: 2,
+                    event_data: 0,
+                });
+            }
+            1 if choice_index == 0 => {
                 let mut misc_rng = next.rng_for_stream(RunRngStream::Misc);
                 next.pending_event_combat_gold_offer = misc_rng.random_int_range(20, 30);
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
@@ -284,18 +305,7 @@ pub(super) fn apply_act_one_event_action(
                 // three FungiBeast instances (desktop-1.0.jar case 18).
                 enter_event_combat(next, &[&FUNGI_BEAST_A0, &FUNGI_BEAST_A0, &FUNGI_BEAST_A0])?;
             }
-            0 if choice_index == 1 => {
-                let heal = next.player_max_hp * 25 / 100;
-                next.heal_player(heal)?;
-                next.queue_pending_obtain_card(PARASITE_ID);
-                next.event = Some(EventScreen {
-                    event: Event::HypnotizingColoredMushrooms,
-                    choices: hypnotizing_colored_mushrooms_choices(1),
-                    stage: 1,
-                    event_data: 0,
-                });
-            }
-            1 if choice_index == 0 => {
+            2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;

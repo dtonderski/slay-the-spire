@@ -680,7 +680,7 @@ pub(super) fn validate_event_screen_authority(
             }
         }
         Event::HypnotizingColoredMushrooms => {
-            if screen.stage > 1 {
+            if screen.stage > 2 {
                 return Err(SimError::InvalidState(
                     "Hypnotizing Colored Mushrooms stage is invalid",
                 ));
@@ -1597,7 +1597,7 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                     || ((zero_hp_result_is_reachable || omamori_blocked_result_is_reachable)
                         && pending.is_empty())
             }
-            (Event::HypnotizingColoredMushrooms, 1) => pending == [PARASITE_ID],
+            (Event::HypnotizingColoredMushrooms, 2) => pending == [PARASITE_ID],
             (Event::MindBloom, 1) => pending.is_empty() || pending == [NORMALITY_ID, NORMALITY_ID],
             (Event::BigFish, 1) if screen.event_data == 0 => {
                 pending == [REGRET_ID] || (run.player_max_hp / 3 == 0 && pending.is_empty())
@@ -1703,7 +1703,9 @@ fn dead_adventurer_screen(run: &RunState, stage: u8, event_data: u32) -> EventSc
 fn hypnotizing_colored_mushrooms_choices(stage: u32) -> Vec<EventChoice> {
     match stage {
         0 => labeled_choices(&["Stomp", "Eat"]),
-        _ => labeled_choices(&["Leave"]),
+        1 => labeled_choices(&["Fight"]),
+        2 => labeled_choices(&["Leave"]),
+        _ => Vec::new(),
     }
 }
 
@@ -7664,7 +7666,7 @@ mod tests {
             ),
             (
                 Event::HypnotizingColoredMushrooms,
-                2,
+                3,
                 "Hypnotizing Colored Mushrooms stage is invalid",
                 "Hypnotizing Colored Mushrooms retains unexpected event data",
                 "Hypnotizing Colored Mushrooms choices do not match its stage",
@@ -8453,7 +8455,7 @@ mod tests {
     }
 
     #[test]
-    fn hypnotizing_mushrooms_fight_spawns_three_fungi_beasts() {
+    fn hypnotizing_mushrooms_stages_fight_before_spawning_three_fungi_beasts() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_floor = 8;
         run.monster_rng_seed = 10_634_058_411_488_052_108;
@@ -8461,8 +8463,25 @@ mod tests {
         run.event = Some(event_screen(Event::HypnotizingColoredMushrooms));
 
         let after_stomp = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
-            .expect("Mushroom fight choice applies");
-        let monsters = &after_stomp.combat.as_ref().expect("event combat").monsters;
+            .expect("Stomp opens the Fight page");
+        assert_eq!(after_stomp.phase, RunPhase::Event);
+        assert!(after_stomp.combat.is_none());
+        assert_eq!(after_stomp.event.as_ref().expect("Fight page").stage, 1);
+        assert_eq!(
+            after_stomp
+                .event
+                .as_ref()
+                .expect("Fight page")
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Fight"]
+        );
+
+        let after_fight = apply_event_action(&after_stomp, EventAction::Choose { choice_index: 0 })
+            .expect("Fight enters Mushroom combat");
+        let monsters = &after_fight.combat.as_ref().expect("event combat").monsters;
 
         assert_eq!(monsters.len(), 3);
         assert!(monsters
@@ -8481,7 +8500,7 @@ mod tests {
             MonsterIntent::StrengthSelf { amount: 3 }
         ));
         assert_eq!(
-            after_stomp
+            after_fight
                 .combat
                 .as_ref()
                 .map(|combat| combat.rng.monster_rng.counter()),
