@@ -242,6 +242,41 @@ fn skipped_burning_pact_candidate(
     Ok(Some(candidate))
 }
 
+fn skipped_gambling_chip_candidate(
+    run: &RunState,
+    decision: RunDecisionAction,
+) -> Result<Option<RunState>, String> {
+    if !matches!(
+        decision,
+        RunDecisionAction::Run(RunAction::ConfirmExhaustSelect)
+    ) {
+        return Ok(None);
+    }
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(None);
+    };
+    let Some(exhaust_select) = combat.exhaust_select() else {
+        return Ok(None);
+    };
+    if exhaust_select.purpose != ExhaustSelectPurpose::GamblingChip {
+        return Ok(None);
+    }
+    // Empty selections are identical on the normal path; only non-empty selects
+    // can produce the skipped-retrieval combat projection.
+    if exhaust_select.selected_hand_indices.is_empty() {
+        return Ok(None);
+    }
+    if !combat.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Ok(None);
+    }
+
+    let candidate =
+        sts_core::run::apply_exhaust_select_confirm_skipped_gambling_chip_retrieval(run)
+            .map_err(|error| error.to_string())?;
+    candidate.validate().map_err(|error| error.to_string())?;
+    Ok(Some(candidate))
+}
+
 fn skipped_burning_pact_selected_card_is_absent_from_observed_exhaust(
     source: &RunState,
     post: &TraceState,
@@ -612,6 +647,19 @@ pub(super) fn verify_seed_start_transition(
                                             )
                                             .is_empty()
                                         })
+                                })
+                                .or_else(|| {
+                                    skipped_gambling_chip_candidate(&source, decision)
+                                        .ok()
+                                        .flatten()
+                                        .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                        .filter(|candidate| {
+                                            subset_diffs(
+                                                seed_start_combat_observed_subset(&post.message),
+                                                seed_start_simulated_combat_subset(candidate),
+                                            )
+                                            .is_empty()
+                                        })
                                 });
                             if let Some(candidate) = skipped_candidate {
                                 report.verified.push(VerifiedTransition {
@@ -747,6 +795,58 @@ mod tests {
             card.id == source_card_id
                 && card.content_id == sts_core::content::cards::BURNING_PACT_ID
         }));
+    }
+
+    #[test]
+    fn skipped_gambling_chip_candidate_parks_selected_cards_until_end_turn() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let selected_indices = vec![1, 0, 2];
+        let selected_ids = selected_indices
+            .iter()
+            .map(|index| combat.piles.hand[*index].id)
+            .collect::<Vec<_>>();
+        let hand_before = combat.piles.hand.len();
+        let draw_before = combat.piles.draw_pile.len();
+        combat.decision = Some(CombatDecisionState::ExhaustSelect {
+            state: sts_core::combat::ExhaustSelectState {
+                purpose: ExhaustSelectPurpose::GamblingChip,
+                source_card_id: None,
+                source_card: None,
+                source_card_force_exhaust: false,
+                selected_hand_indices: selected_indices,
+                interrupted_by_cultist_potion: false,
+                pending_actions: VecDeque::new(),
+            },
+        });
+
+        let candidate = skipped_gambling_chip_candidate(
+            &run,
+            RunDecisionAction::Run(RunAction::ConfirmExhaustSelect),
+        )
+        .expect("candidate construction")
+        .expect("Gambling Chip candidate should be eligible");
+        let combat = candidate.combat.as_ref().expect("candidate combat");
+        assert_eq!(
+            combat
+                .pending_hidden_hand_card_until_end_turn
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            selected_ids
+        );
+        assert_eq!(combat.piles.hand.len(), hand_before - 3);
+        assert_eq!(combat.piles.draw_pile.len(), draw_before);
+        assert!(combat.piles.discard_pile.is_empty());
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .chain(combat.piles.draw_pile.iter())
+            .chain(combat.piles.discard_pile.iter())
+            .chain(combat.piles.exhaust_pile.iter())
+            .chain(combat.piles.limbo.iter())
+            .all(|card| !selected_ids.contains(&card.id)));
     }
 
     #[test]

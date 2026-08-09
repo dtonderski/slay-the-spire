@@ -4524,6 +4524,55 @@ fn confirm_gambling_chip_select(state: &mut CombatState, selected: Vec<usize>) -
     Ok(())
 }
 
+/// Gambling Chip / Gambler's Brew hand-select can finish while the selection
+/// screen is still open (same ExhaustAction-style duration race as Burning Pact
+/// and Put-on-Deck). When retrieval is skipped, selected cards leave the hand
+/// but never enter discard, and the replacement draws never run. The verifier
+/// parks them in `pending_hidden_hand_card_until_end_turn` so a later non-empty
+/// end-turn discard settles them in selection order.
+pub fn confirm_gambling_chip_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
+    let exhaust_select = state
+        .take_exhaust_select()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if exhaust_select.purpose != crate::combat::ExhaustSelectPurpose::GamblingChip {
+        return Err(SimError::IllegalAction(
+            "skipped Gambling Chip retrieval requires GamblingChip select",
+        ));
+    }
+    if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Err(SimError::IllegalAction(
+            "pending hidden hand card already occupied",
+        ));
+    }
+    let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
+    for index in &selected {
+        if *index >= state.piles.hand.len() {
+            return Err(SimError::IllegalAction("exhaust select index out of range"));
+        }
+    }
+    // Capture cards in the UI's selection order before removing by descending
+    // hand index. The target HandCardSelectScreen.selectedCards group preserves
+    // click order; sorting is only an index-safety operation.
+    let hidden = selected
+        .iter()
+        .map(|index| state.piles.hand[*index])
+        .collect::<Vec<_>>();
+    let mut removal_order = selected;
+    removal_order.sort_unstable();
+    for index in removal_order.into_iter().rev() {
+        state.piles.hand.remove(index);
+    }
+    state.pending_hidden_hand_card_until_end_turn = hidden;
+
+    if !exhaust_select.pending_actions.is_empty() {
+        let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
+        *state = transition.state;
+    }
+    state.activate_next_queued_decision_if_idle();
+    settle_time_warp_end_turn_if_ready(state)?;
+    Ok(())
+}
+
 fn remove_card_from_pile(
     state: &mut CombatState,
     card_id: CardId,

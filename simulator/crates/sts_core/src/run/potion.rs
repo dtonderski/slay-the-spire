@@ -6,7 +6,8 @@ use crate::{
         choose_draw_select, choose_exhaust_select, choose_hand_select,
         close_discovery_source_card_with_force_exhaust,
         confirm_burning_pact_select_skipped_retrieval, confirm_discard_select, confirm_draw_select,
-        confirm_exhaust_select_with_dead_branch_count, confirm_hand_select,
+        confirm_exhaust_select_with_dead_branch_count,
+        confirm_gambling_chip_select_skipped_retrieval, confirm_hand_select,
         confirm_hand_select_skipped_put_on_deck_retrieval, discard_select_ui_to_discard_index,
         draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
         flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
@@ -372,6 +373,21 @@ pub fn apply_exhaust_select_confirm_skipped_burning_pact_retrieval(
     apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
     let next = settle_run_after_select_confirm(next, combat)?;
     Ok((next, selected))
+}
+
+/// Confirm Gambling Chip / Gambler's Brew select when selected-card retrieval
+/// and replacement draws were skipped by the target selection-screen update.
+///
+/// Selected cards are parked in `pending_hidden_hand_card_until_end_turn` and
+/// stay outside every serialized pile until a non-empty end-turn discard.
+pub fn apply_exhaust_select_confirm_skipped_gambling_chip_retrieval(
+    run: &RunState,
+) -> SimResult<RunState> {
+    validate_exhaust_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    confirm_gambling_chip_select_skipped_retrieval(&mut combat)?;
+    settle_run_after_select_confirm(next, combat)
 }
 
 pub fn apply_draw_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {

@@ -47,6 +47,7 @@ pub use player_choice::{
 };
 pub use potion::{
     apply_exhaust_select_confirm_skipped_burning_pact_retrieval,
+    apply_exhaust_select_confirm_skipped_gambling_chip_retrieval,
     apply_hand_select_confirm_skipped_put_on_deck_retrieval, apply_potion_action,
     validate_potion_action,
 };
