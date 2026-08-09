@@ -86,6 +86,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     // empties an only-status hand (FIDL00278 Warcry skipped Inflame + Dazed).
     let hand_nonempty_at_end_click = !next.piles.hand.is_empty();
     let deferred_stasis_cards;
+    let mut deferred_monster_deaths = Vec::new();
     let end_of_turn_hand;
 
     if pre_discard_settled {
@@ -186,7 +187,10 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         // Metallicize resolve. Both block grants therefore apply when the player
         // clicks End Turn with zero block.
         crate::relic::apply_orichalcum_end_of_player_turn(&mut next)?;
-        crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand(&mut next)?;
+        crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand_deferred(
+            &mut next,
+            &mut deferred_monster_deaths,
+        )?;
         // The Bomb's end-turn explosion can end combat before hand cleanup;
         // target skips Regret in that terminal queue (FIDL00244). Keep this
         // limited to Bomb-triggered victory; other end-turn powers retain the
@@ -280,6 +284,10 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     next.player.cannot_draw = false;
     resolve_deferred_dark_embrace_draws(&mut next, end_of_turn_hand.deferred_dark_embrace_draws)?;
     next.piles.hand.extend(deferred_stasis_cards);
+    crate::combat::transition::resolve_deferred_end_turn_monster_deaths(
+        &mut next,
+        deferred_monster_deaths,
+    )?;
     apply_pending_player_spikes_damage(&mut next)?;
     if next.player.hp <= 0 {
         next.player.hp = 0;
@@ -3279,6 +3287,54 @@ mod tests {
             .hand
             .iter()
             .any(|card| card.id == CardId::new(50)));
+    }
+
+    #[test]
+    fn combust_death_callbacks_interleave_stasis_and_horn_after_hand_discard() {
+        let mut state = CombatState::initial_fixture();
+        let mut automaton = monster_state_for_ascension(&BRONZE_AUTOMATON_A0, MonsterId::new(1), 0);
+        automaton.intent = MonsterIntent::Stun;
+        let mut first_orb = monster_state_for_ascension(&BRONZE_ORB_A0, MonsterId::new(2), 0);
+        first_orb.hp = 5;
+        first_orb.max_hp = 5;
+        first_orb.intent = MonsterIntent::Stun;
+        first_orb.stasis_card = Some(CardInstance::new(CardId::new(50), POMMEL_STRIKE_ID));
+        let mut second_orb = monster_state_for_ascension(&BRONZE_ORB_A0, MonsterId::new(3), 0);
+        second_orb.hp = 5;
+        second_orb.max_hp = 5;
+        second_orb.intent = MonsterIntent::Stun;
+        second_orb.stasis_card = Some(CardInstance::new(CardId::new(51), BASH_ID));
+        state.monsters = vec![automaton, first_orb, second_orb];
+        state.player.powers.combust = 1;
+        state.player.powers.combust_damage = 5;
+        state.relics = vec![Relic::GremlinHorn];
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(100), STRIKE_R_ID),
+            CardInstance::new(CardId::new(101), STRIKE_R_ID),
+            CardInstance::new(CardId::new(102), STRIKE_R_ID),
+            CardInstance::new(CardId::new(103), STRIKE_R_ID),
+            CardInstance::new(CardId::new(104), STRIKE_R_ID),
+            CardInstance::new(CardId::new(10), BASH_ID),
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+        ];
+        state.piles.discard_pile.clear();
+
+        let next = end_player_turn(&state).expect("end turn resolves deferred death callbacks");
+
+        assert!(!next.monsters[1].alive);
+        assert!(!next.monsters[2].alive);
+        assert_eq!(next.piles.hand.len(), 9);
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .take(4)
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![POMMEL_STRIKE_ID, DEFEND_R_ID, BASH_ID, BASH_ID]
+        );
+        assert!(next.piles.draw_pile.is_empty());
     }
 
     #[test]

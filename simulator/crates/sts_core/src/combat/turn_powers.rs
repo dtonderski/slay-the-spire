@@ -10,15 +10,35 @@ pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()>
     if state.player.hp <= 0 {
         return Ok(());
     }
-    apply_end_of_turn_combust(state)?;
+    let mut deferred = None;
+    apply_end_of_turn_combust(state, &mut deferred)?;
     if state.player.hp <= 0 {
         return Ok(());
     }
-    apply_end_of_turn_bomb_timers(state)?;
+    apply_end_of_turn_bomb_timers(state, &mut deferred)?;
     Ok(())
 }
 
 pub fn apply_end_of_player_turn_powers_before_hand(state: &mut CombatState) -> SimResult<()> {
+    let mut deferred = None;
+    apply_end_of_player_turn_powers_before_hand_inner(state, &mut deferred)
+}
+
+/// Resolve end-turn powers while retaining death callbacks until the hand
+/// discard action settles. This is the action-queue path used by a normal END;
+/// direct callers keep the immediate helper above.
+pub(crate) fn apply_end_of_player_turn_powers_before_hand_deferred(
+    state: &mut CombatState,
+    deferred: &mut Vec<crate::combat::transition::DeferredMonsterDeath>,
+) -> SimResult<()> {
+    let mut deferred = Some(deferred);
+    apply_end_of_player_turn_powers_before_hand_inner(state, &mut deferred)
+}
+
+fn apply_end_of_player_turn_powers_before_hand_inner(
+    state: &mut CombatState,
+    deferred: &mut Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
+) -> SimResult<()> {
     apply_player_end_of_turn_powers_for_combat_state(state, false)?;
     if state.player.hp <= 0 {
         return Ok(());
@@ -35,11 +55,11 @@ pub fn apply_end_of_player_turn_powers_before_hand(state: &mut CombatState) -> S
             return Ok(());
         }
     }
-    apply_end_of_turn_combust(state)?;
+    apply_end_of_turn_combust(state, deferred)?;
     if state.player.hp <= 0 {
         return Ok(());
     }
-    apply_end_of_turn_bomb_timers(state)?;
+    apply_end_of_turn_bomb_timers(state, deferred)?;
     Ok(())
 }
 
@@ -150,7 +170,10 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
     }
 }
 
-fn apply_end_of_turn_combust(state: &mut CombatState) -> SimResult<()> {
+fn apply_end_of_turn_combust(
+    state: &mut CombatState,
+    deferred: &mut Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
+) -> SimResult<()> {
     let combust_stacks = state.player.powers.combust.max(0);
     if combust_stacks > 0 {
         // Stacked Combust is one LoseHPAction whose hpLoss field is increased by
@@ -163,25 +186,31 @@ fn apply_end_of_turn_combust(state: &mut CombatState) -> SimResult<()> {
             return Ok(());
         }
     }
-    deal_combust_damage_to_living_monsters(state)
+    deal_combust_damage_to_living_monsters(state, deferred)
 }
 
 fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
     crate::combat::hp_loss::lose_player_hp(state, amount)
 }
 
-fn deal_combust_damage_to_living_monsters(state: &mut CombatState) -> SimResult<()> {
+fn deal_combust_damage_to_living_monsters(
+    state: &mut CombatState,
+    deferred: &mut Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
+) -> SimResult<()> {
     // Combust is end-of-turn player power damage before the enemy phase. A form-1
     // Awakened One first-kill here still receives REBIRTH on that same enemy
     // phase (permanent FIDL00368 / FIDL00395). Do not set defer_awakened_one_rebirth:
     // deferring matches open FIDL00391's half-dead player turn but breaks those
     // permanents' same-END Dark Echo. Mid-turn kills (FIDL00378) already rebirth
     // on the next END without a flag.
-    deal_unmodified_damage_to_living_monsters(state, state.player.powers.combust_damage)?;
+    deal_unmodified_damage_to_living_monsters(state, state.player.powers.combust_damage, deferred)?;
     Ok(())
 }
 
-fn apply_end_of_turn_bomb_timers(state: &mut CombatState) -> SimResult<()> {
+fn apply_end_of_turn_bomb_timers(
+    state: &mut CombatState,
+    deferred: &mut Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
+) -> SimResult<()> {
     if state.bomb_timers.is_empty() {
         return Ok(());
     }
@@ -190,7 +219,7 @@ fn apply_end_of_turn_bomb_timers(state: &mut CombatState) -> SimResult<()> {
     for mut timer in timers {
         timer.turns_remaining -= 1;
         if timer.turns_remaining <= 0 {
-            deal_unmodified_damage_to_living_monsters(state, timer.damage)?;
+            deal_unmodified_damage_to_living_monsters(state, timer.damage, deferred)?;
             if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
                 return Ok(());
             }
@@ -204,6 +233,7 @@ fn apply_end_of_turn_bomb_timers(state: &mut CombatState) -> SimResult<()> {
 fn deal_unmodified_damage_to_living_monsters(
     state: &mut CombatState,
     amount: i32,
+    deferred: &mut Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
 ) -> SimResult<()> {
     let targets = state
         .monsters
@@ -237,7 +267,11 @@ fn deal_unmodified_damage_to_living_monsters(
         };
         check_slime_boss_split(state, target);
         if killed {
-            crate::combat::transition::apply_monster_death_hooks(state, target)?;
+            if let Some(events) = deferred.as_deref_mut() {
+                crate::combat::transition::queue_end_turn_monster_death(state, target, events)?;
+            } else {
+                crate::combat::transition::apply_monster_death_hooks(state, target)?;
+            }
         }
     }
     Ok(())

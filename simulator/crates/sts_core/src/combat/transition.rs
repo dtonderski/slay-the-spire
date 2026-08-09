@@ -52,6 +52,14 @@ pub struct CombatTransition {
     pub event_log: Vec<InternalAction>,
 }
 
+/// Death callbacks that the target queues until an end-turn power action has
+/// settled and the visible hand discard has completed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeferredMonsterDeath {
+    pub(crate) stasis_card: Option<CardInstance>,
+    pub(crate) gremlin_horn: bool,
+}
+
 pub fn apply_combat_action(state: &CombatState, action: CombatAction) -> SimResult<CombatState> {
     Ok(apply_combat_action_with_events(state, action)?.state)
 }
@@ -1394,6 +1402,58 @@ fn queue_monster_death_hooks(
         .into_iter()
         .map(|card| InternalAction::AddCardInstanceToHandOrDiscard { card })
         .collect())
+}
+
+/// Queue one end-turn-power death in the same order as the target action
+/// manager. End-turn damage resolves before DiscardAtEndOfTurnAction, but the
+/// Stasis release and Gremlin Horn callbacks run after that discard. Keeping
+/// the pair together is important when multiple monsters die in one damage
+/// action: the callbacks interleave as Stasis, Horn, Stasis, Horn.
+pub(crate) fn queue_end_turn_monster_death(
+    state: &mut CombatState,
+    monster_id: MonsterId,
+    deferred: &mut Vec<DeferredMonsterDeath>,
+) -> SimResult<()> {
+    let stasis_card = state
+        .monsters
+        .iter_mut()
+        .find(|monster| monster.id == monster_id)
+        .and_then(|monster| monster.stasis_card.take());
+    apply_monster_death_non_stasis_hooks(state, monster_id)?;
+    let gremlin_horn =
+        combat_continues_after_monster_death(state) && state.relics.contains(&Relic::GremlinHorn);
+    if combat_continues_after_monster_death(state) {
+        deferred.push(DeferredMonsterDeath {
+            stasis_card,
+            gremlin_horn,
+        });
+    } else if let Some(card) = stasis_card {
+        release_deferred_stasis_card(state, card);
+    }
+    Ok(())
+}
+
+fn release_deferred_stasis_card(state: &mut CombatState, card: CardInstance) {
+    if state.piles.hand.len() < MAX_HAND_SIZE {
+        state.piles.hand.push(card);
+    } else {
+        state.piles.discard_pile.push(card);
+    }
+}
+
+pub(crate) fn resolve_deferred_end_turn_monster_deaths(
+    state: &mut CombatState,
+    deferred: Vec<DeferredMonsterDeath>,
+) -> SimResult<()> {
+    for death in deferred {
+        if let Some(card) = death.stasis_card {
+            release_deferred_stasis_card(state, card);
+        }
+        if death.gremlin_horn {
+            crate::relic::apply_monster_death_relics(state)?;
+        }
+    }
+    Ok(())
 }
 
 fn apply_monster_death_non_relic_hooks(
