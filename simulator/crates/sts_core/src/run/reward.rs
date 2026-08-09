@@ -29,7 +29,10 @@ use crate::{
         SINGING_BOWL_MAX_HP,
     },
     rng::StsRng,
-    run::event::{colosseum_choices, enter_spire_heart_event, event_screen_for_run, Event},
+    run::event::{
+        colosseum_choices, enter_spire_heart_event, event_screen_for_run,
+        pending_obtain_cards_ready_for_reward_input, Event,
+    },
     run::potion::{
         apply_combat_card_reward_choice, apply_combat_card_reward_skip,
         apply_discard_select_choice, apply_discard_select_confirm, apply_draw_select_choice,
@@ -1847,11 +1850,13 @@ fn apply_cursed_key_chest_curse(run: &mut RunState) -> SimResult<()> {
     let mut next = run.clone();
     // Target `CardLibrary.getCurse()` samples with `AbstractDungeon.cardRng`.
     // This is the persistent reward-card stream, not the per-combat
-    // `cardRandomRng` stream.
+    // `cardRandomRng` stream. CursedKey then queues ShowCardAndObtainEffect;
+    // the master deck changes when that effect settles on the next reward
+    // update, not while the chest reward overlay is first exposed.
     let mut rng = next.rng_for_stream(RunRngStream::CardReward);
     let curse = random_normal_curse(&mut rng);
     next.store_rng_counter(RunRngStream::CardReward, &rng);
-    next.gain_deck_card(curse)?;
+    next.queue_pending_obtain_card(curse);
     *run = next;
     Ok(())
 }
@@ -2366,7 +2371,20 @@ fn apply_final_boss_victory_proceed(run: &RunState) -> SimResult<RunState> {
 fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     run.validate_reward_action(action)?;
 
+    // Reward input is the deterministic update boundary at which an
+    // authoritative queued ShowCardAndObtainEffect settles. This keeps the
+    // opened chest's first reward frame free of the card while ensuring the
+    // next accepted reward command observes the committed deck. Unknown
+    // pending owners fail closed instead of being flushed opportunistically.
     let mut next = run.clone();
+    if !pending_obtain_cards_ready_for_reward_input(&next) {
+        return Err(SimError::InvalidState(
+            "pending obtain cards are not ready for reward input",
+        ));
+    }
+    if !next.pending_obtain_cards.is_empty() {
+        next.flush_pending_obtain_cards()?;
+    }
     match action {
         RunAction::SkipReward => {
             let is_boss_room = next.current_room_kind() == Some(RoomKind::Boss);
@@ -2907,24 +2925,80 @@ mod tests {
     }
 
     #[test]
-    fn cursed_key_uses_persistent_card_rng_on_session31_seed() {
+    fn cursed_key_queues_persistent_card_rng_curse_until_next_reward_input() {
         let seed = (-7_812_685_662_221_499_508_i64) as u64;
         let mut run = RunState::seeded_ironclad(seed, 0);
         run.reward_rng_seed = seed;
         run.card_rng_counter = 272;
         run.card_random_rng_counter = 19;
         run.relics.push(Relic::CursedKey);
+        run.event = None;
+        run.current_room_override = Some(RoomKind::Treasure);
+        run.phase = RunPhase::Treasure;
+        run.treasure_room = Some(TreasureRoomState {
+            chest_size: ChestSize::Medium,
+            relic_tier: RelicTier::Common,
+            have_gold: false,
+            relic_before_gold: false,
+        });
         let deck_len = run.deck.len();
 
-        apply_cursed_key_chest_curse(&mut run).expect("Cursed Key curse gain succeeds");
+        enter_chest_relic_reward_screen(&mut run).expect("Cursed Key chest opens");
 
-        assert_eq!(run.deck.len(), deck_len + 1);
+        assert_eq!(run.deck.len(), deck_len);
         assert_eq!(
-            run.deck.last().map(|card| card.content_id),
-            Some(crate::content::cards::WRITHE_ID)
+            run.pending_obtain_cards,
+            vec![crate::content::cards::WRITHE_ID]
         );
         assert_eq!(run.card_rng_counter, 273);
         assert_eq!(run.card_random_rng_counter, 19);
+        run.validate()
+            .expect("opened chest owns the pending ShowCardAndObtainEffect");
+
+        let settled = apply_run_action(&run, RunAction::TakeRelicReward)
+            .expect("the next reward input settles the queued curse");
+        assert_eq!(settled.deck.len(), deck_len + 1);
+        assert!(settled.pending_obtain_cards.is_empty());
+        assert_eq!(
+            settled.deck.last().map(|card| card.content_id),
+            Some(crate::content::cards::WRITHE_ID)
+        );
+    }
+
+    #[test]
+    fn cursed_key_pending_authority_rejects_wrong_card_or_owner() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.event = None;
+        run.relics.push(Relic::CursedKey);
+        run.current_room_override = Some(RoomKind::Treasure);
+        run.phase = RunPhase::Treasure;
+        run.treasure_room = Some(TreasureRoomState {
+            chest_size: ChestSize::Small,
+            relic_tier: RelicTier::Common,
+            have_gold: false,
+            relic_before_gold: false,
+        });
+        enter_chest_relic_reward_screen(&mut run).expect("Cursed Key chest opens");
+
+        let mut wrong_card = run.clone();
+        wrong_card.pending_obtain_cards = vec![crate::content::cards::NECRONOMICURSE_ID];
+        assert_eq!(
+            wrong_card.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+
+        let mut wrong_owner = run;
+        wrong_owner
+            .relics
+            .retain(|relic| *relic != Relic::CursedKey);
+        assert_eq!(
+            wrong_owner.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
     }
 
     #[test]
