@@ -228,6 +228,10 @@ pub(crate) fn process_internal_queue(
         // after Havoc.use, so it can land after the top card is removed but
         // before Pommel (etc.) draws — size n-1 after remove, not n-1-draws
         // (FIDL00381). Drain trailing Hex inserts before nested card resolve.
+        let exhaust_follow_up = matches!(
+            internal_action,
+            InternalAction::CardExhausted { .. } | InternalAction::HandCardExhausted { .. }
+        );
         let follow_ups = if let InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card,
@@ -280,6 +284,20 @@ pub(crate) fn process_internal_queue(
                     })
                     .expect("Reaper healing action remains queued");
                 queue.insert(index, follow_up);
+            } else if exhaust_follow_up {
+                // The target's onExhaust callbacks are addToBot actions on the
+                // original UseCardAction. A Double Tap/Necronomicon copy is a
+                // later card-use boundary, so these callbacks must drain before
+                // its PlayCardCopy marker. This is observable when Dark Embrace
+                // draws between the two Wild Strike Wounds in FIDL01320.
+                if let Some(index) = queue
+                    .iter()
+                    .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
+                {
+                    queue.insert(index, follow_up);
+                } else {
+                    push_follow_up(&mut queue, follow_up);
+                }
             } else {
                 push_follow_up(&mut queue, follow_up);
             }

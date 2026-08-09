@@ -1,7 +1,7 @@
 #![allow(clippy::assertions_on_constants)]
 
 use sts_core::{
-    apply_combat_action, apply_combat_action_on_run,
+    apply_combat_action, apply_combat_action_on_run, apply_combat_action_with_events,
     card::{CardType, TargetRequirement},
     combat::{
         hand::resolve_end_of_turn_hand,
@@ -2253,6 +2253,52 @@ fn defend_plus_gains_eight_block_and_discards() {
     assert_eq!(
         next.piles.discard_pile[0].content_id,
         cards::DEFEND_R_PLUS_ID
+    );
+}
+
+#[test]
+fn havoc_double_tap_exhaust_callbacks_resolve_before_copied_attack() {
+    let target = MonsterId::new(1);
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.powers.dark_embrace = 1;
+    state.double_tap_pending = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(5), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(6), cards::WILD_STRIKE_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let transition = apply_combat_action_with_events(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(target),
+        },
+    )
+    .expect("Havoc should force-play and exhaust Wild Strike");
+
+    let draw_contents: Vec<_> = transition
+        .state
+        .piles
+        .draw_pile
+        .iter()
+        .map(|card| card.content_id)
+        .collect();
+    assert_eq!(
+        &draw_contents[..2],
+        &[cards::WOUND_ID, cards::WOUND_ID],
+        "Dark Embrace must draw before the copied Wild Strike inserts its Wound"
+    );
+    assert_eq!(transition.state.piles.hand.len(), 1);
+    assert_eq!(
+        transition.state.piles.hand[0].content_id,
+        cards::DEFEND_R_ID
     );
 }
 

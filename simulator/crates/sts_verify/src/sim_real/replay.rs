@@ -152,6 +152,48 @@ fn compare_direct_run(
     Ok(())
 }
 
+fn skipped_put_on_deck_candidate(
+    run: &RunState,
+    decision: RunDecisionAction,
+) -> Result<Option<RunState>, String> {
+    if !matches!(
+        decision,
+        RunDecisionAction::Run(RunAction::ConfirmHandSelect)
+    ) {
+        return Ok(None);
+    }
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(None);
+    };
+    let Some(hand_select) = combat.hand_select() else {
+        return Ok(None);
+    };
+    if !matches!(
+        hand_select.purpose,
+        HandSelectPurpose::WarcryPutOnDraw
+            | HandSelectPurpose::ThinkingAheadPutOnDraw
+            | HandSelectPurpose::ForethoughtPutOnDraw
+    ) {
+        return Ok(None);
+    }
+
+    let (mut candidate, selected) =
+        sts_core::run::apply_hand_select_confirm_skipped_put_on_deck_retrieval(run)
+            .map_err(|error| error.to_string())?;
+    let combat = candidate
+        .combat
+        .as_mut()
+        .ok_or_else(|| "skipped put-on-deck candidate lost combat state".to_owned())?;
+    if !combat.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Err("skipped put-on-deck candidate already has a pending hidden card".to_owned());
+    }
+    combat
+        .pending_hidden_hand_card_until_end_turn
+        .push(selected);
+    candidate.validate().map_err(|error| error.to_string())?;
+    Ok(Some(candidate))
+}
+
 fn combat_decision(run: &RunState, command: &str) -> Result<(RunDecisionAction, String), String> {
     if run
         .combat
@@ -453,7 +495,31 @@ pub(super) fn verify_seed_start_transition(
                             ),
                         )),
                         Ok(next) => {
-                            if let Err(reason) =
+                            // PutOnDeckAction has a source-backed skipped-retrieval
+                            // frame: rebuild from the pre-CONFIRM state, then use it
+                            // only when the complete observed combat projection
+                            // matches. This keeps an unrelated pile mismatch on the
+                            // normal transition fail-closed.
+                            let skipped_candidate = skipped_put_on_deck_candidate(&source, decision)
+                                .ok()
+                                .flatten()
+                                .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                .filter(|candidate| {
+                                    subset_diffs(
+                                        seed_start_combat_observed_subset(&post.message),
+                                        seed_start_simulated_combat_subset(candidate),
+                                    )
+                                    .is_empty()
+                                });
+                            if let Some(candidate) = skipped_candidate {
+                                report.verified.push(VerifiedTransition {
+                                    action_step: action.step,
+                                    command: action.command.clone(),
+                                    label: label.clone(),
+                                });
+                                state.seed_sim = Some(candidate);
+                                None
+                            } else if let Err(reason) =
                                 compare_direct_run(report, action, post, &label, &next)
                             {
                                 Some(boundary(action, "invalid_direct_projection", reason))
@@ -488,6 +554,52 @@ pub(super) fn finish_streaming_seed_start_replay(
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::collections::VecDeque;
+
+    #[test]
+    fn skipped_put_on_deck_candidate_parks_selected_card_until_end_turn() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let source_card_id = combat.piles.hand[0].id;
+        let selected_card_id = combat.piles.hand[1].id;
+        combat.decision = Some(CombatDecisionState::HandSelect {
+            state: sts_core::combat::HandSelectState {
+                purpose: HandSelectPurpose::WarcryPutOnDraw,
+                source_card_id,
+                selected_hand_index: Some(1),
+                selected_hand_indices: Vec::new(),
+                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_force_exhaust: false,
+            },
+            pending_actions: VecDeque::new(),
+        });
+
+        let candidate = skipped_put_on_deck_candidate(
+            &run,
+            RunDecisionAction::Run(RunAction::ConfirmHandSelect),
+        )
+        .expect("candidate construction")
+        .expect("Warcry candidate should be eligible");
+        let combat = candidate.combat.as_ref().expect("candidate combat");
+        assert_eq!(
+            combat.pending_hidden_hand_card_until_end_turn[0].id,
+            selected_card_id
+        );
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .chain(combat.piles.draw_pile.iter())
+            .chain(combat.piles.discard_pile.iter())
+            .chain(combat.piles.exhaust_pile.iter())
+            .chain(combat.piles.limbo.iter())
+            .all(|card| card.id != selected_card_id));
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.id != selected_card_id));
+    }
 
     #[test]
     fn completed_spire_heart_proceed_is_terminal_and_accounted() {
