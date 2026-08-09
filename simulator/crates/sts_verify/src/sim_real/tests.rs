@@ -484,6 +484,110 @@ fn forgotten_altar_offer_projection_uses_relic_specific_commmod_label() {
 }
 
 #[test]
+fn match_and_keep_revealed_cards_use_source_card_ids() {
+    let ordinary = [
+        (sts_core::content::cards::BANDAGE_UP_ID, "bandage up"),
+        (sts_core::content::cards::SEVER_SOUL_ID, "sever soul"),
+        (sts_core::content::cards::SPOT_WEAKNESS_ID, "spot weakness"),
+        (
+            sts_core::content::cards::PERFECTED_STRIKE_ID,
+            "perfected strike",
+        ),
+        (
+            sts_core::content::cards::DRAMATIC_ENTRANCE_ID,
+            "dramatic entrance",
+        ),
+        (sts_core::content::cards::MIND_BLAST_ID, "mind blast"),
+        (sts_core::content::cards::PANIC_BUTTON_ID, "panicbutton"),
+    ];
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.phase = RunPhase::Event;
+    run.match_and_keep = Some(sts_core::run::event::MatchAndKeepState {
+        cards: ordinary
+            .iter()
+            .map(|(content_id, _)| sts_core::run::event::MatchAndKeepCard {
+                content_id: *content_id,
+                revealed: true,
+                matched: false,
+            })
+            .collect(),
+        attempts_remaining: 5,
+        first_flipped_index: None,
+        second_flipped_index: None,
+        matched_cards: Vec::new(),
+        game_done: false,
+    });
+    run.event = Some(EventScreen {
+        event: Event::MatchAndKeep,
+        choices: vec![sts_core::EventChoice {
+            label: "choice text is not board authority".to_owned(),
+        }],
+        stage: 2,
+        event_data: 0,
+    });
+
+    assert_eq!(
+        seed_start_event_simulated_subset(&run)["choices"],
+        json!(ordinary
+            .iter()
+            .map(|(_, expected)| *expected)
+            .collect::<Vec<_>>())
+    );
+    assert_eq!(
+        seed_start_communication_mod_card_id(sts_core::content::cards::PANIC_BUTTON_ID),
+        "panicbutton"
+    );
+}
+
+#[test]
+fn match_and_keep_presentation_preserves_hidden_slots_and_board_authority() {
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.phase = RunPhase::Event;
+    run.match_and_keep = Some(sts_core::run::event::MatchAndKeepState {
+        cards: vec![
+            sts_core::run::event::MatchAndKeepCard {
+                content_id: sts_core::content::cards::PANIC_BUTTON_ID,
+                revealed: true,
+                matched: false,
+            },
+            sts_core::run::event::MatchAndKeepCard {
+                content_id: sts_core::content::cards::BANDAGE_UP_ID,
+                revealed: false,
+                matched: false,
+            },
+            sts_core::run::event::MatchAndKeepCard {
+                content_id: sts_core::content::cards::SEVER_SOUL_ID,
+                revealed: true,
+                matched: true,
+            },
+            sts_core::run::event::MatchAndKeepCard {
+                content_id: sts_core::content::cards::SPOT_WEAKNESS_ID,
+                revealed: true,
+                matched: false,
+            },
+        ],
+        attempts_remaining: 5,
+        first_flipped_index: Some(3),
+        second_flipped_index: None,
+        matched_cards: vec![sts_core::content::cards::SEVER_SOUL_ID],
+        game_done: false,
+    });
+    run.event = Some(EventScreen {
+        event: Event::MatchAndKeep,
+        choices: vec![sts_core::EventChoice {
+            label: "observed choice text must not select cards".to_owned(),
+        }],
+        stage: 2,
+        event_data: 0,
+    });
+
+    assert_eq!(
+        seed_start_event_simulated_subset(&run)["choices"],
+        json!(["panicbutton", "card1"])
+    );
+}
+
+#[test]
 fn observation_metadata_never_selects_or_mutates_simulator_state() {
     let content = |game_update_seq| {
         let mut boundary = boundary_message("quiescent");

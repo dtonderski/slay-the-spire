@@ -5080,6 +5080,23 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
     ALL_CARDS.iter().find(|definition| definition.id == id)
 }
 
+/// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.
+///
+/// Match-and-Keep sends this source identifier for revealed cards. Ordinary
+/// cards use the source-spelled card name in their durable definition metadata;
+/// Panic Button is the source-specific exception (`PanicButton`, not its
+/// display name `Panic Button`). Upgraded content IDs resolve to their base
+/// identity because vanilla upgrades retain the same `cardID`.
+#[must_use]
+pub fn communication_mod_card_id(id: ContentId) -> Option<&'static str> {
+    let base_id = base_content_id(id);
+    let definition = get_card_definition(base_id)?;
+    Some(match base_id {
+        PANIC_BUTTON_ID => "PanicButton",
+        _ => definition.name,
+    })
+}
+
 #[must_use]
 pub fn is_curse_content_id(id: ContentId) -> bool {
     matches!(
@@ -5343,6 +5360,28 @@ mod tests {
     #[test]
     fn upgrade_content_id_covers_true_grit() {
         assert_eq!(upgrade_content_id(TRUE_GRIT_ID), Some(TRUE_GRIT_PLUS_ID));
+    }
+
+    #[test]
+    fn communication_mod_card_id_preserves_source_spelling() {
+        for (id, expected) in [
+            (BANDAGE_UP_ID, "Bandage Up"),
+            (SEVER_SOUL_ID, "Sever Soul"),
+            (SPOT_WEAKNESS_ID, "Spot Weakness"),
+            (PERFECTED_STRIKE_ID, "Perfected Strike"),
+            (DRAMATIC_ENTRANCE_ID, "Dramatic Entrance"),
+            (MIND_BLAST_ID, "Mind Blast"),
+        ] {
+            assert_eq!(communication_mod_card_id(id), Some(expected));
+        }
+        assert_eq!(
+            communication_mod_card_id(PANIC_BUTTON_ID),
+            Some("PanicButton")
+        );
+        assert_eq!(
+            communication_mod_card_id(PANIC_BUTTON_PLUS_ID),
+            Some("PanicButton")
+        );
     }
 
     #[test]
