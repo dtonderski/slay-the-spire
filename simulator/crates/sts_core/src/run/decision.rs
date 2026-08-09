@@ -379,7 +379,7 @@ mod tests {
         combat::{
             CombatPhase, DrawSelectPurpose, DrawSelectState, HandSelectPurpose, HandSelectState,
         },
-        content::cards::DEFEND_R_ID,
+        content::cards::{BASH_ID, DEFEND_R_ID, SECRET_WEAPON_ID, STRIKE_R_ID},
         legal_map_actions_on_run, CardGridScreen, CardId, CardInstance, GridPurpose,
     };
 
@@ -569,14 +569,19 @@ mod tests {
     }
 
     #[test]
-    fn top_level_legal_actions_omit_selected_draw_choice() {
+    fn secret_weapon_draw_choice_settles_source_and_closes_search() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
         let source_card_id = combat.piles.hand[0].id;
-        combat.piles.draw_pile = vec![CardInstance::new(CardId::new(900), DEFEND_R_ID)];
+        combat.piles.hand[0].content_id = SECRET_WEAPON_ID;
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(900), DEFEND_R_ID),
+            CardInstance::new(CardId::new(901), STRIKE_R_ID),
+            CardInstance::new(CardId::new(902), BASH_ID),
+        ];
         combat.decision = Some(CombatDecisionState::DrawSelect {
             state: DrawSelectState {
-                purpose: DrawSelectPurpose::SecretTechniqueSkillToHand,
+                purpose: DrawSelectPurpose::SecretWeaponAttackToHand,
                 source_card_id,
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
@@ -586,17 +591,34 @@ mod tests {
 
         let selected = apply_run_decision_action(
             &run,
-            RunDecisionAction::Run(RunAction::ChooseDrawSelect { index: 0 }),
+            RunDecisionAction::Run(RunAction::ChooseDrawSelect { index: 1 }),
         )
-        .expect("valid draw selection");
-        let actions = legal_run_decision_actions(&selected).expect("valid selected state");
+        .expect("valid Secret Weapon draw selection");
+        let combat = selected.combat.as_ref().expect("combat remains active");
 
-        assert!(
-            !actions.contains(&RunDecisionAction::Run(RunAction::ChooseDrawSelect {
-                index: 0,
-            }))
+        assert!(combat.draw_select().is_none());
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == BASH_ID));
+        assert_eq!(
+            combat
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, STRIKE_R_ID]
         );
-        assert!(actions.contains(&RunDecisionAction::Run(RunAction::ConfirmDrawSelect)));
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == SECRET_WEAPON_ID));
+        assert!(!legal_run_decision_actions(&selected)
+            .expect("settled state is legal")
+            .contains(&RunDecisionAction::Run(RunAction::ConfirmDrawSelect)));
     }
 
     #[test]

@@ -355,8 +355,23 @@ pub fn apply_hand_select_confirm_skipped_put_on_deck_retrieval(
 pub fn apply_draw_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_draw_select_choice(run, index)?;
     let mut next = run.clone();
-    let combat = next.combat.as_mut().expect("validated combat");
-    choose_draw_select(combat, index)?;
+    let mut combat = next.combat.take().expect("validated combat");
+    choose_draw_select(&mut combat, index)?;
+
+    // AttackFromDeckToHandAction and SkillFromDeckToHandAction close their
+    // one-card search as soon as the player picks a card. Keep the lower-level
+    // choose/confirm functions separate for explicit simulator callers, but
+    // match the source command lifecycle at the run boundary: selected card,
+    // source settlement, then any deferred follow-ups.
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    confirm_draw_select(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    next.combat = Some(combat);
     Ok(next)
 }
 
