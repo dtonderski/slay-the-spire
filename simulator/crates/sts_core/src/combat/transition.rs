@@ -3665,11 +3665,22 @@ pub fn confirm_exhaust_select_with_time_warp_policy(
     state: &mut CombatState,
     settle_time_warp: bool,
 ) -> SimResult<()> {
+    confirm_exhaust_select_with_dead_branch_count(state, settle_time_warp).map(|_| ())
+}
+
+/// Confirm an exhaust selection and report Dead Branch cards settled by the
+/// combat transition itself. Run-level select dispatch uses the count to avoid
+/// applying its legacy boundary fallback a second time.
+pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
+    state: &mut CombatState,
+    settle_time_warp: bool,
+) -> SimResult<usize> {
     let exhaust_select = state
         .take_exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
     let purpose = exhaust_select.purpose;
     let pending_actions = exhaust_select.pending_actions.clone();
+    let mut dead_branch_count = 0;
     match purpose {
         crate::combat::ExhaustSelectPurpose::GamblingChip => {
             confirm_gambling_chip_select(state, exhaust_select.selected_hand_indices)?;
@@ -3681,10 +3692,10 @@ pub fn confirm_exhaust_select_with_time_warp_policy(
             confirm_purity_select(state, exhaust_select)?;
         }
         crate::combat::ExhaustSelectPurpose::BurningPactDraw2 => {
-            confirm_burning_pact_select(state, exhaust_select, 2)?;
+            dead_branch_count = confirm_burning_pact_select(state, exhaust_select, 2)?;
         }
         crate::combat::ExhaustSelectPurpose::BurningPactDraw3 => {
-            confirm_burning_pact_select(state, exhaust_select, 3)?;
+            dead_branch_count = confirm_burning_pact_select(state, exhaust_select, 3)?;
         }
         crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne => {
             confirm_true_grit_select(state, exhaust_select)?;
@@ -3730,7 +3741,7 @@ pub fn confirm_exhaust_select_with_time_warp_policy(
     if settle_time_warp {
         settle_time_warp_end_turn_if_ready(state)?;
     }
-    Ok(())
+    Ok(dead_branch_count)
 }
 
 fn confirm_true_grit_select(
@@ -3887,7 +3898,7 @@ fn confirm_burning_pact_select(
     state: &mut CombatState,
     exhaust_select: crate::combat::ExhaustSelectState,
     draw_count: usize,
-) -> SimResult<()> {
+) -> SimResult<usize> {
     let source_card_id = exhaust_select
         .source_card_id
         .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
@@ -3922,6 +3933,7 @@ fn confirm_burning_pact_select(
     // same pattern as Dual Wield skipped retrieval. Cultist-potion
     // interruption still parks the selection until end-turn.
     let mut deferred_bot_on_exhaust = Vec::new();
+    let mut dead_branch_count = 0;
     if exhaust_select.interrupted_by_cultist_potion {
         state.piles.hand.remove(index);
         state.pending_hidden_hand_card_until_end_turn = vec![card];
@@ -3935,6 +3947,10 @@ fn confirm_burning_pact_select(
         // the post-discard reshuffle (9bf0204173fb2a7f step 459).
         apply_on_exhaust_effects_except_bot_queued_powers(state, card.id)?;
         deferred_bot_on_exhaust.extend(feel_no_pain_block_follow_up(state));
+        if let Some(dead_branch) = dead_branch_follow_up(state) {
+            deferred_bot_on_exhaust.push(dead_branch);
+            dead_branch_count += 1;
+        }
         deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
     }
     player_draw_cards(state, draw_count)?;
@@ -3952,6 +3968,10 @@ fn confirm_burning_pact_select(
                 state.piles.exhaust_pile.push(source_card);
                 apply_on_exhaust_effects_except_bot_queued_powers(state, source_id)?;
                 deferred_bot_on_exhaust.extend(feel_no_pain_block_follow_up(state));
+                if let Some(dead_branch) = dead_branch_follow_up(state) {
+                    deferred_bot_on_exhaust.push(dead_branch);
+                    dead_branch_count += 1;
+                }
                 deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
             }
             CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
@@ -3966,7 +3986,7 @@ fn confirm_burning_pact_select(
             process_internal_queue(state, deferred_bot_on_exhaust.into_iter().collect())?;
         *state = transition.state;
     }
-    Ok(())
+    Ok(dead_branch_count)
 }
 
 fn confirm_purity_select(

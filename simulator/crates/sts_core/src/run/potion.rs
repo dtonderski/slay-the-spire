@@ -5,7 +5,7 @@ use crate::{
         apply_monster_death_hooks, apply_play_top_draw_card_action, choose_discard_select,
         choose_draw_select, choose_exhaust_select, choose_hand_select,
         close_discovery_source_card_with_force_exhaust, confirm_discard_select,
-        confirm_draw_select, confirm_exhaust_select, confirm_hand_select,
+        confirm_draw_select, confirm_exhaust_select_with_dead_branch_count, confirm_hand_select,
         confirm_hand_select_skipped_put_on_deck_retrieval, discard_select_ui_to_discard_index,
         draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
         flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
@@ -436,9 +436,14 @@ pub fn apply_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<Ru
         let mut combat = next.combat.take().expect("validated combat");
         let before = combat.clone();
         let exhaust_before = combat.piles.exhaust_pile.len();
-        confirm_exhaust_select(&mut combat)?;
+        let handled_dead_branch_count =
+            confirm_exhaust_select_with_dead_branch_count(&mut combat, true)?;
         let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
-        apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+        apply_dead_branch_for_exhaust_count(
+            &mut next,
+            &mut combat,
+            exhaust_count.saturating_sub(handled_dead_branch_count),
+        )?;
         next.combat = Some(combat);
     }
     Ok(next)
@@ -450,9 +455,14 @@ pub fn apply_exhaust_select_confirm(run: &RunState) -> SimResult<RunState> {
     let mut combat = next.combat.take().expect("validated combat");
     let before = combat.clone();
     let exhaust_before = combat.piles.exhaust_pile.len();
-    confirm_exhaust_select(&mut combat)?;
+    let handled_dead_branch_count =
+        confirm_exhaust_select_with_dead_branch_count(&mut combat, true)?;
     let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
     // Burning Pact + Feel No Pain can queue Juggernaut damage that kills the
     // last monster during CONFIRM (15ab4cc step 1102). Unlike PlayCard, select
     // confirms do not go through apply_combat_action_on_run's Won → reward path.
@@ -1365,7 +1375,7 @@ mod tests {
     use super::*;
     use crate::{
         apply_combat_action_on_run, apply_run_action,
-        content::cards::{BURNING_PACT_ID, BURN_ID, DEFEND_R_ID, STRIKE_R_ID},
+        content::cards::{BASH_ID, BURNING_PACT_ID, BURN_ID, CLASH_ID, DEFEND_R_ID, STRIKE_R_ID},
         CombatAction,
     };
 
@@ -1420,6 +1430,56 @@ mod tests {
             "lethal Juggernaut from FNP block on exhaust select CONFIRM must open rewards"
         );
         assert!(after_confirm.reward.is_some());
+    }
+
+    #[test]
+    fn burning_pact_dead_branch_precedes_dark_embrace_draw() {
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        let initial_card_random_counter = run.card_random_rng_counter;
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.player.powers.dark_embrace = 1;
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), BASH_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        // CommunicationMod exposes the bottom-first draw-pile order. Burning
+        // Pact draws ids 6 and 5; Dark Embrace then draws id 4. Dead Branch's
+        // MakeTempCardInHand action must settle between those draw actions.
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+            CardInstance::new(CardId::new(6), CLASH_ID),
+        ];
+        combat.piles.discard_pile.clear();
+        combat.piles.exhaust_pile.clear();
+
+        let after_play = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact opens exhaust select");
+        let after_choose =
+            apply_run_action(&after_play, RunAction::ChooseExhaustSelect { index: 0 })
+                .expect("select Bash");
+        let after_confirm = apply_run_action(&after_choose, RunAction::ConfirmExhaustSelect)
+            .expect("confirm Burning Pact");
+        let combat = after_confirm.combat.expect("combat remains open");
+        let hand_ids: Vec<_> = combat.piles.hand.iter().map(|card| card.id).collect();
+        assert_eq!(
+            hand_ids[0..3],
+            [CardId::new(3), CardId::new(6), CardId::new(5)]
+        );
+        assert_eq!(hand_ids[4], CardId::new(4));
+        assert_eq!(hand_ids[3], CardId::new(7));
+        assert!(combat.piles.hand[3].combat_only);
+        assert_eq!(
+            after_confirm.card_random_rng_counter,
+            initial_card_random_counter + 1
+        );
     }
 
     #[derive(Debug, Clone, Copy)]
