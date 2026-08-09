@@ -120,6 +120,12 @@ pub struct CombatState {
     /// Letter Opener all-enemy hits still on the action queue (FIDL00428).
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub pending_letter_opener_blasts: u32,
+    /// Opening DrawCardAction parked behind a first-turn Toolbox choice.
+    #[serde(default, skip_serializing_if = "is_zero_usize")]
+    pub pending_opening_hand_draw: usize,
+    /// Anchor's opening GainBlockAction parked behind a first-turn Toolbox choice.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub pending_opening_combat_block: i32,
     /// Energy actions queued by start-of-turn relics behind an opening combat choice.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_start_of_turn_relic_energy: i32,
@@ -860,6 +866,16 @@ impl CombatState {
         }
     }
 
+    /// Park the opening draw behind a first-turn Toolbox choice.
+    pub(crate) fn defer_opening_hand_draw(&mut self) {
+        if self.pending_opening_hand_draw > 0 {
+            return;
+        }
+        let opening_hand = std::mem::take(&mut self.piles.hand);
+        self.pending_opening_hand_draw = opening_hand.len();
+        self.piles.draw_pile.extend(opening_hand.into_iter().rev());
+    }
+
     pub(crate) fn new_run_entry(
         player: PlayerState,
         monsters: Vec<MonsterState>,
@@ -956,6 +972,8 @@ impl CombatState {
             deferred_play_top_monster_blocks: Vec::new(),
             play_top_resolving_depth: 0,
             pending_letter_opener_blasts: 0,
+            pending_opening_hand_draw: 0,
+            pending_opening_combat_block: 0,
             pending_start_of_turn_relic_energy: 0,
             pending_monster_death_relic_triggers: 0,
             combat_gold_gained: 0,
@@ -1195,6 +1213,7 @@ impl CombatState {
         if self.duplication_potion_stacks < 0
             || self.double_tap_pending < 0
             || self.pending_player_spikes_damage < 0
+            || self.pending_opening_combat_block < 0
             || self.pending_start_of_turn_relic_energy < 0
             || self.combat_gold_gained < 0
         {

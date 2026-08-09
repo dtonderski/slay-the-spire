@@ -599,7 +599,9 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                 },
             );
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            crate::relic::settle_pending_opening_combat_actions(combat)?;
             crate::relic::settle_pending_start_of_turn_relic_actions(combat)?;
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
         }
         CombatDecisionState::NilrysCodexCardReward { choices } => {
             let choice = choices[index];
@@ -2353,6 +2355,32 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(combat.player.energy, 4);
         assert_eq!(combat.pending_start_of_turn_relic_energy, 0);
+    }
+
+    #[test]
+    fn toolbox_opening_queue_keeps_hand_and_anchor_block_pending_until_choice() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![crate::relic::Relic::Anchor, crate::relic::Relic::Toolbox];
+
+        let combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
+        assert!(combat.toolbox_card_reward_choices().is_some());
+        assert!(combat.piles.hand.is_empty());
+        assert_eq!(combat.piles.draw_pile.len(), 4);
+        assert_eq!(combat.player.block, 0);
+        assert_eq!(combat.pending_opening_hand_draw, 3);
+        assert_eq!(combat.pending_opening_combat_block, 10);
+
+        run.combat = Some(combat);
+        let next = apply_combat_card_reward_choice(&run, 0).expect("Toolbox card choice");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(combat.piles.hand.len(), 4);
+        assert_eq!(combat.player.block, 10);
+        assert_eq!(combat.pending_opening_hand_draw, 0);
+        assert_eq!(combat.pending_opening_combat_block, 0);
     }
 
     #[test]

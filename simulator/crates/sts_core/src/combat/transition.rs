@@ -3633,7 +3633,7 @@ pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {
 }
 
 pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
-    if state.piles.hand.is_empty() {
+    if state.piles.hand.is_empty() && state.pending_opening_hand_draw == 0 {
         return Ok(());
     }
     state.decision = Some(CombatDecisionState::ExhaustSelect {

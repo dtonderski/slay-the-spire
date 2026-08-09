@@ -2123,7 +2123,14 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::BirdFacedUrn => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
-                checked_add_relic_value(&mut combat.player.block, ANCHOR_BLOCK)?;
+                if combat.pending_opening_hand_draw > 0 {
+                    checked_add_relic_value(
+                        &mut combat.pending_opening_combat_block,
+                        ANCHOR_BLOCK,
+                    )?;
+                } else {
+                    checked_add_relic_value(&mut combat.player.block, ANCHOR_BLOCK)?;
+                }
             }
             Relic::InkBottle => {}
             Relic::OrnamentalFan => {}
@@ -2582,6 +2589,29 @@ pub fn settle_pending_start_of_turn_relic_actions(state: &mut CombatState) -> Si
         ))?;
     state.player.energy = energy;
     state.pending_start_of_turn_relic_energy = 0;
+    Ok(())
+}
+
+/// Drain the opening actions that were queued behind Toolbox's card choice.
+///
+/// The target queues the opening draw before Anchor's start-of-combat block.
+/// Clone first so a failed draw or checked block gain cannot consume the
+/// pending queue marker.
+pub fn settle_pending_opening_combat_actions(state: &mut CombatState) -> SimResult<()> {
+    if state.pending_opening_hand_draw == 0 && state.pending_opening_combat_block == 0 {
+        return Ok(());
+    }
+    let mut next = state.clone();
+    let draw_count = next.pending_opening_hand_draw;
+    if draw_count > 0 {
+        crate::combat::transition::player_draw_cards(&mut next, draw_count)?;
+    }
+    if next.pending_opening_combat_block > 0 {
+        checked_add_relic_value(&mut next.player.block, next.pending_opening_combat_block)?;
+    }
+    next.pending_opening_hand_draw = 0;
+    next.pending_opening_combat_block = 0;
+    *state = next;
     Ok(())
 }
 

@@ -2347,6 +2347,12 @@ impl RunState {
         combat.player.max_energy = self.energy_per_turn;
         combat.player.energy = self.energy_per_turn;
         combat.relics = self.relics.clone();
+        if self.relics.contains(&Relic::Toolbox) {
+            // AbstractRoom parks DrawCardAction behind Toolbox's opening
+            // ChooseOneColorless action. Keep the shuffled pile authoritative
+            // until that decision settles instead of exposing the hand early.
+            combat.defer_opening_hand_draw();
+        }
         combat.relic_counters.lizard_tail_available =
             self.relics.contains(&Relic::LizardTail) && !self.lizard_tail_used;
         combat.ascension = self.ascension;
