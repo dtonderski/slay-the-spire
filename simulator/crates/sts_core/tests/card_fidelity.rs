@@ -3145,6 +3145,37 @@ fn pummel_plus_definition_keeps_damage_and_exhausts() {
 }
 
 #[test]
+fn pummel_hand_drill_queues_vulnerable_after_all_hits() {
+    let target = MonsterId::new(1);
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.relics = vec![Relic::HandDrill];
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::PUMMEL_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, target)];
+    state.monsters[0].hp = 21;
+    state.monsters[0].max_hp = 21;
+    state.monsters[0].block = 6;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(target),
+        },
+    )
+    .expect("Pummel with Hand Drill should play");
+
+    // Pummel is four 2-damage hits. The first three consume 6 block; Hand
+    // Drill's queued Vulnerable must not amplify the fourth hit to 3.
+    assert_eq!(next.monsters[0].hp, 19);
+    assert_eq!(next.monsters[0].block, 0);
+    assert_eq!(next.monsters[0].powers.vulnerable, 2);
+    assert!(!next.monsters[0].vulnerable_just_applied);
+}
+
+#[test]
 fn carnage_plus_keeps_ethereal_when_upgraded() {
     assert_eq!(cards::CARNAGE.values.damage, Some(20));
     assert!(cards::CARNAGE.keywords.ethereal);

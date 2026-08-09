@@ -1,8 +1,8 @@
 use super::{
-    add_ritual_dagger_damage_bonus, apply_or_queue_spikes_to_player,
-    apply_player_vulnerable_debuff, checked_add_combat_value, checked_combat_sum,
-    deal_attack_damage_to_all_living, living_monster_mut, living_monster_mut_opt,
-    push_attack_block_follow_ups, queue_monster_death_hooks, random_living_monster_id,
+    add_ritual_dagger_damage_bonus, apply_or_queue_spikes_to_player, checked_add_combat_value,
+    checked_combat_sum, deal_attack_damage_to_all_living, living_monster_mut,
+    living_monster_mut_opt, push_attack_block_follow_ups, queue_monster_death_hooks,
+    random_living_monster_id,
 };
 use crate::{
     action::InternalAction,
@@ -86,12 +86,13 @@ pub(super) fn deal_damage(
         malleable_block,
     );
     if still_alive && hand_drill_applies {
-        follow_ups.extend(apply_player_vulnerable_debuff(
-            state,
-            info.target,
-            crate::relic::HAND_DRILL_VULNERABLE,
-            true,
-        )?);
+        // Hand Drill's ApplyPowerAction is addToBot from DamageAction. Queue it
+        // behind the remaining card hits so a multi-hit attack cannot consume
+        // the newly applied Vulnerable on a later hit.
+        follow_ups.push(InternalAction::ApplyVulnerable {
+            target: info.target,
+            amount: crate::relic::HAND_DRILL_VULNERABLE,
+        });
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
@@ -170,12 +171,10 @@ pub(super) fn deal_damage_random_enemy(
             malleable_block,
         );
         if still_alive && hand_drill_applies {
-            follow_ups.extend(apply_player_vulnerable_debuff(
-                state,
+            follow_ups.push(InternalAction::ApplyVulnerable {
                 target,
-                crate::relic::HAND_DRILL_VULNERABLE,
-                true,
-            )?);
+                amount: crate::relic::HAND_DRILL_VULNERABLE,
+            });
         }
         check_slime_boss_split(state, target);
         if !still_alive {
@@ -348,12 +347,10 @@ pub(super) fn deal_hand_of_greed_damage(
         malleable_block,
     );
     if still_alive && hand_drill_applies {
-        follow_ups.extend(apply_player_vulnerable_debuff(
-            state,
-            info.target,
-            crate::relic::HAND_DRILL_VULNERABLE,
-            true,
-        )?);
+        follow_ups.push(InternalAction::ApplyVulnerable {
+            target: info.target,
+            amount: crate::relic::HAND_DRILL_VULNERABLE,
+        });
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
@@ -420,12 +417,10 @@ pub(super) fn deal_damage_and_heal_unblocked(
     );
     crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
     if still_alive && hand_drill_applies {
-        follow_ups.extend(apply_player_vulnerable_debuff(
-            state,
-            info.target,
-            crate::relic::HAND_DRILL_VULNERABLE,
-            true,
-        )?);
+        follow_ups.push(InternalAction::ApplyVulnerable {
+            target: info.target,
+            amount: crate::relic::HAND_DRILL_VULNERABLE,
+        });
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
@@ -489,12 +484,10 @@ pub(super) fn deal_feed_damage(
         malleable_block,
     );
     if still_alive && hand_drill_applies {
-        follow_ups.extend(apply_player_vulnerable_debuff(
-            state,
-            info.target,
-            crate::relic::HAND_DRILL_VULNERABLE,
-            true,
-        )?);
+        follow_ups.push(InternalAction::ApplyVulnerable {
+            target: info.target,
+            amount: crate::relic::HAND_DRILL_VULNERABLE,
+        });
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
@@ -572,12 +565,10 @@ pub(super) fn deal_ritual_dagger_damage(
         malleable_block,
     );
     if still_alive && hand_drill_applies {
-        follow_ups.extend(apply_player_vulnerable_debuff(
-            state,
-            info.target,
-            crate::relic::HAND_DRILL_VULNERABLE,
-            true,
-        )?);
+        follow_ups.push(InternalAction::ApplyVulnerable {
+            target: info.target,
+            amount: crate::relic::HAND_DRILL_VULNERABLE,
+        });
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
