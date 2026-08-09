@@ -912,14 +912,16 @@ pub fn select_grid_card(run: &RunState, index: usize) -> SimResult<RunState> {
         } else {
             grid.selected_indices.push(index);
         }
-        // Empty Cage, Astrolabe, and multi-card Neow rewards resolve as soon
-        // as the required cards have been selected; none of these target grids
-        // exposes a separate confirmation click. Other multi-select grids
-        // retain their selections until the explicit GridConfirm action.
+        // Empty Cage, Astrolabe, multi-card Neow rewards, and multi-card event
+        // transforms resolve as soon as the required cards have been selected;
+        // none of these target grids exposes a separate confirmation click.
+        // Other multi-select grids retain their selections until the explicit
+        // GridConfirm action.
         if (matches!(
             grid.purpose,
             GridPurpose::EmptyCage { .. } | GridPurpose::Astrolabe | GridPurpose::NeowRemove { .. }
-        ) || matches!(grid.purpose, GridPurpose::NeowTransform { count } if count > 1))
+        ) || matches!(grid.purpose, GridPurpose::NeowTransform { count } if count > 1)
+            || matches!(grid.purpose, GridPurpose::EventTransformReturnToEvent { count, .. } if count > 1))
             && grid.selected_indices.len() >= required
         {
             return apply_validated_grid_confirmation(&next);

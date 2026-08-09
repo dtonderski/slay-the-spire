@@ -5626,9 +5626,8 @@ mod tests {
 
         let after_first = crate::run::grid::select_grid_card(&after_choice, 0)
             .expect("first transform source can be selected");
-        let after_second = crate::run::grid::select_grid_card(&after_first, 1)
-            .expect("second transform source can be selected");
-        let completed = crate::run::grid::confirm_grid(&after_second).expect("transform confirms");
+        let completed = crate::run::grid::select_grid_card(&after_first, 1)
+            .expect("second transform source auto-confirms the transform");
 
         assert!(completed.card_grid.is_none());
         assert_eq!(
