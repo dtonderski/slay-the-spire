@@ -944,6 +944,54 @@ mod tests {
     }
 
     #[test]
+    fn courier_restock_allocates_above_unsold_shop_card_ids() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.gold = 999;
+        run.relics.push(Relic::TheCourier);
+        run.shop = Some(generate_shop_screen(&mut run).expect("shop generates"));
+        run.shop_merchant_open = true;
+        run.shop.as_mut().expect("shop").cards[0].card.content_id =
+            crate::content::cards::DARK_SHACKLES_ID;
+        run.shop.as_mut().expect("shop").cards[0].price = 0;
+        let initial_shop_ids = run
+            .shop
+            .as_ref()
+            .expect("shop")
+            .cards
+            .iter()
+            .map(|offer| offer.card.id)
+            .collect::<Vec<_>>();
+        let initial_max = initial_shop_ids
+            .iter()
+            .map(|id| id.get())
+            .max()
+            .expect("shop has cards");
+
+        let next = apply_shop_action(&run, RunAction::BuyShopCard { slot: 0 })
+            .expect("Courier restock succeeds");
+        let replacement_id = next.shop.as_ref().expect("shop").cards[0].card.id;
+        assert!(replacement_id.get() > initial_max);
+        assert!(
+            next.deck
+                .iter()
+                .chain(
+                    next.shop
+                        .as_ref()
+                        .expect("shop")
+                        .cards
+                        .iter()
+                        .map(|offer| &offer.card)
+                )
+                .map(|card| card.id)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+                == next.deck.len() + next.shop.as_ref().expect("shop").cards.len()
+        );
+    }
+
+    #[test]
     fn courier_colored_restock_uses_card_rng_only_for_rarity() {
         let mut run = RunState::seeded_ironclad(7, 0);
         run.phase = RunPhase::Shop;

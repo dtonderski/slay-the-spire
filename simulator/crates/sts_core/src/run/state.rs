@@ -5,7 +5,7 @@ use crate::{
     content::cards::{
         card_instance_after_upgrades, card_instance_is_upgradeable, card_type_and_rarity,
         get_card_definition, is_basic_starter_card, is_curse_content_id, upgrade_card_instance,
-        validate_searing_blow_metadata,
+        validate_searing_blow_metadata, SEARING_BLOW_PLUS_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::reward_pool::ironclad_reward_card_rarity,
@@ -630,6 +630,24 @@ mod tests {
             .find(|card| card.content_id == crate::content::cards::RITUAL_DAGGER_ID)
             .expect("Ritual Dagger was added");
         assert_eq!(ritual_dagger.upgrades, 1);
+    }
+
+    #[test]
+    fn deferred_searing_blow_plus_obtain_preserves_upgrade_count() {
+        use crate::content::cards::SEARING_BLOW_PLUS_ID;
+
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.queue_pending_obtain_card(SEARING_BLOW_PLUS_ID);
+        run.flush_pending_obtain_cards()
+            .expect("deferred Searing Blow obtain settles");
+
+        let searing_blow = run
+            .deck
+            .iter()
+            .find(|card| card.content_id == SEARING_BLOW_PLUS_ID)
+            .expect("Searing Blow+ was added");
+        assert_eq!(searing_blow.searing_blow_upgrades, 1);
+        run.validate().expect("deferred Searing Blow remains valid");
     }
 
     #[test]
@@ -1618,6 +1636,18 @@ pub enum RunAction {
     EnterShop,
     LeaveShop,
     OpenShopRemove,
+}
+
+/// Reconstruct metadata that is intrinsic to a card content when a visual
+/// obtain queued only its content ID. Astrolabe transforms and then upgrades
+/// each generated card before `ShowCardAndObtainEffect` settles; Searing Blow+
+/// needs its first-upgrade count retained across that pending boundary.
+fn pending_obtain_card_instance(id: CardId, content_id: ContentId) -> CardInstance {
+    let mut card = CardInstance::new(id, content_id);
+    if content_id == SEARING_BLOW_PLUS_ID {
+        card.searing_blow_upgrades = 1;
+    }
+    card
 }
 
 impl RunState {
@@ -2954,10 +2984,20 @@ impl RunState {
     }
 
     pub(crate) fn reserve_card_instance_ids(&self, count: usize) -> SimResult<u64> {
+        // Merchant offers are card instances too. A Courier restock can add a
+        // purchased offer to the deck while other offers remain in the shop;
+        // allocation must stay above both sets or the next purchase can reuse an
+        // unsold offer's ID and fail strict uniqueness validation.
         let max_id = self
             .deck
             .iter()
             .map(|card| card.id.get())
+            .chain(
+                self.shop
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|shop| shop.cards.iter().map(|offer| offer.card.id.get())),
+            )
             .max()
             .unwrap_or(0);
         reserve_card_instance_id_range(max_id, count)
@@ -2976,7 +3016,7 @@ impl RunState {
             return Ok(());
         }
         let id = CardId::new(self.next_card_instance_id()?);
-        self.add_deck_card(CardInstance::new(id, content_id))
+        self.add_deck_card(pending_obtain_card_instance(id, content_id))
     }
 
     pub fn queue_pending_obtain_card(&mut self, content_id: ContentId) {
@@ -3028,7 +3068,10 @@ impl RunState {
         for (index, content_id) in pending.into_iter().enumerate() {
             if bypass_omamori.get(index).copied().unwrap_or(false) {
                 let id = CardId::new(next.next_card_instance_id()?);
-                next.add_deck_card_inner_with_omamori(CardInstance::new(id, content_id), false)?;
+                next.add_deck_card_inner_with_omamori(
+                    pending_obtain_card_instance(id, content_id),
+                    false,
+                )?;
             } else {
                 next.gain_deck_card(content_id)?;
             }
