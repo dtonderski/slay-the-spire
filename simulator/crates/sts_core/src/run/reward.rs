@@ -2480,16 +2480,6 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             if next.phase == RunPhase::Reward && next.card_grid.is_none() {
                 advance_pending_relic_offer(&mut next);
             }
-            let boss_calling_bell_rewards_complete = next.boss_chest_opened
-                && next.reward.as_ref().is_some_and(|reward| {
-                    reward.relic_offer.is_none()
-                        && reward.pending_relic_offer.is_none()
-                        && reward.queued_relic_offers.is_empty()
-                });
-            if boss_calling_bell_rewards_complete {
-                next.phase = RunPhase::Treasure;
-                next.reward = None;
-            }
         }
         RunAction::TakeRelicRewardAt { index } => {
             let map_chest_relic_before_gold = next.reward.as_ref().is_some_and(|reward| {
@@ -2560,6 +2550,19 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
         RunAction::Proceed => {
             if next.current_act == 3 && next.current_room_kind() == Some(RoomKind::Boss) {
                 enter_spire_heart_event(&mut next)?;
+                return Ok(next);
+            }
+            // A relic hook (for example Calling Bell) may append rewards to an
+            // already-open boss chest's CombatRewardScreen. The target keeps
+            // that now-empty overlay visible until PROCEED, then closes the
+            // resolved chest and advances to the next-act map in one transition.
+            let completed_boss_chest_reward = next.current_room_kind() == Some(RoomKind::Boss)
+                && next.boss_chest_opened
+                && next.reward.as_ref().is_some_and(|reward| {
+                    reward.continuation == RewardContinuation::Treasure && reward_is_empty(reward)
+                });
+            if completed_boss_chest_reward {
+                enter_next_act_map(&mut next)?;
                 return Ok(next);
             }
             // Act 1/2 boss combat-reward PROCEED advances into the boss chest room,
@@ -2980,7 +2983,7 @@ mod tests {
     }
 
     #[test]
-    fn boss_calling_bell_relics_return_to_treasure_proceed() {
+    fn boss_calling_bell_relics_keep_empty_reward_until_proceed() {
         let mut run = RunState::seeded_ironclad(7, 0);
         run.current_room_override = Some(RoomKind::Boss);
         run.event = None;
@@ -2992,8 +2995,19 @@ mod tests {
                 .expect("Calling Bell relic can be collected");
         }
 
-        assert_eq!(run.phase, RunPhase::Treasure);
-        assert!(run.reward.is_none());
+        let reward = run.reward.as_ref().expect("empty boss reward overlay");
+        assert_eq!(run.phase, RunPhase::Reward);
+        assert_eq!(reward.continuation, RewardContinuation::Treasure);
+        assert!(reward_is_empty(reward));
+        assert!(run.boss_chest_opened);
+
+        let next = apply_run_action(&run, RunAction::Proceed)
+            .expect("completed boss reward advances to the next-act map");
+        assert_eq!(next.phase, RunPhase::Idle);
+        assert_eq!(next.current_act, 2);
+        assert_eq!(next.current_floor, run.current_floor);
+        assert!(next.reward.is_none());
+        assert!(!next.boss_chest_opened);
     }
 
     #[test]
