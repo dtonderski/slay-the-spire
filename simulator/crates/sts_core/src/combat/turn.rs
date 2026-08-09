@@ -50,15 +50,15 @@ use crate::{
         target_spire_growth_next_intent_from_roll, target_taskmaster_wound_count,
         target_writhing_mass_next_intent_from_roll, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
         ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
-        CENTURION_ID, CHAMP_ID, CHOSEN_ID, DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID,
-        GIANT_HEAD_ID, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GREMLIN_NOB_ID,
-        GREMLIN_THIEF_ID, GREMLIN_TSUNDERE_ID, GREMLIN_WARRIOR_ID, GREMLIN_WIZARD_ID, HEALER_ID,
-        HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID, LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID,
-        NEMESIS_ID, ORB_WALKER_ID, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
-        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID, SNAKE_PLANT_ID,
-        SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIKE_SLIME_L_SPIT_DAMAGE,
-        SPIKE_SLIME_S_A7_HP_RANGE, SPIRE_GROWTH_ID, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID,
-        WRITHING_MASS_ID,
+        CENTURION_ID, CHAMP_ID, CHOSEN_ID, DAGGER_EXPLODE_DAMAGE, DAGGER_ID, DARKLING_ID, DECA_ID,
+        EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
+        GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_THIEF_ID, GREMLIN_TSUNDERE_ID,
+        GREMLIN_WARRIOR_ID, GREMLIN_WIZARD_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID,
+        LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID, NEMESIS_ID, ORB_WALKER_ID, RED_LOUSE_ID,
+        REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID,
+        SLIME_BOSS_ID, SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID,
+        SPIKE_SLIME_L_SPIT_DAMAGE, SPIKE_SLIME_S_A7_HP_RANGE, SPIRE_GROWTH_ID, THE_COLLECTOR_ID,
+        TORCH_HEAD_ID, TRANSIENT_ID, WRITHING_MASS_ID,
     },
     ids::MonsterId,
     relic::HpLossDrawPolicy,
@@ -2248,6 +2248,18 @@ fn prepare_direct_next_intent(
     ascension: u8,
     living_monster_count: usize,
 ) -> SimResult<bool> {
+    if monster.content_id == DAGGER_ID {
+        // SnakeDagger.rollMove always consumes the AI draw, but its getMove
+        // ignores that roll after the initial move and reasserts move 2
+        // (EXPLODE). This remains true when the suicide move killed the
+        // dagger while another monster keeps the action queue alive.
+        let _ = monster_rng.random_int(99);
+        monster.intent = crate::MonsterIntent::Attack {
+            damage: DAGGER_EXPLODE_DAMAGE,
+        };
+        record_target_move(monster);
+        return Ok(true);
+    }
     if monster.content_id == ACID_SLIME_ID
         && monster.hp <= ACID_SLIME_S_A7_HP_RANGE.max
         && !acid_slime_uses_medium_move_table(monster)
@@ -2509,9 +2521,9 @@ mod tests {
         target_looter_direct_next_intent_after_turn, target_nemesis_next_intent_from_roll,
         target_spheric_guardian_next_intent_from_roll, target_spire_growth_next_intent_from_roll,
         transient_attack_damage, ACID_SLIME_A0, BOOK_OF_STABBING_A0, BRONZE_AUTOMATON_A0,
-        BRONZE_ORB_A0, BYRD_A0, CENTURION_A0, DAGGER_A0, DAGGER_ID, DARKLING_A0, EXPLODER_A0,
-        FUNGI_BEAST_A0, GIANT_HEAD_A0, GIANT_HEAD_ID, GREMLIN_NOB_A0, GREMLIN_THIEF_A0,
-        GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0, GREMLIN_WIZARD_A0, GUARDIAN_A0,
+        BRONZE_ORB_A0, BYRD_A0, CENTURION_A0, DAGGER_A0, DAGGER_EXPLODE_DAMAGE, DAGGER_ID,
+        DARKLING_A0, EXPLODER_A0, FUNGI_BEAST_A0, GIANT_HEAD_A0, GIANT_HEAD_ID, GREMLIN_NOB_A0,
+        GREMLIN_THIEF_A0, GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0, GREMLIN_WIZARD_A0, GUARDIAN_A0,
         GUARDIAN_DEFENSIVE_BLOCK, HEALER_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0,
         LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
         SHELLED_PARASITE_A0, SHELLED_PARASITE_ID, SLIME_BOSS_A0, SPHERIC_GUARDIAN_A0,
@@ -5781,5 +5793,34 @@ mod tests {
         assert_eq!(state.monsters[0].powers.explosive, 0);
         assert_eq!(state.monsters[0].move_history, vec![1, 1, 2]);
         assert_eq!(state.rng.monster_rng.counter(), 0);
+    }
+
+    #[test]
+    fn dagger_suicide_roll_keeps_explode_intent_when_other_monster_lives() {
+        let actor_id = MonsterId::new(1);
+        let other_id = MonsterId::new(2);
+        let mut state = CombatState::initial_fixture();
+        let mut dagger = monster_state_for_ascension(&DAGGER_A0, actor_id, 0);
+        dagger.alive = false;
+        dagger.hp = 0;
+        dagger.intent = MonsterIntent::Attack {
+            damage: DAGGER_EXPLODE_DAMAGE,
+        };
+        dagger.moves_executed = 2;
+        dagger.move_history = vec![1, 2, 1];
+        let other = monster_state_for_ascension(&DAGGER_A0, other_id, 0);
+        state.monsters = vec![dagger, other];
+        state.rng.monster_rng = StsRng::new(13);
+
+        prepare_next_intent_for_actor(&mut state, actor_id).expect("Dagger roll is supported");
+
+        assert_eq!(
+            state.monsters[0].intent,
+            MonsterIntent::Attack {
+                damage: DAGGER_EXPLODE_DAMAGE
+            }
+        );
+        assert_eq!(state.monsters[0].move_history, vec![1, 2, 1, 2]);
+        assert_eq!(state.rng.monster_rng.counter(), 1);
     }
 }
