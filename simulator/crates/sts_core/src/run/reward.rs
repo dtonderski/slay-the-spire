@@ -25,8 +25,8 @@ use crate::{
     map::{generate_target_fixed_map, RoomKind, TargetMapAct},
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
     relic::{
-        Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, QUESTION_CARD_REWARD_BONUS,
-        SINGING_BOWL_MAX_HP,
+        Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, CAULDRON_POTIONS,
+        QUESTION_CARD_REWARD_BONUS, SINGING_BOWL_MAX_HP,
     },
     rng::StsRng,
     run::event::{colosseum_choices, enter_spire_heart_event, event_screen_for_run, Event},
@@ -179,6 +179,61 @@ pub(crate) fn enter_orrery_reward_screen(run: &mut RunState) {
         boss_relic_choices: Vec::new(),
         card_reward_flow: crate::run::CardRewardFlow::None,
     });
+}
+
+/// Add the five potion rewards constructed by target `Cauldron.onEquip`.
+///
+/// The rewards belong to the current room rather than to the potion belt. If
+/// no reward overlay is open yet (the shop-purchase path), opening them closes
+/// the merchant and retains the shop for the overlay's typed continuation.
+pub(crate) fn enter_cauldron_potion_reward_screen(run: &mut RunState) -> SimResult<()> {
+    let mut potion_rng = run.rng_for_stream(RunRngStream::Potion);
+    let mut potion_offers = Vec::with_capacity(CAULDRON_POTIONS);
+    for _ in 0..CAULDRON_POTIONS {
+        potion_offers.push(target_uniform_random_potion(&mut potion_rng));
+    }
+    run.store_rng_counter(RunRngStream::Potion, &potion_rng);
+
+    if let Some(reward) = run.reward.as_mut() {
+        // Preserve the existing potion RewardItem's position when Cauldron is
+        // picked up from an already-open reward screen.
+        if let Some(potion) = reward.potion_offer.take() {
+            let mut offers =
+                Vec::with_capacity(1 + reward.potion_offers.len() + potion_offers.len());
+            offers.push(potion);
+            offers.append(&mut reward.potion_offers);
+            offers.extend(potion_offers);
+            reward.potion_offers = offers;
+        } else {
+            reward.potion_offers.extend(potion_offers);
+        }
+        return Ok(());
+    }
+
+    let continuation = match run.phase {
+        RunPhase::Shop if run.shop.is_some() => RewardContinuation::Shop,
+        RunPhase::Event if run.event.is_some() => RewardContinuation::Event,
+        _ => RewardContinuation::None,
+    };
+    if continuation == RewardContinuation::Shop {
+        run.shop_merchant_open = false;
+    }
+    run.phase = RunPhase::Reward;
+    run.reward = Some(RewardScreen {
+        continuation,
+        choices: Vec::new(),
+        queued_card_rewards: Vec::new(),
+        gold_offer: 0,
+        stolen_gold_offer: 0,
+        potion_offer: None,
+        potion_offers,
+        relic_offer: None,
+        pending_relic_offer: None,
+        queued_relic_offers: Vec::new(),
+        boss_relic_choices: Vec::new(),
+        card_reward_flow: crate::run::CardRewardFlow::None,
+    });
+    Ok(())
 }
 
 /// Target Orrery constructs all five CardRewardItems immediately on pickup,

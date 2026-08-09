@@ -1056,6 +1056,55 @@ mod tests {
     }
 
     #[test]
+    fn buying_cauldron_opens_five_potion_rewards_then_returns_to_shop() {
+        let mut run = RunState::seeded_ironclad(3_840_209_149_409_335_969, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.gold = 999;
+        let shop = generate_shop_screen(&mut run).expect("shop fixture allocation is valid");
+        run.shop = Some(shop);
+        run.shop_merchant_open = true;
+        run.shop.as_mut().unwrap().relics[0].relic_key = RelicKey::Cauldron;
+        run.shop.as_mut().unwrap().relics[0].price = 0;
+        let potion_count_before = run.potions.len();
+        let mut expected_potion_rng = run.rng_for_stream(crate::run::state::RunRngStream::Potion);
+        let expected_potions = (0..crate::relic::CAULDRON_POTIONS)
+            .map(|_| target_uniform_random_potion(&mut expected_potion_rng))
+            .collect::<Vec<_>>();
+
+        let mut next = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
+            .expect("Cauldron purchase succeeds");
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert_eq!(next.potions.len(), potion_count_before);
+        assert_eq!(next.potion_rng_counter, expected_potion_rng.counter());
+        assert_eq!(
+            next.reward
+                .as_ref()
+                .expect("Cauldron reward screen")
+                .continuation,
+            crate::run::RewardContinuation::Shop
+        );
+        assert_eq!(
+            next.reward
+                .as_ref()
+                .expect("Cauldron reward screen")
+                .potion_offers,
+            expected_potions
+        );
+        assert!(!next.shop_merchant_open);
+
+        next = crate::run::reward::apply_run_action(&next, RunAction::SkipReward)
+            .expect("skipping Cauldron rewards returns to shop room");
+        assert_eq!(next.phase, RunPhase::Shop);
+        assert!(next.reward.is_none());
+        assert!(!next.shop_merchant_open);
+
+        next = apply_shop_action(&next, RunAction::Proceed).expect("shop room closes");
+        assert_eq!(next.phase, RunPhase::Idle);
+        assert!(next.shop.is_none());
+    }
+
+    #[test]
     fn buying_orrery_opens_five_card_rewards_then_returns_to_shop() {
         let mut run = RunState::seeded_ironclad(3_840_209_149_409_335_969, 0);
         run.phase = RunPhase::Shop;

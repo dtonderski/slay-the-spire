@@ -21,18 +21,17 @@ use crate::{
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
         RelicPoolState, RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BLOODY_IDOL_HEAL,
-        BUSTED_CROWN_ENERGY, CAULDRON_POTIONS, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY,
-        DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY,
-        ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, FUSION_HAMMER_ENERGY, GIRYA_MAX_LIFTS,
-        HAPPY_FLOWER_THRESHOLD, INCENSE_BURNER_THRESHOLD, INK_BOTTLE_THRESHOLD, LEES_WAFFLE_MAX_HP,
-        MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MATRYOSHKA_MAX_CHESTS, MAW_BANK_GOLD,
-        NUNCHAKU_THRESHOLD, OLD_COIN_GOLD, OMAMORI_CHARGES, ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL,
-        PEAR_MAX_HP, PEN_NIB_THRESHOLD, PHILOSOPHERS_STONE_ENERGY,
-        PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
-        PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
-        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, SSSERPENT_HEAD_GOLD, STRAWBERRY_MAX_HP,
-        TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
-        WING_BOOTS_CHARGES,
+        BUSTED_CROWN_ENERGY, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
+        DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY, ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS,
+        FUSION_HAMMER_ENERGY, GIRYA_MAX_LIFTS, HAPPY_FLOWER_THRESHOLD, INCENSE_BURNER_THRESHOLD,
+        INK_BOTTLE_THRESHOLD, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY,
+        MATRYOSHKA_MAX_CHESTS, MAW_BANK_GOLD, NUNCHAKU_THRESHOLD, OLD_COIN_GOLD, OMAMORI_CHARGES,
+        ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP, PEN_NIB_THRESHOLD,
+        PHILOSOPHERS_STONE_ENERGY, PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS,
+        PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY,
+        SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, SSSERPENT_HEAD_GOLD,
+        STRAWBERRY_MAX_HP, TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP,
+        VELVET_CHOKER_ENERGY, WING_BOOTS_CHARGES,
     },
     rng::{rng_counter_is_supported, ExternalRngInput, JavaRng, RngTraceStream, StsRng},
     SimError, SimResult,
@@ -3531,7 +3530,7 @@ impl RunState {
                 super::grid::open_dollys_mirror_grid(self);
             }
             Relic::Cauldron => {
-                self.fill_potions_from_cauldron();
+                super::reward::enter_cauldron_potion_reward_screen(self)?;
             }
             Relic::TinyHouse => {
                 self.player_max_hp = checked_run_add(self.player_max_hp, TINY_HOUSE_MAX_HP)?;
@@ -3734,26 +3733,6 @@ impl RunState {
             }
         }
         replaced_relic
-    }
-
-    fn fill_potions_from_cauldron(&mut self) {
-        if !self.can_gain_potions() {
-            return;
-        }
-
-        let open_slots = self.open_potion_slots();
-        let rolls = CAULDRON_POTIONS.min(open_slots);
-        if rolls == 0 {
-            return;
-        }
-
-        let mut potion_rng =
-            StsRng::with_counter(self.potion_rng_seed as i64, self.potion_rng_counter);
-        for _ in 0..rolls {
-            self.gain_potion(super::reward::target_random_potion(&mut potion_rng))
-                .expect("open potion slot validated");
-        }
-        self.potion_rng_counter = potion_rng.counter();
     }
 
     fn upgrade_random_deck_cards(&mut self, card_type: CardType, amount: usize) -> SimResult<()> {
