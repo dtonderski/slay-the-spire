@@ -1066,7 +1066,7 @@ fn apply_validated_grid_confirmation(run: &RunState) -> SimResult<RunState> {
             // Calling Bell opens CombatRewardScreen while still in NeowRoom.
             // setupItemReward constructs the room's ordinary card reward first;
             // CallingBell.update then clears it and replaces it with three relics.
-            super::reward::consume_hidden_neow_room_card_reward(&mut next)?;
+            super::reward::consume_hidden_room_card_reward(&mut next)?;
             super::reward::enter_calling_bell_reward_screen(&mut next);
         }
         GridPurpose::PandorasBox => {

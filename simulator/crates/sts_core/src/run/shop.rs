@@ -1067,6 +1067,8 @@ mod tests {
         run.shop.as_mut().unwrap().relics[0].relic_key = RelicKey::Cauldron;
         run.shop.as_mut().unwrap().relics[0].price = 0;
         let potion_count_before = run.potions.len();
+        assert_eq!(run.card_rng_counter, 12);
+        assert_eq!(run.card_rarity_factor, 5);
         let mut expected_potion_rng = run.rng_for_stream(crate::run::state::RunRngStream::Potion);
         let expected_potions = (0..crate::relic::CAULDRON_POTIONS)
             .map(|_| target_uniform_random_potion(&mut expected_potion_rng))
@@ -1075,6 +1077,8 @@ mod tests {
         let mut next = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
             .expect("Cauldron purchase succeeds");
         assert_eq!(next.phase, RunPhase::Reward);
+        assert_eq!(next.card_rng_counter, 21);
+        assert_eq!(next.card_rarity_factor, 3);
         assert_eq!(next.potions.len(), potion_count_before);
         assert_eq!(next.potion_rng_counter, expected_potion_rng.counter());
         assert_eq!(

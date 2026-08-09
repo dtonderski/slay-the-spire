@@ -194,6 +194,13 @@ pub(crate) fn enter_cauldron_potion_reward_screen(run: &mut RunState) -> SimResu
     }
     run.store_rng_counter(RunRngStream::Potion, &potion_rng);
 
+    // `Cauldron.onEquip` opens CombatRewardScreen while still in ShopRoom.
+    // setupItemReward constructs and then Cauldron removes the room's first
+    // card RewardItem, so this transient card reward still consumes card RNG.
+    if run.phase == RunPhase::Shop && run.reward.is_none() {
+        consume_hidden_room_card_reward(run)?;
+    }
+
     if let Some(reward) = run.reward.as_mut() {
         // Preserve the existing potion RewardItem's position when Cauldron is
         // picked up from an already-open reward screen.
@@ -1230,24 +1237,34 @@ pub fn advance_card_rng_for_combat_entry(run: &mut RunState) {
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
 }
 
-/// Consumes the card reward generated and immediately removed by Neow's
-/// three-potion reward.
+/// Consume a card RewardItem that target `CombatRewardScreen.setupItemReward`
+/// constructs and a relic/event immediately removes before the player can see it.
 ///
-/// Target `NeowReward.activate` opens `CombatRewardScreen` after adding the
-/// potions. `setupItemReward` constructs a normal card `RewardItem`, including
-/// rarity, duplicate-reroll, and upgrade RNG draws, before Neow removes it from
-/// the visible rewards.
-pub(crate) fn consume_hidden_neow_room_card_reward(run: &mut RunState) -> SimResult<()> {
+/// The target still rolls rarity, duplicate rerolls, and upgrade chances for
+/// this transient reward. Its rarity distribution follows the room that opened
+/// the reward screen, just like an ordinary `RewardItem`.
+pub(crate) fn consume_hidden_room_card_reward(run: &mut RunState) -> SimResult<()> {
     let choice_count = reward_card_choice_count(run);
     let next_card_id = run.reserve_card_instance_ids(choice_count)?;
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
+    let pool_kind = if run.relics.contains(&Relic::PrismaticShard) {
+        RewardCardPoolKind::AnyColor
+    } else {
+        RewardCardPoolKind::Ironclad
+    };
+    let rarity_chances = match run.current_room_kind() {
+        Some(crate::map::RoomKind::Elite) => ELITE_REWARD_RARITY_CHANCES,
+        Some(crate::map::RoomKind::Shop) => SHOP_REWARD_RARITY_CHANCES,
+        _ => NORMAL_REWARD_RARITY_CHANCES,
+    };
+    let rarity_chances = reward_rarity_chances_for_run(run, rarity_chances);
     let mut choices = target_card_reward_choices_with_count_and_pool(
         &mut card_rng,
         &mut run.card_rarity_factor,
         next_card_id,
         choice_count,
-        RewardCardPoolKind::Ironclad,
-        NORMAL_REWARD_RARITY_CHANCES,
+        pool_kind,
+        rarity_chances,
         None,
         true,
     );
@@ -1257,7 +1274,7 @@ pub(crate) fn consume_hidden_neow_room_card_reward(run: &mut RunState) -> SimRes
 }
 
 pub fn consume_neow_three_potions_hidden_card_reward(run: &mut RunState) -> SimResult<()> {
-    consume_hidden_neow_room_card_reward(run)
+    consume_hidden_room_card_reward(run)
 }
 
 pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) -> SimResult<()> {
