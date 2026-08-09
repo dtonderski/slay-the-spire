@@ -28,9 +28,8 @@ use crate::{
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape,
         apply_reptomancer_death_escape, awakened_one_is_half_dead, check_slime_boss_split,
-        enter_guardian_defensive_mode, get_monster_definition, guardian_accumulate_hp_damage,
-        release_stasis_card_on_death, wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID,
-        GUARDIAN_ID,
+        get_monster_definition, guardian_accumulate_hp_damage, release_stasis_card_on_death,
+        wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID, GUARDIAN_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -364,18 +363,9 @@ pub(crate) fn process_internal_queue(
         }
     }
 
-    // Target queues Guardian's Mode Shift action behind the complete card
-    // effect queue. This matters for copied multi-hit attacks: every hit lands
-    // before Guardian receives its defensive block.
-    for monster in &mut next.monsters {
-        if monster.content_id == GUARDIAN_ID
-            && !monster.in_defensive_mode
-            && monster.mode_shift <= 0
-            && monster.alive
-        {
-            enter_guardian_defensive_mode(monster);
-        }
-    }
+    // Resolve any damage-triggered monster reactions that remain at the end
+    // of the card action. Copied-card boundaries settle the same hook earlier.
+    crate::content::monsters::resolve_deferred_monster_reactions(&mut next.monsters);
 
     if next.time_warp_end_turn
         && !next.defer_time_warp_end_turn
@@ -666,6 +656,10 @@ fn apply_internal_action(
         InternalAction::PlayCardCopy { card_id } => card_actions::play_card_copy(state, card_id),
         InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
         | InternalAction::SkipCopiedCardEffectsIfCombatDone => Ok(Vec::new()),
+        InternalAction::ResolvePendingMonsterReactions => {
+            crate::content::monsters::resolve_deferred_monster_reactions(&mut state.monsters);
+            Ok(Vec::new())
+        }
         InternalAction::EndCopiedCardEffects => {
             state.pen_nib_double_active = false;
             Ok(Vec::new())

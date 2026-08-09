@@ -9371,7 +9371,20 @@ pub fn guardian_accumulate_hp_damage(monster: &mut MonsterState, hp_damage: i32)
     monster.mode_shift -= hp_damage;
 }
 
-/// Resolves Mode Shift entry after monster pre-turn block clear.
+/// Resolves monster damage reactions that are queued at the next
+/// action-manager boundary.
+///
+/// A copied card starts a new target action boundary, so reactions raised by
+/// the original card must settle before copied effects begin. The same hook is
+/// also used after monster pre-turn block clearing for end-of-turn damage.
+/// Guardian's Mode Shift is the first modeled reaction with this queue shape;
+/// keeping the boundary at the monster-reaction layer lets later source-backed
+/// reactions join without changing copied-card ordering.
+pub fn resolve_deferred_monster_reactions(monsters: &mut [MonsterState]) {
+    resolve_guardian_mode_shift_reaction(monsters);
+}
+
+/// Resolves Guardian Mode Shift after the target action-manager boundary.
 ///
 /// Target `TheGuardian.damage` queues `ChangeStateAction("Defensive Mode")`,
 /// which itself queues `GainBlockAction(DEFENSIVE_BLOCK)`. When that damage is
@@ -9380,6 +9393,10 @@ pub fn guardian_accumulate_hp_damage(monster: &mut MonsterState, hp_damage: i32)
 /// defensive block here after [`crate::combat::turn`]'s pre-monster clear
 /// reproduces that ordering.
 pub fn resolve_deferred_guardian_mode_shifts(monsters: &mut [MonsterState]) {
+    resolve_guardian_mode_shift_reaction(monsters);
+}
+
+fn resolve_guardian_mode_shift_reaction(monsters: &mut [MonsterState]) {
     for monster in monsters {
         if monster.content_id != GUARDIAN_ID
             || !monster.alive

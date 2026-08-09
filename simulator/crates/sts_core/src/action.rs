@@ -40,6 +40,8 @@ pub enum InternalAction {
         target: MonsterId,
     },
     SkipCopiedCardEffectsIfCombatDone,
+    /// Resolve monster reactions queued by the original card before a copied card starts.
+    ResolvePendingMonsterReactions,
     EndCopiedCardEffects,
     SpendEnergy {
         amount: i32,

@@ -922,6 +922,9 @@ fn append_copied_card_effects(
         queue.push_back(InternalAction::SkipCopiedCardEffectsIfTargetDead { target });
     }
     queue.push_back(InternalAction::SkipCopiedCardEffectsIfCombatDone);
+    // A copied card is a new action-manager boundary. Resolve reactions queued
+    // by the original card before the copy's effects begin.
+    queue.push_back(InternalAction::ResolvePendingMonsterReactions);
     queue.push_back(InternalAction::PlayCardCopy { card_id });
     queue.append(duplicated_effects);
     queue.push_back(InternalAction::EndCopiedCardEffects);

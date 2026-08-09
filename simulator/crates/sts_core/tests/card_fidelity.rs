@@ -15,7 +15,9 @@ use sts_core::{
     },
     content::{
         cards,
-        monsters::{monster_state, DARKLING_A0, FIXED_SIMPLE_MONSTER, GUARDIAN_A0},
+        monsters::{
+            monster_state, DARKLING_A0, FIXED_SIMPLE_MONSTER, GUARDIAN_A0, GUARDIAN_DEFENSIVE_BLOCK,
+        },
         shop_pool::colorless_discovery_pool,
     },
     legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
@@ -2320,6 +2322,33 @@ fn pen_nib_doubles_body_slam_including_strength() {
 
     assert_eq!(next.monsters[0].hp, 121);
     assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
+}
+
+#[test]
+fn guardian_mode_shift_reaction_resolves_before_double_tap_copy() {
+    let target = MonsterId::new(1);
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.double_tap_pending = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::STRIKE_R_ID)];
+    state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+    state.monsters[0].hp = 40;
+    state.monsters[0].mode_shift = 1;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(target),
+        },
+    )
+    .expect("Double Tap Strike should play");
+
+    // The original Strike crosses Mode Shift; the copied Strike then hits the
+    // defensive block queued at the copied-card action boundary.
+    assert_eq!(next.monsters[0].hp, 34);
+    assert_eq!(next.monsters[0].block, GUARDIAN_DEFENSIVE_BLOCK - 6);
+    assert!(next.monsters[0].in_defensive_mode);
 }
 
 #[test]
