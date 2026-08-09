@@ -590,8 +590,11 @@ pub(super) fn apply_special_event_action(
                 });
             }
             1 if choice_index == 3 => {
-                // Do not flush pending Success cards here: CM's stage-2 Leave
-                // frame can still show the pre-obtain deck (FIDL00445).
+                // Leaving settles the prior Success ShowCardAndObtainEffect before
+                // publishing the stage-2 Leave screen. The effect is pending on
+                // the multi-choice frame, but the Leave transition owns its
+                // completion (FIDL01406).
+                next.flush_pending_obtain_cards()?;
                 let costs = knowing_skull_costs(screen.event_data);
                 lose_event_hp(next, costs.leave);
                 next.event = Some(EventScreen {
