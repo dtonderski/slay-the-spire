@@ -4,8 +4,9 @@ use crate::{
     combat::transition::{
         apply_monster_death_hooks, apply_play_top_draw_card_action, choose_discard_select,
         choose_draw_select, choose_exhaust_select, choose_hand_select,
-        close_discovery_source_card_with_force_exhaust, confirm_discard_select,
-        confirm_draw_select, confirm_exhaust_select_with_dead_branch_count, confirm_hand_select,
+        close_discovery_source_card_with_force_exhaust,
+        confirm_burning_pact_select_skipped_retrieval, confirm_discard_select, confirm_draw_select,
+        confirm_exhaust_select_with_dead_branch_count, confirm_hand_select,
         confirm_hand_select_skipped_put_on_deck_retrieval, discard_select_ui_to_discard_index,
         draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
         flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
@@ -349,6 +350,27 @@ pub fn apply_hand_select_confirm_skipped_put_on_deck_retrieval(
         "skipped put-on-deck limbo card missing after Dead Branch settlement",
     ))?;
     next.combat = Some(combat);
+    Ok((next, selected))
+}
+
+/// Confirm an ordinary Burning Pact exhaust select whose selected-card
+/// retrieval was skipped by the target game's selection-screen update.
+///
+/// The returned card is deliberately kept outside every combat pile. The
+/// verifier places it in `pending_hidden_hand_card_until_end_turn` only after
+/// the observed post-CONFIRM frame matches this candidate exactly.
+pub fn apply_exhaust_select_confirm_skipped_burning_pact_retrieval(
+    run: &RunState,
+) -> SimResult<(RunState, CardInstance)> {
+    validate_exhaust_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let before = combat.clone();
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    let selected = confirm_burning_pact_select_skipped_retrieval(&mut combat)?;
+    let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    let next = settle_run_after_select_confirm(next, combat)?;
     Ok((next, selected))
 }
 

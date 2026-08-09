@@ -194,6 +194,90 @@ fn skipped_put_on_deck_candidate(
     Ok(Some(candidate))
 }
 
+fn skipped_burning_pact_candidate(
+    run: &RunState,
+    decision: RunDecisionAction,
+) -> Result<Option<RunState>, String> {
+    if !matches!(
+        decision,
+        RunDecisionAction::Run(RunAction::ConfirmExhaustSelect)
+    ) {
+        return Ok(None);
+    }
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(None);
+    };
+    let Some(exhaust_select) = combat.exhaust_select() else {
+        return Ok(None);
+    };
+    if !matches!(
+        exhaust_select.purpose,
+        ExhaustSelectPurpose::BurningPactDraw2 | ExhaustSelectPurpose::BurningPactDraw3
+    ) {
+        return Ok(None);
+    }
+    if exhaust_select.source_card.is_none() || exhaust_select.selected_hand_indices.len() != 1 {
+        return Ok(None);
+    }
+    // Runic Pyramid keeps the retained hand cards out of the next shuffle;
+    // leave this selected card fully untracked for that source-backed window.
+    let retained_by_runic_pyramid = combat.relics.contains(&Relic::RunicPyramid);
+
+    let (mut candidate, selected) =
+        sts_core::run::apply_exhaust_select_confirm_skipped_burning_pact_retrieval(run)
+            .map_err(|error| error.to_string())?;
+    let combat = candidate
+        .combat
+        .as_mut()
+        .ok_or_else(|| "skipped Burning Pact candidate lost combat state".to_owned())?;
+    if !combat.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Err("skipped Burning Pact candidate already has a pending hidden card".to_owned());
+    }
+    if !retained_by_runic_pyramid {
+        combat
+            .pending_hidden_hand_card_until_end_turn
+            .push(selected);
+    }
+    candidate.validate().map_err(|error| error.to_string())?;
+    Ok(Some(candidate))
+}
+
+fn skipped_burning_pact_selected_card_is_absent_from_observed_exhaust(
+    source: &RunState,
+    post: &TraceState,
+) -> bool {
+    let Some(source_combat) = source.combat.as_ref() else {
+        return false;
+    };
+    let Some(exhaust_select) = source_combat.exhaust_select() else {
+        return false;
+    };
+    let Some(selected_index) = exhaust_select.selected_hand_indices.first().copied() else {
+        return false;
+    };
+    let Some(selected_card) = source_combat.piles.hand.get(selected_index) else {
+        return false;
+    };
+    let selected_key = simulated_card_projection_key(selected_card);
+    let source_exhaust_count = source_combat
+        .piles
+        .exhaust_pile
+        .iter()
+        .filter(|card| simulated_card_projection_key(card) == selected_key)
+        .count();
+    let observed_exhaust = post
+        .message
+        .pointer("/game_state/combat_state/exhaust_pile");
+    if !observed_exhaust.is_some_and(Value::is_array) {
+        return false;
+    }
+    let observed_exhaust_count = combat_card_ids(observed_exhaust)
+        .into_iter()
+        .filter(|card| card == &selected_key)
+        .count();
+    observed_exhaust_count <= source_exhaust_count
+}
+
 fn combat_decision(run: &RunState, command: &str) -> Result<(RunDecisionAction, String), String> {
     if run
         .combat
@@ -510,6 +594,24 @@ pub(super) fn verify_seed_start_transition(
                                         seed_start_simulated_combat_subset(candidate),
                                     )
                                     .is_empty()
+                                })
+                                .or_else(|| {
+                                    skipped_burning_pact_candidate(&source, decision)
+                                        .ok()
+                                        .flatten()
+                                        .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                        .filter(|_| {
+                                            skipped_burning_pact_selected_card_is_absent_from_observed_exhaust(
+                                                &source, post,
+                                            )
+                                        })
+                                        .filter(|candidate| {
+                                            subset_diffs(
+                                                seed_start_combat_observed_subset(&post.message),
+                                                seed_start_simulated_combat_subset(candidate),
+                                            )
+                                            .is_empty()
+                                        })
                                 });
                             if let Some(candidate) = skipped_candidate {
                                 report.verified.push(VerifiedTransition {
@@ -599,6 +701,52 @@ mod tests {
             .hand
             .iter()
             .all(|card| card.id != selected_card_id));
+    }
+
+    #[test]
+    fn skipped_burning_pact_candidate_parks_selected_card_until_end_turn() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let mut source_card = combat.piles.hand.remove(0);
+        source_card.content_id = sts_core::content::cards::BURNING_PACT_ID;
+        let source_card_id = source_card.id;
+        let selected_card_id = combat.piles.hand[0].id;
+        combat.decision = Some(CombatDecisionState::ExhaustSelect {
+            state: sts_core::combat::ExhaustSelectState {
+                purpose: ExhaustSelectPurpose::BurningPactDraw2,
+                source_card_id: Some(source_card_id),
+                source_card: Some(source_card),
+                source_card_force_exhaust: false,
+                selected_hand_indices: vec![0],
+                interrupted_by_cultist_potion: false,
+                pending_actions: VecDeque::new(),
+            },
+        });
+
+        let candidate = skipped_burning_pact_candidate(
+            &run,
+            RunDecisionAction::Run(RunAction::ConfirmExhaustSelect),
+        )
+        .expect("candidate construction")
+        .expect("Burning Pact candidate should be eligible");
+        let combat = candidate.combat.as_ref().expect("candidate combat");
+        assert_eq!(
+            combat.pending_hidden_hand_card_until_end_turn[0].id,
+            selected_card_id
+        );
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .chain(combat.piles.draw_pile.iter())
+            .chain(combat.piles.discard_pile.iter())
+            .chain(combat.piles.exhaust_pile.iter())
+            .chain(combat.piles.limbo.iter())
+            .all(|card| card.id != selected_card_id));
+        assert!(combat.piles.discard_pile.iter().any(|card| {
+            card.id == source_card_id
+                && card.content_id == sts_core::content::cards::BURNING_PACT_ID
+        }));
     }
 
     #[test]

@@ -4096,6 +4096,90 @@ fn confirm_burning_pact_select(
     Ok(dead_branch_count)
 }
 
+/// Confirm a Burning Pact exhaust select without retrieving the selected card.
+///
+/// `ExhaustAction` can complete while its hand-selection screen is open, so
+/// the later `selectedCards -> exhaust` update is skipped. The selected card
+/// stays outside every serialized pile, while Burning Pact's own draw and
+/// source-card settlement still run. The verifier parks the returned card in
+/// the run-level pending-hidden slot until the matching end-turn window.
+///
+/// This candidate is intentionally limited to the ordinary hand-played source:
+/// a held, non-exhausting Burning Pact with no Cultist-potion interruption. The
+/// normal exhaust path remains authoritative for force-play, Corruption, and
+/// already-settled sources.
+pub fn confirm_burning_pact_select_skipped_retrieval(
+    state: &mut CombatState,
+) -> SimResult<CardInstance> {
+    let exhaust_select = state
+        .take_exhaust_select()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    let draw_count = match exhaust_select.purpose {
+        crate::combat::ExhaustSelectPurpose::BurningPactDraw2 => 2,
+        crate::combat::ExhaustSelectPurpose::BurningPactDraw3 => 3,
+        _ => {
+            return Err(SimError::IllegalAction(
+                "skipped Burning Pact retrieval requires a Burning Pact exhaust select",
+            ));
+        }
+    };
+    if exhaust_select.source_card_force_exhaust || exhaust_select.interrupted_by_cultist_potion {
+        return Err(SimError::IllegalAction(
+            "skipped Burning Pact retrieval requires an ordinary hand-played source",
+        ));
+    }
+    if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Err(SimError::IllegalAction(
+            "pending hidden hand card already occupied",
+        ));
+    }
+    let source_card_id = exhaust_select
+        .source_card_id
+        .ok_or(SimError::IllegalAction("Burning Pact source is required"))?;
+    let source_card = exhaust_select
+        .source_card
+        .ok_or(SimError::IllegalAction("Burning Pact source is not held"))?;
+    let source_definition = get_card_definition(source_card.content_id)
+        .ok_or(SimError::UnknownContent(source_card.content_id))?;
+    if source_definition.keywords.exhaust
+        || (source_definition.card_type == CardType::Skill && state.player.powers.corruption > 0)
+    {
+        return Err(SimError::IllegalAction(
+            "skipped Burning Pact retrieval does not support an exhausted source",
+        ));
+    }
+    let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
+    if selected.len() != 1 {
+        return Err(SimError::IllegalAction(
+            "Burning Pact requires exactly one selected card",
+        ));
+    }
+    let selected_index = selected[0];
+    if selected_index >= state.piles.hand.len() {
+        return Err(SimError::IllegalAction("exhaust select index out of range"));
+    }
+    if state.piles.hand[selected_index].id == source_card_id {
+        return Err(SimError::IllegalAction("Burning Pact cannot select itself"));
+    }
+
+    let selected_card = state.piles.hand.remove(selected_index);
+    // Reserve the hidden card's instance ID while the draw and deferred queue
+    // settle, then return it to the verifier rather than exposing it in limbo.
+    state.piles.limbo.push(selected_card);
+    player_draw_cards(state, draw_count)?;
+    state.piles.discard_pile.push(source_card);
+
+    if !exhaust_select.pending_actions.is_empty() {
+        let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
+        *state = transition.state;
+    }
+    state.activate_next_queued_decision_if_idle();
+    settle_time_warp_end_turn_if_ready(state)?;
+    state.piles.limbo.pop().ok_or(SimError::InvalidState(
+        "skipped Burning Pact limbo card missing after confirmation",
+    ))
+}
+
 fn confirm_purity_select(
     state: &mut CombatState,
     exhaust_select: crate::combat::ExhaustSelectState,
