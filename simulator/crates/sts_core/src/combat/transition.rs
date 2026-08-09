@@ -503,6 +503,16 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
             ..
         }
     ) {
+        // Pain.triggerOnOtherCardPlayed uses addToTop. If the played card opens
+        // a player-selection screen, its LoseHPAction must settle before that
+        // screen becomes observable (Warcry/Burning Pact with Pain). Keep the
+        // existing card-effect ordering when no selection boundary is queued;
+        // card HP-loss hooks such as Rupture still resolve in their established
+        // position relative to damage and powers (FIDL00409).
+        if let Some(index) = queue.iter().position(is_player_selection_action) {
+            queue.insert(index, follow_up);
+            return;
+        }
         // PainPower's LoseHPAction is queued by UseCardAction. When the played
         // card is Rupture, its ApplyPowerAction is already in the card queue,
         // but the loss must resolve before the newly applied Rupture can react
@@ -630,6 +640,18 @@ pub fn flush_pending_monster_death_relics_if_ready(state: &mut CombatState) -> S
     }
     *state = next;
     Ok(())
+}
+
+fn is_player_selection_action(action: &InternalAction) -> bool {
+    matches!(
+        action,
+        InternalAction::AwaitHandSelect { .. }
+            | InternalAction::AwaitDrawSelect { .. }
+            | InternalAction::AwaitDiscardSelect { .. }
+            | InternalAction::AwaitCopiedDiscardSelect { .. }
+            | InternalAction::AwaitExhaustSelect { .. }
+            | InternalAction::OpenDiscoveryCardReward { .. }
+    )
 }
 
 fn checked_combat_sum(value: i32, amount: i32) -> SimResult<i32> {
@@ -5263,6 +5285,79 @@ mod tests {
         assert_eq!(next.player.hp, 29);
         assert_eq!(next.player.powers.rupture, 1);
         assert_eq!(next.player.powers.strength, 2);
+    }
+
+    #[test]
+    fn pain_loss_settles_before_warcry_selection_opens() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 50;
+        state.player.max_hp = 50;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), WARCRY_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(4), PAIN_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(5), BASH_ID),
+            CardInstance::new(CardId::new(6), CLEAVE_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Warcry with Pain resolves to hand selection");
+
+        assert_eq!(next.player.hp, 49, "Pain must resolve before the select");
+        assert!(next.hand_select().is_some());
+        assert_eq!(next.pending_hand_select_action_count(), 0);
+    }
+
+    #[test]
+    fn pain_loss_triggers_centennial_draw_before_burning_pact_selection() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 50;
+        state.player.max_hp = 50;
+        state.relics.push(Relic::CentennialPuzzle);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(4), PAIN_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(5), BASH_ID),
+            CardInstance::new(CardId::new(6), CLEAVE_ID),
+            CardInstance::new(CardId::new(7), IRON_WAVE_ID),
+            CardInstance::new(CardId::new(8), CLOTHESLINE_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact with Pain resolves to exhaust selection");
+
+        assert_eq!(next.player.hp, 49, "Pain must resolve before the select");
+        assert!(next.exhaust_select().is_some());
+        assert_eq!(next.piles.draw_pile.len(), 1);
+        assert_eq!(next.relic_counters.centennial_puzzle_triggers, 1);
+        assert!(next
+            .exhaust_select()
+            .expect("Burning Pact select")
+            .pending_actions
+            .is_empty());
     }
 
     #[test]
