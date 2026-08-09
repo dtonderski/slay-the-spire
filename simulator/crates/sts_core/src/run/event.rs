@@ -1696,6 +1696,7 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             (Event::MindBloom, 1) => {
                 pending_obtain_source_is_empty(run)
                     || pending_obtain_source_matches(run, &[NORMALITY_ID, NORMALITY_ID])
+                    || pending_obtain_source_matches(run, &[DOUBT_ID])
             }
             (Event::BigFish, 1) if screen.event_data == 0 => {
                 pending_obtain_source_matches(run, &[REGRET_ID])
@@ -9921,6 +9922,43 @@ mod tests {
                 .filter(|card| card.content_id == NORMALITY_ID)
                 .count(),
             2
+        );
+    }
+
+    #[test]
+    fn mind_bloom_healthy_path_defers_doubt_until_leave() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.current_floor = 41;
+        run.event = Some(event_screen_for_run(&run, Event::MindBloom));
+        let before_doubt = run
+            .deck
+            .iter()
+            .filter(|card| card.content_id == DOUBT_ID)
+            .count();
+
+        let after_healthy = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
+            .expect("Mind Bloom healthy path applies");
+        assert_eq!(
+            after_healthy
+                .deck
+                .iter()
+                .filter(|card| card.content_id == DOUBT_ID)
+                .count(),
+            before_doubt
+        );
+        assert_eq!(after_healthy.pending_obtain_cards, vec![DOUBT_ID]);
+        assert_eq!(after_healthy.event.as_ref().expect("leave screen").stage, 1);
+
+        let settled = apply_event_action(&after_healthy, EventAction::Choose { choice_index: 0 })
+            .expect("Mind Bloom leave settles Doubt");
+        assert_eq!(
+            settled
+                .deck
+                .iter()
+                .filter(|card| card.content_id == DOUBT_ID)
+                .count(),
+            before_doubt + 1
         );
     }
 

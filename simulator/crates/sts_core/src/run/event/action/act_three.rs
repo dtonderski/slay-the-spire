@@ -307,7 +307,9 @@ pub(super) fn apply_act_three_event_action(
                 next.queue_pending_obtain_card(NORMALITY_ID);
             } else {
                 next.heal_player(next.player_max_hp)?;
-                next.gain_deck_card(DOUBT_ID)?;
+                // Mind Bloom uses ShowCardAndObtainEffect. The Leave screen is
+                // observable before the curse reaches the master deck.
+                next.queue_pending_obtain_card(DOUBT_ID);
             }
             next.event = Some(make_event_screen(
                 Event::MindBloom,
