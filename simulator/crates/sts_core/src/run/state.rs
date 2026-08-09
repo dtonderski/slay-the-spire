@@ -598,30 +598,6 @@ mod tests {
     }
 
     #[test]
-    fn molten_egg_card_preview_preserves_repeated_searing_blow_upgrade_count() {
-        use crate::content::cards::{SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID};
-
-        let mut run = RunState::seeded_ironclad(1, 0);
-        run.relics.push(Relic::MoltenEgg);
-
-        let base = CardInstance::new(CardId::new(100), SEARING_BLOW_ID);
-        let plus_one = run
-            .card_after_card_add_relics(base)
-            .expect("Molten Egg preview upgrades Searing Blow");
-        assert_eq!(plus_one.content_id, SEARING_BLOW_PLUS_ID);
-        assert_eq!(plus_one.searing_blow_upgrades, 1);
-
-        let plus_two = run
-            .card_after_card_add_relics(plus_one)
-            .expect("Molten Egg preview repeats Searing Blow upgrades");
-        assert_eq!(plus_two.content_id, SEARING_BLOW_PLUS_ID);
-        assert_eq!(plus_two.searing_blow_upgrades, 2);
-        run.deck.push(plus_two);
-        run.validate()
-            .expect("run remains valid after card preview");
-    }
-
-    #[test]
     fn egg_on_equip_upgrades_matching_pending_combat_reward_cards() {
         use crate::content::cards::{
             ANGER_ID, ANGER_PLUS_ID, INFLAME_ID, LIMIT_BREAK_ID, LIMIT_BREAK_PLUS_ID, STRIKE_R_ID,

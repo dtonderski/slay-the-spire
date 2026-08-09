@@ -1249,11 +1249,11 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) -> SimResult<
     );
     consume_reward_card_upgrade_rolls(&mut card_rng, &mut choices, card_upgraded_chance(run))?;
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
-    // Egg preview on the reward screen upgrades the card instance itself. This
-    // preserves generic upgrade metadata (including repeated Searing Blow
-    // upgrades) while keeping TakeCardReward from re-applying the egg.
+    // Egg preview on the reward screen upgrades content ids for display. Searing
+    // Blow's multi-upgrade counter is applied only by natural upgrade rolls here;
+    // TakeCardReward must not re-apply obtain eggs on these finalized instances.
     for choice in &mut choices {
-        *choice = run.card_after_card_add_relics(*choice)?;
+        choice.content_id = run.content_id_after_card_add_relics(choice.content_id)?;
     }
     run.reward.as_mut().expect("reward screen present").choices = choices;
     Ok(())
