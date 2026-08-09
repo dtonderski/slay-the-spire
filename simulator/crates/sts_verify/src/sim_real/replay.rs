@@ -251,6 +251,46 @@ fn skipped_burning_pact_candidate(
     Ok(Some(candidate))
 }
 
+fn skipped_exhume_candidate(
+    run: &RunState,
+    decision: RunDecisionAction,
+) -> Result<Option<RunState>, String> {
+    let RunDecisionAction::Run(RunAction::ChooseExhaustSelect { index }) = decision else {
+        return Ok(None);
+    };
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(None);
+    };
+    let Some(exhaust_select) = combat.exhaust_select() else {
+        return Ok(None);
+    };
+    if exhaust_select.purpose != ExhaustSelectPurpose::ExhumeReturnToHand
+        || exhaust_select.source_card.is_none()
+        || !exhaust_select.source_card_force_exhaust
+        || !exhaust_select.selected_hand_indices.is_empty()
+    {
+        return Ok(None);
+    }
+
+    let mut source = run.clone();
+    clear_superseded_selection_screen_pending(&mut source);
+    let candidate = sts_core::run::apply_exhaust_select_choice_skipped_exhume(&source, index)
+        .map_err(|error| error.to_string())?;
+    candidate.validate().map_err(|error| error.to_string())?;
+    Ok(Some(candidate))
+}
+
+fn stable_exhume_skipped_post(message: &Value) -> bool {
+    let Some(game) = message.get("game_state") else {
+        return false;
+    };
+    message.get("ready_for_command").and_then(Value::as_bool) == Some(true)
+        && message.get("boundary_kind").and_then(Value::as_str) == Some("quiescent")
+        && message.get("actions_queued").and_then(Value::as_u64) == Some(0)
+        && game.get("screen_type").and_then(Value::as_str) == Some("NONE")
+        && game.get("action_phase").and_then(Value::as_str) == Some("WAITING_ON_USER")
+}
+
 fn skipped_gambling_chip_candidate(
     run: &RunState,
     decision: RunDecisionAction,
@@ -667,6 +707,20 @@ pub(super) fn verify_seed_start_transition(
                                             )
                                             .is_empty()
                                         })
+                                })
+                                .or_else(|| {
+                                    skipped_exhume_candidate(&source, decision)
+                                        .ok()
+                                        .flatten()
+                                        .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                        .filter(|_| stable_exhume_skipped_post(&post.message))
+                                        .filter(|candidate| {
+                                            subset_diffs(
+                                                seed_start_combat_observed_subset(&post.message),
+                                                seed_start_simulated_combat_subset(candidate),
+                                            )
+                                            .is_empty()
+                                        })
                                 });
                             if let Some(candidate) = skipped_candidate {
                                 report.verified.push(VerifiedTransition {
@@ -819,6 +873,56 @@ mod tests {
             card.id == source_card_id
                 && card.content_id == sts_core::content::cards::BURNING_PACT_ID
         }));
+    }
+
+    #[test]
+    fn skipped_exhume_candidate_keeps_selected_card_in_exhaust() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = vec![CardInstance::new(
+            CardId::new(1000),
+            sts_core::content::cards::DEFEND_R_ID,
+        )];
+        let selected_id = CardId::new(1001);
+        combat.piles.exhaust_pile = vec![CardInstance::new(
+            selected_id,
+            sts_core::content::cards::DAZED_ID,
+        )];
+        let source_id = CardId::new(1002);
+        combat.decision = Some(CombatDecisionState::ExhaustSelect {
+            state: sts_core::combat::ExhaustSelectState {
+                purpose: ExhaustSelectPurpose::ExhumeReturnToHand,
+                source_card_id: Some(source_id),
+                source_card: Some(CardInstance::new(
+                    source_id,
+                    sts_core::content::cards::EXHUME_ID,
+                )),
+                source_card_force_exhaust: true,
+                selected_hand_indices: Vec::new(),
+                interrupted_by_cultist_potion: false,
+                pending_actions: VecDeque::new(),
+            },
+        });
+
+        let candidate = skipped_exhume_candidate(
+            &run,
+            RunDecisionAction::Run(RunAction::ChooseExhaustSelect { index: 0 }),
+        )
+        .expect("candidate construction")
+        .expect("force-play Exhume candidate should be eligible");
+        let combat = candidate.combat.as_ref().expect("candidate combat");
+        assert!(combat.piles.hand.iter().all(|card| card.id != selected_id));
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == selected_id));
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == sts_core::content::cards::EXHUME_ID));
+        assert!(combat.exhaust_select().is_none());
     }
 
     #[test]

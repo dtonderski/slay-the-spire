@@ -6,7 +6,7 @@ use crate::{
         choose_draw_select, choose_exhaust_select, choose_hand_select,
         close_discovery_source_card_with_force_exhaust,
         confirm_burning_pact_select_skipped_retrieval, confirm_discard_select, confirm_draw_select,
-        confirm_exhaust_select_with_dead_branch_count,
+        confirm_exhaust_select_with_dead_branch_count, confirm_exhume_select_skipped_return,
         confirm_gambling_chip_select_skipped_retrieval, confirm_hand_select,
         confirm_hand_select_skipped_put_on_deck_retrieval, discard_select_ui_to_discard_index,
         draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
@@ -484,6 +484,41 @@ pub fn apply_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<Ru
         )?;
         next.combat = Some(combat);
     }
+    Ok(next)
+}
+
+/// Resolve a force-played Exhume selection without returning the selected card.
+///
+/// CommunicationMod can publish a stable post-selection frame after Exhume's
+/// source settles but before its selected-card retrieval effect runs. The
+/// authoritative core keeps normal Exhume retrieval in `apply_exhaust_select_choice`;
+/// this separate entry point is used only by the strict verifier's source-backed
+/// skipped-retrieval reconciliation.
+pub fn apply_exhaust_select_choice_skipped_exhume(
+    run: &RunState,
+    index: usize,
+) -> SimResult<RunState> {
+    validate_exhaust_select_choice(run, index)?;
+    let mut next = run.clone();
+    let purpose = next
+        .combat
+        .as_ref()
+        .and_then(CombatState::exhaust_select)
+        .map(|select| select.purpose)
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
+    if purpose != ExhaustSelectPurpose::ExhumeReturnToHand {
+        return Err(SimError::IllegalAction(
+            "skipped retrieval requires ExhumeReturnToHand",
+        ));
+    }
+    let mut combat = next.combat.take().expect("validated combat");
+    let before = combat.clone();
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    choose_exhaust_select(&mut combat, index)?;
+    confirm_exhume_select_skipped_return(&mut combat)?;
+    let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    next.combat = Some(combat);
     Ok(next)
 }
 
