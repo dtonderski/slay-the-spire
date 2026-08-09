@@ -598,6 +598,42 @@ mod tests {
     }
 
     #[test]
+    fn molten_egg_card_preview_preserves_searing_blow_upgrade_count() {
+        use crate::content::cards::{upgrade_card_instance, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID};
+
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.relics.push(Relic::MoltenEgg);
+
+        let base = CardInstance::new(CardId::new(100), SEARING_BLOW_ID);
+        let plus_one = run
+            .card_after_card_add_relics(base)
+            .expect("Molten Egg preview upgrades Searing Blow");
+        assert_eq!(plus_one.content_id, SEARING_BLOW_PLUS_ID);
+        assert_eq!(plus_one.searing_blow_upgrades, 1);
+
+        // A natural reward upgrade is already finalized before the obtain-egg
+        // preview; the preview must not apply a second upgrade.
+        let natural_plus_one = upgrade_card_instance(base)
+            .expect("natural Searing Blow upgrade is representable")
+            .expect("Searing Blow upgrades");
+        let preserved = run
+            .card_after_card_add_relics(natural_plus_one)
+            .expect("Molten Egg preview accepts naturally upgraded Searing Blow");
+        assert_eq!(preserved.content_id, SEARING_BLOW_PLUS_ID);
+        assert_eq!(preserved.searing_blow_upgrades, 1);
+
+        // Repeated upgrades remain authoritative on the CardInstance itself.
+        let plus_two = upgrade_card_instance(plus_one)
+            .expect("repeated Searing Blow upgrade is representable")
+            .expect("Searing Blow upgrades repeatedly");
+        assert_eq!(plus_two.content_id, SEARING_BLOW_PLUS_ID);
+        assert_eq!(plus_two.searing_blow_upgrades, 2);
+        run.deck.push(plus_two);
+        run.validate()
+            .expect("run remains valid after card preview");
+    }
+
+    #[test]
     fn egg_on_equip_upgrades_matching_pending_combat_reward_cards() {
         use crate::content::cards::{
             ANGER_ID, ANGER_PLUS_ID, INFLAME_ID, LIMIT_BREAK_ID, LIMIT_BREAK_PLUS_ID, STRIKE_R_ID,
@@ -2975,7 +3011,11 @@ impl RunState {
             CardType::Power => self.relics.contains(&Relic::FrozenEgg),
             CardType::Status => false,
         };
-        if has_matching_egg {
+        // Reward generation may already have upgraded Searing Blow before the
+        // obtain-egg preview. Preserve that authoritative instance count instead
+        // of turning one natural upgrade into a second one (FIDL01326).
+        let already_upgraded = card.searing_blow_upgrades > 0;
+        if has_matching_egg && !already_upgraded {
             if let Some(upgraded) = upgrade_card_instance(card)? {
                 return Ok(upgraded);
             }

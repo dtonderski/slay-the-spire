@@ -2989,12 +2989,18 @@ fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
     let id = card.get("id").and_then(Value::as_str)?;
     let upgrades = card_upgrade_count(card)?;
     let base = content_id_from_key(id)?;
-    match upgrades {
-        0 => Some(base),
-        1 if card_content_id_is_upgraded(base) => Some(base),
-        1 => upgrade_content_id(base),
-        _ => None,
+    if upgrades == 0 {
+        return Some(base);
     }
+    // CommunicationMod keeps the base `id` while exposing the authoritative
+    // instance upgrade count. If a caller supplies an already-upgraded id, a
+    // single upgrade is still that same content identity. Repeated upgrades
+    // then follow the content's own upgrade lifecycle (Searing Blow is the
+    // modeled self-upgrade case) rather than reading the display name.
+    if upgrades == 1 && card_content_id_is_upgraded(base) {
+        return Some(base);
+    }
+    (0..upgrades).try_fold(base, |content_id, _| upgrade_content_id(content_id))
 }
 
 fn card_content_id_is_upgraded(content_id: ContentId) -> bool {
@@ -3004,9 +3010,15 @@ fn card_content_id_is_upgraded(content_id: ContentId) -> bool {
 }
 
 fn observed_card_projection_key(card: &Value) -> Option<String> {
-    content_id_from_card_value(card)
-        .map(modeled_card_projection_key)
-        .or_else(|| observed_display_card_identity(card))
+    let Some(content_id) = content_id_from_card_value(card) else {
+        return observed_display_card_identity(card);
+    };
+    let upgrades = card_upgrade_count(card)?;
+    let key = modeled_card_projection_key(content_id);
+    if upgrades > 1 && upgrade_content_id(content_id) == Some(content_id) {
+        return Some(format!("{}+{}", key.trim_end_matches('+'), upgrades));
+    }
+    Some(key)
 }
 
 fn modeled_card_projection_key(content_id: ContentId) -> String {
