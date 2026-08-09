@@ -280,7 +280,7 @@ fn skipped_exhume_candidate(
     Ok(Some(candidate))
 }
 
-fn stable_exhume_skipped_post(message: &Value) -> bool {
+fn stable_quiescent_combat_post(message: &Value) -> bool {
     let Some(game) = message.get("game_state") else {
         return false;
     };
@@ -289,6 +289,44 @@ fn stable_exhume_skipped_post(message: &Value) -> bool {
         && message.get("actions_queued").and_then(Value::as_u64) == Some(0)
         && game.get("screen_type").and_then(Value::as_str) == Some("NONE")
         && game.get("action_phase").and_then(Value::as_str) == Some("WAITING_ON_USER")
+}
+
+fn cross_combat_put_on_deck_candidate(
+    run: &RunState,
+    decision: RunDecisionAction,
+    pending_card: Option<CardInstance>,
+) -> Result<Option<RunState>, String> {
+    if !matches!(decision, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+        return Ok(None);
+    }
+    let Some(card) = pending_card else {
+        return Ok(None);
+    };
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(None);
+    };
+    if combat
+        .piles
+        .hand
+        .iter()
+        .chain(combat.piles.draw_pile.iter())
+        .chain(combat.piles.discard_pile.iter())
+        .chain(combat.piles.exhaust_pile.iter())
+        .chain(combat.piles.limbo.iter())
+        .any(|existing| existing.id == card.id)
+    {
+        return Ok(None);
+    }
+    let mut candidate = run.clone();
+    candidate
+        .combat
+        .as_mut()
+        .expect("validated combat")
+        .piles
+        .discard_pile
+        .push(card);
+    candidate.validate().map_err(|error| error.to_string())?;
+    Ok(Some(candidate))
 }
 
 fn skipped_gambling_chip_candidate(
@@ -497,6 +535,7 @@ pub(super) fn direct_decision(
 pub(super) struct StreamingSeedStartReplay {
     seed_sim: Option<RunState>,
     replay_action: Option<TraceAction>,
+    pending_cross_combat_put_on_deck_card: Option<CardInstance>,
 }
 
 fn finish_streaming_boundary(
@@ -713,7 +752,7 @@ pub(super) fn verify_seed_start_transition(
                                         .ok()
                                         .flatten()
                                         .filter(|candidate| candidate.pending_external_rng.is_empty())
-                                        .filter(|_| stable_exhume_skipped_post(&post.message))
+                                        .filter(|_| stable_quiescent_combat_post(&post.message))
                                         .filter(|candidate| {
                                             subset_diffs(
                                                 seed_start_combat_observed_subset(&post.message),
@@ -721,8 +760,43 @@ pub(super) fn verify_seed_start_transition(
                                             )
                                             .is_empty()
                                         })
+                                })
+                                .or_else(|| {
+                                    cross_combat_put_on_deck_candidate(
+                                        &next,
+                                        decision,
+                                        state.pending_cross_combat_put_on_deck_card,
+                                    )
+                                    .ok()
+                                    .flatten()
+                                    .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                    .filter(|_| stable_quiescent_combat_post(&post.message))
+                                    .filter(|candidate| {
+                                        subset_diffs(
+                                            seed_start_combat_observed_subset(&post.message),
+                                            seed_start_simulated_combat_subset(candidate),
+                                        )
+                                        .is_empty()
+                                    })
                                 });
                             if let Some(candidate) = skipped_candidate {
+                                if matches!(decision, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+                                    state.pending_cross_combat_put_on_deck_card = None;
+                                }
+                                if matches!(
+                                    decision,
+                                    RunDecisionAction::Run(RunAction::ConfirmHandSelect)
+                                ) {
+                                    state.pending_cross_combat_put_on_deck_card = candidate
+                                        .combat
+                                        .as_ref()
+                                        .and_then(|combat| {
+                                            combat
+                                                .pending_hidden_hand_card_until_end_turn
+                                                .last()
+                                                .copied()
+                                        });
+                                }
                                 report.verified.push(VerifiedTransition {
                                     action_step: action.step,
                                     command: action.command.clone(),
@@ -735,6 +809,9 @@ pub(super) fn verify_seed_start_transition(
                             {
                                 Some(boundary(action, "invalid_direct_projection", reason))
                             } else {
+                                if matches!(decision, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+                                    state.pending_cross_combat_put_on_deck_card = None;
+                                }
                                 state.seed_sim = Some(next);
                                 None
                             }
@@ -926,6 +1003,30 @@ mod tests {
     }
 
     #[test]
+    fn cross_combat_put_on_deck_candidate_appends_typed_card_on_end_turn() {
+        let run = RunState::combat_fixture();
+        let carried = CardInstance::new(CardId::new(1000), sts_core::content::cards::WOUND_ID);
+        let candidate = cross_combat_put_on_deck_candidate(
+            &run,
+            RunDecisionAction::Combat(CombatAction::EndTurn),
+            Some(carried),
+        )
+        .expect("candidate construction")
+        .expect("typed cross-combat residual should be eligible");
+        assert_eq!(
+            candidate
+                .combat
+                .as_ref()
+                .expect("candidate combat")
+                .piles
+                .discard_pile
+                .last()
+                .map(|card| card.id),
+            Some(carried.id)
+        );
+    }
+
+    #[test]
     fn skipped_gambling_chip_candidate_parks_selected_cards_until_end_turn() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
@@ -994,6 +1095,7 @@ mod tests {
         let mut replay = StreamingSeedStartReplay {
             seed_sim: Some(run),
             replay_action: None,
+            pending_cross_combat_put_on_deck_card: None,
         };
         let start = StartRunCommand {
             action_step: 1,
