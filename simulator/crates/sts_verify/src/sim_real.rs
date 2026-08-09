@@ -16,9 +16,9 @@ use sts_core::potion::Potion;
 use sts_core::{
     affordable_shop_picks, apply_run_decision_action, legal_run_decision_actions, CardGridScreen,
     CardId, CardInstance, CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId,
-    Event, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState, Relic, RelicKey,
-    RestAction, RewardContinuation, RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase,
-    RunState, ShopPick,
+    Event, EventScreen, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState, Relic,
+    RelicKey, RestAction, RewardContinuation, RewardScreen, RoomKind, RunAction, RunDecisionAction,
+    RunPhase, RunState, ShopPick,
 };
 use sts_core::{Snapshot, SNAPSHOT_SCHEMA_VERSION};
 
@@ -2089,15 +2089,10 @@ fn seed_start_event_simulated_subset_with_deck(run: &RunState, deck_ids: Vec<Str
         .event
         .as_ref()
         .map(|event| {
-            event
-                .choices
-                .iter()
-                .filter_map(|choice| {
-                    seed_start_visible_event_choice_label_for_event(
-                        event.event,
-                        event.stage,
-                        &choice.label,
-                    )
+            seed_start_event_choice_presentations(run, event)
+                .into_iter()
+                .filter_map(|presentation| {
+                    seed_start_event_choice_label(event.event, event.stage, presentation)
                 })
                 .collect::<Vec<_>>()
         })
@@ -2146,6 +2141,91 @@ fn seed_start_observed_event_key(message: &Value) -> Option<String> {
         "goldenwing" => "wingstatue".to_owned(),
         _ => key,
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SeedStartEventChoicePresentation<'a> {
+    Text(&'a str),
+    Card(ContentId),
+    CardSlot(usize),
+}
+
+fn seed_start_event_choice_presentations<'a>(
+    run: &'a RunState,
+    event: &'a EventScreen,
+) -> Vec<SeedStartEventChoicePresentation<'a>> {
+    if event.event == Event::MatchAndKeep && event.stage == 2 {
+        // CommunicationMod's GremlinMatchGame branch emits AbstractCard.cardID
+        // for revealed cards and `card{position}` for hidden cards. Derive both
+        // labels from the simulator-owned board, rather than from EventChoice
+        // text or the observed choice_list.
+        let state = run
+            .match_and_keep
+            .as_ref()
+            .expect("validated Match and Keep choice projection has state");
+        let card_count = state.cards.len();
+        let mut presentations = Vec::new();
+        for label_index in 0..card_count {
+            let group_index =
+                sts_core::match_and_keep_group_index_for_label(label_index, card_count)
+                    .expect("validated Match and Keep label has a board slot");
+            let card = state
+                .cards
+                .get(group_index)
+                .expect("validated Match and Keep board slot exists");
+            let currently_flipped = state.first_flipped_index == Some(group_index)
+                || state.second_flipped_index == Some(group_index);
+            if card.matched || currently_flipped {
+                continue;
+            }
+            presentations.push(if card.revealed {
+                SeedStartEventChoicePresentation::Card(card.content_id)
+            } else {
+                SeedStartEventChoicePresentation::CardSlot(label_index)
+            });
+        }
+        return presentations;
+    }
+
+    event
+        .choices
+        .iter()
+        .map(|choice| SeedStartEventChoicePresentation::Text(&choice.label))
+        .collect()
+}
+
+fn seed_start_event_choice_label(
+    event: Event,
+    stage: u32,
+    presentation: SeedStartEventChoicePresentation<'_>,
+) -> Option<String> {
+    match presentation {
+        SeedStartEventChoicePresentation::Text(label) => {
+            seed_start_visible_event_choice_label_for_event(event, stage, label)
+        }
+        SeedStartEventChoicePresentation::Card(content_id) => {
+            Some(seed_start_communication_mod_card_id(content_id))
+        }
+        SeedStartEventChoicePresentation::CardSlot(label_index) => {
+            Some(format!("card{label_index}"))
+        }
+    }
+}
+
+fn seed_start_communication_mod_card_id(content_id: ContentId) -> String {
+    let definition = sts_core::content::cards::get_card_definition(content_id)
+        .expect("validated card choice has a known card definition");
+    // Vanilla card IDs are PascalCase source identifiers (for example
+    // `PanicButton`), while the CommunicationMod list lowercases them. The
+    // authoritative simulator card name supplies the same identifier after
+    // removing display punctuation and spacing; this is not observation
+    // normalization and does not special-case any card.
+    definition
+        .name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .map(|character| character.to_ascii_lowercase())
+        .collect()
 }
 
 fn seed_start_visible_event_choice_label_for_event(
