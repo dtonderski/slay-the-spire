@@ -1124,9 +1124,14 @@ fn seed_start_monsters_from_value(value: Option<&Value>, intents_visible: bool) 
     monsters
         .iter()
         .map(|monster| {
+            let current_hp = int(monster, "current_hp");
+            let is_gone = monster
+                .get("is_gone")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             let mut projected = json!({
                 "name": monster.get("name").and_then(Value::as_str).unwrap_or(""),
-                "current_hp": int(monster, "current_hp"),
+                "current_hp": current_hp,
                 "max_hp": int(monster, "max_hp"),
                 "block": int(monster, "block"),
                 "intent": monster.get("intent").and_then(Value::as_str).unwrap_or(""),
@@ -1135,6 +1140,19 @@ fn seed_start_monsters_from_value(value: Option<&Value>, intents_visible: bool) 
                 "ritual": power_amount(monster.get("powers"), "Ritual"),
                 "vulnerable": power_amount(monster.get("powers"), "Vulnerable"),
             });
+            // CommunicationMod exports corpse powers inconsistently while the
+            // target death animation settles. They are not gameplay state once
+            // current HP is zero, so the documented visibility contract omits
+            // only these three powers for dead monsters; living powers remain
+            // strict and directly compared.
+            if is_gone || current_hp <= 0 {
+                let fields = projected
+                    .as_object_mut()
+                    .expect("projected monster is an object");
+                fields.remove("strength");
+                fields.remove("ritual");
+                fields.remove("vulnerable");
+            }
             if monster.get("move_id").and_then(Value::as_i64).is_none() {
                 projected
                     .as_object_mut()
@@ -2840,8 +2858,6 @@ fn seed_start_monsters_from_sim(combat: &CombatState, intents_visible: bool) -> 
         .iter()
         .map(|monster| {
             let name = seed_start_trace_monster_name(monster);
-            let strength = monster.powers.strength;
-            let vulnerable = monster.powers.vulnerable;
             let mut projected = json!({
                 "name": name,
                 "current_hp": monster.hp.max(0),
@@ -2851,10 +2867,21 @@ fn seed_start_monsters_from_sim(combat: &CombatState, intents_visible: bool) -> 
                 "move_id": target_move_byte_for_monster(monster)
                     .map(i32::from)
                     .unwrap_or(-1),
-                "strength": strength,
+                "strength": monster.powers.strength,
                 "ritual": monster.powers.ritual,
-                "vulnerable": vulnerable,
+                "vulnerable": monster.powers.vulnerable,
             });
+            // Keep the same explicit visibility boundary as the observed
+            // projector. Dead powers are animation residue, not authoritative
+            // gameplay state; living powers remain strict.
+            if !monster.alive {
+                let fields = projected
+                    .as_object_mut()
+                    .expect("projected monster is an object");
+                fields.remove("strength");
+                fields.remove("ritual");
+                fields.remove("vulnerable");
+            }
             if !intents_visible {
                 let fields = projected
                     .as_object_mut()

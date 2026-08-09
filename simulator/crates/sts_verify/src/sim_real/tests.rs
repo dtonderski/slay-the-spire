@@ -80,6 +80,59 @@ fn simulated_upgrade_count_drives_repeated_self_upgrade_projection() {
 }
 
 #[test]
+fn dead_monster_power_projection_uses_the_documented_visibility_boundary() {
+    let observed_game = json!({
+        "monsters": [
+            {
+                "name": "living",
+                "current_hp": 10,
+                "max_hp": 20,
+                "block": 0,
+                "intent": "ATTACK",
+                "move_id": 1,
+                "powers": [
+                    {"id": "Strength", "amount": 3},
+                    {"id": "Ritual", "amount": 5},
+                    {"id": "Vulnerable", "amount": 2}
+                ]
+            },
+            {
+                "name": "dead",
+                "current_hp": 20,
+                "max_hp": 20,
+                "is_gone": true,
+                "block": 0,
+                "intent": "ATTACK",
+                "move_id": 1,
+                "powers": [
+                    {"id": "Strength", "amount": 7},
+                    {"id": "Ritual", "amount": 4},
+                    {"id": "Vulnerable", "amount": 1}
+                ]
+            }
+        ]
+    });
+    let observed = seed_start_monsters_from_value(observed_game.get("monsters"), true);
+    assert_eq!(observed[0]["strength"], json!(3));
+    assert_eq!(observed[0]["ritual"], json!(5));
+    assert_eq!(observed[0]["vulnerable"], json!(2));
+    assert!(observed[1].get("strength").is_none());
+    assert!(observed[1].get("ritual").is_none());
+    assert!(observed[1].get("vulnerable").is_none());
+
+    let mut combat = CombatState::initial_fixture();
+    combat.monsters[0].alive = false;
+    combat.monsters[0].hp = 0;
+    combat.monsters[0].powers.strength = 7;
+    combat.monsters[0].powers.ritual = 4;
+    combat.monsters[0].powers.vulnerable = 1;
+    let simulated = seed_start_monsters_from_sim(&combat, true);
+    assert!(simulated[0].get("strength").is_none());
+    assert!(simulated[0].get("ritual").is_none());
+    assert!(simulated[0].get("vulnerable").is_none());
+}
+
+#[test]
 fn schema_v0_metadata_is_rejected_before_replay() {
     let content = trace(vec![
         metadata(None, false),
