@@ -925,14 +925,26 @@ fn validate_grid_screen_schema(
             "trace state at step {step} GRID screen declares multiple selection purposes"
         )));
     }
-    if screen
+    let confirm_up = screen
+        .get("confirm_up")
+        .and_then(Value::as_bool)
+        .expect("validated GRID screen confirmation flag");
+    // CommunicationMod exposes both GridCardSelectScreen.confirmScreenUp and
+    // isJustForConfirming as `confirm_up`. Vanilla's confirmation-only grid
+    // leaves numCards at zero; ordinary selection grids still require a
+    // positive count.
+    let num_cards = screen
         .get("num_cards")
         .and_then(Value::as_u64)
-        .filter(|count| *count > 0 && u32::try_from(*count).is_ok())
-        .is_none()
-    {
+        .and_then(|count| u32::try_from(count).ok())
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.num_cards must be a positive u32, or zero when confirm_up is true"
+            ))
+        })?;
+    if num_cards == 0 && !confirm_up {
         return Err(serde_json::Error::custom(format!(
-            "trace state at step {step} game_state.screen_state.num_cards must be a positive u32"
+            "trace state at step {step} game_state.screen_state.num_cards must be a positive u32, or zero when confirm_up is true"
         )));
     }
     if screen.get("confirm_up").and_then(Value::as_bool) == Some(false)
@@ -1552,6 +1564,25 @@ mod tests {
         let content = r#"{"type":"state","step":21,"message":{"game_state":{"screen_type":"GRID","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"screen_state":{"cards":[{"id":"Strike_R"}],"selected_cards":[],"confirm_up":true,"for_purge":true,"for_transform":false,"for_upgrade":false,"any_number":false,"num_cards":1}}}}"#;
 
         parse_trace_jsonl(content).expect("confirmation overlay omits ordinary choices");
+    }
+
+    #[test]
+    fn parse_trace_accepts_zero_card_confirmation_grid() {
+        let content = r#"{"type":"state","step":22,"message":{"game_state":{"screen_type":"GRID","ascension_level":0,"floor":0,"gold":99,"current_hp":10000,"max_hp":10000,"deck":[],"relics":[{"id":"Pandora's Box"}],"potions":[],"screen_state":{"cards":[{"id":"Body Slam"}],"selected_cards":[],"confirm_up":true,"for_purge":false,"for_transform":false,"for_upgrade":false,"any_number":false,"num_cards":0}}}}"#;
+
+        parse_trace_jsonl(content)
+            .expect("confirmation-only grids may report zero selectable cards");
+    }
+
+    #[test]
+    fn parse_trace_rejects_zero_card_selection_grid() {
+        let content = r#"{"type":"state","step":23,"message":{"game_state":{"screen_type":"GRID","ascension_level":0,"floor":1,"gold":99,"current_hp":80,"max_hp":80,"deck":[],"relics":[],"potions":[],"choice_list":["Strike"],"screen_state":{"cards":[{"id":"Strike_R"}],"selected_cards":[],"confirm_up":false,"for_purge":false,"for_transform":false,"for_upgrade":false,"any_number":false,"num_cards":0}}}}"#;
+
+        let error =
+            parse_trace_jsonl(content).expect_err("selection grids require a positive count");
+        assert!(error.to_string().contains(
+            "trace state at step 23 game_state.screen_state.num_cards must be a positive u32, or zero when confirm_up is true"
+        ));
     }
 
     #[test]
