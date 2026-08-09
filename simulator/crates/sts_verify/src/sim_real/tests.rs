@@ -406,6 +406,47 @@ fn spire_heart_sleep_uses_complete_phase_for_terminal_game_over_projection() {
 }
 
 #[test]
+fn forgotten_altar_offer_projection_uses_relic_specific_commmod_label() {
+    let mut run = RunState::seeded_ironclad(1, 0);
+    run.phase = RunPhase::Event;
+    run.relics.push(Relic::GoldenIdol);
+    run.event = Some(sts_core::run::event::event_screen_for_run(
+        &run,
+        Event::ForgottenAltar,
+    ));
+
+    assert_eq!(
+        run.event
+            .as_ref()
+            .expect("Forgotten Altar event")
+            .choices
+            .iter()
+            .map(|choice| choice.label.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Offer", "Sacrifice", "Desecrate"]
+    );
+    assert_eq!(
+        seed_start_event_simulated_subset(&run)["choices"],
+        json!(["offer: golden idol", "sacrifice", "desecrate"])
+    );
+    assert_eq!(
+        seed_start_visible_event_choice_label_for_event(Event::ForgottenAltar, 0, "Offer"),
+        Some("offer: golden idol".to_owned())
+    );
+
+    let mut without_idol = RunState::seeded_ironclad(1, 0);
+    without_idol.phase = RunPhase::Event;
+    without_idol.event = Some(sts_core::run::event::event_screen_for_run(
+        &without_idol,
+        Event::ForgottenAltar,
+    ));
+    assert_eq!(
+        seed_start_event_simulated_subset(&without_idol)["choices"],
+        json!(["sacrifice", "desecrate"])
+    );
+}
+
+#[test]
 fn observation_metadata_never_selects_or_mutates_simulator_state() {
     let content = |game_update_seq| {
         let mut boundary = boundary_message("quiescent");

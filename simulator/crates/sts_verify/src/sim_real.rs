@@ -2172,6 +2172,11 @@ fn seed_start_visible_event_choice_label_for_event(
         (Event::MoaiHead, 0, label) if label.contains("golden idol") => {
             Some("offer: golden idol".to_owned())
         }
+        // Forgotten Altar's source button is `[Offer: Golden Idol]`; the core
+        // choice is intentionally the semantic `Offer` action and is present
+        // only when Golden Idol is owned. CommunicationMod's getOptionName
+        // exposes the bracketed relic-specific label in choice_list.
+        (Event::ForgottenAltar, 0, "offer") => Some("offer: golden idol".to_owned()),
         _ => Some(normalized),
     }
 }
