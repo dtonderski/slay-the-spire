@@ -152,6 +152,17 @@ fn compare_direct_run(
     Ok(())
 }
 
+/// A new HandCardSelectScreen calls `prep()` before opening and clears the
+/// previous screen's `selectedCards`. If a prior skipped-retrieval candidate
+/// still parks those cards, replace that stale screen-owned selection before
+/// rebuilding the newly interrupted action.
+fn clear_superseded_selection_screen_pending(run: &mut RunState) {
+    if let Some(combat) = run.combat.as_mut() {
+        combat.pending_hidden_hand_card_until_end_turn.clear();
+        combat.pending_hidden_hand_card_exhausts_with_fiend_fire = false;
+    }
+}
+
 fn skipped_put_on_deck_candidate(
     run: &RunState,
     decision: RunDecisionAction,
@@ -177,16 +188,15 @@ fn skipped_put_on_deck_candidate(
         return Ok(None);
     }
 
+    let mut source = run.clone();
+    clear_superseded_selection_screen_pending(&mut source);
     let (mut candidate, selected) =
-        sts_core::run::apply_hand_select_confirm_skipped_put_on_deck_retrieval(run)
+        sts_core::run::apply_hand_select_confirm_skipped_put_on_deck_retrieval(&source)
             .map_err(|error| error.to_string())?;
     let combat = candidate
         .combat
         .as_mut()
         .ok_or_else(|| "skipped put-on-deck candidate lost combat state".to_owned())?;
-    if !combat.pending_hidden_hand_card_until_end_turn.is_empty() {
-        return Err("skipped put-on-deck candidate already has a pending hidden card".to_owned());
-    }
     combat
         .pending_hidden_hand_card_until_end_turn
         .push(selected);
@@ -223,16 +233,15 @@ fn skipped_burning_pact_candidate(
     // leave this selected card fully untracked for that source-backed window.
     let retained_by_runic_pyramid = combat.relics.contains(&Relic::RunicPyramid);
 
+    let mut source = run.clone();
+    clear_superseded_selection_screen_pending(&mut source);
     let (mut candidate, selected) =
-        sts_core::run::apply_exhaust_select_confirm_skipped_burning_pact_retrieval(run)
+        sts_core::run::apply_exhaust_select_confirm_skipped_burning_pact_retrieval(&source)
             .map_err(|error| error.to_string())?;
     let combat = candidate
         .combat
         .as_mut()
         .ok_or_else(|| "skipped Burning Pact candidate lost combat state".to_owned())?;
-    if !combat.pending_hidden_hand_card_until_end_turn.is_empty() {
-        return Err("skipped Burning Pact candidate already has a pending hidden card".to_owned());
-    }
     if !retained_by_runic_pyramid {
         combat
             .pending_hidden_hand_card_until_end_turn
@@ -266,12 +275,10 @@ fn skipped_gambling_chip_candidate(
     if exhaust_select.selected_hand_indices.is_empty() {
         return Ok(None);
     }
-    if !combat.pending_hidden_hand_card_until_end_turn.is_empty() {
-        return Ok(None);
-    }
-
+    let mut source = run.clone();
+    clear_superseded_selection_screen_pending(&mut source);
     let candidate =
-        sts_core::run::apply_exhaust_select_confirm_skipped_gambling_chip_retrieval(run)
+        sts_core::run::apply_exhaust_select_confirm_skipped_gambling_chip_retrieval(&source)
             .map_err(|error| error.to_string())?;
     candidate.validate().map_err(|error| error.to_string())?;
     Ok(Some(candidate))
@@ -752,9 +759,12 @@ mod tests {
     }
 
     #[test]
-    fn skipped_burning_pact_candidate_parks_selected_card_until_end_turn() {
+    fn skipped_burning_pact_candidate_replaces_superseded_screen_selection() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
+        let superseded_card = combat.piles.hand.remove(1);
+        let superseded_card_id = superseded_card.id;
+        combat.pending_hidden_hand_card_until_end_turn = vec![superseded_card];
         let mut source_card = combat.piles.hand.remove(0);
         source_card.content_id = sts_core::content::cards::BURNING_PACT_ID;
         let source_card_id = source_card.id;
@@ -779,9 +789,23 @@ mod tests {
         .expect("Burning Pact candidate should be eligible");
         let combat = candidate.combat.as_ref().expect("candidate combat");
         assert_eq!(
-            combat.pending_hidden_hand_card_until_end_turn[0].id,
-            selected_card_id
+            combat
+                .pending_hidden_hand_card_until_end_turn
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![selected_card_id]
         );
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .chain(combat.piles.draw_pile.iter())
+            .chain(combat.piles.discard_pile.iter())
+            .chain(combat.piles.exhaust_pile.iter())
+            .chain(combat.piles.limbo.iter())
+            .chain(combat.pending_hidden_hand_card_until_end_turn.iter())
+            .all(|card| card.id != superseded_card_id));
         assert!(combat
             .piles
             .hand
