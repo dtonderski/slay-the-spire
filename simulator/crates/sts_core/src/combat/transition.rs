@@ -955,99 +955,12 @@ fn apply_internal_action(
             target,
             exhaust_played_card,
             random_living_target,
-        } => {
-            // Expand the forced top-play inline so parent follow-ups queued after
-            // PlayTop (notably Hex from Havoc.use → onUseCard) run only once the
-            // top card is already removed. Expanding as parent follow-ups left
-            // Havoc Hex ahead of the expanded Armaments actions and inserted
-            // Dazed into a still-full draw pile (15ab4cc step 769).
-            //
-            // STS removes the Havoc/Mayhem source to cardInUse before PlayTop
-            // runs. Park the outer source on limbo *before* building the nested
-            // queue so Sever Soul cannot snapshot it into exhaust targets
-            // (FIDL00418 UnknownCard).
-            let previous_in_use = state.card_in_use;
-            let previous_play_top_force_exhaust = state.play_top_force_exhaust_active;
-            state.play_top_force_exhaust_active = exhaust_played_card;
-            let mut parked_outer_source = false;
-            if let Some(outer_id) = previous_in_use {
-                if let Some(index) = state.piles.hand.iter().position(|card| card.id == outer_id) {
-                    let card = state.piles.hand.remove(index);
-                    state.piles.limbo.push(card);
-                    parked_outer_source = true;
-                }
-            }
-            let actions =
-                apply_play_top_draw_card(state, target, exhaust_played_card, random_living_target)?;
-            if actions.is_empty() {
-                state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
-                if parked_outer_source {
-                    if let Some(outer_id) = previous_in_use {
-                        if let Some(index) = state
-                            .piles
-                            .limbo
-                            .iter()
-                            .position(|card| card.id == outer_id)
-                        {
-                            let card = state.piles.limbo.remove(index);
-                            state.piles.hand.push(card);
-                        }
-                    }
-                }
-                Ok(Vec::new())
-            } else {
-                let forced_id = actions.iter().find_map(|action| match action {
-                    InternalAction::PlayCard { card_id } => Some(*card_id),
-                    _ => None,
-                });
-                if let Some(card_id) = forced_id {
-                    state.card_in_use = Some(card_id);
-                }
-                // PlayTopCardAction addToTop's the forced card play while the
-                // outer Havoc/Mayhem UseCardAction is already on the bot queue.
-                // Nested card.use() addToBot power applications (Feel No Pain,
-                // Inflame, …) therefore land *after* that outer settlement.
-                // Resolving them inside the nested queue made FNP active before
-                // Havoc exhausted under Corruption (FIDL00253: block 4 vs 0).
-                let mut immediate = VecDeque::new();
-                let mut deferred_power_gains = Vec::new();
-                for action in actions {
-                    if is_play_top_deferred_power_gain(&action) {
-                        deferred_power_gains.push(action);
-                    } else {
-                        immediate.push_back(action);
-                    }
-                }
-                state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_add(1);
-                let transition = process_internal_queue(state, immediate)?;
-                *state = transition.state;
-                state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_sub(1);
-                // Flush nested Malleable/Curl Up after parent bot actions by
-                // returning them as PlayTop follow-ups (behind Letter Opener).
-                let nested_blocks = std::mem::take(&mut state.deferred_play_top_monster_blocks);
-                for (target, amount) in nested_blocks {
-                    deferred_power_gains.push(InternalAction::GainMonsterBlock { target, amount });
-                }
-                if state.decision.is_none() {
-                    state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
-                }
-                if parked_outer_source {
-                    if let Some(outer_id) = previous_in_use {
-                        if let Some(index) = state
-                            .piles
-                            .limbo
-                            .iter()
-                            .position(|card| card.id == outer_id)
-                        {
-                            let card = state.piles.limbo.remove(index);
-                            state.piles.hand.push(card);
-                        }
-                    }
-                }
-                state.card_in_use = previous_in_use;
-                Ok(deferred_power_gains)
-            }
-        }
+        } => apply_play_top_draw_card(state, target, exhaust_played_card, random_living_target),
+        InternalAction::ResolveTopDrawCard {
+            card_id,
+            target,
+            exhaust_played_card,
+        } => resolve_top_draw_card(state, card_id, target, exhaust_played_card),
         InternalAction::PutHandCardOnTopOfDraw { card_id } => {
             let card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
             state.piles.draw_pile.insert(0, card);
@@ -2032,7 +1945,10 @@ fn add_generated_card_to_draw_pile_random_spot(
     Ok(())
 }
 
-/// PlayTop remove + optional Hex insert (post-remove / pre-forced-card) + resolve.
+/// PlayTop removes the selected card and applies optional Hex inserts before
+/// the current action queue continues. The selected card stays in limbo until
+/// `ResolveTopDrawCard` runs after that queue, matching PlayTopCardAction's
+/// card-queue handoff and the parent UseCardAction settlement.
 fn apply_play_top_with_mid_hex(
     state: &mut CombatState,
     target: Option<crate::ids::MonsterId>,
@@ -2040,83 +1956,14 @@ fn apply_play_top_with_mid_hex(
     random_living_target: bool,
     mid_hex: Vec<InternalAction>,
 ) -> SimResult<Vec<InternalAction>> {
-    let previous_in_use = state.card_in_use;
-    let previous_play_top_force_exhaust = state.play_top_force_exhaust_active;
-    state.play_top_force_exhaust_active = exhaust_played_card;
-    let mut parked_outer_source = false;
-    if let Some(outer_id) = previous_in_use {
-        if let Some(index) = state.piles.hand.iter().position(|card| card.id == outer_id) {
-            let card = state.piles.hand.remove(index);
-            state.piles.limbo.push(card);
-            parked_outer_source = true;
-        }
-    }
     let actions =
         apply_play_top_draw_card(state, target, exhaust_played_card, random_living_target)?;
     // Top card is already removed. Land Havoc Hex Dazed against this size
-    // before the forced card draws (FIDL00381).
+    // before the forced card is resolved (FIDL00381).
     for hex_action in mid_hex {
         let _ = apply_internal_action(state, hex_action)?;
     }
-    if actions.is_empty() {
-        state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
-        if parked_outer_source {
-            if let Some(outer_id) = previous_in_use {
-                if let Some(index) = state
-                    .piles
-                    .limbo
-                    .iter()
-                    .position(|card| card.id == outer_id)
-                {
-                    let card = state.piles.limbo.remove(index);
-                    state.piles.hand.push(card);
-                }
-            }
-        }
-        return Ok(Vec::new());
-    }
-    let forced_id = actions.iter().find_map(|action| match action {
-        InternalAction::PlayCard { card_id } => Some(*card_id),
-        _ => None,
-    });
-    if let Some(card_id) = forced_id {
-        state.card_in_use = Some(card_id);
-    }
-    let mut immediate = VecDeque::new();
-    let mut deferred_power_gains = Vec::new();
-    for action in actions {
-        if is_play_top_deferred_power_gain(&action) {
-            deferred_power_gains.push(action);
-        } else {
-            immediate.push_back(action);
-        }
-    }
-    state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_add(1);
-    let transition = process_internal_queue(state, immediate)?;
-    *state = transition.state;
-    state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_sub(1);
-    let nested_blocks = std::mem::take(&mut state.deferred_play_top_monster_blocks);
-    for (target, amount) in nested_blocks {
-        deferred_power_gains.push(InternalAction::GainMonsterBlock { target, amount });
-    }
-    if state.decision.is_none() {
-        state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
-    }
-    if parked_outer_source {
-        if let Some(outer_id) = previous_in_use {
-            if let Some(index) = state
-                .piles
-                .limbo
-                .iter()
-                .position(|card| card.id == outer_id)
-            {
-                let card = state.piles.limbo.remove(index);
-                state.piles.hand.push(card);
-            }
-        }
-    }
-    state.card_in_use = previous_in_use;
-    Ok(deferred_power_gains)
+    Ok(actions)
 }
 
 fn apply_generated_card_metadata(state: &CombatState, card: &mut CardInstance) {
@@ -2363,15 +2210,45 @@ fn apply_play_top_draw_card(
         None
     };
 
+    // The selected card stays in limbo until the parent action queue (including
+    // UseCardAction) has drained; ResolveTopDrawCard builds its play queue then.
+    let selected_card_id = card.id;
+    // PlayTopCardAction moves the selected card into limbo and queues a card
+    // play. The action queue (including the parent UseCardAction) drains before
+    // that card queue is serviced, so retain the card in limbo until the
+    // deterministic ResolveTopDrawCard handoff.
+    state.piles.limbo.push(card);
+    Ok(vec![InternalAction::ResolveTopDrawCard {
+        card_id: selected_card_id,
+        target,
+        exhaust_played_card,
+    }])
+}
+
+fn resolve_top_draw_card(
+    state: &mut CombatState,
+    card_id: CardId,
+    target: Option<MonsterId>,
+    exhaust_played_card: bool,
+) -> SimResult<Vec<InternalAction>> {
+    let limbo_index = state
+        .piles
+        .limbo
+        .iter()
+        .position(|card| card.id == card_id)
+        .ok_or(SimError::UnknownCard(card_id))?;
+    let card = state.piles.limbo.remove(limbo_index);
+    let definition =
+        get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
+
+    // AbstractCard.canUse is checked when the queued card is finally serviced,
+    // after the parent UseCardAction. A forced card that cannot be used still
+    // leaves limbo and settles through UseCardAction without calling use().
     let clash_is_unplayable = matches!(definition.id, CLASH_ID | CLASH_PLUS_ID)
         && state.piles.hand.iter().any(|card| {
             get_card_definition(card.content_id)
                 .is_none_or(|definition| definition.card_type != CardType::Attack)
         });
-    // Dual Wield cannot open a selection when the hand has no Attack/Power.
-    // Normal hand play is blocked by legal.rs; forced top-draw plays (Havoc /
-    // Mayhem / Distilled Chaos) must still exhaust the card without effect,
-    // matching unplayable top-card handling rather than rejecting the play.
     let dual_wield_is_unplayable = matches!(definition.id, DUAL_WIELD_ID | DUAL_WIELD_PLUS_ID)
         && !state.piles.hand.iter().any(|hand_card| {
             get_card_definition(hand_card.content_id).is_some_and(|hand_definition| {
@@ -2381,24 +2258,14 @@ fn apply_play_top_draw_card(
                 )
             })
         });
-    // AbstractCard.canUse rejects Attack cards while Entangled. GameActionManager
-    // still removes the autoplayed card from limbo and, with exhaustOnUseOnce
-    // (Havoc / Mayhem PlayTopCard), settles it via UseCardAction without calling
-    // use() — exhaust without damage/debuffs. Match that rather than resolving
-    // the attack as a free forced play.
     let entangled_blocks_attack =
         state.player.powers.entangled > 0 && definition.card_type == CardType::Attack;
-    // NormalityPower: canUse fails after 3 cards this turn. Havoc already counted
-    // as a play, so a 4th forced top card exhausts without effect (FIDL00415).
     let normality_blocks_play = state
         .piles
         .hand
         .iter()
         .any(|hand_card| hand_card.content_id == NORMALITY_ID)
         && state.relic_counters.cards_played_this_turn >= 3;
-    // Blue Candle / Medical Kit make curses/statuses playable; do not take the
-    // inert exhaust path when those relics allow a real unplayable_relic_queue
-    // (FIDL00419: Havoc → Pain loses 1 HP via Blue Candle).
     let unplayable_blocked = definition.keywords.unplayable
         && !crate::relic::can_play_unplayable_card_with_relics(
             &state.relics,
@@ -2415,21 +2282,47 @@ fn apply_play_top_draw_card(
         let mut follow_ups = Vec::new();
         if exhaust_played_card || definition.keywords.exhaust {
             state.piles.exhaust_pile.push(card);
-            follow_ups.push(InternalAction::CardExhausted { card_id: card.id });
+            follow_ups.push(InternalAction::CardExhausted { card_id });
         } else if !card.combat_only {
             state.piles.discard_pile.push(card);
         }
         return Ok(follow_ups);
     }
 
-    let force_exhaust_flag = state.play_top_force_exhaust_active || exhaust_played_card;
+    let previous_in_use = state.card_in_use;
+    let previous_play_top_force_exhaust = state.play_top_force_exhaust_active;
+    state.play_top_force_exhaust_active = exhaust_played_card;
     let (mut queued_state, queue) =
         card_effects::play_top_draw_card_queue(state, card, target, exhaust_played_card)?;
     // play_top_draw_card_queue clones CombatState; preserve the force-exhaust
     // marker so nested Dual Wield await can see Havoc's exhaustOnUseOnce.
-    queued_state.play_top_force_exhaust_active = force_exhaust_flag;
+    queued_state.play_top_force_exhaust_active =
+        previous_play_top_force_exhaust || exhaust_played_card;
     *state = queued_state;
-    Ok(queue.into())
+    state.card_in_use = Some(card_id);
+
+    let mut immediate = VecDeque::new();
+    let mut deferred_power_gains = Vec::new();
+    for action in queue {
+        if is_play_top_deferred_power_gain(&action) {
+            deferred_power_gains.push(action);
+        } else {
+            immediate.push_back(action);
+        }
+    }
+    state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_add(1);
+    let transition = process_internal_queue(state, immediate)?;
+    *state = transition.state;
+    state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_sub(1);
+    let nested_blocks = std::mem::take(&mut state.deferred_play_top_monster_blocks);
+    for (target, amount) in nested_blocks {
+        deferred_power_gains.push(InternalAction::GainMonsterBlock { target, amount });
+    }
+    if state.decision.is_none() {
+        state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
+    }
+    state.card_in_use = previous_in_use;
+    Ok(deferred_power_gains)
 }
 
 pub fn choose_hand_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
@@ -7479,8 +7372,9 @@ mod tests {
             .iter()
             .map(|c| c.content_id)
             .collect();
-        // Doubt first (nested PlayTop), then nested Havoc (UseCardAction exhaust).
-        assert_eq!(exhaust, vec![DOUBT_ID, HAVOC_PLUS_ID], "exhaust order");
+        // The parent UseCardAction settles each forced Havoc before its queued
+        // top card is serviced (source checkpoint: Havoc, then Doubt).
+        assert_eq!(exhaust, vec![HAVOC_PLUS_ID, DOUBT_ID], "exhaust order");
         let db: Vec<_> = next
             .piles
             .hand

@@ -2847,6 +2847,37 @@ fn havoc_played_anger_adds_generated_copy_before_source_discard() {
 }
 
 #[test]
+fn havoc_settles_source_before_forced_anger_copy() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAVOC_ID)];
+    state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), cards::ANGER_ID)];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Havoc should force-play Anger");
+
+    assert_eq!(
+        next.piles
+            .discard_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::HAVOC_ID, cards::ANGER_ID]
+    );
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::ANGER_ID);
+}
+
+#[test]
 fn hemokinesis_plus_deals_damage_before_rupture_strength_from_hp_loss() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;

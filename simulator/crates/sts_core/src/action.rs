@@ -365,6 +365,14 @@ pub enum InternalAction {
         exhaust_played_card: bool,
         random_living_target: bool,
     },
+    /// Resolve a card selected by PlayTopCardAction after the current action
+    /// queue drains. Vanilla keeps the selected card in limbo while the parent
+    /// UseCardAction settles, then processes the card queue.
+    ResolveTopDrawCard {
+        card_id: CardId,
+        target: Option<MonsterId>,
+        exhaust_played_card: bool,
+    },
     PutHandCardOnTopOfDraw {
         card_id: CardId,
     },
