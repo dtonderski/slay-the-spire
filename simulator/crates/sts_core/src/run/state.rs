@@ -69,8 +69,8 @@ mod tests {
     #[test]
     fn tiny_house_upgrades_the_target_starter_instance_on_session32_seed() {
         let mut run = RunState::seeded_ironclad(5_556_398_760_754_084_786_u64, 0);
-        // Neow consumes one hidden miscRng draw before equipping its relic.
-        run.misc_rng_counter = 1;
+        // Exordium's source-backed music draw precedes Neow's relic onEquip.
+        assert_eq!(run.misc_rng_counter, 1);
         run.relics = vec![Relic::BurningBlood];
 
         let reward = crate::run::neow::apply_neow_boss_swap(&mut run)
@@ -101,6 +101,31 @@ mod tests {
         assert_eq!(
             run.reward.as_ref().map(|reward| reward.continuation),
             Some(RewardContinuation::Neow)
+        );
+    }
+
+    #[test]
+    fn fresh_fidl01448_tiny_house_upgrades_the_third_starter_strike() {
+        let run = RunState::seeded_ironclad(34_961_238_663_548, 0);
+        assert_eq!(run.misc_rng_counter, 1);
+
+        let talked =
+            crate::apply_event_action(&run, crate::EventAction::Choose { choice_index: 0 })
+                .expect("Neow talk opens the option screen");
+        let next =
+            crate::apply_event_action(&talked, crate::EventAction::Choose { choice_index: 3 })
+                .expect("Neow boss-swap option resolves");
+
+        assert_eq!(next.relics, vec![Relic::TinyHouse]);
+        assert_eq!(next.deck[1].content_id, crate::content::cards::STRIKE_R_ID);
+        assert_eq!(
+            next.deck[2].content_id,
+            crate::content::cards::STRIKE_R_PLUS_ID
+        );
+        assert_eq!(next.deck[3].content_id, crate::content::cards::STRIKE_R_ID);
+        assert_eq!(
+            next.reward.as_ref().and_then(|reward| reward.potion_offer),
+            Some(Potion::BlessingOfTheForge)
         );
     }
 
@@ -2816,6 +2841,12 @@ impl RunState {
         run.shuffle_rng_seed = seed;
         run.merchant_rng_seed = seed;
         run.misc_rng_seed = seed;
+        // Exordium changes the act music after initializing miscRng. The
+        // target music selector consumes miscRng.random(1), before Neow and
+        // any relic onEquip callback can use the stream.
+        let mut misc_rng = run.rng_for_stream(RunRngStream::Misc);
+        let _ = misc_rng.random_int(1);
+        run.store_rng_counter(RunRngStream::Misc, &misc_rng);
         run.monster_rng_seed = seed;
         // AbstractDungeon.initializeRelicList runs during dungeon setup,
         // before Neow and any later relic rewards advance relicRng. Keep the
