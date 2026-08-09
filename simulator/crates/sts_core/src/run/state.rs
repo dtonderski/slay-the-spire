@@ -971,17 +971,6 @@ pub struct PendingEventTransform {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PendingNeowTransform {
-    /// Exact deck instances selected by the owning Neow transform grid.
-    pub sources: Vec<CardInstance>,
-    /// Neow RNG counter after deterministically generating the replacements.
-    pub neow_rng_counter: u32,
-    /// Omamori counter immediately before queuing the transformed cards.
-    pub omamori_charges_used: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct PendingAstrolabeTransform {
     /// Exact deck instances selected by the owning Astrolabe grid.
     pub sources: Vec<CardInstance>,
@@ -1035,11 +1024,6 @@ pub struct RunState {
     /// accepting arbitrary content IDs at an intermediate Leave screen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_event_transform: Option<PendingEventTransform>,
-    /// Source and RNG authority for a deferred Neow transform obtain. The
-    /// selected sources leave the deck at grid confirmation, while each
-    /// replacement remains pending until the stage-2 Leave action settles it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_neow_transform: Option<PendingNeowTransform>,
     /// Source and RNG authority for a deferred Astrolabe obtain. The selected
     /// sources leave the deck at grid confirmation, while their transformed
     /// content remains pending until the owning boundary settles it.
@@ -2671,7 +2655,6 @@ impl RunState {
             pending_obtain_cards: Vec::new(),
             pending_obtain_provenance: Vec::new(),
             pending_event_transform: None,
-            pending_neow_transform: None,
             pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_combat_obtain_cards: Vec::new(),
@@ -2780,7 +2763,6 @@ impl RunState {
             pending_obtain_cards: Vec::new(),
             pending_obtain_provenance: Vec::new(),
             pending_event_transform: None,
-            pending_neow_transform: None,
             pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_combat_obtain_cards: Vec::new(),
@@ -3082,7 +3064,6 @@ impl RunState {
         let bypass_omamori = std::mem::take(&mut next.pending_obtain_cards_bypass_omamori);
         next.pending_obtain_provenance.clear();
         next.pending_event_transform = None;
-        next.pending_neow_transform = None;
         next.pending_astrolabe_transform = None;
         for (index, content_id) in pending.into_iter().enumerate() {
             if bypass_omamori.get(index).copied().unwrap_or(false) {
