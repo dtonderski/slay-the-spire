@@ -496,7 +496,7 @@ pub struct MonsterState {
     /// A survived Hexaghost Inferno makes later Sear-generated Burns upgraded.
     #[serde(default, skip_serializing_if = "is_false")]
     pub burns_upgraded: bool,
-    /// When set, the next half-dead Stun/REBIRTH takeTurn only holds the
+    /// When set, the next half-dead REBIRTH takeTurn only holds the
     /// half-dead pose; heal + Dark Echo wait for the following monster turn.
     /// Set when first death lands during player end-of-turn powers (Combust),
     /// matching FIDL00391 (death END stays half-dead through one player turn).
@@ -538,6 +538,9 @@ pub enum MonsterIntent {
     /// Darkling's half-dead COUNT pose before its next REINCARNATE turn.
     /// The target exposes this as `Intent.NONE` / UNKNOWN with move byte 4.
     DarklingCount,
+    /// Awakened One's first-death REBIRTH pose before its next monster turn.
+    /// The target sets move byte 3 while exposing `Intent.UNKNOWN`.
+    AwakenedOneHalfDead,
     Attack {
         damage: i32,
     },

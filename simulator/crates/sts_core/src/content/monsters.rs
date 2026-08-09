@@ -344,7 +344,7 @@ const AWAKENED_ONE_DARK_ECHO_DAMAGE: i32 = 40;
 const AWAKENED_ONE_TACKLE_DAMAGE: i32 = 10;
 const AWAKENED_ONE_TACKLE_HITS: i32 = 3;
 const DAGGER_WOUND_DAMAGE: i32 = 9;
-const DAGGER_EXPLODE_DAMAGE: i32 = 25;
+pub(crate) const DAGGER_EXPLODE_DAMAGE: i32 = 25;
 const DECA_BEAM_DAMAGE: i32 = 10;
 const DECA_A4_BEAM_DAMAGE: i32 = 12;
 const DECA_BEAM_HITS: i32 = 2;
@@ -5395,7 +5395,9 @@ pub fn awakened_one_is_half_dead(monster: &MonsterState) -> bool {
 }
 
 pub fn awaken_one_after_first_death(monster: &mut MonsterState) -> bool {
-    if !awakened_one_is_half_dead(monster) || !matches!(monster.intent, MonsterIntent::Stun) {
+    if !awakened_one_is_half_dead(monster)
+        || !matches!(monster.intent, MonsterIntent::AwakenedOneHalfDead)
+    {
         return false;
     }
 
@@ -5424,7 +5426,10 @@ pub fn mark_awakened_one_half_dead(monster: &mut MonsterState) -> bool {
     monster.block = 0;
     monster.mode_shift = -1;
     strip_awakened_one_half_death_powers(monster);
-    monster.intent = MonsterIntent::Stun;
+    // AwakenedOne.damage calls setMove(3, Intent.UNKNOWN) after the first
+    // form reaches zero HP. Keep that source-visible UNKNOWN pose distinct
+    // from executable Stun intents while preserving move byte 3.
+    monster.intent = MonsterIntent::AwakenedOneHalfDead;
     record_target_move(monster);
     // defer_awakened_one_rebirth is set by the damage caller when death lands
     // during end-of-turn powers (see apply_end_of_turn_combust).
@@ -6119,6 +6124,7 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
     }
     if content_id == AWAKENED_ONE_ID {
         return match intent {
+            MonsterIntent::AwakenedOneHalfDead => Some(3),
             MonsterIntent::Attack {
                 damage: AWAKENED_ONE_SLASH_DAMAGE,
             } => Some(1),
@@ -10114,6 +10120,11 @@ fn apply_monster_intent_with_card_rng_inner(
                 "Darkling COUNT must resolve through its special intent stage",
             ));
         }
+        MonsterIntent::AwakenedOneHalfDead => {
+            return Err(SimError::InvalidState(
+                "Awakened One REBIRTH must resolve through its special intent stage",
+            ));
+        }
         MonsterIntent::Attack { damage } => {
             let damage_taken =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
@@ -12162,7 +12173,7 @@ mod tests {
         monster.alive = false;
         monster.hp = 0;
         monster.mode_shift = -1;
-        monster.intent = MonsterIntent::Stun;
+        monster.intent = MonsterIntent::AwakenedOneHalfDead;
 
         assert!(awaken_one_after_first_death(&mut monster));
         assert_eq!(monster.mode_shift, 1);
@@ -12260,6 +12271,8 @@ mod tests {
         monster.powers.strength = 5;
 
         assert!(mark_awakened_one_half_dead(&mut monster));
+        assert_eq!(monster.intent, MonsterIntent::AwakenedOneHalfDead);
+        assert_eq!(target_move_byte_for_monster(&monster), Some(3));
         assert_eq!(monster.powers.strength, 5);
         assert!(awaken_one_after_first_death(&mut monster));
         assert_eq!(monster.powers.strength, 5);

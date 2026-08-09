@@ -769,11 +769,12 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 continue;
             }
             clear_lagavulin_metallicize_if_awake(&mut state.monsters[index]);
-            // Awakened One's first death always queues the next-turn REBIRTH as
-            // Stun. Preserve that source state even if a prior queued action left
-            // the stale pre-death intent on the half-dead monster.
+            // Awakened One's first death queues the next-turn REBIRTH with
+            // move byte 3 and Intent.UNKNOWN. Preserve that source state even
+            // if a prior queued action left the stale pre-death intent on the
+            // half-dead monster.
             if awakened_one_is_half_dead(&state.monsters[index]) {
-                state.monsters[index].intent = crate::MonsterIntent::Stun;
+                state.monsters[index].intent = crate::MonsterIntent::AwakenedOneHalfDead;
             }
             if execute_state_oriented_special_intent(state, actor_id, index, ascension)? {
                 continue;
@@ -1096,16 +1097,17 @@ fn execute_state_oriented_special_intent(
             prepare_next_intent_for_actor(state, actor_id)?;
             Ok(true)
         }
-        crate::MonsterIntent::Stun if awakened_one_is_half_dead(&state.monsters[index]) => {
+        crate::MonsterIntent::AwakenedOneHalfDead => {
             // Combust (and similar end-of-turn power) first-kills defer the
             // actual REBIRTH heal to the *next* monster phase so one full player
-            // turn observes half-dead Stun (FIDL00391). Clear the deferral and
-            // keep the Stun pose without burning the post-rebirth AI roll yet.
+            // turn observes the source's half-dead UNKNOWN pose (FIDL00391).
+            // Clear the deferral and keep that pose without burning the
+            // post-rebirth AI roll yet.
             if state.monsters[index].defer_awakened_one_rebirth {
-                // Hold half-dead Stun through this enemy phase; REBIRTH heal runs
-                // next monster phase (FIDL00391 Combust first-kill).
+                // Hold the half-dead UNKNOWN pose through this enemy phase;
+                // REBIRTH heal runs next monster phase (FIDL00391 first-kill).
                 state.monsters[index].defer_awakened_one_rebirth = false;
-                state.monsters[index].intent = crate::MonsterIntent::Stun;
+                state.monsters[index].intent = crate::MonsterIntent::AwakenedOneHalfDead;
                 return Ok(true);
             }
             // Rebirth queues the inherited RollMoveAction before the fixed
