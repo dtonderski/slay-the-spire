@@ -43,6 +43,33 @@ fn trace(records: Vec<Value>) -> String {
 }
 
 #[test]
+fn observed_upgrade_count_drives_repeated_self_upgrade_identity() {
+    let repeated = json!({
+        "id": "Searing Blow",
+        "name": "Searing Blow+999",
+        "upgrades": 2
+    });
+    assert_eq!(
+        content_id_from_card_value(&repeated),
+        Some(sts_core::content::cards::SEARING_BLOW_PLUS_ID)
+    );
+    assert_eq!(
+        observed_card_projection_key(&repeated).as_deref(),
+        Some("Searing Blow+2")
+    );
+
+    let one = json!({
+        "id": "Searing Blow",
+        "name": "Searing Blow+999",
+        "upgrades": 1
+    });
+    assert_eq!(
+        observed_card_projection_key(&one).as_deref(),
+        Some("Searing Blow+")
+    );
+}
+
+#[test]
 fn schema_v0_metadata_is_rejected_before_replay() {
     let content = trace(vec![
         metadata(None, false),
