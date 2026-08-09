@@ -1,6 +1,18 @@
 use crate::{SimError, SimResult};
 use serde::{Deserialize, Serialize};
 
+/// Player powers whose `onCardDraw` callbacks enqueue follow-up actions.
+///
+/// CommunicationMod/source action order is the runtime power-list order, not
+/// the lexical order of the scalar fields in [`PlayerPowers`].  Combat keeps
+/// this small authoritative order separately so queued draw callbacks can
+/// preserve source FIFO semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DrawTriggerPower {
+    Evolve,
+    FireBreathing,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PlayerPowers {
     pub strength: i32,

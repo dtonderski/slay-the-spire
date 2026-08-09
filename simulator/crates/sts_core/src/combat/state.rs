@@ -14,7 +14,7 @@ use crate::{
     },
     ids::{card_instance_id_is_supported, reserve_card_instance_id_range, CardId, MonsterId},
     potion::FAIRY_HEAL_PERCENT,
-    power::{MonsterPowers, PlayerPowers},
+    power::{DrawTriggerPower, MonsterPowers, PlayerPowers},
     relic::{Relic, RelicCounters},
     rng::{rng_counter_is_supported, RngTraceStream, StsRng},
     ContentId, SimError, SimResult, Snapshot, SNAPSHOT_SCHEMA_VERSION,
@@ -64,6 +64,10 @@ pub struct CombatState {
     pub monsters: Vec<MonsterState>,
     pub piles: CardPiles,
     pub phase: CombatPhase,
+    /// Runtime source order for player powers that enqueue draw callbacks.
+    /// Scalar `PlayerPowers` values do not retain this ordering themselves.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub draw_trigger_power_order: Vec<DrawTriggerPower>,
     #[serde(default)]
     pub relics: Vec<Relic>,
     /// Mark of the Bloom prevents every combat healing effect.
@@ -695,6 +699,66 @@ pub enum MonsterIntent {
 }
 
 impl CombatState {
+    /// Record a source power entering or leaving the active draw-callback list.
+    pub(crate) fn update_draw_trigger_power_order(
+        &mut self,
+        power: DrawTriggerPower,
+        was_active: bool,
+        is_active: bool,
+    ) {
+        if is_active {
+            if !was_active && !self.draw_trigger_power_order.contains(&power) {
+                self.draw_trigger_power_order.push(power);
+            }
+        } else {
+            self.draw_trigger_power_order
+                .retain(|candidate| *candidate != power);
+        }
+    }
+
+    /// Return active draw-trigger powers in their authoritative source order.
+    /// Missing order is an invalid state when both callbacks are active; a
+    /// deterministic lexical fallback would silently weaken replay fidelity.
+    pub(crate) fn active_draw_trigger_powers(&self) -> SimResult<Vec<DrawTriggerPower>> {
+        let active = [
+            (DrawTriggerPower::Evolve, self.player.powers.evolve > 0),
+            (
+                DrawTriggerPower::FireBreathing,
+                self.player.powers.fire_breathing > 0,
+            ),
+        ];
+        let active_count = active.iter().filter(|(_, is_active)| *is_active).count();
+        if active_count == 0 {
+            return Ok(Vec::new());
+        }
+        let mut ordered = Vec::with_capacity(active_count);
+        for power in &self.draw_trigger_power_order {
+            if active
+                .iter()
+                .any(|(candidate, is_active)| candidate == power && *is_active)
+                && !ordered.contains(power)
+            {
+                ordered.push(*power);
+            }
+        }
+        if ordered.len() != active_count {
+            if active_count == 1 {
+                // With only one active callback there is no ordering question;
+                // this also keeps compact unit fixtures that set one scalar
+                // power directly semantically complete.
+                return Ok(active
+                    .iter()
+                    .find_map(|(power, is_active)| is_active.then_some(*power))
+                    .into_iter()
+                    .collect());
+            }
+            return Err(SimError::InvalidState(
+                "active draw-trigger power order is incomplete",
+            ));
+        }
+        Ok(ordered)
+    }
+
     #[must_use]
     pub fn combat_card_reward_choices(&self) -> Option<&[CardInstance]> {
         match self.decision.as_ref()? {
@@ -954,6 +1018,7 @@ impl CombatState {
             monsters,
             piles,
             phase: CombatPhase::WaitingForPlayer,
+            draw_trigger_power_order: Vec::new(),
             relics,
             mark_of_bloom: false,
             relic_counters: RelicCounters::default(),

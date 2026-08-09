@@ -1,4 +1,5 @@
 use crate::{
+    action::InternalAction,
     card::CardType,
     combat::{damage::deal_unmodified_damage_to_monster, CombatState},
     content::{
@@ -17,6 +18,21 @@ fn draw_card_from_pile_top(state: &mut CombatState) -> Option<CardInstance> {
 
 pub(crate) const MAX_HAND_SIZE: usize = 10;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DrawFollowUp {
+    DrawCards { count: usize },
+    FireBreathingDamage { amount: i32 },
+}
+
+impl DrawFollowUp {
+    fn into_internal_action(self) -> InternalAction {
+        match self {
+            Self::DrawCards { count } => InternalAction::DrawCards { count },
+            Self::FireBreathingDamage { amount } => InternalAction::FireBreathingDamage { amount },
+        }
+    }
+}
+
 pub fn draw_cards_with_sts_rng(
     state: &mut CombatState,
     count: usize,
@@ -29,12 +45,15 @@ pub fn draw_cards_with_sts_rng(
         count,
         &mut next_rng,
     )?);
-    while let Some(extra) = pending.pop_front() {
-        pending.extend(draw_cards_with_sts_rng_batch_deferred(
-            &mut next,
-            extra,
-            &mut next_rng,
-        )?);
+    while let Some(follow_up) = pending.pop_front() {
+        match follow_up {
+            DrawFollowUp::DrawCards { count } => pending.extend(
+                draw_cards_with_sts_rng_batch_deferred(&mut next, count, &mut next_rng)?,
+            ),
+            DrawFollowUp::FireBreathingDamage { amount } => {
+                apply_fire_breathing_damage(&mut next, amount)?;
+            }
+        }
     }
     *state = next;
     *rng = next_rng;
@@ -45,9 +64,8 @@ fn draw_cards_with_sts_rng_batch_deferred(
     state: &mut CombatState,
     count: usize,
     rng: &mut StsRng,
-) -> SimResult<Vec<usize>> {
-    let mut deferred_evolve_draws = Vec::new();
-    let mut deferred_fire_breathing = 0usize;
+) -> SimResult<Vec<DrawFollowUp>> {
+    let mut deferred_follow_ups = Vec::new();
     for _ in 0..count {
         if state.piles.hand.len() >= MAX_HAND_SIZE {
             break;
@@ -74,20 +92,10 @@ fn draw_cards_with_sts_rng_batch_deferred(
             if content_id == VOID_ID {
                 state.player.energy = state.player.energy.saturating_sub(1);
             }
-            // FireBreathingPower.onCardDraw uses addToBot(DamageAllEnemiesAction),
-            // so resolve after this DrawCardAction batch finishes.
-            if fire_breathing_triggers_on_draw(state, content_id) {
-                deferred_fire_breathing += 1;
-            }
-            if extra_draws > 0 {
-                deferred_evolve_draws.push(extra_draws);
-            }
+            deferred_follow_ups.extend(draw_follow_ups_for_card(state, content_id, extra_draws)?);
         }
     }
-    for _ in 0..deferred_fire_breathing {
-        apply_fire_breathing_damage(state)?;
-    }
-    Ok(deferred_evolve_draws)
+    Ok(deferred_follow_ups)
 }
 
 /// Draw `count` cards, matching one target-game `DrawCardAction`.
@@ -104,24 +112,34 @@ pub fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) -> SimR
     let mut pending = std::collections::VecDeque::from(draw_cards_batch_deferred_evolve_in_place(
         &mut next, count,
     )?);
-    while let Some(extra) = pending.pop_front() {
-        pending.extend(draw_cards_batch_deferred_evolve_in_place(&mut next, extra)?);
+    while let Some(follow_up) = pending.pop_front() {
+        match follow_up {
+            DrawFollowUp::DrawCards { count } => {
+                pending.extend(draw_cards_batch_deferred_evolve_in_place(&mut next, count)?)
+            }
+            DrawFollowUp::FireBreathingDamage { amount } => {
+                apply_fire_breathing_damage(&mut next, amount)?;
+            }
+        }
     }
     *state = next;
     Ok(())
 }
 
-/// Draw `count` cards without resolving Evolve follow-ups; return each
-/// Evolve-triggered follow-up draw count (one entry per status drawn) so the
-/// action queue can append them after other already-queued actions.
+/// Draw `count` cards and return source action-manager follow-ups in FIFO
+/// order. The caller appends these behind actions already queued by the
+/// enclosing DrawCardAction; nested draws therefore retain target queue order.
 pub(crate) fn draw_cards_with_combat_rng_deferred_evolve(
     state: &mut CombatState,
     count: usize,
-) -> SimResult<Vec<usize>> {
+) -> SimResult<Vec<InternalAction>> {
     let mut next = state.clone();
-    let deferred_evolve_draws = draw_cards_batch_deferred_evolve_in_place(&mut next, count)?;
+    let follow_ups = draw_cards_batch_deferred_evolve_in_place(&mut next, count)?;
     *state = next;
-    Ok(deferred_evolve_draws)
+    Ok(follow_ups
+        .into_iter()
+        .map(DrawFollowUp::into_internal_action)
+        .collect())
 }
 
 pub(crate) fn draw_cards_with_combat_rng_without_evolve(
@@ -129,7 +147,23 @@ pub(crate) fn draw_cards_with_combat_rng_without_evolve(
     count: usize,
 ) -> SimResult<()> {
     let mut next = state.clone();
-    draw_cards_batch_in_place(&mut next, count, false)?;
+    let mut pending =
+        std::collections::VecDeque::from(draw_cards_batch_in_place(&mut next, count, false)?);
+    while let Some(follow_up) = pending.pop_front() {
+        match follow_up {
+            // Evolve is disabled for this draw action, so this branch is a
+            // fail-closed guard if a future callback source violates that
+            // contract rather than silently dropping a draw.
+            DrawFollowUp::DrawCards { .. } => {
+                return Err(crate::SimError::InvalidState(
+                    "Evolve follow-up emitted by draw-without-evolve action",
+                ));
+            }
+            DrawFollowUp::FireBreathingDamage { amount } => {
+                apply_fire_breathing_damage(&mut next, amount)?;
+            }
+        }
+    }
     *state = next;
     Ok(())
 }
@@ -137,7 +171,7 @@ pub(crate) fn draw_cards_with_combat_rng_without_evolve(
 fn draw_cards_batch_deferred_evolve_in_place(
     state: &mut CombatState,
     count: usize,
-) -> SimResult<Vec<usize>> {
+) -> SimResult<Vec<DrawFollowUp>> {
     draw_cards_batch_in_place(state, count, true)
 }
 
@@ -149,9 +183,8 @@ fn draw_cards_batch_in_place(
     state: &mut CombatState,
     count: usize,
     trigger_evolve: bool,
-) -> SimResult<Vec<usize>> {
-    let mut deferred_evolve_draws = Vec::new();
-    let mut deferred_fire_breathing = 0usize;
+) -> SimResult<Vec<DrawFollowUp>> {
+    let mut deferred_follow_ups = Vec::new();
     let had_cards_at_start =
         !state.piles.draw_pile.is_empty() || !state.piles.discard_pile.is_empty();
     for _ in 0..count {
@@ -190,20 +223,10 @@ fn draw_cards_batch_in_place(
             if content_id == VOID_ID {
                 state.player.energy = state.player.energy.saturating_sub(1);
             }
-            // Defer Fire Breathing damage until the DrawCardAction batch ends so
-            // Stasis release cannot interleave with remaining draws in the batch.
-            if fire_breathing_triggers_on_draw(state, content_id) {
-                deferred_fire_breathing += 1;
-            }
-            if extra_draws > 0 {
-                deferred_evolve_draws.push(extra_draws);
-            }
+            deferred_follow_ups.extend(draw_follow_ups_for_card(state, content_id, extra_draws)?);
         }
     }
-    for _ in 0..deferred_fire_breathing {
-        apply_fire_breathing_damage(state)?;
-    }
-    Ok(deferred_evolve_draws)
+    Ok(deferred_follow_ups)
 }
 
 pub(crate) fn consume_empty_deck_shuffle_with_combat_rng(state: &mut CombatState) -> SimResult<()> {
@@ -215,9 +238,43 @@ fn fire_breathing_triggers_on_draw(state: &CombatState, content_id: ContentId) -
     state.player.powers.fire_breathing > 0 && is_status_or_curse(content_id)
 }
 
-/// Resolve one Fire Breathing pulse (one status/curse onCardDraw).
-pub(crate) fn apply_fire_breathing_damage(state: &mut CombatState) -> SimResult<()> {
-    let amount = state.player.powers.fire_breathing;
+fn draw_follow_ups_for_card(
+    state: &CombatState,
+    content_id: ContentId,
+    evolve_draw_count: usize,
+) -> SimResult<Vec<DrawFollowUp>> {
+    if !is_status_or_curse(content_id)
+        || (evolve_draw_count == 0 && !fire_breathing_triggers_on_draw(state, content_id))
+    {
+        return Ok(Vec::new());
+    }
+
+    let mut follow_ups = Vec::new();
+    for power in state.active_draw_trigger_powers()? {
+        match power {
+            crate::power::DrawTriggerPower::Evolve if evolve_draw_count > 0 => {
+                follow_ups.push(DrawFollowUp::DrawCards {
+                    count: evolve_draw_count,
+                });
+            }
+            crate::power::DrawTriggerPower::FireBreathing
+                if fire_breathing_triggers_on_draw(state, content_id) =>
+            {
+                // The target constructs DamageAllEnemiesAction with the power
+                // amount at callback time; do not reread a mutable power when
+                // this queued action later resolves.
+                follow_ups.push(DrawFollowUp::FireBreathingDamage {
+                    amount: state.player.powers.fire_breathing,
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(follow_ups)
+}
+
+/// Resolve one captured Fire Breathing pulse (one status/curse onCardDraw).
+pub(crate) fn apply_fire_breathing_damage(state: &mut CombatState, amount: i32) -> SimResult<()> {
     if amount <= 0 {
         return Ok(());
     }
@@ -369,7 +426,7 @@ mod tests {
             monster.hp = 50;
             monster.max_hp = 50;
         }
-        apply_fire_breathing_damage(&mut state).expect("FB");
+        apply_fire_breathing_damage(&mut state, 6).expect("FB");
         for monster in &state.monsters {
             assert_eq!(monster.block, 0);
             assert_eq!(monster.hp, 48);

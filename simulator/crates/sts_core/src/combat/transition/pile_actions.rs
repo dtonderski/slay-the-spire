@@ -263,11 +263,7 @@ pub(super) fn add_random_colorless_cards_to_hand_while_source_in_limbo(
 }
 
 pub(super) fn draw_cards(state: &mut CombatState, count: usize) -> SimResult<Vec<InternalAction>> {
-    let deferred_evolve_draws = player_draw_cards_with_deferred_evolve(state, count)?;
-    Ok(deferred_evolve_draws
-        .into_iter()
-        .map(|count| InternalAction::DrawCards { count })
-        .collect())
+    player_draw_cards_with_deferred_evolve(state, count)
 }
 
 pub(super) fn draw_cards_without_evolve(
@@ -323,11 +319,7 @@ fn draw_cards_while_played_card_is_in_limbo_with_mode(
     // after Reckless Charge → Dazed → Shrug It Off + Evolve (permanent
     // random-fidelity-0667712a2814e2cf step 646/648).
     let follow_ups = if trigger_evolve {
-        let deferred_evolve_draws = player_draw_cards_with_deferred_evolve(state, count)?;
-        deferred_evolve_draws
-            .into_iter()
-            .map(|count| InternalAction::DrawCards { count })
-            .collect()
+        player_draw_cards_with_deferred_evolve(state, count)?
     } else {
         player_draw_cards_without_evolve(state, count)?;
         Vec::new()

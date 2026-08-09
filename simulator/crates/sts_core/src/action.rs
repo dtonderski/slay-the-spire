@@ -87,6 +87,11 @@ pub enum InternalAction {
         source: CardId,
         amount: i32,
     },
+    /// Fire Breathing's queued `DamageAllEnemiesAction` from a draw callback.
+    /// The amount is captured when the source power receives the callback.
+    FireBreathingDamage {
+        amount: i32,
+    },
     DealDamageAllRepeated {
         source: CardId,
         amount: i32,

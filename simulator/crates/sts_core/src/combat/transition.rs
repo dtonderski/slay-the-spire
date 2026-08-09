@@ -744,6 +744,10 @@ fn apply_internal_action(
         InternalAction::DealDamageAll { source, amount } => {
             damage_actions::deal_damage_all(state, source, amount)
         }
+        InternalAction::FireBreathingDamage { amount } => {
+            crate::combat::draw::apply_fire_breathing_damage(state, amount)?;
+            Ok(Vec::new())
+        }
         InternalAction::DealDamageAllRepeated {
             source,
             amount,
@@ -1871,13 +1875,38 @@ pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) -> SimRes
 pub(crate) fn player_draw_cards_with_deferred_evolve(
     state: &mut CombatState,
     count: usize,
-) -> SimResult<Vec<usize>> {
+) -> SimResult<Vec<InternalAction>> {
     if state.player.cannot_draw {
         return Ok(Vec::new());
     }
     with_card_in_use_out_of_hand(state, |next| {
         crate::combat::draw::draw_cards_with_combat_rng_deferred_evolve(next, count)
     })
+}
+
+pub(crate) fn resolve_deferred_draw_follow_ups(
+    state: &mut CombatState,
+    follow_ups: Vec<InternalAction>,
+) -> SimResult<()> {
+    let mut pending = VecDeque::from(follow_ups);
+    while let Some(follow_up) = pending.pop_front() {
+        let nested = match follow_up {
+            InternalAction::DrawCards { count } => {
+                player_draw_cards_with_deferred_evolve(state, count)?
+            }
+            InternalAction::FireBreathingDamage { amount } => {
+                crate::combat::draw::apply_fire_breathing_damage(state, amount)?;
+                Vec::new()
+            }
+            _ => {
+                return Err(SimError::InvalidState(
+                    "unexpected non-draw follow-up in deferred draw queue",
+                ));
+            }
+        };
+        pending.extend(nested);
+    }
+    Ok(())
 }
 
 pub(crate) fn player_draw_cards_without_evolve(
@@ -6860,6 +6889,88 @@ mod tests {
                 DISARM_ID,
             ]
         );
+    }
+
+    #[test]
+    fn evolve_and_fire_breathing_callbacks_preserve_source_fifo_and_stasis_order() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&BRONZE_ORB_A0, MonsterId::new(1)),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 1;
+        state.monsters[0].max_hp = 1;
+        state.monsters[0].stasis_card = Some(CardInstance::new(CardId::new(99), BLUDGEON_ID));
+        state.piles.hand.clear();
+        // Bottom → top: two Evolve follow-up cards, then the five-card base
+        // draw whose top card is Wound. Evolve is applied before Fire Breathing
+        // so the source callback FIFO is unambiguous.
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), EXHUME_ID),
+            CardInstance::new(CardId::new(2), HAVOC_PLUS_ID),
+            CardInstance::new(CardId::new(3), CLASH_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), DEFEND_R_ID),
+            CardInstance::new(CardId::new(6), BASH_ID),
+            CardInstance::new(CardId::new(7), WOUND_ID),
+        ];
+        apply_internal_action(&mut state, InternalAction::GainEvolve { amount: 2 })
+            .expect("Evolve gain");
+        apply_internal_action(&mut state, InternalAction::GainFireBreathing { amount: 6 })
+            .expect("Fire Breathing gain");
+
+        crate::combat::draw::draw_cards_with_combat_rng(&mut state, 5)
+            .expect("ordered draw callbacks");
+
+        assert!(!state.monsters[0].alive);
+        let hand = state
+            .piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            &hand[hand.len() - 3..],
+            &[HAVOC_PLUS_ID, EXHUME_ID, BLUDGEON_ID]
+        );
+        assert_eq!(hand.len(), 8);
+        assert!(state.piles.draw_pile.is_empty());
+        assert!(state.piles.discard_pile.is_empty());
+    }
+
+    #[test]
+    fn nested_draw_callbacks_append_after_already_queued_fire_breathing() {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&BRONZE_ORB_A0, MonsterId::new(1)),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 1;
+        state.monsters[0].max_hp = 1;
+        state.monsters[0].stasis_card = Some(CardInstance::new(CardId::new(99), BLUDGEON_ID));
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), EXHUME_ID),
+            CardInstance::new(CardId::new(2), WOUND_ID),
+            CardInstance::new(CardId::new(3), WOUND_ID),
+        ];
+        apply_internal_action(&mut state, InternalAction::GainEvolve { amount: 1 })
+            .expect("Evolve gain");
+        apply_internal_action(&mut state, InternalAction::GainFireBreathing { amount: 6 })
+            .expect("Fire Breathing gain");
+
+        crate::combat::draw::draw_cards_with_combat_rng(&mut state, 1)
+            .expect("nested ordered draw callbacks");
+
+        let hand = state
+            .piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>();
+        assert_eq!(hand, vec![WOUND_ID, WOUND_ID, BLUDGEON_ID, EXHUME_ID]);
+        assert!(!state.monsters[0].alive);
+        assert!(state.piles.draw_pile.is_empty());
     }
 
     #[test]

@@ -7,6 +7,7 @@ use crate::{
     action::{HpLossSource, InternalAction},
     combat::{state::BombTimer, CombatState},
     ids::CardId,
+    power::DrawTriggerPower,
     SimResult,
 };
 
@@ -98,7 +99,13 @@ pub(super) fn gain_barricade(
 }
 
 pub(super) fn gain_evolve(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    let was_active = state.player.powers.evolve > 0;
     checked_add_combat_value(&mut state.player.powers.evolve, amount)?;
+    state.update_draw_trigger_power_order(
+        DrawTriggerPower::Evolve,
+        was_active,
+        state.player.powers.evolve > 0,
+    );
     Ok(Vec::new())
 }
 
@@ -158,7 +165,13 @@ pub(super) fn gain_fire_breathing(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
+    let was_active = state.player.powers.fire_breathing > 0;
     checked_add_combat_value(&mut state.player.powers.fire_breathing, amount)?;
+    state.update_draw_trigger_power_order(
+        DrawTriggerPower::FireBreathing,
+        was_active,
+        state.player.powers.fire_breathing > 0,
+    );
     Ok(Vec::new())
 }
 

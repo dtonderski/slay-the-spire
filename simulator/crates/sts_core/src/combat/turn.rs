@@ -439,12 +439,10 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
     crate::relic::apply_start_of_player_turn_post_draw_relics(state)?;
     let brutality_draw_follow_ups = apply_start_of_turn_brutality_post_draw(state)?;
     if state.player.hp > 0 {
-        let mut pending_draws = std::collections::VecDeque::from(brutality_draw_follow_ups);
-        while let Some(count) = pending_draws.pop_front() {
-            pending_draws.extend(
-                crate::combat::transition::player_draw_cards_with_deferred_evolve(state, count)?,
-            );
-        }
+        crate::combat::transition::resolve_deferred_draw_follow_ups(
+            state,
+            brutality_draw_follow_ups,
+        )?;
     }
     // Mayhem is queued ahead of Evolve's residual DrawCardAction from the base
     // hand refill. If Mayhem is the twelfth card, Time Warp appends EndTurnAction
@@ -459,12 +457,7 @@ fn start_player_turn_in_place(state: &mut CombatState) -> SimResult<()> {
         return Ok(());
     }
     if state.player.hp > 0 {
-        let mut pending_draws = std::collections::VecDeque::from(base_draw_follow_ups);
-        while let Some(count) = pending_draws.pop_front() {
-            pending_draws.extend(
-                crate::combat::transition::player_draw_cards_with_deferred_evolve(state, count)?,
-            );
-        }
+        crate::combat::transition::resolve_deferred_draw_follow_ups(state, base_draw_follow_ups)?;
     }
     state.defer_time_warp_end_turn = false;
     crate::combat::transition::settle_time_warp_end_turn_if_ready(state)?;
@@ -569,7 +562,9 @@ fn finish_monster_turn_after_player_revival_inner(state: &mut CombatState) -> Si
     Ok(())
 }
 
-fn apply_start_of_turn_brutality_post_draw(state: &mut CombatState) -> SimResult<Vec<usize>> {
+fn apply_start_of_turn_brutality_post_draw(
+    state: &mut CombatState,
+) -> SimResult<Vec<crate::action::InternalAction>> {
     let amount = state.player.powers.brutality.max(0) as usize;
     if amount == 0 {
         return Ok(Vec::new());
@@ -1824,17 +1819,13 @@ fn apply_attack_heal_self_thorns_after_heal(
 
 #[cfg(test)]
 fn draw_next_hand_without_shuffle(state: &mut CombatState) -> SimResult<()> {
-    let mut pending =
-        std::collections::VecDeque::from(draw_next_hand_without_shuffle_deferred(state)?);
-    while let Some(count) = pending.pop_front() {
-        pending.extend(
-            crate::combat::transition::player_draw_cards_with_deferred_evolve(state, count)?,
-        );
-    }
-    Ok(())
+    let follow_ups = draw_next_hand_without_shuffle_deferred(state)?;
+    crate::combat::transition::resolve_deferred_draw_follow_ups(state, follow_ups)
 }
 
-fn draw_next_hand_without_shuffle_deferred(state: &mut CombatState) -> SimResult<Vec<usize>> {
+fn draw_next_hand_without_shuffle_deferred(
+    state: &mut CombatState,
+) -> SimResult<Vec<crate::action::InternalAction>> {
     // Target GameActionManager queues a single DrawCardAction(gameHandSize).
     // EvolvePower.addToBot follow-ups therefore run after the full base refill,
     // not interleaved between remaining base draws.
