@@ -19,7 +19,7 @@ use crate::{
         },
         reward_pool::{
             ironclad_transform_card_content_id, random_normal_curse, RewardCardEntry,
-            IRONCLAD_REWARD_ENTRIES, NORMAL_CURSE_POOL,
+            IRONCLAD_REWARD_ENTRIES,
         },
         shop_pool::{colorless_match_and_keep_pool, return_colorless_card_from_pool},
     },
@@ -51,8 +51,8 @@ use crate::{
         },
         state::RunRngStream,
     },
-    CardId, CardInstance, CombatState, EventAction, MonsterId, RewardContinuation, RewardScreen,
-    RunPhase, RunState, SimError, SimResult,
+    CardId, CardInstance, CombatState, EventAction, MonsterId, RewardScreen, RunPhase, RunState,
+    SimError, SimResult,
 };
 
 mod action;
@@ -1603,9 +1603,6 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             "pending event transform has no owning Leave stage",
         ));
     }
-    if pending_cursed_key_chest_is_authoritative(run, pending) {
-        return Ok(());
-    }
     let valid = match run.event.as_ref() {
         Some(screen) if run.phase == RunPhase::Event => match (screen.event, screen.stage) {
             (Event::GoldenIdol, 2) if screen.event_data == 0 => {
@@ -1763,26 +1760,6 @@ fn pending_event_transform_is_authoritative(
     rng.counter() == run.misc_rng_counter
         && omamori_charges_used == run.omamori_charges_used
         && expected_pending == run.pending_obtain_cards
-}
-
-fn pending_cursed_key_chest_is_authoritative(run: &RunState, pending: &[ContentId]) -> bool {
-    run.relics.contains(&Relic::CursedKey)
-        && run.current_room_kind() == Some(crate::map::RoomKind::Treasure)
-        && run.treasure_room.is_some()
-        && run.reward.as_ref().is_some_and(|reward| {
-            reward.continuation == RewardContinuation::Map
-                && pending.len() == 1
-                && NORMAL_CURSE_POOL.contains(&pending[0])
-        })
-}
-
-pub(super) fn pending_obtain_cards_ready_for_reward_input(run: &RunState) -> bool {
-    let pending = run.pending_obtain_cards.as_slice();
-    pending.is_empty()
-        || pending_cursed_key_chest_is_authoritative(run, pending)
-        || (run.phase == RunPhase::Reward
-            && pending == [NECRONOMICURSE_ID]
-            && run.relics.contains(&Relic::Necronomicon))
 }
 
 fn pending_obtain_is_necronomicon_curse(run: &RunState, pending: &[ContentId]) -> bool {
