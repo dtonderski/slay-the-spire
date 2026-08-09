@@ -952,7 +952,8 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
             .map(|p| int(p, "current_hp"))
             .unwrap_or_else(|| int(game, "current_hp"))
     };
-    let monster_intents_visible = observed_monster_intents_visible(game);
+    let monster_intents_visible =
+        screen_type != "GAME_OVER" && observed_monster_intents_visible(game);
     let mut subset = json!({
         "screen_type": screen_type,
         "ascension": game.get("ascension_level").and_then(Value::as_u64).unwrap_or(0),
@@ -2396,7 +2397,8 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
         });
     };
     let screen_type = seed_start_simulated_combat_screen_type(combat);
-    let monster_intents_visible = !run_has_relic_key(run, RelicKey::RunicDome);
+    let monster_intents_visible =
+        screen_type != "GAME_OVER" && !run_has_relic_key(run, RelicKey::RunicDome);
     let combat_player_energy = combat.player.energy;
     let mut subset = json!({
         "screen_type": screen_type,
