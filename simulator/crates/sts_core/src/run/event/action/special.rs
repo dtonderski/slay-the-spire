@@ -105,6 +105,7 @@ pub(super) fn apply_special_event_action(
                 designer_done_screen(next);
             }
             2 if choice_index == 0 => {
+                next.flush_pending_obtain_cards()?;
                 next.phase = RunPhase::Idle;
                 next.event = None;
             }

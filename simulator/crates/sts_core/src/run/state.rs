@@ -896,6 +896,17 @@ fn add_enchiridion_power_to_hand(combat: &mut CombatState) -> SimResult<()> {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PendingEventTransform {
+    /// Exact deck instances selected by the owning transform grid.
+    pub sources: Vec<CardInstance>,
+    /// Misc RNG counter immediately before generating the transformed cards.
+    pub rng_counter: u32,
+    /// Omamori counter immediately before queuing the transformed cards.
+    pub omamori_charges_used: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunState {
     pub phase: RunPhase,
     pub deck: Vec<CardInstance>,
@@ -928,6 +939,11 @@ pub struct RunState {
     /// master deck in the canonical simulator state yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_obtain_cards: Vec<ContentId>,
+    /// Source and RNG authority for a deferred EventTransformReturnToEvent
+    /// obtain. This lets validation recompute the generated cards instead of
+    /// accepting arbitrary content IDs at an intermediate Leave screen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_event_transform: Option<PendingEventTransform>,
     /// Whether each pending visual obtain already passed the target's
     /// construction-time Omamori check. Empty for legacy states that predate
     /// this parallel metadata; those entries retain the old flush behavior.
@@ -2518,6 +2534,7 @@ impl RunState {
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
+            pending_event_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_external_rng: Vec::new(),
             event_rng_seed: 0,
@@ -2622,6 +2639,7 @@ impl RunState {
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
+            pending_event_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_external_rng: Vec::new(),
             event_rng_seed: 0,
@@ -2873,6 +2891,7 @@ impl RunState {
         let mut next = self.clone();
         let pending = std::mem::take(&mut next.pending_obtain_cards);
         let bypass_omamori = std::mem::take(&mut next.pending_obtain_cards_bypass_omamori);
+        next.pending_event_transform = None;
         for (index, content_id) in pending.into_iter().enumerate() {
             if bypass_omamori.get(index).copied().unwrap_or(false) {
                 let id = CardId::new(next.next_card_instance_id()?);

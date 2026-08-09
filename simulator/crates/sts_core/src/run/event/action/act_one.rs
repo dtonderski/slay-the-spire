@@ -527,6 +527,9 @@ pub(super) fn apply_act_one_event_action(
             }
         },
         Event::LivingWall if screen.stage > 0 && choice_index == 0 => {
+            // Living Wall Change settles its ShowCardAndObtainEffect on Leave;
+            // Forget and Grow simply have no pending card.
+            next.flush_pending_obtain_cards()?;
             next.phase = RunPhase::Idle;
             next.event = None;
         }

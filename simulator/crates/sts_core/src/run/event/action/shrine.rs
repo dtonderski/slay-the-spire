@@ -67,6 +67,7 @@ pub(super) fn apply_shrine_event_action(
             ));
         }
         Event::Transmorgrifier if screen.stage > 0 && choice_index == 0 => {
+            next.flush_pending_obtain_cards()?;
             next.phase = RunPhase::Idle;
             next.event = None;
         }

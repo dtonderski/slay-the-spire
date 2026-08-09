@@ -1,6 +1,6 @@
 use super::{
     event::{Event, EventChoice, EventScreen},
-    state::RunRngStream,
+    state::{PendingEventTransform, RunRngStream},
 };
 use crate::{
     card::{CardInstance, CardType},
@@ -1083,10 +1083,14 @@ fn apply_validated_grid_confirmation(run: &RunState) -> SimResult<RunState> {
             confirm_neow_transform_grid(&mut next, count)?;
         }
         GridPurpose::EventTransform { count } => {
-            confirm_event_transform_grid(&mut next, count)?;
+            confirm_event_transform_grid(&mut next, count, false)?;
         }
         GridPurpose::EventTransformReturnToEvent { event, count } => {
-            confirm_event_transform_grid(&mut next, count)?;
+            // The target's transform result is shown through
+            // ShowCardAndObtainEffect. The source is removed at grid confirm,
+            // while the replacement commits when the returned Leave screen is
+            // selected.
+            confirm_event_transform_grid(&mut next, count, true)?;
             return_to_event_leave_screen(&mut next, event);
         }
         GridPurpose::RestSmith => {
@@ -1469,7 +1473,11 @@ fn finish_neow_grid_reward(run: &mut RunState) {
     run.event = Some(super::event::neow_screen_for_stage(run, 2));
 }
 
-fn confirm_event_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
+fn confirm_event_transform_grid(
+    run: &mut RunState,
+    count: u8,
+    defer_obtains: bool,
+) -> SimResult<()> {
     let grid = run
         .card_grid
         .as_ref()
@@ -1491,7 +1499,7 @@ fn confirm_event_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> 
                 .ok_or(SimError::IllegalAction("grid index out of range"))
         })
         .collect::<SimResult<Vec<_>>>()?;
-    transform_event_cards(run, &cards)?;
+    transform_event_cards(run, &cards, defer_obtains)?;
     run.card_grid = None;
     run.phase = RunPhase::Idle;
     run.event = None;
@@ -1597,16 +1605,32 @@ fn transform_astrolabe_cards(
     Ok(())
 }
 
-fn transform_event_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResult<()> {
-    let next_card_id = run.reserve_card_instance_ids(cards.len())?;
+fn transform_event_cards(
+    run: &mut RunState,
+    cards: &[CardInstance],
+    defer_obtains: bool,
+) -> SimResult<()> {
+    let pending_transform = defer_obtains.then(|| PendingEventTransform {
+        sources: cards.to_vec(),
+        rng_counter: run.misc_rng_counter,
+        omamori_charges_used: run.omamori_charges_used,
+    });
+    let next_card_id = if defer_obtains {
+        None
+    } else {
+        Some(run.reserve_card_instance_ids(cards.len())?)
+    };
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
     let transformed = cards
         .iter()
         .enumerate()
         .map(|(index, card)| -> SimResult<CardInstance> {
             let content_id = transform_card_content_id(card.content_id, &mut rng);
+            let card_id = next_card_id
+                .map(|first_id| first_id + index as u64)
+                .unwrap_or_else(|| card.id.get());
             Ok(CardInstance::new(
-                crate::ids::CardId::new(next_card_id + index as u64),
+                crate::ids::CardId::new(card_id),
                 run.content_id_after_card_add_relics(content_id)?,
             ))
         })
@@ -1617,8 +1641,15 @@ fn transform_event_cards(run: &mut RunState, cards: &[CardInstance]) -> SimResul
         run.remove_deck_card(card.id)
             .expect("transform selected a deck card");
     }
-    for card in transformed {
-        run.add_deck_card(card)?;
+    if defer_obtains {
+        run.pending_event_transform = pending_transform;
+        for card in transformed {
+            run.queue_pending_obtain_card(card.content_id);
+        }
+    } else {
+        for card in transformed {
+            run.add_deck_card(card)?;
+        }
     }
     Ok(())
 }
@@ -2299,6 +2330,64 @@ mod tests {
     }
 
     #[test]
+    fn event_transform_return_to_event_defers_obtain_until_leave() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            Event::LivingWall,
+        ));
+        let original_deck = run.deck.clone();
+
+        let changed = crate::run::event::apply_event_action(
+            &run,
+            crate::EventAction::Choose { choice_index: 1 },
+        )
+        .expect("Living Wall Change opens its transform grid");
+        let source = changed
+            .card_grid
+            .as_ref()
+            .expect("Living Wall transform grid")
+            .cards[0];
+        let mut expected_rng =
+            StsRng::with_counter(changed.misc_rng_seed as i64, changed.misc_rng_counter);
+        let expected = transform_card_content_id(source.content_id, &mut expected_rng);
+
+        let selected = select_grid_card(&changed, 0).expect("transform source can be selected");
+        let before_leave = confirm_grid(&selected).expect("transform confirms");
+        assert!(before_leave.card_grid.is_none());
+        assert_eq!(before_leave.deck.len(), original_deck.len() - 1);
+        assert_eq!(before_leave.pending_obtain_cards, vec![expected]);
+        assert_eq!(
+            before_leave.event.as_ref().map(|event| event.stage),
+            Some(1)
+        );
+        before_leave
+            .validate()
+            .expect("pending transform obtain is event-owned");
+        let mut wrong_pending = before_leave.clone();
+        wrong_pending.pending_obtain_cards = vec![crate::content::cards::JAX_ID];
+        wrong_pending.pending_obtain_cards_bypass_omamori = vec![true];
+        assert_eq!(
+            wrong_pending.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+
+        let after_leave = crate::run::event::apply_event_action(
+            &before_leave,
+            crate::EventAction::Choose { choice_index: 0 },
+        )
+        .expect("Leave settles the transformed card");
+        assert!(after_leave.pending_obtain_cards.is_empty());
+        assert_eq!(after_leave.deck.len(), original_deck.len());
+        assert_eq!(after_leave.deck.last().unwrap().content_id, expected);
+        assert_eq!(after_leave.phase, RunPhase::Idle);
+        assert!(after_leave.event.is_none());
+    }
+
+    #[test]
     fn astrolabe_multi_select_toggles_a_selected_card() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Event;
@@ -2424,7 +2513,8 @@ mod tests {
         let mut event_run = run.clone();
         let mut astrolabe_run = run;
 
-        transform_event_cards(&mut event_run, &sources).expect("event transforms allocate cards");
+        transform_event_cards(&mut event_run, &sources, false)
+            .expect("event transforms allocate cards");
         transform_astrolabe_cards(&mut astrolabe_run, &sources, false)
             .expect("Astrolabe transforms allocate cards");
 

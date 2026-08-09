@@ -17,11 +17,14 @@ use crate::{
             HEXAGHOST_A0, LAGAVULIN_EVENT_A0, ORB_WALKER_A0, ORB_WALKER_ID, SENTRY_A0,
             SLAVER_BLUE_A0, SLAVER_RED_A0, SLIME_BOSS_A0, TASKMASTER_A0,
         },
-        reward_pool::{random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES},
+        reward_pool::{
+            ironclad_transform_card_content_id, random_normal_curse, RewardCardEntry,
+            IRONCLAD_REWARD_ENTRIES,
+        },
         shop_pool::{colorless_match_and_keep_pool, return_colorless_card_from_pool},
     },
     ids::ContentId,
-    relic::{Relic, RelicKey, RelicTier},
+    relic::{Relic, RelicKey, RelicTier, OMAMORI_CHARGES},
     rng::{seed_for_floor, JavaRng, StsRng},
     run::{
         grid::{
@@ -1585,6 +1588,21 @@ pub(super) fn validate_event_screen_authority(
 
 pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()> {
     let pending = run.pending_obtain_cards.as_slice();
+    let transform_owner = run.phase == RunPhase::Event
+        && run.event.as_ref().is_some_and(|screen| {
+            matches!(
+                (screen.event, screen.stage),
+                (Event::LivingWall, 1)
+                    | (Event::Transmorgrifier, 1)
+                    | (Event::Designer, 2)
+                    | (Event::DrugDealer, 1)
+            )
+        });
+    if run.pending_event_transform.is_some() && !transform_owner {
+        return Err(SimError::InvalidState(
+            "pending event transform has no owning Leave stage",
+        ));
+    }
     let valid = match run.event.as_ref() {
         Some(screen) if run.phase == RunPhase::Event => match (screen.event, screen.stage) {
             (Event::GoldenIdol, 2) if screen.event_data == 0 => {
@@ -1623,7 +1641,24 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                     || (pending.len() == VAMPIRES_BITE_COUNT
                         && pending.iter().all(|id| *id == BITE_ID))
             }
-            (Event::DrugDealer, 1) => pending.is_empty() || pending == [JAX_ID],
+            // Event transform results use ShowCardAndObtainEffect: the source
+            // disappears at grid confirmation, while one or two replacements
+            // remain pending until the returned Leave action. Recompute the
+            // deterministic result from the transform-grid authority instead
+            // of accepting arbitrary card IDs at this boundary.
+            (Event::LivingWall, 1) => {
+                pending_event_transform_is_authoritative(run, Event::LivingWall, 1, 1)
+            }
+            (Event::Transmorgrifier, 1) => {
+                pending_event_transform_is_authoritative(run, Event::Transmorgrifier, 1, 1)
+            }
+            (Event::Designer, 2) => {
+                pending_event_transform_is_authoritative(run, Event::Designer, 2, 2)
+            }
+            (Event::DrugDealer, 1) => {
+                pending == [JAX_ID]
+                    || pending_event_transform_is_authoritative(run, Event::DrugDealer, 1, 2)
+            }
             (Event::Addict, 1) => pending.is_empty() || pending == [SHAME_ID],
             // Neow transforms and an Astrolabe granted by Neow use
             // ShowCardAndObtainEffect. The selected sources are removed before
@@ -1662,6 +1697,69 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
         ));
     }
     Ok(())
+}
+
+fn pending_event_transform_is_authoritative(
+    run: &RunState,
+    event: Event,
+    stage: u32,
+    expected_count: usize,
+) -> bool {
+    let Some(transform) = run.pending_event_transform.as_ref() else {
+        return run.pending_obtain_cards.is_empty();
+    };
+    if !matches!(
+        (event, stage),
+        (Event::LivingWall, 1)
+            | (Event::Transmorgrifier, 1)
+            | (Event::Designer, 2)
+            | (Event::DrugDealer, 1)
+    ) || transform.sources.len() != expected_count
+        || run.pending_obtain_cards_bypass_omamori.len() != run.pending_obtain_cards.len()
+        || run
+            .pending_obtain_cards_bypass_omamori
+            .iter()
+            .any(|bypassed| !bypassed)
+    {
+        return false;
+    }
+
+    for (index, source) in transform.sources.iter().enumerate() {
+        if source.id.get() == 0
+            || transform.sources[..index]
+                .iter()
+                .any(|previous| previous.id == source.id)
+            || !is_purgeable_card(source)
+            || run.deck.iter().any(|card| card.id == source.id)
+        {
+            return false;
+        }
+    }
+
+    let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, transform.rng_counter);
+    let mut omamori_charges_used = transform.omamori_charges_used;
+    let mut expected_pending = Vec::with_capacity(expected_count);
+    for source in &transform.sources {
+        let transformed = ironclad_transform_card_content_id(source.content_id, &mut rng);
+        let Ok(content_id) = run.content_id_after_card_add_relics(transformed) else {
+            return false;
+        };
+        let omamori_blocks = run.relics.contains(&Relic::Omamori)
+            && is_curse_content_id(content_id)
+            && omamori_charges_used < OMAMORI_CHARGES;
+        if omamori_blocks {
+            let Some(next_charges) = omamori_charges_used.checked_add(1) else {
+                return false;
+            };
+            omamori_charges_used = next_charges;
+        } else {
+            expected_pending.push(content_id);
+        }
+    }
+
+    rng.counter() == run.misc_rng_counter
+        && omamori_charges_used == run.omamori_charges_used
+        && expected_pending == run.pending_obtain_cards
 }
 
 fn pending_obtain_is_necronomicon_curse(run: &RunState, pending: &[ContentId]) -> bool {
@@ -5533,7 +5631,14 @@ mod tests {
         let completed = crate::run::grid::confirm_grid(&after_second).expect("transform confirms");
 
         assert!(completed.card_grid.is_none());
-        assert_eq!(completed.deck.len(), original_deck_len);
+        assert_eq!(
+            completed.deck.len(),
+            original_deck_len - usize::from(DRUG_DEALER_TRANSFORM_COUNT)
+        );
+        assert_eq!(
+            completed.pending_obtain_cards.len(),
+            usize::from(DRUG_DEALER_TRANSFORM_COUNT)
+        );
         assert_eq!(completed.phase, RunPhase::Event);
         assert_eq!(
             completed
@@ -5546,6 +5651,13 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["Leave"]
         );
+
+        let left = apply_event_action(&completed, EventAction::Choose { choice_index: 0 })
+            .expect("Leave settles both transformed cards");
+        assert_eq!(left.deck.len(), original_deck_len);
+        assert!(left.pending_obtain_cards.is_empty());
+        assert_eq!(left.phase, RunPhase::Idle);
+        assert!(left.event.is_none());
     }
 
     #[test]
@@ -6882,6 +6994,7 @@ mod tests {
     #[test]
     fn transmogrifier_pray_returns_to_leave_after_transform() {
         let mut run = RunState::seeded_ironclad(1, 0);
+        let original_deck_len = run.deck.len();
         run.phase = RunPhase::Event;
         run.event = Some(event_screen(Event::Transmorgrifier));
 
@@ -6923,7 +7036,23 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(after_confirm.phase, RunPhase::Event);
+        assert_eq!(after_confirm.deck.len(), original_deck_len - 1);
+        assert_eq!(after_confirm.pending_obtain_cards.len(), 1);
         assert_eq!(leave_choices, vec!["Leave"]);
+        after_confirm
+            .validate()
+            .expect("Transmogrifier pending transform is authoritative");
+
+        let pending = after_confirm.pending_obtain_cards.clone();
+        let left = apply_event_action(&after_confirm, EventAction::Choose { choice_index: 0 })
+            .expect("Transmogrifier Leave settles the transformed card");
+        assert_eq!(left.deck.len(), original_deck_len);
+        assert!(left.pending_obtain_cards.is_empty());
+        assert_eq!(
+            left.deck.last().expect("transformed card").content_id,
+            pending[0]
+        );
+        assert!(left.event.is_none());
     }
 
     #[test]
