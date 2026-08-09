@@ -6645,27 +6645,6 @@ pub fn record_target_move(monster: &mut MonsterState) {
     }
 }
 
-/// Whether the target's monster action ends the actor instead of queueing
-/// AbstractMonster's follow-up RollMoveAction.
-///
-/// Snake Dagger's 25-damage Explode and Exploder's Unknown/Explode move both
-/// kill themselves as part of the action. The target therefore preserves the
-/// executed move as the final history entry and does not consume another
-/// `aiRng` integer, even when another monster keeps combat running.
-#[must_use]
-pub fn target_intent_terminates_without_follow_up_roll(
-    monster: &MonsterState,
-    intent: MonsterIntent,
-) -> bool {
-    match intent {
-        MonsterIntent::Attack { damage } => {
-            monster.content_id == DAGGER_ID && damage == DAGGER_EXPLODE_DAMAGE
-        }
-        MonsterIntent::Stun => monster.content_id == EXPLODER_ID && monster.powers.explosive > 0,
-        _ => false,
-    }
-}
-
 /// Reproduces `TimeEater.getMove`, including the recursive AI rerolls which
 /// consume additional monster-RNG draws in the target game.
 #[must_use]

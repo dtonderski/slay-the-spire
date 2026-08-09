@@ -34,11 +34,10 @@ use crate::{
         target_fungi_beast_next_intent_from_roll, target_giant_head_next_intent_from_roll,
         target_gremlin_leader_next_intent_from_roll, target_gremlin_nob_next_intent_from_roll,
         target_gremlin_wizard_direct_next_intent_after_turn, target_grounded_byrd_next_intent,
-        target_healer_next_intent_from_roll, target_intent_terminates_without_follow_up_roll,
-        target_jaw_worm_next_intent_from_roll, target_lagavulin_direct_wake_attack_intent,
-        target_large_acid_slime_next_intent_from_roll, target_looter_direct_next_intent_after_turn,
-        target_louse_next_intent_from_roll, target_maw_next_intent_from_roll,
-        target_medium_acid_slime_next_intent_from_roll,
+        target_healer_next_intent_from_roll, target_jaw_worm_next_intent_from_roll,
+        target_lagavulin_direct_wake_attack_intent, target_large_acid_slime_next_intent_from_roll,
+        target_looter_direct_next_intent_after_turn, target_louse_next_intent_from_roll,
+        target_maw_next_intent_from_roll, target_medium_acid_slime_next_intent_from_roll,
         target_medium_or_large_spike_slime_next_intent_from_roll_with_profile,
         target_mugger_direct_next_intent_after_turn, target_nemesis_next_intent_from_roll,
         target_orb_walker_next_intent_from_roll, target_reptomancer_next_intent_from_roll,
@@ -826,8 +825,6 @@ fn execute_generic_monster_intent(
     let actor_was_alive = state.monsters[index].alive;
     let player_snapshot = state.player.clone();
     let intent = state.monsters[index].intent;
-    let target_action_terminates_actor =
-        target_intent_terminates_without_follow_up_roll(&state.monsters[index], intent);
     let nemesis_had_intangible = state.monsters[index].content_id == NEMESIS_ID
         && state.monsters[index].powers.intangible > 0;
     let deferred_burn_to_discard = match intent {
@@ -1023,7 +1020,6 @@ fn execute_generic_monster_intent(
     // living monster. Preserve that queued AI draw even though the attacker
     // is no longer alive by the time its damage resolves.
     let should_roll_queued_next_intent = actor_was_alive
-        && !target_action_terminates_actor
         && state.player.hp > 0
         && (state.monsters[index].alive
             || state
@@ -5649,39 +5645,6 @@ mod tests {
         assert_eq!(state.monsters[0].block, 0);
         assert_eq!(state.monsters[0].move_history, vec![1, 2]);
         assert_eq!(state.rng.monster_rng.counter(), 0);
-    }
-
-    #[test]
-    fn dagger_explode_skips_follow_up_roll_with_living_companion() {
-        let actor_id = MonsterId::new(1);
-        let mut state = CombatState::initial_fixture();
-        let mut dagger = monster_state_for_ascension(&DAGGER_A0, actor_id, 0);
-        dagger.content_id = DAGGER_ID;
-        dagger.hp = 20;
-        dagger.max_hp = 20;
-        dagger.intent = crate::MonsterIntent::Attack { damage: 25 };
-        dagger.move_history = vec![1, 2];
-        let companion = monster_state_for_ascension(&DAGGER_A0, MonsterId::new(2), 0);
-        state.monsters = vec![dagger, companion];
-        state.rng.monster_rng = StsRng::new(11);
-        let relics = state.relics.clone();
-        let ascension = state.ascension;
-        let mut skip_ritual_tick = Vec::new();
-
-        execute_generic_monster_intent(
-            &mut state,
-            actor_id,
-            0,
-            ascension,
-            &relics,
-            &mut skip_ritual_tick,
-        )
-        .expect("supported self-terminating monster intent");
-
-        assert!(!state.monsters[0].alive);
-        assert_eq!(state.monsters[0].move_history, vec![1, 2]);
-        assert_eq!(state.rng.monster_rng.counter(), 0);
-        assert!(state.monsters[1].alive);
     }
 
     #[test]
