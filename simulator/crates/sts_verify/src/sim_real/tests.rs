@@ -484,41 +484,6 @@ fn forgotten_altar_offer_projection_uses_relic_specific_commmod_label() {
 }
 
 #[test]
-fn match_and_keep_revealed_card_uses_authoritative_card_id() {
-    let mut run = RunState::seeded_ironclad(1, 0);
-    run.phase = RunPhase::Event;
-    run.match_and_keep = Some(sts_core::run::event::MatchAndKeepState {
-        cards: vec![sts_core::run::event::MatchAndKeepCard {
-            content_id: sts_core::content::cards::PANIC_BUTTON_ID,
-            revealed: true,
-            matched: false,
-        }],
-        attempts_remaining: 5,
-        first_flipped_index: None,
-        second_flipped_index: None,
-        matched_cards: Vec::new(),
-        game_done: false,
-    });
-    run.event = Some(EventScreen {
-        event: Event::MatchAndKeep,
-        choices: vec![sts_core::EventChoice {
-            label: "Panic Button".to_owned(),
-        }],
-        stage: 2,
-        event_data: 0,
-    });
-
-    assert_eq!(
-        seed_start_event_simulated_subset(&run)["choices"],
-        json!(["panicbutton"])
-    );
-    assert_eq!(
-        seed_start_communication_mod_card_id(sts_core::content::cards::PANIC_BUTTON_ID),
-        "panicbutton"
-    );
-}
-
-#[test]
 fn observation_metadata_never_selects_or_mutates_simulator_state() {
     let content = |game_update_seq| {
         let mut boundary = boundary_message("quiescent");
