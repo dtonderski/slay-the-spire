@@ -1818,11 +1818,36 @@ fn exhausted_card_content_id(state: &CombatState, card_id: CardId) -> Option<Con
         .map(|card| card.content_id)
 }
 
+fn with_card_in_use_out_of_hand<T>(
+    state: &mut CombatState,
+    operation: impl FnOnce(&mut CombatState) -> SimResult<T>,
+) -> SimResult<T> {
+    let mut next = state.clone();
+    let staged = next.card_in_use.and_then(|card_id| {
+        next.piles
+            .hand
+            .iter()
+            .position(|card| card.id == card_id)
+            .map(|index| (index, next.piles.hand.remove(index)))
+    });
+    let result = operation(&mut next);
+    if let Some((index, card)) = staged {
+        next.piles
+            .hand
+            .insert(index.min(next.piles.hand.len()), card);
+    }
+    let result = result?;
+    *state = next;
+    Ok(result)
+}
+
 pub(crate) fn player_draw_cards(state: &mut CombatState, count: usize) -> SimResult<()> {
     if state.player.cannot_draw {
         return Ok(());
     }
-    crate::combat::draw::draw_cards_with_combat_rng(state, count)
+    with_card_in_use_out_of_hand(state, |next| {
+        crate::combat::draw::draw_cards_with_combat_rng(next, count)
+    })
 }
 
 pub(crate) fn player_draw_cards_with_deferred_evolve(
@@ -1832,7 +1857,9 @@ pub(crate) fn player_draw_cards_with_deferred_evolve(
     if state.player.cannot_draw {
         return Ok(Vec::new());
     }
-    crate::combat::draw::draw_cards_with_combat_rng_deferred_evolve(state, count)
+    with_card_in_use_out_of_hand(state, |next| {
+        crate::combat::draw::draw_cards_with_combat_rng_deferred_evolve(next, count)
+    })
 }
 
 pub(crate) fn player_draw_cards_without_evolve(
@@ -1842,7 +1869,9 @@ pub(crate) fn player_draw_cards_without_evolve(
     if state.player.cannot_draw {
         return Ok(());
     }
-    crate::combat::draw::draw_cards_with_combat_rng_without_evolve(state, count)
+    with_card_in_use_out_of_hand(state, |next| {
+        crate::combat::draw::draw_cards_with_combat_rng_without_evolve(next, count)
+    })
 }
 
 pub(crate) fn player_shuffle_discard_into_draw(state: &mut CombatState) -> SimResult<()> {

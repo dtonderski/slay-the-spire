@@ -252,6 +252,43 @@ mod tests {
     }
 
     #[test]
+    fn runic_cube_draws_while_card_in_use_is_out_of_hand() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::RunicCube);
+        state.player.hp = 10;
+        let card_in_use = CardId::new(1);
+        state.piles.hand = std::iter::once(CardInstance::new(
+            card_in_use,
+            crate::content::cards::HEMOKINESIS_ID,
+        ))
+        .chain(
+            (2..=10)
+                .map(|id| CardInstance::new(CardId::new(id), crate::content::cards::DEFEND_R_ID)),
+        )
+        .collect();
+        let drawn = CardInstance::new(CardId::new(11), crate::content::cards::STRIKE_R_ID);
+        state.piles.draw_pile = vec![drawn];
+        state.card_in_use = Some(card_in_use);
+        state.player.hp = 8;
+
+        apply_player_card_hp_loss_hooks(&mut state, 2)
+            .expect("Runic Cube draws while the played card is in limbo");
+
+        // The simulator keeps cardInUse in the hand representation until its
+        // final MoveCard; the transient draw therefore leaves the source and
+        // newly drawn card both present until that move settles.
+        assert_eq!(state.piles.hand.len(), 11);
+        assert_eq!(state.piles.hand[0].id, card_in_use);
+        assert!(state
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(11)));
+        assert!(state.piles.draw_pile.is_empty());
+        assert_eq!(state.player.hp, 8);
+    }
+
+    #[test]
     fn self_forming_clay_overflow_rolls_back_earlier_hp_loss_triggers() {
         let mut state = CombatState::initial_fixture();
         state.relics.push(Relic::SelfFormingClay);
