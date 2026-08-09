@@ -353,7 +353,10 @@ fn is_status_or_curse(content_id: crate::ContentId) -> bool {
 }
 
 pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: &mut CardInstance) {
-    if !state.relics.contains(&Relic::SneckoEye) && state.player.powers.confusion <= 0 {
+    // Snecko Eye applies Confusion once at pre-battle. If another effect (for
+    // example Orange Pellets) removes that power, owning the relic alone does
+    // not keep randomizing future draws.
+    if state.player.powers.confusion <= 0 {
         return;
     }
     if get_card_definition(card.content_id)
@@ -409,7 +412,34 @@ pub(crate) fn deep_breath_shuffle_discard_into_draw_with_combat_rng(
 mod tests {
     use super::*;
     use crate::content::monsters::{monster_state, DECA_A0, DONU_A0};
-    use crate::ids::MonsterId;
+    use crate::ids::{CardId, MonsterId};
+
+    #[test]
+    fn snecko_eye_applies_confusion_at_start_of_combat() {
+        let mut state = CombatState::initial_fixture();
+        let relics = vec![Relic::SneckoEye];
+
+        crate::relic::apply_start_of_combat_relics(&mut state, &relics)
+            .expect("Snecko Eye pre-battle hook applies");
+
+        assert_eq!(state.player.powers.confusion, 1);
+    }
+
+    #[test]
+    fn snecko_eye_without_confusion_does_not_randomize_drawn_costs() {
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::SneckoEye);
+        let mut card = CardInstance::new(CardId::new(1), crate::content::cards::STRIKE_R_ID);
+        card.temp_cost = Some(3);
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![card];
+        state.rng.card_random_rng = StsRng::new(3);
+
+        draw_cards_with_combat_rng(&mut state, 1).expect("draw without Confusion");
+
+        assert_eq!(state.piles.hand[0].temp_cost, Some(3));
+        assert_eq!(state.rng.card_random_rng.counter(), 0);
+    }
 
     #[test]
     fn fire_breathing_breaking_block_applies_hand_drill_vulnerable() {

@@ -1991,7 +1991,12 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::CursedKey => {}
             Relic::TinyChest => {}
             Relic::Orrery => {}
-            Relic::SneckoEye => {}
+            // Snecko Eye's atPreBattle hook applies Confusion once. The relic
+            // does not itself randomize every later draw after that power is
+            // removed (for example by Orange Pellets).
+            Relic::SneckoEye => {
+                crate::power::apply_player_confusion(&mut combat.player.powers)?;
+            }
             Relic::StrangeSpoon => {}
             Relic::WingBoots => {}
             Relic::CallingBell => {}
