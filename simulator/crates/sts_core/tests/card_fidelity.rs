@@ -4430,6 +4430,54 @@ fn havoc_battle_trance_plus_draws_four_sets_no_draw_and_exhausts() {
 }
 
 #[test]
+fn havoc_battle_trance_draws_while_forced_card_is_in_limbo() {
+    // PlayTopCardAction leaves the forced Battle Trance in limbo while its
+    // DrawCardAction runs. ResolveTopDrawCard preserves that queue boundary,
+    // so the forced card must not consume a hand slot during its three draws.
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = (1..=8)
+        .map(|id| CardInstance::new(CardId::new(id), cards::STRIKE_R_ID))
+        .chain(std::iter::once(CardInstance::new(
+            CardId::new(9),
+            cards::HAVOC_ID,
+        )))
+        .collect();
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(10), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(11), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(12), cards::BASH_ID),
+        CardInstance::new(CardId::new(13), cards::BATTLE_TRANCE_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(9),
+            target: None,
+        },
+    )
+    .expect("Havoc should resolve Battle Trance from limbo");
+
+    assert_eq!(next.piles.hand.len(), 10);
+    assert!(next.player.cannot_draw);
+    assert_eq!(next.piles.draw_pile.len(), 1);
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::BATTLE_TRANCE_ID));
+    assert!(next
+        .piles
+        .discard_pile
+        .iter()
+        .any(|card| card.content_id == cards::HAVOC_ID));
+}
+
+#[test]
 fn battle_trance_under_corruption_sets_no_draw_before_dark_embrace() {
     // Battle Trance must apply No Draw before Corruption exhausts it, or
     // Dark Embrace would draw a fourth card after the trance draws.

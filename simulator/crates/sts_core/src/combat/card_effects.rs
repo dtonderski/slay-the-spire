@@ -441,21 +441,9 @@ pub(super) fn play_top_draw_card_queue(
             } if *card_id == card.id
         )
     });
-    for action in &mut queue {
-        match *action {
-            InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count }
-                if card_id == card.id =>
-            {
-                *action = InternalAction::DrawCards { count };
-            }
-            InternalAction::DrawCardsWhilePlayedCardIsInLimboWithoutEvolve { card_id, count }
-                if card_id == card.id =>
-            {
-                *action = InternalAction::DrawCardsWithoutEvolve { count };
-            }
-            _ => {}
-        }
-    }
+    // Keep limbo-aware draw actions from the shared builder. The staged card is
+    // temporarily in hand so those actions can remove its slot during draws,
+    // matching NewQueueCardAction/UseCardAction while the forced card resolves.
     if definition.id == WHIRLWIND_ID || definition.id == WHIRLWIND_PLUS_ID {
         queue = coalesce_top_draw_all_enemy_hits(queue, card.id);
     }
