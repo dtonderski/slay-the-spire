@@ -255,6 +255,17 @@ mod tests {
             ))
         );
 
+        let mut stale_combat_obtain = RunState::map_fixture();
+        stale_combat_obtain
+            .pending_combat_obtain_cards
+            .push(crate::content::cards::PARASITE_ID);
+        assert_eq!(
+            stale_combat_obtain.validate(),
+            Err(SimError::InvalidState(
+                "pending combat card obtain exists outside combat"
+            ))
+        );
+
         let mut combat = RunState::map_fixture();
         combat.phase = RunPhase::Combat;
         combat.combat = Some(CombatState::initial_fixture());
@@ -949,6 +960,12 @@ pub struct RunState {
     /// this parallel metadata; those entries retain the old flush behavior.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_obtain_cards_bypass_omamori: Vec<bool>,
+    /// AddCardToDeckAction effects queued by a combat action. The target can
+    /// expose the next waiting-for-player boundary before this action's visual
+    /// obtain commits the master deck; these entries settle on the next
+    /// combat-owned transition, without consulting observations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_combat_obtain_cards: Vec<ContentId>,
     /// Ordered call-time inputs for gameplay draws from process-global RNG.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_external_rng: Vec<ExternalRngInput>,
@@ -1634,6 +1651,11 @@ impl RunState {
                 return Err(SimError::UnknownContent(*content_id));
             }
         }
+        for content_id in &self.pending_combat_obtain_cards {
+            if get_card_definition(*content_id).is_none() {
+                return Err(SimError::UnknownContent(*content_id));
+            }
+        }
         if !self.pending_obtain_cards_bypass_omamori.is_empty()
             && self.pending_obtain_cards_bypass_omamori.len() != self.pending_obtain_cards.len()
         {
@@ -1694,6 +1716,11 @@ impl RunState {
         {
             return Err(SimError::InvalidState(
                 "pending event combat reward exists outside combat",
+            ));
+        }
+        if !self.pending_combat_obtain_cards.is_empty() && self.phase != RunPhase::Combat {
+            return Err(SimError::InvalidState(
+                "pending combat card obtain exists outside combat",
             ));
         }
 
@@ -2536,6 +2563,7 @@ impl RunState {
             pending_obtain_cards: Vec::new(),
             pending_event_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
+            pending_combat_obtain_cards: Vec::new(),
             pending_external_rng: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
@@ -2641,6 +2669,7 @@ impl RunState {
             pending_obtain_cards: Vec::new(),
             pending_event_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
+            pending_combat_obtain_cards: Vec::new(),
             pending_external_rng: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
@@ -2885,6 +2914,28 @@ impl RunState {
         }
         self.pending_obtain_cards.push(content_id);
         self.pending_obtain_cards_bypass_omamori.push(true);
+    }
+
+    /// Queue a card obtain created by an action in the combat queue.
+    pub fn queue_pending_combat_obtain_card(&mut self, content_id: ContentId) -> SimResult<()> {
+        if self.should_omamori_prevent_card(content_id) {
+            self.omamori_charges_used = self
+                .omamori_charges_used
+                .checked_add(1)
+                .ok_or(SimError::InvalidState("Omamori charge usage overflows u32"))?;
+            return Ok(());
+        }
+        self.pending_combat_obtain_cards.push(content_id);
+        Ok(())
+    }
+
+    /// Commit combat-queued card obtains after the next combat transition.
+    pub fn flush_pending_combat_obtain_cards(&mut self) -> SimResult<()> {
+        let pending = std::mem::take(&mut self.pending_combat_obtain_cards);
+        for content_id in pending {
+            self.gain_deck_card(content_id)?;
+        }
+        Ok(())
     }
 
     pub fn flush_pending_obtain_cards(&mut self) -> SimResult<()> {

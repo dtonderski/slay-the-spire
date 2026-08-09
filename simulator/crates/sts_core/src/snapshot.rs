@@ -827,6 +827,25 @@ mod tests {
     }
 
     #[test]
+    fn run_snapshot_round_trip_preserves_pending_combat_obtain_cards() {
+        let mut run = RunState::combat_fixture();
+        run.pending_combat_obtain_cards
+            .push(crate::content::cards::PARASITE_ID);
+        let snapshot = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        };
+        let json = snapshot
+            .canonical_json()
+            .expect("combat obtain snapshot serializes");
+
+        assert!(json.contains("pending_combat_obtain_cards"));
+        let restored =
+            restore_run_snapshot_json(&json).expect("combat obtain snapshot restores exactly");
+        assert_eq!(restored, snapshot);
+    }
+
+    #[test]
     fn schema_four_combat_snapshot_migrates_missing_combust_damage() {
         let mut combat = CombatState::initial_fixture();
         combat.player.powers.combust = 2;

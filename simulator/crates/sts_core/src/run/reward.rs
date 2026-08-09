@@ -1913,7 +1913,8 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
     apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat)?;
-    apply_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &mut next_combat)?;
+    settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
+    queue_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &next_combat)?;
     sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
     next.store_rng_counter(RunRngStream::CardRandom, &next_combat.rng.card_random_rng);
     next_combat.rng.card_random_rng = next.card_random_rng();
@@ -1999,10 +2000,29 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     Ok(next)
 }
 
-fn apply_writhing_mass_mega_debuff_to_run(
+fn settle_pending_combat_obtain_cards(
+    run: &mut RunState,
+    after: &mut crate::combat::CombatState,
+) -> SimResult<()> {
+    if run.pending_combat_obtain_cards.is_empty() {
+        return Ok(());
+    }
+
+    // AddCardToDeckAction effects are queued by the combat action and become
+    // visible on the next combat-owned boundary. Settle the prior queue before
+    // recording any new effect from this transition.
+    run.player_hp = after.player.hp;
+    run.player_max_hp = after.player.max_hp;
+    run.flush_pending_combat_obtain_cards()?;
+    after.player.hp = run.player_hp;
+    after.player.max_hp = run.player_max_hp;
+    Ok(())
+}
+
+fn queue_writhing_mass_mega_debuff_to_run(
     run: &mut RunState,
     before: &crate::combat::CombatState,
-    after: &mut crate::combat::CombatState,
+    after: &crate::combat::CombatState,
 ) -> SimResult<()> {
     let triggered = after.monsters.iter().any(|monster| {
         monster.content_id == WRITHING_MASS_ID
@@ -2013,17 +2033,12 @@ fn apply_writhing_mass_mega_debuff_to_run(
                 .find(|before_monster| before_monster.id == monster.id)
                 .is_none_or(|before_monster| !before_monster.has_siphoned)
     });
-    if !triggered {
-        return Ok(());
+    if triggered {
+        // Writhing Mass's Mega Debuff queues AddCardToDeckAction(new Parasite)
+        // after applying its player debuffs. Preserve that action-queue timing
+        // in the run state rather than mutating the deck during this boundary.
+        run.queue_pending_combat_obtain_card(PARASITE_ID)?;
     }
-
-    // AddCardToDeckAction mutates the master deck during combat. Keep the run
-    // and combat player views aligned so card-obtain relics apply immediately.
-    run.player_hp = after.player.hp;
-    run.player_max_hp = after.player.max_hp;
-    run.gain_deck_card(PARASITE_ID)?;
-    after.player.hp = run.player_hp;
-    after.player.max_hp = run.player_max_hp;
     Ok(())
 }
 
@@ -3547,7 +3562,7 @@ mod tests {
     }
 
     #[test]
-    fn writhing_mass_mega_debuff_adds_parasite_and_triggers_ceramic_fish() {
+    fn writhing_mass_mega_debuff_settles_queued_parasite_on_next_boundary() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Combat;
         run.current_room_override = Some(RoomKind::Combat);
@@ -3565,12 +3580,11 @@ mod tests {
         let next = apply_combat_action_on_run(&run, CombatAction::EndTurn)
             .expect("Writhing Mass Mega Debuff resolves");
 
-        assert_eq!(next.deck.len(), starting_deck_len + 1);
-        assert_eq!(
-            next.deck.last().map(|card| card.content_id),
-            Some(PARASITE_ID)
-        );
-        assert_eq!(next.gold, starting_gold + crate::relic::CERAMIC_FISH_GOLD);
+        // The combat transition is real, but AddCardToDeckAction's obtain is
+        // still queued for the next combat-owned boundary.
+        assert_eq!(next.deck.len(), starting_deck_len);
+        assert_eq!(next.gold, starting_gold);
+        assert_eq!(next.pending_combat_obtain_cards, vec![PARASITE_ID]);
         assert!(next.combat.as_ref().expect("combat continues").monsters[0].has_siphoned);
         let player_powers = &next
             .combat
@@ -3580,6 +3594,19 @@ mod tests {
             .powers;
         assert_eq!(player_powers.frail, 0);
         assert_eq!(player_powers.weak, 0);
+
+        let settled = apply_combat_action_on_run(&next, CombatAction::EndTurn)
+            .expect("queued Parasite settles");
+        assert_eq!(settled.deck.len(), starting_deck_len + 1);
+        assert_eq!(
+            settled.deck.last().map(|card| card.content_id),
+            Some(PARASITE_ID)
+        );
+        assert!(settled.pending_combat_obtain_cards.is_empty());
+        assert_eq!(
+            settled.gold,
+            starting_gold + crate::relic::CERAMIC_FISH_GOLD
+        );
     }
 
     #[test]

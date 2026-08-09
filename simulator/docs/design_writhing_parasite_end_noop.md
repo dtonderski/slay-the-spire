@@ -2,30 +2,31 @@
 
 ## Observation
 
-After Implant, CommunicationMod can lag across multiple frames:
+CommunicationMod can publish Writhing Mass's Implant across multiple frames:
 
-1. **Implant EndTurn** (e.g. step 1100): turn advances, new hand drawn, but
-   Parasite may be missing from the published deck for one frame.
-2. **Publish / turn-end lag END** (e.g. step 1101): same turn's hand still
-   visible while Parasite + Ceramic Fish gold appear; this END is still a real
-   turn boundary (turn N → N+1). Empty-hand STATE polls then the next hand
-   follow.
-3. Treating 1101 as a **no-op** left the sim on turn N while real advanced,
-   desyncing the next PLAY (FIDL00260 step 1107).
+1. The Implant `END` advances the real combat turn and resolves the monster's
+   one-shot `has_siphoned` marker, while the published master deck can still
+   omit Parasite for that boundary.
+2. A later combat boundary publishes Parasite (and, when present, Ceramic Fish
+   gold). That later `END` is still a real turn boundary, not a polling no-op.
+3. FIDL01349 provides the same strict witness: step 992 has a 29-card deck and
+   step 993 has 30 cards with trailing Parasite.
 
-## Rules
+## Source-backed rules
 
-1. **Implant combat lag** (`seed_start_writhing_mass_implant_end_turn_lag`):
-   Implant flipped `has_siphoned`, observation still matches pre-EndTurn combat
-   (ignore deck/gold), sim EndTurn diverges → apply EndTurn, keep piles, defer
-   deck if Parasite not yet observed.
-2. **Parasite publish lag** (`seed_start_end_turn_writhing_parasite_publish_lag`):
-   Observation still matches pre-EndTurn combat with Parasite/gold publishing →
-   **apply** EndTurn (`next`), do not no-op, do not rebind piles to the lagged
-   hand.
-3. Never `bind_combat_piles_to_source_order` onto a post-EndTurn sim using a
-   pre-discard CM hand after Implant.
+1. Writhing Mass Mega Debuff queues the target's
+   `AddCardToDeckAction(new Parasite())` after applying the combat effect. The
+   simulator applies the combat transition immediately and records that typed
+   card obtain in `RunState.pending_combat_obtain_cards`.
+2. The pending combat obtain settles on the next combat-owned transition. Deck
+   card-add relics (such as Ceramic Fish) run during that settlement, and the
+   run/combat player views remain synchronized.
+3. Never turn a real `END` into a no-op, bind pre-discard observed piles onto a
+   post-`END` simulator, or use an observation to decide whether to mutate the
+   authoritative deck. The observation is expected output only; queue state and
+   source transitions determine settlement.
 
 ## Residual
 
-None for FIDL00260 (promoted complete_pass).
+The queue mechanism is generic; the current source-backed producer is Writhing
+Mass's Mega Debuff / `AddCardToDeckAction`.
