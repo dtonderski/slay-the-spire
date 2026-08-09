@@ -1622,8 +1622,14 @@ fn apply_monster_pending_effects(
         state.relic_counters.deferred_runic_cube_draws = 0;
         return Ok(());
     }
-    settle_deferred_painful_stabs_wounds(state, painful_stabs_triggers)?;
+    // PainfulStabsPower and the HP-loss draw relics both queue addToBot actions
+    // from the same multi-hit DamageAction. The draw actions are queued before
+    // PainfulStabs' MakeTempCardInDiscardAction, so settle them first. This is
+    // observable when the opening draw requires a shuffle: newly generated
+    // Wounds must remain in discard while the deferred draws consume the
+    // pre-existing pile (FIDL01519 step 345).
     crate::relic::settle_deferred_hp_loss_draw_relics(state)?;
+    settle_deferred_painful_stabs_wounds(state, painful_stabs_triggers)?;
     if weak > 0 {
         crate::relic::apply_player_weak_with_relics(&mut state.player.powers, &state.relics, weak)?;
     }
@@ -4431,6 +4437,41 @@ mod tests {
             .filter(|card| card.content_id == WOUND_ID)
             .count();
         assert_eq!(wounds, 6);
+    }
+
+    #[test]
+    fn painful_stabs_queue_draws_before_wounds_enter_discard() {
+        // Both effects use addToBot from the same multi-hit DamageAction. The
+        // Runic Cube draws settle before Painful Stabs creates its status cards;
+        // otherwise an empty draw pile would shuffle those new Wounds back into
+        // the hand instead of leaving them in discard.
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::RunicCube];
+        state.piles.hand.clear();
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+
+        apply_monster_pending_effects(
+            &mut state, /*damage=*/ 4, /*hits=*/ 4, /*painful_stabs=*/ 1, None, 0,
+            0, 0, 0, false, 0,
+        )
+        .expect("Runic Cube and Painful Stabs settle");
+
+        assert_eq!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .filter(|card| card.content_id == WOUND_ID)
+                .count(),
+            4
+        );
+        assert!(state
+            .piles
+            .hand
+            .iter()
+            .chain(state.piles.draw_pile.iter())
+            .all(|card| card.content_id != WOUND_ID));
     }
 
     #[test]
