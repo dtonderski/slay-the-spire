@@ -1433,17 +1433,17 @@ fn apply_spore_cloud_on_monster_death(
         return Ok(());
     }
 
-    // Flame Barrier kill mid-monster-turn: Spore Cloud Vulnerable must survive
-    // the same cleanup tick (FIDL00227). Player-turn kills while FB is still
-    // up must not set justApplied (random-fidelity-09774f3d). Monster-turn
-    // deaths without temp thorns also leave justApplied false (permanent
-    // random-fidelity-15465 / 450f84).
+    // A Fungi Beast killed by reactive thorns during the monster phase queues
+    // its Spore Cloud Vulnerable after the attack's damage. It therefore must
+    // survive this phase's cleanup even when the thorns are persistent
+    // (Bronze Scales), not only temporary (Flame Barrier). Player-turn kills
+    // and stacked Vulnerable applications retain their ordinary duration.
     let had_no_vulnerable = state.player.powers.vulnerable == 0;
     let applied = apply_player_vulnerable(&mut state.player.powers, amount)?;
     if applied
         && had_no_vulnerable
-        && state.player.temp_thorns > 0
         && state.phase == crate::combat::state::CombatPhase::MonsterTurn
+        && (state.player.temp_thorns > 0 || state.player.powers.thorns > 0)
     {
         state.player.vulnerable_just_applied = true;
     }

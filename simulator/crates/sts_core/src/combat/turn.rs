@@ -3759,6 +3759,29 @@ mod tests {
     }
 
     #[test]
+    fn spore_cloud_from_persistent_thorns_survives_monster_turn_cleanup() {
+        let mut state = CombatState::initial_fixture();
+        state.phase = CombatPhase::MonsterTurn;
+        state.player.powers.thorns = 3;
+
+        let mut fungi = monster_state_for_ascension(&FUNGI_BEAST_A0, MonsterId::new(1), 0);
+        fungi.hp = 3;
+        fungi.intent = crate::MonsterIntent::Attack { damage: 6 };
+        let mut survivor = monster_state_for_ascension(&JAW_WORM_A0, MonsterId::new(2), 0);
+        survivor.intent = crate::MonsterIntent::Block { block: 0 };
+        state.monsters = vec![fungi, survivor];
+
+        run_monster_turn(&mut state).expect("supported monster intents");
+
+        assert!(!state.monsters[0].alive);
+        assert_eq!(
+            state.player.powers.vulnerable, 2,
+            "Bronze Scales death damage applies Spore Cloud after the current monster turn's duration tick"
+        );
+        assert!(!state.player.vulnerable_just_applied);
+    }
+
+    #[test]
     fn current_move_hits_ignore_next_intent_for_single_hit_cleanup() {
         assert_eq!(
             effective_current_move_hits(
