@@ -943,6 +943,17 @@ pub struct PendingEventTransform {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PendingAstrolabeTransform {
+    /// Exact deck instances selected by the owning Astrolabe grid.
+    pub sources: Vec<CardInstance>,
+    /// Misc RNG counter immediately before generating the transformed cards.
+    pub rng_counter: u32,
+    /// Omamori counter immediately before queuing the transformed cards.
+    pub omamori_charges_used: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RunState {
     pub phase: RunPhase,
     pub deck: Vec<CardInstance>,
@@ -980,6 +991,11 @@ pub struct RunState {
     /// accepting arbitrary content IDs at an intermediate Leave screen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_event_transform: Option<PendingEventTransform>,
+    /// Source and RNG authority for a deferred Astrolabe obtain. The selected
+    /// sources leave the deck at grid confirmation, while their transformed
+    /// content remains pending until the owning boundary settles it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_astrolabe_transform: Option<PendingAstrolabeTransform>,
     /// Whether each pending visual obtain already passed the target's
     /// construction-time Omamori check. Empty for legacy states that predate
     /// this parallel metadata; those entries retain the old flush behavior.
@@ -1449,7 +1465,7 @@ impl RewardScreen {
     }
 }
 
-fn validate_run_card_content(card: &CardInstance) -> SimResult<()> {
+pub(crate) fn validate_run_card_content(card: &CardInstance) -> SimResult<()> {
     validate_run_card_instance_id(card)?;
     validate_run_card_metadata(card)?;
     // Prismatic Shard any-color reward cards use synthetic content ids outside
@@ -2593,6 +2609,7 @@ impl RunState {
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
             pending_event_transform: None,
+            pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_combat_obtain_cards: Vec::new(),
             pending_external_rng: Vec::new(),
@@ -2699,6 +2716,7 @@ impl RunState {
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
             pending_event_transform: None,
+            pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_combat_obtain_cards: Vec::new(),
             pending_external_rng: Vec::new(),
@@ -2980,6 +2998,7 @@ impl RunState {
         let pending = std::mem::take(&mut next.pending_obtain_cards);
         let bypass_omamori = std::mem::take(&mut next.pending_obtain_cards_bypass_omamori);
         next.pending_event_transform = None;
+        next.pending_astrolabe_transform = None;
         for (index, content_id) in pending.into_iter().enumerate() {
             if bypass_omamori.get(index).copied().unwrap_or(false) {
                 let id = CardId::new(next.next_card_instance_id()?);

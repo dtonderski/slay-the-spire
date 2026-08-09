@@ -1,6 +1,6 @@
 use super::{
     event::{Event, EventChoice, EventScreen},
-    state::{PendingEventTransform, RunRngStream},
+    state::{PendingAstrolabeTransform, PendingEventTransform, RunRngStream},
 };
 use crate::{
     card::{CardInstance, CardType},
@@ -870,7 +870,7 @@ pub fn open_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
     Ok(())
 }
 
-const ASTROLABE_TRANSFORM_COUNT: usize = 3;
+pub(crate) const ASTROLABE_TRANSFORM_COUNT: usize = 3;
 
 pub(crate) fn validate_grid_select(run: &RunState, index: usize) -> SimResult<()> {
     run.validate()?;
@@ -1553,11 +1553,14 @@ fn transform_neow_cards(
 }
 
 fn astrolabe_obtain_is_pending(run: &RunState) -> bool {
-    run.phase == RunPhase::Event
+    (run.phase == RunPhase::Event
         && run
             .event
             .as_ref()
-            .is_some_and(|screen| screen.event == Event::Neow && screen.stage == 2)
+            .is_some_and(|screen| screen.event == Event::Neow && screen.stage == 2))
+        || (run.phase == RunPhase::Treasure
+            && run.current_room_kind() == Some(crate::RoomKind::Boss)
+            && run.boss_chest_opened)
 }
 
 fn transform_astrolabe_cards(
@@ -1565,6 +1568,11 @@ fn transform_astrolabe_cards(
     cards: &[CardInstance],
     defer_obtains: bool,
 ) -> SimResult<()> {
+    let pending_transform = defer_obtains.then(|| PendingAstrolabeTransform {
+        sources: cards.to_vec(),
+        rng_counter: run.misc_rng_counter,
+        omamori_charges_used: run.omamori_charges_used,
+    });
     let next_card_id = if defer_obtains {
         None
     } else {
@@ -1595,7 +1603,8 @@ fn transform_astrolabe_cards(
     }
     if defer_obtains {
         // Astrolabe's ShowCardAndObtainEffect removes the selected sources while
-        // its generated cards remain pending until the Neow Leave screen settles.
+        // its generated cards remain pending until the owning boundary settles.
+        run.pending_astrolabe_transform = pending_transform;
         for card in transformed {
             run.queue_pending_obtain_card(card.content_id);
         }
@@ -2414,22 +2423,207 @@ mod tests {
         assert!(confirm_grid(&after_toggle).is_err());
     }
 
-    #[test]
-    fn astrolabe_auto_confirms_after_the_third_selection() {
+    fn boss_astrolabe_pending_fixture() -> RunState {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Treasure;
         run.current_room_override = Some(crate::RoomKind::Boss);
         run.boss_chest_opened = true;
         run.relics.push(crate::Relic::Astrolabe);
         open_astrolabe_grid(&mut run).expect("Astrolabe opens its grid");
+        let after_first = select_grid_card(&run, 0).expect("first selection");
+        let after_second = select_grid_card(&after_first, 1).expect("second selection");
+        select_grid_card(&after_second, 2).expect("third selection")
+    }
+
+    #[test]
+    fn astrolabe_boss_grid_defers_obtains_until_chest_proceed() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::Astrolabe);
+        open_astrolabe_grid(&mut run).expect("Astrolabe opens its grid");
+        let original_deck = run.deck.clone();
 
         let after_first = select_grid_card(&run, 0).expect("first selection");
         let after_second = select_grid_card(&after_first, 1).expect("second selection");
         let after_third = select_grid_card(&after_second, 2).expect("third selection");
 
         assert!(after_third.card_grid.is_none());
-        assert_eq!(after_third.deck.len(), run.deck.len());
+        assert_eq!(after_third.deck.len(), original_deck.len() - 3);
+        assert_eq!(after_third.pending_obtain_cards.len(), 3);
         assert!(after_third.misc_rng_counter > run.misc_rng_counter);
+        after_third
+            .validate()
+            .expect("boss chest owns pending Astrolabe obtains");
+
+        let pending = after_third.pending_obtain_cards.clone();
+        let settled = crate::apply_run_action(&after_third, crate::RunAction::Proceed)
+            .expect("chest Proceed settles Astrolabe obtains");
+        assert!(settled.pending_obtain_cards.is_empty());
+        assert_eq!(settled.deck.len(), original_deck.len());
+        assert_eq!(
+            settled.deck[settled.deck.len() - 3..]
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            pending
+        );
+    }
+
+    #[test]
+    fn astrolabe_pending_provenance_rejects_malformed_source_id() {
+        let mut run = boss_astrolabe_pending_fixture();
+        run.pending_astrolabe_transform
+            .as_mut()
+            .expect("Astrolabe provenance")
+            .sources[0]
+            .id = crate::ids::CardId::new(0);
+
+        assert_eq!(
+            run.validate(),
+            Err(crate::SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+    }
+
+    #[test]
+    fn astrolabe_pending_provenance_rejects_unknown_source_content() {
+        let mut run = boss_astrolabe_pending_fixture();
+        run.pending_astrolabe_transform
+            .as_mut()
+            .expect("Astrolabe provenance")
+            .sources[0]
+            .content_id = crate::ContentId::new(u64::MAX);
+
+        assert_eq!(
+            run.validate(),
+            Err(crate::SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+    }
+
+    #[test]
+    fn astrolabe_pending_provenance_rejects_source_still_in_deck() {
+        let mut run = boss_astrolabe_pending_fixture();
+        let source_still_in_deck = run.deck[0];
+        run.pending_astrolabe_transform
+            .as_mut()
+            .expect("Astrolabe provenance")
+            .sources[0] = source_still_in_deck;
+
+        assert_eq!(
+            run.validate(),
+            Err(crate::SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+    }
+
+    #[test]
+    fn astrolabe_pending_provenance_rejects_rng_counter_mismatch() {
+        let mut run = boss_astrolabe_pending_fixture();
+        let provenance = run
+            .pending_astrolabe_transform
+            .as_mut()
+            .expect("Astrolabe provenance");
+        provenance.rng_counter = provenance
+            .rng_counter
+            .checked_add(1)
+            .expect("fixture counter has headroom");
+
+        assert_eq!(
+            run.validate(),
+            Err(crate::SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+    }
+
+    #[test]
+    fn astrolabe_pending_provenance_rejects_non_boss_owner() {
+        let mut run = boss_astrolabe_pending_fixture();
+        run.boss_chest_opened = false;
+
+        assert_eq!(
+            run.validate(),
+            Err(crate::SimError::InvalidState(
+                "pending Astrolabe transform has no owning boundary"
+            ))
+        );
+    }
+
+    #[test]
+    fn astrolabe_pending_provenance_rejects_omamori_counter_mismatch() {
+        let mut run = boss_astrolabe_pending_fixture();
+        let provenance = run
+            .pending_astrolabe_transform
+            .as_mut()
+            .expect("Astrolabe provenance");
+        provenance.omamori_charges_used = provenance
+            .omamori_charges_used
+            .checked_add(1)
+            .expect("fixture counter has headroom");
+
+        assert_eq!(
+            run.validate(),
+            Err(crate::SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+    }
+
+    #[test]
+    fn astrolabe_pending_provenance_rejects_unreachable_pending_count() {
+        let mut run = boss_astrolabe_pending_fixture();
+        run.pending_obtain_cards.pop();
+        run.pending_obtain_cards_bypass_omamori.pop();
+
+        assert_eq!(
+            run.validate(),
+            Err(crate::SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+    }
+
+    #[test]
+    fn astrolabe_pending_provenance_rejects_pending_content_mismatch() {
+        let mut run = boss_astrolabe_pending_fixture();
+        let original = run.pending_obtain_cards[0];
+        run.pending_obtain_cards[0] = if original == crate::content::cards::BASH_ID {
+            crate::content::cards::STRIKE_R_ID
+        } else {
+            crate::content::cards::BASH_ID
+        };
+
+        assert_eq!(
+            run.validate(),
+            Err(crate::SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+    }
+
+    #[test]
+    fn astrolabe_pending_provenance_rejects_non_grid_source_count() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::Astrolabe);
+        let sources = run.deck[..2].to_vec();
+        transform_astrolabe_cards(&mut run, &sources, true)
+            .expect("fixture can construct a deferred transform");
+
+        assert_eq!(
+            run.validate(),
+            Err(crate::SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
     }
 
     #[test]

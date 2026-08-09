@@ -2344,6 +2344,10 @@ pub fn apply_treasure_action(run: &RunState, action: RunAction) -> SimResult<Run
         }
         RunAction::Proceed => {
             if next.current_room_kind() == Some(RoomKind::Boss) {
+                // Astrolabe's ShowCardAndObtainEffect settles after the final
+                // boss-relic grid selection. PROCEED is the next room-owned
+                // boundary, so commit the queued cards before entering the map.
+                next.flush_pending_obtain_cards()?;
                 enter_next_act_map(&mut next)?;
             } else {
                 next.phase = RunPhase::Idle;

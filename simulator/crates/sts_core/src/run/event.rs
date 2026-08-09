@@ -31,7 +31,7 @@ use crate::{
             open_bonfire_elementals_grid, open_designer_remove_and_upgrade_grid,
             open_event_obtain_card_return_to_event_grid, open_event_remove_grid,
             open_event_remove_return_to_event_grid, open_event_transform_return_to_event_grid,
-            open_event_upgrade_return_to_event_grid, GridPurpose,
+            open_event_upgrade_return_to_event_grid, GridPurpose, ASTROLABE_TRANSFORM_COUNT,
         },
         map::{
             add_mark_of_pain_wounds_to_draw_pile, apply_initial_monster_ai_rolls,
@@ -49,7 +49,7 @@ use crate::{
             target_colorless_event_card_reward_choices_with_count, target_elite_relic_tier,
             target_library_card_choices, target_uniform_random_potion,
         },
-        state::RunRngStream,
+        state::{validate_run_card_content, RunRngStream},
     },
     CardId, CardInstance, CombatState, EventAction, MonsterId, RewardScreen, RunPhase, RunState,
     SimError, SimResult,
@@ -1603,6 +1603,16 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             "pending event transform has no owning Leave stage",
         ));
     }
+    if run.pending_astrolabe_transform.is_some() && !astrolabe_pending_owner(run) {
+        return Err(SimError::InvalidState(
+            "pending Astrolabe transform has no owning boundary",
+        ));
+    }
+    if run.pending_event_transform.is_some() && run.pending_astrolabe_transform.is_some() {
+        return Err(SimError::InvalidState(
+            "pending obtain has conflicting transform provenance",
+        ));
+    }
     let valid = match run.event.as_ref() {
         Some(screen) if run.phase == RunPhase::Event => match (screen.event, screen.stage) {
             (Event::GoldenIdol, 2) if screen.event_data == 0 => {
@@ -1663,10 +1673,14 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             // Neow transforms and an Astrolabe granted by Neow use
             // ShowCardAndObtainEffect. The selected sources are removed before
             // Leave, while their generated cards remain pending until the
-            // stage-2 Leave action. Three pending cards are authoritative only
-            // when the pending Astrolabe relic is present.
+            // stage-2 Leave action. Astrolabe results use their own provenance;
+            // ordinary Neow transforms retain their existing count authority.
             (Event::Neow, 2) => {
-                pending.len() <= 2 || (pending.len() == 3 && run.relics.contains(&Relic::Astrolabe))
+                if run.pending_astrolabe_transform.is_some() {
+                    pending_astrolabe_transform_is_authoritative(run)
+                } else {
+                    pending.len() <= 2
+                }
             }
             // Knowing Skull Success queues one uncommon colorless via
             // ShowCardAndObtainEffect; multi-Success can leave one pending.
@@ -1687,6 +1701,16 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
             }
             _ => pending_obtain_is_necronomicon_curse(run, pending),
         },
+        // A boss-reward Astrolabe leaves its transformed ShowCardAndObtainEffect
+        // results pending until the chest's PROCEED boundary. Provenance makes
+        // this distinct from an ownerless or arbitrary pending obtain.
+        None if run.phase == RunPhase::Treasure
+            && run.current_room_kind() == Some(crate::map::RoomKind::Boss)
+            && run.boss_chest_opened
+            && run.relics.contains(&Relic::Astrolabe) =>
+        {
+            pending_astrolabe_transform_is_authoritative(run)
+        }
         // Necronomicon.onEquip may leave Necronomicurse pending while still on
         // a combat/event reward screen (ShowCardAndObtainEffect delay).
         _ => pending_obtain_is_necronomicon_curse(run, pending),
@@ -1697,6 +1721,82 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
         ));
     }
     Ok(())
+}
+
+fn astrolabe_pending_owner(run: &RunState) -> bool {
+    run.relics.contains(&Relic::Astrolabe)
+        && ((run.phase == RunPhase::Event
+            && run
+                .event
+                .as_ref()
+                .is_some_and(|screen| screen.event == Event::Neow && screen.stage == 2))
+            || (run.phase == RunPhase::Treasure
+                && run.current_room_kind() == Some(crate::map::RoomKind::Boss)
+                && run.boss_chest_opened))
+}
+
+fn pending_astrolabe_transform_is_authoritative(run: &RunState) -> bool {
+    if !astrolabe_pending_owner(run) {
+        return false;
+    }
+    let Some(transform) = run.pending_astrolabe_transform.as_ref() else {
+        return run.pending_obtain_cards.is_empty()
+            && run.pending_obtain_cards_bypass_omamori.is_empty();
+    };
+    // A normal Astrolabe grid selects three sources. The auto-confirm path is
+    // also reachable when the deck has fewer than three cards, so preserve its
+    // exact non-empty source count rather than accepting an arbitrary length.
+    if transform.sources.is_empty()
+        || transform.sources.len() > ASTROLABE_TRANSFORM_COUNT
+        // A non-empty deck proves the grid was opened instead of auto-confirmed;
+        // that path is reachable only after exactly three selections.
+        || (!run.deck.is_empty() && transform.sources.len() != ASTROLABE_TRANSFORM_COUNT)
+        || run.pending_obtain_cards_bypass_omamori.len() != run.pending_obtain_cards.len()
+        || run
+            .pending_obtain_cards_bypass_omamori
+            .iter()
+            .any(|bypassed| !bypassed)
+    {
+        return false;
+    }
+
+    for (index, source) in transform.sources.iter().enumerate() {
+        if validate_run_card_content(source).is_err()
+            || transform.sources[..index]
+                .iter()
+                .any(|previous| previous.id == source.id)
+            || run.deck.iter().any(|card| card.id == source.id)
+        {
+            return false;
+        }
+    }
+
+    let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, transform.rng_counter);
+    let mut omamori_charges_used = transform.omamori_charges_used;
+    let mut expected_pending = Vec::with_capacity(transform.sources.len());
+    for source in &transform.sources {
+        let transformed = ironclad_transform_card_content_id(source.content_id, &mut rng);
+        let Ok(Some(transformed)) =
+            upgrade_card_instance(CardInstance::new(source.id, transformed))
+        else {
+            return false;
+        };
+        let omamori_blocks = run.relics.contains(&Relic::Omamori)
+            && is_curse_content_id(transformed.content_id)
+            && omamori_charges_used < OMAMORI_CHARGES;
+        if omamori_blocks {
+            let Some(next_charges) = omamori_charges_used.checked_add(1) else {
+                return false;
+            };
+            omamori_charges_used = next_charges;
+        } else {
+            expected_pending.push(transformed.content_id);
+        }
+    }
+
+    rng.counter() == run.misc_rng_counter
+        && omamori_charges_used == run.omamori_charges_used
+        && expected_pending == run.pending_obtain_cards
 }
 
 fn pending_event_transform_is_authoritative(
