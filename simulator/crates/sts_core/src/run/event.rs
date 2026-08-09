@@ -2045,12 +2045,12 @@ fn nloth_choices(run: &RunState, stage: u32, event_data: u32) -> Vec<EventChoice
     let owned = nloth_owned_relic_keys(run);
     let first = owned
         .get(nloth_choice_index(event_data, 0))
-        .map(|key| format!("Trade {key:?}"))
-        .unwrap_or_else(|| "Trade relic".to_owned());
+        .map(|key| format!("Offer: {}", key.trace_name()))
+        .unwrap_or_else(|| "Offer: relic".to_owned());
     let second = owned
         .get(nloth_choice_index(event_data, 1))
-        .map(|key| format!("Trade {key:?}"))
-        .unwrap_or_else(|| "Trade relic".to_owned());
+        .map(|key| format!("Offer: {}", key.trace_name()))
+        .unwrap_or_else(|| "Offer: relic".to_owned());
     labeled_choices(&[&first, &second, "Leave"])
 }
 
@@ -3974,7 +3974,7 @@ pub fn event_screen(event: Event) -> EventScreen {
         Event::HypnotizingColoredMushrooms => {
             make_event_screen(event, hypnotizing_colored_mushrooms_choices(0), 0)
         }
-        Event::Nloth => make_event_screen(event, labeled_choices(&["Trade", "Trade", "Leave"]), 0),
+        Event::Nloth => make_event_screen(event, labeled_choices(&["Offer", "Offer", "Leave"]), 0),
         Event::GoldenShrine => make_event_screen(event, golden_shrine_choices(0), 0),
         Event::FountainOfCleansing => make_event_screen(event, fountain_of_cleansing_choices(0), 0),
         Event::Transmorgrifier => make_event_screen(event, labeled_choices(&["Pray", "Leave"]), 0),
@@ -9000,7 +9000,7 @@ mod tests {
     }
 
     #[test]
-    fn nloth_trades_one_owned_relic_for_nloths_gift() {
+    fn nloth_offers_owned_relic_by_source_display_name() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         run.gain_relic(Relic::Vajra).expect("Vajra pickup succeeds");
@@ -9014,9 +9014,19 @@ mod tests {
             stage: 0,
             event_data,
         });
+        assert_eq!(
+            run.event
+                .as_ref()
+                .expect("N'loth offer screen")
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Offer: Burning Blood", "Offer: Vajra", "Leave"]
+        );
 
         let after_trade = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
-            .expect("N'loth trade applies");
+            .expect("N'loth offer applies");
         assert!(!after_trade.relics.contains(&Relic::BurningBlood));
         assert!(has_relic_key(&after_trade, RelicKey::NlothsGift));
         assert_eq!(after_trade.event.as_ref().expect("leave screen").stage, 1);
@@ -9210,7 +9220,7 @@ mod tests {
         run.phase = RunPhase::Event;
         run.event = Some(EventScreen {
             event: Event::Nloth,
-            choices: labeled_choices(&["Trade", "Trade", "Leave"]),
+            choices: labeled_choices(&["Offer: Burning Blood", "Offer: relic", "Leave"]),
             stage: 0,
             event_data: nloth_event_data(0, 2).expect("offer indices fit encoding"),
         });

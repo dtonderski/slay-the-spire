@@ -4313,7 +4313,7 @@ mod tests {
     }
 
     #[test]
-    fn guided_event_choice_selects_nloth_trade_by_recorded_lost_relic() {
+    fn guided_event_choice_selects_nloth_offer_by_recorded_lost_relic() {
         let state = LiveState {
             sequence: 1,
             phase: LivePhase::Event,
@@ -4321,7 +4321,7 @@ mod tests {
                 LegalAction {
                     id: ActionId("choose-0".to_owned()),
                     kind: LegalActionKind::EventChoice,
-                    label: "Trade Burning Blood".to_owned(),
+                    label: "Offer: Burning Blood".to_owned(),
                     enabled: true,
                     command: json!({"command": "CHOOSE 0"}),
                     disabled_reason: None,
@@ -4329,7 +4329,7 @@ mod tests {
                 LegalAction {
                     id: ActionId("choose-1".to_owned()),
                     kind: LegalActionKind::EventChoice,
-                    label: "Trade Vajra".to_owned(),
+                    label: "Offer: Vajra".to_owned(),
                     enabled: true,
                     command: json!({"command": "CHOOSE 1"}),
                     disabled_reason: None,
@@ -4350,7 +4350,7 @@ mod tests {
         };
 
         let action = bind_dynamic_guided_step_to_live_action(&state, &step)
-            .expect("N'loth trade should bind by the recorded lost relic");
+            .expect("N'loth offer should bind by the recorded lost relic");
         assert_eq!(action.id.0, "choose-1");
     }
 
