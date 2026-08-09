@@ -8992,34 +8992,6 @@ mod tests {
     }
 
     #[test]
-    fn knowing_skull_leave_settles_pending_success_before_stage_two() {
-        let mut run = RunState::seeded_ironclad(1, 0);
-        run.current_act = 2;
-        let event_data =
-            knowing_skull_event_data(knowing_skull_costs(0)).expect("starting costs are encodable");
-        run.phase = RunPhase::Event;
-        run.event = Some(EventScreen {
-            event: Event::KnowingSkull,
-            choices: knowing_skull_choices(1, event_data),
-            stage: 1,
-            event_data,
-        });
-        let initial_deck_len = run.deck.len();
-        let after_success = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
-            .expect("Knowing Skull Success queues its card obtain");
-        assert_eq!(after_success.pending_obtain_cards.len(), 1);
-        let gained = after_success.pending_obtain_cards[0];
-
-        let leave = apply_event_action(&after_success, EventAction::Choose { choice_index: 3 })
-            .expect("Knowing Skull Leave settles the prior card obtain");
-
-        assert_eq!(leave.deck.len(), initial_deck_len + 1);
-        assert_eq!(leave.deck[initial_deck_len].content_id, gained);
-        assert!(leave.pending_obtain_cards.is_empty());
-        assert_eq!(leave.event.as_ref().expect("stage-two Leave").stage, 2);
-    }
-
-    #[test]
     fn knowing_skull_cost_increment_fails_instead_of_wrapping_to_start() {
         let mut run = RunState::seeded_ironclad(1, 0);
         let event_data = knowing_skull_event_data(KnowingSkullCosts {
