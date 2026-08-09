@@ -932,6 +932,17 @@ fn add_enchiridion_power_to_hand(combat: &mut CombatState) -> SimResult<()> {
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PendingObtainProvenance {
+    /// Exact card content passed to the target's visual obtain effect.
+    pub content_id: ContentId,
+    /// Omamori usage counter immediately before constructing the effect.
+    pub omamori_charges_used_before: u32,
+    /// Whether Omamori was owned when the effect was constructed.
+    pub omamori_owned: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PendingEventTransform {
     /// Exact deck instances selected by the owning transform grid.
     pub sources: Vec<CardInstance>,
@@ -986,6 +997,11 @@ pub struct RunState {
     /// master deck in the canonical simulator state yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_obtain_cards: Vec<ContentId>,
+    /// Source and Omamori authority for every visual obtain effect that has
+    /// not yet reached the master deck. Entries include outcomes blocked by
+    /// Omamori, which therefore do not appear in `pending_obtain_cards`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_obtain_provenance: Vec<PendingObtainProvenance>,
     /// Source and RNG authority for a deferred EventTransformReturnToEvent
     /// obtain. This lets validation recompute the generated cards instead of
     /// accepting arbitrary content IDs at an intermediate Leave screen.
@@ -2608,6 +2624,7 @@ impl RunState {
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
+            pending_obtain_provenance: Vec::new(),
             pending_event_transform: None,
             pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
@@ -2715,6 +2732,7 @@ impl RunState {
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
+            pending_obtain_provenance: Vec::new(),
             pending_event_transform: None,
             pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
@@ -2963,6 +2981,14 @@ impl RunState {
     }
 
     pub fn queue_pending_obtain_card(&mut self, content_id: ContentId) {
+        let omamori_charges_used_before = self.omamori_charges_used;
+        let omamori_owned = self.relics.contains(&Relic::Omamori);
+        self.pending_obtain_provenance
+            .push(PendingObtainProvenance {
+                content_id,
+                omamori_charges_used_before,
+                omamori_owned,
+            });
         if self.should_omamori_prevent_card(content_id) {
             self.omamori_charges_used += 1;
             return;
@@ -2997,6 +3023,7 @@ impl RunState {
         let mut next = self.clone();
         let pending = std::mem::take(&mut next.pending_obtain_cards);
         let bypass_omamori = std::mem::take(&mut next.pending_obtain_cards_bypass_omamori);
+        next.pending_obtain_provenance.clear();
         next.pending_event_transform = None;
         next.pending_astrolabe_transform = None;
         for (index, content_id) in pending.into_iter().enumerate() {

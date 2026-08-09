@@ -1586,7 +1586,72 @@ pub(super) fn validate_event_screen_authority(
     Ok(())
 }
 
+fn pending_obtain_provenance_is_authoritative(run: &RunState) -> bool {
+    let provenance = run.pending_obtain_provenance.as_slice();
+    let pending = run.pending_obtain_cards.as_slice();
+    let bypass_omamori = run.pending_obtain_cards_bypass_omamori.as_slice();
+    if provenance.is_empty() {
+        return pending.is_empty() && bypass_omamori.is_empty();
+    }
+    if bypass_omamori.len() != pending.len() || bypass_omamori.iter().any(|bypassed| !bypassed) {
+        return false;
+    }
+
+    let omamori_owned = run.relics.contains(&Relic::Omamori);
+    let mut next_omamori_charges = None;
+    let mut expected_pending = Vec::with_capacity(provenance.len());
+    for entry in provenance {
+        if get_card_definition(entry.content_id).is_none()
+            || entry.omamori_charges_used_before > OMAMORI_CHARGES
+            || entry.omamori_owned != omamori_owned
+        {
+            return false;
+        }
+        let charges_before = entry.omamori_charges_used_before;
+        if next_omamori_charges.is_some_and(|expected| expected != charges_before) {
+            return false;
+        }
+        let blocked = entry.omamori_owned
+            && is_curse_content_id(entry.content_id)
+            && charges_before < OMAMORI_CHARGES;
+        let charges_after = if blocked {
+            let Some(charges) = charges_before.checked_add(1) else {
+                return false;
+            };
+            charges
+        } else {
+            charges_before
+        };
+        next_omamori_charges = Some(charges_after);
+        if !blocked {
+            expected_pending.push(entry.content_id);
+        }
+    }
+
+    next_omamori_charges == Some(run.omamori_charges_used) && expected_pending == pending
+}
+
+fn pending_obtain_source_matches(run: &RunState, expected: &[ContentId]) -> bool {
+    pending_obtain_provenance_is_authoritative(run)
+        && run
+            .pending_obtain_provenance
+            .iter()
+            .map(|entry| entry.content_id)
+            .eq(expected.iter().copied())
+}
+
+fn pending_obtain_source_is_empty(run: &RunState) -> bool {
+    pending_obtain_provenance_is_authoritative(run)
+        && run.pending_obtain_provenance.is_empty()
+        && run.pending_obtain_cards.is_empty()
+}
+
 pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()> {
+    if !pending_obtain_provenance_is_authoritative(run) {
+        return Err(SimError::InvalidState(
+            "pending obtain cards do not match event authority",
+        ));
+    }
     let pending = run.pending_obtain_cards.as_slice();
     let transform_owner = run.phase == RunPhase::Event
         && run.event.as_ref().is_some_and(|screen| {
@@ -1621,35 +1686,58 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                         || golden_idol_max_hp_loss(run.player_max_hp, run.ascension) == 0;
                 let omamori_blocked_result_is_reachable = run.relics.contains(&Relic::Omamori)
                     && run.omamori_charges_used == crate::relic::OMAMORI_CHARGES;
-                pending == [INJURY_ID]
+                pending_obtain_source_matches(run, &[INJURY_ID])
                     || ((zero_hp_result_is_reachable || omamori_blocked_result_is_reachable)
-                        && pending.is_empty())
+                        && pending_obtain_source_is_empty(run))
             }
-            (Event::HypnotizingColoredMushrooms, 2) => pending == [PARASITE_ID],
-            (Event::MindBloom, 1) => pending.is_empty() || pending == [NORMALITY_ID, NORMALITY_ID],
+            (Event::HypnotizingColoredMushrooms, 2) => {
+                pending_obtain_source_matches(run, &[PARASITE_ID])
+            }
+            (Event::MindBloom, 1) => {
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[NORMALITY_ID, NORMALITY_ID])
+            }
             (Event::BigFish, 1) if screen.event_data == 0 => {
-                pending == [REGRET_ID] || (run.player_max_hp / 3 == 0 && pending.is_empty())
+                pending_obtain_source_matches(run, &[REGRET_ID])
+                    || (run.player_max_hp / 3 == 0 && pending_obtain_source_is_empty(run))
             }
-            (Event::TheSsssserpent, 2) => pending.is_empty() || pending == [DOUBT_ID],
-            (Event::TheMausoleum, 1) => pending.is_empty() || pending == [WRITHE_ID],
-            (Event::Nest, 2) => pending.is_empty() || pending == [RITUAL_DAGGER_ID],
-            (Event::Ghosts, 1) => {
-                pending.len() == ghosts_apparition_count(run.ascension)
-                    && pending
-                        .iter()
-                        .all(|content_id| *content_id == APPARITION_ID)
+            (Event::TheSsssserpent, 2) => {
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[DOUBT_ID])
             }
+            (Event::TheMausoleum, 1) => {
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[WRITHE_ID])
+            }
+            (Event::Nest, 2) => {
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[RITUAL_DAGGER_ID])
+            }
+            (Event::Ghosts, 1) => pending_obtain_source_matches(
+                run,
+                &vec![APPARITION_ID; ghosts_apparition_count(run.ascension)],
+            ),
             (Event::WindingHalls, 2) => {
-                pending.is_empty() || pending == [WRITHE_ID] || pending == [MADNESS_ID, MADNESS_ID]
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[WRITHE_ID])
+                    || pending_obtain_source_matches(run, &[MADNESS_ID, MADNESS_ID])
             }
-            (Event::AccursedBlacksmith, 1) => pending.is_empty() || pending == [PAIN_ID],
-            (Event::GoldenShrine, 1) => pending.is_empty() || pending == [REGRET_ID],
-            (Event::ForgottenAltar, 1) => pending.is_empty() || pending == [DECAY_ID],
+            (Event::AccursedBlacksmith, 1) => {
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[PAIN_ID])
+            }
+            (Event::GoldenShrine, 1) => {
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[REGRET_ID])
+            }
+            (Event::ForgottenAltar, 1) => {
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[DECAY_ID])
+            }
             // Accept queues 5 Bites until Leave; Refuse leaves pending empty.
             (Event::Vampires, 1) => {
-                pending.is_empty()
-                    || (pending.len() == VAMPIRES_BITE_COUNT
-                        && pending.iter().all(|id| *id == BITE_ID))
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[BITE_ID; VAMPIRES_BITE_COUNT])
             }
             // Event transform results use ShowCardAndObtainEffect: the source
             // disappears at grid confirmation, while one or two replacements
@@ -1666,10 +1754,13 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                 pending_event_transform_is_authoritative(run, Event::Designer, 2, 2)
             }
             (Event::DrugDealer, 1) => {
-                pending == [JAX_ID]
+                pending_obtain_source_matches(run, &[JAX_ID])
                     || pending_event_transform_is_authoritative(run, Event::DrugDealer, 1, 2)
             }
-            (Event::Addict, 1) => pending.is_empty() || pending == [SHAME_ID],
+            (Event::Addict, 1) => {
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[SHAME_ID])
+            }
             // Neow transforms and an Astrolabe granted by Neow use
             // ShowCardAndObtainEffect. The selected sources are removed before
             // Leave, while their generated cards remain pending until the
@@ -1680,20 +1771,29 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                     pending_astrolabe_transform_is_authoritative(run)
                 } else {
                     pending.len() <= 2
+                        && (pending.is_empty() || !run.pending_obtain_provenance.is_empty())
                 }
             }
             // Knowing Skull Success queues one uncommon colorless via
             // ShowCardAndObtainEffect; multi-Success can leave one pending.
             (Event::KnowingSkull, 1) | (Event::KnowingSkull, 2) => {
-                pending.is_empty()
-                    || (pending.len() == 1
+                pending_obtain_source_is_empty(run)
+                    || (run.pending_obtain_provenance.len() == 1
+                        && pending.len() == 1
                         && crate::content::shop_pool::shop_card_is_colorless(pending[0]))
             }
-            (Event::Duplicator, 2) => pending.is_empty() || pending.len() == 1,
-            (Event::TheLibrary, 1) => pending.is_empty() || pending.len() == 1,
+            (Event::Duplicator, 2) => {
+                pending_obtain_source_is_empty(run)
+                    || (run.pending_obtain_provenance.len() == 1 && pending.len() == 1)
+            }
+            (Event::TheLibrary, 1) => {
+                pending_obtain_source_is_empty(run)
+                    || (run.pending_obtain_provenance.len() == 1 && pending.len() == 1)
+            }
             (Event::MatchAndKeep, 2) => {
-                pending.is_empty()
-                    || (pending.len() == 1
+                pending_obtain_source_is_empty(run)
+                    || (run.pending_obtain_provenance.len() == 1
+                        && pending.len() == 1
                         && run
                             .match_and_keep
                             .as_ref()
@@ -1773,6 +1873,7 @@ fn pending_astrolabe_transform_is_authoritative(run: &RunState) -> bool {
 
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, transform.rng_counter);
     let mut omamori_charges_used = transform.omamori_charges_used;
+    let mut expected_provenance = Vec::with_capacity(transform.sources.len());
     let mut expected_pending = Vec::with_capacity(transform.sources.len());
     for source in &transform.sources {
         let transformed = ironclad_transform_card_content_id(source.content_id, &mut rng);
@@ -1781,6 +1882,7 @@ fn pending_astrolabe_transform_is_authoritative(run: &RunState) -> bool {
         else {
             return false;
         };
+        expected_provenance.push(transformed.content_id);
         let omamori_blocks = run.relics.contains(&Relic::Omamori)
             && is_curse_content_id(transformed.content_id)
             && omamori_charges_used < OMAMORI_CHARGES;
@@ -1797,6 +1899,7 @@ fn pending_astrolabe_transform_is_authoritative(run: &RunState) -> bool {
     rng.counter() == run.misc_rng_counter
         && omamori_charges_used == run.omamori_charges_used
         && expected_pending == run.pending_obtain_cards
+        && pending_obtain_source_matches(run, &expected_provenance)
 }
 
 fn pending_event_transform_is_authoritative(
@@ -1838,12 +1941,14 @@ fn pending_event_transform_is_authoritative(
 
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, transform.rng_counter);
     let mut omamori_charges_used = transform.omamori_charges_used;
+    let mut expected_provenance = Vec::with_capacity(expected_count);
     let mut expected_pending = Vec::with_capacity(expected_count);
     for source in &transform.sources {
         let transformed = ironclad_transform_card_content_id(source.content_id, &mut rng);
         let Ok(content_id) = run.content_id_after_card_add_relics(transformed) else {
             return false;
         };
+        expected_provenance.push(content_id);
         let omamori_blocks = run.relics.contains(&Relic::Omamori)
             && is_curse_content_id(content_id)
             && omamori_charges_used < OMAMORI_CHARGES;
@@ -1860,6 +1965,7 @@ fn pending_event_transform_is_authoritative(
     rng.counter() == run.misc_rng_counter
         && omamori_charges_used == run.omamori_charges_used
         && expected_pending == run.pending_obtain_cards
+        && pending_obtain_source_matches(run, &expected_provenance)
 }
 
 fn pending_obtain_is_necronomicon_curse(run: &RunState, pending: &[ContentId]) -> bool {
@@ -4894,7 +5000,7 @@ mod tests {
         ambiguous
             .validate()
             .expect("Golden Shrine may reach its leave screen without a curse");
-        ambiguous.pending_obtain_cards = vec![REGRET_ID];
+        ambiguous.queue_pending_obtain_card(REGRET_ID);
         ambiguous
             .validate()
             .expect("Golden Shrine may retain its deferred Regret");
@@ -8680,6 +8786,54 @@ mod tests {
             .deck
             .iter()
             .any(|card| card.content_id == PARASITE_ID));
+    }
+
+    #[test]
+    fn hypnotizing_mushrooms_omamori_blocked_parasite_keeps_source_provenance() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_floor = 7;
+        run.player_hp = 40;
+        run.player_max_hp = 80;
+        run.relics.push(Relic::Omamori);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen(Event::HypnotizingColoredMushrooms));
+
+        let after_eat = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
+            .expect("Mushroom heal choice applies with Omamori");
+        assert_eq!(after_eat.player_hp, 60);
+        assert!(after_eat.pending_obtain_cards.is_empty());
+        assert_eq!(after_eat.omamori_charges_used, 1);
+        assert_eq!(after_eat.pending_obtain_provenance.len(), 1);
+        assert_eq!(
+            after_eat.pending_obtain_provenance[0].content_id,
+            PARASITE_ID
+        );
+        assert_eq!(
+            after_eat.pending_obtain_provenance[0].omamori_charges_used_before,
+            0
+        );
+        assert!(after_eat.pending_obtain_provenance[0].omamori_owned);
+        after_eat
+            .validate()
+            .expect("Omamori-blocked Parasite is event-owned");
+
+        let mut stale = after_eat.clone();
+        stale.pending_obtain_provenance[0].omamori_charges_used_before = 1;
+        assert_eq!(
+            stale.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain cards do not match event authority"
+            ))
+        );
+
+        let after_leave = apply_event_action(&after_eat, EventAction::Choose { choice_index: 0 })
+            .expect("Mushroom leave settles the blocked obtain");
+        assert!(after_leave.pending_obtain_provenance.is_empty());
+        assert!(!after_leave
+            .deck
+            .iter()
+            .any(|card| card.content_id == PARASITE_ID));
+        assert_eq!(after_leave.omamori_charges_used, 1);
     }
 
     #[test]

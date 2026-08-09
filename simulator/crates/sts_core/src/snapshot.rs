@@ -846,6 +846,35 @@ mod tests {
     }
 
     #[test]
+    fn run_snapshot_round_trip_preserves_pending_obtain_provenance() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_floor = 7;
+        run.current_room_override = Some(RoomKind::Event);
+        run.relics = vec![Relic::Omamori];
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen(
+            crate::Event::HypnotizingColoredMushrooms,
+        ));
+        let run = crate::run::event::apply_event_action(
+            &run,
+            crate::EventAction::Choose { choice_index: 1 },
+        )
+        .expect("Mushroom obtain provenance is generated");
+        let snapshot = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        };
+        let json = snapshot
+            .canonical_json()
+            .expect("obtain provenance snapshot serializes");
+
+        assert!(json.contains("pending_obtain_provenance"));
+        let restored =
+            restore_run_snapshot_json(&json).expect("obtain provenance snapshot restores exactly");
+        assert_eq!(restored, snapshot);
+    }
+
+    #[test]
     fn schema_four_combat_snapshot_migrates_missing_combust_damage() {
         let mut combat = CombatState::initial_fixture();
         combat.player.powers.combust = 2;
