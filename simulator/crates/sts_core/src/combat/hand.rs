@@ -71,7 +71,19 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
     let mut remaining_indices = Vec::with_capacity(hand.len());
     for index in 0..hand.len() {
         let card = hand[index];
-        match card.content_id {
+        let previous_card_in_use = state.card_in_use;
+        let auto_played = matches!(
+            card.content_id,
+            BURN_ID | DECAY_ID | REGRET_ID | DOUBT_ID | SHAME_ID
+        );
+        if auto_played {
+            // End-turn curses/statuses are queued as cards. AbstractPlayer moves
+            // the queued card out of hand into cardInUse before its card action;
+            // UseCardAction returns it to discard only after that action settles.
+            state.card_in_use = Some(card.id);
+        }
+
+        let moves_to_discard = match card.content_id {
             BURN_ID => {
                 let burn_damage = if card.upgrades > 0 {
                     BURN_END_TURN_DAMAGE * 2
@@ -82,21 +94,21 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                 crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
                     state, hp_loss, &mut hand,
                 )?;
-                state.piles.discard_pile.push(hand[index]);
+                true
             }
             DECAY_ID => {
                 let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, 2);
                 crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
                     state, hp_loss, &mut hand,
                 )?;
-                state.piles.discard_pile.push(hand[index]);
+                true
             }
             REGRET_ID => {
                 let hp_loss = crate::combat::hp_loss::lose_player_hp(state, hand_size);
                 crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
                     state, hp_loss, &mut hand,
                 )?;
-                state.piles.discard_pile.push(hand[index]);
+                true
             }
             // Doubt is auto-played via CardQueueItem at end of turn (see
             // Doubt.triggerOnEndOfTurnForPlayingCard). That removes it from hand
@@ -108,7 +120,7 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                     &state.relics,
                     1,
                 )?;
-                state.piles.discard_pile.push(card);
+                true
             }
             SHAME_ID => {
                 crate::relic::apply_player_frail_with_relics(
@@ -116,10 +128,35 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                     &state.relics,
                     1,
                 )?;
-                state.piles.discard_pile.push(card);
+                true
             }
-            _ => remaining_indices.push(index),
+            _ => {
+                remaining_indices.push(index);
+                false
+            }
+        };
+
+        if !moves_to_discard {
+            continue;
         }
+
+        if state.player.hp <= 0 {
+            // LoseHPAction is ahead of the queued UseCardAction. A lethal
+            // end-turn card therefore remains cardInUse while the queued
+            // DiscardAtEndOfTurnAction is cancelled, leaving later hand cards
+            // untouched just as the source action queue does.
+            let mut remaining = remaining_indices
+                .iter()
+                .map(|remaining_index| hand[*remaining_index])
+                .collect::<Vec<_>>();
+            remaining.extend(hand.iter().skip(index + 1).copied());
+            remaining.extend(std::mem::take(&mut state.piles.hand));
+            state.piles.hand = remaining;
+            return Ok(());
+        }
+
+        state.card_in_use = previous_card_in_use;
+        state.piles.discard_pile.push(card);
     }
     // End-turn card actions can trigger relic draws before the hand cleanup
     // action finishes. Those cards are already in the authoritative hand and
@@ -307,6 +344,25 @@ mod tests {
         );
         assert_eq!(state.player.powers.weak, 1);
         assert_eq!(state.player.powers.frail, 1);
+    }
+
+    #[test]
+    fn lethal_end_turn_card_stays_in_use_before_discard_cleanup() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), DEFEND_R_ID),
+            CardInstance::new(CardId::new(2), REGRET_ID),
+        ];
+        state.piles.discard_pile.clear();
+
+        let next = crate::combat::end_player_turn(&state).expect("end turn resolves");
+
+        assert_eq!(next.phase, crate::combat::CombatPhase::Lost);
+        assert_eq!(next.card_in_use, Some(CardId::new(2)));
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, DEFEND_R_ID);
+        assert!(next.piles.discard_pile.is_empty());
     }
 
     #[test]
