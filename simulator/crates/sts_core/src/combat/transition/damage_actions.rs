@@ -226,29 +226,18 @@ pub(super) fn resolve_fiend_fire(
                 amount: state.player.powers.feel_no_pain,
             });
         }
+        // Fiend Fire exhausts the whole snapshot before its addToBot
+        // callbacks resolve. Keep Dead Branch as a queued callback rather than
+        // materializing it during the batch; this preserves the target order
+        // of Dead Branch hand fills followed by Dark Embrace draws and lets the
+        // normal hand-cap path send overflow to discard.
+        if let Some(db) = super::dead_branch_follow_up(state) {
+            follow_ups.push(db);
+        }
         if state.player.powers.dark_embrace > 0 {
             follow_ups.push(InternalAction::DrawCards {
                 count: state.player.powers.dark_embrace.max(0) as usize,
             });
-        }
-        if let Some(db) = super::dead_branch_follow_up(state) {
-            match db {
-                InternalAction::AddGeneratedCardToPile {
-                    content_id,
-                    to: CardPile::Hand,
-                    temp_cost,
-                    temp_cost_turn_only,
-                } => {
-                    super::add_generated_card_to_pile(
-                        state,
-                        content_id,
-                        CardPile::Hand,
-                        temp_cost,
-                        temp_cost_turn_only,
-                    )?;
-                }
-                other => follow_ups.push(other),
-            }
         }
     }
     if state.pending_hidden_hand_card_exhausts_with_fiend_fire {
