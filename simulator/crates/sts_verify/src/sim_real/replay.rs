@@ -163,6 +163,21 @@ fn clear_superseded_selection_screen_pending(run: &mut RunState) {
     }
 }
 
+fn opened_new_hand_select(source: &RunState, next: &RunState) -> bool {
+    let before = source
+        .combat
+        .as_ref()
+        .and_then(|combat| combat.hand_select());
+    let after = next.combat.as_ref().and_then(|combat| combat.hand_select());
+    match (before, after) {
+        (None, Some(_)) => true,
+        (Some(before), Some(after)) => {
+            before.source_card_id != after.source_card_id || before.purpose != after.purpose
+        }
+        _ => false,
+    }
+}
+
 fn skipped_put_on_deck_candidate(
     run: &RunState,
     decision: RunDecisionAction,
@@ -699,7 +714,16 @@ pub(super) fn verify_seed_start_transition(
                                 next.pending_external_rng.len()
                             ),
                         )),
-                        Ok(next) => {
+                        Ok(mut next) => {
+                            // HandCardSelectScreen.prep clears the previous
+                            // screen's selectedCards before a new screen opens.
+                            // Mirror that lifecycle even when the new screen's
+                            // normal transition is target-authoritative and no
+                            // skipped candidate is accepted.
+                            if opened_new_hand_select(&source, &next) {
+                                clear_superseded_selection_screen_pending(&mut next);
+                                state.pending_cross_combat_put_on_deck_card = None;
+                            }
                             // PutOnDeckAction has a source-backed skipped-retrieval
                             // frame: rebuild from the pre-CONFIRM state, then use it
                             // only when the complete observed combat projection
@@ -887,6 +911,37 @@ mod tests {
             .hand
             .iter()
             .all(|card| card.id != selected_card_id));
+    }
+
+    #[test]
+    fn normal_new_hand_select_clears_superseded_screen_selection() {
+        let mut source = RunState::combat_fixture();
+        let combat = source.combat.as_mut().expect("combat fixture");
+        let stale = combat.piles.hand.remove(1);
+        combat.pending_hidden_hand_card_until_end_turn = vec![stale];
+        let source_card_id = combat.piles.hand[0].id;
+        let mut next = source.clone();
+        next.combat.as_mut().expect("next combat").decision =
+            Some(CombatDecisionState::HandSelect {
+                state: sts_core::combat::HandSelectState {
+                    purpose: HandSelectPurpose::WarcryPutOnDraw,
+                    source_card_id,
+                    selected_hand_index: None,
+                    selected_hand_indices: Vec::new(),
+                    dual_wield_restore_on_confirm: Vec::new(),
+                    dual_wield_force_exhaust: false,
+                },
+                pending_actions: VecDeque::new(),
+            });
+
+        assert!(opened_new_hand_select(&source, &next));
+        clear_superseded_selection_screen_pending(&mut next);
+        assert!(next
+            .combat
+            .as_ref()
+            .expect("next combat")
+            .pending_hidden_hand_card_until_end_turn
+            .is_empty());
     }
 
     #[test]
