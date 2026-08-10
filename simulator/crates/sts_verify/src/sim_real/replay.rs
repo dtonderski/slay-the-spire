@@ -68,6 +68,31 @@ fn initialize_run(
     Ok(run)
 }
 
+fn pending_event_obtain_simulated_subset(run: &RunState) -> Option<Value> {
+    if run.phase != RunPhase::Event || run.pending_obtain_cards.is_empty() {
+        return None;
+    }
+    let canonical = seed_start_event_simulated_subset(run);
+    let has_leave = canonical
+        .get("choices")
+        .and_then(Value::as_array)
+        .is_some_and(|choices| choices.iter().any(|choice| choice == "leave"));
+    if !has_leave {
+        return None;
+    }
+    let mut deck = run.deck.clone();
+    for (index, content_id) in run.pending_obtain_cards.iter().copied().enumerate() {
+        deck.push(CardInstance::new(
+            CardId::new((index + 1) as u64),
+            content_id,
+        ));
+    }
+    Some(seed_start_event_simulated_subset_with_deck(
+        run,
+        deck_content_keys(&deck),
+    ))
+}
+
 fn compare_direct_run(
     report: &mut SimRealReport,
     action: &TraceAction,
@@ -101,10 +126,15 @@ fn compare_direct_run(
                 seed_start_reward_observed_subset(&post.message),
                 seed_start_reward_simulated_subset(run),
             ),
-            RunPhase::Event => (
-                seed_start_event_observed_subset(&post.message),
-                seed_start_event_simulated_subset(run),
-            ),
+            RunPhase::Event => {
+                let observed = seed_start_event_observed_subset(&post.message);
+                let simulated = pending_event_obtain_simulated_subset(run)
+                    .filter(|published| {
+                        subset_diffs(observed.clone(), published.clone()).is_empty()
+                    })
+                    .unwrap_or_else(|| seed_start_event_simulated_subset(run));
+                (observed, simulated)
+            }
             RunPhase::Idle => (
                 seed_start_map_return_observed_subset(&post.message),
                 seed_start_simulated_map_return(run)?,
