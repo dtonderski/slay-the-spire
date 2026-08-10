@@ -108,10 +108,17 @@ pub(super) fn await_hand_select(
             for card in state.piles.hand.drain(..) {
                 if super::dual_wield_select_allows_card(&card) {
                     eligible.push(card);
-                } else if super::dual_wield_non_eligible_restores_on_confirm(&card) {
+                } else if super::dual_wield_non_eligible_restores_on_confirm(&card)
+                    || card.combat_only
+                {
+                    // Generated combat-only statuses (for example Wild
+                    // Strike's Wound) are transient hand cards, not the
+                    // deck-owned Status/Curses that Dual Wield intentionally
+                    // drops. Restore them with skills when CONFIRM rebuilds
+                    // the filtered hand.
                     dual_wield_restore_on_confirm.push(card);
                 }
-                // else: status/curse dropped from combat piles for this fight
+                // else: deck-owned status/curse dropped from combat piles for this fight
             }
             state.piles.hand = eligible;
         }

@@ -9184,12 +9184,15 @@ mod tests {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 1;
         state.player.powers.dark_embrace = 1;
+        let mut generated_wound = CardInstance::new(CardId::new(6), WOUND_ID);
+        generated_wound.combat_only = true;
         state.piles.hand = vec![
             CardInstance::new(CardId::new(1), HAVOC_ID),
             CardInstance::new(CardId::new(2), HEMOKINESIS_ID),
             CardInstance::new(CardId::new(3), BASH_ID),
             CardInstance::new(CardId::new(4), JUGGERNAUT_PLUS_ID),
             CardInstance::new(CardId::new(5), SHAME_ID),
+            generated_wound,
         ];
         state.piles.draw_pile = vec![
             CardInstance::new(CardId::new(10), BITE_ID),
@@ -9226,6 +9229,10 @@ mod tests {
             "non-eligible Shame leaves the hand when Dual Wield select opens"
         );
         assert_eq!(next.piles.hand.len(), 3);
+        assert!(
+            !next.piles.hand.iter().any(|c| c.content_id == WOUND_ID),
+            "generated Wound is held outside the filtered hand until CONFIRM"
+        );
 
         choose_hand_select(&mut next, 1).expect("select Bash");
         confirm_dual_wield_select_skipped_retrieval(&mut next)
@@ -9243,6 +9250,10 @@ mod tests {
         assert!(
             !next.piles.hand.iter().any(|c| c.content_id == BASH_ID),
             "selected Bash stays hidden"
+        );
+        assert!(
+            next.piles.hand.iter().any(|c| c.content_id == WOUND_ID),
+            "generated combat-only Wound is restored after CONFIRM"
         );
         assert_eq!(next.pending_hidden_hand_card_until_end_turn.len(), 1);
     }
