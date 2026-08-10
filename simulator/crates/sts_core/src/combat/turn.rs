@@ -1023,8 +1023,13 @@ fn execute_generic_monster_intent(
     // during its own attack, as long as the combat continues for another
     // living monster. Preserve that queued AI draw even though the attacker
     // is no longer alive by the time its damage resolves.
+    // A Darkling that Thorns killed during its own attack is source-marked
+    // escaped/half-dead. Its COUNT/UNKNOWN pose is retained until the next
+    // monster turn; do not let the common queued RollMoveAction overwrite it
+    // with the reincarnation STUN pose or consume the next AI roll early.
     let should_roll_queued_next_intent = actor_was_alive
         && state.player.hp > 0
+        && !is_half_dead_darkling(&state.monsters[index])
         && (state.monsters[index].alive
             || state
                 .monsters
