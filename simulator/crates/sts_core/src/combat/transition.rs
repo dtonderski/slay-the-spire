@@ -1013,15 +1013,15 @@ fn apply_internal_action(
             // discard (Sever Soul + empty draw), desyncing hand/draw order.
             apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
             let mut follow_ups = feel_no_pain_block_follow_up(state);
-            follow_ups.extend(dark_embrace_draw_follow_up(state));
             follow_ups.extend(dead_branch_follow_up(state));
+            follow_ups.extend(dark_embrace_draw_follow_up(state));
             Ok(follow_ups)
         }
         InternalAction::HandCardExhausted { card_id } => {
             apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
             let mut follow_ups = feel_no_pain_block_follow_up(state);
-            follow_ups.extend(dark_embrace_draw_follow_up(state));
             follow_ups.extend(dead_branch_follow_up_before_pending_draw(state));
+            follow_ups.extend(dark_embrace_draw_follow_up(state));
             Ok(follow_ups)
         }
         InternalAction::PlayTopDrawCard {
