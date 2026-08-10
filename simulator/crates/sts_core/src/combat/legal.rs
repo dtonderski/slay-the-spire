@@ -11,6 +11,7 @@ use crate::{
         SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID,
         WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
+    content::monsters::awakened_one_is_half_dead,
     ids::{CardId, MonsterId},
     relic::{can_play_card_with_relics, can_play_unplayable_card_with_relics},
     SimError, SimResult,
@@ -100,7 +101,7 @@ pub fn legal_combat_actions(state: &CombatState) -> SimResult<Vec<CombatAction>>
                 );
             }
             TargetRequirement::AllEnemies => {
-                if has_living_monster(state) {
+                if has_living_or_awakened_one_half_dead(state) {
                     actions.push(CombatAction::PlayCard {
                         card_id: card.id,
                         target: None,
@@ -253,7 +254,7 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                     Err(SimError::IllegalAction("targeted card requires a target"))
                 }
                 (TargetRequirement::AllEnemies, None) => {
-                    if has_living_monster(state) {
+                    if has_living_or_awakened_one_half_dead(state) {
                         Ok(())
                     } else {
                         Err(SimError::IllegalAction("no living monsters to hit"))
@@ -316,6 +317,13 @@ fn is_living_monster(state: &CombatState, monster_id: MonsterId) -> bool {
 
 fn has_living_monster(state: &CombatState) -> bool {
     state.monsters.iter().any(|monster| monster.alive)
+}
+
+fn has_living_or_awakened_one_half_dead(state: &CombatState) -> bool {
+    state
+        .monsters
+        .iter()
+        .any(|monster| monster.alive || awakened_one_is_half_dead(monster))
 }
 
 fn has_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> bool {
