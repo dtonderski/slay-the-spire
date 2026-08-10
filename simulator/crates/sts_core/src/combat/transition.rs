@@ -210,6 +210,27 @@ pub(crate) fn process_internal_queue(
             event_log.push(internal_action);
             continue;
         }
+        // A queued MakeTempCardInDrawPileAction is abandoned when the preceding
+        // damage has ended combat. The target does not publish the generated
+        // status and, importantly, does not consume cardRandomRng for a random
+        // insertion that can no longer be observed. Keep the gate generic for
+        // all random-spot generated cards; surviving and revival paths retain
+        // the normal insertion below.
+        let combat_is_ending = next.player.hp <= 0
+            || next
+                .monsters
+                .iter()
+                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster));
+        if combat_is_ending
+            && matches!(
+                internal_action,
+                InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
+                    | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
+            )
+        {
+            event_log.push(internal_action);
+            continue;
+        }
         let had_hand_select = matches!(next.decision, Some(CombatDecisionState::HandSelect { .. }));
         let pain_before_reaper = matches!(
             internal_action,
@@ -5864,6 +5885,36 @@ mod tests {
             Err(SimError::InvalidState(
                 "combat player block or energy is negative"
             ))
+        );
+    }
+
+    #[test]
+    fn lethal_damage_skips_queued_random_spot_card_without_rng() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 1;
+        state.player.block = 0;
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), STRIKE_R_ID)];
+        let card_random_counter = state.rng.card_random_rng.counter();
+
+        let next = process_internal_queue(
+            &state,
+            VecDeque::from([
+                InternalAction::LoseHp {
+                    amount: 1,
+                    source: HpLossSource::Other,
+                },
+                InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                    content_id: DAZED_ID,
+                },
+            ]),
+        )
+        .expect("lethal queue should resolve");
+
+        assert_eq!(next.state.phase, CombatPhase::Lost);
+        assert_eq!(next.state.piles.draw_pile.len(), 1);
+        assert_eq!(
+            next.state.rng.card_random_rng.counter(),
+            card_random_counter
         );
     }
 
