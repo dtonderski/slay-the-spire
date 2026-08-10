@@ -8394,6 +8394,49 @@ mod tests {
     }
 
     #[test]
+    fn mayhem_played_burning_pact_keeps_source_until_selection_confirm() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), DEFEND_R_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), BURNING_PACT_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut staged = state;
+        let queue = apply_play_top_draw_card(&mut staged, None, false, false)
+            .expect("ordinary top-draw Burning Pact queue");
+        let mut next = process_internal_queue(&staged, queue.into())
+            .expect("top-draw Burning Pact opens exhaust selection")
+            .state;
+        assert!(next.exhaust_select().is_some());
+        assert!(next
+            .exhaust_select()
+            .and_then(|select| select.source_card.as_ref())
+            .is_some_and(|card| card.content_id == BURNING_PACT_ID));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == BURNING_PACT_ID));
+
+        choose_exhaust_select(&mut next, 0).expect("select Defend");
+        confirm_exhaust_select(&mut next).expect("resolve Burning Pact selection");
+
+        assert!(next.exhaust_select().is_none());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == BURNING_PACT_ID));
+    }
+
+    #[test]
     fn havoc_played_exhume_defers_dark_embrace_until_after_selection() {
         // Havoc force-plays Exhume while Dark Embrace is active. Exhume must
         // not sit in exhaust (and must not DE-draw) until the exhaust select

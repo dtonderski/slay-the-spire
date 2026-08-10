@@ -545,6 +545,21 @@ pub(super) fn play_top_draw_card_queue(
         });
     let discovery_reward_defers_source_settlement =
         matches!(definition.id, DISCOVERY_ID | DISCOVERY_PLUS_ID);
+    // Mayhem's ordinary (non-force-exhaust) top-play keeps Burning Pact in
+    // cardInUse while its ExhaustSelect screen is open; the decision owns the
+    // staged source until CONFIRM settles it. Havoc's force-exhaust path is
+    // intentionally unchanged and still exhausts Burning Pact at screen open.
+    let burning_pact_opens_deferred_source_select = !force_exhaust
+        && queue.iter().any(|action| {
+            matches!(
+                action,
+                InternalAction::AwaitExhaustSelect {
+                    source_card_id,
+                    purpose: crate::combat::ExhaustSelectPurpose::BurningPactDraw2
+                        | crate::combat::ExhaustSelectPurpose::BurningPactDraw3,
+                } if *source_card_id == card.id
+            )
+        });
     let played_index = queue
         .iter()
         .position(
@@ -555,6 +570,7 @@ pub(super) fn play_top_draw_card_queue(
         ))?;
     if !delayed_hand_select_moves_source
         && !force_exhaust_opens_deferred_source_select
+        && !burning_pact_opens_deferred_source_select
         && !discovery_reward_defers_source_settlement
     {
         // Hand-play builders place MoveCard at the UseCardAction slot among *that*
