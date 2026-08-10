@@ -306,6 +306,37 @@ fn stable_quiescent_combat_post(message: &Value) -> bool {
         && game.get("action_phase").and_then(Value::as_str) == Some("WAITING_ON_USER")
 }
 
+fn cross_combat_burning_pact_candidate(
+    run: &RunState,
+    decision: RunDecisionAction,
+    pending_card: Option<CardInstance>,
+) -> Result<Option<RunState>, String> {
+    if !matches!(decision, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+        return Ok(None);
+    }
+    let Some(card) = pending_card else {
+        return Ok(None);
+    };
+    if run.combat.is_none() {
+        return Ok(None);
+    }
+    let mut candidate = run.clone();
+    let combat = candidate.combat.as_mut().expect("validated combat");
+    // The target can publish this screen-owned card beside the next combat's
+    // live copy with the same observed UUID. Keep authoritative combat card
+    // IDs unique by using a verifier-local transient instance ID; projections
+    // compare card content, while validation still enforces uniqueness.
+    let mut residual = card;
+    residual.id = CardId::new(
+        combat
+            .next_card_instance_id()
+            .map_err(|error| error.to_string())?,
+    );
+    combat.piles.discard_pile.push(residual);
+    candidate.validate().map_err(|error| error.to_string())?;
+    Ok(Some(candidate))
+}
+
 fn cross_combat_put_on_deck_candidate(
     run: &RunState,
     decision: RunDecisionAction,
@@ -551,6 +582,7 @@ pub(super) struct StreamingSeedStartReplay {
     seed_sim: Option<RunState>,
     replay_action: Option<TraceAction>,
     pending_cross_combat_put_on_deck_card: Option<CardInstance>,
+    pending_cross_combat_burning_pact_card: Option<CardInstance>,
 }
 
 fn finish_streaming_boundary(
@@ -723,6 +755,7 @@ pub(super) fn verify_seed_start_transition(
                             if opened_new_hand_select(&source, &next) {
                                 clear_superseded_selection_screen_pending(&mut next);
                                 state.pending_cross_combat_put_on_deck_card = None;
+                                state.pending_cross_combat_burning_pact_card = None;
                             }
                             // PutOnDeckAction has a source-backed skipped-retrieval
                             // frame: rebuild from the pre-CONFIRM state, then use it
@@ -802,16 +835,57 @@ pub(super) fn verify_seed_start_transition(
                                         )
                                         .is_empty()
                                     })
+                                })
+                                .or_else(|| {
+                                    cross_combat_burning_pact_candidate(
+                                        &next,
+                                        decision,
+                                        state.pending_cross_combat_burning_pact_card,
+                                    )
+                                    .ok()
+                                    .flatten()
+                                    .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                    .filter(|_| stable_quiescent_combat_post(&post.message))
+                                    .filter(|candidate| {
+                                        subset_diffs(
+                                            seed_start_combat_observed_subset(&post.message),
+                                            seed_start_simulated_combat_subset(candidate),
+                                        )
+                                        .is_empty()
+                                    })
                                 });
                             if let Some(candidate) = skipped_candidate {
                                 if matches!(decision, RunDecisionAction::Combat(CombatAction::EndTurn)) {
                                     state.pending_cross_combat_put_on_deck_card = None;
+                                    state.pending_cross_combat_burning_pact_card = None;
                                 }
                                 if matches!(
                                     decision,
                                     RunDecisionAction::Run(RunAction::ConfirmHandSelect)
                                 ) {
                                     state.pending_cross_combat_put_on_deck_card = candidate
+                                        .combat
+                                        .as_ref()
+                                        .and_then(|combat| {
+                                            combat
+                                                .pending_hidden_hand_card_until_end_turn
+                                                .last()
+                                                .copied()
+                                        });
+                                }
+                                if matches!(
+                                    decision,
+                                    RunDecisionAction::Run(RunAction::ConfirmExhaustSelect)
+                                ) && source.combat.as_ref().is_some_and(|combat| {
+                                    combat.exhaust_select().is_some_and(|select| {
+                                        matches!(
+                                            select.purpose,
+                                            ExhaustSelectPurpose::BurningPactDraw2
+                                                | ExhaustSelectPurpose::BurningPactDraw3
+                                        )
+                                    })
+                                }) {
+                                    state.pending_cross_combat_burning_pact_card = candidate
                                         .combat
                                         .as_ref()
                                         .and_then(|combat| {
@@ -835,6 +909,7 @@ pub(super) fn verify_seed_start_transition(
                             } else {
                                 if matches!(decision, RunDecisionAction::Combat(CombatAction::EndTurn)) {
                                     state.pending_cross_combat_put_on_deck_card = None;
+                                    state.pending_cross_combat_burning_pact_card = None;
                                 }
                                 state.seed_sim = Some(next);
                                 None
@@ -1082,6 +1157,29 @@ mod tests {
     }
 
     #[test]
+    fn cross_combat_burning_pact_candidate_uses_transient_card_id() {
+        let run = RunState::combat_fixture();
+        let carried = CardInstance::new(CardId::new(1000), sts_core::content::cards::REGRET_ID);
+        let candidate = cross_combat_burning_pact_candidate(
+            &run,
+            RunDecisionAction::Combat(CombatAction::EndTurn),
+            Some(carried),
+        )
+        .expect("candidate construction")
+        .expect("typed Burning Pact residual should be eligible");
+        let residual = candidate
+            .combat
+            .as_ref()
+            .expect("candidate combat")
+            .piles
+            .discard_pile
+            .last()
+            .expect("residual discard");
+        assert_eq!(residual.content_id, carried.content_id);
+        assert_ne!(residual.id, carried.id);
+    }
+
+    #[test]
     fn skipped_gambling_chip_candidate_parks_selected_cards_until_end_turn() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
@@ -1151,6 +1249,7 @@ mod tests {
             seed_sim: Some(run),
             replay_action: None,
             pending_cross_combat_put_on_deck_card: None,
+            pending_cross_combat_burning_pact_card: None,
         };
         let start = StartRunCommand {
             action_step: 1,
