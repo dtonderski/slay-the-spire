@@ -8,7 +8,8 @@ use sts_core::{
         transition::{
             apply_play_top_draw_card_action, choose_discard_select, choose_draw_select,
             choose_exhaust_select, choose_hand_select, confirm_draw_select, confirm_exhaust_select,
-            confirm_hand_select, confirm_headbutt_select,
+            confirm_hand_select, confirm_hand_select_skipped_put_on_deck_retrieval,
+            confirm_headbutt_select,
         },
         turn::{end_player_turn, start_player_turn},
         turn_powers::apply_end_of_player_turn_powers,
@@ -965,6 +966,50 @@ fn havoc_force_played_warcry_keeps_source_until_put_on_deck_confirm() {
         .discard_pile
         .iter()
         .any(|card| card.content_id == cards::HAVOC_ID));
+}
+
+#[test]
+fn skipped_havoc_warcry_put_on_deck_settles_pending_source_once() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::HAVOC_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::WARCRY_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Havoc should open Warcry's put-on-deck selection");
+    choose_hand_select(&mut next, 0).expect("select a card for forced Warcry");
+    let selected = confirm_hand_select_skipped_put_on_deck_retrieval(&mut next)
+        .expect("skipped retrieval should resume the queued Warcry source move");
+
+    assert_ne!(selected.content_id, cards::WARCRY_ID);
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::WARCRY_ID));
+    assert!(!next
+        .piles
+        .hand
+        .iter()
+        .chain(next.piles.draw_pile.iter())
+        .chain(next.piles.discard_pile.iter())
+        .chain(next.piles.exhaust_pile.iter())
+        .any(|card| card.id == selected.id));
 }
 
 #[test]

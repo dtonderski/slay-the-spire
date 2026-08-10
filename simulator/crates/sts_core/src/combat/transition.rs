@@ -2718,8 +2718,13 @@ pub fn confirm_hand_select_skipped_put_on_deck_retrieval(
     let selected = remove_card_from_pile(state, selected_id, CardPile::Hand)?;
     // Source settlement still runs after PutOnDeckAction would have completed.
     // Dark Embrace therefore draws the real top, not the never-placed card.
-    move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
+    // Resume the UseCardAction's queued source move first. The normal confirm
+    // path settles pending actions before its idempotent source fallback; doing
+    // this in the opposite order double-settles a queued Havoc/Warcry source.
     resume_actions_after_hand_select(state, pending_actions)?;
+    // Source settlement still runs after PutOnDeckAction would have completed.
+    // Dark Embrace therefore draws the real top, not the never-placed selected card.
+    move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
     state.activate_next_queued_decision_if_idle();
     settle_time_warp_end_turn_if_ready(state)?;
     Ok(selected)
