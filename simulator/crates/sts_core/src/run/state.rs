@@ -3950,6 +3950,14 @@ impl RunState {
                             // empty combat-reward screen via CommunicationMod PROCEED.
                             | Some(RoomKind::Event),
                     );
+                // Colosseum's event-owned reward returns to the map while a
+                // non-card item (typically its potion) may remain unclaimed.
+                // Keep this scoped to Event rooms: Map continuation is also used
+                // by treasure rewards, where pending items must not be abandoned
+                // through the same Event lifecycle exception.
+                let event_map_reward = reward.continuation == RewardContinuation::Map
+                    && self.current_room_kind() == Some(RoomKind::Event)
+                    && !reward.card_reward_is_active();
                 // Event-owned CombatRewardScreen frames expose PROCEED even when
                 // non-card items remain (for example Woman in Blue potions). The
                 // active CARD_REWARD sub-screen is choose/skip-only.
@@ -3957,6 +3965,7 @@ impl RunState {
                     || reward.continuation == RewardContinuation::Neow
                     || (reward.continuation == RewardContinuation::Event
                         && !reward.card_reward_is_active())
+                    || event_map_reward
                     || map_or_boss_combat_reward
                     || (reward.continuation != RewardContinuation::None
                         && super::reward::reward_is_empty(reward))

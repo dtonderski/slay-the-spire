@@ -4255,8 +4255,14 @@ mod tests {
             .expect("first Colosseum relic can be claimed");
         let second_relic = apply_run_action(&first_relic, RunAction::TakeRelicReward)
             .expect("second Colosseum relic can be claimed");
-        let gold = apply_run_action(&second_relic, RunAction::TakeGoldReward)
+        let mut gold = apply_run_action(&second_relic, RunAction::TakeGoldReward)
             .expect("Colosseum gold can be claimed");
+        // Keep this regression deterministic even when this fixture's potion
+        // roll misses; the legality case under test is an unclaimed potion.
+        gold.reward
+            .as_mut()
+            .expect("Colosseum reward after gold")
+            .potion_offer = Some(Potion::Fear);
         let potion = if gold
             .reward
             .as_ref()
@@ -4265,18 +4271,42 @@ mod tests {
             apply_run_action(&gold, RunAction::TakePotionReward { index: 0 })
                 .expect("Colosseum potion can be claimed")
         } else {
-            gold
+            gold.clone()
         };
+        let pending_opened = apply_run_action(&gold, RunAction::OpenCardReward)
+            .expect("Colosseum card reward can be opened before potion");
+        let pending_card_id = pending_opened
+            .reward
+            .as_ref()
+            .expect("open Colosseum reward before potion")
+            .choices[0]
+            .id;
+        let pending_potion = apply_run_action(
+            &pending_opened,
+            RunAction::TakeCardReward {
+                card_id: pending_card_id,
+            },
+        )
+        .expect("Colosseum card reward can be claimed while potion remains");
+        assert!(pending_potion
+            .reward
+            .as_ref()
+            .is_some_and(|reward| reward.potion_offer.is_some()));
+        let map_with_pending_potion = apply_run_action(&pending_potion, RunAction::Proceed)
+            .expect("Colosseum reward can proceed with an unclaimed potion");
+        assert_eq!(map_with_pending_potion.phase, RunPhase::Idle);
+        assert!(map_with_pending_potion.reward.is_none());
+
         let opened = apply_run_action(&potion, RunAction::OpenCardReward)
-            .expect("Colosseum card reward can be opened");
+            .expect("Colosseum card reward can be opened after potion");
         let card_id = opened
             .reward
             .as_ref()
-            .expect("open Colosseum reward")
+            .expect("open Colosseum reward after potion")
             .choices[0]
             .id;
         let empty = apply_run_action(&opened, RunAction::TakeCardReward { card_id })
-            .expect("Colosseum card reward can be claimed");
+            .expect("Colosseum card reward can be claimed after potion");
         assert_eq!(empty.phase, RunPhase::Reward);
         assert!(empty.reward.as_ref().is_some_and(reward_is_empty));
 
