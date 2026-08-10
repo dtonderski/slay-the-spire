@@ -7,9 +7,10 @@ use sts_core::{
         hand::resolve_end_of_turn_hand,
         transition::{
             apply_play_top_draw_card_action, choose_discard_select, choose_draw_select,
-            choose_exhaust_select, choose_hand_select, confirm_draw_select, confirm_exhaust_select,
-            confirm_hand_select, confirm_hand_select_skipped_put_on_deck_retrieval,
-            confirm_headbutt_select,
+            choose_exhaust_select, choose_hand_select,
+            confirm_burning_pact_select_skipped_retrieval, confirm_draw_select,
+            confirm_exhaust_select, confirm_hand_select,
+            confirm_hand_select_skipped_put_on_deck_retrieval, confirm_headbutt_select,
         },
         turn::{end_player_turn, start_player_turn},
         turn_powers::apply_end_of_player_turn_powers,
@@ -1749,6 +1750,53 @@ fn burning_pact_plus_exhausts_one_other_card_then_draws_three() {
         next.piles.discard_pile[0].content_id,
         cards::BURNING_PACT_PLUS_ID
     );
+}
+
+#[test]
+fn skipped_burning_pact_under_corruption_exhausts_source_once() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.powers.corruption = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::BURNING_PACT_PLUS_ID),
+        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(4), cards::BASH_ID),
+        CardInstance::new(CardId::new(5), cards::ANGER_ID),
+        CardInstance::new(CardId::new(6), cards::IRON_WAVE_ID),
+        CardInstance::new(CardId::new(7), cards::CLOTHESLINE_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Burning Pact+ should open its exhaust select");
+    choose_exhaust_select(&mut next, 0).expect("select a card for Burning Pact+");
+    let selected = confirm_burning_pact_select_skipped_retrieval(&mut next)
+        .expect("skipped selected-card retrieval should support Corruption source exhaust");
+
+    assert!(next
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.content_id == cards::BURNING_PACT_PLUS_ID));
+    assert!(!next
+        .piles
+        .hand
+        .iter()
+        .chain(next.piles.draw_pile.iter())
+        .chain(next.piles.discard_pile.iter())
+        .chain(next.piles.exhaust_pile.iter())
+        .any(|card| card.id == selected.id));
 }
 
 #[test]

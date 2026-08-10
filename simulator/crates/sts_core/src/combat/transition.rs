@@ -4159,10 +4159,10 @@ fn confirm_burning_pact_select(
 /// source-card settlement still run. The verifier parks the returned card in
 /// the run-level pending-hidden slot until the matching end-turn window.
 ///
-/// This candidate is intentionally limited to the ordinary hand-played source:
-/// a held, non-exhausting Burning Pact with no Cultist-potion interruption. The
-/// normal exhaust path remains authoritative for force-play, Corruption, and
-/// already-settled sources.
+/// This candidate is limited to a held Burning Pact source with no Cultist-
+/// potion interruption. The source still settles through the normal delayed
+/// destination, including Corruption/keyword-driven exhaust and its queued
+/// on-exhaust callbacks; only the selected card's retrieval is skipped.
 pub fn confirm_burning_pact_select_skipped_retrieval(
     state: &mut CombatState,
 ) -> SimResult<CardInstance> {
@@ -4196,13 +4196,6 @@ pub fn confirm_burning_pact_select_skipped_retrieval(
         .ok_or(SimError::IllegalAction("Burning Pact source is not held"))?;
     let source_definition = get_card_definition(source_card.content_id)
         .ok_or(SimError::UnknownContent(source_card.content_id))?;
-    if source_definition.keywords.exhaust
-        || (source_definition.card_type == CardType::Skill && state.player.powers.corruption > 0)
-    {
-        return Err(SimError::IllegalAction(
-            "skipped Burning Pact retrieval does not support an exhausted source",
-        ));
-    }
     let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
     if selected.len() != 1 {
         return Err(SimError::IllegalAction(
@@ -4222,8 +4215,30 @@ pub fn confirm_burning_pact_select_skipped_retrieval(
     // settle, then return it to the verifier rather than exposing it in limbo.
     state.piles.limbo.push(selected_card);
     player_draw_cards(state, draw_count)?;
-    state.piles.discard_pile.push(source_card);
 
+    // Settle the held source exactly as normal Burning Pact does. In
+    // particular, Corruption makes this Skill exhaust and queues its ordinary
+    // on-exhaust callbacks; only the selected card remains in screen limbo.
+    let mut deferred_bot_on_exhaust = Vec::new();
+    match delayed_source_card_destination(state, source_definition) {
+        CardPile::ExhaustPile => {
+            state.piles.exhaust_pile.push(source_card);
+            apply_on_exhaust_effects_except_bot_queued_powers(state, source_card_id)?;
+            deferred_bot_on_exhaust.extend(feel_no_pain_block_follow_up(state));
+            if let Some(dead_branch) = dead_branch_follow_up(state) {
+                deferred_bot_on_exhaust.push(dead_branch);
+            }
+            deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
+        }
+        CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
+        CardPile::Hand => state.piles.hand.push(source_card),
+        CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+    }
+
+    if !deferred_bot_on_exhaust.is_empty() {
+        let transition = process_internal_queue(state, deferred_bot_on_exhaust.into())?;
+        *state = transition.state;
+    }
     if !exhaust_select.pending_actions.is_empty() {
         let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
         *state = transition.state;
