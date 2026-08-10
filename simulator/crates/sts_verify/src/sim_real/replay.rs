@@ -233,18 +233,21 @@ fn skipped_put_on_deck_candidate(
         return Ok(None);
     }
 
+    let retained_by_runic_pyramid = combat.relics.contains(&Relic::RunicPyramid);
     let mut source = run.clone();
     clear_superseded_selection_screen_pending(&mut source);
     let (mut candidate, selected) =
         sts_core::run::apply_hand_select_confirm_skipped_put_on_deck_retrieval(&source)
             .map_err(|error| error.to_string())?;
-    let combat = candidate
-        .combat
-        .as_mut()
-        .ok_or_else(|| "skipped put-on-deck candidate lost combat state".to_owned())?;
-    combat
-        .pending_hidden_hand_card_until_end_turn
-        .push(selected);
+    if !retained_by_runic_pyramid {
+        let combat = candidate
+            .combat
+            .as_mut()
+            .ok_or_else(|| "skipped put-on-deck candidate lost combat state".to_owned())?;
+        combat
+            .pending_hidden_hand_card_until_end_turn
+            .push(selected);
+    }
     candidate.validate().map_err(|error| error.to_string())?;
     Ok(Some(candidate))
 }
@@ -1016,6 +1019,38 @@ mod tests {
             .hand
             .iter()
             .all(|card| card.id != selected_card_id));
+    }
+
+    #[test]
+    fn skipped_put_on_deck_under_runic_pyramid_does_not_park_card() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.relics.push(Relic::RunicPyramid);
+        let source_card_id = combat.piles.hand[0].id;
+        combat.decision = Some(CombatDecisionState::HandSelect {
+            state: sts_core::combat::HandSelectState {
+                purpose: HandSelectPurpose::WarcryPutOnDraw,
+                source_card_id,
+                selected_hand_index: Some(1),
+                selected_hand_indices: Vec::new(),
+                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_force_exhaust: false,
+            },
+            pending_actions: VecDeque::new(),
+        });
+
+        let candidate = skipped_put_on_deck_candidate(
+            &run,
+            RunDecisionAction::Run(RunAction::ConfirmHandSelect),
+        )
+        .expect("candidate construction")
+        .expect("Runic Pyramid candidate should be eligible");
+        assert!(candidate
+            .combat
+            .as_ref()
+            .expect("candidate combat")
+            .pending_hidden_hand_card_until_end_turn
+            .is_empty());
     }
 
     #[test]
