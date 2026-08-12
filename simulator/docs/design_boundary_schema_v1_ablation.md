@@ -53,3 +53,9 @@ evaluated.
 Schema-v0 and pre-policy schema-v1 captures remain unsupported inputs. Moving
 or archiving evidence never establishes parity, and observations remain
 expected output rather than simulator state.
+
+Retired same-step deferrals that this cutoff removed include copied-attack
+visibility windows, Match and Keep choice rewriting, Smoke Bomb UI staging,
+transient combat-sequence folding, and delayed deck assertions. Those notes
+are historical only; active replay requires an immediate authoritative
+completion.

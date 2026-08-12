@@ -11,8 +11,10 @@ RNG. The network is therefore reusable when privileged singleton search is
 later replaced by particle-belief search.
 
 See [`fair_combat_api_design.md`](fair_combat_api_design.md) for the symbolic
-Rust boundary. This document specifies the later model and training direction;
-it does not authorize tensor code in the simulator.
+Rust boundary and [`combat_search_benchmark_2026-07.md`](combat_search_benchmark_2026-07.md)
+for the July 2026 fixed-budget planner conclusions. This document specifies
+the later model and training direction; it does not authorize tensor code in
+the simulator.
 
 ## Terminology
 

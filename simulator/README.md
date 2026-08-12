@@ -16,11 +16,13 @@ combat agent, Python bindings, and strict real-game verifier.
 
 From this directory:
 
-```powershell
+```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-uv run -- cargo run -p sts_verify -- parity verification\corpus\communication_mod\<trace>.jsonl
+export STS_PERMANENT_CORPUS_DIR=/path/to/permanent_traces
+uv run -- cargo run -p sts_verify -- parity \
+  "$STS_PERMANENT_CORPUS_DIR/<trace>.jsonl"
 ```
 
 The verifier always derives simulator state from the recorded `START` seed and

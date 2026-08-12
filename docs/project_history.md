@@ -98,8 +98,8 @@ settles it only on the matching declared boundary class, and ignores overtaking
 transport states without semantic state guessing. Complete live runs validated
 this contract before continuous random collection resumed.
 
-Sources: `simulator/SLAYTHEDATA_CLI_COLLECTION_STATUS.md` and the July 2026
-SlayTheData and fidelity history; [`research.md`](research.md);
+Sources: the July 2026 SlayTheData and fidelity history;
+[`research.md`](research.md);
 [`phase3a_statistical_fidelity_gate.md`](../simulator/docs/phase3a_statistical_fidelity_gate.md).
 
 ## The Trace UI Rewrite
@@ -120,7 +120,10 @@ workflow at once.
 The deterministic combat agent was built to automate trace collection and reach
 more states for simulator debugging. It was never intended as the final player.
 Its current role is pragmatic: it is good enough to execute combats while the
-data and learning loop develops.
+data and learning loop develops. July 2026 sealed-root experiments rejected a
+pure complete-turn beam and accepted turn-boundary replanning plus a
+budget-neutral complete-turn fallback; see
+[`combat_search_benchmark_2026-07.md`](../simulator/docs/combat_search_benchmark_2026-07.md).
 
 The adopted learned-combat direction is AlphaZero-style Expert Iteration, but
 with a deliberate information split: policy/value networks receive only public
@@ -169,26 +172,9 @@ scope, and feedback-loop quality matter more than task duration or agent count.
 - Communication boundary schema v1 made command settlement contractual rather
   than observational: `STATE` closes only on `poll`, gameplay closes only on an
   explicit ready/quiescent/terminal boundary, and steps and timing metadata fail
-  closed. On 2026-08-07 the project ended schema-v0 compatibility entirely:
-  1,258 old traces were byte-verified into immutable forensic archives before
-  active copies and the legacy constructor, folding, hydration, candidate, and
-  deferred-frame paths were removed. Replay now accepts explicit metadata/state
-  schema 1 with typed profile/RNG input and executes one simulator-owned
-  transition. Old passes are evidence, not supported inputs; honest early v1
-  failures are a more trustworthy simulator backlog than re-anchored parity.
-  Final independent review also made archive/discovery tooling fail closed on
-  missing roots and non-Communication provenance, reconciled aggregate entries
-  against every declared archive manifest, and removed stale positional combat
-  target fallback from both replay and live automation. The final strict path
-  streams JSONL through EOF, preserving first differences and full accounting
-  without retaining observations; diagnostic early exit is explicitly
-  non-promotable. Typed projection comparison and bounded deterministic workers
-  reduced FIDL01288 release RSS to 5,376 KiB and median time to 0.26 seconds,
-  versus 755,136 KiB and 2.32 seconds for the old debug baseline. The command
-  producer now withholds non-completing `unknown` states while the collector
-  continues to reject any intermediate same-step state rather than choosing a
-  later observation. Fresh terminal FIDL01303 bound the final release verifier
-  hash and advanced the strict collection ledger with exact EOF accounting.
+  closed. Schema-v0 compatibility ended on 2026-08-07. Replay now accepts only
+  explicit metadata/state schema 1 with typed profile/RNG input and executes one
+  simulator-owned transition. Old passes are evidence, not supported inputs.
 
 ## Open Strategic Questions
 

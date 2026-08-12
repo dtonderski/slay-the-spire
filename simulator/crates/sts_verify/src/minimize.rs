@@ -182,7 +182,7 @@ pub fn serialize_communication_mod_trace(metadata: &TraceMetadata, lines: &[Trac
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{load_corpus_file, TraceAction, TraceState};
+    use crate::{TraceAction, TraceState};
 
     #[test]
     fn filter_trace_lines_keeps_prefix_through_failure_step() {
@@ -281,18 +281,24 @@ mod tests {
 
     #[test]
     fn minimize_seed_start_trace_produces_prefix_jsonl() {
-        let Some(content) =
-            load_corpus_file("communication_mod/trace-2026-06-18T16-45-23-530Z.jsonl")
-        else {
-            return;
-        };
-        let full_report = verify_communication_mod_trace(&content).expect("report");
-        if full_report.unexpected_diffs.is_empty()
-            && !full_report.seed_start.as_ref().is_some_and(|s| s.failed)
-        {
-            return;
-        }
-        let report = minimize_communication_mod_trace(&content).expect("minimize failing prefix");
+        let content = include_str!("../tests/fixtures/strict_cli_prefix.jsonl");
+        let mut records = content
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                serde_json::from_str::<serde_json::Value>(line).expect("fixture line parses")
+            })
+            .collect::<Vec<_>>();
+        let final_state = records.last_mut().expect("fixture has a final state");
+        final_state["message"]["game_state"]["gold"] = serde_json::json!(100);
+        let failing = records
+            .into_iter()
+            .map(|record| serde_json::to_string(&record).expect("fixture record serializes"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+
+        let report = minimize_communication_mod_trace(&failing).expect("minimize failing prefix");
         assert!(report.minimized_action_count <= report.original_action_count);
         assert!(report.minimized_trace.contains("\"type\":\"metadata\""));
         let reparsed = import_communication_mod_trace(&report.minimized_trace).expect("reparses");

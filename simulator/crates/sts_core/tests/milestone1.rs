@@ -54,7 +54,10 @@ fn replay_from_every_decision_snapshot_matches_final_hash() {
 
 #[test]
 fn golden_replay_consumes_no_rng_draws() {
-    assert_eq!(replay_rng_draw_count(), 0);
+    let initial = milestone1_fixture();
+    let before = rng_counters(&initial);
+    let final_state = replay(initial, &winning_trace());
+    assert_eq!(rng_counters(&final_state), before);
 }
 
 fn milestone1_fixture() -> CombatState {
@@ -85,8 +88,13 @@ fn replay(mut state: CombatState, trace: &[CombatAction]) -> CombatState {
     state
 }
 
-fn replay_rng_draw_count() -> usize {
-    0
+fn rng_counters(state: &CombatState) -> [u32; 4] {
+    [
+        state.rng.shuffle_rng.counter(),
+        state.rng.monster_rng.counter(),
+        state.rng.monster_hp_rng.counter(),
+        state.rng.card_random_rng.counter(),
+    ]
 }
 
 fn hand_card_id(state: &CombatState, content_id: ContentId) -> sts_core::CardId {

@@ -51,18 +51,12 @@ discarded Discovery generation, selected-card retrieval, deferred follow-ups,
 then source settlement. For an exhausting source, Dead Branch consumes its
 card RNG from `moveToExhaustPile` only after those earlier actions.
 
-## Historical notes superseded by this decision
+## Rejected alternatives
 
-The following notes preserve their original observations but their
-multi-generation or cross-command Discovery model is superseded:
-
-- [design_discovery_rng_settlement.md](design_discovery_rng_settlement.md)
-- [design_discovery_dark_embrace_settle_draw.md](design_discovery_dark_embrace_settle_draw.md)
-- [design_discovery_dark_embrace_stage2_before_magnetism.md](design_discovery_dark_embrace_stage2_before_magnetism.md)
-- [design_discovery_dead_branch_letter_opener_generation.md](design_discovery_dead_branch_letter_opener_generation.md)
-- [design_discovery_flush_on_combat_end.md](design_discovery_flush_on_combat_end.md)
-- [design_discovery_flush_prior_residual.md](design_discovery_flush_prior_residual.md)
-
-The separate [Discovery hex/dazed ordering note](design_discovery_hex_dazed_order.md)
-remains applicable: bot follow-up actions may be parked behind the visible
-reward screen, but that queueing is not a Discovery RNG residual.
+Earlier notes modeled extra hidden `generateCardChoices` burns, Letter
+Opener-specific generation counts, Dark Embrace settle draws, and
+cross-command Discovery residuals flushed on a later `PLAY` or combat end.
+Those hypotheses do not match the source update lifecycle above and must not
+be reintroduced. Bot follow-ups may still wait behind the visible reward
+screen; see [design_discovery_hex_dazed_order.md](design_discovery_hex_dazed_order.md).
+That queueing is not a Discovery RNG residual.
