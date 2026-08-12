@@ -680,30 +680,6 @@ fn valid_v1_enters_direct_replay_without_candidate_fallback() {
 }
 
 #[test]
-fn strict_replay_binds_leave_to_the_simulator_shop_action() {
-    let content = crate::load_corpus_file(
-        "open_failures/FIDL01274-p1274-2026-08-07T13-08-53-551Z-2116632.jsonl",
-    )
-    .expect("strict shop witness is present");
-    let report = verify_communication_mod_trace(&content).expect("strict trace parses");
-
-    assert!(report
-        .verified
-        .iter()
-        .any(|transition| transition.action_step == 93
-            && transition.command == "LEAVE"
-            && transition.label == "direct Shop transition"));
-    assert!(!report
-        .unsupported
-        .iter()
-        .any(|transition| transition.action_step == 93));
-    assert!(report
-        .verified
-        .iter()
-        .any(|transition| transition.action_step == 94));
-}
-
-#[test]
 fn fidl01271_neow_remove_two_final_choose_and_leave_verify_strictly() {
     let mut metadata = metadata(Some(1), true);
     metadata["run_config"]["profile"]["note_card"] = json!("Normality");

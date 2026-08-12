@@ -33,5 +33,5 @@ post-screen.
 
 A forged retained trace replaces the first visible Demon Form potion offer
 with Strike while leaving the later chosen-result state untouched. Verification
-must report `card_reward_ids` at the potion-open action. Permanent corpus replay
-also covers three potion-open and combat card-reward-pick sequences.
+must report `card_reward_ids` at the potion-open action. External trace replay
+also covers potion-open and combat card-reward-pick sequences.

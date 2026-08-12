@@ -206,22 +206,15 @@ fn freeze(output: &Path) -> Result<(), String> {
 }
 
 fn corpus_trace_paths() -> Result<Vec<PathBuf>, String> {
-    let root = sts_verify::simulator_root();
-    let mut paths = Vec::new();
-    for relative in [
-        "verification/corpus/permanent_traces",
-        "verification/corpus/communication_mod",
-    ] {
-        let dir = root.join(relative);
-        let entries = fs::read_dir(&dir).map_err(io_error)?;
-        paths.extend(
-            entries
-                .filter_map(Result::ok)
-                .map(|entry| entry.path())
-                .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("jsonl")),
-        );
-    }
-    Ok(paths)
+    let root = std::env::var_os("STS_PERMANENT_CORPUS_DIR")
+        .map(PathBuf::from)
+        .ok_or_else(|| "STS_PERMANENT_CORPUS_DIR is required".to_owned())?;
+    let entries = fs::read_dir(&root).map_err(io_error)?;
+    Ok(entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("jsonl"))
+        .collect())
 }
 
 fn challenge_trace_paths() -> Vec<PathBuf> {

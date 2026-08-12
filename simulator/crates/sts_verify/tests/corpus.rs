@@ -5,24 +5,27 @@ use std::{
 
 use sts_verify::{
     assess_verification, import_communication_mod_trace, verify_communication_mod_trace,
-    ActionDispositionKind, VerificationOutcome,
+    VerificationOutcome,
 };
 
-fn corpus_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../verification/corpus")
-}
+const EXTERNAL_CORPUS_ENV: &str = "STS_PERMANENT_CORPUS_DIR";
 
-fn communication_traces(relative: &str) -> Vec<PathBuf> {
-    let root = corpus_root().join(relative);
-    if !root.exists() {
-        return Vec::new();
-    }
-    let mut paths = fs::read_dir(root)
-        .expect("corpus directory is readable")
+fn external_corpus_traces() -> Vec<PathBuf> {
+    let root = std::env::var_os(EXTERNAL_CORPUS_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| panic!("{EXTERNAL_CORPUS_ENV} must name the external trace directory"));
+    assert!(root.is_dir(), "{} is not a directory", root.display());
+    let mut paths = fs::read_dir(&root)
+        .unwrap_or_else(|error| panic!("{} is not readable: {error}", root.display()))
         .map(|entry| entry.expect("corpus entry is readable").path())
         .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("jsonl"))
         .collect::<Vec<_>>();
     paths.sort();
+    assert!(
+        !paths.is_empty(),
+        "{} contains no JSONL traces",
+        root.display()
+    );
     paths
 }
 
@@ -73,33 +76,14 @@ fn assert_explicit_v1(path: &Path, content: &str) {
 }
 
 #[test]
-fn permanent_schema_v1_passes_are_genuine_complete_passes() {
-    for path in communication_traces("permanent_traces") {
-        let content = fs::read_to_string(&path).expect("permanent trace is readable");
+#[ignore = "requires STS_PERMANENT_CORPUS_DIR"]
+fn external_permanent_traces_are_structurally_replayable() {
+    for path in external_corpus_traces() {
+        let content = fs::read_to_string(&path).expect("external trace is readable");
         assert_explicit_v1(&path, &content);
-        let report = verify_communication_mod_trace(&content)
-            .unwrap_or_else(|error| panic!("{} verifies: {error}", path.display()));
-        assert_eq!(
-            assess_verification(Ok(&report), report.action_integrity.as_ref()),
-            VerificationOutcome::CompletePass,
-            "{} is not a genuine complete pass",
-            path.display()
-        );
-    }
-}
-
-#[test]
-fn schema_v1_failure_witnesses_are_honest_and_fully_accounted() {
-    let paths = communication_traces("open_failures");
-    assert!(
-        !paths.is_empty(),
-        "open_failures must contain strict schema-v1 evidence"
-    );
-    for path in paths {
-        let content = fs::read_to_string(&path).expect("failure witness is readable");
-        assert_explicit_v1(&path, &content);
-        let report = verify_communication_mod_trace(&content)
-            .unwrap_or_else(|error| panic!("{} verifies structurally: {error}", path.display()));
+        let report = verify_communication_mod_trace(&content).unwrap_or_else(|error| {
+            panic!("{} must not crash the verifier: {error}", path.display())
+        });
         let integrity = report
             .action_integrity
             .as_ref()
@@ -111,43 +95,22 @@ fn schema_v1_failure_witnesses_are_honest_and_fully_accounted() {
         );
         assert_eq!(integrity.disposed_actions, integrity.applicable_actions);
         assert_eq!(integrity.duplicate_dispositions, 0);
-        assert!(
-            !matches!(
-                assess_verification(Ok(&report), Some(integrity)),
-                VerificationOutcome::CompletePass
-            ),
-            "{} must remain honest failure evidence",
-            path.display()
-        );
     }
 }
 
 #[test]
-fn fidl01249_neow_transform_final_pick_and_leave_verify_strictly() {
-    let path =
-        corpus_root().join("open_failures/FIDL01249-p1249-2026-08-07T11-59-56-924Z-2112761.jsonl");
-    let content = fs::read_to_string(&path).expect("FIDL01249 witness is readable");
-    let report =
-        verify_communication_mod_trace(&content).expect("strict trace is structurally valid");
-
-    for step in [7, 8] {
-        let disposition = report
-            .action_dispositions
-            .iter()
-            .find(|entry| entry.action_step == step)
-            .unwrap_or_else(|| panic!("step {step} disposition"));
-        assert_eq!(disposition.disposition, ActionDispositionKind::Verified);
-        assert!(report
-            .unexpected_diffs
-            .iter()
-            .all(|diff| diff.action_step != step));
+#[ignore = "requires STS_PERMANENT_CORPUS_DIR and an explicit all-green run"]
+fn external_permanent_traces_are_complete_passes() {
+    for path in external_corpus_traces() {
+        let content = fs::read_to_string(&path).expect("external trace is readable");
+        assert_explicit_v1(&path, &content);
+        let report = verify_communication_mod_trace(&content)
+            .unwrap_or_else(|error| panic!("{} verifies: {error}", path.display()));
+        assert_eq!(
+            assess_verification(Ok(&report), report.action_integrity.as_ref()),
+            VerificationOutcome::CompletePass,
+            "{} is not a genuine complete pass",
+            path.display()
+        );
     }
-    let first_boundary = &report
-        .seed_start
-        .as_ref()
-        .expect("seed-start report")
-        .first_boundary
-        .path;
-    assert_ne!(first_boundary, "$.actions[step=7].command");
-    assert_ne!(first_boundary, "$.actions[step=8].command");
 }

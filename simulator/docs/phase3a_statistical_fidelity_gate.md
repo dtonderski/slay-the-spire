@@ -3,7 +3,7 @@
 Status: **adopted design; tooling incomplete; gate not yet met**
 Date: 2026-07-31
 Scope: Ironclad A0 strict seed-start parity against the pinned target game
-Related: [`verification.md`](verification.md), [`verification_status.md`](verification_status.md), [`../../PROJECT_OVERVIEW.md`](../../PROJECT_OVERVIEW.md), [`../../tools/communication/REPAIR_LOOP.md`](../../tools/communication/REPAIR_LOOP.md)
+Related: [`verification.md`](verification.md), [`../../PROJECT_OVERVIEW.md`](../../PROJECT_OVERVIEW.md)
 
 ## The answer in plain English
 
@@ -323,8 +323,8 @@ test policy. Rare but important mechanics can remain almost invisible even in
 
 | evidence | role |
 |---|---|
-| `permanent_traces/*.jsonl` | regression lock for known witnesses and durable clean coverage |
-| `open_failures/` and repair fingerprints | truth about known unresolved divergence |
+| external immutable trace corpus | regression lock for known witnesses and durable coverage |
+| live verifier status and repair fingerprints | truth about known unresolved divergence |
 | targeted fidelity regressions | rare mechanics, excluded actions, and high-risk combinations |
 | source-backed local tests | narrow mechanics that full traces cannot isolate cleanly |
 | prospective G2 batch | bound on residual full-run failure mass under \(D_{\mathrm{P3A}}\) |

@@ -2345,8 +2345,15 @@ mod tests {
     }
 
     fn collect_trace_combat_cases() -> Vec<TraceCombatCase> {
-        let mut paths = trace_paths("permanent_traces");
-        paths.extend(trace_paths("communication_mod"));
+        let mut paths = std::env::var_os("STS_PERMANENT_CORPUS_DIR")
+            .map(PathBuf::from)
+            .and_then(|root| std::fs::read_dir(root).ok())
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
+            .collect::<Vec<_>>();
         paths.sort();
         paths.dedup();
 
@@ -2392,47 +2399,6 @@ mod tests {
             }
         }
         cases
-    }
-
-    fn trace_paths(relative_dir: &str) -> Vec<PathBuf> {
-        if let Some(paths) = tracked_trace_paths(relative_dir) {
-            return paths;
-        }
-
-        let root = sts_verify::corpus_path(relative_dir);
-        let Ok(entries) = std::fs::read_dir(root) else {
-            return Vec::new();
-        };
-        entries
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("jsonl"))
-            .collect()
-    }
-
-    fn tracked_trace_paths(relative_dir: &str) -> Option<Vec<PathBuf>> {
-        let repo_root = sts_verify::repo_root();
-        let corpus_relative = format!(
-            "simulator/verification/corpus/{}",
-            relative_dir.replace(std::path::MAIN_SEPARATOR, "/")
-        );
-        let output = std::process::Command::new("git")
-            .arg("ls-files")
-            .arg("--")
-            .arg(&corpus_relative)
-            .current_dir(&repo_root)
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-
-        let paths = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter(|line| line.ends_with(".jsonl"))
-            .map(|line| repo_root.join(line))
-            .collect::<Vec<_>>();
-        (!paths.is_empty()).then_some(paths)
     }
 
     fn evaluate_trace_cases(

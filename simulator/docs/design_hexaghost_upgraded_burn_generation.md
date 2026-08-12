@@ -9,7 +9,7 @@ survived Inferno, all existing Burns and its three generated Burns report
 `upgrades = 1`.
 
 This was previously invisible because verifier card projections erased upgrade
-metadata. Once upgrade identity became observable, the permanent corpus showed
+metadata. Once upgrade identity became observable, external trace replay showed
 the later generated Burn as the sole mismatch.
 
 ## Contract

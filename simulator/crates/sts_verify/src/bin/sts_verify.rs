@@ -750,7 +750,14 @@ fn main() {
                 }
             }
 
-            let root = status_path(path.as_deref().unwrap_or("permanent_traces"));
+            let root = path
+                .as_deref()
+                .map(status_path)
+                .or_else(|| std::env::var_os("STS_PERMANENT_CORPUS_DIR").map(PathBuf::from))
+                .unwrap_or_else(|| {
+                    eprintln!("status requires a trace path or STS_PERMANENT_CORPUS_DIR");
+                    exit(1);
+                });
             let entries = trace_status_entries(&root).unwrap_or_else(|err| {
                 eprintln!("failed to build status for {}: {err}", root.display());
                 exit(1);

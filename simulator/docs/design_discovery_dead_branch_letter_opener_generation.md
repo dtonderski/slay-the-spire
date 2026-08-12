@@ -41,8 +41,7 @@ link is proven.
   Warcry CONFIRM DB at 1419 (`Burning Pact` vs `Dark Embrace`); no single extra
   draw count dual-satisfies both. Residual is post-Discovery `card_random` debt,
   not a further open-generation tweak.
-- Permanent corpus stays green with this open-generation branch.
-- No permanent trace currently has both Letter Opener and Dead Branch.
+- The available external traces do not isolate Letter Opener with Dead Branch.
 
 ## Non-goals
 

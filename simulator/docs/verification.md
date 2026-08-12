@@ -69,22 +69,19 @@ only on `poll`; gameplay completes only on `interaction_ready`, `quiescent`, or
 `terminal`. Intermediate, transient, delayed, or later-frame completion is
 invalid input rather than deferred verification.
 
-Use `parity` for a trace that claims complete terminal replay:
+Full CommunicationMod payloads are external to Git. Set
+`STS_PERMANENT_CORPUS_DIR` and pass the desired file explicitly:
 
-```powershell
+```bash
 cd simulator
+export STS_PERMANENT_CORPUS_DIR=/path/to/permanent_traces
 uv run -- cargo build --release -p sts_verify --bin sts_verify
-target\release\sts_verify parity --require-terminal verification\corpus\permanent_traces\trace-session-8.jsonl
-```
-
-Use `replay` when the goal is to inspect or persist the simulator state
-reconstructed from the trace:
-
-```powershell
-cd simulator
-cargo run -q -p sts_verify -- replay --json verification\corpus\permanent_traces\trace-session-8.jsonl -o replay.json
-cargo run -q -p sts_verify -- replay --json --at-step 3322 verification\corpus\permanent_traces\trace-session-8.jsonl
-cargo run -q -p sts_verify -- replay --timeline verification\corpus\permanent_traces\trace-session-8.jsonl
+target/release/sts_verify parity --require-terminal \
+  "$STS_PERMANENT_CORPUS_DIR/<trace>.jsonl"
+cargo run -q -p sts_verify -- replay --json \
+  "$STS_PERMANENT_CORPUS_DIR/<trace>.jsonl" -o replay.json
+cargo run -q -p sts_verify -- replay --json --at-step 3322 \
+  "$STS_PERMANENT_CORPUS_DIR/<trace>.jsonl"
 ```
 
 The replay artifact contains the same verification report, the final
@@ -101,60 +98,39 @@ terminality, and disposition accounting continue through EOF. CommunicationMod
 post-state observations are comparison evidence only, including when a trace is
 replayed with `--at-step` or `--timeline`.
 
-Use directory discovery for corpus-wide status:
+Generate corpus-wide status from the external directory:
 
-```powershell
+```bash
 cd simulator
-uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown permanent_traces
+uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown \
+  "$STS_PERMANENT_CORPUS_DIR"
 ```
 
-The green permanent corpus is every `permanent_traces/*.jsonl` file. Each must
-verify clean through EOF. There is no `permanent_traces.json` expectation
-manifest. Open simulator-fail witnesses live outside that gate (for example
-`open_failures/`). Parallel jobs render deterministically in input order and default to at most
-four workers. `STS_VERIFY_JOBS` is bounded by trace count, available CPUs, and a
-hard cap of eight.
+The repository intentionally carries no manifest, inventory, outcome ledger,
+or generated status document. Status is a function of the immutable external
+payloads and the verifier revision being evaluated. Parallel jobs render
+deterministically in input order and default to at most four workers;
+`STS_VERIFY_JOBS` remains bounded by trace count, available CPUs, and a hard cap
+of eight.
 
-The permanent corpus is a **regression lock**, not a residual-rate proof. For the
-combined Phase 3A fidelity confidence gate—zero known failures, permanent and
-targeted regression evidence, coverage review, and the prospective 6,605-run
-statistical certificate—see
+The external corpus is a **regression lock**, not a residual-rate proof. For the
+combined Phase 3A fidelity confidence gate and its statistical limits, see
 [`phase3a_statistical_fidelity_gate.md`](phase3a_statistical_fidelity_gate.md).
-Its statistical component bounds full-run failure probability only under the
-declared frozen test distribution. A large green corpus can still coexist with
-a high live fail rate on unseen mass, and a long random green streak does not
-replace promoted witnesses or targeted coverage.
 
-The overnight CommunicationMod collector can harvest longer traces for missing elite coverage. Validate harvested traces before promoting them:
-
-```powershell
-node tools\communication\trace_tools.js validate simulator\verification\corpus\communication_mod\<trace>.jsonl
-```
-
-If a run stalls after useful coverage, keep the raw trace and create a documented clean prefix:
-
-```powershell
-node tools\communication\trace_tools.js trim-valid-prefix simulator\verification\corpus\communication_mod\<raw>.jsonl simulator\verification\corpus\communication_mod\<raw>.valid-prefix.jsonl
-```
-
-For multi-run traces, extract the useful attempt before promoting:
-
-```powershell
-node tools\communication\trace_tools.js extract-run simulator\verification\corpus\communication_mod\<raw>.valid-prefix.jsonl 1 simulator\verification\corpus\communication_mod\<raw>.run2.valid-prefix.jsonl
-```
-
-Promoted traces may remain failing while their underlying simulator mechanics
-are implemented. They stay visible as failing permanent tests and must never be
-made green by declaring the failure location acceptable. Exploratory captures
-remain outside `permanent_traces/` until selected as durable evidence.
+Validate new CommunicationMod captures before adding them to the external
+corpus. Captured payloads remain immutable even when they expose a simulator
+failure; do not trim, rewrite, or grade them into a pass.
 
 ### Divergence minimization
 
-When a trace fails parity, build a prefix JSONL that reproduces the first failure:
+When a trace fails parity, build a compact prefix JSONL that reproduces the
+first failure:
 
-```powershell
+```bash
 cd simulator
-uv run -- cargo run -p sts_verify -- minimize -o verification\corpus\bugs\my-bug.jsonl verification\corpus\communication_mod\trace.jsonl
+uv run -- cargo run -p sts_verify -- minimize \
+  -o verification/corpus/bugs/my-bug.jsonl \
+  "$STS_PERMANENT_CORPUS_DIR/<trace>.jsonl"
 ```
 
 `minimize` runs parity, finds the first `unexpected_diff` or failure boundary,
@@ -402,14 +378,13 @@ Later, fuzz against real-game traces by mutating action sequences only where the
 
 ## Regression Corpus
 
-Keep a `verification/corpus` directory once implementation begins:
+Keep only compact, reviewable fixtures under `verification/corpus`:
 
 - `manual/`: hand-authored tiny fixtures
-- `communication_mod/`: captured real-game traces
-- `run_history/`: coarse run logs
-- `bugs/`: minimized traces for every fixed divergence
+- `bugs/`: minimized traces for fixed divergences when a compact file is useful
 
-Every parity bug fix adds a minimized regression trace.
+Full captures and coarse run logs are external data. Every parity bug fix keeps
+its source capture immutable and adds focused regression coverage where useful.
 
 ## Hidden and Unobservable State
 

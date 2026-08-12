@@ -103,12 +103,12 @@ function traceFingerprint(tracePath) {
 }
 
 function corpusPaths() {
-  const corpus = path.join(root, "simulator", "verification", "corpus");
-  return {
-    directory: corpus,
-    traces: path.join(corpus, "permanent_traces"),
-    openFailures: path.join(corpus, "open_failures"),
-  };
+  const configured = process.env.STS_PERMANENT_CORPUS_DIR;
+  if (!configured) {
+    throw new Error("STS_PERMANENT_CORPUS_DIR must name the external trace directory");
+  }
+  const traces = path.resolve(configured);
+  return { directory: traces, traces };
 }
 
 function writeJsonAtomic(filePath, value) {
@@ -123,17 +123,15 @@ function permanentizeFailure(tracePath, verification) {
   }
   const fingerprint = traceFingerprint(tracePath);
   const traceName = `random-fidelity-${fingerprint}.jsonl`;
-  const { openFailures } = corpusPaths();
-  // Keep full failing witnesses outside the green permanent_traces gate.
-  fs.mkdirSync(openFailures, { recursive: true });
-  const destination = path.join(openFailures, traceName);
+  const { traces } = corpusPaths();
+  fs.mkdirSync(traces, { recursive: true });
+  const destination = path.join(traces, traceName);
   if (!fs.existsSync(destination)) fs.copyFileSync(tracePath, destination);
   return { fingerprint, traceName, destination };
 }
 
 function markPermanentTraceComplete(traceName) {
-  // No expectation manifest: green corpus is directory membership + clean EOF.
-  // Callers may copy a clean prefix into permanent_traces separately.
+  // Outcomes are computed by the verifier and are not stored beside payloads.
   void traceName;
 }
 
@@ -174,7 +172,7 @@ function repairPrompt({ tracePath, permanentTracePath, verification, attempt, ve
 
 This is repair attempt ${attempt}; further attempts will continue until this trace passes. Work directly in the repository at ${root}; do not
 use subagents, do not run Git state-changing commands, and do not edit trace data,
-permanent_traces contents, or processor state. Read AGENT_RULES.md and docs/research.md.
+external trace payloads, or processor state. Read AGENT_RULES.md and docs/research.md.
 
 Trace to reproduce: ${tracePath}
 Permanent copy: ${permanentTracePath || "not yet available"}

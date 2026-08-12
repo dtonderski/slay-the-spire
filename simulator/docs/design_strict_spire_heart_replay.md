@@ -24,6 +24,6 @@ state. No `VictoryRoom` observation selects or bypasses a transition.
 
 ## Regression evidence
 
-The permanent complete CODEX10 trace contains the full four-choice Heart
+The external complete CODEX10 trace contains the full four-choice Heart
 sequence and terminal `PROCEED`. Its strict outcome must remain a complete pass
 with one disposition per action.

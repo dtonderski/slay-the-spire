@@ -28,4 +28,4 @@ uses slots `0..4`, and modeled reward pools are compile-time non-empty.
 
 Regression tests cover every invalid public dispatch family, exact run rollback,
 zero RNG consumption for invalid RNG-backed rewards, and drawback arithmetic
-overflow. The permanent corpus verifies unchanged valid-path sequencing.
+overflow. External trace replay covers valid-path sequencing.

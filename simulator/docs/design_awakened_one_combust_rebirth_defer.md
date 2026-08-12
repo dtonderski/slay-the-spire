@@ -1,6 +1,6 @@
 # Awakened One Combust first-kill REBIRTH timing
 
-## Permanent evidence (authoritative)
+## External trace evidence (authoritative)
 
 FIDL00368 / FIDL00395: Combust first-kills form-1 Awakened One during END with
 low remaining HP. The **same** END publishes form-2 Dark Echo (`move_id=5`,
@@ -13,7 +13,7 @@ FIDL00378: mid-player-turn first-kill; next END REBIRTHs (no extra defer flag).
 After Combust END the trace shows half-dead (`move_id=3`) for a full player
 turn before Dark Echo. A `defer_awakened_one_rebirth` flag was tried to hold
 Stun through the death END; it matched 391's death END but **regressed**
-permanent 368/395 (sim stayed dead/half-dead while real Dark Echo'd).
+the 368/395 witnesses (sim stayed dead/half-dead while real Dark Echo'd).
 
 ## Model (current)
 

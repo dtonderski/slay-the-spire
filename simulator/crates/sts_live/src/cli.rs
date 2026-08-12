@@ -720,6 +720,7 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
             "--permanent-root" => {
                 index += 1;
                 output.permanent_root = PathBuf::from(required(args, index, "--permanent-root")?);
+                output.promote = true;
             }
             "--promote-floor" => {
                 index += 1;
@@ -754,11 +755,12 @@ fn parse_slaythedata_collect_args(args: &[String]) -> LiveResult<SlayTheDataColl
 }
 
 fn default_collection_output_options() -> CollectionOutputOptions {
+    let permanent_root = configured_permanent_corpus_root();
     CollectionOutputOptions {
         journal_path: None,
-        permanent_root: default_permanent_corpus_root(),
+        permanent_root: permanent_root.clone().unwrap_or_default(),
         promote_floor: 11,
-        promote: true,
+        promote: permanent_root.is_some(),
     }
 }
 
@@ -808,6 +810,7 @@ fn parse_slaythedata_resume_args(
             "--permanent-root" => {
                 index += 1;
                 output.permanent_root = PathBuf::from(required(args, index, "--permanent-root")?);
+                output.promote = true;
             }
             "--promote-floor" => {
                 index += 1;
@@ -837,7 +840,7 @@ fn parse_slaythedata_resume_args(
 
 fn parse_trace_promote_args(args: &[String]) -> LiveResult<TracePromoteRequest> {
     let mut request = TracePromoteRequest {
-        permanent_root: default_permanent_corpus_root(),
+        permanent_root: configured_permanent_corpus_root().unwrap_or_default(),
         min_floor: 11,
     };
     let mut index = 0;
@@ -864,11 +867,16 @@ fn parse_trace_promote_args(args: &[String]) -> LiveResult<TracePromoteRequest> 
         }
         index += 1;
     }
+    if request.permanent_root.as_os_str().is_empty() {
+        return Err(LiveError::InvalidAction(
+            "set STS_PERMANENT_CORPUS_DIR or pass --permanent-root".to_owned(),
+        ));
+    }
     Ok(request)
 }
 
-fn default_permanent_corpus_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../verification/corpus/permanent_traces")
+fn configured_permanent_corpus_root() -> Option<PathBuf> {
+    std::env::var_os("STS_PERMANENT_CORPUS_DIR").map(PathBuf::from)
 }
 
 struct StrictTraceAnalysis {
@@ -3175,6 +3183,8 @@ mod tests {
             "--mark-illegal",
             "--retry-journaled",
             "--include-corpus",
+            "--permanent-root",
+            "/tmp/external-traces",
             "--combat-search-transition-budget",
             "25000",
             "--combat-search-time-budget-ms",
@@ -3207,6 +3217,10 @@ mod tests {
         assert_eq!(request.automation_config.search_time_budget_ms, 12_000);
         assert!(request.automation_config.deduplicate_search_states);
         assert!(request.output.promote);
+        assert_eq!(
+            request.output.permanent_root,
+            PathBuf::from("/tmp/external-traces")
+        );
         assert_eq!(request.output.promote_floor, 11);
     }
 
@@ -3247,7 +3261,7 @@ mod tests {
     }
 
     #[test]
-    fn slaythedata_collect_defaults_to_fresh_full_run_and_floor_11_promotion() {
+    fn slaythedata_collect_defaults_to_fresh_full_run_without_implicit_promotion() {
         let request =
             parse_slaythedata_collect_args(&strings(["--ascension", "0", "--victory"])).unwrap();
 
@@ -3261,7 +3275,8 @@ mod tests {
         );
         assert!(!request.retry_journaled);
         assert!(!request.include_corpus);
-        assert!(request.output.promote);
+        assert!(!request.output.promote);
+        assert!(request.output.permanent_root.as_os_str().is_empty());
         assert_eq!(request.output.promote_floor, 11);
     }
 

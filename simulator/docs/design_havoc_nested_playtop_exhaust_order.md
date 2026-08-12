@@ -31,4 +31,4 @@ at the **end** of the queue. Other top-draw cards keep the relative MoveCard ind
 
 FIDL00394 continues at step 1407 (Discovery + Dead Branch Warcry vs Spot Weakness).
 Do not thrash `DISCOVERY_ACTION_HIDDEN_GENERATIONS` DB reserve index — generation==2
-fixes 394 but regresses permanent FIDL00372.
+fixes 394 but regresses the FIDL00372 witness.

@@ -50,5 +50,5 @@ Core tests require the closed shop room to expose and apply `Proceed`. Verifier
 tests require choice-zero entry, reject other room indices, and exercise all
 core-owned destinations. A forged purchase post-screen must remain a
 `shop purchase` screen-type diff and cannot be reclassified as a purge grid.
-The permanent corpus covers merchant entry, purchases, purge, reward return,
+External trace evidence covers merchant entry, purchases, purge, reward return,
 room exit, and deferred deck settlement.

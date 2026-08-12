@@ -9,8 +9,8 @@ combat agent, Python bindings, and strict real-game verifier.
 - `crates/sts_verify/`: strict seed-plus-actions trace replay.
 - `crates/sts_live/`: CommunicationMod bridge backend, CLI, UI, and combat agent.
 - `crates/py_sts/`: optional PyO3 bindings.
-- `verification/corpus/`: captured traces and the permanent regression corpus.
-- `docs/`: simulator design and status notes.
+- `verification/corpus/`: compact, reviewable verification fixtures.
+- `docs/`: simulator design and verification notes.
 
 ## Verification
 
@@ -27,13 +27,16 @@ The verifier always derives simulator state from the recorded `START` seed and
 subsequent actions. Real-game observations are comparison evidence, never
 simulator-state hydration.
 
-To export the authoritative simulator endpoint from a trace, use the explicit
-replay command:
+Full CommunicationMod payloads are external. Point
+`STS_PERMANENT_CORPUS_DIR` at that directory and pass a trace path explicitly.
+To export the authoritative simulator endpoint from a trace, use:
 
-```powershell
-cargo run -p sts_verify -- replay --json verification\corpus\permanent_traces\trace-session-8.jsonl -o replay.json
-cargo run -p sts_verify -- replay --json --at-step 3322 verification\corpus\permanent_traces\trace-session-8.jsonl
-cargo run -p sts_verify -- replay --timeline verification\corpus\permanent_traces\trace-session-8.jsonl
+```bash
+export STS_PERMANENT_CORPUS_DIR=/path/to/permanent_traces
+cargo run -p sts_verify -- replay --json \
+  "$STS_PERMANENT_CORPUS_DIR/<trace>.jsonl" -o replay.json
+cargo run -p sts_verify -- replay --json --at-step 3322 \
+  "$STS_PERMANENT_CORPUS_DIR/<trace>.jsonl"
 ```
 
 Replay returns the final snapshot, a state-hash checkpoint for each trace

@@ -15,5 +15,5 @@ Corruption still zeroes Skills for eligibility when Corruption is active.
 
 ## Status
 
-Source-aligned filter. Does not by itself clear FIDL00387 Discovery pre-open
-debt. Permanent corpus remains green.
+Source-aligned filter. Does not by itself clear the FIDL00387 Discovery
+pre-open debt.

@@ -150,8 +150,13 @@ where
             })),
             ("POST", ["sessions", session_id, "add-to-permanent-corpus"]) => {
                 let session_id = SessionId((*session_id).to_owned());
-                let permanent_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../verification/corpus/permanent_traces");
+                let permanent_root = std::env::var_os("STS_PERMANENT_CORPUS_DIR")
+                    .map(PathBuf::from)
+                    .ok_or_else(|| {
+                        LiveError::InvalidAction(
+                            "STS_PERMANENT_CORPUS_DIR is required for trace promotion".to_owned(),
+                        )
+                    })?;
                 let path =
                     store.copy_verified_trace_to_permanent_corpus(&session_id, &permanent_root)?;
                 let run_id = store.attached_slaythedata_run_id(&session_id)?;

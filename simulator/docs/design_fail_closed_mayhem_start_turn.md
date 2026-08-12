@@ -35,7 +35,7 @@ start-turn callers must explicitly handle success. The complete workspace,
 strict corpus, deterministic replay, and snapshot gates remain required before
 commit.
 
-The permanent CODEX10 trace previously passed only because Havoc's top-drawn
+The external CODEX10 trace previously passed only because Havoc's top-drawn
 Double Tap+ was a no-effect play. With the effect modeled, its following
 Uppercut+ post-state exposes the original hit and decremented Double Tap counter
 but never records the queued copy before another command. The verifier defers

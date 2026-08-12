@@ -469,9 +469,8 @@ CombatRoot
   provenance: trace id / session id where applicable
 ```
 
-Sources: the existing permanent-trace corpus (10 passing traces, 2475
-verified transitions), SlayTheData-guided collection sessions, and
-simulator-only rollouts under a declared policy. Stratify by encounter key,
+Sources: the external verification corpus, SlayTheData-guided collection
+sessions, and simulator-only rollouts under a declared policy. Stratify by encounter key,
 deck size, relic set, and floor; version and deduplicate.
 
 ### D1: Paired-channel trajectories

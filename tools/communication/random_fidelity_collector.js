@@ -574,15 +574,16 @@ function normalizeSettledGameplayRecords(records) {
 
 function promoteDistinctFailure({ minimizedPath, fingerprint: id }) {
   if (!minimizedPath || !fs.existsSync(minimizedPath)) return null;
-  const corpusDir = path.join(root, "simulator", "verification", "corpus", "permanent_traces");
-  const lockPath = path.join(root, "simulator", "verification", "corpus", ".permanent-traces.lock");
+  const configuredCorpus = process.env.STS_PERMANENT_CORPUS_DIR;
+  if (!configuredCorpus) return null;
+  const corpusDir = path.resolve(configuredCorpus);
+  const lockPath = `${corpusDir}.lock`;
   const traceName = `random-fidelity-${id}.jsonl`;
   const destination = path.join(corpusDir, traceName);
   fs.mkdirSync(corpusDir, { recursive: true });
   acquireDirectoryLock(lockPath);
   try {
-    // Copy-only: no permanent_traces.json expectation manifest.
-    // Prefer promoting clean-through-EOF traces; green gate rejects fidelity fails.
+    // External payloads are copy-only and have no repository status metadata.
     if (fs.existsSync(destination)) {
       return { trace: destination, added: false };
     }

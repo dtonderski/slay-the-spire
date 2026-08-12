@@ -152,37 +152,6 @@ function expectedHashes(candidate) {
   );
 }
 
-function snapshotPermanentCorpus(sourceCorpus, destinationCorpus) {
-  fs.rmSync(destinationCorpus, { recursive: true, force: true });
-  fs.mkdirSync(path.join(destinationCorpus, "permanent_traces"), { recursive: true });
-  const sourceTraces = path.join(sourceCorpus, "permanent_traces");
-  if (!fs.existsSync(sourceTraces)) return;
-  for (const name of fs.readdirSync(sourceTraces)) {
-    fs.symlinkSync(
-      path.join(sourceTraces, name),
-      path.join(destinationCorpus, "permanent_traces", name),
-    );
-  }
-  // Optional non-gating witness shelf.
-  const sourceOpen = path.join(sourceCorpus, "open_failures");
-  if (fs.existsSync(sourceOpen)) {
-    fs.mkdirSync(path.join(destinationCorpus, "open_failures"), { recursive: true });
-    for (const name of fs.readdirSync(sourceOpen)) {
-      fs.symlinkSync(
-        path.join(sourceOpen, name),
-        path.join(destinationCorpus, "open_failures", name),
-      );
-    }
-  }
-}
-
-function retainResolvedPrefix(stageRoot, fingerprint) {
-  // No expectation manifest to update. Green corpus is clean-through-EOF files
-  // under permanent_traces/; resolved repairs keep the jsonl already present.
-  void stageRoot;
-  void fingerprint;
-}
-
 async function verifyFocused({ stageRoot, task, stageOutput, targetDir }) {
   const occurrence = task.occurrences?.[0];
   if (!occurrence?.trace) throw new Error(`task ${task.fingerprint} has no replayable trace`);
@@ -304,12 +273,6 @@ async function integrateCandidate(outputDir, candidate) {
       workspaceRoot: stageRoot,
       corpusRoot: path.join(root, "simulator", "verification", "corpus"),
     });
-    const corpusPath = path.join(stage.work, "simulator", "verification", "corpus");
-    fs.unlinkSync(corpusPath);
-    snapshotPermanentCorpus(
-      path.join(root, "simulator", "verification", "corpus"),
-      corpusPath,
-    );
     applyCandidateFiles({
       destination: stage.work,
       work: candidate.work,
@@ -330,7 +293,6 @@ async function integrateCandidate(outputDir, candidate) {
       await rejectCandidate(outputDir, candidate, disposition.note);
       return;
     }
-    retainResolvedPrefix(stage.work, candidate.fingerprint);
     const gate = await runBroadGate({
       stageRoot: stage.work,
       stageOutput,
@@ -432,7 +394,6 @@ module.exports = {
   nextCandidate,
   readCandidates,
   recoverGatingCandidates,
-  snapshotPermanentCorpus,
   uvCommand,
   verifierBinaryPath,
 };

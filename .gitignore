@@ -66,6 +66,16 @@ live_traces/
 live_traces_codex/
 .codex/
 
+# Full verification payloads and generated corpus bookkeeping are external.
+simulator/verification/corpus/permanent_traces/
+simulator/verification/corpus/open_failures/
+simulator/verification/corpus/quarantined_traces/
+simulator/verification/corpus/live_trace_fixtures/
+simulator/verification/corpus/communication_mod/
+simulator/verification/schema_*_archive_*/
+agent_logs/
+random_traces_loop/
+
 # Native extension build product
 simulator/python/sts_sim/*.so
 simulator/python/sts_sim/__pycache__/

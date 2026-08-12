@@ -10,12 +10,13 @@ const outputDir = path.resolve(
   process.env.STS_RANDOM_OUTPUT_DIR ||
     path.join(root, "simulator", "target", "random-fidelity"),
 );
-const corpusDir = path.join(
-  simulatorDir,
-  "verification",
-  "corpus",
-  "permanent_traces",
-);
+function externalCorpusDir() {
+  const configured = process.env.STS_PERMANENT_CORPUS_DIR;
+  if (!configured) {
+    throw new Error("STS_PERMANENT_CORPUS_DIR must name the external trace directory");
+  }
+  return path.resolve(configured);
+}
 const checkpointsPath = path.join(outputDir, "promotion_checkpoints.jsonl");
 const latestLogPath = path.join(outputDir, "promotion_gate_latest.log");
 
@@ -77,6 +78,7 @@ function reconcileVerifiedPrefixes(entries) {
 function enqueueFailedTraces(traceNames) {
   process.env.STS_RANDOM_OUTPUT_DIR = outputDir;
   const { verifyEntry } = require("./random_fidelity_verifier");
+  const corpusDir = externalCorpusDir();
   const checked = traceNames.flatMap((traceName) => {
     const trace = path.join(corpusDir, traceName);
     if (!fs.existsSync(trace)) return [];
@@ -132,8 +134,9 @@ async function main() {
     "sts_verify",
     "--test",
     "corpus",
-    "permanent_trace_entries_pass_seed_start",
+    "external_permanent_traces_are_complete_passes",
     "--",
+    "--ignored",
     "--nocapture",
   ];
   const result = await run(command, args, {
@@ -148,14 +151,9 @@ async function main() {
   fs.writeFileSync(latestLogPath, output);
   const traceNames = parseFailureTraceNames(output);
   const enqueued = result.code === 0 ? [] : enqueueFailedTraces(traceNames);
-  const manifestEntries = Number.parseInt(
-    output.match(/permanent corpus: (\d+) traces/)?.[1] || "0",
-    10,
-  );
   const checkpoint = {
     checked_at: new Date().toISOString(),
-    gate: "permanent_trace_entries_pass_seed_start",
-    manifest_entries: manifestEntries,
+    gate: "external_permanent_traces_are_complete_passes",
     status: result.code === 0 ? "passed" : "failed",
     failed_traces: traceNames.length,
     promotion: result.code === 0,
@@ -177,7 +175,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify(consoleCheckpoint, null, 2)}\n`);
   if (result.code !== 0) {
     process.stderr.write(
-      `permanent corpus gate failed; full output: ${latestLogPath}\n`,
+      `external corpus gate failed; full output: ${latestLogPath}\n`,
     );
     process.exitCode = result.code || 1;
   }

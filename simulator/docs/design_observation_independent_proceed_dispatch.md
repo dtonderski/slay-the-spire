@@ -24,5 +24,5 @@ compares screen type, event identity, floor, gold, and player HP. The boss-chest
 projection compares the core-produced treasure state. Any inconsistent core
 phase fails closed at the command.
 
-The permanent complete CODEX10 trace covers the final-boss route; the permanent
-boss-prefix traces cover combat reward to boss chest.
+External CODEX10 and boss-prefix traces cover the final-boss route and combat
+reward to boss chest.

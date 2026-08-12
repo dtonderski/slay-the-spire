@@ -22,11 +22,11 @@ until stage returns to 0.
 ## Status
 
 Defensive correctness for dual Discovery combats (FIDL00411). Does not by itself
-clear FIDL00411 Blind/Mind Blast Magnetism residual. Permanent corpus remains green.
+clear the later Blind/Mind Blast Magnetism residual.
 
 ## Rejected: burn 6 gens on Discovery→END stage-6 path
 
 Burning the `before_non_end` six generations when stage 6 meets END (no non-END
-in between) breaks permanent FIDL00226 Magnetism ordering. That path must keep
+in between) breaks the FIDL00226 Magnetism ordering witness. That path must keep
 skipping the six gens and relying on staged END residual only. Dual-oracle vs
 traces that appear short after Discovery→END (FIDL00411/405).

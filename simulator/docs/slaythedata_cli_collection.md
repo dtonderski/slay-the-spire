@@ -61,13 +61,12 @@ decision packet, then `skip_shop` when accepting unavailable shop guidance and
 The collector resets the bridge before each attempt by default, starts a fresh
 seeded run, attaches the selected SlayTheData record, and drives combat and
 non-combat actions until it reaches the target or emits a structured terminal
-result. Search excludes runs already marked in the permanent corpus; the
-journal also excludes every previously attempted run unless
-`--retry-journaled` is supplied.
+result. Search excludes runs already marked as collected; the journal also
+excludes every previously attempted run unless `--retry-journaled` is supplied.
 
-Raw session traces, journals, and repair packets are gitignored. A trace enters
-Git only through strict promotion into
-`verification/corpus/permanent_traces/`.
+Raw session traces, journals, and repair packets are gitignored. Full trace
+payloads are external; set `STS_PERMANENT_CORPUS_DIR` or pass
+`--permanent-root` when promotion is requested.
 
 ## Machine-readable recovery contract
 
@@ -125,48 +124,11 @@ reason. These records describe guided-source divergence. They are separate
 from strict simulator fidelity status and never convert a simulator mismatch
 into a guided success.
 
-## 2026-07-18 validation campaign
-
-The autonomous CLI processed 22 unique source runs that had not previously been
-promoted to the permanent corpus (two had earlier failed UI attempts in the
-journal, but neither had yielded a collected trace):
-
-`6453, 111730, 57275, 13284, 62651, 188397, 92797, 167636, 249980,
-231506, 259382, 130000, 181755, 86425, 284637, 236317, 209667, 254954,
-287257, 94930, 179782, 187418`.
-
-A read-only lookup of every ID in the configured SlayTheData index confirmed
-all 22 are Ironclad A0 victories with `floor_reached = 51`, build
-`2020-07-30`, and a non-empty Neow bonus. The campaign produced 32 autonomous
-collector/resume invocations over 22 attempts. Nine attempts reached floor 11
-or later and all nine produced a promoted strict-clean full trace or retained
-prefix. The deepest new trace, run 187418, reached floor 29; its final strict
-replay contained 727 total actions and 726 verified transitions, with zero
-unsupported actions and zero unexpected diffs, before clean full-trace
-promotion.
-
-### CLI versus browser workflow
-
-The pre-CLI journal contains 75 browser-workflow records and 14 explicitly
-started/retried UI sessions. For the 14 sessions with a later journal entry,
-the median recorded wall span was 882.4 seconds and the total was 69,441.9
-seconds; 10 reached floor 11 or later. These spans include human/agent diagnosis
-and code-fix time, so they are an operational reference, not a pure execution
-speed benchmark.
-
-For the CLI campaign itself, the 32 autonomous invocations used 3,645.3 seconds
-of active command time, with a 71.0-second median and a median collector-reported
-rate of 1.49 verified trace actions per second. It processed 22 source runs and
-required zero browser interactions. The meaningful result is not a claimed
-wall-clock speedup: the CLI replaces UI clicking with reproducible JSON
-terminals, safe process-level resume, automatic strict verification, and
-automatic clean-prefix promotion.
-
 ## Verification gates
 
 The implementation is covered by tests for CLI JSON state/actions, fresh-start
 defaults, journal exclusion, structured repair packets, recovered-session
 continuation without simulator hydration, shop recovery, game-over terminals,
-strict promotion, and refreshing a stable corpus file after a repaired trace is
-promoted again. The permanent corpus is replayed in seed-start mode by the
-`sts_verify` corpus tests.
+strict promotion, and refreshing an external corpus file after a repaired trace
+is promoted again. Corpus-wide replay is opt-in and reads
+`STS_PERMANENT_CORPUS_DIR`.
