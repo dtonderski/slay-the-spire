@@ -569,8 +569,8 @@ Layered defenses; each catches leaks the previous layer misses.
    byte-identical `fair_view`, public choice lists, and — via a scripted probe
    that attempts every choice and a set of invalid ones —
    identical public errors and info. Run as property tests over randomly
-   generated combats (AGENT_RULES already calls for property tests on
-   randomly generatable state).
+   generated combats; `AGENTS.md` permits unit and property tests for
+   deterministic invariants like these.
 3. **Divergence-timing tests.** After the non-interference pair *should*
    diverge (the hidden difference becomes visible through a draw or move),
    assert the fair views differ — this catches an over-redacted facade that
@@ -611,7 +611,7 @@ implement suite layers 1–5.
   combats; probe layer 6 passes on a small pilot dataset.
 - Kill criterion: none — this is prerequisite infrastructure. But if
   non-interference cannot be satisfied for some mechanic without redesigning
-  core state, stop and write the design note first (AGENT_RULES rule 7).
+  core state, stop and write a design note in `simulator/docs/` first.
 
 ### E2: Sampler calibration
 

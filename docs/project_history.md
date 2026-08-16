@@ -40,7 +40,7 @@ development slower but allowed the same core to support verification, search,
 and learning. Real-game state observed through CommunicationMod became the
 primary parity evidence.
 
-Sources: [`research.md`](research.md), [`AGENT_RULES.md`](../AGENT_RULES.md), and simulator history from 2026-06-18.
+Sources: [`research.md`](research.md), [`AGENTS.md`](../AGENTS.md), and simulator history from 2026-06-18.
 
 ## Trace-Driven Fidelity and Automated Collection
 

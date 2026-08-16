@@ -568,7 +568,7 @@ Hidden game state:
 Scope explosion:
 
 - Risk: vibe-coded sessions add broad mechanics without verification.
-- Mitigation: `AGENT_RULES.md`, durable design notes, commit-message discipline, and strict one-task sessions.
+- Mitigation: the `AGENTS.md` integrity rules, trace-driven verification instead of self-authored gameplay tests, and commit-message discipline.
 
 Content volume:
 

@@ -5,14 +5,9 @@ const fs = require("fs");
 const net = require("net");
 const path = require("path");
 const readline = require("readline");
-const { spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..", "..");
 const defaultSessionDir = path.join(__dirname, "session");
-
-function defaultVerifierPath() {
-  return path.join(root, "simulator", "target", "release", "sts_verify");
-}
 
 function seededRandom(seed) {
   let state = Number(seed) >>> 0;
@@ -383,32 +378,6 @@ function isSoleEventLeaveScreen(summary) {
   );
 }
 
-function verificationCheckpointKey(summary) {
-  if (!summary) return null;
-  return JSON.stringify({
-    in_game: Boolean(summary.in_game),
-    act: summary.act ?? null,
-    floor: summary.floor ?? null,
-    room_type: summary.room_type ?? null,
-  });
-}
-
-function shouldVerifyTrace({
-  actionCount,
-  lastVerifiedActionCount,
-  checkpointKey,
-  lastVerifiedCheckpointKey,
-  interval,
-  terminal,
-}) {
-  return (
-    lastVerifiedActionCount === null ||
-    terminal ||
-    checkpointKey !== lastVerifiedCheckpointKey ||
-    actionCount - lastVerifiedActionCount >= interval
-  );
-}
-
 function controlRequest(control, payload, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({ host: control.host || "127.0.0.1", port: control.port });
@@ -667,135 +636,6 @@ function normalizeSettledGameplayRecords(records) {
   return normalized;
 }
 
-function promoteDistinctFailure({ minimizedPath, fingerprint: id }) {
-  if (!minimizedPath || !fs.existsSync(minimizedPath)) return null;
-  const configuredCorpus = process.env.STS_PERMANENT_CORPUS_DIR;
-  if (!configuredCorpus) return null;
-  const corpusDir = path.resolve(configuredCorpus);
-  const lockPath = `${corpusDir}.lock`;
-  const traceName = `random-fidelity-${id}.jsonl`;
-  const destination = path.join(corpusDir, traceName);
-  fs.mkdirSync(corpusDir, { recursive: true });
-  acquireDirectoryLock(lockPath);
-  try {
-    // External payloads are copy-only and have no repository status metadata.
-    if (fs.existsSync(destination)) {
-      return { trace: destination, added: false };
-    }
-    fs.copyFileSync(minimizedPath, destination, fs.constants.COPYFILE_EXCL);
-    return { trace: destination, added: true };
-  } catch (error) {
-    if (error && error.code === "EEXIST") {
-      return { trace: destination, added: false };
-    }
-    if (fs.existsSync(destination)) {
-      try {
-        fs.unlinkSync(destination);
-      } catch {
-        // ignore cleanup races
-      }
-    }
-    throw error;
-  } finally {
-    try {
-      fs.rmdirSync(lockPath);
-    } catch {
-      // ignore unlock races
-    }
-  }
-}
-
-function acquireDirectoryLock(lockPath, timeoutMs = 30_000, staleAfterMs = 60_000) {
-  const lockStarted = Date.now();
-  for (;;) {
-    try {
-      fs.mkdirSync(lockPath);
-      return;
-    } catch (error) {
-      if (error.code !== "EEXIST") throw error;
-      try {
-        const ageMs = Date.now() - fs.statSync(lockPath).mtimeMs;
-        if (ageMs >= staleAfterMs) {
-          fs.rmdirSync(lockPath);
-          continue;
-        }
-      } catch (recoveryError) {
-        if (recoveryError.code === "ENOENT") continue;
-        if (recoveryError.code !== "ENOTEMPTY") throw recoveryError;
-      }
-      if (Date.now() - lockStarted >= timeoutMs) {
-        throw new Error(`timed out locking permanent trace manifest: ${lockPath}`);
-      }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
-    }
-  }
-}
-
-function parseParityOutput(output) {
-  const value = (name) => {
-    const match = output.match(new RegExp(`^${name}=(.*)$`, "m"));
-    return match ? match[1].trim() : null;
-  };
-  const firstDiff = output.match(/^unexpected_diff step=(\d+) command="([^"]*)" label="([^"]*)"$/m);
-  const diffLines = [];
-  const lines = output.split(/\r?\n/);
-  const firstDiffIndex = lines.findIndex((line) => line.startsWith("unexpected_diff "));
-  if (firstDiffIndex >= 0) {
-    for (let index = firstDiffIndex + 1; index < lines.length && /^\s{2}/.test(lines[index]); index += 1) {
-      diffLines.push(lines[index].trim());
-    }
-  }
-  return {
-    outcome: value("outcome"),
-    unexpectedDiffs: Number.parseInt(value("unexpected_diffs") || "0", 10),
-    duplicateDispositions: Number.parseInt(value("duplicate_dispositions") || "0", 10),
-    unresolvedTransientAssertions: Number.parseInt(
-      value("unresolved_transient_assertions") || "0",
-      10,
-    ),
-    terminalStateObserved: value("terminal_state_observed") === "true",
-    boundaryPath: value("seed_start.first_boundary.path"),
-    boundaryCategory: value("seed_start.first_boundary.category"),
-    boundaryReason: value("seed_start.first_boundary.reason"),
-    firstDiff: firstDiff
-      ? { step: Number(firstDiff[1]), command: firstDiff[2], label: firstDiff[3] }
-      : null,
-    diffLines,
-  };
-}
-
-function fingerprint(result) {
-  const source = result.firstDiff
-    ? `diff|${result.firstDiff.command}|${result.firstDiff.label}|${(result.diffLines || []).join("|")}`
-    : `boundary|${result.boundaryCategory}|${String(result.boundaryPath || "").replace(/step=\d+/g, "step=*")}|${result.boundaryReason || ""}`;
-  return crypto.createHash("sha256").update(source).digest("hex").slice(0, 16);
-}
-
-function expectedFailureBoundary(result) {
-  const boundaryStep = Number.parseInt(
-    String(result.boundaryPath || "").match(/step=(\d+)/)?.[1] || "",
-    10,
-  );
-  if (result.firstDiff && (!Number.isInteger(boundaryStep) || result.firstDiff.step < boundaryStep)) {
-    return {
-      path: `$.actions[step=${result.firstDiff.step}].command`,
-      category: "unexpected_sim_real_diff",
-    };
-  }
-  return { path: result.boundaryPath, category: result.boundaryCategory };
-}
-
-function isPromotableFailure(result) {
-  if (String(result.boundaryCategory).toLowerCase() === "unsupported_neow_boss_swap") {
-    // The first visible relic mismatch is the verifier's explanation for the
-    // unsupported Neow boss-swap RNG path, not an independently replayable
-    // simulator mechanic. Preserve the trace, but do not promote it.
-    return false;
-  }
-  return result.unexpectedDiffs > 0 &&
-    Number(result.duplicateDispositions || 0) === 0 &&
-    expectedFailureBoundary(result).category === "unexpected_sim_real_diff";
-}
 
 async function currentRunRecords(tracePath, startOffset = 0) {
   const input = fs.createReadStream(tracePath, {
@@ -867,28 +707,6 @@ async function currentRunRecords(tracePath, startOffset = 0) {
     created_at: new Date().toISOString(),
   });
   return extracted;
-}
-
-function verifierInvocationFailed(child) {
-  // On WSL/DrvFS, Node can report a cleanup-time EPERM even though the child
-  // ran to completion and returned a valid status plus output. Trust the
-  // completed status; a genuine spawn failure has a null status.
-  return ![0, 2].includes(child.status);
-}
-
-function verifyTrace(verifierPath, tracePath) {
-  const child = spawnSync(verifierPath, ["parity", tracePath], {
-    cwd: root,
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  const output = `${child.stdout || ""}\n${child.stderr || ""}`;
-  if (verifierInvocationFailed(child)) {
-    throw new Error(
-      `verifier invocation failed with exit ${child.status}: ${child.error?.message || output.trim()}`,
-    );
-  }
-  return { ...parseParityOutput(output), exitCode: child.status, output };
 }
 
 function requireCommandCompletion(protocolState, command, acceptedStep, priorStateSeq) {
@@ -968,23 +786,13 @@ async function main() {
   if (!status.control || status.control.protocol !== "tcp-jsonl") {
     throw new Error("a live TCP-enabled CommunicationMod bridge is required");
   }
-  const verifierPath = path.resolve(
-    process.env.STS_VERIFY_BIN || defaultVerifierPath(),
-  );
-  if (!fs.existsSync(verifierPath)) throw new Error(`verifier binary not found: ${verifierPath}`);
-
   const policySeed = Number.parseInt(process.env.STS_RANDOM_POLICY_SEED || "1", 10);
   const gameSeed = process.env.STS_GAME_SEED || `COLLECT${policySeed}`;
   const startingHp = Number.parseInt(process.env.STS_STARTING_HP || "10000", 10);
   const maxActions = Number.parseInt(process.env.STS_RANDOM_MAX_ACTIONS || "10000", 10);
   const logActions = process.env.STS_RANDOM_LOG_ACTIONS !== "0";
-  const verifyEvery = Number.parseInt(process.env.STS_RANDOM_VERIFY_EVERY || "50", 10);
-  const deferVerification = process.env.STS_RANDOM_DEFER_VERIFICATION === "1";
   const sourceVersion = process.env.STS_RANDOM_SOURCE_VERSION || "working-tree";
   const traceStartedAt = new Date();
-  if (!Number.isInteger(verifyEvery) || verifyEvery < 1) {
-    throw new Error("STS_RANDOM_VERIFY_EVERY must be a positive integer");
-  }
   // Snapshot this immediately before starting the run: the game mutates this
   // profile-scoped preference as previously unseen bosses are encountered.
   const bossUnlocks = loadBossUnlocks();
@@ -1002,9 +810,7 @@ async function main() {
     process.env.STS_RANDOM_OUTPUT_DIR || path.join(root, "simulator", "target", "random-fidelity"),
   );
   fs.mkdirSync(campaignDir, { recursive: true });
-  const activeTrace = deferVerification
-    ? immutableTracePath(campaignDir, gameSeed, policySeed, traceStartedAt)
-    : path.join(campaignDir, `active-${gameSeed}-p${policySeed}.jsonl`);
+  const activeTrace = immutableTracePath(campaignDir, gameSeed, policySeed, traceStartedAt);
   const ledgerPath = path.join(campaignDir, "ledger.jsonl");
   const skippedSeedsPath = path.join(campaignDir, "skipped_policy_seeds.jsonl");
   const seedPrefix = process.env.STS_RANDOM_GAME_SEED_PREFIX || "FIDL";
@@ -1108,8 +914,6 @@ async function main() {
 
     let runObserved = false;
     let pendingEventLeave = null;
-    let lastVerifiedActionCount = null;
-    let lastVerifiedCheckpointKey = null;
     // The extra sentinel iteration settles and verifies the final commanded
     // action before a max-actions result is reported.
     for (let actionIndex = 1; actionIndex <= maxActions + 1; actionIndex += 1) {
@@ -1173,19 +977,8 @@ async function main() {
         continue;
       }
       const actionCount = actionIndex - 1;
-      const checkpointKey = verificationCheckpointKey(summary);
       const terminal = !summary.in_game || actionIndex > maxActions;
-      const verificationDue = deferVerification
-        ? terminal
-        : shouldVerifyTrace({
-            actionCount,
-            lastVerifiedActionCount,
-            checkpointKey,
-            lastVerifiedCheckpointKey,
-            interval: verifyEvery,
-            terminal,
-          });
-      if (verificationDue) {
+      if (terminal) {
         const rawRecords = addCollectionMetadata(
           await currentRunRecords(bridgeTracePath, runTraceStartOffset),
           bossUnlocks,
@@ -1196,110 +989,16 @@ async function main() {
           sourceVersion,
         );
         const records = normalizeSettledGameplayRecords(rawRecords);
-        writeTrace(activeTrace, records, { exclusive: deferVerification });
-        if (deferVerification) {
-          const entry = {
-            recorded_at: new Date().toISOString(),
-            kind: "collected",
-            game_seed: gameSeed,
-            policy_seed: policySeed,
-            starting_hp: startingHp,
-            actions: actionCount,
-            terminal_reason: !summary.in_game ? "game_over" : "max_actions",
-            trace: activeTrace,
-          };
-          fs.appendFileSync(
-            path.join(campaignDir, "verification_queue.jsonl"),
-            `${JSON.stringify(entry)}\n`,
-          );
-          fs.appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
-          console.log(JSON.stringify(entry));
-          return;
-        }
-        // The bridge keeps recording every settled action between checks. A
-        // failed batch is minimized below, recovering its first divergent action
-        // even though the real game may have advanced farther.
-        const verification = verifyTrace(verifierPath, activeTrace);
-        lastVerifiedActionCount = actionCount;
-        lastVerifiedCheckpointKey = checkpointKey;
-        const terminalBoundary =
-          verification.unexpectedDiffs > 0 ||
-          (verification.boundaryCategory && verification.boundaryCategory !== "none");
-        if (terminalBoundary) {
-          const id = fingerprint(verification);
-          const archivePath = path.join(campaignDir, "raw", `${gameSeed}-p${policySeed}-${id}.jsonl`);
-          const minimizedPath = path.join(
-            campaignDir,
-            "minimized",
-            `${gameSeed}-p${policySeed}-${id}.jsonl`,
-          );
-          writeTrace(archivePath, rawRecords);
-          fs.mkdirSync(path.dirname(minimizedPath), { recursive: true });
-          const minimized = spawnSync(
-            verifierPath,
-            ["minimize", "-o", minimizedPath, activeTrace],
-            { cwd: root, encoding: "utf8", windowsHide: true },
-          );
-          if (minimized.status !== 0) {
-            throw new Error(`trace minimization failed: ${minimized.stderr || minimized.stdout}`);
-          }
-          const expectedBoundary = expectedFailureBoundary(verification);
-          const promotion =
-            isPromotableFailure(verification)
-              ? promoteDistinctFailure({
-                  minimizedPath,
-                  fingerprint: id,
-                  boundaryPath: expectedBoundary.path,
-                  boundaryCategory: expectedBoundary.category,
-                })
-              : null;
-          const entry = {
-            recorded_at: new Date().toISOString(),
-            game_seed: gameSeed,
-            policy_seed: policySeed,
-            starting_hp: startingHp,
-            actions: actionIndex - 1,
-            fingerprint: id,
-            kind: verification.unexpectedDiffs > 0 ? "divergence" : "boundary",
-            boundary_category: verification.boundaryCategory,
-            boundary_path: verification.boundaryPath,
-            boundary_reason: verification.boundaryReason,
-            first_diff: verification.firstDiff,
-            diff_lines: verification.diffLines,
-            raw_trace: archivePath,
-            minimized_trace: fs.existsSync(minimizedPath) ? minimizedPath : null,
-            permanent_trace: promotion?.trace || null,
-            newly_promoted: promotion?.added || false,
-          };
-          fs.appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
-          console.log(JSON.stringify(entry, null, 2));
-          process.exitCode = 2;
-          return;
-        }
-      }
-      if (!summary.in_game) {
+        writeTrace(activeTrace, records, { exclusive: true });
         const entry = {
           recorded_at: new Date().toISOString(),
-          kind: "complete",
+          kind: "collected",
           game_seed: gameSeed,
           policy_seed: policySeed,
           starting_hp: startingHp,
-          actions: actionIndex - 1,
-          active_trace: activeTrace,
-        };
-        fs.appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
-        console.log(JSON.stringify(entry));
-        return;
-      }
-      if (actionIndex > maxActions) {
-        const entry = {
-          recorded_at: new Date().toISOString(),
-          kind: "max_actions",
-          game_seed: gameSeed,
-          policy_seed: policySeed,
-          starting_hp: startingHp,
-          actions: maxActions,
-          active_trace: activeTrace,
+          actions: actionCount,
+          terminal_reason: !summary.in_game ? "game_over" : "max_actions",
+          trace: activeTrace,
         };
         fs.appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
         console.log(JSON.stringify(entry));
@@ -1421,34 +1120,23 @@ if (require.main === module) {
 }
 
 module.exports = {
-  acquireDirectoryLock,
   addCollectionMetadata,
   chooseRandomAction,
   createCombatStallTracker,
   currentRunRecords,
-  defaultVerifierPath,
   enumerateGameplayActions,
-  expectedFailureBoundary,
-  fingerprint,
   immutableTracePath,
   loadBossUnlocks,
   localBridgeTracePath,
-  isPromotableFailure,
   isSoleEventLeaveScreen,
   communicationBoundary,
   needsMapChoiceSettle,
   normalizeSettledGameplayRecords,
   observeCombatStall,
-  parseParityOutput,
   parseBossUnlocks,
   parseSeenBossesPreferences,
   playerCombatStrength,
-  promoteDistinctFailure,
   seededRandom,
-  shouldVerifyTrace,
   totalLivingEnemyHp,
-  verificationCheckpointKey,
-  verifierInvocationFailed,
-  verifyTrace,
   writeTrace,
 };

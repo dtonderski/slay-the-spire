@@ -5,40 +5,26 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const {
-  acquireDirectoryLock,
   addCollectionMetadata,
   chooseRandomAction,
   communicationBoundary,
   createCombatStallTracker,
   currentRunRecords,
-  defaultVerifierPath,
   enumerateGameplayActions,
-  expectedFailureBoundary,
-  fingerprint,
   immutableTracePath,
-  isPromotableFailure,
   isSoleEventLeaveScreen,
   loadBossUnlocks,
   localBridgeTracePath,
   needsMapChoiceSettle,
   normalizeSettledGameplayRecords,
   observeCombatStall,
-  parseParityOutput,
   parseBossUnlocks,
   parseSeenBossesPreferences,
   playerCombatStrength,
   seededRandom,
-  shouldVerifyTrace,
   totalLivingEnemyHp,
-  verificationCheckpointKey,
-  verifierInvocationFailed,
   writeTrace,
 } = require("./random_fidelity_collector");
-
-assert.strictEqual(
-  defaultVerifierPath(),
-  path.resolve(__dirname, "..", "..", "simulator", "target", "release", "sts_verify"),
-);
 
 const traceWriteRoot = fs.mkdtempSync(path.join("/tmp", "sts-trace-write-"));
 try {
@@ -56,24 +42,6 @@ try {
   );
 } finally {
   fs.rmSync(traceWriteRoot, { recursive: true, force: true });
-}
-
-const lockTestRoot = fs.mkdtempSync(path.join("/tmp", "sts-manifest-lock-"));
-try {
-  const staleLock = path.join(lockTestRoot, "stale");
-  fs.mkdirSync(staleLock);
-  acquireDirectoryLock(staleLock, 100, 0);
-  fs.rmdirSync(staleLock);
-
-  const freshLock = path.join(lockTestRoot, "fresh");
-  fs.mkdirSync(freshLock);
-  assert.throws(
-    () => acquireDirectoryLock(freshLock, 25, 60_000),
-    /timed out locking/,
-  );
-  fs.rmdirSync(freshLock);
-} finally {
-  fs.rmSync(lockTestRoot, { recursive: true, force: true });
 }
 
 assert.strictEqual(
@@ -208,75 +176,6 @@ assert.deepStrictEqual(
   ["CHOOSE 0", "CHOOSE 2"],
 );
 
-const checkpoint = verificationCheckpointKey({
-  in_game: true,
-  act: 2,
-  floor: 23,
-  room_type: "MONSTER",
-  room_phase: "COMBAT",
-  screen_type: "HAND_SELECT",
-});
-assert.strictEqual(
-  checkpoint,
-  verificationCheckpointKey({
-    in_game: true,
-    act: 2,
-    floor: 23,
-    room_type: "MONSTER",
-    room_phase: "COMBAT",
-    screen_type: "NONE",
-  }),
-);
-assert.strictEqual(
-  checkpoint,
-  verificationCheckpointKey({
-    in_game: true,
-    act: 2,
-    floor: 23,
-    room_type: "MONSTER",
-    room_phase: "COMPLETE",
-  }),
-);
-assert.strictEqual(shouldVerifyTrace({
-  actionCount: 0,
-  lastVerifiedActionCount: null,
-  checkpointKey: checkpoint,
-  lastVerifiedCheckpointKey: null,
-  interval: 50,
-  terminal: false,
-}), true);
-assert.strictEqual(shouldVerifyTrace({
-  actionCount: 49,
-  lastVerifiedActionCount: 0,
-  checkpointKey: checkpoint,
-  lastVerifiedCheckpointKey: checkpoint,
-  interval: 50,
-  terminal: false,
-}), false);
-assert.strictEqual(shouldVerifyTrace({
-  actionCount: 50,
-  lastVerifiedActionCount: 0,
-  checkpointKey: checkpoint,
-  lastVerifiedCheckpointKey: checkpoint,
-  interval: 50,
-  terminal: false,
-}), true);
-assert.strictEqual(shouldVerifyTrace({
-  actionCount: 1,
-  lastVerifiedActionCount: 0,
-  checkpointKey: verificationCheckpointKey({ in_game: true, floor: 24 }),
-  lastVerifiedCheckpointKey: checkpoint,
-  interval: 50,
-  terminal: false,
-}), true);
-assert.strictEqual(shouldVerifyTrace({
-  actionCount: 1,
-  lastVerifiedActionCount: 0,
-  checkpointKey: checkpoint,
-  lastVerifiedCheckpointKey: checkpoint,
-  interval: 50,
-  terminal: true,
-}), true);
 
 const bossUnlocks = parseBossUnlocks(JSON.stringify({
   guardian_seen: false,
@@ -696,38 +595,6 @@ assert.strictEqual(
   }
 }
 
-const parsed = parseParityOutput(`outcome=failed\nunexpected_diffs=1\nduplicate_dispositions=0\nseed_start.first_boundary.path=$.actions[step=99].command\nseed_start.first_boundary.category=unsupported_combat_path\nunexpected_diff step=12 command="END" label="combat end turn"`);
-assert.strictEqual(parsed.unexpectedDiffs, 1);
-assert.strictEqual(parsed.firstDiff.label, "combat end turn");
-assert.deepStrictEqual(parsed.diffLines, []);
-assert.deepStrictEqual(expectedFailureBoundary(parsed), {
-  path: "$.actions[step=12].command",
-  category: "unexpected_sim_real_diff",
-});
-assert.deepStrictEqual(
-  expectedFailureBoundary({
-    ...parsed,
-    boundaryPath: "$.actions[step=12].command",
-    boundaryCategory: "unsupported_combat_path",
-  }),
-  { path: "$.actions[step=12].command", category: "unsupported_combat_path" },
-);
-assert.strictEqual(isPromotableFailure(parsed), true);
-assert.strictEqual(isPromotableFailure({ ...parsed, duplicateDispositions: 1 }), false);
-assert.strictEqual(isPromotableFailure({
-  ...parsed,
-  boundaryPath: "$.actions[step=12].command",
-  boundaryCategory: "unsupported_combat_path",
-}), false);
-assert.strictEqual(isPromotableFailure({
-  ...parsed,
-  boundaryPath: "$.actions[step=99].command",
-  boundaryCategory: "unsupported_neow_boss_swap",
-}), false);
-assert.strictEqual(fingerprint(parsed), fingerprint({ ...parsed, boundaryPath: "$.actions[step=99]" }));
-assert.strictEqual(verifierInvocationFailed({ status: 2, error: { code: "EPERM" } }), false);
-assert.strictEqual(verifierInvocationFailed({ status: 0, error: { code: "EPERM" } }), false);
-assert.strictEqual(verifierInvocationFailed({ status: null, error: { code: "EPERM" } }), true);
 
 async function testOffsetRunRead() {
   const directory = fs.mkdtempSync(path.join(require("os").tmpdir(), "random-fidelity-offset-"));

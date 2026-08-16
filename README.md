@@ -53,4 +53,4 @@ Simulator mechanics must stay separate from RL feature extraction and reward sha
 - `PROJECT_OVERVIEW.md`: high-level RL roadmap, phase gates, evaluation protocol, and state-visibility boundaries
 - `simulator/docs/verification.md`: parity and testing strategy
 - `simulator/docs/live_trace_ui_design.md`: live trace collection UI design
-- `AGENT_RULES.md`: rules for future coding sessions
+- `AGENTS.md`: rules for coding agents (plus `simulator/AGENTS.md` for `simulator/`)

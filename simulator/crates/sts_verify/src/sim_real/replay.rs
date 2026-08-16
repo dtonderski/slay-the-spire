@@ -3667,30 +3667,51 @@ mod tests {
     }
 
     #[test]
-    fn leftover_end_finished_player_turn_requires_full_hand() {
-        let empty = RunState::combat_fixture();
-        let mut mid_draw = empty.clone();
-        mid_draw
+    fn leftover_end_finished_player_turn_requires_drawn_hand_without_decision() {
+        let fixture = RunState::combat_fixture();
+        let mut source = fixture.clone();
+        source.combat.as_mut().expect("combat").piles.hand.clear();
+
+        // One drawn card is enough: Time Warp settlement publishes the leftover
+        // frame before the hand has refilled.
+        let mut partial = fixture.clone();
+        partial
             .combat
             .as_mut()
             .expect("combat")
             .piles
             .hand
             .truncate(1);
-        let mut full = empty.clone();
-        let combat = full.combat.as_mut().expect("combat");
-        while combat.piles.hand.len() < 5 {
-            let id = combat.piles.hand.len() as u64 + 10;
-            combat.piles.hand.push(sts_core::CardInstance::new(
-                sts_core::CardId::new(id),
-                sts_core::content::cards::STRIKE_R_ID,
-            ));
-        }
-        let mut source = empty.clone();
-        source.combat.as_mut().expect("combat").piles.hand.clear();
-        assert!(!leftover_end_finished_player_turn(&source, &mid_draw));
-        assert!(leftover_end_finished_player_turn(&source, &full));
-        assert!(leftover_end_finished_player_turn(&mid_draw, &full));
+        assert!(leftover_end_finished_player_turn(&source, &partial));
+        assert!(leftover_end_finished_player_turn(&source, &fixture));
+
+        assert!(
+            !leftover_end_finished_player_turn(&source, &source),
+            "an undrawn candidate hand has not finished the turn"
+        );
+        assert!(
+            !leftover_end_finished_player_turn(&partial, &fixture),
+            "a source that still holds cards is not a leftover END frame"
+        );
+
+        let mut pending_decision = fixture.clone();
+        let combat = pending_decision.combat.as_mut().expect("combat");
+        let source_card_id = combat.piles.hand[0].id;
+        combat.decision = Some(CombatDecisionState::HandSelect {
+            state: sts_core::combat::HandSelectState {
+                purpose: HandSelectPurpose::WarcryPutOnDraw,
+                source_card_id,
+                selected_hand_index: None,
+                selected_hand_indices: Vec::new(),
+                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_force_exhaust: false,
+            },
+            pending_actions: VecDeque::new(),
+        });
+        assert!(
+            !leftover_end_finished_player_turn(&source, &pending_decision),
+            "an open selection means the turn has not settled"
+        );
     }
 
     #[test]

@@ -142,7 +142,7 @@ async function main() {
     } catch (error) {
       child = { code: null, signal: null, error: error.message };
     }
-    if (child.code !== 0 && child.code !== 2) {
+    if (child.code !== 0) {
       if (indefinite && isInfrastructureFailure(child)) {
         appendJsonl(path.join(outputDir, "campaign_failures.jsonl"), {
           recorded_at: new Date().toISOString(),
