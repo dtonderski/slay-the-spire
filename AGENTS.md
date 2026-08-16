@@ -124,8 +124,9 @@ files:
 
 - The trace corpus is downloaded at **boot** by `.cursor/start.sh`, not during
   the Build, because `HF_TOKEN` is a runtime-only secret (unavailable to the
-  build `install` step). First boot pulls ~15 GB before the agent is ready; the
-  download is incremental and skips existing traces. If `HF_TOKEN` is unset the
+  build `install` step). First boot pulls the full corpus (several GB, and
+  growing as traces are added) before the agent is ready; the download is
+  incremental and skips existing traces. If `HF_TOKEN` is unset the
   boot still succeeds without the corpus — exercise the verifier with the
   committed fixture instead: `cargo run -p sts_verify --bin sts_verify -- corpus
   manual/milestone1.jsonl` plus the `milestone*` tests.
