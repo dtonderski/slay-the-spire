@@ -113,17 +113,20 @@ map/reward/shop generation.
 
 ## Cursor Cloud specific instructions
 
-Environment build/setup lives in `.cursor/` (`environment.json` → `Dockerfile` →
-`install.sh`); edit those, not a dashboard snapshot, to change toolchains or
-setup. Supported Cloud scope is `sts_verify` and `py_sts`; the `sts_live` live UI
-needs a real game/CommunicationMod bridge that cannot run here. The notes below
-are non-obvious caveats not captured by those files:
+Environment build/setup lives in `.cursor/` (`environment.json` → `Dockerfile`,
+`install.sh` at build time, `start.sh` at boot); edit those, not a dashboard
+snapshot, to change toolchains or setup. Supported Cloud scope is `sts_verify`
+and `py_sts`; the `sts_live` live UI needs a real game/CommunicationMod bridge
+that cannot run here. The notes below are non-obvious caveats not captured by
+those files:
 
-- `HF_TOKEN` (the corpus download in `.cursor/install.sh`) must be available **at
-  build time**, not runtime-only — a runtime-only secret makes the Build's
-  download fail (`error: HF_TOKEN is required ...`). Without the corpus, exercise
-  the verifier with the committed fixture: `cargo run -p sts_verify --bin
-  sts_verify -- corpus manual/milestone1.jsonl` plus the `milestone*` tests.
+- The trace corpus is downloaded at **boot** by `.cursor/start.sh`, not during
+  the Build, because `HF_TOKEN` is a runtime-only secret (unavailable to the
+  build `install` step). First boot pulls ~15 GB before the agent is ready; the
+  download is incremental and skips existing traces. If `HF_TOKEN` is unset the
+  boot still succeeds without the corpus — exercise the verifier with the
+  committed fixture instead: `cargo run -p sts_verify --bin sts_verify -- corpus
+  manual/milestone1.jsonl` plus the `milestone*` tests.
 - `cargo test --workspace` has one parallelism-sensitive test,
   `rng::tests::rng_trace_capture_restores_disabled_fast_path_after_panic` (it
   asserts on the process-global `RNG_TRACE_ACTIVE` counter). Run it in isolation
