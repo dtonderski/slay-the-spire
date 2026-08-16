@@ -108,10 +108,9 @@ uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown \
 
 ### Hugging Face corpus storage
 
-The private Hugging Face dataset is the remote source for Cloud Agent Builds.
-It stores each immutable payload independently as deterministic
-`<trace>.jsonl.gz`; the checked-out repository and Git history still contain no
-full captures.
+The private Hugging Face dataset is the remote source for Cloud Agents. It
+stores each immutable payload independently as deterministic `<trace>.jsonl.gz`;
+the checked-out repository and Git history still contain no full captures.
 
 Initial local upload, after authenticating with a Hugging Face write token:
 
@@ -129,11 +128,14 @@ Cloud Agent configuration lives in `.cursor/environment.json` and pins the
 dataset ID. Add `HF_TOKEN`, using a read-only token that can access the private
 dataset, to the Cloud Agent environment's Secrets tab.
 
-The Build install command downloads the compressed objects, extracts them
-atomically into `verification/corpus/permanent_traces/`, and keeps a compressed
-download cache for incremental future Builds. A successful Build snapshot
-therefore gives every agent the complete corpus without downloading it at the
-start of each run.
+`.cursor/start.sh` downloads the compressed objects at boot (because `HF_TOKEN`
+is a runtime-only secret, unavailable during the build `install` step), extracts
+them atomically into `verification/corpus/permanent_traces/`, and keeps a
+compressed download cache so later boots re-fetch only new traces. The download
+is incremental and resumable: it skips traces already on disk and picks up
+newly added ones. If you enable Builds and also make `HF_TOKEN` available at
+build time, move the download into the `install` step to bake the corpus into
+the Build snapshot instead of fetching it on each boot.
 
 The repository intentionally carries no manifest, inventory, outcome ledger,
 or generated status document. Status is a function of the immutable external

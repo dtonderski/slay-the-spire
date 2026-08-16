@@ -75,14 +75,16 @@ The inner loop is the Rust verifier, not the UI:
 
 ### Cursor Cloud
 
-- Cloud Builds download the complete permanent corpus from the private
+- Cloud agents download the complete permanent corpus from the private
   `dtonderski/sts-permanent-traces` Hugging Face dataset. `HF_TOKEN` must be a
   read token supplied through Cursor's Cloud Agent secrets, never committed to
   the repo.
-- `.cursor/environment.json` runs `tools/hf_corpus.sh download` during the
-  Build. The resulting traces live at the normal gitignored
-  `simulator/verification/corpus/permanent_traces/` path and are captured in the
-  Build snapshot.
+- `.cursor/start.sh` runs `tools/hf_corpus.sh download` at **boot** (not during
+  the Build), because `HF_TOKEN` is a runtime-only secret. The download is
+  incremental; traces land at the gitignored
+  `simulator/verification/corpus/permanent_traces/` path. If Builds are enabled
+  and `HF_TOKEN` is also available at build time, you could move the download to
+  the `install` step to bake it into the snapshot instead.
 - Cloud agents may read and replay these traces but must never edit them or
   upload corpus changes. Corpus uploads are an explicit local operation.
 
@@ -110,3 +112,32 @@ evidence.
 
 Read `docs/research.md` before touching RNG, action queue, save loading, or
 map/reward/shop generation.
+
+## Cursor Cloud specific instructions
+
+Environment setup lives in `.cursor/`: `install.sh` (via `environment.json`
+`install`) installs newest stable Rust plus `uv`/`libpython3.12-dev` and builds
+`py_sts` on Cursor's default image — no custom Dockerfile, so it works for
+just-in-time agents too — and `start.sh` downloads the corpus at boot. Edit those
+files, not a dashboard snapshot. Supported Cloud scope is `sts_verify` and
+`py_sts`; the `sts_live` live UI needs a real game/CommunicationMod bridge that
+cannot run here. The notes below are non-obvious caveats not captured by those
+files:
+
+- The trace corpus is downloaded at **boot** by `.cursor/start.sh`, not during
+  the Build, because `HF_TOKEN` is a runtime-only secret (unavailable to the
+  build `install` step). First boot pulls the full corpus (several GB, and
+  growing as traces are added) before the agent is ready; the download is
+  incremental and skips existing traces. If `HF_TOKEN` is unset the
+  boot still succeeds without the corpus — exercise the verifier with the
+  committed fixture instead: `cargo run -p sts_verify --bin sts_verify -- corpus
+  manual/milestone1.jsonl` plus the `milestone*` tests.
+- `cargo test --workspace` has one parallelism-sensitive test,
+  `rng::tests::rng_trace_capture_restores_disabled_fast_path_after_panic` (it
+  asserts on the process-global `RNG_TRACE_ACTIVE` counter). Run it in isolation
+  or with `-- --test-threads=1`; it is a harness race, not a simulator bug.
+- Two `py_sts` failures are pre-existing in a clean checkout, not setup breakage:
+  `pytest test_content_catalogues_are_complete_python_enums` (its hardcoded card
+  count is stale vs. the catalogue) and a Ruff `F401` in
+  `python/notebooks/fair_combat_playground.ipynb`. `ty check` and the rest of
+  `pytest` pass.
