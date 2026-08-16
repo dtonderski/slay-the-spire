@@ -106,6 +106,35 @@ uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown \
   "$STS_PERMANENT_CORPUS_DIR"
 ```
 
+### Hugging Face corpus storage
+
+The private Hugging Face dataset is the remote source for Cloud Agent Builds.
+It stores each immutable payload independently as deterministic
+`<trace>.jsonl.gz`; the checked-out repository and Git history still contain no
+full captures.
+
+Initial local upload, after authenticating with a Hugging Face write token:
+
+```bash
+export HF_CORPUS_REPO=dtonderski/sts-permanent-traces
+uvx --from huggingface_hub hf auth login
+tools/hf_corpus.sh upload
+```
+
+The upload command creates the dataset as private if necessary, compresses only
+the external payloads, and is resumable. It never deletes remote objects.
+Rerun it explicitly after adding immutable local traces.
+
+Cloud Agent configuration lives in `.cursor/environment.json` and pins the
+dataset ID. Add `HF_TOKEN`, using a read-only token that can access the private
+dataset, to the Cloud Agent environment's Secrets tab.
+
+The Build install command downloads the compressed objects, extracts them
+atomically into `verification/corpus/permanent_traces/`, and keeps a compressed
+download cache for incremental future Builds. A successful Build snapshot
+therefore gives every agent the complete corpus without downloading it at the
+start of each run.
+
 The repository intentionally carries no manifest, inventory, outcome ledger,
 or generated status document. Status is a function of the immutable external
 payloads and the verifier revision being evaluated. Parallel jobs render

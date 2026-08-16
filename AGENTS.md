@@ -73,6 +73,19 @@ The inner loop is the Rust verifier, not the UI:
   uncommitted decompiled-source corpus: search one package path such as
   `com/megacrit/cardcrawl/monsters/`, never the whole tree.
 
+### Cursor Cloud
+
+- Cloud Builds download the complete permanent corpus from the private
+  `dtonderski/sts-permanent-traces` Hugging Face dataset. `HF_TOKEN` must be a
+  read token supplied through Cursor's Cloud Agent secrets, never committed to
+  the repo.
+- `.cursor/environment.json` runs `tools/hf_corpus.sh download` during the
+  Build. The resulting traces live at the normal gitignored
+  `simulator/verification/corpus/permanent_traces/` path and are captured in the
+  Build snapshot.
+- Cloud agents may read and replay these traces but must never edit them or
+  upload corpus changes. Corpus uploads are an explicit local operation.
+
 ## Trace Collection
 
 `tools/communication/random_fidelity_collector.js` only collects: it plays

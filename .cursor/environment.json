@@ -1,0 +1,4 @@
+{
+  "name": "Slay the Spire simulator with permanent traces",
+  "install": "bash tools/hf_corpus.sh download dtonderski/sts-permanent-traces"
+}
