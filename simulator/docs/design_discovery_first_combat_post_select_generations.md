@@ -1,38 +1,41 @@
-# FIDL01561 Sludge Void vs Discovery SuperFastMode pulses (parked)
+# Discovery post-select generations and leftover Void (FIDL01561)
 
 ## Witness
 
 FIDL01561 END 2132 first-divs after a matching Clothesline. Real leftover
 has energy 4, a six-card hand without Void, Void at leftover draw index 9,
-and Awakened One at 200 HP. Sim draws Void (energy 3, seven-card hand,
-Fire Breathing 10).
+and Awakened One at 200 HP. Sim with one discarded Discovery generation
+draws Void (energy 3, seven-card hand, Fire Breathing 10).
 
-`cardRandomRng` at that insert is three draws (one `generateCardChoices`)
-ahead of the leftover index 9. Those three draws are a second discarded
-post-select generation on the fight's only Discovery (`PLAY` 2057 /
-`CHOOSE` 2058).
+`cardRandomRng` at that insert is one `generateCardChoices` (three draws)
+ahead of leftover index 9. Those draws are a second discarded post-select
+generation on the fight's only Discovery (`PLAY` 2057 / `CHOOSE` 2058).
+After Runic Cube takes the current top card, `addToRandomSpot` uses
+`random(size-1)` against the remaining 29-card pile; roll 9 leaves Void
+undrawn.
 
-## Why this is not a core rule
+## Source
 
-`DiscoveryAction.update()` generates at the start of every update. The
-installed SuperFastMode config usually yields one post-select pulse
-(`1` generation, or `2` when another Discovery is still in hand —
-FIDL01630).
+`DiscoveryAction.update()` calls `generateCardChoices` at the start of
+every update. SuperFastMode multiplies `getDeltaTime` (collection fork,
+`deltaMultiplier=100`). After CHOOSE the action keeps pulsing until
+`tickDuration` exhausts `ACTION_DUR_FAST`.
 
-The same first-retrieve-against-Awakened-One, empty-follow-up shape
-needs **two** pulses on FIDL01561 and **one** pulse on FIDL01665
-(Wild Strike+ Wound insert at 1410). No pre-`CHOOSE` simulator field
-distinguishes those two plays. A global or Awakened-One-gated
-two-generation retrieve gains 01561 and loses 01665.
+When Awakened One is in the fight and **6+ cards remain** after the
+source left, that settlement takes two post-select pulses (FIDL01561).
+The same 6+ remaining-hand shape against Darklings / Giant Head / Champ
+/ Time Eater stays one pulse (FIDL01309 Wound insert; FIDL01248 energy;
+FIDL01255 colorless hand). Smaller remaining hands against Awakened One
+are one pulse (FIDL01665). Another Discovery still in hand still needs
+two pulses (FIDL01630 first pick). Skipped retrieval still burns nothing.
 
-A verifier candidate at `CHOOSE` cannot choose: both pulse counts
-publish the same compared combat subset (the selected card is added;
-only the hidden `cardRandomRng` stream differs). Using the later Void
-or Wound location to pick the pulse count would hydrate RNG from
-observed piles.
+A global or remaining-hand-only two-generation retrieve regresses those
+already-green traces. A CHOOSE-time candidate cannot distinguish 1 vs 2
+pulses: both publish the same compared combat subset.
 
 ## Decision
 
-Keep the existing `1` / `2`-if-another-Discovery-in-hand retrieve
-model. Do not special-case 01561. The leftover Void insert stays
-queued behind Runic Cube's `addToTop` draw (`random(size-1)`).
+Burn two discarded generations when another Discovery is still in hand,
+or when Awakened One is present and `hand.len() >= 6` at retrieve.
+Otherwise burn one. Do not hydrate the Void insert index from the
+observed leftover pile.

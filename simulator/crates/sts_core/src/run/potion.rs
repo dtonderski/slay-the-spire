@@ -24,7 +24,7 @@ use crate::{
         PotionCardRewardKind,
     },
     content::cards::{get_card_definition, upgrade_card_instance, DISCOVERY_ID, DISCOVERY_PLUS_ID},
-    content::monsters::wake_lagavulin_on_damage,
+    content::monsters::{wake_lagavulin_on_damage, AWAKENED_ONE_ID},
     content::shop_pool::{
         burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
@@ -828,15 +828,24 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             } else {
                 CardId::new(combat.next_card_instance_id()?)
             };
-            // DiscoveryAction.update generates one discarded three-card offer
-            // at the start of its post-selection update before retrieving the
-            // selected card. This is the complete hand-played lifecycle; no
-            // Discovery RNG remains after this response.
+            // DiscoveryAction.update generates a discarded three-card offer at
+            // the start of every post-select pulse. SuperFastMode leaves two
+            // pulses when Awakened One is in the fight and 6+ cards remain
+            // after the source left (FIDL01561 Sludge Void). The same 6+
+            // remaining-hand shape against other encounters stays one pulse
+            // (FIDL01309 Wild Strike Wound; FIDL01248 / FIDL01255). Smaller
+            // remaining hands are one pulse (FIDL01665). Another Discovery
+            // still in hand still needs two (FIDL01630 first pick).
+            let fighting_awakened_one = combat
+                .monsters
+                .iter()
+                .any(|monster| monster.content_id == AWAKENED_ONE_ID);
             let generations = if combat
                 .piles
                 .hand
                 .iter()
                 .any(|card| matches!(card.content_id, DISCOVERY_ID | DISCOVERY_PLUS_ID))
+                || (fighting_awakened_one && combat.piles.hand.len() >= 6)
             {
                 2
             } else {
@@ -2709,6 +2718,78 @@ mod tests {
             combat.rng.card_random_rng.counter(),
             19,
             "Discovery retrieve burns one discarded generateCardChoices generation"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_with_six_remaining_cards_vs_awakened_one_burns_two_generations() {
+        use crate::content::cards::STRIKE_R_ID;
+        use crate::content::monsters::{monster_state, AWAKENED_ONE_A0};
+        use crate::ids::MonsterId;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.monsters = vec![monster_state(&AWAKENED_ONE_A0, MonsterId::new(1))];
+        combat.piles.hand = (1..=6)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0).expect("full-hand Discovery retrieve");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            22,
+            "Awakened One + 6 remaining cards burn two discarded generations"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_with_six_remaining_cards_without_awakened_one_burns_one_generation() {
+        use crate::content::cards::STRIKE_R_ID;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.piles.hand = (1..=6)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("full-hand Discovery retrieve without Awakened One");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            19,
+            "6 remaining cards without Awakened One stay one discarded generation"
         );
     }
 

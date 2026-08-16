@@ -8,10 +8,13 @@ For the installed Slay the Spire 1.0 target with SuperFastMode configured for
 1. The opening update generates the three visible, unique choices and opens
    the card-reward screen.
 2. The reward screen pauses the action manager. `CHOOSE` retrieves the
-   visible selected card after burning the discarded post-select
-   `generateCardChoices` generation (`1`, or `2` when another Discovery
-   is still in hand). A global no-burn SuperFastMode candidate regresses
-   FIDL01630.
+   visible selected card after burning discarded post-select
+   `generateCardChoices` updates: two when another Discovery is still in
+   hand, or when Awakened One is present and 6+ cards remain after the
+   source left (FIDL01561); otherwise one. A global no-burn SuperFastMode
+   candidate regresses
+   FIDL01630. See
+   [design_discovery_first_combat_post_select_generations.md](design_discovery_first_combat_post_select_generations.md).
 3. Retrieval adds the selected card with its temporary zero cost. Deferred
    `onUseCard` follow-ups then resolve before `UseCardAction` closes the source
    through the ordinary card-settlement/action queue, including exhaust hooks
