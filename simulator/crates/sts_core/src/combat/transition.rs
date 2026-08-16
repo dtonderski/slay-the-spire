@@ -5948,6 +5948,54 @@ mod tests {
     }
 
     #[test]
+    fn second_madness_does_not_sample_when_remaining_printed_costs_are_zero() {
+        // Java writes cost=0 on the first pick. A later Madness whose remaining
+        // hand is already all cost 0 (prior Madness Iron Wave, Clash, Wounds)
+        // must not call getRandomCard (FIDL01609 Magnetism after rebirth).
+        let mut state = CombatState::cultist_fixture();
+        state.player.energy = 1;
+        state.rng.card_random_rng =
+            StsRng::from_raw_state(8_410_403_961_195_825_053, 10_539_873_050_201_740_548, 96);
+        let before = state.rng.card_random_rng.counter();
+        let mut iron_wave = CardInstance::new(CardId::new(102), IRON_WAVE_ID);
+        iron_wave.temp_cost = Some(0);
+        iron_wave.temp_cost_turn_only = false;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(101), MADNESS_PLUS_ID),
+            CardInstance::new(CardId::new(103), CLASH_PLUS_ID),
+            iron_wave,
+            CardInstance::new(CardId::new(104), WOUND_ID),
+            CardInstance::new(CardId::new(105), WOUND_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(101),
+                target: None,
+            },
+        )
+        .expect("second Madness plays");
+
+        assert_eq!(
+            next.rng.card_random_rng.counter(),
+            before,
+            "second Madness must not sample a remaining hand with no printed cost"
+        );
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .find(|card| card.id == CardId::new(102))
+                .expect("Iron Wave remains")
+                .temp_cost,
+            Some(0)
+        );
+    }
+
+    #[test]
     fn leftover_start_without_opening_flag_expires_temp_strength() {
         // FIDL01597: Nilry leftover EndTurn still expires Flex at the next
         // start. Only the Colosseum opening ready-play sets the preserve flag.

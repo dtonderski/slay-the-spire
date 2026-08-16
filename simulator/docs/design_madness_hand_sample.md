@@ -17,6 +17,13 @@ group so the bound is `random(n-1)` on the same cards Java sees.
 Zero-cost remaining cards stay in the pool and are retried; do not
 pre-filter them out of the bound.
 
+A successful pick writes `cost` and `costForTurn`. Combat-long `temp_cost`
+is that written `cost`, so `printed_card_cost` is 0. A later Madness whose
+remaining hand is already all printed-cost 0 (FIDL01609: prior Madness on
+Iron Wave, Clash+, two Wounds) does not call `getRandomCard`. Treating the
+definition cost as still printed burns extra `cardRandomRng` and desyncs
+the next Magnetism (Jack of All Trades vs Thinking Ahead after rebirth).
+
 ## Non-goals
 
 - Do not change Madness into a turn-only cost. Java writes `cost` as well.

@@ -28,6 +28,13 @@ pub(crate) fn validate_combat_card_cost_metadata(card: &CardInstance) -> SimResu
 
 pub(crate) fn printed_card_cost(card: &CardInstance) -> SimResult<i32> {
     validate_combat_card_cost_metadata(card)?;
+    // MadnessAction / Confusion write AbstractCard.cost as well as costForTurn.
+    // A combat-long temp_cost is that written cost (FIDL01609 second Madness).
+    if let Some(cost) = card.temp_cost {
+        if !card.temp_cost_turn_only {
+            return Ok(i32::from(cost));
+        }
+    }
     get_card_definition(card.content_id)
         .map(|definition| i32::from(definition.cost))
         .ok_or(SimError::UnknownContent(card.content_id))
@@ -103,6 +110,19 @@ mod tests {
             effective_card_cost(&unknown),
             Err(SimError::UnknownContent(ContentId::new(999_999)))
         );
+    }
+
+    #[test]
+    fn combat_long_temp_cost_is_the_printed_cost() {
+        let mut card = CardInstance::new(CardId::new(1), STRIKE_R_ID);
+        card.temp_cost = Some(0);
+        card.temp_cost_turn_only = false;
+        assert_eq!(printed_card_cost(&card), Ok(0));
+
+        let mut turn_only = CardInstance::new(CardId::new(1), STRIKE_R_ID);
+        turn_only.temp_cost = Some(0);
+        turn_only.temp_cost_turn_only = true;
+        assert_eq!(printed_card_cost(&turn_only), Ok(1));
     }
 
     #[test]
