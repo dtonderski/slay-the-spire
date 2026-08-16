@@ -1,26 +1,32 @@
 #!/usr/bin/env bash
 # Per-boot runtime step: runs when an agent pod starts, where runtime secrets
-# (HF_TOKEN) are available but build-time secrets are not. Downloads the
-# permanent trace corpus once, before the agent starts working. The download is
-# incremental and skips traces that already exist, and it never aborts boot.
+# (HF_TOKEN) are available but build-time secrets are not. Syncs the permanent
+# trace corpus before the agent starts working. Never aborts boot.
 set -uo pipefail
 
 corpus_dir="simulator/verification/corpus/permanent_traces"
 
-if ls -A "$corpus_dir"/*.jsonl >/dev/null 2>&1; then
-  echo "start: permanent corpus already present in $corpus_dir; skipping download"
-  exit 0
-fi
-
 if [ -z "${HF_TOKEN:-}" ]; then
-  echo "start: HF_TOKEN not set; skipping corpus download. sts_verify parity/status" \
-       "need the corpus — set HF_TOKEN (read access to dtonderski/sts-permanent-traces)," \
-       "or use the committed manual/milestone1.jsonl fixture." >&2
+  if ls -A "$corpus_dir"/*.jsonl >/dev/null 2>&1; then
+    echo "start: HF_TOKEN unset; keeping the corpus already present in $corpus_dir."
+  else
+    echo "start: HF_TOKEN unset and no corpus on disk; skipping download." \
+         "sts_verify parity/status need the corpus — set HF_TOKEN (read access to" \
+         "dtonderski/sts-permanent-traces), or use the committed manual/milestone1.jsonl" \
+         "fixture." >&2
+  fi
   exit 0
 fi
 
-echo "start: downloading permanent trace corpus from Hugging Face..."
+# Delegate to the incremental downloader: it fetches only compressed traces that
+# are missing and extracts only traces not already present, so this both resumes
+# a partial corpus and picks up newly added traces on later boots. Persist the
+# compressed cache under the (persisted) workspace so reboots re-fetch only new
+# archives instead of the whole dataset.
+export STS_HF_CORPUS_CACHE_DIR="${STS_HF_CORPUS_CACHE_DIR:-$PWD/simulator/verification/corpus/.hf_download_cache}"
+
+echo "start: syncing permanent trace corpus from Hugging Face (incremental)..."
 if ! bash tools/hf_corpus.sh download dtonderski/sts-permanent-traces; then
-  echo "start: corpus download failed; continuing without it (it will retry on the next boot)." >&2
+  echo "start: corpus sync failed; continuing without a complete corpus (retries next boot)." >&2
 fi
 exit 0

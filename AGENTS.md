@@ -75,14 +75,16 @@ The inner loop is the Rust verifier, not the UI:
 
 ### Cursor Cloud
 
-- Cloud Builds download the complete permanent corpus from the private
+- Cloud agents download the complete permanent corpus from the private
   `dtonderski/sts-permanent-traces` Hugging Face dataset. `HF_TOKEN` must be a
   read token supplied through Cursor's Cloud Agent secrets, never committed to
   the repo.
-- `.cursor/environment.json` runs `tools/hf_corpus.sh download` during the
-  Build. The resulting traces live at the normal gitignored
-  `simulator/verification/corpus/permanent_traces/` path and are captured in the
-  Build snapshot.
+- `.cursor/start.sh` runs `tools/hf_corpus.sh download` at **boot** (not during
+  the Build), because `HF_TOKEN` is a runtime-only secret. The download is
+  incremental; traces land at the gitignored
+  `simulator/verification/corpus/permanent_traces/` path. If Builds are enabled
+  and `HF_TOKEN` is also available at build time, you could move the download to
+  the `install` step to bake it into the snapshot instead.
 - Cloud agents may read and replay these traces but must never edit them or
   upload corpus changes. Corpus uploads are an explicit local operation.
 
