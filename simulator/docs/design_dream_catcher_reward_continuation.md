@@ -12,9 +12,11 @@ continuation rule.
 
 Choosing `Heal` completes the rest-site action before Dream Catcher opens its
 card reward. Core records that completion in `rest_room_complete`. When the
-card reward is taken or skipped and no reward item remains, reward settlement
-returns to `RunPhase::Rest` and clears the reward screen. The normal typed
-`RestAction::Proceed` then leaves the completed rest room.
+card reward is taken or skipped and no reward item remains, automatic overlay
+settlement still returns to `RunPhase::Rest`. CommunicationMod `PROCEED` on a
+completed rest CombatRewardScreen is different: Dig and leftover rest overlays
+leave the room immediately (FIDL01391 / FIDL01734). Shop overlays such as
+Cauldron follow the same proceed-to-map rule.
 
 Core `CloseCardReward` distinguishes this completed rest continuation from an
 ordinary combat reward: combat `SKIP` closes the overlay while retaining the

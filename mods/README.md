@@ -14,3 +14,8 @@ runs. It starts an otherwise normal seeded run, then applies a declared
 one-time starting current/max HP override before the first dungeon state is
 published. The command and override remain visible in the captured trace, so
 these instrumented runs cannot be confused with normal A0 parity evidence.
+
+`superfastmode-collection/` is a local fork of SuperFastMode that multiplies
+dungeon fades and monster death/escape animations. Upstream keeps those on
+raw 1× delta; CommunicationMod then blocks collection on post-combat fades.
+Install replaces `mods/SuperFastMode.jar` (same modid). See its README.

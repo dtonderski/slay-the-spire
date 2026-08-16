@@ -14,15 +14,34 @@ Each player turn end with Nilry's Codex publishes:
 
 Permanent Nilry tips (`d15d31…`, `599f7cd…`) use a **single** offer only.
 
+## Relic-before-power queue
+
+`GameActionManager.callEndOfTurnActions` runs
+`applyEndOfTurnRelics` (`NilrysCodex.onPlayerEndTurn` → `CodexAction`)
+before power `atEndOfTurn` (Combust). The first Codex frame therefore
+still has pre-Combust HP and enemy block (FIDL01727 step 786). Combust
+is applied when end-turn resumes after that offer.
+
 ## Model (ordinary-first)
 
 - **Single-offer (default / permanent tips):** first CHOOSE inserts immediately
   into the draw pile; next combat command resumes discard→monster→draw.
-- **Two-step (FIDL00451):** when immediate insert does not match the post-frame:
+- **Two-step (FIDL00451 / FIDL01772):** first CHOOSE still inserts into the
+  draw pile (the 607 frame has the extra card). The following `END` is not a
+  full resume: it discards the remaining hand and opens a **second** offer
+  before monsters act. Detect that `END` fail-closed when the observed frame
+  is `CARD_REWARD` with an empty hand (`deferred_nilrys_second_offer_on_end_candidate`).
   - stage 1: first offer open
-  - CHOOSE closes offer **without** parking/inserting; stage → 2
-  - END at stage 2: discard hand, open second offer, stage → 3
-  - CHOOSE at stage 3: insert **only** this pick, `end_player_turn` resume
+  - CHOOSE inserts and closes the first offer; stage stays 1 until the next
+    command is classified
+  - END matching the second-offer frame: discard hand, open second offer,
+    stage → 3
+  - CHOOSE/SKIP at stage 3: insert only a CHOOSE pick, then `end_player_turn`
+    (duplicate captured monster queue + two rolls)
+  - PLAY after a stage-1 SKIP (offer already closed): SuperFastMode may
+    discard that hand (swallowing the PLAY) and publish the next turn
+    (`deferred_nilrys_leftover_end_instead_of_play_candidate`). Rejected PLAY
+    still uses discard-only leftover settlement plus STATE polls.
 
 ## Step 508 residual (open)
 
@@ -40,16 +59,47 @@ Real step 508:
 
 Diagnostic: two sequential DS turns with the trace’s post-first-roll next=DS
 would yield HP −18, 3 RC draws, hand 8, history `[2,2,3]`, final Suck — full
-match. STS Nilry opens **once** per end turn and runs **one** monster phase;
-permanent single-offer tips stay green under that model. Double monster turn is
-therefore **not** wired as generic behavior without source for a second
-`MonsterQueueItem` / second `takeTurn` on this path.
+match.
 
-Unit: `nilry_two_step_second_choose_runs_monster_and_changes_intent`.
+The second `END` is a second `EndTurnAction` while the first is still queued
+behind Codex (SuperFastMode leftover). Both actions enqueue a
+`MonsterQueueItem` before either `RollMoveAction` — the same multiplicity as
+Time Warp (`design_time_warp_duplicate_queue.md`). Stage-3 close therefore
+executes the captured intent twice, then two `rollMove`s, then one next-player
+draw. Each EndTurnAction still runs `atEndOfTurn`, so Combust ticks at the
+stage-2 END and again on the stage-3 close (FIDL01727). Single-offer tips never
+reach stage 3.
+
+Witnesses: FIDL01772 (two Snecko Bites → Tail), FIDL01727 (two SG slams + two
+Sentry bolts; leftover Book 5-hit resume at STATE 867), FIDL00451 (two
+Shelled Parasite Double Strikes).
+
+Book of Stabbing: the first multi-stab two-step of a fight executes
+captured 2-hit then 3-hit (FIDL01727 step 852). Later two-steps default
+to captured N+N (step 880: two 6-hits). When the observed frame matches
+live `stabCount` after the first takeTurn, the second queue item uses
+N+1 hits without incrementing `StabCount` (`getMove` still owns that
+counter). Step 887 is 7+8.
+
+Each `MonsterQueueItem` runs every living monster, then the next item
+does the same (FIDL01597: Mad Gremlin 4+2, Rally, then 4+5). Nesting the
+duplicate inside each actor would land both hits before Encourage.
+
+The leftover first `EndTurnAction` can also run `MonsterStartTurnAction`
+`loseBlock` while the second Codex offer is still open (FIDL01597 step
+460: Rally block gone, takeTurn has not run). Stage-2 END therefore
+clears living monster block without executing the queue.
+
+Closing the first Codex offer continues `callEndOfTurnActions` card
+autoplays (Regret/Burn) without Combust or the bulk hand discard
+(FIDL01597 CHOOSE 470: Regret 4 HP, other cards stay).
+
+Unit: `nilry_two_step_second_offer_runs_two_snecko_bites_then_tail`,
+`nilry_two_step_gremlin_leader_rally_applies_between_duplicate_hits`.
 
 ## Non-goals
 
 - Do not force two-step when immediate insert matches (regresses permanent tips).
 - Do not insert both first and second picks (multiset is +1 only).
-- Do not double `run_monster_turn` to chase FIDL00451 without authoritative
-  queue evidence.
+- Do not run two full player-turn cycles (second Combust / second draw) on
+  this path; only the two captured monster queue items plus two rolls.

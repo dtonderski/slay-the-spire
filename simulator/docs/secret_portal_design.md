@@ -10,10 +10,12 @@ from floor number: source playtime is wall-clock state, not seeded gameplay
 RNG. Integrations must record the target game's actual
 `CardCrawlGame.playtime` value as an explicit transition input before event
 selection. Wall-clock trace timestamps are not a substitute because the target
-timer pauses while the game is backgrounded.
+timer pauses while the game is backgrounded. Seed-start replay therefore feeds
+the last observed CommunicationMod `game_state.playtime_seconds` into
+`RunState` immediately before applying the next decision.
 
 Taking the portal enters the selected act-three boss through the existing boss
 combat/reward pipeline and sets a temporary Boss room override. This preserves
-boss relic/chest behavior without fabricating a map node or silently changing
-the current map topology. Declining the portal uses the normal staged event
-leave flow.
+boss relic/chest behavior without fabricating a map node. The published combat
+floor is one higher than the event room (FIDL01799 / FIDL01800). Declining the
+portal uses the normal staged event leave flow.

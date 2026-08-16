@@ -40,6 +40,17 @@ pub(crate) fn apply_player_hp_loss_hooks(state: &mut CombatState, hp_loss: i32) 
     )
 }
 
+pub(crate) fn apply_player_hp_loss_hooks_deferred_draw_followups_bypass_no_draw(
+    state: &mut CombatState,
+    hp_loss: i32,
+) -> SimResult<()> {
+    apply_player_hp_loss_hooks_with_draw_policy(
+        state,
+        hp_loss,
+        crate::relic::HpLossDrawPolicy::QueueFollowUpsBypassNoDraw,
+    )
+}
+
 pub(crate) fn apply_player_hp_loss_hooks_with_draw_policy(
     state: &mut CombatState,
     hp_loss: i32,
@@ -59,8 +70,34 @@ pub(crate) fn apply_player_card_hp_loss_hooks(
     state: &mut CombatState,
     hp_loss: i32,
 ) -> SimResult<()> {
-    let pending_hand: &mut [CardInstance] = &mut [];
-    apply_player_card_hp_loss_hooks_with_pending_hand(state, hp_loss, pending_hand)
+    apply_player_card_hp_loss_hooks_with_policy(
+        state,
+        hp_loss,
+        crate::relic::HpLossDrawPolicy::Immediate,
+    )
+}
+
+pub(crate) fn apply_player_card_hp_loss_hooks_deferred_draw_followups(
+    state: &mut CombatState,
+    hp_loss: i32,
+) -> SimResult<()> {
+    apply_player_card_hp_loss_hooks_with_policy(
+        state,
+        hp_loss,
+        crate::relic::HpLossDrawPolicy::QueueFollowUps,
+    )
+}
+
+#[allow(dead_code)]
+pub(crate) fn apply_player_card_hp_loss_hooks_deferred_draws(
+    state: &mut CombatState,
+    hp_loss: i32,
+) -> SimResult<()> {
+    apply_player_card_hp_loss_hooks_with_policy(
+        state,
+        hp_loss,
+        crate::relic::HpLossDrawPolicy::DeferDraws,
+    )
 }
 
 pub(crate) fn apply_player_card_hp_loss_hooks_with_pending_hand(
@@ -68,17 +105,41 @@ pub(crate) fn apply_player_card_hp_loss_hooks_with_pending_hand(
     hp_loss: i32,
     pending_hand: &mut [CardInstance],
 ) -> SimResult<()> {
+    apply_player_card_hp_loss_hooks_with_pending_hand_and_policy(
+        state,
+        hp_loss,
+        pending_hand,
+        crate::relic::HpLossDrawPolicy::Immediate,
+    )
+}
+
+fn apply_player_card_hp_loss_hooks_with_policy(
+    state: &mut CombatState,
+    hp_loss: i32,
+    draw_policy: crate::relic::HpLossDrawPolicy,
+) -> SimResult<()> {
+    let pending_hand: &mut [CardInstance] = &mut [];
+    apply_player_card_hp_loss_hooks_with_pending_hand_and_policy(
+        state,
+        hp_loss,
+        pending_hand,
+        draw_policy,
+    )
+}
+
+fn apply_player_card_hp_loss_hooks_with_pending_hand_and_policy(
+    state: &mut CombatState,
+    hp_loss: i32,
+    pending_hand: &mut [CardInstance],
+    draw_policy: crate::relic::HpLossDrawPolicy,
+) -> SimResult<()> {
     if hp_loss <= 0 {
         return Ok(());
     }
 
     let mut next = state.clone();
     let mut next_pending_hand = pending_hand.to_vec();
-    apply_player_hp_loss_hooks_in_place_with_draw_policy(
-        &mut next,
-        hp_loss,
-        crate::relic::HpLossDrawPolicy::Immediate,
-    )?;
+    apply_player_hp_loss_hooks_in_place_with_draw_policy(&mut next, hp_loss, draw_policy)?;
     reduce_blood_for_blood_costs_in_cards(&mut next_pending_hand, next.card_in_use)?;
     next.player.powers.strength = next
         .player

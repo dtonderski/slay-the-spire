@@ -76,6 +76,10 @@ pub struct CardInstance {
     /// Temporary cost only lasts until the next player turn.
     #[serde(default, skip_serializing_if = "is_false")]
     pub temp_cost_turn_only: bool,
+    /// Forethought's freeToPlayOnce flag: the card keeps its printed cost while
+    /// consuming no energy on its next play, then clears when that play spends.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub free_to_play_once: bool,
     /// Cards created only for the current combat vanish after play.
     #[serde(default)]
     pub combat_only: bool,
@@ -107,6 +111,7 @@ impl CardInstance {
             bottled: false,
             temp_cost: None,
             temp_cost_turn_only: false,
+            free_to_play_once: false,
             combat_only: false,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,
@@ -124,6 +129,7 @@ impl CardInstance {
             bottled: false,
             temp_cost: Some(temp_cost),
             temp_cost_turn_only: false,
+            free_to_play_once: false,
             combat_only: true,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,

@@ -27,9 +27,16 @@ pub(super) fn gain_player_block_direct(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    if state.player.no_block_turns > 0 {
-        return Ok(Vec::new());
-    }
+    // Relic/power callbacks using the direct path (Rage, Abacus, Fan) bypass
+    // No Block; ordinary card block uses gain_player_block above.
+    checked_add_combat_value(&mut state.player.block, amount)?;
+    Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
+}
+
+pub(super) fn gain_player_block_from_exhaust(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
     checked_add_combat_value(&mut state.player.block, amount)?;
     Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
 }
@@ -49,6 +56,13 @@ pub(super) fn prevent_block_gain(
     state: &mut CombatState,
     turns: i32,
 ) -> SimResult<Vec<InternalAction>> {
+    // No Block is a debuff. Artifact prevents Panic Button's application and
+    // is consumed instead of leaving a hidden no-block duration behind
+    // (FIDL01632).
+    if state.player.powers.artifact > 0 {
+        state.player.powers.artifact -= 1;
+        return Ok(Vec::new());
+    }
     state.player.no_block_turns = state.player.no_block_turns.max(turns);
     Ok(Vec::new())
 }
@@ -136,4 +150,31 @@ pub(super) fn reduce_strength_this_turn(
             .into_iter()
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feel_no_pain_exhaust_block_ignores_no_block_power() {
+        let mut state = CombatState::initial_fixture();
+        state.player.no_block_turns = 2;
+
+        gain_player_block_from_exhaust(&mut state, 3).expect("exhaust block gain succeeds");
+
+        assert_eq!(state.player.block, 3);
+        assert_eq!(state.player.no_block_turns, 2);
+    }
+
+    #[test]
+    fn artifact_prevents_panic_button_no_block() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.artifact = 1;
+
+        prevent_block_gain(&mut state, 2).expect("artifact prevents no-block application");
+
+        assert_eq!(state.player.powers.artifact, 0);
+        assert_eq!(state.player.no_block_turns, 0);
+    }
 }

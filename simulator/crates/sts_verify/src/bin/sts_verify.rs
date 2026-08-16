@@ -754,10 +754,7 @@ fn main() {
                 .as_deref()
                 .map(status_path)
                 .or_else(|| std::env::var_os("STS_PERMANENT_CORPUS_DIR").map(PathBuf::from))
-                .unwrap_or_else(|| {
-                    eprintln!("status requires a trace path or STS_PERMANENT_CORPUS_DIR");
-                    exit(1);
-                });
+                .unwrap_or_else(|| corpus_path("permanent_traces"));
             let entries = trace_status_entries(&root).unwrap_or_else(|err| {
                 eprintln!("failed to build status for {}: {err}", root.display());
                 exit(1);
@@ -844,11 +841,12 @@ fn trace_status_entries(root: &Path) -> Result<Vec<TraceStatusEntry>, String> {
         .collect())
 }
 
-/// Parallelism for streaming trace jobs. The default uses at most four
-/// workers; explicit overrides remain bounded by CPU count and a hard ceiling.
+/// Parallelism for streaming trace jobs. The default uses 24 workers when the
+/// machine has that many CPUs; explicit overrides remain bounded by CPU count
+/// and a hard ceiling.
 fn heavy_trace_worker_count(trace_count: usize) -> usize {
-    const DEFAULT_CAP: usize = 4;
-    const HARD_CAP: usize = 8;
+    const DEFAULT_CAP: usize = 24;
+    const HARD_CAP: usize = 24;
     let cpus = thread::available_parallelism().map_or(1, usize::from);
     let requested = env::var("STS_VERIFY_JOBS")
         .ok()
@@ -1214,12 +1212,12 @@ mod tests {
     fn status_worker_count_is_bounded_by_trace_count() {
         assert_eq!(status_worker_count(1), 1);
         assert!(status_worker_count(3) >= 1);
-        assert!(status_worker_count(100) <= 8);
+        assert!(status_worker_count(100) <= 24);
         if std::env::var_os("STS_VERIFY_JOBS").is_none() {
-            assert!(status_worker_count(100) <= 4);
+            assert!(status_worker_count(100) <= 24);
         }
-        assert_eq!(bounded_worker_count(100, 1_000, 64, 8), 8);
-        assert_eq!(bounded_worker_count(3, 1_000, 64, 8), 3);
-        assert_eq!(bounded_worker_count(100, 1_000, 2, 8), 2);
+        assert_eq!(bounded_worker_count(100, 1_000, 64, 24), 24);
+        assert_eq!(bounded_worker_count(3, 1_000, 64, 24), 3);
+        assert_eq!(bounded_worker_count(100, 1_000, 2, 24), 2);
     }
 }

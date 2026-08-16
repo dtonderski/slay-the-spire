@@ -11,46 +11,51 @@ use crate::{
         card_instance_is_upgradeable, get_card_definition, is_curse_content_id,
         ritual_dagger_card_damage, ritual_dagger_card_growth, searing_blow_card_damage, ANGER_ID,
         ANGER_PLUS_ID, APOTHEOSIS_ID, APOTHEOSIS_PLUS_ID, APPARITION_ID, APPARITION_PLUS_ID,
-        ARMAMENTS_ID, ARMAMENTS_PLUS_ID, BANDAGE_UP_ID, BANDAGE_UP_PLUS_ID, BARRICADE_ID,
-        BARRICADE_PLUS_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID, BATTLE_TRANCE_PLUS_ID,
-        BERSERK_ID, BERSERK_PLUS_ID, BITE_ID, BITE_PLUS_ID, BLASPHEMY_ID, BLASPHEMY_PLUS_ID,
-        BLIND_ID, BLIND_PLUS_ID, BLOODLETTING_ID, BLOODLETTING_PLUS_ID, BLOOD_FOR_BLOOD_ID,
-        BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID, BODY_SLAM_PLUS_ID, BRUTALITY_ID, BRUTALITY_PLUS_ID,
-        BURNING_PACT_ID, BURNING_PACT_PLUS_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID,
-        CLASH_PLUS_ID, CLEAVE_ID, CLEAVE_PLUS_ID, CLOTHESLINE_ID, CLOTHESLINE_PLUS_ID, COMBUST_ID,
-        COMBUST_PLUS_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID,
-        DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID,
-        DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DEMON_FORM_PLUS_ID, DISARM_ID,
-        DISARM_PLUS_ID, DISCOVERY_ID, DISCOVERY_PLUS_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID,
-        DRAMATIC_ENTRANCE_ID, DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID,
-        DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID,
-        ENTRENCH_PLUS_ID, EVOLVE_ID, EVOLVE_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FEED_ID,
-        FEED_PLUS_ID, FEEL_NO_PAIN_ID, FEEL_NO_PAIN_PLUS_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID,
-        FINESSE_ID, FINESSE_PLUS_ID, FIRE_BREATHING_ID, FIRE_BREATHING_PLUS_ID, FLAME_BARRIER_ID,
-        FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID,
-        FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, HAND_OF_GREED_ID, HAND_OF_GREED_PLUS_ID, HAVOC_ID,
+        ARMAMENTS_ID, ARMAMENTS_PLUS_ID, BACKFLIP_ANY_COLOR_ID, BANDAGE_UP_ID, BANDAGE_UP_PLUS_ID,
+        BARRICADE_ID, BARRICADE_PLUS_ID, BASH_ID, BASH_PLUS_ID, BATTLE_TRANCE_ID,
+        BATTLE_TRANCE_PLUS_ID, BERSERK_ID, BERSERK_PLUS_ID, BIASED_COGNITION_ANY_COLOR_ID, BITE_ID,
+        BITE_PLUS_ID, BLASPHEMY_ID, BLASPHEMY_PLUS_ID, BLIND_ID, BLIND_PLUS_ID, BLOODLETTING_ID,
+        BLOODLETTING_PLUS_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, BODY_SLAM_ID,
+        BODY_SLAM_PLUS_ID, BRUTALITY_ID, BRUTALITY_PLUS_ID, BURNING_PACT_ID, BURNING_PACT_PLUS_ID,
+        CHARGE_BATTERY_ANY_COLOR_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
+        CLEAVE_ID, CLEAVE_PLUS_ID, CLOAK_AND_DAGGER_ANY_COLOR_ID, CLOTHESLINE_ID,
+        CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID,
+        DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID,
+        DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID,
+        DEMON_FORM_PLUS_ID, DISARM_ID, DISARM_PLUS_ID, DISCOVERY_ID, DISCOVERY_PLUS_ID,
+        DOPPELGANGER_ANY_COLOR_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID,
+        DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_ID,
+        DUAL_WIELD_PLUS_ID, EMPTY_MIND_ANY_COLOR_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID,
+        ENTRENCH_ID, ENTRENCH_PLUS_ID, EQUILIBRIUM_ANY_COLOR_ID, EVOLVE_ID, EVOLVE_PLUS_ID,
+        EXHUME_ID, EXHUME_PLUS_ID, FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID, FEEL_NO_PAIN_PLUS_ID,
+        FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID, FINESSE_PLUS_ID, FIRE_BREATHING_ID,
+        FIRE_BREATHING_PLUS_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID,
+        FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID,
+        GO_FOR_THE_EYES_ANY_COLOR_ID, HAND_OF_GREED_ID, HAND_OF_GREED_PLUS_ID, HAVOC_ID,
         HAVOC_PLUS_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID,
         HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID,
         IMPATIENCE_PLUS_ID, INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID,
         INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID, JACK_OF_ALL_TRADES_ID,
         JACK_OF_ALL_TRADES_PLUS_ID, JAX_ID, JAX_PLUS_ID, JUGGERNAUT_ID, JUGGERNAUT_PLUS_ID,
-        LIMIT_BREAK_ID, LIMIT_BREAK_PLUS_ID, MADNESS_ID, MADNESS_PLUS_ID, MAGNETISM_ID,
-        MAGNETISM_PLUS_ID, MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MAYHEM_ID,
-        MAYHEM_PLUS_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, METAMORPHOSIS_ID,
+        JUST_LUCKY_ANY_COLOR_ID, LIMIT_BREAK_ID, LIMIT_BREAK_PLUS_ID, MADNESS_ID, MADNESS_PLUS_ID,
+        MAGNETISM_ID, MAGNETISM_PLUS_ID, MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID,
+        MAYHEM_ID, MAYHEM_PLUS_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, METAMORPHOSIS_ID,
         METAMORPHOSIS_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID, OFFERING_PLUS_ID,
         PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID,
         PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID, PUMMEL_ID, PUMMEL_PLUS_ID,
-        PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID,
-        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RITUAL_DAGGER_ID, RUPTURE_ID,
-        RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SECOND_WIND_PLUS_ID, SECRET_TECHNIQUE_ID,
-        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID,
-        SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
-        SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID,
-        THINKING_AHEAD_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANSMUTATION_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
+        PRESSURE_POINTS_ANY_COLOR_ID, PROSTRATE_ANY_COLOR_ID, PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID,
+        PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RECYCLE_ANY_COLOR_ID,
+        RITUAL_DAGGER_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID,
+        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SECOND_WIND_PLUS_ID,
+        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHIV_ANY_COLOR_ID,
+        SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SKIM_ANY_COLOR_ID,
+        SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+        SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID,
+        THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID,
+        THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANQUILITY_ANY_COLOR_ID, TRANSMUTATION_ID,
         TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID,
         TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, UPPERCUT_PLUS_ID, VIOLENCE_ID,
         VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
@@ -98,6 +103,7 @@ pub(super) fn play_card_queue(
             definition,
         ),
         SLIMED_ID => slimed_queue(card_id),
+        SKIM_ANY_COLOR_ID => skim_queue(card_id, definition),
         ANGER_ID | ANGER_PLUS_ID => anger_queue(
             *card,
             card_id,
@@ -357,6 +363,39 @@ pub(super) fn play_card_queue(
             target.expect("validated Sever Soul has a target"),
             definition,
         ),
+        CHARGE_BATTERY_ANY_COLOR_ID => {
+            queued_state.player.energy_next_turn = queued_state
+                .player
+                .energy_next_turn
+                .checked_add(1)
+                .ok_or(SimError::InvalidState("next-turn energy overflows i32"))?;
+            charge_battery_queue(card_id, *card, definition)
+        }
+        JUST_LUCKY_ANY_COLOR_ID => just_lucky_queue(
+            card_id,
+            target.expect("validated Just Lucky has a target"),
+            *card,
+            definition,
+        ),
+        GO_FOR_THE_EYES_ANY_COLOR_ID => go_for_the_eyes_queue(
+            card_id,
+            target.expect("validated Go for the Eyes has a target"),
+            *card,
+            definition,
+        ),
+        EQUILIBRIUM_ANY_COLOR_ID => {
+            queued_state.player.retain_hand_next_turn = true;
+            equilibrium_queue(card_id, *card, definition)
+        }
+        PROSTRATE_ANY_COLOR_ID => prostrate_queue(card_id, definition),
+        RECYCLE_ANY_COLOR_ID => recycle_queue(card_id, definition),
+        BIASED_COGNITION_ANY_COLOR_ID => biased_cognition_queue(card_id, definition),
+        PRESSURE_POINTS_ANY_COLOR_ID => pressure_points_queue(state, card_id, target, definition),
+        EMPTY_MIND_ANY_COLOR_ID => empty_mind_queue(state, card_id, definition),
+        TRANQUILITY_ANY_COLOR_ID => tranquility_queue(card_id, definition),
+        DOPPELGANGER_ANY_COLOR_ID => doppelganger_queue(card_id),
+        BACKFLIP_ANY_COLOR_ID => backflip_queue(card_id, definition),
+        CLOAK_AND_DAGGER_ANY_COLOR_ID => cloak_and_dagger_queue(card_id, definition),
         _ if definition.values.damage.is_some()
             && definition.target == crate::TargetRequirement::Enemy =>
         {
@@ -522,27 +561,61 @@ pub(super) fn play_top_draw_card_queue(
     // exhaust + on-exhaust settle on CONFIRM). await_exhaust_select parks the
     // source on the decision; confirm_* settles exhaust after the choice.
     // Burning Pact still force-exhausts early (permanent-trace coverage).
-    let force_exhaust_opens_deferred_source_select = force_exhaust
-        && queue.iter().any(|action| {
-            matches!(
-                action,
-                InternalAction::AwaitExhaustSelect {
-                    source_card_id,
-                    purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand
-                        | crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
-                } if *source_card_id == card.id
-            ) || matches!(
-                action,
-                // FIDL00242: multi-eligible force-played Dual Wield settles on
-                // CONFIRM so Dark Embrace draws after the select closes. Singleton
-                // force-play still early-exhausts and auto-confirms.
-                InternalAction::AwaitHandSelect {
-                    source_card_id,
-                    purpose: crate::combat::HandSelectPurpose::DualWieldCopy,
-                } if *source_card_id == card.id
-                    && dual_wield_force_play_defers_source_settlement(state, card.id)
-            )
-        });
+    let selection_defers_source_settlement = queue.iter().any(|action| {
+        // Ordinary Mayhem also leaves top-played Exhume/True Grit and Headbutt
+        // in cardInUse until their selection closes; only the destination
+        // differs from a force-exhausted Havoc play.
+        matches!(
+            action,
+            InternalAction::AwaitExhaustSelect {
+                source_card_id,
+                purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand
+                    | crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
+            } if *source_card_id == card.id
+        ) || matches!(
+            action,
+            InternalAction::AwaitDiscardSelect {
+                source_card_id,
+                purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
+            } if *source_card_id == card.id
+        )
+    });
+    let force_exhaust_opens_deferred_source_select = selection_defers_source_settlement
+        || (force_exhaust
+            && queue.iter().any(|action| {
+                matches!(
+                    action,
+                    // FIDL00242: multi-eligible force-played Dual Wield settles on
+                    // CONFIRM so Dark Embrace draws after the select closes. Singleton
+                    // force-play still early-exhausts and auto-confirms.
+                    InternalAction::AwaitHandSelect {
+                        source_card_id,
+                        purpose: crate::combat::HandSelectPurpose::DualWieldCopy,
+                    } if *source_card_id == card.id
+                        && dual_wield_force_play_defers_source_settlement(state, card.id)
+                ) || matches!(
+                    action,
+                    // FIDL01254: force-played Armaments stays in cardInUse until
+                    // CONFIRM so Charon's Ashes / Dark Embrace fire after the
+                    // upgrade screen closes, not when Havoc first opens it.
+                    InternalAction::AwaitHandSelect {
+                        source_card_id,
+                        purpose: crate::combat::HandSelectPurpose::ArmamentsUpgrade,
+                    } if *source_card_id == card.id
+                ) || matches!(
+                    action,
+                    // FIDL01437 / FIDL01593: force-played Forethought stays
+                    // staged until CONFIRM. Exhausting it at screen-open drops
+                    // the instance, and CONFIRM then fails with UnknownCard.
+                    InternalAction::AwaitHandSelect {
+                        source_card_id,
+                        purpose: crate::combat::HandSelectPurpose::ForethoughtPutOnDraw
+                            | crate::combat::HandSelectPurpose::ForethoughtPutAnyOnDraw
+                            | crate::combat::HandSelectPurpose::WarcryPutOnDraw
+                            | crate::combat::HandSelectPurpose::ThinkingAheadPutOnDraw,
+                    } if *source_card_id == card.id
+                )
+            }));
     let discovery_reward_defers_source_settlement =
         matches!(definition.id, DISCOVERY_ID | DISCOVERY_PLUS_ID);
     // Mayhem's ordinary (non-force-exhaust) top-play keeps Burning Pact in
@@ -675,7 +748,11 @@ fn apply_effective_cost_to_played_card_queue(
     queue: &mut VecDeque<InternalAction>,
 ) -> SimResult<()> {
     let printed_cost = i32::from(definition.cost);
-    let effective_cost = effective_card_cost(card)?;
+    let effective_cost = if card.free_to_play_once {
+        0
+    } else {
+        effective_card_cost(card)?
+    };
     if effective_cost == printed_cost {
         return Ok(());
     }
@@ -711,7 +788,10 @@ fn apply_corruption_to_played_skill_queue(
     card_id: CardId,
     queue: &mut VecDeque<InternalAction>,
 ) {
-    if definition.card_type != CardType::Skill || state.player.powers.corruption <= 0 {
+    if definition.card_type != CardType::Skill
+        || definition.cost < 0
+        || state.player.powers.corruption <= 0
+    {
         return;
     }
 
@@ -1719,9 +1799,7 @@ fn power_through_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy {
-            amount: i32::from(definition.cost),
-        },
+        InternalAction::SpendCardEnergy { card_id },
         // MakeTempCardInHandAction runs while the played card is in limbo. It
         // must not count Power Through against either Wound's hand capacity:
         // with nine visible cards, retaining the source would incorrectly
@@ -2530,6 +2608,302 @@ fn defend_queue(
     ]))
 }
 
+fn doppelganger_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        },
+    ]))
+}
+
+fn tranquility_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::EnterCalm,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
+        },
+    ]))
+}
+
+fn empty_mind_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let exit_calm = state.player.powers.calm > 0;
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+    if exit_calm {
+        queue.push_back(InternalAction::ExitCalm);
+        queue.push_back(InternalAction::GainEnergy { amount: 2 });
+    }
+    queue.extend([
+        InternalAction::DrawCards { count: 2 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]);
+    Ok(queue)
+}
+
+fn pressure_points_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: Option<MonsterId>,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let target = target.ok_or(SimError::IllegalAction("Pressure Points requires a target"))?;
+    let existing_mark = state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == target)
+        .map(|monster| monster.powers.mark)
+        .ok_or(SimError::IllegalAction("Pressure Points target is missing"))?;
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::ApplyMark { target, amount: 8 },
+        InternalAction::DealUnmodifiedDamage {
+            target,
+            amount: existing_mark + 8,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn biased_cognition_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn recycle_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::AwaitExhaustSelect {
+            source_card_id: card_id,
+            purpose: crate::combat::ExhaustSelectPurpose::RecycleExhaustOne,
+        },
+    ]))
+}
+
+fn backflip_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainBlock {
+            amount: required_block(definition)?,
+        },
+        InternalAction::DrawCards { count: 2 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn cloak_and_dagger_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainBlock {
+            amount: required_block(definition)?,
+        },
+        InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
+            content_id: SHIV_ANY_COLOR_ID,
+            source_card_id: card_id,
+            count: 1,
+            temp_cost: Some(0),
+            temp_cost_turn_only: false,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn prostrate_queue(
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainBlock {
+            amount: required_block(definition)?,
+        },
+        InternalAction::GainMantra { amount: 3 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn equilibrium_queue(
+    card_id: CardId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainBlock {
+            amount: required_block(definition)? + if card.upgrades > 0 { 3 } else { 0 },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn go_for_the_eyes_queue(
+    card_id: CardId,
+    target: MonsterId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let damage = definition.values.damage.ok_or(SimError::InvalidState(
+        "Go for the Eyes definition is missing damage",
+    ))? + if card.upgrades > 0 { 1 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        },
+        InternalAction::ApplyWeak {
+            target,
+            amount: if card.upgrades > 0 { 2 } else { 1 },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn just_lucky_queue(
+    card_id: CardId,
+    target: MonsterId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let damage = definition.values.damage.ok_or(SimError::InvalidState(
+        "Just Lucky definition is missing damage",
+    ))? + if card.upgrades > 0 { 1 } else { 0 };
+    let block = definition.values.block.ok_or(SimError::InvalidState(
+        "Just Lucky definition is missing block",
+    ))? + if card.upgrades > 0 { 1 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::AwaitDrawSelect {
+            source_card_id: card_id,
+            purpose: crate::combat::DrawSelectPurpose::Scry,
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        },
+        InternalAction::GainBlock { amount: block },
+    ]))
+}
+
+fn charge_battery_queue(
+    card_id: CardId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::GainBlock {
+            amount: required_block(definition)? + if card.upgrades > 0 { 3 } else { 0 },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
 fn generic_skill_queue(
     card_id: CardId,
     definition: &CardDefinition,
@@ -2841,7 +3215,7 @@ fn exhumable_card_ids(state: &CombatState) -> Vec<CardId> {
 }
 
 fn sever_soul_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
@@ -2851,19 +3225,10 @@ fn sever_soul_queue(
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
+        InternalAction::ExhaustAllNonAttackCards {
+            excluded_card_id: card_id,
+        },
     ]);
-    for card in &state.piles.hand {
-        let Some(card_definition) = get_card_definition(card.content_id) else {
-            continue;
-        };
-        if card.id != card_id && card_definition.card_type != CardType::Attack {
-            queue.push_back(InternalAction::MoveCard {
-                card_id: card.id,
-                from: CardPile::Hand,
-                to: CardPile::ExhaustPile,
-            });
-        }
-    }
     queue.extend([
         InternalAction::DealDamage {
             info: DamageInfo {
@@ -2964,6 +3329,21 @@ fn other_hand_cards(state: &CombatState, exclude_id: CardId) -> Vec<CardId> {
         .filter(|card| card.id != exclude_id)
         .map(|card| card.id)
         .collect()
+}
+
+fn skim_queue(card_id: CardId, definition: &CardDefinition) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DrawCards { count: 3 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn slimed_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
@@ -3183,6 +3563,16 @@ fn whirlwind_queue(
         InternalAction::SpendEnergy { amount: x },
     ]);
 
+    // Whirlwind.use() only addToBots WhirlwindAction. RagePower.onUseCard then
+    // addToBots GainBlockAction (UseCardAction constructor) before that wrapper
+    // addToBots DamageAllEnemiesAction. Immediate Strike damage stays ahead of
+    // Rage; these deferred hits do not (FIDL01782 Spiker thorns).
+    if state.player.temp_rage_block > 0 {
+        queue.push_back(InternalAction::GainBlockDirect {
+            amount: state.player.temp_rage_block,
+        });
+    }
+
     for _ in 0..(x + chemical_x_bonus) {
         queue.push_back(InternalAction::DealDamageAll {
             source: card_id,
@@ -3352,10 +3742,14 @@ fn havoc_queue(
         random_living_target,
     };
     let empty_draw_play_top_first = state.piles.draw_pile.is_empty()
+        && !source_exhausts
         && !empty_draw_headbutt_needs_source_in_discard
         && !empty_draw_dual_havoc_needs_source_in_discard;
     if empty_draw_play_top_first {
-        // Empty-draw mixed discard: choose forced card before source reshuffles in.
+        // Empty-draw mixed discard: choose forced card before a discarded
+        // source reshuffles in. Exhausting Havoc (Corruption / exhaust) is
+        // settle-first instead: the source never enters the refill, and Dead
+        // Branch must see DB_havoc before DB_top (FIDL01410).
         queue.push_back(play_top);
         queue.push_back(settle);
     } else if source_exhausts {
@@ -3893,14 +4287,10 @@ pub(super) fn enlightenment_cost_actions(
 }
 
 fn hand_card_cost_before_enlightenment(card: &crate::CardInstance) -> i32 {
-    card.temp_cost.map_or_else(
-        || {
-            get_card_definition(card.content_id)
-                .map(|definition| i32::from(definition.cost))
-                .unwrap_or(0)
-        },
-        i32::from,
-    )
+    // Enlightenment checks the card's current cost, including dynamic
+    // reductions such as Blood for Blood's tookDamage counter. Using the
+    // printed definition cost incorrectly re-inflates an already-free BfB.
+    crate::combat::cost::effective_card_cost(card).unwrap_or(i32::MAX)
 }
 
 fn flame_barrier_queue(

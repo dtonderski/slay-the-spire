@@ -12,8 +12,8 @@ use crate::{
         CombatState,
     },
     content::monsters::{
-        check_slime_boss_split, guardian_accumulate_hp_damage, wake_lagavulin_on_damage,
-        DARKLING_ID,
+        awakened_one_is_half_dead, check_slime_boss_split, guardian_accumulate_hp_damage,
+        wake_lagavulin_on_damage, DARKLING_ID,
     },
     ids::{CardId, MonsterId},
     SimError, SimResult,
@@ -222,7 +222,7 @@ pub(super) fn resolve_fiend_fire(
         super::move_card(state, card_id, CardPile::Hand, CardPile::ExhaustPile)?;
         super::apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
         if state.player.powers.feel_no_pain > 0 {
-            follow_ups.push(InternalAction::GainBlockDirect {
+            follow_ups.push(InternalAction::GainBlockFromExhaust {
                 amount: state.player.powers.feel_no_pain,
             });
         }
@@ -240,14 +240,20 @@ pub(super) fn resolve_fiend_fire(
             });
         }
     }
-    if state.pending_hidden_hand_card_exhausts_with_fiend_fire {
+    // A skipped selection remains owned by the closed hand-selection screen,
+    // but Fiend Fire exhausts that residual selectedCards batch along with its
+    // visible hand snapshot even when no preceding empty END set the legacy
+    // marker (FIDL01563).
+    if state.pending_hidden_hand_card_exhausts_with_fiend_fire
+        || !state.pending_hidden_hand_card_until_end_turn.is_empty()
+    {
         let pending_hidden = std::mem::take(&mut state.pending_hidden_hand_card_until_end_turn);
         state.pending_hidden_hand_card_exhausts_with_fiend_fire = false;
         for card in pending_hidden {
             state.piles.exhaust_pile.push(card);
             super::apply_on_exhaust_effects_except_bot_queued_powers(state, card.id)?;
             if state.player.powers.feel_no_pain > 0 {
-                follow_ups.push(InternalAction::GainBlockDirect {
+                follow_ups.push(InternalAction::GainBlockFromExhaust {
                     amount: state.player.powers.feel_no_pain,
                 });
             }
@@ -295,7 +301,7 @@ pub(super) fn deal_hand_of_greed_damage(
         monster_content_id,
         still_alive,
         minion,
-        half_dead_darkling,
+        half_dead_nonfatal,
         hand_drill_applies,
         curl_up_block,
         malleable_block,
@@ -317,9 +323,10 @@ pub(super) fn deal_hand_of_greed_damage(
             monster_content_id,
             monster.alive,
             monster.powers.minion > 0,
-            // Darkling first-death is half-dead (escaped), not a true fatal for
-            // Hand of Greed gold (FIDL00245 step 1048: gold stays put).
-            monster.content_id == DARKLING_ID && monster.escaped,
+            // Darkling / Awakened One first-deaths are half-dead, not true
+            // fatals for Hand of Greed gold (FIDL00245, FIDL01480).
+            (monster.content_id == DARKLING_ID && monster.escaped)
+                || awakened_one_is_half_dead(monster),
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
             damage.curl_up_block,
             damage.malleable_block,
@@ -343,7 +350,18 @@ pub(super) fn deal_hand_of_greed_damage(
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
-        if !minion && !half_dead_darkling {
+        let darkling_pack_defeated = monster_content_id == DARKLING_ID
+            && state
+                .monsters
+                .iter()
+                .filter(|monster| monster.content_id == DARKLING_ID)
+                .all(|monster| !monster.alive);
+        let nonfatal_half_dead = if monster_content_id == DARKLING_ID {
+            !darkling_pack_defeated
+        } else {
+            half_dead_nonfatal
+        };
+        if !minion && !nonfatal_half_dead {
             checked_add_combat_value(&mut state.combat_gold_gained, gold.max(0))?;
         }
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
@@ -480,14 +498,29 @@ pub(super) fn deal_feed_damage(
     }
     check_slime_boss_split(state, info.target);
     if !still_alive {
-        if !minion && monster_content_id != DARKLING_ID {
-            let hp_gain =
-                crate::relic::combat_healing_amount_with_relics(max_hp_gain, &state.relics);
+        // Darklings become half-dead and escape until the complete pack has
+        // been defeated. Feed triggers only when this kill actually finishes
+        // that pack; a half-dead Darkling must not award the max-HP gain.
+        let darkling_pack_defeated = monster_content_id != DARKLING_ID
+            || state
+                .monsters
+                .iter()
+                .filter(|monster| monster.content_id == DARKLING_ID)
+                .all(|monster| !monster.alive);
+        if !minion && darkling_pack_defeated {
+            // Mark of the Bloom blocks the heal half of increaseMaxHp, not the
+            // max-HP award itself. Magic Flower still multiplies only the heal.
             let max_hp = checked_combat_sum(state.player.max_hp, max_hp_gain)?;
-            let missing_hp = max_hp
-                .checked_sub(state.player.hp)
-                .ok_or(SimError::InvalidState("combat HP bounds overflow i32"))?;
-            let hp = checked_combat_sum(state.player.hp, hp_gain.min(missing_hp))?;
+            let hp = if state.mark_of_bloom {
+                state.player.hp
+            } else {
+                let hp_gain =
+                    crate::relic::combat_healing_amount_with_relics(max_hp_gain, &state.relics);
+                let missing_hp = max_hp
+                    .checked_sub(state.player.hp)
+                    .ok_or(SimError::InvalidState("combat HP bounds overflow i32"))?;
+                checked_combat_sum(state.player.hp, hp_gain.min(missing_hp))?
+            };
             state.player.max_hp = max_hp;
             state.player.hp = hp;
             crate::relic::sync_red_skull_strength(state)?;

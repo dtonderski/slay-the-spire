@@ -7,7 +7,7 @@ use crate::{
     combat::{CardPiles, MonsterIntent, MonsterState, SlimeSize},
     content::ascension::AscensionConfig,
     content::cards::{
-        card_matches_stasis_rarity, get_card_definition, BURN_ID, DAZED_ID, SLIMED_ID, VOID_ID,
+        card_matches_stasis_rarity, get_card_definition, BURN_ID, DAZED_ID, SLIMED_ID,
     },
     ids::{ContentId, MonsterId},
     power::MonsterPowers,
@@ -3947,6 +3947,10 @@ pub fn monster_state_for_ascension(
 fn lagavulin_opening_moves_executed(definition: &MonsterDefinition) -> u32 {
     if definition.content_id == LAGAVULIN_ID && definition.starting_sleep_turns == 0 {
         2
+    } else if definition.content_id == GREMLIN_WIZARD_ID {
+        // Target GremlinWizard.currentCharge starts at 1. Charge takeTurns
+        // increment it; Attack resets it to 0. Attack when the counter is >= 3.
+        1
     } else {
         0
     }
@@ -7182,7 +7186,12 @@ pub fn target_gremlin_wizard_direct_next_intent_after_turn(
     moves_executed: u32,
     ascension: u8,
 ) -> MonsterIntent {
-    if moves_executed >= 2 && (ascension >= 17 || moves_executed % 4 == 2) {
+    // currentCharge starts at 1, increments on CHARGE, resets to 0 on ATTACK.
+    // Attack when the counter reaches 3. A17 keeps attacking after the first
+    // hit (takeTurn does not reset). The old `moves_executed % 4 == 2`
+    // stand-in treated duplicate Nilry attack takeTurns as extra cycle steps
+    // and flipped the next roll to Attack (FIDL01597 SKIP 467).
+    if moves_executed >= 3 {
         MonsterIntent::Attack {
             damage: gremlin_wizard_damage(ascension),
         }
@@ -10128,11 +10137,6 @@ fn apply_monster_intent_with_card_rng_inner(
         MonsterIntent::Attack { damage } => {
             let damage_taken =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
-            if monster.content_id == DAGGER_ID && damage == DAGGER_EXPLODE_DAMAGE {
-                monster.hp = 0;
-                monster.alive = false;
-                monster.block = 0;
-            }
             (damage_taken, 1)
         }
         MonsterIntent::Block { block } => {
@@ -10267,7 +10271,9 @@ fn apply_monster_intent_with_card_rng_inner(
         MonsterIntent::ApplyPlayerFrailAndWeak { frail, weak } => {
             if monster.content_id == WRITHING_MASS_ID {
                 // This field is the existing per-monster one-shot move marker.
-                // For Writhing Mass it mirrors `usedMegaDebuff`.
+                // For Writhing Mass it mirrors `usedMegaDebuff`. The run layer
+                // receives a separate execution marker so selecting the move
+                // does not publish Parasite before the queued debuff runs.
                 monster.has_siphoned = true;
             } else {
                 let applied_frail = if monster.content_id == SPIKE_SLIME_ID
@@ -10277,8 +10283,17 @@ fn apply_monster_intent_with_card_rng_inner(
                 } else {
                     frail
                 };
-                apply_player_frail_from_monster(&mut player.powers, relics, applied_frail)?;
-                apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+                // Snake Plant Spores queues Frail then Weak. Artifact eats
+                // Frail and leaves Weak (FIDL01810 Clockwork Souvenir).
+                // Maw Roar / Collector Mega Debuff queue Weak then Frail
+                // (FIDL01475/FIDL01632).
+                if monster.content_id == SNAKE_PLANT_ID {
+                    apply_player_frail_from_monster(&mut player.powers, relics, applied_frail)?;
+                    apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+                } else {
+                    apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+                    apply_player_frail_from_monster(&mut player.powers, relics, applied_frail)?;
+                }
             }
             (0, 0)
         }
@@ -10325,19 +10340,11 @@ fn apply_monster_intent_with_card_rng_inner(
         MonsterIntent::AttackAddVoidToDraw { damage, count } => {
             let damage_taken =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
+            let _ = count;
             // AwakenedOne.takeTurn queues DamageAction before
-            // MakeTempCardInDrawPileAction. A lethal hit clears the remaining
-            // combat queue, unless a Fairy/Lizard-style revival keeps combat alive.
-            if player_can_revive || player_survives_monster_hit(player_before, damage_taken, relics)
-            {
-                add_cards_to_draw_random_spot(
-                    piles,
-                    VOID_ID,
-                    count,
-                    card_random_rng,
-                    allocated_card_id_through,
-                )?;
-            }
+            // MakeTempCardInDrawPileAction. Insert Void after the damage
+            // pipeline in execute_generic_monster_intent so the draw pile
+            // (and any HP-loss draws) match that FIFO.
             (damage_taken, 1)
         }
         MonsterIntent::AddSlimedToDiscard { count } => {
@@ -10444,11 +10451,14 @@ fn apply_monster_intent_with_card_rng_inner(
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             let effective_hits =
                 apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
-            monster.intent = MonsterIntent::AttackMultipleUpgradeBurns {
-                damage,
-                hits: effective_hits,
-                count,
-            };
+            set_effective_multi_hit_intent(
+                monster,
+                MonsterIntent::AttackMultipleUpgradeBurns {
+                    damage,
+                    hits: effective_hits,
+                    count,
+                },
+            );
             thorns_already_applied = total_thorns > 0 && effective_hits > 0;
             (
                 checked_monster_intent_mul(hit_damage, effective_hits)?,
@@ -10460,10 +10470,13 @@ fn apply_monster_intent_with_card_rng_inner(
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             let effective_hits =
                 apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
-            monster.intent = MonsterIntent::AttackMultiple {
-                damage,
-                hits: effective_hits,
-            };
+            set_effective_multi_hit_intent(
+                monster,
+                MonsterIntent::AttackMultiple {
+                    damage,
+                    hits: effective_hits,
+                },
+            );
             thorns_already_applied = total_thorns > 0 && effective_hits > 0;
             (
                 checked_monster_intent_mul(hit_damage, effective_hits)?,
@@ -10475,11 +10488,14 @@ fn apply_monster_intent_with_card_rng_inner(
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             let effective_hits =
                 apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
-            monster.intent = MonsterIntent::AttackMultipleApplyPlayerWeak {
-                damage,
-                hits: effective_hits,
-                weak,
-            };
+            set_effective_multi_hit_intent(
+                monster,
+                MonsterIntent::AttackMultipleApplyPlayerWeak {
+                    damage,
+                    hits: effective_hits,
+                    weak,
+                },
+            );
             thorns_already_applied = total_thorns > 0 && effective_hits > 0;
             (
                 checked_monster_intent_mul(hit_damage, effective_hits)?,
@@ -10495,11 +10511,14 @@ fn apply_monster_intent_with_card_rng_inner(
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             let effective_hits =
                 apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
-            monster.intent = MonsterIntent::AttackMultipleAddDazedToDiscard {
-                damage,
-                hits: effective_hits,
-                count,
-            };
+            set_effective_multi_hit_intent(
+                monster,
+                MonsterIntent::AttackMultipleAddDazedToDiscard {
+                    damage,
+                    hits: effective_hits,
+                    count,
+                },
+            );
             thorns_already_applied = total_thorns > 0 && effective_hits > 0;
             (
                 checked_monster_intent_mul(hit_damage, effective_hits)?,
@@ -10548,6 +10567,14 @@ fn apply_monster_intent_with_card_rng_inner(
             .moves_executed
             .checked_add(1)
             .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))?;
+    }
+    // GremlinWizard.takeTurn resets currentCharge to 0 after MAGIC. A17
+    // never returns to CHARGE, so leave the incremented counter in place.
+    if monster.content_id == GREMLIN_WIZARD_ID
+        && ascension < 17
+        && matches!(monster.intent, MonsterIntent::Attack { .. })
+    {
+        monster.moves_executed = 0;
     }
     if monster.content_id == GUARDIAN_ID
         && monster.in_defensive_mode
@@ -10619,6 +10646,17 @@ fn apply_multi_hit_thorns(
         enter_guardian_defensive_mode(monster);
     }
     effective_hits
+}
+
+fn set_effective_multi_hit_intent(monster: &mut MonsterState, intent: MonsterIntent) {
+    // A Darkling killed by reactive Thorns enters its half-dead COUNT pose in
+    // deal_unmodified_damage_to_monster. The source keeps that UNKNOWN pose
+    // through the rest of the current attack; do not replace it with the
+    // stale multi-hit attack after the retaliation resolves.
+    if monster.content_id == DARKLING_ID && !monster.alive && monster.escaped {
+        return;
+    }
+    monster.intent = intent;
 }
 
 fn lagavulin_sleep_or_stun(content_id: ContentId, intent: MonsterIntent) -> bool {
@@ -11228,6 +11266,35 @@ mod tests {
 
         assert_eq!(damage, Ok(2));
         assert_eq!(monster.hp, 10);
+    }
+
+    #[test]
+    fn darkling_multi_hit_thorns_keeps_half_dead_count_pose() {
+        let mut state = crate::CombatState::initial_fixture();
+        state.player.powers.thorns = 3;
+        let mut monster = monster_state(&DARKLING_A0, MonsterId::new(1));
+        monster.hp = 6;
+        monster.intent = MonsterIntent::AttackMultiple { damage: 8, hits: 2 };
+        let mut player = state.player.clone();
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        let damage = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(16));
+        assert!(!monster.alive);
+        assert!(monster.escaped);
+        assert_eq!(monster.intent, MonsterIntent::DarklingCount);
+        assert_eq!(target_move_byte_for_monster(&monster), Some(4));
     }
 
     #[test]
@@ -12551,6 +12618,38 @@ mod tests {
         assert_eq!(source_monster.powers.malleable, SNAKE_PLANT_MALLEABLE);
         assert_eq!(source_monster.powers.malleable_base, SNAKE_PLANT_MALLEABLE);
         assert_eq!(player.powers.frail, SNAKE_PLANT_SPORES_DEBUFF);
+        assert_eq!(player.powers.weak, SNAKE_PLANT_SPORES_DEBUFF);
+    }
+
+    #[test]
+    fn snake_plant_spores_artifact_blocks_frail_before_weak() {
+        let mut source_monster = monster_state(&SNAKE_PLANT_A0, MonsterId::new(1));
+        source_monster.intent = MonsterIntent::ApplyPlayerFrailAndWeak {
+            frail: SNAKE_PLANT_SPORES_DEBUFF,
+            weak: SNAKE_PLANT_SPORES_DEBUFF,
+        };
+        let state = crate::CombatState::initial_fixture();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+        let mut player = state.player;
+        player.powers.artifact = 1;
+        let player_before = player.clone();
+        let mut piles = state.piles;
+        let mut card_random_rng = StsRng::new(0);
+
+        let damage = apply_monster_intent_with_card_rng(
+            &mut source_monster,
+            &mut player,
+            &mut piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            &mut card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(0));
+        assert_eq!(player.powers.artifact, 0);
+        assert_eq!(player.powers.frail, 0);
         assert_eq!(player.powers.weak, SNAKE_PLANT_SPORES_DEBUFF);
     }
 

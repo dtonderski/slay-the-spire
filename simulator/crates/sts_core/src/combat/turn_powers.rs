@@ -4,6 +4,24 @@ use crate::content::monsters::{check_slime_boss_split, wake_lagavulin_on_damage}
 use crate::relic::{heal_combat_player_with_relics, heal_player_in_combat_with_relics, Relic};
 use crate::{MonsterId, SimError, SimResult};
 
+/// `DemonFormPower.atStartOfTurnPostDraw` applies Strength after the hand draw.
+pub(crate) fn apply_demon_form_strength_post_draw(state: &mut CombatState) -> SimResult<()> {
+    let amount = state.player.powers.demon_form;
+    if amount <= 0 {
+        return Ok(());
+    }
+    state.player.powers.strength =
+        state
+            .player
+            .powers
+            .strength
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "combat integer addition overflows i32",
+            ))?;
+    Ok(())
+}
+
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()> {
     apply_player_end_of_turn_powers_for_combat_state(state, true)?;
     apply_end_of_turn_constricted(state)?;
@@ -21,7 +39,7 @@ pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()>
 
 pub fn apply_end_of_player_turn_powers_before_hand(state: &mut CombatState) -> SimResult<()> {
     let mut deferred = None;
-    apply_end_of_player_turn_powers_before_hand_inner(state, &mut deferred)
+    apply_end_of_player_turn_powers_before_hand_inner(state, &mut deferred, true)
 }
 
 /// Resolve end-turn powers while retaining death callbacks until the hand
@@ -31,13 +49,25 @@ pub(crate) fn apply_end_of_player_turn_powers_before_hand_deferred(
     state: &mut CombatState,
     deferred: &mut Vec<crate::combat::transition::DeferredMonsterDeath>,
 ) -> SimResult<()> {
+    apply_end_of_player_turn_powers_before_hand_deferred_with_combust(state, deferred, true)
+}
+
+/// `apply_combust` is false when Burn/Decay/Regret still have to auto-play.
+/// Those cards are `CardQueueItem`s from `callEndOfTurnActions` and resolve
+/// before `AbstractRoom.endTurn` queues Combust `LoseHPAction` (FIDL01762).
+pub(crate) fn apply_end_of_player_turn_powers_before_hand_deferred_with_combust(
+    state: &mut CombatState,
+    deferred: &mut Vec<crate::combat::transition::DeferredMonsterDeath>,
+    apply_combust: bool,
+) -> SimResult<()> {
     let mut deferred = Some(deferred);
-    apply_end_of_player_turn_powers_before_hand_inner(state, &mut deferred)
+    apply_end_of_player_turn_powers_before_hand_inner(state, &mut deferred, apply_combust)
 }
 
 fn apply_end_of_player_turn_powers_before_hand_inner(
     state: &mut CombatState,
     deferred: &mut Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
+    apply_combust: bool,
 ) -> SimResult<()> {
     apply_player_end_of_turn_powers_for_combat_state(state, false)?;
     if state.player.hp <= 0 {
@@ -55,12 +85,24 @@ fn apply_end_of_player_turn_powers_before_hand_inner(
             return Ok(());
         }
     }
-    apply_end_of_turn_combust(state, deferred)?;
-    if state.player.hp <= 0 {
-        return Ok(());
+    if apply_combust {
+        apply_end_of_turn_combust(state, deferred)?;
+        if state.player.hp <= 0 {
+            return Ok(());
+        }
     }
     apply_end_of_turn_bomb_timers(state, deferred)?;
     Ok(())
+}
+
+/// Combust `atEndOfTurn` is `addToBot` from `AbstractRoom.endTurn`, after
+/// end-turn autoplay cards have already resolved.
+pub(crate) fn apply_deferred_end_of_turn_combust(
+    state: &mut CombatState,
+    deferred: &mut Vec<crate::combat::transition::DeferredMonsterDeath>,
+) -> SimResult<()> {
+    let mut deferred = Some(deferred);
+    apply_end_of_turn_combust(state, &mut deferred)
 }
 
 /// Whether Constricted already ran in the pre-hand Combust window this end-turn.
@@ -94,17 +136,17 @@ fn apply_player_end_of_turn_powers_for_combat_state(
                 "combat integer addition overflows i32",
             ))?;
     }
-    if state.player.powers.metallicize > 0 {
-        crate::combat::transition::apply_player_direct_block_gain(
+    if state.player.powers.metallicize > 0 && !state.time_warp_end_powers_applied {
+        crate::combat::transition::apply_player_end_turn_automatic_block_gain(
             state,
             state.player.powers.metallicize,
-        )?;
+        )?
     }
     if state.player.powers.plated_armor > 0 {
-        crate::combat::transition::apply_player_direct_block_gain(
+        crate::combat::transition::apply_player_end_turn_automatic_block_gain(
             state,
             state.player.powers.plated_armor,
-        )?;
+        )?
     }
     if apply_regeneration {
         apply_end_of_player_turn_regeneration(state)?;
@@ -129,7 +171,9 @@ pub(crate) fn apply_end_of_turn_constricted(state: &mut CombatState) -> SimResul
     // runtime. Unlike HP_LOSS, that damage consumes player block first.
     let hp_loss =
         crate::combat::hp_loss::lose_player_blockable_hp(state, state.player.powers.constricted);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
+    crate::combat::hp_loss::apply_player_hp_loss_hooks_deferred_draw_followups_bypass_no_draw(
+        state, hp_loss,
+    )?;
     crate::combat::turn::revive_player_if_available(state)
 }
 
@@ -180,7 +224,12 @@ fn apply_end_of_turn_combust(
         // one per stack. Card-loss hooks such as Rupture therefore fire once,
         // not once for every point of HP lost.
         let hp_loss = lose_player_hp(state, combust_stacks * COMBUST_HP_LOSS);
-        crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
+        // RunicCube.wasHPLost addToTop(DrawCardAction) so the trigger card
+        // arrives before DiscardAtEndOfTurnAction. Evolve / Fire Breathing
+        // callbacks are addToBot behind that discard (FIDL01335 / FIDL01565).
+        crate::combat::hp_loss::apply_player_card_hp_loss_hooks_deferred_draw_followups(
+            state, hp_loss,
+        )?;
         crate::combat::turn::revive_player_if_available(state)?;
         if state.player.hp <= 0 {
             return Ok(());

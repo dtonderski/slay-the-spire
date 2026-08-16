@@ -1122,7 +1122,7 @@ mod tests {
             .map(|_| target_uniform_random_potion(&mut expected_potion_rng))
             .collect::<Vec<_>>();
 
-        let mut next = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
+        let next = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
             .expect("Cauldron purchase succeeds");
         assert_eq!(next.phase, RunPhase::Reward);
         assert_eq!(next.card_rng_counter, 21);
@@ -1145,15 +1145,21 @@ mod tests {
         );
         assert!(!next.shop_merchant_open);
 
-        next = crate::run::reward::apply_run_action(&next, RunAction::SkipReward)
+        let skipped = crate::run::reward::apply_run_action(&next, RunAction::SkipReward)
             .expect("skipping Cauldron rewards returns to shop room");
-        assert_eq!(next.phase, RunPhase::Shop);
-        assert!(next.reward.is_none());
-        assert!(!next.shop_merchant_open);
+        assert_eq!(skipped.phase, RunPhase::Shop);
+        assert!(skipped.reward.is_none());
+        assert!(!skipped.shop_merchant_open);
 
-        next = apply_shop_action(&next, RunAction::Proceed).expect("shop room closes");
-        assert_eq!(next.phase, RunPhase::Idle);
-        assert!(next.shop.is_none());
+        let left = apply_shop_action(&skipped, RunAction::Proceed).expect("shop room closes");
+        assert_eq!(left.phase, RunPhase::Idle);
+        assert!(left.shop.is_none());
+
+        let proceeded = crate::run::reward::apply_run_action(&next, RunAction::Proceed)
+            .expect("Cauldron overlay PROCEED abandons leftover potions and leaves the shop");
+        assert_eq!(proceeded.phase, RunPhase::Idle);
+        assert!(proceeded.reward.is_none());
+        assert!(proceeded.shop.is_none());
     }
 
     #[test]

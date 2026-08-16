@@ -25,7 +25,15 @@ Hex Dazed `AddGeneratedCardToDrawPileRandomSpot*` actions and apply them after
 `apply_play_top_draw_card` removes the top card but before the nested forced-
 card queue runs (`apply_play_top_with_mid_hex`).
 
+## Force-played Burning Pact
+
+Hex on the *forced* skill is the same pause as hand-played Burning Pact and
+Havoc-forced Armaments: `MakeTempCardInDrawPileAction` is addToBot after
+`card.use()`, so it waits behind `ExhaustSelect`. Parking it after
+`AwaitExhaustSelect` keeps the Havoc PLAY frame at one new Dazed (Havoc's
+own Hex, inserted post-remove). Witness: FIDL01694 step 629.
+
 ## Non-goals
 
 - Do not move ordinary (non-PlayTop) Hex inserts relative to card.use draws.
-- Do not change Armaments/Burning Pact/Discovery deferred-Hex parking.
+- Do not change Armaments/Discovery deferred-Hex parking except the exhaust-select sibling above.

@@ -54,6 +54,8 @@ Preferred checks:
 - `cargo check -p sts_core --lib`
 - `cargo check -p sts_verify --lib`
 - `uv run -- cargo run -p sts_verify --bin sts_verify -- parity <trace.jsonl>`
+- `uv run -- cargo run -p sts_verify --bin sts_verify -- status`
+  (defaults to `verification/corpus/permanent_traces/` with 24 workers)
 - focused Rust tests for source-backed mechanics when a full trace cannot yet
   isolate the rule
 

@@ -30,6 +30,18 @@ Combat subsets omit exhaust pile contents, so without (1) a no-FNP Purity
 exhaust would falsely match skipped-retrieval from hand/discard alone and dump
 the selection into discard on END, desyncing later shuffle order.
 
+## Unceasing Top
+
+If skipped CONFIRM empties the published hand, Unceasing Top draws immediately
+(FIDL01681: Warcry from the top of draw). The parked selection still re-enters
+discard only on the next non-empty END.
+
+If combat ends on a mid-turn PLAY before that END, the leftover `selectedCards`
+stay on the singleton screen. The next combat's first non-empty END can publish
+every parked card beside the live master-deck copies (FIDL01582: Dropkick and
+two Strikes). The verifier remints transient instance ids and settles them
+through the ordinary end-turn pending-hidden path.
+
 ## Non-goals
 
 - Do not change ordinary Purity retrieval semantics.

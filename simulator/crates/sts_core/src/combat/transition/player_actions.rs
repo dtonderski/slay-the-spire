@@ -8,7 +8,7 @@ use crate::{
     combat::{state::BombTimer, CombatState},
     ids::CardId,
     power::DrawTriggerPower,
-    SimResult,
+    SimError, SimResult,
 };
 
 pub(super) fn gain_energy(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
@@ -31,6 +31,13 @@ pub(super) fn lose_hp(
 }
 
 pub(super) fn set_cannot_draw(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    // NoDrawPower is a DEBUFF. ApplyPowerAction consumes Artifact instead of
+    // applying it (FIDL01594: Panacea Artifact blocks Battle Trance No Draw,
+    // so later Flex stays temporary).
+    if state.player.powers.artifact > 0 {
+        state.player.powers.artifact -= 1;
+        return Ok(Vec::new());
+    }
     state.player.cannot_draw = true;
     Ok(Vec::new())
 }
@@ -237,6 +244,20 @@ pub(super) fn gain_strength(
     Ok(Vec::new())
 }
 
+pub(super) fn gain_mantra(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    checked_add_combat_value(&mut state.player.powers.mantra, amount)?;
+    while state.player.powers.mantra >= 10 {
+        state.player.powers.mantra -= 10;
+        state.player.energy = state
+            .player
+            .energy
+            .checked_add(3)
+            .ok_or(SimError::InvalidState("mantra energy gain overflows i32"))?;
+        state.player.powers.divinity = 1;
+    }
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_dexterity(
     state: &mut CombatState,
     amount: i32,
@@ -271,7 +292,7 @@ pub(super) fn gain_intangible(
 }
 
 pub(super) fn gain_ritual(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
-    checked_add_combat_value(&mut state.player.powers.ritual, amount)?;
+    checked_add_combat_value(&mut state.player.powers.demon_form, amount)?;
     Ok(Vec::new())
 }
 

@@ -28,6 +28,26 @@ pub const PARASITE_ID: ContentId = ContentId::new(70);
 pub const SHAME_ID: ContentId = ContentId::new(71);
 pub const WRITHE_ID: ContentId = ContentId::new(72);
 pub const ASCENDERS_BANE_ID: ContentId = ContentId::new(61);
+/// Stable synthetic identities used when Prismatic Shard rewards cards that
+/// are outside the modeled Ironclad registry.
+pub const CHARGE_BATTERY_ANY_COLOR_ID: ContentId = ContentId::new(15_754_310_908_692_596_154);
+pub const EMPTY_BODY_ANY_COLOR_ID: ContentId = ContentId::new(1_892_284_736_181_196);
+pub const JUST_LUCKY_ANY_COLOR_ID: ContentId = ContentId::new(2_031_388_667_909_133);
+pub const GO_FOR_THE_EYES_ANY_COLOR_ID: ContentId = ContentId::new(2_618_527_352_455_044_789);
+pub const EQUILIBRIUM_ANY_COLOR_ID: ContentId = ContentId::new(58_770_534_959_378_700);
+pub const SNEAKY_STRIKE_ANY_COLOR_ID: ContentId = ContentId::new(12_075_979_460_702_295_972);
+pub const PROSTRATE_ANY_COLOR_ID: ContentId = ContentId::new(70_559_886_447_078);
+pub const CLOAK_AND_DAGGER_ANY_COLOR_ID: ContentId = ContentId::new(12_608_504_500_537_169_241);
+pub const SHIV_ANY_COLOR_ID: ContentId = ContentId::new(2_544_794);
+pub const BACKFLIP_ANY_COLOR_ID: ContentId = ContentId::new(1_875_509_849_132);
+pub const LESSON_LEARNED_ANY_COLOR_ID: ContentId = ContentId::new(12_246_701_764_208_556_052);
+pub const RECYCLE_ANY_COLOR_ID: ContentId = ContentId::new(74_815_307_979);
+pub const BIASED_COGNITION_ANY_COLOR_ID: ContentId = ContentId::new(13_922_568_352_391_244_891);
+pub const PRESSURE_POINTS_ANY_COLOR_ID: ContentId = ContentId::new(6_032_211_985_609_368_181);
+pub const EMPTY_MIND_ANY_COLOR_ID: ContentId = ContentId::new(1_892_284_736_503_420);
+pub const TRANQUILITY_ANY_COLOR_ID: ContentId = ContentId::new(71_074_483_415_927_220);
+pub const SKIM_ANY_COLOR_ID: ContentId = ContentId::new(2_547_668);
+pub const DOPPELGANGER_ANY_COLOR_ID: ContentId = ContentId::new(1_794_712_432_598_607_498);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5076,8 +5096,390 @@ pub static ALL_CARDS: [CardDefinition; 249] = [
 ];
 
 #[must_use]
+pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
+    matches!(
+        id,
+        CHARGE_BATTERY_ANY_COLOR_ID
+            | EMPTY_BODY_ANY_COLOR_ID
+            | JUST_LUCKY_ANY_COLOR_ID
+            | GO_FOR_THE_EYES_ANY_COLOR_ID
+            | EQUILIBRIUM_ANY_COLOR_ID
+            | SNEAKY_STRIKE_ANY_COLOR_ID
+            | PROSTRATE_ANY_COLOR_ID
+            | CLOAK_AND_DAGGER_ANY_COLOR_ID
+            | SHIV_ANY_COLOR_ID
+            | BACKFLIP_ANY_COLOR_ID
+            | LESSON_LEARNED_ANY_COLOR_ID
+            | RECYCLE_ANY_COLOR_ID
+            | BIASED_COGNITION_ANY_COLOR_ID
+            | PRESSURE_POINTS_ANY_COLOR_ID
+            | EMPTY_MIND_ANY_COLOR_ID
+            | TRANQUILITY_ANY_COLOR_ID
+            | SKIM_ANY_COLOR_ID
+            | DOPPELGANGER_ANY_COLOR_ID
+    ) || (get_card_definition(id).is_none()
+        && crate::run::reward::any_color_reward_card_key(id).is_some())
+}
+
+pub static CHARGE_BATTERY_ANY_COLOR: CardDefinition = CardDefinition {
+    id: CHARGE_BATTERY_ANY_COLOR_ID,
+    key: "CHARGE_BATTERY",
+    name: "Charge Battery",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(7),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static SKIM_ANY_COLOR: CardDefinition = CardDefinition {
+    id: SKIM_ANY_COLOR_ID,
+    key: "SKIM",
+    name: "Skim",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub static DOPPELGANGER_ANY_COLOR: CardDefinition = CardDefinition {
+    id: DOPPELGANGER_ANY_COLOR_ID,
+    key: "DOPPELGANGER",
+    name: "Doppelganger",
+    cost: -1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub static TRANQUILITY_ANY_COLOR: CardDefinition = CardDefinition {
+    id: TRANQUILITY_ANY_COLOR_ID,
+    key: "TRANQUILITY",
+    name: "Tranquility",
+    cost: 0,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: true,
+        unplayable: false,
+    },
+};
+
+pub static EMPTY_MIND_ANY_COLOR: CardDefinition = CardDefinition {
+    id: EMPTY_MIND_ANY_COLOR_ID,
+    key: "EMPTY_MIND",
+    name: "Empty Mind",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static PRESSURE_POINTS_ANY_COLOR: CardDefinition = CardDefinition {
+    id: PRESSURE_POINTS_ANY_COLOR_ID,
+    key: "PRESSURE_POINTS",
+    name: "Pressure Points",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static BIASED_COGNITION_ANY_COLOR: CardDefinition = CardDefinition {
+    id: BIASED_COGNITION_ANY_COLOR_ID,
+    key: "BIASED_COGNITION",
+    name: "Biased Cognition",
+    cost: 1,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static RECYCLE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: RECYCLE_ANY_COLOR_ID,
+    key: "RECYCLE",
+    name: "Recycle",
+    cost: 0,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static LESSON_LEARNED_ANY_COLOR: CardDefinition = CardDefinition {
+    id: LESSON_LEARNED_ANY_COLOR_ID,
+    key: "LESSON_LEARNED",
+    name: "Lesson Learned",
+    cost: 2,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(10),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub static BACKFLIP_ANY_COLOR: CardDefinition = CardDefinition {
+    id: BACKFLIP_ANY_COLOR_ID,
+    key: "BACKFLIP",
+    name: "Backflip",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(5),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static SHIV_ANY_COLOR: CardDefinition = CardDefinition {
+    id: SHIV_ANY_COLOR_ID,
+    key: "SHIV",
+    name: "Shiv",
+    cost: 0,
+    card_type: CardType::Attack,
+    rarity: None,
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(4),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub static CLOAK_AND_DAGGER_ANY_COLOR: CardDefinition = CardDefinition {
+    id: CLOAK_AND_DAGGER_ANY_COLOR_ID,
+    key: "CLOAK_AND_DAGGER",
+    name: "Cloak And Dagger",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(6),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static PROSTRATE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: PROSTRATE_ANY_COLOR_ID,
+    key: "PROSTRATE",
+    name: "Prostrate",
+    cost: 0,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(4),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static SNEAKY_STRIKE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: SNEAKY_STRIKE_ANY_COLOR_ID,
+    key: "SNEAKY_STRIKE",
+    name: "Sneaky Strike",
+    cost: 2,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(16),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static EQUILIBRIUM_ANY_COLOR: CardDefinition = CardDefinition {
+    id: EQUILIBRIUM_ANY_COLOR_ID,
+    key: "EQUILIBRIUM",
+    name: "Equilibrium",
+    cost: 2,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(13),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static GO_FOR_THE_EYES_ANY_COLOR: CardDefinition = CardDefinition {
+    id: GO_FOR_THE_EYES_ANY_COLOR_ID,
+    key: "GO_FOR_THE_EYES",
+    name: "Go For The Eyes",
+    cost: 0,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(3),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static JUST_LUCKY_ANY_COLOR: CardDefinition = CardDefinition {
+    id: JUST_LUCKY_ANY_COLOR_ID,
+    key: "JUST_LUCKY",
+    name: "Just Lucky",
+    cost: 0,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(3),
+        block: Some(2),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static EMPTY_BODY_ANY_COLOR: CardDefinition = CardDefinition {
+    id: EMPTY_BODY_ANY_COLOR_ID,
+    key: "EMPTY_BODY",
+    name: "Empty Body",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(7),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+#[must_use]
 pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
-    ALL_CARDS.iter().find(|definition| definition.id == id)
+    ALL_CARDS
+        .iter()
+        .find(|definition| definition.id == id)
+        .or_else(|| (id == CHARGE_BATTERY_ANY_COLOR_ID).then_some(&CHARGE_BATTERY_ANY_COLOR))
+        .or_else(|| (id == EQUILIBRIUM_ANY_COLOR_ID).then_some(&EQUILIBRIUM_ANY_COLOR))
+        .or_else(|| (id == SNEAKY_STRIKE_ANY_COLOR_ID).then_some(&SNEAKY_STRIKE_ANY_COLOR))
+        .or_else(|| (id == PROSTRATE_ANY_COLOR_ID).then_some(&PROSTRATE_ANY_COLOR))
+        .or_else(|| (id == CLOAK_AND_DAGGER_ANY_COLOR_ID).then_some(&CLOAK_AND_DAGGER_ANY_COLOR))
+        .or_else(|| (id == SHIV_ANY_COLOR_ID).then_some(&SHIV_ANY_COLOR))
+        .or_else(|| (id == BACKFLIP_ANY_COLOR_ID).then_some(&BACKFLIP_ANY_COLOR))
+        .or_else(|| (id == LESSON_LEARNED_ANY_COLOR_ID).then_some(&LESSON_LEARNED_ANY_COLOR))
+        .or_else(|| (id == RECYCLE_ANY_COLOR_ID).then_some(&RECYCLE_ANY_COLOR))
+        .or_else(|| (id == BIASED_COGNITION_ANY_COLOR_ID).then_some(&BIASED_COGNITION_ANY_COLOR))
+        .or_else(|| (id == PRESSURE_POINTS_ANY_COLOR_ID).then_some(&PRESSURE_POINTS_ANY_COLOR))
+        .or_else(|| (id == EMPTY_MIND_ANY_COLOR_ID).then_some(&EMPTY_MIND_ANY_COLOR))
+        .or_else(|| (id == TRANQUILITY_ANY_COLOR_ID).then_some(&TRANQUILITY_ANY_COLOR))
+        .or_else(|| (id == SKIM_ANY_COLOR_ID).then_some(&SKIM_ANY_COLOR))
+        .or_else(|| (id == DOPPELGANGER_ANY_COLOR_ID).then_some(&DOPPELGANGER_ANY_COLOR))
+        .or_else(|| (id == GO_FOR_THE_EYES_ANY_COLOR_ID).then_some(&GO_FOR_THE_EYES_ANY_COLOR))
+        .or_else(|| (id == JUST_LUCKY_ANY_COLOR_ID).then_some(&JUST_LUCKY_ANY_COLOR))
+        .or_else(|| (id == EMPTY_BODY_ANY_COLOR_ID).then_some(&EMPTY_BODY_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.
@@ -5117,15 +5519,23 @@ pub fn is_curse_content_id(id: ContentId) -> bool {
     )
 }
 
-/// Whether the target's `CardGroup.getPurgeableCards` includes this card
-/// before its separate bottled-card filter is applied.
+/// Whether the target's `CardGroup.getPurgeableCards` includes this card.
+/// That helper excludes only Necronomicurse, Curse of the Bell, and
+/// Ascender's Bane. Event/shop remove screens apply a later bottled-card
+/// filter; Empty Cage does not.
+#[must_use]
+pub fn is_purgeable_card_content(content_id: ContentId) -> bool {
+    !matches!(
+        content_id,
+        ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID | NECRONOMICURSE_ID
+    )
+}
+
+/// Event/shop remove eligibility: `getPurgeableCards` plus the later bottled
+/// filter those screens apply.
 #[must_use]
 pub fn is_purgeable_card(card: &CardInstance) -> bool {
-    !card.bottled
-        && !matches!(
-            card.content_id,
-            ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID | NECRONOMICURSE_ID
-        )
+    !card.bottled && is_purgeable_card_content(card.content_id)
 }
 
 #[must_use]
@@ -5284,7 +5694,10 @@ pub fn upgrade_card_instance(card: CardInstance) -> SimResult<Option<CardInstanc
         // Prismatic / any-color pool cards use synthetic content ids without a
         // separate upgraded ContentId. Track the upgrade on the instance so
         // reward projection can emit the CommMod `name+` form (e.g. flying knee+).
-        if get_card_definition(card.content_id).is_none() && card.upgrades == 0 {
+        if (get_card_definition(card.content_id).is_none()
+            || is_synthetic_any_color_content_id(card.content_id))
+            && card.upgrades == 0
+        {
             let mut upgraded = card;
             upgraded.upgrades = 1;
             return Ok(Some(upgraded));
@@ -5332,15 +5745,14 @@ fn adjust_temp_cost_for_upgrade(card: CardInstance, upgraded: &mut CardInstance)
         return;
     }
 
-    // AbstractCard.upgradeBaseCost preserves the difference between costForTurn and
-    // the old base cost, applies that difference to the upgraded base cost, and clamps
-    // at zero. A zero current cost remains zero. This matters when Armaments upgrades
-    // a card whose cost was randomized by Confusion/Snecko.
+    // ConfusionPower.setCostForTurn also writes AbstractCard.cost when the roll
+    // differs from the current cost. upgradeBaseCost then uses
+    // costForTurn - cost, not costForTurn - printedBase. After a Confusion 2 on
+    // Havoc, both fields are 2, so Havoc+ stays 0 (FIDL01816).
     let adjusted = if cost_for_turn == 0 {
         0
     } else {
-        (i16::from(upgraded_base.cost) + i16::from(cost_for_turn) - i16::from(base.cost)).max(0)
-            as u8
+        i16::from(upgraded_base.cost).max(0) as u8
     };
     upgraded.temp_cost = Some(adjusted);
 }
@@ -5349,7 +5761,7 @@ fn adjust_temp_cost_for_upgrade(card: CardInstance, upgraded: &mut CardInstance)
 pub fn card_instance_is_upgradeable(card: &CardInstance) -> bool {
     (card.content_id == RITUAL_DAGGER_ID && card.upgrades == 0)
         || upgrade_content_id(card.content_id).is_some()
-        || (get_card_definition(card.content_id).is_none() && card.upgrades == 0)
+        || (is_synthetic_any_color_content_id(card.content_id) && card.upgrades == 0)
 }
 
 #[cfg(test)]
@@ -5481,6 +5893,17 @@ mod tests {
 
         assert_eq!((common, uncommon, rare, unrated), (46, 114, 69, 20));
         assert_eq!(upgrades, 115);
+    }
+
+    #[test]
+    fn armaments_keeps_confused_havoc_plus_at_zero() {
+        let mut havoc = CardInstance::new(CardId::new(1), HAVOC_ID);
+        havoc.temp_cost = Some(2);
+        let upgraded = upgrade_card_instance(havoc)
+            .expect("Havoc upgrades")
+            .expect("Havoc is upgradeable");
+        assert_eq!(upgraded.content_id, HAVOC_PLUS_ID);
+        assert_eq!(upgraded.temp_cost, Some(0));
     }
 
     #[test]

@@ -9,6 +9,7 @@ const {
   addCollectionMetadata,
   chooseRandomAction,
   communicationBoundary,
+  createCombatStallTracker,
   currentRunRecords,
   defaultVerifierPath,
   enumerateGameplayActions,
@@ -21,11 +22,14 @@ const {
   localBridgeTracePath,
   needsMapChoiceSettle,
   normalizeSettledGameplayRecords,
+  observeCombatStall,
   parseParityOutput,
   parseBossUnlocks,
   parseSeenBossesPreferences,
+  playerCombatStrength,
   seededRandom,
   shouldVerifyTrace,
+  totalLivingEnemyHp,
   verificationCheckpointKey,
   verifierInvocationFailed,
   writeTrace,
@@ -491,9 +495,9 @@ const schemaOneStateRecords = [
     message: { ...quiescentBoundaryMessage, boundary_kind: "poll" },
   },
 ];
-assert.throws(
-  () => normalizeSettledGameplayRecords(schemaOneStateRecords),
-  /STATE completed on quiescent; expected poll/,
+assert.deepStrictEqual(
+  normalizeSettledGameplayRecords(schemaOneStateRecords),
+  [schemaOneStateRecords[0], schemaOneStateRecords[2]],
 );
 const schemaOneOvertakenGameplayRecords = [
   { type: "action", step: 32, command: "CHOOSE 0" },
@@ -509,9 +513,9 @@ const schemaOneOvertakenGameplayRecords = [
   },
   { type: "state", step: 32, message: quiescentBoundaryMessage },
 ];
-assert.throws(
-  () => normalizeSettledGameplayRecords(schemaOneOvertakenGameplayRecords),
-  /CHOOSE 0 completed on unknown; expected interaction_ready, quiescent, or terminal/,
+assert.deepStrictEqual(
+  normalizeSettledGameplayRecords(schemaOneOvertakenGameplayRecords),
+  [schemaOneOvertakenGameplayRecords[0], schemaOneOvertakenGameplayRecords[3]],
 );
 assert.throws(
   () =>
@@ -523,7 +527,7 @@ assert.throws(
         message: { ...quiescentBoundaryMessage, boundary_kind: "poll" },
       },
     ]),
-  /END completed on poll; expected interaction_ready, quiescent, or terminal/,
+  /gameplay action at step 31 produced poll, not a completing boundary/,
 );
 
 const summary = {
@@ -601,6 +605,96 @@ assert.deepStrictEqual(
   Array.from({ length: 20 }, () => chooseRandomAction(summary, first)),
   Array.from({ length: 20 }, () => chooseRandomAction(summary, second)),
 );
+
+assert.strictEqual(playerCombatStrength({ combat: { player_strength: -12 } }), -12);
+assert.strictEqual(playerCombatStrength({ combat: {} }), 0);
+assert.strictEqual(
+  totalLivingEnemyHp({
+    combat: {
+      monsters: [
+        { hp: 32, gone: false, half_dead: false },
+        { hp: 10, gone: true, half_dead: false },
+        { hp: 0, gone: false, half_dead: false },
+      ],
+    },
+  }),
+  32,
+);
+
+{
+  const tracker = createCombatStallTracker();
+  const base = {
+    in_game: true,
+    combat: {
+      turn: 10,
+      player_strength: -11,
+      monsters: [{ hp: 40, gone: false, half_dead: false }],
+    },
+  };
+  assert.strictEqual(observeCombatStall(tracker, base).shouldAbandon, false);
+  assert.strictEqual(
+    observeCombatStall(tracker, {
+      ...base,
+      combat: { ...base.combat, turn: 11 },
+    }).shouldAbandon,
+    false,
+  );
+  assert.strictEqual(
+    observeCombatStall(tracker, {
+      ...base,
+      combat: { ...base.combat, turn: 12 },
+    }).shouldAbandon,
+    false,
+  );
+  const third = observeCombatStall(tracker, {
+    ...base,
+    combat: { ...base.combat, turn: 13 },
+  });
+  assert.strictEqual(third.shouldAbandon, true);
+  assert.match(third.reason, /player strength -11 < -10/);
+  assert.match(third.reason, /unchanged for 3 turns/);
+
+  const damageBreaksStall = createCombatStallTracker();
+  observeCombatStall(damageBreaksStall, base);
+  observeCombatStall(damageBreaksStall, {
+    ...base,
+    combat: { ...base.combat, turn: 11 },
+  });
+  observeCombatStall(damageBreaksStall, {
+    ...base,
+    combat: {
+      ...base.combat,
+      turn: 12,
+      monsters: [{ hp: 39, gone: false, half_dead: false }],
+    },
+  });
+  assert.strictEqual(
+    observeCombatStall(damageBreaksStall, {
+      ...base,
+      combat: {
+        ...base.combat,
+        turn: 13,
+        monsters: [{ hp: 39, gone: false, half_dead: false }],
+      },
+    }).shouldAbandon,
+    false,
+  );
+
+  const highStrength = createCombatStallTracker();
+  for (let turn = 10; turn <= 20; turn += 1) {
+    assert.strictEqual(
+      observeCombatStall(highStrength, {
+        in_game: true,
+        combat: {
+          turn,
+          player_strength: -10,
+          monsters: [{ hp: 40, gone: false, half_dead: false }],
+        },
+      }).shouldAbandon,
+      false,
+    );
+  }
+}
 
 const parsed = parseParityOutput(`outcome=failed\nunexpected_diffs=1\nduplicate_dispositions=0\nseed_start.first_boundary.path=$.actions[step=99].command\nseed_start.first_boundary.category=unsupported_combat_path\nunexpected_diff step=12 command="END" label="combat end turn"`);
 assert.strictEqual(parsed.unexpectedDiffs, 1);

@@ -56,7 +56,7 @@ use crate::{
 };
 
 mod action;
-pub use action::apply_event_action;
+pub use action::{apply_event_action, apply_event_action_with_deferred_colosseum_opening};
 
 pub const SCRAP_OOZE_REACH_HP_LOSS: i32 = 3;
 pub const SCRAP_OOZE_DEEPER_HP_LOSS: i32 = 4;
@@ -1603,7 +1603,11 @@ fn pending_obtain_provenance_is_authoritative(run: &RunState) -> bool {
     for entry in provenance {
         if get_card_definition(entry.content_id).is_none()
             || entry.omamori_charges_used_before > OMAMORI_CHARGES
-            || entry.omamori_owned != omamori_owned
+            // Omamori may be obtained after a curse's ShowCardAndObtainEffect
+            // is queued but before the owning event Leave screen settles. The
+            // provenance records ownership at queue time, so a false -> true
+            // transition is valid; losing an already-owned Omamori is not.
+            || (entry.omamori_owned && !omamori_owned)
         {
             return false;
         }
@@ -1878,11 +1882,12 @@ fn pending_astrolabe_transform_is_authoritative(run: &RunState) -> bool {
     let mut expected_pending = Vec::with_capacity(transform.sources.len());
     for source in &transform.sources {
         let transformed = ironclad_transform_card_content_id(source.content_id, &mut rng);
-        let Ok(Some(transformed)) =
-            upgrade_card_instance(CardInstance::new(source.id, transformed))
+        let Ok(maybe_upgraded) = upgrade_card_instance(CardInstance::new(source.id, transformed))
         else {
             return false;
         };
+        let transformed =
+            maybe_upgraded.unwrap_or_else(|| CardInstance::new(source.id, transformed));
         expected_provenance.push(transformed.content_id);
         let omamori_blocks = run.relics.contains(&Relic::Omamori)
             && is_curse_content_id(transformed.content_id)
@@ -2181,12 +2186,8 @@ fn has_relic_key(run: &RunState, key: RelicKey) -> bool {
     run.relics.iter().any(|relic| relic.key() == key)
 }
 
-fn remove_relic_key(run: &mut RunState, key: RelicKey) -> bool {
-    if let Some(index) = run.relics.iter().position(|relic| relic.key() == key) {
-        run.relics.remove(index);
-        return true;
-    }
-    false
+fn remove_relic_key(run: &mut RunState, key: RelicKey) -> SimResult<bool> {
+    run.lose_relic_key(key)
 }
 
 fn give_forgotten_altar_idol(run: &mut RunState) -> SimResult<()> {
@@ -4243,7 +4244,10 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
     let curse_card_reward = option.drawback == NeowDrawback::Curse
         && matches!(
             option.reward,
-            NeowRewardType::RandomColorless | NeowRewardType::RandomColorlessTwo
+            NeowRewardType::ThreeCards
+                | NeowRewardType::ThreeRareCards
+                | NeowRewardType::RandomColorless
+                | NeowRewardType::RandomColorlessTwo
         );
     if !curse_grid_reward && !curse_card_reward {
         match option.drawback {
@@ -4258,7 +4262,9 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
         NeowRewardType::OneRandomRareCard => {
             let reward = generate_neow_card_reward(next.event_rng_seed as i64, option.reward)?;
             for content_id in reward.cards {
-                next.gain_deck_card(content_id)?;
+                // FIDL01337 / FIDL01404: the rare card is constructed here but
+                // only enters the master deck on Neow Leave.
+                next.queue_pending_obtain_card(content_id);
             }
         }
         NeowRewardType::ThreeSmallPotions => {
@@ -4289,6 +4295,14 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
             return Ok(());
         }
         NeowRewardType::ThreeCards | NeowRewardType::ThreeRareCards => {
+            // FIDL01258 / FIDL01469: the curse ShowCardAndObtainEffect has
+            // settled by the first CARD_REWARD frame. Flush it before the
+            // overlay reserves choice IDs so Shame does not collide with the
+            // first reward card instance.
+            if curse_card_reward {
+                apply_neow_curse_drawback(next)?;
+                next.flush_pending_obtain_cards()?;
+            }
             open_neow_card_reward(next, option.reward)?;
             return Ok(());
         }
@@ -4620,6 +4634,7 @@ fn enter_event_elite_combat(
 }
 
 fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) -> SimResult<()> {
+    let delayed_opening = run.defer_event_combat_opening;
     let (mut shuffle_rng, mut monster_rng, mut monster_hp_rng, mut card_random_rng) =
         if let Some(rng) = run.pending_event_combat_rng.take() {
             // The target's chained Colosseum setup advances these two streams
@@ -4695,9 +4710,29 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) ->
         record_target_move(monster);
     }
     combat.rng.monster_rng = monster_rng;
+    if delayed_opening {
+        // Event combat is published before the queued opening DrawCardAction
+        // and initial monster intents settle. Keep the already chosen intents
+        // authoritative, but expose the target's PendingAiRoll/DEBUG boundary
+        // until the first END drains that queue.
+        combat.pending_opening_monster_intents = combat
+            .monsters
+            .iter()
+            .map(|monster| monster.intent)
+            .collect();
+        for monster in &mut combat.monsters {
+            monster.intent = crate::MonsterIntent::PendingAiRoll;
+        }
+        combat.opening_turn_pending = true;
+    }
     run.phase = RunPhase::Combat;
     run.event = None;
     let mut initialized = run.init_combat_consuming_relics(combat)?;
+    run.defer_event_combat_opening = false;
+    if delayed_opening {
+        initialized.defer_opening_hand_draw();
+        initialized.player.energy = 0;
+    }
     // Same Mark of Pain / cardRandomRng ordering as map combat entry.
     add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized)?;
     initialized.validate()?;
@@ -5079,6 +5114,95 @@ mod tests {
     }
 
     #[test]
+    fn neow_curse_gold_defers_curse_obtain_until_leave() {
+        let mut run = RunState::seeded_ironclad(34_961_238_662_217, 0);
+        run.player_hp = 10_000;
+        run.player_max_hp = 10_000;
+        run.phase = RunPhase::Event;
+        run.event = Some(neow_screen_for_stage(&run, 1));
+        let option_index = generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)
+            .iter()
+            .position(|option| {
+                option.drawback == NeowDrawback::Curse
+                    && option.reward == NeowRewardType::TwoFiftyGold
+            })
+            .expect("FIDL01317 seed offers curse plus gold");
+        let original_deck = run.deck.clone();
+
+        let chosen = apply_event_action(
+            &run,
+            EventAction::Choose {
+                choice_index: option_index,
+            },
+        )
+        .expect("Neow curse plus gold applies immediately except the visual obtain");
+
+        assert_eq!(chosen.gold, run.gold + 250);
+        assert_eq!(chosen.deck, original_deck);
+        assert_eq!(chosen.pending_obtain_cards.len(), 1);
+        assert_eq!(chosen.event.as_ref().map(|event| event.stage), Some(2));
+        chosen
+            .validate()
+            .expect("pending Neow curse obtain is authoritative");
+
+        let left = apply_event_action(&chosen, EventAction::Choose { choice_index: 0 })
+            .expect("Neow Leave flushes the curse");
+        assert!(left.pending_obtain_cards.is_empty());
+        assert_eq!(left.deck.len(), original_deck.len() + 1);
+        assert_eq!(
+            left.deck.last().map(|card| card.content_id),
+            chosen.pending_obtain_cards.last().copied()
+        );
+        left.validate().expect("Neow Leave produces a valid run");
+    }
+
+    #[test]
+    fn neow_random_rare_card_defers_obtain_until_leave() {
+        let mut run = RunState::seeded_ironclad(34_961_238_662_287, 0);
+        run.player_hp = 10_000;
+        run.player_max_hp = 10_000;
+        run.phase = RunPhase::Event;
+        run.event = Some(neow_screen_for_stage(&run, 1));
+        let option_index = generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)
+            .iter()
+            .position(|option| option.reward == NeowRewardType::OneRandomRareCard)
+            .expect("seed offers a random rare card");
+        let original_deck = run.deck.clone();
+        let expected =
+            generate_neow_card_reward(run.event_rng_seed as i64, NeowRewardType::OneRandomRareCard)
+                .expect("rare card reward generates")
+                .cards;
+
+        let chosen = apply_event_action(
+            &run,
+            EventAction::Choose {
+                choice_index: option_index,
+            },
+        )
+        .expect("rare card option queues its visual obtain");
+
+        assert_eq!(chosen.deck, original_deck);
+        assert_eq!(chosen.pending_obtain_cards, expected);
+        assert_eq!(chosen.event.as_ref().map(|event| event.stage), Some(2));
+        chosen
+            .validate()
+            .expect("pending Neow rare card obtain is authoritative");
+
+        let left = apply_event_action(&chosen, EventAction::Choose { choice_index: 0 })
+            .expect("Neow Leave flushes the rare card");
+        assert!(left.pending_obtain_cards.is_empty());
+        assert_eq!(left.deck.len(), original_deck.len() + expected.len());
+        assert_eq!(
+            left.deck[original_deck.len()..]
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        left.validate().expect("Neow Leave produces a valid run");
+    }
+
+    #[test]
     fn neow_option_enters_leave_stage_before_hp_changing_grid_result() {
         let mut run = RunState::seeded_ironclad(34_961_238_661_169, 0);
         run.player_hp = 10_000;
@@ -5177,6 +5301,40 @@ mod tests {
         assert!(next.pending_obtain_cards.is_empty());
         next.validate()
             .expect("Neow reward and settled curse remain authoritative");
+    }
+
+    #[test]
+    fn neow_curse_rare_card_reward_settles_curse_before_overlay() {
+        use crate::content::cards::{BLUDGEON_ID, CORRUPTION_ID, FIEND_FIRE_ID};
+
+        let mut run = RunState::seeded_ironclad(34_961_238_661_133, 0);
+        run.player_hp = 10_000;
+        run.player_max_hp = 10_000;
+        run.phase = RunPhase::Event;
+        run.event = Some(neow_screen_for_stage(&run, 1));
+        let options = generate_neow_options(run.event_rng_seed as i64, run.player_max_hp);
+        assert_eq!(
+            (options[2].drawback, options[2].reward),
+            (NeowDrawback::Curse, NeowRewardType::ThreeRareCards)
+        );
+        let original_deck = run.deck.clone();
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
+            .expect("Neow curse plus rare card reward opens");
+        let reward = next.reward.as_ref().expect("rare card reward screen");
+        assert_eq!(
+            reward
+                .choices
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![CORRUPTION_ID, BLUDGEON_ID, FIEND_FIRE_ID]
+        );
+        assert_eq!(next.deck.len(), original_deck.len() + 1);
+        assert_eq!(next.deck.last().map(|card| card.content_id), Some(SHAME_ID));
+        assert!(next.pending_obtain_cards.is_empty());
+        next.validate()
+            .expect("Neow rare card overlay and settled curse remain authoritative");
     }
 
     #[test]
@@ -7187,6 +7345,11 @@ mod tests {
             apply_event_action(&after_accept, EventAction::Choose { choice_index: 0 })
                 .expect("Secret Portal boss combat is source-backed");
         assert_eq!(after_continue.phase, RunPhase::Combat);
+        assert_eq!(after_continue.current_floor, 1);
+        assert!(after_continue.event.is_none());
+        after_continue
+            .validate()
+            .expect("Secret Portal combat has no leftover event overlay");
         let monsters = &after_continue
             .combat
             .as_ref()
@@ -7827,6 +7990,35 @@ mod tests {
             .count();
         assert_eq!(final_regret_count, 1);
         assert!(after_leave.pending_obtain_cards.is_empty());
+    }
+
+    #[test]
+    fn pending_curse_queued_before_new_omamori_settles_without_consuming_charge() {
+        let mut run = RunState::seeded_ironclad(1_260_350_191_924, 0);
+        run.phase = RunPhase::Event;
+        run.current_act = 1;
+        run.current_floor = 5;
+        run.event = Some(EventScreen {
+            event: Event::BigFish,
+            choices: big_fish_choices(1),
+            stage: 1,
+            event_data: 0,
+        });
+        run.queue_pending_obtain_card(REGRET_ID);
+        run.gain_relic_key(RelicKey::Omamori)
+            .expect("new Omamori is obtained after the curse effect is queued");
+
+        let settled = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Big Fish leave settles the queued curse");
+        assert_eq!(
+            settled
+                .deck
+                .iter()
+                .filter(|card| card.content_id == REGRET_ID)
+                .count(),
+            1
+        );
+        assert_eq!(settled.omamori_charges_used, 0);
     }
 
     #[test]
@@ -9001,6 +9193,18 @@ mod tests {
     }
 
     #[test]
+    fn losing_velvet_choker_revokes_its_pickup_energy() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        let energy_before = run.energy_per_turn;
+        run.gain_relic_key(RelicKey::VelvetChoker)
+            .expect("Velvet Choker pickup succeeds");
+        assert_eq!(run.energy_per_turn, energy_before + 1);
+        assert!(remove_relic_key(&mut run, RelicKey::VelvetChoker).expect("lose Choker"));
+        assert_eq!(run.energy_per_turn, energy_before);
+        assert!(!has_relic_key(&run, RelicKey::VelvetChoker));
+    }
+
+    #[test]
     fn nloth_offers_owned_relic_by_source_display_name() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
@@ -10112,6 +10316,53 @@ mod tests {
         assert!(monsters
             .iter()
             .all(|monster| monster.hp == monster.max_hp * 3 / 4));
+    }
+
+    #[test]
+    fn colosseum_deferred_fight_two_opening_does_not_draw_pocketwatch() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 2;
+        run.current_floor = 30;
+        run.relics.push(Relic::Pocketwatch);
+        run.relics.push(Relic::BagOfPreparation);
+        run.phase = RunPhase::Event;
+        run.event = Some(EventScreen {
+            event: Event::Colosseum,
+            choices: colosseum_choices(2),
+            stage: 2,
+            event_data: 0,
+        });
+
+        let opened = apply_event_action_with_deferred_colosseum_opening(
+            &run,
+            EventAction::Choose { choice_index: 1 },
+        )
+        .expect("deferred Colosseum fight two");
+        let combat = opened.combat.as_ref().expect("combat");
+        assert!(combat.opening_turn_pending);
+        assert!(combat.piles.hand.is_empty(), "pre-opening hand is empty");
+        assert_eq!(
+            combat.relic_counters.player_turns_started, 0,
+            "pre-opening turns={}",
+            combat.relic_counters.player_turns_started
+        );
+
+        let settled = crate::apply_combat_action_on_run(&opened, crate::CombatAction::EndTurn)
+            .expect("opening END settles the queued draw");
+        let combat = settled.combat.as_ref().expect("combat remains open");
+        assert_eq!(
+            combat.piles.hand.len(),
+            7,
+            "turns={} last_plays={} energy={} draw={}",
+            combat.relic_counters.player_turns_started,
+            combat.relic_counters.cards_played_last_turn,
+            combat.player.energy,
+            combat.piles.draw_pile.len(),
+        );
+        assert_eq!(
+            combat.relic_counters.player_turns_started, 1,
+            "fight two opening is the first Pocketwatch turn"
+        );
     }
 
     #[test]

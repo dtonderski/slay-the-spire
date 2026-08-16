@@ -85,6 +85,11 @@ These rules are for Codex or any other coding agent working on this project.
   Do not restart the live backend/UI as the inner debugging loop. Restart
   `live-trace` only after the verifier-driven fix is ready to validate in the
   UI or to serve the updated implementation.
+- Full CommunicationMod payloads live in the working tree at
+  `simulator/verification/corpus/permanent_traces/` but are gitignored. Do not
+  commit them. Corpus-wide `sts_verify status` defaults to that directory and
+  uses 24 workers when the machine has that many CPUs. Override only with
+  `STS_VERIFY_JOBS` or `STS_PERMANENT_CORPUS_DIR`.
 - Use `sts_lightspeed` as useful prior art and a secondary differential oracle, not as the final authority.
 - Treat wiki and community references as starting points, not final proof.
 - Mark hidden or unobservable fields explicitly.

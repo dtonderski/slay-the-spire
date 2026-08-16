@@ -2,10 +2,9 @@ use super::{
     add_card_to_pile, add_generated_card_to_draw_pile_random_spot, add_generated_card_to_pile,
     add_stat_equivalent_copy_to_pile, apply_unceasing_top_after_hand_emptied,
     draw_random_attacks_from_draw_pile, find_hand_card, hand_contains_attack, move_card,
-    move_forethought_card_to_draw_bottom, player_deep_breath_shuffle_discard_into_draw,
-    player_draw_cards, player_draw_cards_with_deferred_evolve, player_draw_cards_without_evolve,
-    player_shuffle_discard_into_draw, random_colorless_card, random_hand_card_id_except,
-    remove_card_from_pile,
+    move_forethought_card_to_draw_bottom, player_draw_cards,
+    player_draw_cards_with_deferred_evolve, player_draw_cards_without_evolve,
+    random_colorless_card, random_hand_card_id_except, remove_card_from_pile,
 };
 use crate::{
     action::{CardPile, InternalAction},
@@ -15,6 +14,36 @@ use crate::{
     ids::{CardId, ContentId},
     CardInstance, SimError, SimResult,
 };
+
+pub(super) fn exhaust_all_non_attack_cards(
+    state: &mut CombatState,
+    excluded_card_id: CardId,
+) -> SimResult<Vec<InternalAction>> {
+    // ExhaustAllNonAttackAction snapshots the hand once. Soulbound
+    // replacements created by triggerOnExhaust are not in that snapshot; a
+    // Necronomicon / Double Tap copy snapshots them on the second use().
+    let targets: Vec<CardId> = state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| card.id != excluded_card_id)
+        .filter(|card| {
+            get_card_definition(card.content_id)
+                .is_some_and(|definition| definition.card_type != CardType::Attack)
+        })
+        .map(|card| card.id)
+        .collect();
+    let mut follow_ups = Vec::new();
+    for card_id in targets {
+        follow_ups.extend(move_card_between_piles(
+            state,
+            card_id,
+            CardPile::Hand,
+            CardPile::ExhaustPile,
+        )?);
+    }
+    Ok(follow_ups)
+}
 
 pub(super) fn move_card_between_piles(
     state: &mut CombatState,
@@ -336,15 +365,13 @@ fn draw_cards_while_played_card_is_in_limbo_with_mode(
 }
 
 pub(super) fn shuffle_discard_into_draw(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
-    player_shuffle_discard_into_draw(state)?;
-    Ok(Vec::new())
+    crate::combat::draw::shuffle_discard_into_draw_with_combat_rng(state)
 }
 
 pub(super) fn deep_breath_shuffle_discard_into_draw(
     state: &mut CombatState,
 ) -> SimResult<Vec<InternalAction>> {
-    player_deep_breath_shuffle_discard_into_draw(state)?;
-    Ok(Vec::new())
+    crate::combat::draw::deep_breath_shuffle_discard_into_draw_with_combat_rng(state)
 }
 
 pub(super) fn draw_cards_if_no_attacks_in_hand(

@@ -5,21 +5,25 @@ use crate::{
         apply_monster_death_hooks, apply_play_top_draw_card_action, choose_discard_select,
         choose_draw_select, choose_exhaust_select, choose_hand_select,
         close_discovery_source_card_with_force_exhaust,
-        confirm_burning_pact_select_skipped_retrieval, confirm_discard_select, confirm_draw_select,
-        confirm_exhaust_select_with_dead_branch_count, confirm_exhume_select_skipped_return,
-        confirm_gambling_chip_select_skipped_retrieval, confirm_hand_select,
-        confirm_hand_select_skipped_put_on_deck_retrieval, discard_select_ui_to_discard_index,
-        draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
-        flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
-        open_discard_select_with_max_choices, open_exhaust_select, open_gambling_chip_select,
-        player_draw_cards, player_shuffle_discard_into_draw, top_draw_card_definition,
+        confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy,
+        confirm_discard_select, confirm_draw_select, confirm_exhaust_select_with_dead_branch_count,
+        confirm_exhume_select_skipped_return, confirm_gambling_chip_select_skipped_retrieval,
+        confirm_hand_select, confirm_hand_select_skipped_put_on_deck_retrieval,
+        confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy,
+        confirm_hand_select_time_warp_status_lag, confirm_hand_select_with_time_warp_policy,
+        confirm_headbutt_select_skipped_retrieval, confirm_recycle_select_skipped_retrieval,
+        discard_select_ui_to_discard_index, draw_select_ui_to_draw_index,
+        exhaust_select_ui_to_hand_index, flush_pending_player_spikes_damage_if_ready,
+        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
+        open_gambling_chip_select, player_draw_cards, player_shuffle_discard_into_draw,
+        top_draw_card_definition,
     },
     combat::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
         ExhaustSelectPurpose, HandSelectPurpose, PendingPotionCardRewardSettlement,
         PotionCardRewardKind,
     },
-    content::cards::{get_card_definition, upgrade_card_instance},
+    content::cards::{get_card_definition, upgrade_card_instance, DISCOVERY_ID, DISCOVERY_PLUS_ID},
     content::monsters::wake_lagavulin_on_damage,
     content::shop_pool::{
         burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
@@ -41,8 +45,9 @@ use crate::{
     relic::Relic,
     rng::StsRng,
     run::reward::{
-        apply_dead_branch_for_exhaust_count, target_elite_combat_gold, target_normal_combat_gold,
-        target_potion_reward_offer, target_random_combat_potion, target_random_potion,
+        apply_dead_branch_for_exhaust_count, enter_final_boss_victory, target_elite_combat_gold,
+        target_normal_combat_gold, target_potion_reward_offer, target_random_combat_potion,
+        target_random_potion,
     },
     run::state::RunRngStream,
     RunAction, RunPhase, RunState, SimError, SimResult,
@@ -229,7 +234,9 @@ pub fn validate_draw_select_choice(run: &RunState, index: usize) -> SimResult<()
     let draw_select = combat
         .draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
-    if draw_select.selected_draw_index == Some(draw_index) {
+    if draw_select.purpose != crate::combat::DrawSelectPurpose::Scry
+        && draw_select.selected_draw_index == Some(draw_index)
+    {
         return Err(SimError::IllegalAction(
             "draw select choice is already selected",
         ));
@@ -245,7 +252,9 @@ pub fn validate_draw_select_confirm(run: &RunState) -> SimResult<()> {
     let draw_select = combat
         .draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
-    if draw_select.selected_draw_index.is_none() {
+    if draw_select.selected_draw_index.is_none()
+        && draw_select.purpose != crate::combat::DrawSelectPurpose::Scry
+    {
         return Err(SimError::IllegalAction("draw select choice is required"));
     }
     Ok(())
@@ -307,6 +316,43 @@ pub fn apply_hand_select_choice(run: &RunState, index: usize) -> SimResult<RunSt
     Ok(next)
 }
 
+/// Confirm a hand select without consuming Time Warp's forced end-turn.
+/// CommunicationMod can snapshot the post-CONFIRM piles before that END drains
+/// the hand (FIDL01274 Warcry under Time Warp).
+pub fn apply_hand_select_confirm_without_time_warp_end(run: &RunState) -> SimResult<RunState> {
+    validate_hand_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    confirm_hand_select_with_time_warp_policy(&mut combat, false)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    next.combat = Some(combat);
+    Ok(next)
+}
+
+/// Confirm a 12th-card Warcry without PutOnDeck, autoplay end-turn statuses,
+/// and leave Time Warp's remaining EndTurn queued (FIDL01274).
+pub fn apply_hand_select_confirm_time_warp_status_lag(run: &RunState) -> SimResult<RunState> {
+    validate_hand_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    confirm_hand_select_time_warp_status_lag(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    next.combat = Some(combat);
+    Ok(next)
+}
+
 pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
     validate_hand_select_confirm(run)?;
     let mut next = run.clone();
@@ -354,6 +400,34 @@ pub fn apply_hand_select_confirm_skipped_put_on_deck_retrieval(
     Ok((next, selected))
 }
 
+/// Like [`apply_hand_select_confirm_skipped_put_on_deck_retrieval`], but leave
+/// Time Warp's forced end-turn queued. CommunicationMod can publish the
+/// 12th-card Warcry CONFIRM with the hand still held (FIDL01365).
+pub fn apply_hand_select_confirm_skipped_put_on_deck_retrieval_without_time_warp_end(
+    run: &RunState,
+) -> SimResult<(RunState, CardInstance)> {
+    validate_hand_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    let selected = confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy(
+        &mut combat,
+        false,
+    )?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    combat.piles.limbo.push(selected);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    let selected = combat.piles.limbo.pop().ok_or(SimError::InvalidState(
+        "skipped put-on-deck limbo card missing after Dead Branch settlement",
+    ))?;
+    next.combat = Some(combat);
+    Ok((next, selected))
+}
+
 /// Confirm an ordinary Burning Pact exhaust select whose selected-card
 /// retrieval was skipped by the target game's selection-screen update.
 ///
@@ -363,12 +437,29 @@ pub fn apply_hand_select_confirm_skipped_put_on_deck_retrieval(
 pub fn apply_exhaust_select_confirm_skipped_burning_pact_retrieval(
     run: &RunState,
 ) -> SimResult<(RunState, CardInstance)> {
+    apply_exhaust_select_confirm_skipped_burning_pact_retrieval_with_time_warp_policy(run, true)
+}
+
+/// Variant used by the verifier's pre-forced-END publication candidate.
+pub fn apply_exhaust_select_confirm_skipped_burning_pact_retrieval_without_time_warp_end(
+    run: &RunState,
+) -> SimResult<(RunState, CardInstance)> {
+    apply_exhaust_select_confirm_skipped_burning_pact_retrieval_with_time_warp_policy(run, false)
+}
+
+fn apply_exhaust_select_confirm_skipped_burning_pact_retrieval_with_time_warp_policy(
+    run: &RunState,
+    settle_time_warp: bool,
+) -> SimResult<(RunState, CardInstance)> {
     validate_exhaust_select_confirm(run)?;
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
     let before = combat.clone();
     let exhaust_before = combat.piles.exhaust_pile.len();
-    let selected = confirm_burning_pact_select_skipped_retrieval(&mut combat)?;
+    let selected = confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
+        &mut combat,
+        settle_time_warp,
+    )?;
     let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
     apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
     let next = settle_run_after_select_confirm(next, combat)?;
@@ -390,19 +481,57 @@ pub fn apply_exhaust_select_confirm_skipped_gambling_chip_retrieval(
     settle_run_after_select_confirm(next, combat)
 }
 
+/// Confirm an ordinary Recycle select whose selected-card retrieval was skipped
+/// by the target game's selection-screen update. The selected card remains
+/// outside combat piles and is returned for verifier-local end-turn parking.
+pub fn apply_exhaust_select_confirm_skipped_recycle_retrieval(
+    run: &RunState,
+) -> SimResult<(RunState, CardInstance)> {
+    validate_exhaust_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let selected = confirm_recycle_select_skipped_retrieval(&mut combat)?;
+    let next = settle_run_after_select_confirm(next, combat)?;
+    Ok((next, selected))
+}
+
 pub fn apply_draw_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_draw_select_choice(run, index)?;
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
     choose_draw_select(&mut combat, index)?;
 
-    // AttackFromDeckToHandAction and SkillFromDeckToHandAction close their
-    // one-card search as soon as the player picks a card. Keep the lower-level
-    // choose/confirm functions separate for explicit simulator callers, but
-    // match the source command lifecycle at the run boundary: selected card,
-    // source settlement, then any deferred follow-ups.
+    // Secret Technique/Weapon close their one-card search immediately. Scry
+    // keeps the selected top card and its queued card effects behind the
+    // explicit CONFIRM boundary.
+    if combat
+        .draw_select()
+        .is_some_and(|select| select.purpose != crate::combat::DrawSelectPurpose::Scry)
+    {
+        let exhaust_before = combat.piles.exhaust_pile.len();
+        confirm_draw_select(&mut combat)?;
+        let exhaust_count = combat
+            .piles
+            .exhaust_pile
+            .len()
+            .saturating_sub(exhaust_before);
+        apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    }
+    next.combat = Some(combat);
+    Ok(next)
+}
+
+/// Close Secret Technique / Secret Weapon without retrieving the selected card.
+pub fn apply_draw_select_choice_skipped_retrieval(
+    run: &RunState,
+    index: usize,
+) -> SimResult<RunState> {
+    validate_draw_select_choice(run, index)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    choose_draw_select(&mut combat, index)?;
     let exhaust_before = combat.piles.exhaust_pile.len();
-    confirm_draw_select(&mut combat)?;
+    crate::combat::confirm_draw_select_skipped_retrieval(&mut combat)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile
@@ -426,6 +555,27 @@ pub fn apply_draw_select_confirm(run: &RunState) -> SimResult<RunState> {
         .saturating_sub(exhaust_before);
     apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
     next.combat = Some(combat);
+    Ok(next)
+}
+
+/// Close Headbutt without retrieving the selected discard card.
+pub fn apply_discard_select_choice_skipped_retrieval(
+    run: &RunState,
+    index: usize,
+) -> SimResult<RunState> {
+    validate_discard_select_choice(run, index)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    if combat.discard_select().map(|select| select.purpose)
+        != Some(DiscardSelectPurpose::HeadbuttPutOnDraw)
+    {
+        return Err(SimError::IllegalAction(
+            "skipped discard retrieval requires Headbutt discard select",
+        ));
+    }
+    choose_discard_select(combat, index)?;
+    confirm_headbutt_select_skipped_retrieval(combat)?;
+    flush_pending_player_spikes_damage_if_ready(combat)?;
     Ok(next)
 }
 
@@ -519,6 +669,39 @@ pub fn apply_exhaust_select_choice_skipped_exhume(
     let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
     apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
     next.combat = Some(combat);
+    Ok(next)
+}
+
+/// Confirm an exhaust select without consuming Time Warp's forced end-turn.
+/// CommunicationMod can snapshot the post-CONFIRM piles before that END drains
+/// the hand (FIDL01358 Burning Pact under Time Warp).
+pub fn apply_exhaust_select_confirm_without_time_warp_end(run: &RunState) -> SimResult<RunState> {
+    validate_exhaust_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let before = combat.clone();
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    let handled_dead_branch_count =
+        confirm_exhaust_select_with_dead_branch_count(&mut combat, false)?;
+    let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
+    next.combat = Some(combat);
+    Ok(next)
+}
+
+/// Confirm exhaust select, keep Time Warp's forced END pending, and apply
+/// Metallicize's pre-discard block (FIDL01694 Burning Pact CONFIRM).
+pub fn apply_exhaust_select_confirm_time_warp_metallicize_lag(
+    run: &RunState,
+) -> SimResult<RunState> {
+    let mut next = apply_exhaust_select_confirm_without_time_warp_end(run)?;
+    if let Some(combat) = next.combat.as_mut() {
+        crate::combat::apply_time_warp_lag_metallicize_keep_hand(combat)?;
+    }
     Ok(next)
 }
 
@@ -649,7 +832,21 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // at the start of its post-selection update before retrieving the
             // selected card. This is the complete hand-played lifecycle; no
             // Discovery RNG remains after this response.
-            burn_all_discovery_card_choice_generations(&mut combat.rng.card_random_rng, 3, 1);
+            let generations = if combat
+                .piles
+                .hand
+                .iter()
+                .any(|card| matches!(card.content_id, DISCOVERY_ID | DISCOVERY_PLUS_ID))
+            {
+                2
+            } else {
+                1
+            };
+            burn_all_discovery_card_choice_generations(
+                &mut combat.rng.card_random_rng,
+                3,
+                generations,
+            );
             let choice = choices[index];
             let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
             card.temp_cost_turn_only = true;
@@ -698,6 +895,17 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                 choice.content_id,
             )?;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            // The second Nilry offer closes the paused end-turn queue itself;
+            // no additional END command is emitted before the monster turn.
+            if combat.nilrys_codex_end_turn_stage == 3 {
+                *combat = crate::combat::turn::end_player_turn(combat)?;
+            } else {
+                // callEndOfTurnActions queued card autoplays (Regret/Burn)
+                // continue after the first Codex screen closes and before the
+                // leftover second EndTurn / Combust (FIDL01597 CHOOSE 470).
+                crate::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(combat)?;
+                next.player_hp = combat.player.hp;
+            }
         }
         other => {
             combat.decision = Some(other);
@@ -706,6 +914,82 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     }
     combat.activate_next_queued_decision_if_idle();
     Ok(next)
+}
+
+/// Close a Discovery card reward without retrieving the selected card.
+///
+/// If `DiscoveryAction` completes on its opening update (`tickDuration`
+/// finishes after `customCombatOpen`), the card-reward screen stays up but no
+/// resumed update runs. `generateCardChoices` therefore does not burn a
+/// discarded post-select generation, and `ShowCardAndAddToHandAction` is never
+/// queued. `UseCardAction` still settles the Discovery source after the screen
+/// closes.
+pub fn apply_combat_card_reward_choice_skipped_discovery_retrieval(
+    run: &RunState,
+    index: usize,
+) -> SimResult<RunState> {
+    validate_combat_card_reward_choice(run, index)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    match combat.decision.take() {
+        Some(CombatDecisionState::DiscoveryCardReward {
+            source_card,
+            source_card_force_exhaust,
+            pending_actions,
+            ..
+        }) => {
+            if !pending_actions.is_empty() {
+                let transition =
+                    crate::combat::transition::process_internal_queue(combat, pending_actions)?;
+                *combat = transition.state;
+            }
+            close_discovery_source_card_with_force_exhaust(
+                combat,
+                source_card,
+                source_card_force_exhaust,
+            )?;
+            combat.play_top_force_exhaust_active = false;
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            combat.activate_next_queued_decision_if_idle();
+            Ok(next)
+        }
+        other => {
+            combat.decision = other;
+            Err(SimError::IllegalAction(
+                "skipped Discovery retrieval requires an open Discovery card reward",
+            ))
+        }
+    }
+}
+
+/// Close a Toolbox card reward without retrieving the selected card.
+///
+/// Opening-combat actions queued behind Toolbox (hand draw, start-of-combat
+/// block, Happy Flower energy) still settle. The chosen colorless card is never
+/// created when the reward screen closes before ShowCardAndAddToHandAction.
+pub fn apply_combat_card_reward_choice_skipped_toolbox_retrieval(
+    run: &RunState,
+    index: usize,
+) -> SimResult<RunState> {
+    validate_combat_card_reward_choice(run, index)?;
+    let mut next = run.clone();
+    let combat = next.combat.as_mut().expect("validated combat");
+    match combat.decision.take() {
+        Some(CombatDecisionState::ToolboxCardReward { .. }) => {
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            crate::relic::settle_pending_opening_combat_actions(combat)?;
+            crate::relic::settle_pending_start_of_turn_relic_actions(combat)?;
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            combat.activate_next_queued_decision_if_idle();
+            Ok(next)
+        }
+        other => {
+            combat.decision = other;
+            Err(SimError::IllegalAction(
+                "skipped Toolbox retrieval requires an open Toolbox card reward",
+            ))
+        }
+    }
 }
 
 pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
@@ -728,7 +1012,22 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
             Ok(next)
         }
         Some(CombatDecisionState::NilrysCodexCardReward { .. }) => {
-            // Close the offer without finishing end-turn; see choose path.
+            // First-offer SKIP leaves end-turn queued (FIDL01772 leftover
+            // EndTurn). Second-offer SKIP (stage 3) continues that queue:
+            // no insert, then monsters and the next hand.
+            if combat.nilrys_codex_end_turn_stage == 3 {
+                let finished = crate::combat::turn::end_player_turn(combat)?;
+                next.player_hp = finished.player.hp;
+                next.player_max_hp = finished.player.max_hp;
+                next.card_random_rng_counter = finished.rng.card_random_rng.counter();
+                next.combat = Some(finished);
+                if let Some(combat) = next.combat.as_mut() {
+                    combat.activate_next_queued_decision_if_idle();
+                }
+                return Ok(next);
+            }
+            crate::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(combat)?;
+            next.player_hp = combat.player.hp;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             combat.activate_next_queued_decision_if_idle();
             Ok(next)
@@ -1437,6 +1736,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
 
 fn enter_combat_reward_for_current_room(run: &mut RunState) -> SimResult<()> {
     match current_room_kind(run) {
+        Some(RoomKind::Boss) if run.current_act == 3 => enter_final_boss_victory(run),
         Some(RoomKind::Boss) => super::reward::enter_boss_combat_reward_screen(run),
         Some(RoomKind::Elite) => super::reward::enter_elite_combat_reward_screen(run),
         _ => super::reward::enter_reward_screen(run),
@@ -1503,6 +1803,28 @@ mod tests {
             "lethal Juggernaut from FNP block on exhaust select CONFIRM must open rewards"
         );
         assert!(after_confirm.reward.is_some());
+    }
+
+    #[test]
+    fn exhaust_confirm_act_three_boss_enters_victory_not_reward() {
+        let mut run = RunState::combat_fixture();
+        run.current_act = 3;
+        run.current_floor = 50;
+        run.current_room_override = Some(RoomKind::Boss);
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.phase = CombatPhase::Won;
+            for monster in &mut combat.monsters {
+                monster.hp = 0;
+                monster.alive = false;
+            }
+        }
+
+        enter_combat_reward_for_current_room(&mut run).expect("Act 3 boss win from select CONFIRM");
+
+        assert_eq!(run.phase, RunPhase::Victory);
+        assert!(run.reward.is_none());
+        assert!(run.combat.is_none());
     }
 
     #[test]
@@ -2386,7 +2708,7 @@ mod tests {
         assert_eq!(
             combat.rng.card_random_rng.counter(),
             19,
-            "one post-selection DiscoveryAction generation consumes three draws"
+            "Discovery retrieve burns one discarded generateCardChoices generation"
         );
     }
 
@@ -2426,6 +2748,107 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.id == source_id && card.content_id == DISCOVERY_ID));
+    }
+
+    #[test]
+    fn skipped_discovery_choice_closes_source_without_creating_the_card() {
+        use crate::content::cards::DISCOVERY_ID;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        let original_ids = combat
+            .piles
+            .hand
+            .iter()
+            .map(|card| card.id)
+            .collect::<Vec<_>>();
+        let source_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        let choice_content = crate::content::cards::DARK_EMBRACE_ID;
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(source_id.get() + 1),
+                choice_content,
+            )],
+            source_card: Some(CardInstance::new(source_id, DISCOVERY_ID)),
+            source_card_force_exhaust: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice_skipped_discovery_retrieval(&run, 0)
+            .expect("skipped Discovery retrieval");
+        let combat = next.combat.expect("combat remains open");
+
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            original_ids
+        );
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .chain(combat.piles.draw_pile.iter())
+            .chain(combat.piles.discard_pile.iter())
+            .chain(combat.piles.exhaust_pile.iter())
+            .chain(combat.piles.limbo.iter())
+            .all(|card| card.content_id != choice_content || original_ids.contains(&card.id)));
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == source_id && card.content_id == DISCOVERY_ID));
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            16,
+            "opening-complete Discovery does not burn a discarded post-select generation"
+        );
+    }
+
+    #[test]
+    fn skipped_secret_technique_choice_closes_source_without_retrieving_the_skill() {
+        use crate::content::cards::{DEFEND_R_ID, SECRET_TECHNIQUE_ID, STRIKE_R_ID};
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let source_id = CardId::new(200);
+        let selected_id = CardId::new(201);
+        combat.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        combat.piles.draw_pile = vec![
+            CardInstance::new(selected_id, DEFEND_R_ID),
+            CardInstance::new(CardId::new(202), STRIKE_R_ID),
+        ];
+        combat.piles.limbo = vec![CardInstance::new(source_id, SECRET_TECHNIQUE_ID)];
+        combat.piles.exhaust_pile.clear();
+        combat.decision = Some(CombatDecisionState::DrawSelect {
+            state: crate::combat::DrawSelectState {
+                purpose: crate::combat::DrawSelectPurpose::SecretTechniqueSkillToHand,
+                source_card_id: source_id,
+                selectable_card_ids: vec![selected_id],
+                selected_draw_index: None,
+                pending_actions: Default::default(),
+            },
+        });
+
+        let next = apply_draw_select_choice_skipped_retrieval(&run, 0)
+            .expect("skipped Secret Technique retrieval");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(combat.piles.hand.len(), 1);
+        assert_eq!(combat.piles.draw_pile[0].id, selected_id);
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == source_id && card.content_id == SECRET_TECHNIQUE_ID));
+        assert!(combat.draw_select().is_none());
     }
 
     #[test]
@@ -2517,6 +2940,57 @@ mod tests {
     }
 
     #[test]
+    fn mercury_hourglass_damage_waits_for_opening_toolbox_choice() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![
+            crate::relic::Relic::MercuryHourglass,
+            crate::relic::Relic::Toolbox,
+        ];
+
+        let combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
+        assert!(combat.toolbox_card_reward_choices().is_some());
+        assert_eq!(combat.monsters[0].hp, combat.monsters[0].max_hp);
+        assert_eq!(
+            combat.pending_start_of_turn_relic_damage,
+            crate::relic::MERCURY_HOURGLASS_DAMAGE
+        );
+
+        run.combat = Some(combat);
+        let next = apply_combat_card_reward_choice(&run, 0).expect("Toolbox card choice");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.monsters[0].hp,
+            combat.monsters[0].max_hp - crate::relic::MERCURY_HOURGLASS_DAMAGE
+        );
+        assert_eq!(combat.pending_start_of_turn_relic_damage, 0);
+    }
+
+    #[test]
+    fn skipped_toolbox_choice_settles_opening_queue_without_adding_the_card() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![crate::relic::Relic::Anchor, crate::relic::Relic::Toolbox];
+
+        let combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
+        run.combat = Some(combat);
+        let next = apply_combat_card_reward_choice_skipped_toolbox_retrieval(&run, 0)
+            .expect("skipped Toolbox retrieval");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(combat.piles.hand.len(), 3);
+        assert!(combat.decision.is_none());
+        assert_eq!(combat.player.block, 10);
+        assert_eq!(combat.pending_opening_hand_draw, 0);
+        assert_eq!(combat.pending_opening_combat_block, 0);
+    }
+
+    #[test]
     fn pending_relic_energy_overflow_is_atomic_and_rejected_by_toolbox() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
@@ -2582,5 +3056,103 @@ mod tests {
 
         let next = apply_exhaust_select_confirm(&next).expect("Gambling Chip confirmation");
         assert!(next.combat.expect("combat remains open").decision.is_none());
+    }
+
+    #[test]
+    fn purity_confirm_draws_unceasing_top_when_hand_empties() {
+        // FIDL01681 step 1290: Purity exhausts the rest of the hand; Unceasing
+        // Top then draws the current top (Warcry).
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::UnceasingTop]);
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 0;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), crate::content::cards::PURITY_ID),
+                CardInstance::new(CardId::new(2), BASH_ID),
+                CardInstance::new(CardId::new(3), crate::content::cards::BODY_SLAM_ID),
+                CardInstance::new(CardId::new(4), crate::content::cards::POMMEL_STRIKE_ID),
+            ];
+            combat.piles.draw_pile = vec![CardInstance::new(
+                CardId::new(5),
+                crate::content::cards::WARCRY_ID,
+            )];
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile.clear();
+        }
+        let opened = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Purity opens exhaust select");
+        let chosen = apply_run_action(&opened, RunAction::ChooseExhaustSelect { index: 0 })
+            .expect("choose 0");
+        let chosen = apply_run_action(&chosen, RunAction::ChooseExhaustSelect { index: 0 })
+            .expect("choose 1");
+        let chosen = apply_run_action(&chosen, RunAction::ChooseExhaustSelect { index: 0 })
+            .expect("choose 2");
+        let next = apply_exhaust_select_confirm(&chosen).expect("Purity CONFIRM");
+        let combat = next.combat.as_ref().expect("combat");
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![crate::content::cards::WARCRY_ID],
+            "Unceasing Top should draw Warcry after Purity empties the hand"
+        );
+    }
+
+    #[test]
+    fn purity_confirm_draws_dark_embrace_before_dead_branch() {
+        // FIDL01373 step 1145: Purity CONFIRM with no selection exhausts Purity.
+        // Dark Embrace's DrawCardAction is addToBot before Dead Branch's
+        // MakeTempCardInHand, so the drawn card sits ahead of the generated card.
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 0;
+            combat.player.powers.dark_embrace = 1;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), crate::content::cards::PURITY_ID),
+                CardInstance::new(CardId::new(2), CLASH_ID),
+            ];
+            combat.piles.draw_pile = vec![CardInstance::new(
+                CardId::new(3),
+                crate::content::cards::POMMEL_STRIKE_ID,
+            )];
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile.clear();
+        }
+        let opened = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Purity opens exhaust select");
+        let next = apply_exhaust_select_confirm(&opened).expect("Purity CONFIRM with no picks");
+        let combat = next.combat.as_ref().expect("combat");
+        let hand: Vec<_> = combat
+            .piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect();
+        assert_eq!(
+            hand.first().copied(),
+            Some(CLASH_ID),
+            "Clash remains in hand: {hand:?}"
+        );
+        assert_eq!(
+            hand.get(1).copied(),
+            Some(crate::content::cards::POMMEL_STRIKE_ID),
+            "Dark Embrace should draw before Dead Branch generates: {hand:?}"
+        );
     }
 }

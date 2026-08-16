@@ -2051,12 +2051,18 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 crate::combat::transition::player_draw_cards(combat, BAG_OF_PREPARATION_DRAW)?;
             }
             Relic::BagOfMarbles => {
-                for monster in combat.monsters.iter_mut().filter(|monster| monster.alive) {
-                    apply_monster_vulnerable_with_relics(
-                        &mut monster.powers,
-                        relics,
-                        BAG_OF_MARBLES_VULNERABLE,
-                    )?;
+                // Toolbox publishes its opening reward before the queued
+                // atPreBattle hook. Settle Bag of Marbles with the deferred
+                // opening draw instead of exposing Vulnerable on the reward
+                // screen.
+                if combat.pending_opening_hand_draw == 0 || !relics.contains(&Relic::Toolbox) {
+                    for monster in combat.monsters.iter_mut().filter(|monster| monster.alive) {
+                        apply_monster_vulnerable_with_relics(
+                            &mut monster.powers,
+                            relics,
+                            BAG_OF_MARBLES_VULNERABLE,
+                        )?;
+                    }
                 }
             }
             Relic::BronzeScales => {
@@ -2185,9 +2191,15 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
     Ok(())
 }
 
-pub fn apply_shuffle_relics(state: &mut CombatState) -> SimResult<()> {
+pub fn apply_shuffle_relics(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    let mut follow_ups = Vec::new();
     if state.relics.contains(&Relic::TheAbacus) {
-        crate::combat::transition::apply_player_direct_block_gain(state, THE_ABACUS_BLOCK)?;
+        // TheAbacus.onShuffle addToBot's GainBlockAction after EmptyDeckShuffle.
+        // Warcry's later PutOnDeckAction therefore opens with block still 0
+        // (FIDL01525).
+        follow_ups.push(InternalAction::GainBlockDirect {
+            amount: THE_ABACUS_BLOCK,
+        });
     }
     if state.relics.contains(&Relic::Sundial) {
         state.relic_counters.sundial_shuffles =
@@ -2197,10 +2209,15 @@ pub fn apply_shuffle_relics(state: &mut CombatState) -> SimResult<()> {
             .sundial_shuffles
             .is_multiple_of(SUNDIAL_THRESHOLD)
         {
-            state.player.energy = state.player.energy.wrapping_add(SUNDIAL_ENERGY);
+            // Sundial.onShuffle addToBot's GainEnergyAction after the shuffle.
+            // Warcry's later PutOnDeckAction therefore opens with base energy
+            // (FIDL01624).
+            follow_ups.push(InternalAction::GainEnergy {
+                amount: SUNDIAL_ENERGY,
+            });
         }
     }
-    Ok(())
+    Ok(follow_ups)
 }
 
 pub fn apply_monster_death_relics(state: &mut CombatState) -> SimResult<()> {
@@ -2274,6 +2291,12 @@ pub enum HpLossDrawPolicy {
     /// the full multi-hit attack finishes — matching addToBot ordering so mid-hit
     /// shuffles cannot grant Abacus block between stabs (aef32ab6).
     DeferDraws,
+    /// Draw the trigger card immediately, but park Evolve/Fire Breathing
+    /// callbacks behind the enclosing END queue's hand-discard action.
+    QueueFollowUps,
+    /// Post-discard Constricted loss: the source DrawCardAction is already
+    /// behind the No Draw expiry and must not be suppressed by that flag.
+    QueueFollowUpsBypassNoDraw,
 }
 
 pub fn apply_player_hp_loss_relics_with_draw_policy(
@@ -2291,10 +2314,27 @@ pub fn apply_player_hp_loss_relics_with_draw_policy(
         next.relic_counters.centennial_puzzle_triggers = 1;
         // CentennialPuzzle.onLoseHp addToBot's DrawCardAction; lethal damage
         // ends the fight before the bot runs.
-        if draw_policy == HpLossDrawPolicy::Immediate && next.player.hp > 0 {
-            crate::combat::transition::player_draw_cards(&mut next, CENTENNIAL_PUZZLE_DRAW)?;
-        } else if draw_policy == HpLossDrawPolicy::DeferDraws {
-            next.relic_counters.deferred_centennial_puzzle_draw = true;
+        if next.player.hp > 0 {
+            match draw_policy {
+                HpLossDrawPolicy::Immediate => {
+                    crate::combat::transition::player_draw_cards(
+                        &mut next,
+                        CENTENNIAL_PUZZLE_DRAW,
+                    )?;
+                }
+                HpLossDrawPolicy::DeferDraws => {
+                    next.relic_counters.deferred_centennial_puzzle_draw = true;
+                }
+                HpLossDrawPolicy::QueueFollowUps | HpLossDrawPolicy::QueueFollowUpsBypassNoDraw => {
+                    let follow_ups = crate::combat::transition::
+                        player_draw_cards_from_hp_loss_with_deferred_evolve_policy(
+                            &mut next,
+                            CENTENNIAL_PUZZLE_DRAW,
+                            draw_policy == HpLossDrawPolicy::QueueFollowUpsBypassNoDraw,
+                        )?;
+                    next.pending_hp_loss_draw_follow_ups.extend(follow_ups);
+                }
+            }
         }
     }
     if next.relics.contains(&Relic::SelfFormingClay) {
@@ -2307,13 +2347,24 @@ pub fn apply_player_hp_loss_relics_with_draw_policy(
             ))?;
     }
     if next.relics.contains(&Relic::RunicCube) {
-        // RunicCube.onLoseHp addToBot's DrawCardAction. When the same damage
+        // RunicCube.wasHPLost addToTop's DrawCardAction. When the same damage
         // is lethal, GameActionManager never drains that bot entry — the death
         // screen keeps the pre-draw piles (a7f662aa8ed22115 END lethal vs
         // Lagavulin: Bash+ stays in draw, hand empty).
         match draw_policy {
             HpLossDrawPolicy::Immediate if next.player.hp > 0 => {
                 crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
+            }
+            HpLossDrawPolicy::QueueFollowUps | HpLossDrawPolicy::QueueFollowUpsBypassNoDraw
+                if next.player.hp > 0 =>
+            {
+                let follow_ups = crate::combat::transition::
+                    player_draw_cards_from_hp_loss_with_deferred_evolve_policy(
+                        &mut next,
+                        RUNIC_CUBE_DRAW,
+                        draw_policy == HpLossDrawPolicy::QueueFollowUpsBypassNoDraw,
+                    )?;
+                next.pending_hp_loss_draw_follow_ups.extend(follow_ups);
             }
             HpLossDrawPolicy::DeferDraws => {
                 next.relic_counters.deferred_runic_cube_draws = next
@@ -2324,6 +2375,7 @@ pub fn apply_player_hp_loss_relics_with_draw_policy(
                         "deferred Runic Cube draw count overflows u32",
                     ))?;
             }
+            HpLossDrawPolicy::QueueFollowUps | HpLossDrawPolicy::QueueFollowUpsBypassNoDraw => {}
             HpLossDrawPolicy::Immediate => {}
         }
     }
@@ -2487,9 +2539,13 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<(
             checked_add_relic_value(&mut state.player.block, HORN_CLEAT_BLOCK)?;
         }
         CAPTAINS_WHEEL_TURN if state.relics.contains(&Relic::CaptainsWheel) => {
-            // Captain's Wheel uses GainBlockAction; Juggernaut reacts to the
-            // relic's block just as it does to card block (FIDL00244).
-            crate::combat::transition::apply_player_direct_block_gain(state, CAPTAINS_WHEEL_BLOCK)?;
+            // Captain's Wheel's start-of-turn callback bypasses No Block just
+            // like the target relic action, while Juggernaut still reacts to
+            // the granted block (FIDL00244/FIDL01632).
+            crate::combat::transition::apply_player_end_turn_automatic_block_gain(
+                state,
+                CAPTAINS_WHEEL_BLOCK,
+            )?;
         }
         _ => {}
     }
@@ -2513,7 +2569,20 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<(
 
 pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> SimResult<()> {
     if state.relics.contains(&Relic::MercuryHourglass) {
-        deal_unmodified_damage_to_living_monsters(state, MERCURY_HOURGLASS_DAMAGE)?;
+        if matches!(
+            state.decision,
+            Some(crate::combat::CombatDecisionState::ToolboxCardReward { .. })
+        ) {
+            // Toolbox's ChooseOneColorless action sits in front of atTurnStart
+            // relic DamageActions. Keep Maw / other enemies at full HP until
+            // the colorless card is chosen (FIDL01367).
+            checked_add_relic_value(
+                &mut state.pending_start_of_turn_relic_damage,
+                MERCURY_HOURGLASS_DAMAGE,
+            )?;
+        } else {
+            deal_unmodified_damage_to_living_monsters(state, MERCURY_HOURGLASS_DAMAGE)?;
+        }
     }
 
     if state.relics.contains(&Relic::Pocketwatch)
@@ -2594,6 +2663,10 @@ pub fn settle_pending_start_of_turn_relic_actions(state: &mut CombatState) -> Si
         ))?;
     state.player.energy = energy;
     state.pending_start_of_turn_relic_energy = 0;
+    if state.pending_start_of_turn_relic_damage > 0 {
+        deal_unmodified_damage_to_living_monsters(state, state.pending_start_of_turn_relic_damage)?;
+        state.pending_start_of_turn_relic_damage = 0;
+    }
     Ok(())
 }
 
@@ -2610,6 +2683,21 @@ pub fn settle_pending_opening_combat_actions(state: &mut CombatState) -> SimResu
     let draw_count = next.pending_opening_hand_draw;
     if draw_count > 0 {
         crate::combat::transition::player_draw_cards(&mut next, draw_count)?;
+        if next.relics.contains(&Relic::BagOfMarbles) {
+            for monster in next.monsters.iter_mut().filter(|monster| monster.alive) {
+                apply_monster_vulnerable_with_relics(
+                    &mut monster.powers,
+                    &next.relics,
+                    BAG_OF_MARBLES_VULNERABLE,
+                )?;
+            }
+        }
+        // Warped Tongs is queued after the opening draw in the target. The
+        // ordinary start-turn hook runs before a Toolbox-blocked draw and
+        // therefore sees no hand to upgrade.
+        if next.relics.contains(&Relic::WarpedTongs) {
+            upgrade_random_non_status_hand_card(&mut next)?;
+        }
     }
     if next.pending_opening_combat_block > 0 {
         checked_add_relic_value(&mut next.player.block, next.pending_opening_combat_block)?;
@@ -2680,12 +2768,12 @@ pub fn nilrys_codex_park_choice_without_insert(
     let Some(CombatDecisionState::NilrysCodexCardReward { choices }) = state.decision.take() else {
         return Err(SimError::IllegalAction("no Nilry Codex reward is open"));
     };
-    let choice = choices.get(index).ok_or(SimError::IllegalAction(
+    choices.get(index).ok_or(SimError::IllegalAction(
         "Nilry Codex choice index out of range",
     ))?;
-    state
-        .pending_nilrys_codex_draw_inserts
-        .push(choice.content_id);
+    // The first offer is a pure UI pause in the two-step publication window;
+    // its choice is not inserted. Only the second offer is committed when the
+    // paused end-turn resumes.
     Ok(())
 }
 
@@ -2825,14 +2913,9 @@ pub fn apply_on_card_play_relics(
         checked_increment_relic_counter(&mut state.relic_counters.nunchaku_attacks_played)?;
         if state.relic_counters.nunchaku_attacks_played >= NUNCHAKU_THRESHOLD {
             state.relic_counters.nunchaku_attacks_played = 0;
-            state.player.energy =
-                state
-                    .player
-                    .energy
-                    .checked_add(NUNCHAKU_ENERGY)
-                    .ok_or(SimError::InvalidState(
-                        "combat integer addition overflows i32",
-                    ))?;
+            follow_ups.push(InternalAction::GainEnergy {
+                amount: NUNCHAKU_ENERGY,
+            });
         }
     }
 
@@ -2892,7 +2975,9 @@ pub fn apply_on_card_play_relics(
         heal_combat_player_with_relics(state, BIRD_FACED_URN_HEAL)?;
     }
 
-    apply_orange_pellets_on_card_play(state, card_type);
+    if apply_orange_pellets_on_card_play(state, card_type) {
+        follow_ups.push(InternalAction::ClearPlayerDebuffs);
+    }
 
     Ok(follow_ups)
 }
@@ -2918,9 +3003,9 @@ fn apply_start_of_combat_red_skull(state: &mut CombatState) -> SimResult<()> {
     sync_red_skull_strength_present(state, true)
 }
 
-fn apply_orange_pellets_on_card_play(state: &mut CombatState, card_type: CardType) {
+fn apply_orange_pellets_on_card_play(state: &mut CombatState, card_type: CardType) -> bool {
     if !state.relics.contains(&Relic::OrangePellets) {
-        return;
+        return false;
     }
 
     match card_type {
@@ -2934,12 +3019,17 @@ fn apply_orange_pellets_on_card_play(state: &mut CombatState, card_type: CardTyp
         && state.relic_counters.orange_pellets_skill_played
         && state.relic_counters.orange_pellets_power_played
     {
-        crate::power::clear_player_debuffs(&mut state.player.powers);
-        state.player.cannot_draw = false;
         state.relic_counters.orange_pellets_attack_played = false;
         state.relic_counters.orange_pellets_skill_played = false;
         state.relic_counters.orange_pellets_power_played = false;
+        // Standalone relic probes call this helper outside a card-use queue;
+        // the live callback returns a deferred ClearPlayerDebuffs action.
+        if state.card_in_use.is_none() {
+            crate::power::clear_player_debuffs(&mut state.player.powers);
+        }
+        return true;
     }
+    false
 }
 
 #[must_use]

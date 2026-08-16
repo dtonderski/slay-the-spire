@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::json;
+use std::collections::VecDeque;
 
 fn metadata(boundary_schema: Option<u32>, with_profile: bool) -> Value {
     let mut value = json!({
@@ -77,6 +78,22 @@ fn simulated_upgrade_count_drives_repeated_self_upgrade_projection() {
     );
     repeated.searing_blow_upgrades = 2;
     assert_eq!(simulated_card_projection_key(&repeated), "Searing Blow+2");
+}
+
+#[test]
+fn compact_any_color_deck_ids_project_to_spaced_display_names() {
+    let empty_body = json!({
+        "id": "EmptyBody",
+        "name": "Empty Body",
+        "upgrades": 0
+    });
+    assert_eq!(
+        observed_card_projection_key(&empty_body).as_deref(),
+        Some("Empty Body")
+    );
+    let content_id = content_id_from_card_value(&empty_body).expect("EmptyBody maps");
+    let simulated = CardInstance::new(sts_core::CardId::new(1), content_id);
+    assert_eq!(simulated_card_projection_key(&simulated), "Empty Body");
 }
 
 #[test]
@@ -443,6 +460,34 @@ fn terminality_comes_from_the_final_valid_tail_state() {
             .unwrap()
             .terminal_state_observed
     );
+}
+
+#[test]
+fn forethought_multi_select_hides_selected_cards_from_hand_projection() {
+    let mut run = RunState::combat_fixture();
+    let (hand_len, selected_key) = {
+        let combat = run.combat.as_ref().expect("combat fixture");
+        (
+            combat.piles.hand.len(),
+            simulated_card_projection_key(&combat.piles.hand[1]),
+        )
+    };
+    run.combat.as_mut().expect("combat fixture").decision = Some(CombatDecisionState::HandSelect {
+        state: sts_core::combat::HandSelectState {
+            purpose: HandSelectPurpose::ForethoughtPutAnyOnDraw,
+            source_card_id: CardId::new(999_999),
+            selected_hand_index: None,
+            selected_hand_indices: vec![1],
+            dual_wield_restore_on_confirm: Vec::new(),
+            dual_wield_force_exhaust: false,
+        },
+        pending_actions: VecDeque::new(),
+    });
+
+    let projected = seed_start_simulated_combat_subset(&run);
+    let hand = projected["hand_ids"].as_array().expect("hand projection");
+    assert_eq!(hand.len(), hand_len - 1);
+    assert!(!hand.iter().any(|card| card == &json!(selected_key)));
 }
 
 #[test]

@@ -403,7 +403,9 @@ pub fn apply_neow_curse_drawback(run: &mut RunState) -> SimResult<NeowCurseDrawb
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
     let curse = neow_modeled_random_curse(&mut card_rng);
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
-    run.gain_deck_card(curse)?;
+    // Target ShowCardAndObtainEffect remains pending until Neow Leave
+    // (FIDL01317 / FIDL01390 / FIDL01418).
+    run.queue_pending_obtain_card(curse);
 
     Ok(NeowCurseDrawback {
         curse,

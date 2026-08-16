@@ -13,6 +13,9 @@ use crate::{
 };
 
 pub(crate) struct EndOfTurnHandResolution {
+    /// The visible hand existed at END click but was completely consumed by
+    /// auto-play curses before DiscardAtEndOfTurnAction.
+    pub(crate) auto_play_emptied_hand: bool,
     pub(crate) deferred_dark_embrace_draws: usize,
     pub(crate) dead_branch_cards: Vec<CardInstance>,
     pub(crate) deferred_juggernaut_damage: Vec<i32>,
@@ -25,8 +28,18 @@ pub fn resolve_end_of_turn_hand(state: &mut CombatState) -> SimResult<()> {
 pub(crate) fn resolve_end_of_turn_hand_with_deferred_dark_embrace_draws(
     state: &mut CombatState,
 ) -> SimResult<EndOfTurnHandResolution> {
+    resolve_end_of_turn_hand_with_queued_autoplay(state, None)
+}
+
+/// `queued_autoplay` is the card-instance set `callEndOfTurnActions` queued
+/// from the hand at END click. Burns drawn later (Combust / Runic Cube) stay
+/// in hand and are discarded without playing (FIDL01762 step 1393).
+pub(crate) fn resolve_end_of_turn_hand_with_queued_autoplay(
+    state: &mut CombatState,
+    queued_autoplay: Option<&std::collections::HashSet<CardId>>,
+) -> SimResult<EndOfTurnHandResolution> {
     let mut next = state.clone();
-    let resolution = resolve_end_of_turn_hand_inner(&mut next)?;
+    let resolution = resolve_end_of_turn_hand_inner(&mut next, queued_autoplay)?;
     *state = next;
     Ok(resolution)
 }
@@ -41,10 +54,21 @@ pub(crate) fn resolve_deferred_dark_embrace_draws(
     Ok(())
 }
 
-fn resolve_end_of_turn_hand_inner(state: &mut CombatState) -> SimResult<EndOfTurnHandResolution> {
+fn resolve_end_of_turn_hand_inner(
+    state: &mut CombatState,
+    queued_autoplay: Option<&std::collections::HashSet<CardId>>,
+) -> SimResult<EndOfTurnHandResolution> {
+    let hand_was_nonempty = !state.piles.hand.is_empty();
     let hand_size_for_regret = state.piles.hand.len() as i32;
-    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size_for_regret)?;
-    exhaust_unplayed_ethereal_cards(state)
+    apply_end_of_turn_for_playing_cards_in_hand_order(
+        state,
+        hand_size_for_regret,
+        queued_autoplay,
+    )?;
+    let auto_play_emptied_hand = hand_was_nonempty && state.piles.hand.is_empty();
+    let mut resolution = exhaust_unplayed_ethereal_cards(state)?;
+    resolution.auto_play_emptied_hand = auto_play_emptied_hand;
+    Ok(resolution)
 }
 
 pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
@@ -58,12 +82,13 @@ pub fn resolve_end_of_turn_playing_cards_for_time_warp_lag(
     state: &mut CombatState,
 ) -> SimResult<()> {
     let hand_size = state.piles.hand.len() as i32;
-    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size)
+    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size, None)
 }
 
 fn apply_end_of_turn_for_playing_cards_in_hand_order(
     state: &mut CombatState,
     hand_size: i32,
+    queued_autoplay: Option<&std::collections::HashSet<CardId>>,
 ) -> SimResult<()> {
     let hand = std::mem::take(&mut state.piles.hand);
 
@@ -72,10 +97,12 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
     for index in 0..hand.len() {
         let card = hand[index];
         let previous_card_in_use = state.card_in_use;
-        let auto_played = matches!(
-            card.content_id,
-            BURN_ID | DECAY_ID | REGRET_ID | DOUBT_ID | SHAME_ID
-        );
+        let queued = queued_autoplay.is_none_or(|ids| ids.contains(&card.id));
+        let auto_played = queued
+            && matches!(
+                card.content_id,
+                BURN_ID | DECAY_ID | REGRET_ID | DOUBT_ID | SHAME_ID
+            );
         if auto_played {
             // End-turn curses/statuses are queued as cards. AbstractPlayer moves
             // the queued card out of hand into cardInUse before its card action;
@@ -83,56 +110,62 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
             state.card_in_use = Some(card.id);
         }
 
-        let moves_to_discard = match card.content_id {
-            BURN_ID => {
-                let burn_damage = if card.upgrades > 0 {
-                    BURN_END_TURN_DAMAGE * 2
-                } else {
-                    BURN_END_TURN_DAMAGE
-                };
-                let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, burn_damage);
-                crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
-                    state, hp_loss, &mut hand,
-                )?;
-                true
-            }
-            DECAY_ID => {
-                let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, 2);
-                crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
-                    state, hp_loss, &mut hand,
-                )?;
-                true
-            }
-            REGRET_ID => {
-                let hp_loss = crate::combat::hp_loss::lose_player_hp(state, hand_size);
-                crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
-                    state, hp_loss, &mut hand,
-                )?;
-                true
-            }
-            // Doubt is auto-played via CardQueueItem at end of turn (see
-            // Doubt.triggerOnEndOfTurnForPlayingCard). That removes it from hand
-            // before DiscardAtEndOfTurnAction. Runic Pyramid only skips the bulk
-            // hand discard — it does not keep auto-played curses (FIDL00288).
-            DOUBT_ID => {
-                crate::relic::apply_player_weak_with_relics(
-                    &mut state.player.powers,
-                    &state.relics,
-                    1,
-                )?;
-                true
-            }
-            SHAME_ID => {
-                crate::relic::apply_player_frail_with_relics(
-                    &mut state.player.powers,
-                    &state.relics,
-                    1,
-                )?;
-                true
-            }
-            _ => {
-                remaining_indices.push(index);
-                false
+        let moves_to_discard = if !auto_played {
+            remaining_indices.push(index);
+            false
+        } else {
+            match card.content_id {
+                BURN_ID => {
+                    let burn_damage = if card.upgrades > 0 {
+                        BURN_END_TURN_DAMAGE * 2
+                    } else {
+                        BURN_END_TURN_DAMAGE
+                    };
+                    let hp_loss =
+                        crate::combat::hp_loss::lose_player_blockable_hp(state, burn_damage);
+                    crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
+                        state, hp_loss, &mut hand,
+                    )?;
+                    true
+                }
+                DECAY_ID => {
+                    let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, 2);
+                    crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
+                        state, hp_loss, &mut hand,
+                    )?;
+                    true
+                }
+                REGRET_ID => {
+                    let hp_loss = crate::combat::hp_loss::lose_player_hp(state, hand_size);
+                    crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
+                        state, hp_loss, &mut hand,
+                    )?;
+                    true
+                }
+                // Doubt is auto-played via CardQueueItem at end of turn (see
+                // Doubt.triggerOnEndOfTurnForPlayingCard). That removes it from hand
+                // before DiscardAtEndOfTurnAction. Runic Pyramid only skips the bulk
+                // hand discard — it does not keep auto-played curses (FIDL00288).
+                DOUBT_ID => {
+                    crate::relic::apply_player_weak_with_relics(
+                        &mut state.player.powers,
+                        &state.relics,
+                        1,
+                    )?;
+                    true
+                }
+                SHAME_ID => {
+                    crate::relic::apply_player_frail_with_relics(
+                        &mut state.player.powers,
+                        &state.relics,
+                        1,
+                    )?;
+                    true
+                }
+                _ => {
+                    remaining_indices.push(index);
+                    false
+                }
             }
         };
 
@@ -216,6 +249,7 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
         }
     }
     Ok(EndOfTurnHandResolution {
+        auto_play_emptied_hand: false,
         deferred_dark_embrace_draws,
         dead_branch_cards,
         deferred_juggernaut_damage,
@@ -226,12 +260,15 @@ fn discard_non_retain_hand(state: &mut CombatState) {
     if state.relics.contains(&crate::Relic::RunicPyramid) {
         return;
     }
+    let retain_hand = std::mem::take(&mut state.player.retain_hand_next_turn);
 
     let mut retained = Vec::new();
     let mut discarded = Vec::new();
 
     for card in state.piles.hand.drain(..) {
-        if get_card_definition(card.content_id).is_some_and(|definition| definition.keywords.retain)
+        if retain_hand
+            || get_card_definition(card.content_id)
+                .is_some_and(|definition| definition.keywords.retain)
         {
             retained.push(card);
         } else {

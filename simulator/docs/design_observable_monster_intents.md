@@ -40,9 +40,12 @@ CommunicationMod's intent taxonomy and compared for living monsters.
 
 Target `GremlinWizard` bytecode initializes `currentCharge` to 1. Charge turns
 increment it and select Attack when it reaches 3. Attacking resets it to 0. At
-Ascension 0 this yields attacks after executed-move counts 2, 6, 10, and so on;
-at Ascension 17 the first Attack repeats without returning to Charge. Charge is
-shown as `UNKNOWN`, not `DEFEND`.
+Ascension 0 this yields the same first-cycle Attack after two CHARGE takeTurns
+as the old `moves_executed % 4 == 2` stand-in, then three CHARGE takeTurns
+before the next Attack. Duplicate Nilry `MonsterQueueItem`s must not count
+extra ATTACK takeTurns toward that cycle (FIDL01597). At Ascension 17 the
+first Attack repeats without returning to Charge. Charge is shown as
+`UNKNOWN`, not `DEFEND`.
 
 ## Locked opening intents
 

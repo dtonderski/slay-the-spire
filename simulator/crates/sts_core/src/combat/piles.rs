@@ -52,6 +52,12 @@ fn validate_card_generation(
     Ok((count, generated_ids))
 }
 
+fn generated_combat_card(id: CardId, content_id: ContentId) -> CardInstance {
+    let mut card = CardInstance::new(id, content_id);
+    card.combat_only = true;
+    card
+}
+
 pub(crate) fn add_cards_to_discard(
     piles: &mut CardPiles,
     content_id: ContentId,
@@ -67,7 +73,7 @@ pub(crate) fn add_cards_to_discard(
         for id in first_id..=last_id {
             piles
                 .discard_pile
-                .push(CardInstance::new(CardId::new(id), content_id));
+                .push(generated_combat_card(CardId::new(id), content_id));
         }
     }
     Ok(())
@@ -86,7 +92,7 @@ pub(crate) fn add_upgraded_burns_to_discard(
         .map_err(|_| SimError::InvalidState("generated upgraded Burns cannot be allocated"))?;
     if let Some((first_id, last_id)) = generated_ids {
         for id in first_id..=last_id {
-            let mut burn = CardInstance::new(CardId::new(id), BURN_ID);
+            let mut burn = generated_combat_card(CardId::new(id), BURN_ID);
             burn.upgrades = 1;
             piles.discard_pile.push(burn);
         }
@@ -121,7 +127,7 @@ pub(crate) fn add_cards_to_draw_random_spot(
         .map_err(|_| SimError::InvalidState("generated combat draw cards cannot be allocated"))?;
     if let Some((first_id, last_id)) = generated_ids {
         for id in first_id..=last_id {
-            let card = CardInstance::new(CardId::new(id), content_id);
+            let card = generated_combat_card(CardId::new(id), content_id);
             if piles.draw_pile.is_empty() {
                 piles.draw_pile.push(card);
             } else {
@@ -170,7 +176,7 @@ pub(crate) fn upgrade_burns_and_add_upgraded_to_discard(
     }
     if let Some((first_id, last_id)) = generated_ids {
         for id in first_id..=last_id {
-            let mut burn = CardInstance::new(CardId::new(id), BURN_ID);
+            let mut burn = generated_combat_card(CardId::new(id), BURN_ID);
             burn.upgrades = 1;
             piles.discard_pile.push(burn);
         }
@@ -181,7 +187,27 @@ pub(crate) fn upgrade_burns_and_add_upgraded_to_discard(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{content::cards::BURN_ID, rng::StsRng};
+    use crate::{
+        content::cards::{BURN_ID, DAZED_ID},
+        rng::StsRng,
+    };
+
+    #[test]
+    fn monster_generated_dazed_is_combat_only() {
+        let mut piles = CardPiles {
+            hand: Vec::new(),
+            draw_pile: Vec::new(),
+            discard_pile: Vec::new(),
+            exhaust_pile: Vec::new(),
+            limbo: Vec::new(),
+        };
+        add_cards_to_discard(&mut piles, DAZED_ID, 2, 10).expect("Dazed generation is valid");
+        assert_eq!(piles.discard_pile.len(), 2);
+        assert!(
+            piles.discard_pile.iter().all(|card| card.combat_only),
+            "Deca/Hexaghost status cards must stay combat-only after shuffle"
+        );
+    }
 
     #[test]
     fn random_draw_insertion_requires_and_consumes_rng() {

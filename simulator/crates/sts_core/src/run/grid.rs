@@ -7,8 +7,8 @@ use crate::{
     content::{
         cards::{
             card_instance_is_upgradeable, get_card_definition, is_curse_content_id,
-            is_pandoras_box_removed_starter, is_purgeable_card, upgrade_card_instance,
-            CURSE_OF_THE_BELL_ID,
+            is_pandoras_box_removed_starter, is_purgeable_card, is_purgeable_card_content,
+            upgrade_card_instance, CURSE_OF_THE_BELL_ID,
         },
         reward_pool::{
             ironclad_transform_card_content_id, ironclad_truly_random_card_pool,
@@ -229,8 +229,7 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
                 .collect::<Vec<_>>(),
         ),
         // Target transform screens use the same purgeable deck subset as remove
-        // (CardGroup.getPurgeableCards + bottled filter). Bonfire offers any
-        // non-bottled card, including unremovable special curses.
+        // (CardGroup.getPurgeableCards + bottled filter).
         GridPurpose::EventTransform { .. } | GridPurpose::EventTransformReturnToEvent { .. } => {
             Some(
                 run.deck
@@ -240,11 +239,14 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
                     .collect::<Vec<_>>(),
             )
         }
+        // BonfireElementals uses the same purgeable-card authority as the
+        // event's card-removal grid; soulbound curses such as Necronomicurse
+        // are not selectable even though ordinary curses are.
         GridPurpose::BonfireElementals => Some(
             run.deck
                 .iter()
+                .filter(|card| is_purgeable_card(card))
                 .copied()
-                .filter(|card| !card.bottled)
                 .collect::<Vec<_>>(),
         ),
         GridPurpose::EventRemoveReturnToEvent {
@@ -264,13 +266,12 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
                 .copied()
                 .collect::<Vec<_>>(),
         ),
-        // Empty Cage opens the same purgeable-card subset as target remove
-        // screens; special unremovable curses (and bottled cards) are not
-        // eligible even though they remain in the deck.
+        // Empty Cage opens `getPurgeableCards` only. Bottled cards stay
+        // eligible; special unremovable curses do not (FIDL01565).
         GridPurpose::EmptyCage { .. } => Some(
             run.deck
                 .iter()
-                .filter(|card| is_purgeable_card(card))
+                .filter(|card| is_purgeable_card_content(card.content_id))
                 .copied()
                 .collect::<Vec<_>>(),
         ),
@@ -500,8 +501,8 @@ pub fn open_bonfire_elementals_grid(run: &mut RunState) {
     let cards = run
         .deck
         .iter()
+        .filter(|card| is_purgeable_card(card))
         .copied()
-        .filter(|card| !card.bottled)
         .collect::<Vec<_>>();
     if cards.is_empty() {
         return;
@@ -695,7 +696,7 @@ pub fn open_empty_cage_grid(run: &mut RunState) {
     let cards = run
         .deck
         .iter()
-        .filter(|card| is_purgeable_card(card))
+        .filter(|card| is_purgeable_card_content(card.content_id))
         .copied()
         .collect::<Vec<_>>();
     if cards.is_empty() {
@@ -1433,7 +1434,7 @@ fn confirm_neow_transform_grid(run: &mut RunState, count: u8) -> SimResult<()> {
                 .ok_or(SimError::IllegalAction("grid index out of range"))
         })
         .collect::<SimResult<Vec<_>>>()?;
-    transform_neow_cards(run, &cards, count > 1)?;
+    transform_neow_cards(run, &cards, true)?;
     run.card_grid = None;
     finish_neow_grid_reward(run);
     Ok(())
@@ -1522,9 +1523,9 @@ fn transform_neow_cards(
             run.remove_deck_card(card.id)
                 .expect("transform selected a deck card");
         }
-        // Multi-card Neow transform closes on the final selection. The target
-        // removes both sources in that command while its ShowCardAndObtainEffect
-        // results remain pending until Leave.
+        // Single- and multi-card Neow transforms remove their sources at grid
+        // confirmation. The target's ShowCardAndObtainEffect results remain
+        // pending until Leave (FIDL01250 and the 28-trace CONFIRM cluster).
         for content_id in reward.cards {
             run.queue_pending_obtain_card(content_id);
         }
@@ -1590,9 +1591,9 @@ fn transform_astrolabe_cards(
                 .map(|first_id| first_id + index as u64)
                 .unwrap_or_else(|| card.id.get());
             let base = CardInstance::new(crate::ids::CardId::new(card_id), transformed);
-            upgrade_card_instance(base)?.ok_or(SimError::InvalidState(
-                "Astrolabe transform result must be upgradeable",
-            ))
+            // Astrolabe upgrades the transformed card when it can. Colorless or
+            // curse results such as Doubt stay unupgraded (FIDL01329).
+            Ok(upgrade_card_instance(base)?.unwrap_or(base))
         })
         .collect::<SimResult<Vec<_>>>()?;
     run.misc_rng_counter = rng.counter();
@@ -2203,6 +2204,28 @@ mod tests {
     }
 
     #[test]
+    fn empty_cage_grid_includes_bottled_cards() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::EmptyCage);
+        run.deck[0].bottled = true;
+        let bottled = run.deck[0];
+
+        open_empty_cage_grid(&mut run);
+
+        assert!(run
+            .card_grid
+            .as_ref()
+            .expect("Empty Cage grid")
+            .cards
+            .contains(&bottled));
+        run.validate()
+            .expect("Empty Cage bottled card remains authoritative");
+    }
+
+    #[test]
     fn shop_remove_price_overflow_leaves_grid_run_unchanged() {
         let mut run = RunState::map_fixture();
         run.shop_remove_count = shop::MAX_SHOP_REMOVE_COUNT;
@@ -2324,9 +2347,12 @@ mod tests {
     }
 
     #[test]
-    fn neow_single_transform_requires_confirm_and_settles_immediately() {
+    fn neow_single_transform_requires_confirm_and_defers_obtain_until_leave() {
         let mut run = RunState::seeded_ironclad(1, 0);
         let original_deck = run.deck.clone();
+        let source = original_deck[0].content_id;
+        let expected =
+            crate::generate_neow_transform_reward(run.reward_rng_seed as i64, &[source]).cards;
         open_neow_transform_grid(&mut run, 1);
 
         let selected = select_grid_card(&run, 0).expect("single transform source");
@@ -2336,8 +2362,23 @@ mod tests {
 
         let confirmed = confirm_grid(&selected).expect("single transform confirms explicitly");
         assert!(confirmed.card_grid.is_none());
-        assert_eq!(confirmed.deck.len(), original_deck.len());
-        assert!(confirmed.pending_obtain_cards.is_empty());
+        assert_eq!(confirmed.deck.len(), original_deck.len() - 1);
+        assert_eq!(confirmed.pending_obtain_cards, expected);
+        assert_eq!(confirmed.event.as_ref().map(|event| event.stage), Some(2));
+        confirmed
+            .validate()
+            .expect("single Neow transform pending obtain is authoritative");
+
+        let left =
+            crate::apply_event_action(&confirmed, crate::EventAction::Choose { choice_index: 0 })
+                .expect("Neow Leave flushes the transformed obtain");
+        assert!(left.pending_obtain_cards.is_empty());
+        assert_eq!(left.deck.len(), original_deck.len());
+        assert_eq!(
+            left.deck.last().map(|card| card.content_id),
+            expected.last().copied()
+        );
+        left.validate().expect("Neow Leave produces a valid run");
     }
 
     #[test]
@@ -2718,11 +2759,29 @@ mod tests {
         let astrolabe_results = &astrolabe_run.deck[astrolabe_run.deck.len() - sources.len()..];
         assert_eq!(event_results.len(), astrolabe_results.len());
         for (event_card, astrolabe_card) in event_results.iter().zip(astrolabe_results) {
-            assert_eq!(
-                upgrade_content_id(event_card.content_id),
-                Some(astrolabe_card.content_id)
-            );
+            if let Some(upgraded) = upgrade_content_id(event_card.content_id) {
+                assert_eq!(upgraded, astrolabe_card.content_id);
+            } else {
+                assert_eq!(event_card.content_id, astrolabe_card.content_id);
+                assert_eq!(astrolabe_card.upgrades, 0);
+            }
         }
+    }
+
+    #[test]
+    fn astrolabe_keeps_unupgradable_transform_results() {
+        let mut run = RunState::map_fixture();
+        let source = run.deck[0];
+        let result = upgrade_card_instance(CardInstance::new(
+            crate::ids::CardId::new(9002),
+            crate::content::cards::DOUBT_ID,
+        ))
+        .expect("upgrade lookup");
+        assert!(result.is_none());
+
+        transform_astrolabe_cards(&mut run, &[source], false)
+            .expect("Astrolabe can emit an unupgradable result");
+        assert!(run.validate().is_ok());
     }
 
     #[test]

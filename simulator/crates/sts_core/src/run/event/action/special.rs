@@ -296,7 +296,7 @@ pub(super) fn apply_special_event_action(
                 if has_relic_key(next, RelicKey::NlothsGift) {
                     next.gain_relic_key(RelicKey::Circlet)?;
                 } else {
-                    if !remove_relic_key(next, offered) {
+                    if !remove_relic_key(next, offered)? {
                         return Err(SimError::InvalidState(
                             "N'loth offered relic is no longer owned",
                         ));
@@ -523,6 +523,15 @@ pub(super) fn apply_special_event_action(
             }
             1 if choice_index == 0 => {
                 next.current_room_override = Some(crate::map::RoomKind::Boss);
+                next.event = None;
+                // FIDL01799 / FIDL01800: taking the portal publishes the act-3
+                // boss on the next floor without fabricating a map node.
+                next.current_floor =
+                    next.current_floor
+                        .checked_add(1)
+                        .ok_or(SimError::InvalidState(
+                            "Secret Portal floor increment overflows i32",
+                        ))?;
                 enter_secret_portal_boss_combat(next)?;
             }
             2 if choice_index == 0 => {

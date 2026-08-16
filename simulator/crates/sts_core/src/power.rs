@@ -16,11 +16,18 @@ pub enum DrawTriggerPower {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PlayerPowers {
     pub strength: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub mantra: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub calm: i32,
     pub weak: i32,
     pub dexterity: i32,
     pub frail: i32,
     pub vulnerable: i32,
     pub ritual: i32,
+    /// DemonFormPower: +amount Strength at start of turn after draw.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub demon_form: i32,
     pub metallicize: i32,
     pub regen: i32,
     pub thorns: i32,
@@ -95,6 +102,8 @@ fn is_zero_i32(value: &i32) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct MonsterPowers {
     pub vulnerable: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub mark: i32,
     pub weak: i32,
     pub strength: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
@@ -267,6 +276,22 @@ pub fn apply_player_entangled(powers: &mut PlayerPowers, amount: i32) -> SimResu
 pub fn apply_player_constricted(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
     apply_player_debuff(powers, amount, |powers, amount| {
         powers.constricted = powers.constricted.max(amount);
+        Ok(())
+    })
+}
+
+/// Time Eater Head Slam's `DrawReductionPower` is a debuff (`ApplyPowerAction`).
+/// Artifact consumes the application instead of shrinking `gameHandSize`.
+pub fn apply_player_draw_reduction(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
+        powers.draw_reduction =
+            powers
+                .draw_reduction
+                .checked_add(amount)
+                .ok_or(SimError::InvalidState(
+                    "player Draw Reduction application overflows i32",
+                ))?;
+        powers.draw_reduction_first_draw_seen = false;
         Ok(())
     })
 }
@@ -502,6 +527,20 @@ mod tests {
         assert_eq!(powers.constricted, 5);
         assert_eq!(powers.strength, -1);
         assert_eq!(powers.dexterity, -1);
+    }
+
+    #[test]
+    fn draw_reduction_is_blocked_by_artifact() {
+        let mut powers = PlayerPowers {
+            artifact: 1,
+            ..PlayerPowers::default()
+        };
+        assert_eq!(apply_player_draw_reduction(&mut powers, 1), Ok(false));
+        assert_eq!(powers.draw_reduction, 0);
+        assert_eq!(powers.artifact, 0);
+        assert_eq!(apply_player_draw_reduction(&mut powers, 1), Ok(true));
+        assert_eq!(powers.draw_reduction, 1);
+        assert!(!powers.draw_reduction_first_draw_seen);
     }
 
     #[test]

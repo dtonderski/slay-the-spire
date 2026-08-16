@@ -11,9 +11,13 @@ moves `selectedCards` into discard and queues the replacement draws never runs.
 
 Selected cards therefore leave the published hand (the closed selection screen
 still owns them) but are absent from hand, draw, discard, exhaust, and limbo.
-Replacement draws do not run. A later non-empty end-turn discard settles the
-stuck `selectedCards` into discard in selection order; empty-hand ENDs keep them
-outside every pile so they do not contaminate the discard→draw shuffle.
+Replacement draws do not run. If that published hand is empty, Unceasing Top
+still sees a mid-turn empty hand and draws one card from the top of the draw
+pile. A later non-empty end-turn discard settles the stuck `selectedCards` into
+discard in selection order; empty-hand ENDs keep them outside every pile so they
+do not contaminate the discard→draw shuffle. Runic Pyramid skips
+`DiscardAction` entirely, so a non-empty retained hand still does not settle
+the leftover `selectedCards` (FIDL01566).
 
 ## Verifier contract
 
@@ -51,3 +55,6 @@ candidates; it does not merge or preserve stale cards from the replaced screen.
 - FIDL01248 steps 168–170: select entire hand → empty-hand END keeps five
   hidden cards out of discard while drawing the next hand; the following
   non-empty END settles all ten cards into discard.
+- FIDL01308 step 734 CONFIRM: entire opening hand is selected; skipped
+  retrieval leaves discard empty and does not draw replacements, then
+  Unceasing Top draws Pain into the emptied hand.

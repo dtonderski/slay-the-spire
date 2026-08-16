@@ -66,7 +66,7 @@ pub(super) fn apply_act_three_event_action(
                 next.event = Some(make_event_screen(Event::MoaiHead, moai_choices(next, 1), 1));
             }
             0 if has_relic_key(next, RelicKey::GoldenIdol) && choice_index == 1 => {
-                remove_relic_key(next, RelicKey::GoldenIdol);
+                remove_relic_key(next, RelicKey::GoldenIdol)?;
                 next.gain_gold(333)?;
                 next.event = Some(make_event_screen(Event::MoaiHead, moai_choices(next, 1), 1));
             }

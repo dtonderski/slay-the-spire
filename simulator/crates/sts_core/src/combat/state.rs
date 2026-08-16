@@ -114,6 +114,10 @@ pub struct CombatState {
     /// Dual Wield select knows to force-exhaust on CONFIRM (no exhaust keyword).
     #[serde(default, skip_serializing_if = "is_false")]
     pub play_top_force_exhaust_active: bool,
+    /// Verifier-only: PutOnDeckAction completed before its auto-place update,
+    /// so a singleton Warcry draw stays in hand instead of returning to draw.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub skip_put_on_deck_auto_place: bool,
     /// Malleable/Curl Up GainMonsterBlock from nested PlayTop attacks, flushed
     /// after the outer skill's bot actions (Letter Opener) — FIDL00428.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -124,6 +128,25 @@ pub struct CombatState {
     /// Letter Opener all-enemy hits still on the action queue (FIDL00428).
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub pending_letter_opener_blasts: u32,
+    /// Event combat's opening action queue has not yet reached the player turn.
+    /// The target publishes the newly entered event combat before its initial
+    /// DrawCardAction and initial monster AI actions settle.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub opening_turn_pending: bool,
+    /// Initial monster intents already chosen by the queued event-combat setup.
+    /// They are restored when the opening END drains that queue.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_opening_monster_intents: Vec<MonsterIntent>,
+    /// The opening END remains queued behind the first player action after its
+    /// initial draw publication.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub opening_end_turn_pending: bool,
+    /// Colosseum fight-two leftover EndTurn already ran callEndOfTurnActions
+    /// before the ready PLAY. Flex applied on that frame must survive the
+    /// following start_player_turn (FIDL01576). Other leftover ends still
+    /// expire temp strength at the next start.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub preserve_temp_strength_on_next_start: bool,
     /// Opening DrawCardAction parked behind a first-turn Toolbox choice.
     #[serde(default, skip_serializing_if = "is_zero_usize")]
     pub pending_opening_hand_draw: usize,
@@ -133,12 +156,23 @@ pub struct CombatState {
     /// Energy actions queued by start-of-turn relics behind an opening combat choice.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_start_of_turn_relic_energy: i32,
+    /// Mercury Hourglass damage queued behind a first-turn Toolbox choice.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub pending_start_of_turn_relic_damage: i32,
     /// Monster-death relic callbacks queued behind a card effect that opened a choice screen.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub pending_monster_death_relic_triggers: u32,
     /// Gold gained by combat-only effects such as Hand of Greed before the run wrapper transfers it.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub combat_gold_gained: i32,
+    /// Set only when Writhing Mass's Mega Debuff intent actually executes;
+    /// intent selection alone must not publish its queued Parasite.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub writhing_mass_mega_debuff_triggered: bool,
+    /// Evolve/Fire Breathing callbacks from an end-turn HP-loss DrawCardAction
+    /// stay behind the bulk hand discard in the source action queue.
+    #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+    pub pending_hp_loss_draw_follow_ups: VecDeque<InternalAction>,
     /// Deferred DiscoveryAction generations after a potion reward selection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_potion_card_reward_settlement: Option<PendingPotionCardRewardSettlement>,
@@ -165,6 +199,10 @@ pub struct CombatState {
     /// 3 second offer open.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub nilrys_codex_end_turn_stage: u8,
+    /// Combust / other `atEndOfTurn` powers wait behind the first Codex offer
+    /// because `onPlayerEndTurn` queues Nilry before those powers (FIDL01727).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_end_powers_pending: bool,
     /// Cards chosen from Nilry offers this end-turn; inserted into the draw
     /// pile only when end-turn finally resumes (FIDL00451 first pick stays out
     /// of the draw pile during the second offer frame).
@@ -194,16 +232,44 @@ pub struct CombatState {
     /// ethereal exhaustion/discard rather than replaying that queue.
     #[serde(default, skip_serializing_if = "is_false")]
     pub time_warp_end_turn_pre_discard_settled: bool,
+    /// Metallicize / other pre-card end-turn powers already ran on a Time Warp
+    /// exhaust-select lag frame; the forced END must not grant them again.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub time_warp_end_powers_applied: bool,
     /// The source action manager has two monster queue entries pending after a
     /// Time Warp hand/exhaust-select lag frame. Each entry captured the same
     /// intent before its RollMoveAction ran.
     #[serde(default, skip_serializing_if = "is_false")]
     pub time_warp_duplicate_monster_queue: bool,
+    /// Two-step Nilry `END` leaves the first `EndTurnAction` queued while a
+    /// second `EndTurnAction` opens the second Codex. Both
+    /// `MonsterQueueItem`s are captured before either `RollMoveAction`
+    /// (FIDL01772 / FIDL01727), the same multiplicity as Time Warp.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_duplicate_monster_queue: bool,
+    /// Second Book multi-stab takeTurn reads the live StabCount after the
+    /// first queued take (FIDL01727 step 887: 7+8). Captured N+N stays the
+    /// default (step 880: 6+6). StabCount still advances only in `getMove`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_book_second_stab_uses_live_count: bool,
+    /// Feel No Pain / other end-turn exhaust block granted while leftover
+    /// EndTurn is still flushing. The first leftover STATE can publish the
+    /// discarded hand before that GainBlockAction (FIDL01727 step 821).
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub pending_end_turn_feel_no_pain_block: i32,
+    /// The first forced Time Warp END can publish after monster turn setup and
+    /// before its captured attack action; the next END resumes that action.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub time_warp_pending_monster_action: bool,
     /// Start-of-turn queued draws must finish before a Time Warp forced end-turn.
     /// This mirrors GameActionManager's FIFO: Mayhem resolves, then Evolve's
     /// DrawCardAction, then the EndTurnAction appended by Time Warp.
     #[serde(default, skip_serializing_if = "is_false")]
     pub defer_time_warp_end_turn: bool,
+    /// SuperFastMode leftover EndTurn published after EmptyDeckShuffleAction
+    /// and before the remaining DrawCardAction cards (FIDL01691 STATE 1352).
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub leftover_end_turn_draw_remaining: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -285,6 +351,7 @@ pub enum DrawSelectPurpose {
     #[default]
     SecretTechniqueSkillToHand,
     SecretWeaponAttackToHand,
+    Scry,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -294,11 +361,19 @@ pub struct DiscardSelectState {
     pub source_card_id: Option<CardId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_card: Option<CardInstance>,
+    /// Force-played Headbutt (Havoc / Mayhem / Distilled Chaos) parks this so
+    /// the global play-top marker cannot leak onto a later hand play.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub source_card_force_exhaust: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selected_discard_indices: Vec<usize>,
     #[serde(default = "default_discard_select_max_choices")]
     pub max_choices: usize,
     pub selected_discard_index: Option<usize>,
+    /// Actions queued behind a Headbutt/Liquid Memories discard grid. The
+    /// target keeps these behind the screen until CONFIRM closes it.
+    #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+    pub pending_actions: VecDeque<InternalAction>,
 }
 
 fn default_discard_select_max_choices() -> usize {
@@ -389,6 +464,7 @@ pub enum ExhaustSelectPurpose {
     BurningPactDraw2,
     BurningPactDraw3,
     TrueGritExhaustOne,
+    RecycleExhaustOne,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -399,6 +475,12 @@ pub struct PlayerState {
     pub energy: i32,
     #[serde(default = "default_player_energy")]
     pub max_energy: i32,
+    /// Energy granted by effects such as Charge Battery at the next turn start.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub energy_next_turn: i32,
+    /// Equilibrium retains the current hand through the next end-turn discard.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub retain_hand_next_turn: bool,
     /// Target AbstractPlayer.damagedThisCombat: positive damage/loss events
     /// delivered during this combat, used when generated cards are copied.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
@@ -434,6 +516,8 @@ impl PlayerState {
             block: 0,
             energy: energy_per_turn,
             max_energy: energy_per_turn,
+            energy_next_turn: 0,
+            retain_hand_next_turn: false,
             damage_events_this_combat: 0,
             powers: PlayerPowers::default(),
             cannot_draw: false,
@@ -980,6 +1064,8 @@ impl CombatState {
                 block: 0,
                 energy: BASE_PLAYER_ENERGY,
                 max_energy: BASE_PLAYER_ENERGY,
+                energy_next_turn: 0,
+                retain_hand_next_turn: false,
                 damage_events_this_combat: 0,
                 powers: PlayerPowers::default(),
                 cannot_draw: false,
@@ -1037,19 +1123,28 @@ impl CombatState {
             pending_player_spikes_damage: 0,
             card_in_use: None,
             play_top_force_exhaust_active: false,
+            skip_put_on_deck_auto_place: false,
             deferred_play_top_monster_blocks: Vec::new(),
             play_top_resolving_depth: 0,
             pending_letter_opener_blasts: 0,
+            opening_turn_pending: false,
+            pending_opening_monster_intents: Vec::new(),
+            opening_end_turn_pending: false,
+            preserve_temp_strength_on_next_start: false,
             pending_opening_hand_draw: 0,
             pending_opening_combat_block: 0,
             pending_start_of_turn_relic_energy: 0,
+            pending_start_of_turn_relic_damage: 0,
             pending_monster_death_relic_triggers: 0,
             combat_gold_gained: 0,
+            pending_hp_loss_draw_follow_ups: VecDeque::new(),
+            writhing_mass_mega_debuff_triggered: false,
             pending_potion_card_reward_settlement: None,
             pending_hidden_hand_card_until_end_turn: Vec::new(),
             pending_hidden_hand_card_exhausts_with_fiend_fire: false,
             resume_end_turn_after_nilrys_codex: false,
             nilrys_codex_end_turn_stage: 0,
+            nilrys_end_powers_pending: false,
             pending_nilrys_codex_draw_inserts: Vec::new(),
             pending_end_turn_dead_branch_cards: Vec::new(),
             pending_end_turn_dark_embrace_draws: 0,
@@ -1058,8 +1153,14 @@ impl CombatState {
             pending_elixir_exhaust_turns_remaining: 0,
             time_warp_end_turn: false,
             time_warp_end_turn_pre_discard_settled: false,
+            time_warp_end_powers_applied: false,
             time_warp_duplicate_monster_queue: false,
+            nilrys_duplicate_monster_queue: false,
+            nilrys_book_second_stab_uses_live_count: false,
+            pending_end_turn_feel_no_pain_block: 0,
+            time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
+            leftover_end_turn_draw_remaining: 0,
         }
     }
 
@@ -1241,7 +1342,8 @@ impl CombatState {
                     "non-Hexaghost monster carries upgraded Burn generation",
                 ));
             }
-            if matches!(monster.intent, MonsterIntent::PendingAiRoll) {
+            if matches!(monster.intent, MonsterIntent::PendingAiRoll) && !self.opening_turn_pending
+            {
                 return Err(SimError::InvalidState(
                     "combat monster intent is pending AI roll",
                 ));
@@ -1266,6 +1368,16 @@ impl CombatState {
             }
         }
 
+        if self.opening_turn_pending
+            && self.pending_opening_monster_intents.len() != self.monsters.len()
+        {
+            return Err(SimError::InvalidState(
+                "opening combat intent queue does not match monsters",
+            ));
+        }
+        if !self.opening_turn_pending && !self.pending_opening_monster_intents.is_empty() {
+            return Err(SimError::InvalidState("stale opening combat intent queue"));
+        }
         if (self.decision.is_some() || !self.queued_decisions.is_empty())
             && self.phase != CombatPhase::WaitingForPlayer
         {
@@ -1283,6 +1395,7 @@ impl CombatState {
             || self.pending_player_spikes_damage < 0
             || self.pending_opening_combat_block < 0
             || self.pending_start_of_turn_relic_energy < 0
+            || self.pending_start_of_turn_relic_damage < 0
             || self.combat_gold_gained < 0
         {
             return Err(SimError::InvalidState("combat pending counter is negative"));

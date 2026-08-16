@@ -29,7 +29,11 @@ the pre-CONFIRM state:
 1. Remove the selected hand card into `pending_hidden_hand_card_until_end_turn`
    (or leave it untracked under Runic Pyramid, matching retained-hand traces).
 2. Draw only the Burning Pact amount (2 or 3).
-3. Move the held source card to discard.
+3. Move the held source card to discard when the source is still held.
+   Havoc / Mayhem / Distilled Chaos may already have force-exhausted the
+   source when the select opened (`source_card` is then `None` and the
+   instance is already in exhaust). Do not push a second copy
+   (FIDL00221). Only skip retrieving the selected card (FIDL01509).
 
 No observed card identities or pile order are copied into simulation. The
 candidate is accepted only when the stable observed subset matches it
@@ -42,6 +46,18 @@ discard only when the visible hand was non-empty at END (same leftover
 `selectedCards` window as put-on-deck skipped retrieval). Empty-hand ENDs hold
 the card outside every pile through the next refill so it does not contaminate
 the discard→draw shuffle (`random-fidelity-c60c2349aa8da68d` step 237).
+
+When combat ends mid-turn (lethal PLAY, no END) after a skipped Burning Pact
+CONFIRM, the screen-owned card is still on the singleton
+`HandCardSelectScreen`. The next combat's master-deck copy is shuffled in
+normally. The leftover `selectedCards` instance can then publish beside that
+live copy on a later END, using the same observed UUID (FIDL01323: Flex
+`92ba0a16` in both draw and discard after floor-38 first END).
+
+`GridCardSelectScreen` (Secret Weapon / Secret Technique / Headbutt) does not
+call `HandCardSelectScreen.prep()`, so opening a grid in the next combat must
+not drop the verifier's `pending_cross_combat_burning_pact_card`. A later
+`HandCardSelectScreen` / exhaust-select `prep()` does clear it.
 
 ## Evidence
 

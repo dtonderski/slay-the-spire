@@ -239,6 +239,7 @@ pub enum FairSelectionKind {
     DualWieldCopy,
     SecretTechniqueSkillToHand,
     SecretWeaponAttackToHand,
+    Scry,
     LiquidMemoriesReturnToHand,
     HeadbuttPutOnDraw,
     Exhaust,
@@ -248,6 +249,7 @@ pub enum FairSelectionKind {
     BurningPactDrawTwo,
     BurningPactDrawThree,
     TrueGritExhaustOne,
+    RecycleExhaustOne,
 }
 
 /// Projects the active authoritative combat into deterministic public data.
@@ -592,11 +594,13 @@ fn project_player_powers(combat: &CombatState) -> Result<Vec<FairPower>, FairObs
 fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
     for (key, amount) in [
         ("strength", p.strength),
+        ("mantra", p.mantra),
         ("weak", p.weak),
         ("dexterity", p.dexterity),
         ("frail", p.frail),
         ("vulnerable", p.vulnerable),
         ("ritual", p.ritual),
+        ("demon_form", p.demon_form),
         ("metallicize", p.metallicize),
         ("regen", p.regen),
         ("thorns", p.thorns),
@@ -636,6 +640,7 @@ fn project_monster_powers(monster: &MonsterState) -> Vec<FairPower> {
     let mut result = Vec::new();
     for (key, amount) in [
         ("vulnerable", p.vulnerable),
+        ("mark", p.mark),
         ("weak", p.weak),
         ("strength", p.strength),
         ("artifact", p.artifact),
@@ -1030,6 +1035,7 @@ fn draw_selection_kind(purpose: DrawSelectPurpose) -> FairSelectionKind {
             FairSelectionKind::SecretTechniqueSkillToHand
         }
         DrawSelectPurpose::SecretWeaponAttackToHand => FairSelectionKind::SecretWeaponAttackToHand,
+        DrawSelectPurpose::Scry => FairSelectionKind::Scry,
     }
 }
 
@@ -1051,6 +1057,7 @@ fn exhaust_selection_kind(purpose: ExhaustSelectPurpose) -> FairSelectionKind {
         ExhaustSelectPurpose::BurningPactDraw2 => FairSelectionKind::BurningPactDrawTwo,
         ExhaustSelectPurpose::BurningPactDraw3 => FairSelectionKind::BurningPactDrawThree,
         ExhaustSelectPurpose::TrueGritExhaustOne => FairSelectionKind::TrueGritExhaustOne,
+        ExhaustSelectPurpose::RecycleExhaustOne => FairSelectionKind::Exhaust,
     }
 }
 

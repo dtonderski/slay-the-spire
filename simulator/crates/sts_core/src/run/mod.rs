@@ -16,9 +16,10 @@ pub use decision::{
     RunDecisionAction,
 };
 pub use event::{
-    apply_event_action, enter_event_screen, event_screen, golden_shrine_gold, legal_event_actions,
-    match_and_keep_group_index_for_label, match_and_keep_label_index_for_group,
-    validate_event_action, Event, EventChoice, EventScreen, GOLDEN_SHRINE_GOLD,
+    apply_event_action, apply_event_action_with_deferred_colosseum_opening, enter_event_screen,
+    event_screen, golden_shrine_gold, legal_event_actions, match_and_keep_group_index_for_label,
+    match_and_keep_label_index_for_group, validate_event_action, Event, EventChoice, EventScreen,
+    GOLDEN_SHRINE_GOLD,
 };
 pub use fair_observation::{fair_run_observation, FAIR_RUN_OBSERVATION_SCHEMA_VERSION};
 pub use grid::{
@@ -46,11 +47,20 @@ pub use player_choice::{
     PlayerChoiceRequest, PlayerChoiceSet, PLAYER_CHOICE_SCHEMA_VERSION,
 };
 pub use potion::{
+    apply_combat_card_reward_choice_skipped_discovery_retrieval,
+    apply_combat_card_reward_choice_skipped_toolbox_retrieval,
+    apply_discard_select_choice_skipped_retrieval, apply_draw_select_choice_skipped_retrieval,
     apply_exhaust_select_choice_skipped_exhume,
     apply_exhaust_select_confirm_skipped_burning_pact_retrieval,
+    apply_exhaust_select_confirm_skipped_burning_pact_retrieval_without_time_warp_end,
     apply_exhaust_select_confirm_skipped_gambling_chip_retrieval,
-    apply_hand_select_confirm_skipped_put_on_deck_retrieval, apply_potion_action,
-    validate_potion_action,
+    apply_exhaust_select_confirm_skipped_recycle_retrieval,
+    apply_exhaust_select_confirm_time_warp_metallicize_lag,
+    apply_exhaust_select_confirm_without_time_warp_end,
+    apply_hand_select_confirm_skipped_put_on_deck_retrieval,
+    apply_hand_select_confirm_skipped_put_on_deck_retrieval_without_time_warp_end,
+    apply_hand_select_confirm_time_warp_status_lag,
+    apply_hand_select_confirm_without_time_warp_end, apply_potion_action, validate_potion_action,
 };
 pub use rest::{
     apply_rest_action, legal_rest_actions, rest_heal_amount, validate_rest_action,

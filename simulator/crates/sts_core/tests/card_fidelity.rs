@@ -18,7 +18,8 @@ use sts_core::{
     content::{
         cards,
         monsters::{
-            monster_state, DARKLING_A0, FIXED_SIMPLE_MONSTER, GUARDIAN_A0, GUARDIAN_DEFENSIVE_BLOCK,
+            monster_state, AWAKENED_ONE_A0, DARKLING_A0, FIXED_SIMPLE_MONSTER, GUARDIAN_A0,
+            GUARDIAN_DEFENSIVE_BLOCK,
         },
         shop_pool::colorless_discovery_pool,
     },
@@ -1156,6 +1157,122 @@ fn warcry_with_only_drawn_card_auto_puts_on_deck_without_selection() {
             .any(|action| matches!(action, CombatAction::EndTurn)),
         "END must be legal after auto put-on-deck Warcry"
     );
+}
+
+#[test]
+fn warcry_empty_draw_shuffle_defers_abacus_block_until_confirm() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.player.block = 0;
+    state.relics.push(Relic::TheAbacus);
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::WARCRY_ID),
+        CardInstance::new(CardId::new(2), cards::BASH_ID),
+    ];
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile = vec![
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(4), cards::DEFEND_R_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Warcry draws after shuffling an empty draw pile");
+
+    assert!(next.hand_select().is_some());
+    assert_eq!(next.player.block, 0, "Abacus block waits for CONFIRM");
+    choose_hand_select(&mut next, 0).expect("select a card");
+    confirm_hand_select(&mut next).expect("confirm Warcry");
+    assert_eq!(next.player.block, 6);
+}
+
+#[test]
+fn warcry_empty_draw_shuffle_defers_sundial_energy_until_confirm() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 3;
+    state.relics.push(Relic::Sundial);
+    state.relic_counters.sundial_shuffles = 2;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::WARCRY_ID),
+        CardInstance::new(CardId::new(2), cards::BASH_ID),
+    ];
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile = vec![
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+        CardInstance::new(CardId::new(4), cards::DEFEND_R_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Warcry draws after shuffling an empty draw pile");
+
+    assert!(next.hand_select().is_some());
+    assert_eq!(next.player.energy, 3, "Sundial energy waits for CONFIRM");
+    assert_eq!(next.relic_counters.sundial_shuffles, 3);
+    choose_hand_select(&mut next, 0).expect("select a card");
+    confirm_hand_select(&mut next).expect("confirm Warcry");
+    assert_eq!(next.player.energy, 5);
+}
+
+#[test]
+fn warcry_skipped_auto_place_keeps_drawn_card_in_hand() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    let rng_before = state.rng.card_random_rng.counter();
+    state.skip_put_on_deck_auto_place = true;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::WARCRY_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("skipped Warcry auto-place still plays");
+
+    assert!(next.hand_select().is_none());
+    assert_eq!(
+        next.piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::STRIKE_R_ID]
+    );
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::WARCRY_ID);
+    assert_eq!(
+        next.piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::DEFEND_R_ID]
+    );
+    assert_eq!(
+        next.rng.card_random_rng.counter(),
+        rng_before,
+        "skipped auto-place does not burn getRandomCard"
+    );
+    assert!(!next.skip_put_on_deck_auto_place);
 }
 
 #[test]
@@ -3537,8 +3654,8 @@ fn demon_form_definitions_have_no_damage_and_grant_ritual() {
             target: None,
         },
     )
-    .expect("Demon Form grants Ritual");
-    assert_eq!(next.player.powers.ritual, 2);
+    .expect("Demon Form grants DemonFormPower");
+    assert_eq!(next.player.powers.demon_form, 2);
 
     let mut upgraded = CombatState::initial_fixture();
     upgraded.player.energy = 3;
@@ -3550,8 +3667,8 @@ fn demon_form_definitions_have_no_damage_and_grant_ritual() {
             target: None,
         },
     )
-    .expect("Demon Form+ grants upgraded Ritual");
-    assert_eq!(next.player.powers.ritual, 3);
+    .expect("Demon Form+ grants upgraded DemonFormPower");
+    assert_eq!(next.player.powers.demon_form, 3);
 }
 
 #[test]
@@ -3958,6 +4075,41 @@ fn base_forethought_auto_places_only_other_card_on_bottom_of_draw_pile() {
 }
 
 #[test]
+fn base_forethought_auto_place_draws_with_unceasing_top() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.relics.push(Relic::UnceasingTop);
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::FORETHOUGHT_ID),
+        CardInstance::new(CardId::new(2), cards::BASH_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(4), cards::WOUND_ID),
+    ];
+    state.piles.discard_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("base Forethought auto-place still triggers Unceasing Top");
+
+    assert!(next.hand_select().is_none());
+    assert_eq!(next.piles.hand.len(), 1);
+    assert_eq!(next.piles.hand[0].content_id, cards::WOUND_ID);
+    assert_eq!(next.piles.draw_pile.len(), 2);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::BASH_ID);
+    assert_eq!(next.piles.draw_pile[0].temp_cost, Some(0));
+    assert_eq!(next.piles.draw_pile[1].content_id, cards::DEFEND_R_ID);
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(next.piles.discard_pile[0].content_id, cards::FORETHOUGHT_ID);
+}
+
+#[test]
 fn forethought_plus_places_multiple_selected_cards_on_bottom_of_draw_pile() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
@@ -4080,6 +4232,31 @@ fn hand_of_greed_does_not_gain_gold_when_it_kills_minion() {
 }
 
 #[test]
+fn hand_of_greed_does_not_gain_gold_on_awakened_one_first_death() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HAND_OF_GREED_ID)];
+    state.monsters = vec![monster_state(&AWAKENED_ONE_A0, MonsterId::new(1))];
+    state.monsters[0].hp = 20;
+    state.monsters[0].max_hp = 300;
+    state.monsters[0].mode_shift = 0;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Hand of Greed drops form-1 Awakened One");
+
+    assert_eq!(next.monsters[0].hp, 0);
+    assert!(!next.monsters[0].alive);
+    assert_eq!(next.monsters[0].mode_shift, -1);
+    assert_eq!(next.combat_gold_gained, 0);
+}
+
+#[test]
 fn hand_of_greed_gold_transfers_to_run_gold() {
     let mut run = RunState::combat_fixture();
     run.gold = 99;
@@ -4107,6 +4284,52 @@ fn hand_of_greed_gold_transfers_to_run_gold() {
     assert_eq!(next.phase, RunPhase::Reward);
     assert!(next.reward.is_some());
     assert!(next.combat.is_none());
+}
+
+#[test]
+fn blue_candle_necronomicurse_returns_a_new_copy_to_hand() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.player.hp = 50;
+    state.relics.push(Relic::BlueCandle);
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(2), cards::NECRONOMICURSE_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(2),
+            target: None,
+        },
+    )
+    .expect("Blue Candle can play Necronomicurse");
+
+    assert_eq!(next.player.hp, 49);
+    assert_eq!(
+        next.piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![
+            cards::DEFEND_R_ID,
+            cards::STRIKE_R_ID,
+            cards::NECRONOMICURSE_ID,
+        ]
+    );
+    assert_ne!(next.piles.hand[2].id, CardId::new(2));
+    assert!(next.piles.hand[2].combat_only);
+    assert_eq!(next.piles.exhaust_pile.len(), 1);
+    assert_eq!(next.piles.exhaust_pile[0].id, CardId::new(2));
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::NECRONOMICURSE_ID
+    );
 }
 
 #[test]

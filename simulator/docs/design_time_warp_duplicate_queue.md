@@ -18,3 +18,22 @@ queue, while queued attack damage uses the pre-Strength-action damage value;
 this matches the source `DamageInfo` objects captured by `Time Eater.takeTurn`.
 The marker is not serialized into observations and is never selected by seed or
 trace identity.
+
+When the 12th card is a put-on-deck select such as Warcry, Time Warp still
+increments on CONFIRM but must not force end-turn until UseCardAction settles
+the source. Otherwise Corruption/Dark Embrace never exhausts Warcry.
+CommunicationMod can also snapshot that post-CONFIRM pile state before the
+forced END drains the hand; the verifier may accept a lag candidate that
+confirms without consuming Time Warp end-turn when the ordinary path does not
+match (FIDL01274).
+
+When the 12th card is Havoc / Havoc+, `onUseCard` arms the forced end after
+`use()` has already queued `PlayTopCardAction`. That first PlayTop still runs.
+If the forced card is itself Havoc, its nested leftover PlayTop must not run:
+FIDL01271 exhausts only the force-played Havoc, then Time Warp refills from
+the unplayed Wound/Parasite draw plus the leftover hand Havoc.
+
+If PlayTop has already parked the top card in limbo before Time Warp arms,
+`ResolveTopDrawCard` still exhausts/settles that card without calling `use()`.
+FIDL01285: Havoc force-plays True Grit, Time Warp cancels the exhaust-select
+`use()`, then the leftover True Grit exhausts and Time Warp ends the turn.

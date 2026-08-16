@@ -35,6 +35,83 @@ function livingMonsters(summary) {
   );
 }
 
+function totalLivingEnemyHp(summary) {
+  return livingMonsters(summary).reduce((sum, monster) => sum + Number(monster.hp || 0), 0);
+}
+
+/** Player strength modifier from the combat summary. Missing power => 0. */
+function playerCombatStrength(summary) {
+  const direct = summary?.combat?.player_strength;
+  if (Number.isFinite(Number(direct))) return Number(direct);
+  return 0;
+}
+
+function createCombatStallTracker() {
+  return {
+    lastCombatTurn: null,
+    lastEnemyHp: null,
+    stagnantTurns: 0,
+  };
+}
+
+/**
+ * Track multi-turn no-damage stalls while player strength is deeply negative.
+ * Abandon when strength < -10 and living enemy HP is unchanged across 3 turn advances.
+ */
+function observeCombatStall(tracker, summary) {
+  if (!tracker) {
+    return { shouldAbandon: false, reason: null };
+  }
+  if (!summary?.in_game || !summary?.combat) {
+    tracker.lastCombatTurn = null;
+    tracker.lastEnemyHp = null;
+    tracker.stagnantTurns = 0;
+    return { shouldAbandon: false, reason: null };
+  }
+
+  const strength = playerCombatStrength(summary);
+  const enemyHp = totalLivingEnemyHp(summary);
+  const turn = Number(summary.combat.turn);
+  if (!Number.isFinite(turn)) {
+    return { shouldAbandon: false, reason: null };
+  }
+
+  if (strength >= -10) {
+    tracker.stagnantTurns = 0;
+    tracker.lastCombatTurn = turn;
+    tracker.lastEnemyHp = enemyHp;
+    return { shouldAbandon: false, reason: null };
+  }
+
+  if (tracker.lastCombatTurn === null) {
+    tracker.lastCombatTurn = turn;
+    tracker.lastEnemyHp = enemyHp;
+    tracker.stagnantTurns = 0;
+    return { shouldAbandon: false, reason: null };
+  }
+
+  if (turn !== tracker.lastCombatTurn) {
+    if (enemyHp === tracker.lastEnemyHp) {
+      tracker.stagnantTurns += 1;
+    } else {
+      tracker.stagnantTurns = 0;
+      tracker.lastEnemyHp = enemyHp;
+    }
+    tracker.lastCombatTurn = turn;
+  } else if (enemyHp !== tracker.lastEnemyHp) {
+    tracker.stagnantTurns = 0;
+    tracker.lastEnemyHp = enemyHp;
+  }
+
+  if (tracker.stagnantTurns >= 3) {
+    return {
+      shouldAbandon: true,
+      reason: `combat stall: player strength ${strength} < -10 and enemy HP unchanged for ${tracker.stagnantTurns} turns (hp=${enemyHp})`,
+    };
+  }
+  return { shouldAbandon: false, reason: null };
+}
+
 function enumerateGameplayActions(summary) {
   const available = availableSet(summary);
   const actions = [];
@@ -550,6 +627,24 @@ function normalizeSettledGameplayRecords(records) {
         ? boundary.kind === "poll"
         : GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind);
       if (!completesCommand) {
+        // Under SuperFastMode, a STATE poll can be followed by a same-step
+        // gameplay settlement frame before the poll marker is observed. Keep
+        // scanning for the authoritative completing boundary; do not keep the
+        // intermediate frame in the normalized trace.
+        if (
+          stateCommand &&
+          (GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind) || boundary.kind === "unknown")
+        ) {
+          responseIndex += 1;
+          continue;
+        }
+        if (
+          !stateCommand &&
+          (boundary.kind === "poll" || boundary.kind === "unknown")
+        ) {
+          responseIndex += 1;
+          continue;
+        }
         const expected = stateCommand
           ? "poll"
           : "interaction_ready, quiescent, or terminal";
@@ -911,6 +1006,17 @@ async function main() {
     ? immutableTracePath(campaignDir, gameSeed, policySeed, traceStartedAt)
     : path.join(campaignDir, `active-${gameSeed}-p${policySeed}.jsonl`);
   const ledgerPath = path.join(campaignDir, "ledger.jsonl");
+  const skippedSeedsPath = path.join(campaignDir, "skipped_policy_seeds.jsonl");
+  const seedPrefix = process.env.STS_RANDOM_GAME_SEED_PREFIX || "FIDL";
+  const combatStallTracker = createCombatStallTracker();
+
+  const discardActiveTrace = () => {
+    try {
+      if (fs.existsSync(activeTrace)) fs.unlinkSync(activeTrace);
+    } catch {
+      // best-effort: stall traces must not remain as corpus evidence
+    }
+  };
 
   try {
     let protocolState = await controlRequest(status.control, { type: "state" });
@@ -1199,6 +1305,65 @@ async function main() {
         console.log(JSON.stringify(entry));
         return;
       }
+      const stall = observeCombatStall(combatStallTracker, summary);
+      if (stall.shouldAbandon) {
+        const abandoned = await controlRequest(
+          status.control,
+          {
+            type: "abandon_run",
+            owner_token: acquired.owner_token,
+            metadata: {
+              source: "random_fidelity_collector",
+              reason: "combat_stall",
+              detail: stall.reason,
+            },
+            wait_for_state_update: true,
+            update_timeout_ms: 20000,
+          },
+          25000,
+        );
+        if (!abandoned.ok) {
+          throw new Error(abandoned.error || `failed to abandon stalled combat: ${stall.reason}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          protocolState = await controlRequest(status.control, { type: "state" });
+          if (!protocolState.summary?.in_game) break;
+          if (protocolState.summary?.ready_for_command) {
+            await send(status.control, acquired.owner_token, protocolState, "STATE", {
+              source: "random_fidelity_collector",
+              reason: "settle_combat_stall_abandon",
+              operator_control: "settle_poll",
+            });
+          } else {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+          }
+        }
+        discardActiveTrace();
+        const entry = {
+          recorded_at: new Date().toISOString(),
+          kind: "discarded_combat_stall",
+          game_seed: gameSeed,
+          policy_seed: policySeed,
+          starting_hp: startingHp,
+          actions: actionCount,
+          reason: stall.reason,
+          trace: null,
+        };
+        fs.appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
+        fs.appendFileSync(
+          skippedSeedsPath,
+          `${JSON.stringify({
+            recorded_at: entry.recorded_at,
+            seed_prefix: seedPrefix,
+            policy_seed: policySeed,
+            game_seed: gameSeed,
+            reason: stall.reason,
+          })}\n`,
+        );
+        console.log(JSON.stringify(entry));
+        return;
+      }
       const command = chooseRandomAction(summary, random);
       if (!command) {
         throw new Error(
@@ -1259,6 +1424,7 @@ module.exports = {
   acquireDirectoryLock,
   addCollectionMetadata,
   chooseRandomAction,
+  createCombatStallTracker,
   currentRunRecords,
   defaultVerifierPath,
   enumerateGameplayActions,
@@ -1272,12 +1438,15 @@ module.exports = {
   communicationBoundary,
   needsMapChoiceSettle,
   normalizeSettledGameplayRecords,
+  observeCombatStall,
   parseParityOutput,
   parseBossUnlocks,
   parseSeenBossesPreferences,
+  playerCombatStrength,
   promoteDistinctFailure,
   seededRandom,
   shouldVerifyTrace,
+  totalLivingEnemyHp,
   verificationCheckpointKey,
   verifierInvocationFailed,
   verifyTrace,

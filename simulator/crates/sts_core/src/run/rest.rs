@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn shovel_reward_returns_to_completed_rest_room_after_relic_pickup() {
+    fn shovel_reward_proceed_leaves_the_completed_rest_room() {
         let mut run = RunState::seeded_ironclad(7, 0);
         run.phase = RunPhase::Rest;
         run.current_room_override = Some(RoomKind::Rest);
@@ -423,9 +423,9 @@ mod tests {
             .expect("Shovel relic can be collected");
         assert_eq!(claimed.phase, RunPhase::Reward);
         let settled = apply_run_action(&claimed, RunAction::Proceed)
-            .expect("completed Shovel reward returns to rest");
-        assert_eq!(settled.phase, RunPhase::Rest);
-        assert!(settled.rest_room_complete);
+            .expect("completed Shovel reward proceeds to the map");
+        assert_eq!(settled.phase, RunPhase::Idle);
+        assert!(!settled.rest_room_complete);
         assert!(settled.reward.is_none());
     }
 

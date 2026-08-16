@@ -13,7 +13,7 @@ const EXTERNAL_CORPUS_ENV: &str = "STS_PERMANENT_CORPUS_DIR";
 fn external_corpus_traces() -> Vec<PathBuf> {
     let root = std::env::var_os(EXTERNAL_CORPUS_ENV)
         .map(PathBuf::from)
-        .unwrap_or_else(|| panic!("{EXTERNAL_CORPUS_ENV} must name the external trace directory"));
+        .unwrap_or_else(|| sts_verify::corpus_path("permanent_traces"));
     assert!(root.is_dir(), "{} is not a directory", root.display());
     let mut paths = fs::read_dir(&root)
         .unwrap_or_else(|error| panic!("{} is not readable: {error}", root.display()))

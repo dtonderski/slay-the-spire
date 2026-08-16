@@ -260,11 +260,21 @@ function summarize(message) {
   };
 
   if (combat) {
+    const playerPowers = Array.isArray(combat.player?.powers)
+      ? combat.player.powers
+      : [];
+    const strengthPower = playerPowers.find(
+      (power) => String(power?.id ?? power?.name ?? "").toLowerCase() === "strength",
+    );
+    const playerStrength = Number.isFinite(Number(strengthPower?.amount))
+      ? Number(strengthPower.amount)
+      : 0;
     summary.combat = {
       turn: combat.turn,
       energy: combat.player?.energy ?? null,
       player_hp: combat.player?.current_hp ?? null,
       player_block: combat.player?.block ?? null,
+      player_strength: playerStrength,
       hand: (combat.hand ?? []).map((card, index) => ({
         index: index + 1,
         id: card.id,

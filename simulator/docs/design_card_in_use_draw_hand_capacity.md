@@ -14,6 +14,8 @@ restore it at its original position. This is simulator-derived state only; no
 trace observation participates in the operation.
 
 The rule covers direct draw effects, including Runic Cube / Centennial Puzzle
-HP-loss hooks, and does not alter the existing explicit
+HP-loss hooks, Violence's `DrawRandomAttacksFromDrawPile` (FIDL01255: a
+7+source hand plus three attacks must not overflow the third into discard),
+and does not alter the existing explicit
 `DrawCardsWhilePlayedCardIsInLimbo` path: that path already removes the source
 before invoking the shared draw implementation.

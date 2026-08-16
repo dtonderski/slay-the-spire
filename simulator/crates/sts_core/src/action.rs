@@ -33,6 +33,9 @@ pub enum InternalAction {
     PlayCard {
         card_id: CardId,
     },
+    /// Time Eater's on-use-card counter deferred until a card-selection screen
+    /// closes; the target publishes that lag frame before the card is settled.
+    ApplyDeferredTimeWarpCardPlay,
     PlayCardCopy {
         card_id: CardId,
     },
@@ -115,6 +118,11 @@ pub enum InternalAction {
     GainBlockDirect {
         amount: i32,
     },
+    /// Feel No Pain's on-exhaust block is queued after the exhaust action and
+    /// is not prevented by Panic Button's NoBlockPower.
+    GainBlockFromExhaust {
+        amount: i32,
+    },
     GainMonsterBlock {
         target: MonsterId,
         amount: i32,
@@ -127,6 +135,10 @@ pub enum InternalAction {
     },
     DoublePlayerBlock,
     ApplyVulnerable {
+        target: MonsterId,
+        amount: i32,
+    },
+    ApplyMark {
         target: MonsterId,
         amount: i32,
     },
@@ -206,6 +218,12 @@ pub enum InternalAction {
     ExhaustRandomHandCardExcept {
         excluded_card_id: CardId,
     },
+    /// `ExhaustAllNonAttackAction`: one hand snapshot of non-attacks.
+    /// Soulbound replacements are not in that snapshot; a Necronomicon copy's
+    /// second use() exhausts them (FIDL01518 Feel No Pain 9).
+    ExhaustAllNonAttackCards {
+        excluded_card_id: CardId,
+    },
     /// Exhaust every other hand card, then deal `amount` once per exhausted card.
     /// Hit count is decided at resolve time so Double Tap / Necronomicon copies
     /// with an empty hand deal zero hits (FIDL00237 Fiend Fire + Double Tap).
@@ -251,6 +269,8 @@ pub enum InternalAction {
         source: HpLossSource,
     },
     SetCannotDraw,
+    /// Orange Pellets' RemoveDebuffsAction, queued after the played card's own effects.
+    ClearPlayerDebuffs,
     GainRage {
         amount: i32,
     },
@@ -337,6 +357,11 @@ pub enum InternalAction {
     GainStrength {
         amount: i32,
     },
+    GainMantra {
+        amount: i32,
+    },
+    EnterCalm,
+    ExitCalm,
     GainDexterity {
         amount: i32,
     },

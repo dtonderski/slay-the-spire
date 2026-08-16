@@ -1,26 +1,26 @@
 # Verification fixtures
 
-Git stores only compact, reviewable fixtures in this directory. Full
-CommunicationMod trace payloads are external data and must not be added to the
-repository.
+Git stores only compact, reviewable fixtures. Full CommunicationMod payloads
+live in the working tree at `permanent_traces/` but are gitignored and must not
+be committed.
 
-## External corpus
+## Permanent corpus
 
-Set `STS_PERMANENT_CORPUS_DIR` to a directory containing the immutable JSONL
-captures before running a corpus-wide command:
+`sts_verify status` defaults to this directory and uses 24 workers when the
+machine has that many CPUs. Override the path with `STS_PERMANENT_CORPUS_DIR`
+or the worker count with `STS_VERIFY_JOBS`:
 
 ```bash
-export STS_PERMANENT_CORPUS_DIR=/path/to/permanent_traces
 cd simulator
-cargo run -q -p sts_verify --bin sts_verify -- status "$STS_PERMANENT_CORPUS_DIR"
+cargo run -q -p sts_verify --bin sts_verify -- status
 cargo test -p sts_verify --test corpus \
   external_permanent_traces_are_structurally_replayable -- --ignored
 ```
 
-The repository does not track a corpus manifest, inventory, outcome ledger, or
-status snapshot. Generate status directly from the external files and the
-verifier revision being evaluated. Never edit a captured trace to make replay
-pass; repair simulator behavior and replay the unchanged payload.
+Do not track a corpus manifest, inventory, outcome ledger, or status snapshot.
+Generate status directly from the payloads and the verifier revision being
+evaluated. Never edit a captured trace to make replay pass; repair simulator
+behavior and replay the unchanged payload.
 
 ## Repository fixtures
 

@@ -61,6 +61,28 @@ fn checked_run_add(value: i32, amount: i32) -> SimResult<i32> {
         .ok_or(SimError::InvalidState("run integer addition overflows i32"))
 }
 
+fn checked_run_sub(value: i32, amount: i32) -> SimResult<i32> {
+    value.checked_sub(amount).ok_or(SimError::InvalidState(
+        "run integer subtraction overflows i32",
+    ))
+}
+
+fn relic_pickup_energy(key: RelicKey) -> Option<i32> {
+    Some(match key {
+        RelicKey::VelvetChoker => VELVET_CHOKER_ENERGY,
+        RelicKey::CoffeeDripper => COFFEE_DRIPPER_ENERGY,
+        RelicKey::MarkOfPain => MARK_OF_PAIN_ENERGY,
+        RelicKey::FusionHammer => FUSION_HAMMER_ENERGY,
+        RelicKey::Sozu => SOZU_ENERGY,
+        RelicKey::BustedCrown => BUSTED_CROWN_ENERGY,
+        RelicKey::PhilosophersStone => PHILOSOPHERS_STONE_ENERGY,
+        RelicKey::CursedKey => 1,
+        RelicKey::Ectoplasm => ECTOPLASM_ENERGY,
+        RelicKey::RunicDome => RUNIC_DOME_ENERGY,
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,6 +616,33 @@ mod tests {
     }
 
     #[test]
+    fn deck_card_gain_stays_above_open_reward_choice_ids() {
+        let mut run = RunState::map_fixture();
+        let high_id = run.deck.iter().map(|card| card.id.get()).max().unwrap_or(0) + 5;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: vec![CardInstance::new(
+                CardId::new(high_id),
+                crate::content::cards::ANGER_ID,
+            )],
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: None,
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: CardRewardFlow::active(1),
+        });
+
+        run.gain_deck_card(crate::content::cards::BASH_ID)
+            .expect("gain after an open reward overlay allocates a fresh ID");
+        assert_eq!(run.deck.last().map(|card| card.id.get()), Some(high_id + 1));
+    }
+
+    #[test]
     fn deck_card_gain_rejects_unknown_content_without_relic_side_effects() {
         let mut run = RunState::map_fixture();
         run.relics.extend([Relic::CeramicFish, Relic::MoltenEgg]);
@@ -1040,6 +1089,14 @@ pub struct RunState {
     /// combat-owned transition, without consulting observations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_combat_obtain_cards: Vec<ContentId>,
+    /// One-shot verifier candidate: retain the queued combat obtain through
+    /// this transition when the source publication is still pre-obtain.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub defer_pending_combat_obtain_settlement: bool,
+    /// Verifier-local provenance for a skipped Headbutt retrieval. It is not
+    /// serialized or consulted by ordinary gameplay transitions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_headbutt_alias: Option<CardInstance>,
     /// Ordered call-time inputs for gameplay draws from process-global RNG.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_external_rng: Vec<ExternalRngInput>,
@@ -1151,6 +1208,10 @@ pub struct RunState {
     /// event combat without conflating them with run-level RNG streams.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_event_combat_rng: Option<CombatRngState>,
+    /// Verifier-only source timing candidate: defer a Colosseum opening queue
+    /// until the first subsequent END instead of publishing it eagerly.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub defer_event_combat_opening: bool,
     #[serde(default)]
     pub monster_rng_seed: u64,
     #[serde(default)]
@@ -1809,7 +1870,6 @@ impl RunState {
                 "pending combat card obtain exists outside combat",
             ));
         }
-
         if self.shop_merchant_open && self.shop.is_none() {
             return Err(SimError::InvalidState("open merchant has no shop screen"));
         }
@@ -2530,15 +2590,17 @@ impl RunState {
         if self.relics.contains(&Relic::Nunchaku) {
             combat.relic_counters.nunchaku_attacks_played = self.nunchaku_attacks_played;
         }
-        apply_start_of_combat_relics(&mut combat, &self.relics)?;
-        if self.relics.contains(&Relic::Enchiridion) {
+        if !combat.opening_turn_pending {
+            apply_start_of_combat_relics(&mut combat, &self.relics)?;
+        }
+        if !combat.opening_turn_pending && self.relics.contains(&Relic::Enchiridion) {
             add_enchiridion_power_to_hand(&mut combat)?;
         }
-        if self.relics.contains(&Relic::GamblingChip) {
+        if !combat.opening_turn_pending && self.relics.contains(&Relic::GamblingChip) {
             crate::combat::open_gambling_chip_select(&mut combat)
                 .expect("Gambling Chip selection opens without validation side effects");
         }
-        if self.relics.contains(&Relic::Toolbox) {
+        if !combat.opening_turn_pending && self.relics.contains(&Relic::Toolbox) {
             let next_card_id = combat.reserve_card_instance_ids(3)?;
             let choices = colorless_discovery_card_choices(&mut combat.rng.card_random_rng, 3)
                 .into_iter()
@@ -2554,7 +2616,9 @@ impl RunState {
                 combat.queued_decisions.push_back(existing);
             }
         }
-        crate::relic::apply_start_of_player_turn_post_draw_relics(&mut combat)?;
+        if !combat.opening_turn_pending {
+            crate::relic::apply_start_of_player_turn_post_draw_relics(&mut combat)?;
+        }
         combat.validate()?;
         Ok(combat)
     }
@@ -2650,6 +2714,7 @@ impl RunState {
             shop_merchant_open: false,
             card_grid: None,
             relics,
+            defer_event_combat_opening: false,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
@@ -2658,6 +2723,8 @@ impl RunState {
             pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_combat_obtain_cards: Vec::new(),
+            defer_pending_combat_obtain_settlement: false,
+            pending_headbutt_alias: None,
             pending_external_rng: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
@@ -2758,6 +2825,7 @@ impl RunState {
             shop_merchant_open: false,
             card_grid: None,
             relics: Vec::new(),
+            defer_event_combat_opening: false,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
@@ -2766,6 +2834,8 @@ impl RunState {
             pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_combat_obtain_cards: Vec::new(),
+            defer_pending_combat_obtain_settlement: false,
+            pending_headbutt_alias: None,
             pending_external_rng: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
@@ -2987,7 +3057,10 @@ impl RunState {
         // Merchant offers are card instances too. A Courier restock can add a
         // purchased offer to the deck while other offers remain in the shop;
         // allocation must stay above both sets or the next purchase can reuse an
-        // unsold offer's ID and fail strict uniqueness validation.
+        // unsold offer's ID and fail strict uniqueness validation. Open reward
+        // overlays hold the same class of ephemeral IDs. Card grids do not:
+        // Duplicator/Library validation recomputes those IDs from the current
+        // deck/shop/reward high-water mark.
         let max_id = self
             .deck
             .iter()
@@ -2998,6 +3071,13 @@ impl RunState {
                     .into_iter()
                     .flat_map(|shop| shop.cards.iter().map(|offer| offer.card.id.get())),
             )
+            .chain(self.reward.as_ref().into_iter().flat_map(|reward| {
+                reward
+                    .choices
+                    .iter()
+                    .chain(reward.queued_card_rewards.iter().flatten())
+                    .map(|card| card.id.get())
+            }))
             .max()
             .unwrap_or(0);
         reserve_card_instance_id_range(max_id, count)
@@ -3458,6 +3538,18 @@ impl RunState {
         if self.relics.contains(&Relic::MawBank) {
             self.maw_bank_broken = true;
         }
+    }
+
+    pub fn lose_relic_key(&mut self, key: RelicKey) -> SimResult<bool> {
+        let Some(index) = self.relics.iter().position(|relic| relic.key() == key) else {
+            return Ok(false);
+        };
+        self.relics.remove(index);
+        // AbstractRelic.onUnequip reverses pickup energy (N'loth, Moai Head).
+        if let Some(energy) = relic_pickup_energy(key) {
+            self.energy_per_turn = checked_run_sub(self.energy_per_turn, energy)?;
+        }
+        Ok(true)
     }
 
     pub fn gain_relic_key(&mut self, key: RelicKey) -> SimResult<()> {
@@ -3958,6 +4050,24 @@ impl RunState {
                 let event_map_reward = reward.continuation == RewardContinuation::Map
                     && self.current_room_kind() == Some(RoomKind::Event)
                     && !reward.card_reward_is_active();
+                // Dig/Dream Catcher CombatRewardScreen frames expose PROCEED
+                // after the rest action has already completed. The overlay
+                // leaves the room rather than returning to a second rest menu.
+                let completed_rest_reward = reward.continuation == RewardContinuation::Rest
+                    && self.rest_room_complete
+                    && !reward.card_reward_is_active();
+                // Shop-owned CombatRewardScreen frames (Cauldron / Orrery) also
+                // expose PROCEED and abandon leftover overlay items.
+                let shop_overlay_reward = reward.continuation == RewardContinuation::Shop
+                    && !reward.card_reward_is_active();
+                // Tiny House's leftover CombatRewardScreen sits on an opened
+                // boss chest. CommunicationMod PROCEED abandons leftover items
+                // and advances to the next-act map (FIDL01495 / FIDL01669).
+                let leftover_boss_treasure_reward = reward.continuation
+                    == RewardContinuation::Treasure
+                    && self.current_room_kind() == Some(RoomKind::Boss)
+                    && self.boss_chest_opened
+                    && !reward.card_reward_is_active();
                 // Event-owned CombatRewardScreen frames expose PROCEED even when
                 // non-card items remain (for example Woman in Blue potions). The
                 // active CARD_REWARD sub-screen is choose/skip-only.
@@ -3966,6 +4076,9 @@ impl RunState {
                     || (reward.continuation == RewardContinuation::Event
                         && !reward.card_reward_is_active())
                     || event_map_reward
+                    || completed_rest_reward
+                    || shop_overlay_reward
+                    || leftover_boss_treasure_reward
                     || map_or_boss_combat_reward
                     || (reward.continuation != RewardContinuation::None
                         && super::reward::reward_is_empty(reward))

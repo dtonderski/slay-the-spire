@@ -22,6 +22,8 @@ pub(crate) const MAX_HAND_SIZE: usize = 10;
 pub(crate) enum DrawFollowUp {
     DrawCards { count: usize },
     FireBreathingDamage { amount: i32 },
+    GainBlockDirect { amount: i32 },
+    GainEnergy { amount: i32 },
 }
 
 impl DrawFollowUp {
@@ -29,6 +31,8 @@ impl DrawFollowUp {
         match self {
             Self::DrawCards { count } => InternalAction::DrawCards { count },
             Self::FireBreathingDamage { amount } => InternalAction::FireBreathingDamage { amount },
+            Self::GainBlockDirect { amount } => InternalAction::GainBlockDirect { amount },
+            Self::GainEnergy { amount } => InternalAction::GainEnergy { amount },
         }
     }
 }
@@ -52,6 +56,18 @@ pub fn draw_cards_with_sts_rng(
             ),
             DrawFollowUp::FireBreathingDamage { amount } => {
                 apply_fire_breathing_damage(&mut next, amount)?;
+            }
+            DrawFollowUp::GainBlockDirect { amount } => {
+                crate::combat::transition::apply_player_direct_block_gain(&mut next, amount)?;
+            }
+            DrawFollowUp::GainEnergy { amount } => {
+                next.player.energy =
+                    next.player
+                        .energy
+                        .checked_add(amount)
+                        .ok_or(crate::SimError::InvalidState(
+                            "combat integer addition overflows i32",
+                        ))?;
             }
         }
     }
@@ -77,7 +93,9 @@ fn draw_cards_with_sts_rng_batch_deferred(
             if !combat_has_living_monster(state) {
                 break;
             }
-            shuffle_discard_into_draw_sts(state, rng)?;
+            deferred_follow_ups.extend(shuffle_follow_ups_from_actions(
+                shuffle_discard_into_draw_sts(state, rng)?,
+            )?);
         }
 
         if state.piles.draw_pile.is_empty() {
@@ -87,10 +105,12 @@ fn draw_cards_with_sts_rng_batch_deferred(
         if let Some(mut card) = draw_card_from_pile_top(state) {
             let content_id = card.content_id;
             let extra_draws = evolve_extra_draw_count(state, content_id);
-            apply_confusion_cost_randomization(state, &mut card);
+            apply_on_card_draw_cost_effects(state, &mut card);
             state.piles.hand.push(card);
             if content_id == VOID_ID {
-                state.player.energy = state.player.energy.saturating_sub(1);
+                // LoseEnergyAction floors at zero; i32::saturating_sub only
+                // clamps at i32::MIN and would allow negative energy.
+                state.player.energy = (state.player.energy - 1).max(0);
             }
             deferred_follow_ups.extend(draw_follow_ups_for_card(state, content_id, extra_draws)?);
         }
@@ -119,6 +139,18 @@ pub fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) -> SimR
             }
             DrawFollowUp::FireBreathingDamage { amount } => {
                 apply_fire_breathing_damage(&mut next, amount)?;
+            }
+            DrawFollowUp::GainBlockDirect { amount } => {
+                crate::combat::transition::apply_player_direct_block_gain(&mut next, amount)?;
+            }
+            DrawFollowUp::GainEnergy { amount } => {
+                next.player.energy =
+                    next.player
+                        .energy
+                        .checked_add(amount)
+                        .ok_or(crate::SimError::InvalidState(
+                            "combat integer addition overflows i32",
+                        ))?;
             }
         }
     }
@@ -162,6 +194,18 @@ pub(crate) fn draw_cards_with_combat_rng_without_evolve(
             DrawFollowUp::FireBreathingDamage { amount } => {
                 apply_fire_breathing_damage(&mut next, amount)?;
             }
+            DrawFollowUp::GainBlockDirect { amount } => {
+                crate::combat::transition::apply_player_direct_block_gain(&mut next, amount)?;
+            }
+            DrawFollowUp::GainEnergy { amount } => {
+                next.player.energy =
+                    next.player
+                        .energy
+                        .checked_add(amount)
+                        .ok_or(crate::SimError::InvalidState(
+                            "combat integer addition overflows i32",
+                        ))?;
+            }
         }
     }
     *state = next;
@@ -176,7 +220,9 @@ fn draw_cards_batch_deferred_evolve_in_place(
 }
 
 fn combat_has_living_monster(state: &CombatState) -> bool {
-    state.monsters.iter().any(|monster| monster.alive)
+    state.monsters.iter().any(|monster| {
+        monster.alive || crate::content::monsters::awakened_one_is_half_dead(monster)
+    })
 }
 
 fn draw_cards_batch_in_place(
@@ -203,7 +249,9 @@ fn draw_cards_batch_in_place(
                     consume_empty_deck_shuffle_with_combat_rng(state)?;
                 }
             } else {
-                shuffle_discard_into_draw_with_combat_rng(state)?;
+                deferred_follow_ups.extend(shuffle_follow_ups_from_actions(
+                    shuffle_discard_into_draw_with_combat_rng(state)?,
+                )?);
             }
         }
 
@@ -218,10 +266,12 @@ fn draw_cards_batch_in_place(
             } else {
                 0
             };
-            apply_confusion_cost_randomization(state, &mut card);
+            apply_on_card_draw_cost_effects(state, &mut card);
             state.piles.hand.push(card);
             if content_id == VOID_ID {
-                state.player.energy = state.player.energy.saturating_sub(1);
+                // LoseEnergyAction floors at zero; i32::saturating_sub only
+                // clamps at i32::MIN and would allow negative energy.
+                state.player.energy = (state.player.energy - 1).max(0);
             }
             deferred_follow_ups.extend(draw_follow_ups_for_card(state, content_id, extra_draws)?);
         }
@@ -352,6 +402,27 @@ fn is_status_or_curse(content_id: crate::ContentId) -> bool {
             .is_some_and(|definition| definition.card_type == CardType::Status)
 }
 
+pub(crate) fn apply_on_card_draw_cost_effects(state: &mut CombatState, card: &mut CardInstance) {
+    apply_confusion_cost_randomization(state, card);
+    apply_corruption_skill_cost_for_turn(state, card);
+}
+
+/// `CorruptionPower.onCardDraw` calls `setCostForTurn(-9)` on skills after
+/// Confusion writes `cost`/`costForTurn`. MadnessAction then sees
+/// `costForTurn == 0` and retries onto a remaining attack (FIDL01528, FIDL01687).
+fn apply_corruption_skill_cost_for_turn(state: &CombatState, card: &mut CardInstance) {
+    if state.player.powers.corruption <= 0 {
+        return;
+    }
+    let Some(definition) = get_card_definition(card.content_id) else {
+        return;
+    };
+    if definition.card_type != CardType::Skill || definition.cost < 0 {
+        return;
+    }
+    card.temp_cost = Some(0);
+}
+
 pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: &mut CardInstance) {
     // Snecko Eye applies Confusion once at pre-battle. If another effect (for
     // example Orange Pellets) removes that power, owning the relic alone does
@@ -366,14 +437,33 @@ pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: 
     }
     let rng = &mut state.rng.card_random_rng;
     card.temp_cost = Some(rng.random_int(3) as u8);
+    // Confusion's draw-time cost replaces Forethought's one-play free flag;
+    // the target's cost calculation does not let the older override win over
+    // this newly randomized cost.
+    card.free_to_play_once = false;
+}
+
+fn shuffle_follow_ups_from_actions(actions: Vec<InternalAction>) -> SimResult<Vec<DrawFollowUp>> {
+    actions
+        .into_iter()
+        .map(|action| match action {
+            InternalAction::GainBlockDirect { amount } => {
+                Ok(DrawFollowUp::GainBlockDirect { amount })
+            }
+            InternalAction::GainEnergy { amount } => Ok(DrawFollowUp::GainEnergy { amount }),
+            _ => Err(crate::SimError::InvalidState(
+                "unexpected shuffle relic follow-up",
+            )),
+        })
+        .collect()
 }
 
 pub(crate) fn shuffle_discard_into_draw_sts(
     state: &mut CombatState,
     rng: &mut StsRng,
-) -> SimResult<()> {
+) -> SimResult<Vec<InternalAction>> {
     if state.piles.discard_pile.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
@@ -382,9 +472,11 @@ pub(crate) fn shuffle_discard_into_draw_sts(
     crate::relic::apply_shuffle_relics(state)
 }
 
-pub(crate) fn shuffle_discard_into_draw_with_combat_rng(state: &mut CombatState) -> SimResult<()> {
+pub(crate) fn shuffle_discard_into_draw_with_combat_rng(
+    state: &mut CombatState,
+) -> SimResult<Vec<InternalAction>> {
     if state.piles.discard_pile.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
@@ -395,9 +487,9 @@ pub(crate) fn shuffle_discard_into_draw_with_combat_rng(state: &mut CombatState)
 
 pub(crate) fn deep_breath_shuffle_discard_into_draw_with_combat_rng(
     state: &mut CombatState,
-) -> SimResult<()> {
+) -> SimResult<Vec<InternalAction>> {
     if state.piles.discard_pile.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let discard_shuffle_seed = state.rng.shuffle_rng.random_long();
@@ -439,6 +531,23 @@ mod tests {
 
         assert_eq!(state.piles.hand[0].temp_cost, Some(3));
         assert_eq!(state.rng.card_random_rng.counter(), 0);
+    }
+
+    #[test]
+    fn corruption_on_draw_zeros_confused_skill_cost_for_turn() {
+        // CorruptionPower.onCardDraw setCostForTurn(-9) after Confusion, so
+        // MadnessAction sees costForTurn 0 on the skill.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.confusion = 1;
+        state.player.powers.corruption = 1;
+        state.rng.card_random_rng = StsRng::new(1);
+        let mut havoc = CardInstance::new(CardId::new(1), crate::content::cards::HAVOC_ID);
+        apply_on_card_draw_cost_effects(&mut state, &mut havoc);
+        assert_eq!(havoc.temp_cost, Some(0));
+        assert!(
+            state.rng.card_random_rng.counter() > 0,
+            "Confusion still consumes cardRandomRng before Corruption zeros the skill"
+        );
     }
 
     #[test]

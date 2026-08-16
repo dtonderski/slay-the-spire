@@ -8,17 +8,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{BufRead, Cursor};
 use sts_core::card::CardType;
-use sts_core::combat::{ExhaustSelectPurpose, HandSelectPurpose};
-use sts_core::content::cards::card_type_and_rarity;
+use sts_core::combat::{DiscardSelectPurpose, ExhaustSelectPurpose, HandSelectPurpose};
+use sts_core::content::cards::{card_type_and_rarity, WARCRY_ID, WARCRY_PLUS_ID};
 use sts_core::content::encounters::BossUnlockState;
-use sts_core::content::monsters::target_move_byte_for_monster;
+use sts_core::content::monsters::{target_move_byte, target_move_byte_for_monster};
 use sts_core::potion::Potion;
 use sts_core::{
     affordable_shop_picks, apply_run_decision_action, legal_run_decision_actions, CardGridScreen,
     CardId, CardInstance, CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId,
-    Event, EventScreen, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState, Relic,
-    RelicKey, RestAction, RewardContinuation, RewardScreen, RoomKind, RunAction, RunDecisionAction,
-    RunPhase, RunState, ShopPick,
+    Event, EventAction, EventScreen, GridPurpose, MapAction, MonsterId, MonsterIntent,
+    MonsterState, Relic, RelicKey, RestAction, RewardContinuation, RewardScreen, RoomKind,
+    RunAction, RunDecisionAction, RunPhase, RunState, ShopPick,
 };
 use sts_core::{Snapshot, SNAPSHOT_SCHEMA_VERSION};
 
@@ -351,6 +351,7 @@ fn verify_seed_start_reader<R: BufRead>(
     };
     let mut replay_capture = replay_capture;
     let mut replay = StreamingSeedStartReplay::default();
+    let mut last_observed_playtime_seconds = None;
     let mut metadata_seen = false;
     let mut profile = None;
     let mut boss_unlocks = BossUnlockState::default();
@@ -549,9 +550,12 @@ fn verify_seed_start_reader<R: BufRead>(
                             start,
                             boss_unlocks,
                             profile: profile.as_ref().expect("metadata profile was validated"),
+                            source_playtime_seconds: last_observed_playtime_seconds,
                         },
                         &mut replay_capture,
                     );
+                    last_observed_playtime_seconds =
+                        observed_playtime_seconds(&state).or(last_observed_playtime_seconds);
                     if let Some(boundary) = boundary.as_ref() {
                         first_boundary = Some(boundary.clone());
                     }
@@ -612,6 +616,19 @@ fn verify_seed_start_reader<R: BufRead>(
                         reason: "error does not match the pending action".to_owned(),
                     });
                 }
+                // A rejected command can still let the game's queued Time Warp
+                // EndTurnAction drain between the command error and the next
+                // observed state. Preserve that source-backed asynchronous
+                // boundary instead of leaving the accepted pre-END candidate
+                // frozen forever (FIDL01358).
+                replay
+                    .settle_time_warp_after_rejected_command()
+                    .map_err(|settle_error| SimRealError::InvalidBoundaryContract {
+                        step: error.step,
+                        reason: format!(
+                            "failed to settle queued Time Warp after rejected command: {settle_error}"
+                        ),
+                    })?;
                 rejected_actions += 1;
                 report.action_dispositions[pending_action.action_ordinal] = streaming_disposition(
                     &pending_action,
@@ -890,6 +907,23 @@ fn command_choose_index(command: &str) -> Option<usize> {
     } else {
         None
     }
+}
+
+fn observed_playtime_seconds(state: &TraceState) -> Option<u32> {
+    state
+        .message
+        .pointer("/game_state/playtime_seconds")
+        .and_then(|value| {
+            value.as_f64().or_else(|| {
+                value.as_u64().map(|seconds| seconds as f64).or_else(|| {
+                    value
+                        .as_i64()
+                        .and_then(|seconds| (seconds >= 0).then_some(seconds as f64))
+                })
+            })
+        })
+        .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+        .map(|seconds| seconds.min(u32::MAX as f64).floor() as u32)
 }
 
 fn seed_start_observed_subset(message: &Value) -> Value {
@@ -1177,7 +1211,7 @@ fn combat_card_ids(value: Option<&Value>) -> Vec<String> {
         return Vec::new();
     };
     // Preserve the authoritative boundary's exact visible sequence, including
-    // duplicates, so direct comparison reports every positional difference.
+    // duplicates, for ordinary pile projections.
     cards
         .iter()
         .map(|card| {
@@ -1196,34 +1230,38 @@ fn cards_to_comm_mod_visible_order<'a>(
         .collect()
 }
 
+fn any_color_card_projection_key(pool_key: &str, upgrades: u8) -> String {
+    let mut label: String = pool_key
+        .split('_')
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    format!(
+                        "{}{}",
+                        first.to_ascii_uppercase(),
+                        chars.as_str().to_ascii_lowercase()
+                    )
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    if upgrades > 0 && !label.ends_with('+') {
+        label.push('+');
+    }
+    label
+}
+
 fn simulated_card_projection_key(card: &CardInstance) -> String {
     // Prismatic any-color deck cards must project their pool name (FIDL00288),
     // not the fallback "unknown" from the modeled Ironclad registry.
     if sts_core::content::cards::get_card_definition(card.content_id).is_none() {
         if let Some(key) = sts_core::run::reward::any_color_reward_card_key(card.content_id) {
-            let mut label = key
-                .split('_')
-                .map(|part| {
-                    let mut chars = part.chars();
-                    match chars.next() {
-                        Some(first) => {
-                            format!(
-                                "{}{}",
-                                first.to_ascii_uppercase(),
-                                chars.as_str().to_ascii_lowercase()
-                            )
-                        }
-                        None => String::new(),
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
             // Some CM deck ids omit spaces (HandOfGreed); prefer spaced Title Case
-            // matching reward-screen names like "Blasphemy".
-            if card.upgrades > 0 && !label.ends_with('+') {
-                label.push('+');
-            }
-            return label;
+            // matching reward-screen names like "Blasphemy" / "Empty Body".
+            return any_color_card_projection_key(key, card.upgrades);
         }
     }
     let key = modeled_card_projection_key(card.content_id);
@@ -1606,6 +1644,15 @@ fn grid_trace_choice_label(_run: &RunState, card: &CardInstance) -> String {
     if card.content_id == SEARING_BLOW_PLUS_ID && card.searing_blow_upgrades > 0 {
         return format!("searing blow+{}", card.searing_blow_upgrades);
     }
+    if sts_core::content::cards::is_synthetic_any_color_content_id(card.content_id) {
+        if let Some(key) = sts_core::run::reward::any_color_reward_card_key(card.content_id) {
+            let mut label = key.replace('_', " ").to_ascii_lowercase();
+            if card.upgrades > 0 {
+                label.push('+');
+            }
+            return label;
+        }
+    }
     match card.content_id {
         id if id == STRIKE_R_ID => "strike".to_owned(),
         id if id == DEFEND_R_ID => "defend".to_owned(),
@@ -1910,16 +1957,26 @@ fn card_reward_ids_from_value(value: Option<&Value>) -> Vec<Value> {
     cards
         .iter()
         .map(|card| {
+            let identity = observed_display_card_identity(card)
+                .or_else(|| card.get("id").and_then(Value::as_str).map(str::to_owned));
             if let Some(content_id) = content_id_from_card_value(card) {
+                if sts_core::content::cards::is_synthetic_any_color_content_id(content_id) {
+                    if let Some(pool_key) =
+                        sts_core::run::reward::any_color_reward_card_key(content_id)
+                    {
+                        return json!(normalize_card_identity(pool_key));
+                    }
+                }
                 return json!(content_id.get());
             }
-            let identity = observed_display_card_identity(card)
-                .expect("trace card reward schema was validated before projection");
-            let identity =
-                sts_core::run::reward::any_color_reward_card_key_from_identity(&identity)
-                    .map(normalize_card_identity)
-                    .unwrap_or(identity);
-            json!(identity)
+            if let Some(identity) = identity.as_deref() {
+                if let Some(pool_key) =
+                    sts_core::run::reward::any_color_reward_card_key_from_identity(identity)
+                {
+                    return json!(normalize_card_identity(pool_key));
+                }
+            }
+            json!(identity.expect("trace card reward schema was validated before projection"))
         })
         .collect()
 }
@@ -1933,7 +1990,9 @@ fn normalize_card_identity(value: &str) -> String {
 }
 
 fn simulated_card_reward_identity(content_id: ContentId) -> Value {
-    if sts_core::content::cards::get_card_definition(content_id).is_some() {
+    if !sts_core::content::cards::is_synthetic_any_color_content_id(content_id)
+        && sts_core::content::cards::get_card_definition(content_id).is_some()
+    {
         return json!(content_id.get());
     }
     sts_core::run::reward::any_color_reward_card_key(content_id)
@@ -2256,6 +2315,14 @@ fn seed_start_visible_event_choice_label_for_event(
         // CommunicationMod exposes Designer's fourth service as `punch`,
         // while the game's button text includes the passive `Get punched`.
         (Event::Designer, 1, "get punched") => Some("punch".to_owned()),
+        // CommunicationMod exposes Vampires' Blood Vial option as `lose blood vial`.
+        (Event::Vampires, 0, "give blood vial") => Some("lose blood vial".to_owned()),
+        // CommunicationMod exposes Secret Portal accept as `enter the portal`,
+        // then republishes the follow-up as `leave` instead of `continue`.
+        (Event::SecretPortal, 0, "take the portal") => Some("enter the portal".to_owned()),
+        (Event::SecretPortal, 1, "continue") => Some("leave".to_owned()),
+        // CommunicationMod exposes Red Mask accept as `don the red mask`.
+        (Event::TombOfLordRedMask, 0, "wear mask") => Some("don the red mask".to_owned()),
         // Moai Head CommMod choice_list uses short action tags, not the full
         // effect sentences (FIDL00232: jump inside / offer: golden idol).
         (Event::MoaiHead, 0, label) if label.starts_with("lose ") && label.contains("max hp") => {
@@ -2423,6 +2490,8 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
                     let hidden_by_hand_select = combat.hand_select().is_some_and(|hand_select| {
                         card.id == hand_select.source_card_id
                             || hand_select.selected_hand_index == Some(*index)
+                            || (hand_select.purpose == HandSelectPurpose::ForethoughtPutAnyOnDraw
+                                && hand_select.selected_hand_indices.contains(index))
                             || (hand_select.purpose == HandSelectPurpose::ArmamentsUpgrade
                                 && upgrade_content_id(card.content_id).is_none())
                             || (hand_select.purpose == HandSelectPurpose::DualWieldCopy
@@ -2858,17 +2927,25 @@ fn seed_start_monsters_from_sim(combat: &CombatState, intents_visible: bool) -> 
     combat
         .monsters
         .iter()
-        .map(|monster| {
+        .enumerate()
+        .map(|(index, monster)| {
             let name = seed_start_trace_monster_name(monster);
+            let opening_move_id = combat
+                .opening_turn_pending
+                .then(|| combat.pending_opening_monster_intents.get(index))
+                .flatten()
+                .and_then(|intent| target_move_byte(monster.content_id, *intent));
+            let move_id = opening_move_id
+                .or_else(|| target_move_byte_for_monster(monster))
+                .map(i32::from)
+                .unwrap_or(-1);
             let mut projected = json!({
                 "name": name,
                 "current_hp": monster.hp.max(0),
                 "max_hp": monster.max_hp,
                 "block": monster.block,
                 "intent": seed_start_trace_intent(monster),
-                "move_id": target_move_byte_for_monster(monster)
-                    .map(i32::from)
-                    .unwrap_or(-1),
+                "move_id": move_id,
                 "strength": monster.powers.strength,
                 "ritual": monster.powers.ritual,
                 "vulnerable": monster.powers.vulnerable,
@@ -3094,6 +3171,11 @@ fn content_id_from_card_value(card: &Value) -> Option<ContentId> {
     if upgrades == 0 {
         return Some(base);
     }
+    // Synthetic Prismatic cards retain one content identity and carry their
+    // upgrade count on the instance.
+    if sts_core::content::cards::is_synthetic_any_color_content_id(base) {
+        return Some(base);
+    }
     // CommunicationMod keeps the base `id` while exposing the authoritative
     // instance upgrade count. If a caller supplies an already-upgraded id, a
     // single upgrade is still that same content identity. Repeated upgrades
@@ -3113,12 +3195,27 @@ fn card_content_id_is_upgraded(content_id: ContentId) -> bool {
 
 fn observed_card_projection_key(card: &Value) -> Option<String> {
     let Some(content_id) = content_id_from_card_value(card) else {
-        return observed_display_card_identity(card);
+        let identity = observed_display_card_identity(card)?;
+        if let Some(pool_key) =
+            sts_core::run::reward::any_color_reward_card_key_from_identity(&identity)
+        {
+            let upgrades = card_upgrade_count(card).unwrap_or(0);
+            return Some(any_color_card_projection_key(pool_key, upgrades));
+        }
+        return Some(identity);
     };
     let upgrades = card_upgrade_count(card)?;
-    let key = modeled_card_projection_key(content_id);
+    if sts_core::content::cards::get_card_definition(content_id).is_none() {
+        if let Some(pool_key) = sts_core::run::reward::any_color_reward_card_key(content_id) {
+            return Some(any_color_card_projection_key(pool_key, upgrades));
+        }
+    }
+    let mut key = modeled_card_projection_key(content_id);
     if upgrades > 1 && upgrade_content_id(content_id) == Some(content_id) {
         return Some(format!("{}+{}", key.trim_end_matches('+'), upgrades));
+    }
+    if upgrades > 0 && !key.ends_with('+') {
+        key.push('+');
     }
     Some(key)
 }
@@ -3182,23 +3279,24 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
     use sts_core::content::cards::{
         ANGER_ID, APPARITION_ID, ARMAMENTS_ID, BARRICADE_ID, BASH_ID, BASH_PLUS_ID,
         BATTLE_TRANCE_ID, BERSERK_ID, BLOODLETTING_ID, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID,
-        BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, BURN_ID, CARNAGE_ID, CLASH_ID,
-        CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, COMBUST_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID,
-        DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID, DECAY_ID, DEEP_BREATH_ID, DEFEND_R_ID,
-        DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID, DOUBLE_TAP_ID,
-        DOUBLE_TAP_PLUS_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID, DUAL_WIELD_ID,
-        ENTRENCH_ID, EVOLVE_ID, EXHUME_ID, FEED_ID, FEEL_NO_PAIN_ID, FIEND_FIRE_ID,
-        FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID, GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID,
-        HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID,
-        INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID, JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID,
-        LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID, NECRONOMICURSE_ID, NORMALITY_ID,
-        OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID,
-        PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID,
-        RUPTURE_ID, RUPTURE_PLUS_ID, SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID,
-        SEVER_SOUL_ID, SHAME_ID, SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
-        SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID,
-        TRIP_ID, TRUE_GRIT_ID, TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WILD_STRIKE_ID, WOUND_ID, WRITHE_ID,
+        BLUDGEON_ID, BODY_SLAM_ID, BRUTALITY_ID, BURNING_PACT_ID, BURN_ID, CARNAGE_ID,
+        CHARGE_BATTERY_ANY_COLOR_ID, CLASH_ID, CLEAVE_ID, CLOTHESLINE_ID, CLUMSY_ID, COMBUST_ID,
+        CORRUPTION_ID, CORRUPTION_PLUS_ID, DARK_EMBRACE_ID, DARK_SHACKLES_ID, DAZED_ID, DECAY_ID,
+        DEEP_BREATH_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DISARM_ID, DISCOVERY_ID,
+        DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DOUBT_ID, DRAMATIC_ENTRANCE_ID, DROPKICK_ID,
+        DUAL_WIELD_ID, ENTRENCH_ID, EQUILIBRIUM_ANY_COLOR_ID, EVOLVE_ID, EXHUME_ID, FEED_ID,
+        FEEL_NO_PAIN_ID, FIEND_FIRE_ID, FIRE_BREATHING_ID, FLAME_BARRIER_ID, FLEX_ID,
+        GHOSTLY_ARMOR_ID, HAVOC_ID, HEADBUTT_ID, HEAVY_BLADE_ID, HEMOKINESIS_ID, IMMOLATE_ID,
+        IMMOLATE_PLUS_ID, INFERNAL_BLADE_ID, INFLAME_ID, INJURY_ID, INTIMIDATE_ID, IRON_WAVE_ID,
+        JACK_OF_ALL_TRADES_ID, JUGGERNAUT_ID, LIMIT_BREAK_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID,
+        NECRONOMICURSE_ID, NORMALITY_ID, OFFERING_ID, PAIN_ID, PARASITE_ID, PERFECTED_STRIKE_ID,
+        POMMEL_STRIKE_ID, POWER_THROUGH_ID, PUMMEL_ID, RAGE_ID, RAMPAGE_ID, REAPER_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, REGRET_ID, RUPTURE_ID, RUPTURE_PLUS_ID,
+        SEARING_BLOW_ID, SECOND_WIND_ID, SEEING_RED_ID, SENTINEL_ID, SEVER_SOUL_ID, SHAME_ID,
+        SHOCKWAVE_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        STRIKE_R_ID, SWIFT_STRIKE_ID, SWORD_BOOMERANG_ID, THUNDERCLAP_ID, TRIP_ID, TRUE_GRIT_ID,
+        TWIN_STRIKE_ID, UPPERCUT_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WILD_STRIKE_ID,
+        WOUND_ID, WRITHE_ID,
     };
     match key {
         "Strike_R" | "Strike" => Some(STRIKE_R_ID),
@@ -3313,7 +3411,18 @@ fn content_id_from_key(key: &str) -> Option<ContentId> {
         "Brutality" | "brutality" => Some(BRUTALITY_ID),
         "Exhume" | "exhume" => Some(EXHUME_ID),
         "Trip" | "trip" => Some(TRIP_ID),
-        _ => None,
+        "Conserve Battery" | "conserve battery" => Some(CHARGE_BATTERY_ANY_COLOR_ID),
+        "Undo" | "undo" => Some(EQUILIBRIUM_ANY_COLOR_ID),
+        "ClearTheMind" | "clear the mind" => {
+            sts_core::run::reward::any_color_reward_card_key_from_identity("TRANQUILITY")
+                .map(sts_core::content::shop_pool::shop_card_content_id)
+        }
+        "PathToVictory" | "path to victory" => {
+            sts_core::run::reward::any_color_reward_card_key_from_identity("PRESSURE_POINTS")
+                .map(sts_core::content::shop_pool::shop_card_content_id)
+        }
+        _ => sts_core::run::reward::any_color_reward_card_key_from_identity(key)
+            .map(sts_core::content::shop_pool::shop_card_content_id),
     }
 }
 
@@ -3500,12 +3609,14 @@ fn reward_card_choice_display_key(run: &RunState, card: &CardInstance) -> String
     if card.searing_blow_upgrades > 0 {
         return format!("Searing Blow+{}", card.searing_blow_upgrades);
     }
-    if sts_core::content::cards::get_card_definition(card.content_id).is_none() {
+    if sts_core::content::cards::is_synthetic_any_color_content_id(card.content_id) {
         if let Some(key) = sts_core::run::reward::any_color_reward_card_key(card.content_id) {
             let mut label = key.replace('_', " ");
-            // Synthetic prismatic/any-color reward cards store upgrades on the
-            // instance (no separate + ContentId). CommMod shows `flying knee+`.
-            if card.upgrades > 0 && !label.ends_with('+') {
+            // Synthetic Prismatic cards can be upgraded by the matching Egg even
+            // though they retain one content identity.
+            if (card.upgrades > 0 || egg_preview_upgrade(run, card.content_id).is_some())
+                && !label.ends_with('+')
+            {
                 label.push('+');
             }
             return label;
@@ -3520,7 +3631,10 @@ fn reward_card_choice_display_key(run: &RunState, card: &CardInstance) -> String
 }
 
 fn egg_preview_upgrade(run: &RunState, content_id: ContentId) -> Option<ContentId> {
-    let upgraded = upgrade_content_id(content_id)?;
+    let upgraded = upgrade_content_id(content_id).or_else(|| {
+        sts_core::content::cards::is_synthetic_any_color_content_id(content_id)
+            .then_some(content_id)
+    })?;
     let (card_type, _) = card_type_and_rarity(content_id)?;
     let has_matching_egg = match card_type {
         CardType::Attack => run_has_relic_key(run, RelicKey::MoltenEgg),
@@ -3643,7 +3757,9 @@ fn intent_key(monster: &MonsterState) -> String {
     }
 
     match monster.intent {
-        MonsterIntent::PendingAiRoll => "PENDING_AI_ROLL".to_owned(),
+        // The target publishes event-combat setup while the initial AI action
+        // is still queued; CommunicationMod labels that transient intent DEBUG.
+        MonsterIntent::PendingAiRoll => "DEBUG".to_owned(),
         MonsterIntent::DarklingCount | MonsterIntent::AwakenedOneHalfDead => "UNKNOWN".to_owned(),
         MonsterIntent::Attack { .. }
         | MonsterIntent::AttackAddSlimedToDiscard { .. }

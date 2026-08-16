@@ -1,10 +1,8 @@
 //! Production-path regression tests for the hand-played Discovery lifecycle.
 //!
-//! The installed 600-FPS / 100x-SuperFast target runs the visible offer on
-//! the opening update, then one discarded `generateCardChoices` update when
-//! the player chooses a card. The selected card and the source card are then
-//! settled by the normal simulator transition path; no Discovery RNG or
-//! source-card action remains queued for a later command.
+//! The installed target burns the discarded post-select generateCardChoices
+//! generation on `CHOOSE`, then retrieves the visible card and settles the
+//! source through the ordinary action queue.
 
 use sts_core::{
     apply_combat_action_on_run, apply_run_action, content::cards::DISCOVERY_ID, CardId,
@@ -71,7 +69,7 @@ fn discovery_open_uses_only_the_visible_offer_generation() {
 }
 
 #[test]
-fn discovery_choose_burns_one_discarded_generation_and_closes_source_through_queue() {
+fn discovery_choose_retrieves_visible_offer_and_closes_source_through_queue() {
     let run = run_with_hand_played_discovery();
     let before_counter = run
         .combat
@@ -112,12 +110,12 @@ fn discovery_choose_burns_one_discarded_generation_and_closes_source_through_que
     assert_eq!(
         combat.rng.card_random_rng.counter(),
         open_counter + 3,
-        "CHOOSE consumes one discarded three-card generation"
+        "CHOOSE burns the discarded post-select generateCardChoices generation"
     );
     assert_eq!(
         combat.rng.card_random_rng.counter(),
         before_counter + 6,
-        "there is no cross-command Discovery RNG residual"
+        "open plus discarded generation is the only Discovery RNG residual"
     );
     assert!(combat.decision.is_none(), "the reward closes on CHOOSE");
     assert!(combat.queued_decisions.is_empty());

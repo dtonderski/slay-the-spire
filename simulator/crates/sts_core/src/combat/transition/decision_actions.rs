@@ -34,7 +34,9 @@ pub(super) fn await_hand_select(
         // PutOnDeckAction amount is 1 for Warcry / Warcry+.
         const PUT_ON_DECK_AMOUNT: usize = 1;
         if selectable.len() <= PUT_ON_DECK_AMOUNT {
-            if !selectable.is_empty() {
+            let skip_auto_place = state.skip_put_on_deck_auto_place;
+            state.skip_put_on_deck_auto_place = false;
+            if !selectable.is_empty() && !skip_auto_place {
                 // CardGroup.getRandomCard(cardRandomRng) always draws
                 // random(size-1), including the singleton size==1 case.
                 let mut remaining = selectable.len();
@@ -130,8 +132,10 @@ pub(super) fn await_hand_select(
             .filter(|(_, card)| super::dual_wield_select_allows_card(card))
             .map(|(index, _)| index)
             .collect();
-        if eligible.len() == 1 && !source_started_in_hand {
-            // Force-played Dual Wield already left hand (early exhaust path).
+        if eligible.len() == 1 && dual_wield_force_exhaust {
+            // Force-played Dual Wield (Havoc/Mayhem) does not open a select
+            // when only one Attack/Power remains. PlayTop stages Dual Wield
+            // into hand, so source_started_in_hand is not a force-play signal.
             super::confirm_dual_wield_select(
                 state,
                 source_card_id,
@@ -174,7 +178,15 @@ pub(super) fn await_draw_select(
         state.piles.limbo.push(source);
     }
     let mut selectable_card_ids = Vec::new();
+    if purpose == DrawSelectPurpose::Scry {
+        if let Some(card) = state.piles.draw_pile.last() {
+            selectable_card_ids.push(card.id);
+        }
+    }
     for card in &state.piles.draw_pile {
+        if purpose == DrawSelectPurpose::Scry {
+            continue;
+        }
         let selectable = match purpose {
             DrawSelectPurpose::SecretTechniqueSkillToHand => {
                 crate::content::cards::get_card_definition(card.content_id)
@@ -184,6 +196,7 @@ pub(super) fn await_draw_select(
                 crate::content::cards::get_card_definition(card.content_id)
                     .is_some_and(|definition| definition.card_type == crate::card::CardType::Attack)
             }
+            DrawSelectPurpose::Scry => false,
         };
         if !selectable {
             continue;
@@ -249,24 +262,25 @@ pub(super) fn await_discard_select(
             ));
         };
 
-        if state.monsters.iter().all(|monster| !monster.alive) {
-            if let Some(source_card) = source_card {
-                state.piles.discard_pile.push(source_card);
-            }
-            return Ok(Vec::new());
-        }
+        let force_exhaust = state.play_top_force_exhaust_active;
         if state.piles.discard_pile.is_empty() {
-            if let Some(source_card) = source_card {
-                state.piles.discard_pile.push(source_card);
-            }
+            super::settle_headbutt_source_after_discard_select(state, source_card, force_exhaust)?;
+            state.play_top_force_exhaust_active = false;
             return Ok(Vec::new());
         }
+        // Headbutt's singleton auto-placement is part of the card queue even
+        // when the damage just killed the final monster. Only a multi-card
+        // discard suppresses the player-facing select on a lethal action.
         if state.piles.discard_pile.len() == 1 {
             let selected = state.piles.discard_pile.remove(0);
             state.piles.draw_pile.push(selected);
-            if let Some(source_card) = source_card {
-                state.piles.discard_pile.push(source_card);
-            }
+            super::settle_headbutt_source_after_discard_select(state, source_card, force_exhaust)?;
+            state.play_top_force_exhaust_active = false;
+            return Ok(Vec::new());
+        }
+        if state.monsters.iter().all(|monster| !monster.alive) {
+            super::settle_headbutt_source_after_discard_select(state, source_card, force_exhaust)?;
+            state.play_top_force_exhaust_active = false;
             return Ok(Vec::new());
         }
         state.decision = Some(CombatDecisionState::DiscardSelect {
@@ -274,11 +288,14 @@ pub(super) fn await_discard_select(
                 purpose,
                 source_card_id: Some(source_card_id),
                 source_card,
+                source_card_force_exhaust: force_exhaust,
                 selected_discard_indices: Vec::new(),
                 max_choices: 1,
                 selected_discard_index: None,
+                pending_actions: VecDeque::new(),
             },
         });
+        state.play_top_force_exhaust_active = false;
         return Ok(Vec::new());
     }
     state.decision = Some(CombatDecisionState::DiscardSelect {
@@ -286,9 +303,11 @@ pub(super) fn await_discard_select(
             purpose,
             source_card_id: Some(source_card_id),
             source_card: None,
+            source_card_force_exhaust: false,
             selected_discard_indices: Vec::new(),
             max_choices: 1,
             selected_discard_index: None,
+            pending_actions: VecDeque::new(),
         },
     });
     Ok(Vec::new())
@@ -316,9 +335,11 @@ pub(super) fn await_copied_discard_select(
             purpose,
             source_card_id: None,
             source_card: None,
+            source_card_force_exhaust: false,
             selected_discard_indices: Vec::new(),
             max_choices: 1,
             selected_discard_index: None,
+            pending_actions: VecDeque::new(),
         },
     });
     Ok(Vec::new())
@@ -334,7 +355,8 @@ pub(super) fn await_exhaust_select(
         ExhaustSelectPurpose::BurningPactDraw2
             | ExhaustSelectPurpose::BurningPactDraw3
             | ExhaustSelectPurpose::ExhumeReturnToHand
-            | ExhaustSelectPurpose::TrueGritExhaustOne,
+            | ExhaustSelectPurpose::TrueGritExhaustOne
+            | ExhaustSelectPurpose::RecycleExhaustOne,
     ) {
         if state
             .piles

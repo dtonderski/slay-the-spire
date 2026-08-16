@@ -1,7 +1,7 @@
 use crate::{
     combat::{MonsterState, PlayerState},
     content::monsters::{
-        guardian_on_hp_damage, large_acid_slime_on_hp_damage, mark_awakened_one_half_dead,
+        guardian_on_hp_damage, large_acid_slime_on_hp_damage, mark_awakened_one_half_dead, BYRD_ID,
         DARKLING_ID, GREMLIN_WARRIOR_ID, TRANSIENT_ID,
     },
     ids::{CardId, MonsterId},
@@ -31,7 +31,9 @@ pub struct AttackDamageResult {
 }
 
 pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32) -> i32 {
-    deal_unmodified_damage_to_monster_inner(monster, amount, true)
+    let hp_damage = deal_unmodified_damage_to_monster_inner(monster, amount, true);
+    mark_byrd_death_intent(monster);
+    hp_damage
 }
 
 /// HP_LOSS-style damage (e.g. Charon's Ashes): ignores Block, does not trigger Malleable.
@@ -45,14 +47,13 @@ pub fn deal_hp_loss_damage_to_monster(monster: &mut MonsterState, amount: i32) -
         monster.block = 0;
         if mark_awakened_one_half_dead(monster) {
         } else if monster.content_id == DARKLING_ID {
-            monster.escaped = true;
-            monster.intent = crate::MonsterIntent::DarklingCount;
-            monster.powers = Default::default();
+            mark_darkling_half_dead(monster);
         }
     }
     guardian_on_hp_damage(monster, hp_damage);
     large_acid_slime_on_hp_damage(monster, hp_damage);
     transient_shifting_on_hp_damage(monster, hp_damage);
+    mark_byrd_death_intent(monster);
     hp_damage
 }
 
@@ -115,7 +116,9 @@ pub(crate) fn deal_unmodified_damage_to_monster_deferred_guardian(
     monster: &mut MonsterState,
     amount: i32,
 ) -> i32 {
-    deal_unmodified_damage_to_monster_inner(monster, amount, false)
+    let hp_damage = deal_unmodified_damage_to_monster_inner(monster, amount, false);
+    mark_byrd_death_intent(monster);
+    hp_damage
 }
 
 fn deal_unmodified_damage_to_monster_inner(
@@ -136,9 +139,7 @@ fn deal_unmodified_damage_to_monster_inner(
         if mark_awakened_one_half_dead(monster) {
             // The first death resolves on the Awakened One's next monster turn.
         } else if monster.content_id == DARKLING_ID {
-            monster.escaped = true;
-            monster.intent = crate::MonsterIntent::DarklingCount;
-            monster.powers = Default::default();
+            mark_darkling_half_dead(monster);
         }
     }
     if resolve_guardian_mode_shift {
@@ -148,6 +149,21 @@ fn deal_unmodified_damage_to_monster_inner(
     transient_shifting_on_hp_damage(monster, hp_damage);
 
     hp_damage
+}
+
+fn mark_byrd_death_intent(monster: &mut MonsterState) {
+    if monster.content_id == BYRD_ID
+        && !monster.alive
+        && monster.powers.flight <= 0
+        && monster.move_history.last() == Some(&1)
+        && monster.move_history.iter().rev().nth(1) == Some(&3)
+        && matches!(
+            monster.intent,
+            crate::MonsterIntent::Attack { .. } | crate::MonsterIntent::AttackMultiple { .. }
+        )
+    {
+        monster.intent = crate::MonsterIntent::Stun;
+    }
 }
 
 fn deal_attack_damage_to_monster(
@@ -176,11 +192,10 @@ fn deal_attack_damage_to_monster(
         if mark_awakened_one_half_dead(monster) {
             // The first death resolves on the Awakened One's next monster turn.
         } else if monster.content_id == DARKLING_ID {
-            monster.escaped = true;
-            monster.intent = crate::MonsterIntent::DarklingCount;
-            monster.powers = Default::default();
+            mark_darkling_half_dead(monster);
         }
     }
+    mark_byrd_death_intent(monster);
     let curl_up_block = if monster.alive && hp_damage > 0 && monster.powers.curl_up > 0 {
         let amount = monster.powers.curl_up;
         monster.powers.curl_up = 0;
@@ -320,6 +335,19 @@ pub fn reflect_spikes_to_player(player: &mut PlayerState, relics: &[Relic], spik
     let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut player.powers, mitigated);
     player.hp -= hp_loss;
     hp_loss
+}
+
+fn mark_darkling_half_dead(monster: &mut MonsterState) {
+    // Darkling.damage calls setMove(COUNT) before the queued RollMoveAction.
+    // The later RollMoveAction still consumes an AI draw and sets REINCARNATE;
+    // the queued COUNT move is restored after that action.
+    let queues_count_move = !matches!(monster.intent, crate::MonsterIntent::DarklingCount);
+    monster.escaped = true;
+    monster.intent = crate::MonsterIntent::DarklingCount;
+    monster.powers = Default::default();
+    if queues_count_move {
+        crate::content::monsters::record_target_move(monster);
+    }
 }
 
 #[cfg(test)]

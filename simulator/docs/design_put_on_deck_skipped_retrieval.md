@@ -63,9 +63,18 @@ as Combust kill the last enemy), the limbo card never enters discard and is
 not carried as a cross-combat residual discard instance. Master deck still
 supplies the live copy next combat. Injecting a residual here falsely
 lengthens the next combat's discard (`null != "Dropkick"` on
-`random-fidelity-f3c0d2bea83d9313`). Burning Pact deferred exhaust selection
-is different: its `pending_hidden` is set at CONFIRM and may legitimately
-need a residual after a mid-turn lethal blow (`random-fidelity-6e6f4f8c`).
+`random-fidelity-f3c0d2bea83d9313`).
+
+A mid-turn lethal PLAY after skipped Warcry/Thinking Ahead/Forethought is
+different: no END ran, so `selectedCards` stays on the singleton screen. The
+next combat shuffles in the live master-deck copy, and a later END can publish
+the leftover instance beside it with the same observed UUID (FIDL01365 Strike,
+FIDL01467 Thunderclap, FIDL01795 Headbutt). The verifier remints a transient
+instance id so both copies stay unique. An empty-hand END in the same combat
+does not consume that window.
+
+Burning Pact deferred exhaust selection uses the same residual publication
+after a mid-turn lethal blow (`random-fidelity-6e6f4f8c`, FIDL01323).
 
 The supported single-card sources are Warcry, Thinking Ahead, and base
 Forethought. Forethought+ can select multiple cards and requires a separate
@@ -82,3 +91,10 @@ card auto-completes: no HAND_SELECT / CHOOSE / CONFIRM, and END is immediately
 legal (`random-fidelity-58c2f0f27ef22764` step 468–469). The core
 `AwaitHandSelect` path for `WarcryPutOnDraw` mirrors that size gate using the
 non-source hand (limbo stand-in) and advances `card_random_rng` on auto-place.
+
+If that auto-place update never runs — the same SuperFastMode skipped-retrieval
+family as a confirmed PutOnDeckAction — Warcry still exhausts and the drawn card
+stays in hand. `getRandomCard` is not burned. The ordinary auto-put path remains
+authoritative; the verifier may accept the skipped candidate only when the
+complete observed combat subset matches it and the ordinary put-back does not.
+Witnesses: FIDL01308, FIDL01461, FIDL01620.

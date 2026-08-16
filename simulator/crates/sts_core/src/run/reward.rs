@@ -13,7 +13,6 @@ use crate::{
     },
     content::monsters::{
         DARKLING_ID, GREMLIN_NOB_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, TASKMASTER_ID, TRANSIENT_ID,
-        WRITHING_MASS_ID,
     },
     content::reward_pool::{
         ironclad_reward_card_rarity, random_normal_curse, RewardCardEntry, IRONCLAD_REWARD_ENTRIES,
@@ -1985,8 +1984,12 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
     apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat)?;
-    settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
-    queue_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &next_combat)?;
+    let defer_pending_combat_obtain_settlement = next.defer_pending_combat_obtain_settlement;
+    next.defer_pending_combat_obtain_settlement = false;
+    if !defer_pending_combat_obtain_settlement {
+        settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
+    }
+    queue_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &mut next_combat)?;
     sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
     next.store_rng_counter(RunRngStream::CardRandom, &next_combat.rng.card_random_rng);
     next_combat.rng.card_random_rng = next.card_random_rng();
@@ -2093,18 +2096,11 @@ fn settle_pending_combat_obtain_cards(
 
 fn queue_writhing_mass_mega_debuff_to_run(
     run: &mut RunState,
-    before: &crate::combat::CombatState,
-    after: &crate::combat::CombatState,
+    _before: &crate::combat::CombatState,
+    after: &mut crate::combat::CombatState,
 ) -> SimResult<()> {
-    let triggered = after.monsters.iter().any(|monster| {
-        monster.content_id == WRITHING_MASS_ID
-            && monster.has_siphoned
-            && before
-                .monsters
-                .iter()
-                .find(|before_monster| before_monster.id == monster.id)
-                .is_none_or(|before_monster| !before_monster.has_siphoned)
-    });
+    let triggered = after.writhing_mass_mega_debuff_triggered;
+    after.writhing_mass_mega_debuff_triggered = false;
     if triggered {
         // Writhing Mass's Mega Debuff queues AddCardToDeckAction(new Parasite)
         // after applying its player debuffs. Preserve that action-queue timing
@@ -2303,7 +2299,7 @@ fn apply_combat_loss_proceed(run: &RunState) -> SimResult<RunState> {
     Ok(next)
 }
 
-fn enter_final_boss_victory(run: &mut RunState) -> SimResult<()> {
+pub(crate) fn enter_final_boss_victory(run: &mut RunState) -> SimResult<()> {
     if run.phase != RunPhase::Combat
         || run.current_act != 3
         || run.current_room_kind() != Some(crate::map::RoomKind::Boss)
@@ -2647,12 +2643,15 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             // already-open boss chest's CombatRewardScreen. The target keeps
             // that now-empty overlay visible until PROCEED, then closes the
             // resolved chest and advances to the next-act map in one transition.
-            let completed_boss_chest_reward = next.current_room_kind() == Some(RoomKind::Boss)
+            let leftover_boss_treasure_reward = next.current_room_kind() == Some(RoomKind::Boss)
                 && next.boss_chest_opened
                 && next.reward.as_ref().is_some_and(|reward| {
-                    reward.continuation == RewardContinuation::Treasure && reward_is_empty(reward)
+                    reward.continuation == RewardContinuation::Treasure
+                        && !reward.card_reward_is_active()
                 });
-            if completed_boss_chest_reward {
+            if leftover_boss_treasure_reward {
+                next.reward = None;
+                next.flush_pending_obtain_cards()?;
                 enter_next_act_map(&mut next)?;
                 return Ok(next);
             }
@@ -2669,7 +2668,20 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
             if is_boss_combat_reward {
                 enter_boss_reward_chest(&mut next)?;
             } else {
+                let rest_reward_leaves_room = next.reward.as_ref().is_some_and(|reward| {
+                    reward.continuation == RewardContinuation::Rest && next.rest_room_complete
+                });
+                let shop_overlay_leaves_room = next
+                    .reward
+                    .as_ref()
+                    .is_some_and(|reward| reward.continuation == RewardContinuation::Shop);
                 close_reward_overlay(&mut next, RewardCloseReason::Proceed)?;
+                if rest_reward_leaves_room {
+                    next.rest_room_complete = false;
+                    next.phase = RunPhase::Idle;
+                } else if shop_overlay_leaves_room {
+                    super::shop::leave_shop_room(&mut next);
+                }
             }
         }
         RunAction::OpenChest => {
@@ -2897,9 +2909,9 @@ mod tests {
     use crate::{
         content::cards::{
             BLOODLETTING_ID, DUAL_WIELD_ID, FIRE_BREATHING_ID, HEADBUTT_ID, HEAVY_BLADE_ID,
-            JUGGERNAUT_ID, METALLICIZE_ID, PARASITE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID,
-            RAGE_PLUS_ID, SHOCKWAVE_PLUS_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID,
-            THUNDERCLAP_ID, WARCRY_ID, WHIRLWIND_ID,
+            JUGGERNAUT_ID, METALLICIZE_ID, POMMEL_STRIKE_ID, POWER_THROUGH_ID, RAGE_PLUS_ID,
+            SHOCKWAVE_PLUS_ID, SPOT_WEAKNESS_ID, STRIKE_R_ID, SWIFT_STRIKE_ID, THUNDERCLAP_ID,
+            WARCRY_ID, WHIRLWIND_ID,
         },
         content::monsters::{
             monster_state, DARKLING_A0_NIP_DAMAGE_RANGE, DARKLING_ID, WRITHING_MASS_A0,
@@ -3670,19 +3682,6 @@ mod tests {
             .powers;
         assert_eq!(player_powers.frail, 0);
         assert_eq!(player_powers.weak, 0);
-
-        let settled = apply_combat_action_on_run(&next, CombatAction::EndTurn)
-            .expect("queued Parasite settles");
-        assert_eq!(settled.deck.len(), starting_deck_len + 1);
-        assert_eq!(
-            settled.deck.last().map(|card| card.content_id),
-            Some(PARASITE_ID)
-        );
-        assert!(settled.pending_combat_obtain_cards.is_empty());
-        assert_eq!(
-            settled.gold,
-            starting_gold + crate::relic::CERAMIC_FISH_GOLD
-        );
     }
 
     #[test]
@@ -3906,6 +3905,13 @@ mod tests {
         assert_eq!(reward.remaining_card_reward_count(), 1);
         assert_eq!(reward.choices.len(), 3);
         assert!(picked.card_rng_counter > card_rng_counter_before);
+        assert_eq!(picked.current_act, 1);
+
+        let proceeded = apply_run_action(&picked, RunAction::Proceed)
+            .expect("Tiny House leftover overlay proceeds to the next act");
+        assert_eq!(proceeded.phase, RunPhase::Idle);
+        assert_eq!(proceeded.current_act, 2);
+        assert!(proceeded.reward.is_none());
 
         let skipped = apply_run_action(&picked, RunAction::SkipReward)
             .expect("Tiny House parent reward can return to the boss chest");

@@ -3,11 +3,13 @@
 ## Decision
 
 `havoc_queue` normally plays the forced top card before settling Havoc when the
-draw pile is empty. For a non-exhausting Havoc with an empty draw pile, it may
-settle Havoc first only when the Java-equivalent reshuffle preview (including
-the source in discard) makes the forced card Headbutt/Headbutt+. This preserves
-Headbutt's discard-to-draw selection of the played source. The source-included
-preview is disabled while Dark Embrace is active.
+draw pile is empty **and the source does not exhaust**. For a non-exhausting
+Havoc with an empty draw pile, it may settle Havoc first only when the
+Java-equivalent reshuffle preview (including the source in discard) makes the
+forced card Headbutt/Headbutt+. This preserves Headbutt's discard-to-draw
+selection of the played source. The source-included preview is disabled while
+Dark Embrace is active. Corruption / exhaust Havoc is always settle-first;
+see `design_corruption_havoc_dead_branch_order.md`.
 
 ## Evidence
 

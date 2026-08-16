@@ -283,6 +283,9 @@ fn is_affordable(
     if definition.id == TRANSMUTATION_ID || definition.id == TRANSMUTATION_PLUS_ID {
         return Ok(true);
     }
+    if card.free_to_play_once {
+        return Ok(true);
+    }
     Ok(state.player.energy
         >= effective_card_cost_with_corruption(card, state.player.powers.corruption > 0)?)
 }

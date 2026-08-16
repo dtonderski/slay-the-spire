@@ -461,11 +461,13 @@ pub(super) fn apply_act_one_event_action(
             0 if choice_index == 2 => {
                 let act = next.current_act;
                 let key = super::super::super::reward::roll_event_relic_reward(next, act);
-                next.gain_relic_key(key)?;
-                // Target source uses ShowCardAndObtainEffect for the curse; the
-                // relic is obtained immediately, but the card reaches the deck
-                // when that visual effect resolves.
+                // Target source queues the fixed Regret obtain before the
+                // relic's obtain hook runs. This matters when the rolled relic
+                // is Omamori: the new relic cannot block this already-created
+                // curse effect, even though both become visible on the next
+                // event frame.
                 next.queue_pending_obtain_card(REGRET_ID);
+                next.gain_relic_key(key)?;
                 next.event = Some(EventScreen {
                     event: Event::BigFish,
                     choices: big_fish_choices(1),
