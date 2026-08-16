@@ -113,45 +113,23 @@ map/reward/shop generation.
 
 ## Cursor Cloud specific instructions
 
-Cloud has no Slay the Spire game / CommunicationMod bridge, so the interactive
-live UI operator console (`sts_live`'s `live-trace serve` + the Vite UI) is out
-of the Cloud dev loop. The supported Cloud scope is **`sts_verify` (the strict
-trace verifier) and `py_sts` (the Python bindings)**. The `sts_live` crate still
-exists in the workspace, but do not expect to run its UI/game-bridge flows here.
+Environment build/setup lives in `.cursor/` (`environment.json` → `Dockerfile` →
+`install.sh`); edit those, not a dashboard snapshot, to change toolchains or
+setup. Supported Cloud scope is `sts_verify` and `py_sts`; the `sts_live` live UI
+needs a real game/CommunicationMod bridge that cannot run here. The notes below
+are non-obvious caveats not captured by those files:
 
-The base snapshot already has the toolchains and system libraries; the startup
-update script only rebuilds the Python extension
-(`uv sync --project simulator/python --reinstall-package sts-sim`). `uv` lives at
-`~/.local/bin` and is on `PATH` via `~/.bashrc`.
-
-- Toolchain: build with **stable Rust ≥ 1.87**. There is no committed
-  `Cargo.lock`, so Cargo resolves transitive deps (e.g. `ruzstd 0.8.3`) that
-  need `edition2024`; the older 1.83 toolchain fails to parse them. The snapshot
-  pins `rustup default stable`.
-- `sts_verify` only depends on `sts_core` + serde, so plain `cargo` is enough
-  (no `uv`/`libpython`/`libsqlite3` needed): `cargo build -p sts_verify`,
-  `cargo clippy -p sts_verify --all-targets -- -D warnings`,
-  `cargo test -p sts_verify`.
-- `py_sts` is a `cdylib` that links `libpython3.12` (dev lib baked into the
-  snapshot). Build/refresh it with the update-script command above (canonical
-  per `docs/python_fair_api.md`); then `uv run --project python ty check` and
-  `uv run --project python pytest -q python/tests`. Note: building the full Cargo
-  workspace (`cargo build/test --workspace`) also compiles `py_sts` (libpython)
-  and `sts_live` (system `libsqlite3`, because `rusqlite` uses `bundled-windows`
-  which does not bundle SQLite on Linux); both dev libs are in the snapshot, and
-  `uv run --python 3.12 cargo <cmd> --workspace` is the recommended wrapper.
-- `py_sts` clean-checkout caveats unrelated to setup: `pytest`
-  `test_content_catalogues_are_complete_python_enums` fails because its hardcoded
-  card count is stale vs. the current content catalogue, and Ruff reports one
-  `F401` unused import in `python/notebooks/fair_combat_playground.ipynb`. The
-  extension itself builds, imports, and drives a run; `ty check` and the other
-  `pytest` cases pass.
-- Verifier `parity`/`status` need the external ~15 GB `permanent_traces/` corpus,
-  which is gitignored and absent from a clean checkout. Cloud Builds provision it
-  from the private `dtonderski/sts-permanent-traces` Hugging Face dataset via
-  `.cursor/environment.json` → `tools/hf_corpus.sh download`, which requires an
-  `HF_TOKEN` read secret (see the `### Cursor Cloud` note above and
-  `simulator/docs/verification.md`). Without `HF_TOKEN` the download fails
-  (`error: HF_TOKEN is required ...`); until it is set, exercise the verifier
-  with the committed fixture instead: `cargo run -p sts_verify --bin sts_verify
-  -- corpus manual/milestone1.jsonl` plus the `milestone*` integration tests.
+- `HF_TOKEN` (the corpus download in `.cursor/install.sh`) must be available **at
+  build time**, not runtime-only — a runtime-only secret makes the Build's
+  download fail (`error: HF_TOKEN is required ...`). Without the corpus, exercise
+  the verifier with the committed fixture: `cargo run -p sts_verify --bin
+  sts_verify -- corpus manual/milestone1.jsonl` plus the `milestone*` tests.
+- `cargo test --workspace` has one parallelism-sensitive test,
+  `rng::tests::rng_trace_capture_restores_disabled_fast_path_after_panic` (it
+  asserts on the process-global `RNG_TRACE_ACTIVE` counter). Run it in isolation
+  or with `-- --test-threads=1`; it is a harness race, not a simulator bug.
+- Two `py_sts` failures are pre-existing in a clean checkout, not setup breakage:
+  `pytest test_content_catalogues_are_complete_python_enums` (its hardcoded card
+  count is stale vs. the catalogue) and a Ruff `F401` in
+  `python/notebooks/fair_combat_playground.ipynb`. `ty check` and the rest of
+  `pytest` pass.
