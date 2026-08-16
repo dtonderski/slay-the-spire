@@ -147,6 +147,11 @@ update script only rebuilds the Python extension
   extension itself builds, imports, and drives a run; `ty check` and the other
   `pytest` cases pass.
 - Verifier `parity`/`status` need the external ~15 GB `permanent_traces/` corpus,
-  which is gitignored and absent from a clean checkout. Exercise the verifier
+  which is gitignored and absent from a clean checkout. Cloud Builds provision it
+  from the private `dtonderski/sts-permanent-traces` Hugging Face dataset via
+  `.cursor/environment.json` → `tools/hf_corpus.sh download`, which requires an
+  `HF_TOKEN` read secret (see the `### Cursor Cloud` note above and
+  `simulator/docs/verification.md`). Without `HF_TOKEN` the download fails
+  (`error: HF_TOKEN is required ...`); until it is set, exercise the verifier
   with the committed fixture instead: `cargo run -p sts_verify --bin sts_verify
   -- corpus manual/milestone1.jsonl` plus the `milestone*` integration tests.
