@@ -110,3 +110,45 @@ evidence.
 
 Read `docs/research.md` before touching RNG, action queue, save loading, or
 map/reward/shop generation.
+
+## Cursor Cloud specific instructions
+
+The base snapshot already has the toolchains and system libraries below; the
+startup update script only refreshes the UI (`npm ci`) and the Python
+extension (`uv sync --project simulator/python --reinstall-package sts-sim`).
+`uv` lives at `~/.local/bin` and is on `PATH` via `~/.bashrc`.
+
+- Toolchain: build with **stable Rust ≥ 1.87**. There is no committed
+  `Cargo.lock`, so Cargo resolves transitive deps (e.g. `ruzstd 0.8.3`) that
+  need `edition2024`; the older 1.83 toolchain fails to parse them. The snapshot
+  pins `rustup default stable`.
+- Full-workspace Cargo commands build extra crates that need system libraries:
+  `py_sts` links `libpython3.12` and `sts_live` links system `libsqlite3`
+  (because `rusqlite` uses the `bundled-windows` feature, which does *not* bundle
+  SQLite on Linux). Both `libpython3.12-dev`/`python3.12-dev` and
+  `libsqlite3-dev` are baked into the snapshot. Run workspace commands as
+  `uv run --python 3.12 cargo <cmd> --workspace` (this is what root/simulator
+  AGENTS already recommend). The default-members commands (`cargo build`,
+  `cargo test` from `simulator/`) exclude `py_sts` and need neither extra lib.
+- `cargo test --workspace` has one parallelism-sensitive test,
+  `rng::tests::rng_trace_capture_restores_disabled_fast_path_after_panic`: it
+  asserts on the process-global `RNG_TRACE_ACTIVE` counter and can fail when
+  other `capture_rng_trace` tests run concurrently. It passes reliably in
+  isolation or with `-- --test-threads=1`. This is a test-harness race, not a
+  simulator bug.
+- Live UI stack: run `simulator/target/debug/live-trace serve --addr
+  127.0.0.1:8800` for the backend and `npm run dev` (port 5173) in
+  `simulator/crates/sts_live/ui`. Headless, the UI loads and shows
+  "Backend connected", but gameplay controls (start run, send actions) need a
+  real CommunicationMod game bridge that cannot run here, so `/bridges` stays
+  empty; the SlayTheData search needs an external SQLite DB that is not present.
+- Verifier `parity`/`status` need the external ~15 GB `permanent_traces/` corpus,
+  which is gitignored and absent from a clean checkout. Exercise the verifier
+  with the committed fixture instead: `cargo run -p sts_verify --bin sts_verify
+  -- corpus manual/milestone1.jsonl` plus the `milestone*` integration tests.
+- Python bindings (optional): a clean checkout has two pre-existing failures
+  unrelated to environment setup — `pytest` test
+  `test_content_catalogues_are_complete_python_enums` (hardcoded count is stale
+  vs. the current content catalogue) and a Ruff `F401` unused import in
+  `python/notebooks/fair_combat_playground.ipynb`. `uv run --project python ty
+  check` passes and the rest of `pytest` passes.
