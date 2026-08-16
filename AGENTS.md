@@ -113,12 +113,14 @@ map/reward/shop generation.
 
 ## Cursor Cloud specific instructions
 
-Environment build/setup lives in `.cursor/` (`environment.json` → `Dockerfile`,
-`install.sh` at build time, `start.sh` at boot); edit those, not a dashboard
-snapshot, to change toolchains or setup. Supported Cloud scope is `sts_verify`
-and `py_sts`; the `sts_live` live UI needs a real game/CommunicationMod bridge
-that cannot run here. The notes below are non-obvious caveats not captured by
-those files:
+Environment setup lives in `.cursor/`: `install.sh` (via `environment.json`
+`install`) installs newest stable Rust plus `uv`/`libpython3.12-dev` and builds
+`py_sts` on Cursor's default image — no custom Dockerfile, so it works for
+just-in-time agents too — and `start.sh` downloads the corpus at boot. Edit those
+files, not a dashboard snapshot. Supported Cloud scope is `sts_verify` and
+`py_sts`; the `sts_live` live UI needs a real game/CommunicationMod bridge that
+cannot run here. The notes below are non-obvious caveats not captured by those
+files:
 
 - The trace corpus is downloaded at **boot** by `.cursor/start.sh`, not during
   the Build, because `HF_TOKEN` is a runtime-only secret (unavailable to the
