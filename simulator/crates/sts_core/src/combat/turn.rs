@@ -588,10 +588,16 @@ pub fn apply_pending_nilry_end_powers(state: &mut CombatState) -> SimResult<()> 
         return Ok(());
     }
     let mut deferred_monster_deaths = Vec::new();
+    // WeakPower.atEndOfRound waits until after takeTurn. This leftover
+    // atEndOfTurn window still ticks Frail/plated for the two-step display,
+    // but decrementing Weak here drops it a turn early (FIDL01727 Perfected
+    // Strike 19 through Weak 1, not 26).
+    let weak = state.player.powers.weak;
     crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand_deferred(
         state,
         &mut deferred_monster_deaths,
     )?;
+    state.player.powers.weak = weak;
     state.nilrys_end_powers_pending = false;
     Ok(())
 }
@@ -6285,6 +6291,39 @@ mod tests {
             Some(crate::combat::CombatDecisionState::NilrysCodexCardReward { .. })
         ));
         assert!(next.resume_end_turn_after_nilrys_codex);
+    }
+
+    #[test]
+    fn nilry_stage_three_close_does_not_tick_weak_before_monster_turn() {
+        use crate::relic::Relic;
+        use crate::run::potion::apply_combat_card_reward_skip;
+        use crate::RunState;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.relics = vec![Relic::NilrysCodex];
+        combat.resume_end_turn_after_nilrys_codex = true;
+        combat.nilrys_codex_end_turn_stage = 3;
+        combat.nilrys_duplicate_monster_queue = true;
+        combat.nilrys_end_powers_pending = true;
+        combat.player.powers.weak = 1;
+        combat.piles.hand.clear();
+        combat.piles.draw_pile = (1..=8)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        crate::relic::open_nilrys_codex_card_reward(combat).expect("second offer");
+
+        let next = apply_combat_card_reward_skip(&run).expect("skip second offer");
+        assert_eq!(
+            next.combat
+                .as_ref()
+                .expect("combat remains")
+                .player
+                .powers
+                .weak,
+            1,
+            "WeakPower.atEndOfRound waits until after takeTurn"
+        );
     }
 
     #[test]
