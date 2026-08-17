@@ -165,8 +165,8 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
             // second offer still shows pre-tick durations (FIDL01597). Combust
             // LoseHP / DamageAll was already queued behind the first Codex and
             // resolves on this leftover EndTurn (FIDL01727: 8975→8974, Sentry
-            // 36→31, Barricade block 59→54). Do not loseBlock here — Barricade
-            // keeps residual block until the real monster-turn start.
+            // 36→31, Barricade block 59→54). Ordinary monsters still loseBlock
+            // here; Spheric Guardian keeps residual block.
             next.nilrys_end_powers_pending = true;
             let mut deferred_deaths = Vec::new();
             crate::combat::turn_powers::apply_deferred_end_of_turn_combust(
@@ -174,6 +174,10 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
                 &mut deferred_deaths,
             )?;
             let _ = deferred_deaths;
+            // Leftover EndTurn can reach monster loseBlock before takeTurn
+            // (FIDL01727 Collector 30→0 on the second Codex). Spheric Guardian
+            // Barricade is excluded from that clear (FIDL01727 Sentry fight).
+            clear_living_monster_block(&mut next);
         } else {
             next.nilrys_codex_end_turn_stage = 0;
             next.resume_end_turn_after_nilrys_codex = false;
@@ -6267,8 +6271,8 @@ mod tests {
             "hand is discarded before offer two"
         );
         assert_eq!(
-            next.monsters[0].block, 3,
-            "Combust hits Barricade block; loseBlock waits for monster turn"
+            next.monsters[0].block, 0,
+            "Combust hits, then leftover loseBlock clears non-Barricade block"
         );
         assert_eq!(next.player.hp, 49, "Combust LoseHP on leftover EndTurn");
         assert_eq!(next.piles.discard_pile.len(), 2);
@@ -6281,6 +6285,29 @@ mod tests {
             Some(crate::combat::CombatDecisionState::NilrysCodexCardReward { .. })
         ));
         assert!(next.resume_end_turn_after_nilrys_codex);
+    }
+
+    #[test]
+    fn nilry_leftover_end_keeps_spheric_guardian_barricade_block() {
+        use crate::relic::Relic;
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::NilrysCodex];
+        state.resume_end_turn_after_nilrys_codex = true;
+        state.nilrys_codex_end_turn_stage = 2;
+        state.piles.hand.clear();
+        state.nilrys_end_powers_pending = true;
+        state.player.powers.combust = 1;
+        state.player.powers.combust_damage = 5;
+        let mut guardian = monster_state_for_ascension(&SPHERIC_GUARDIAN_A0, MonsterId::new(1), 0);
+        guardian.block = 59;
+        guardian.hp = 20;
+        state.monsters = vec![guardian];
+
+        let next = end_player_turn(&state).expect("second Nilry offer opens");
+        assert_eq!(
+            next.monsters[0].block, 54,
+            "Barricade keeps residual block after Combust on leftover EndTurn"
+        );
     }
 
     #[test]
