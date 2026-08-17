@@ -11339,11 +11339,11 @@ mod tests {
             CardInstance::new(CardId::new(1), WARCRY_ID),
             CardInstance::new(CardId::new(2), REGRET_ID),
             CardInstance::new(CardId::new(3), POMMEL_STRIKE_PLUS_ID),
-            CardInstance::new(CardId::new(4), REAPER_ID),
         ];
         state.piles.draw_pile = vec![
             CardInstance::new(CardId::new(5), BASH_ID),
             CardInstance::new(CardId::new(6), CLEAVE_ID),
+            CardInstance::new(CardId::new(4), REAPER_ID),
         ];
         state.piles.discard_pile.clear();
         state.monsters[0].content_id = crate::content::monsters::TIME_EATER_ID;
