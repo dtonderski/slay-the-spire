@@ -754,6 +754,21 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         }
     }
 
+    if matches!(follow_up, InternalAction::DrawCards { .. }) {
+        // PlayTopCardAction parks the selected card on the card queue, then the
+        // action queue continues through UseCardAction. Dark Embrace's addToBot
+        // DrawCardAction therefore consumes leftover draw before the parked card
+        // is serviced. Otherwise a nested empty-draw Havoc PlayTops the leftover
+        // Defend after popping the discarded parent (FIDL01677).
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::ResolveTopDrawCard { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
     queue.push_back(follow_up);
 }
 
@@ -6634,6 +6649,93 @@ mod tests {
                 .iter()
                 .any(|c| c.content_id == HAVOC_ID),
             "source Havoc settles to discard under mixed empty-draw PlayTop-first"
+        );
+    }
+
+    #[test]
+    fn nested_havoc_empty_draw_dark_embrace_playtops_parent_not_defend() {
+        // FIDL01677 step 217: hand Havoc, draw Havoc, discard Defend, Dark Embrace.
+        // Observed: both Havocs exhaust, Defend is drawn, block stays 5.
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 2;
+        state.player.block = 5;
+        state.player.powers.dark_embrace = 1;
+        state.player.powers.metallicize = 3;
+        state.relics = vec![
+            Relic::BurningBlood,
+            Relic::NeowsLament,
+            Relic::BagOfPreparation,
+            Relic::StrikeDummy,
+        ];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(14), HAVOC_ID),
+            CardInstance::new(CardId::new(22), FLAME_BARRIER_PLUS_ID),
+            CardInstance::new(CardId::new(10), BASH_ID),
+            CardInstance::new(CardId::new(15), ARMAMENTS_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(29), HAVOC_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(9), DEFEND_R_ID)];
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, MonsterId::new(1))];
+        state.monsters[0].hp = 111;
+        state.monsters[0].max_hp = 240;
+        state.rng.shuffle_rng =
+            StsRng::from_raw_state(14238308195503378694, 13957919737925544295, 15);
+        state.rng.card_random_rng =
+            StsRng::from_raw_state(3406355565463945630, 14238308195503378694, 14);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(14),
+                target: None,
+            },
+        )
+        .expect("play hand Havoc into nested Havoc");
+
+        let hand: Vec<_> = next
+            .piles
+            .hand
+            .iter()
+            .map(|c| (c.id, c.content_id))
+            .collect();
+        let draw: Vec<_> = next
+            .piles
+            .draw_pile
+            .iter()
+            .map(|c| (c.id, c.content_id))
+            .collect();
+        let discard: Vec<_> = next
+            .piles
+            .discard_pile
+            .iter()
+            .map(|c| (c.id, c.content_id))
+            .collect();
+        let exhaust: Vec<_> = next
+            .piles
+            .exhaust_pile
+            .iter()
+            .map(|c| (c.id, c.content_id))
+            .collect();
+        assert_eq!(next.player.block, 5, "Defend must be drawn, not PlayTop'd");
+        assert!(
+            hand.iter()
+                .any(|(id, content)| *id == CardId::new(9) && *content == DEFEND_R_ID),
+            "Dark Embrace draws leftover Defend before nested parent Havoc resolves: {hand:?}"
+        );
+        assert!(draw.is_empty(), "draw should be empty, got {draw:?}");
+        assert!(
+            discard.is_empty(),
+            "discard should be empty, got {discard:?}"
+        );
+        assert!(
+            exhaust.contains(&(CardId::new(14), HAVOC_ID))
+                && exhaust.contains(&(CardId::new(29), HAVOC_ID)),
+            "both Havocs exhaust: {exhaust:?}"
+        );
+        assert!(
+            !exhaust.iter().any(|(id, _)| *id == CardId::new(9)),
+            "Defend must not be force-played: {exhaust:?}"
         );
     }
 
