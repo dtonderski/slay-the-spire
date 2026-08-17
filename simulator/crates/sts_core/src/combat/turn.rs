@@ -2195,7 +2195,11 @@ fn apply_monster_pending_effects(
     crate::relic::settle_deferred_hp_loss_draw_relics(state)?;
     settle_deferred_painful_stabs_wounds(state, painful_stabs_triggers)?;
     if weak > 0 {
+        let had_no_weak = state.player.powers.weak == 0;
         crate::relic::apply_player_weak_with_relics(&mut state.player.powers, &state.relics, weak)?;
+        if had_no_weak && state.player.powers.weak > 0 {
+            state.player.weak_just_applied = true;
+        }
     }
     apply_attack_heal_self_after_player_damage(state, heal_self, total_hp_damage)?;
     apply_attack_heal_self_thorns_after_heal(state, heal_self, heal_self_thorns);
@@ -2425,7 +2429,7 @@ fn prepare_next_intent_for_actor(state: &mut CombatState, actor_id: MonsterId) -
     // Two leftover EndTurns each queue a MonsterQueueItem, then two
     // RollMoveActions. takeTurn must not consume those rolls (FIDL01597:
     // Gremlin Wizard stays on CHARGE / UNKNOWN after the pair).
-    if state.nilrys_duplicate_monster_queue {
+    if state.nilrys_duplicate_monster_queue || state.nilrys_skip_post_queue_rolls {
         return Ok(());
     }
     prepare_next_intents_for_ids(state, Some(&[actor_id]))

@@ -147,11 +147,15 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                 // before DiscardAtEndOfTurnAction. Runic Pyramid only skips the bulk
                 // hand discard — it does not keep auto-played curses (FIDL00288).
                 DOUBT_ID => {
+                    let had_no_weak = state.player.powers.weak == 0;
                     crate::relic::apply_player_weak_with_relics(
                         &mut state.player.powers,
                         &state.relics,
                         1,
                     )?;
+                    if had_no_weak && state.player.powers.weak > 0 {
+                        state.player.weak_just_applied = true;
+                    }
                     true
                 }
                 SHAME_ID => {

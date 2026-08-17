@@ -2143,6 +2143,101 @@ fn deferred_leftover_rejected_play_candidate(
         .then_some(discarded)
 }
 
+/// SuperFastMode can execute the mirrored 1-based hand index (FIDL01727
+/// PLAY 1191: Ghostly Armor is PLAY 5 in display order, PLAY 1 in the command).
+fn deferred_reversed_play_index_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    default_next: &RunState,
+    post: &TraceState,
+) -> Option<RunState> {
+    let (card_id, target) = match decision {
+        RunDecisionAction::Combat(CombatAction::PlayCard { card_id, target }) => (card_id, target),
+        _ => return None,
+    };
+    let observed = seed_start_combat_observed_subset(&post.message);
+    if subset_diffs(
+        observed.clone(),
+        seed_start_simulated_combat_subset(default_next),
+    )
+    .is_empty()
+    {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    let index = combat
+        .piles
+        .hand
+        .iter()
+        .position(|card| card.id == card_id)?;
+    let mirrored = combat.piles.hand.len().checked_sub(index + 1)?;
+    let mirrored_id = combat.piles.hand.get(mirrored)?.id;
+    if mirrored_id == card_id {
+        return None;
+    }
+    let applied = apply_run_decision_action(
+        source,
+        RunDecisionAction::Combat(CombatAction::PlayCard {
+            card_id: mirrored_id,
+            target,
+        }),
+    )
+    .ok()?;
+    if !applied.pending_external_rng.is_empty() || applied.validate().is_err() {
+        return None;
+    }
+    subset_diffs(observed, seed_start_simulated_combat_subset(&applied))
+        .is_empty()
+        .then_some(applied)
+}
+
+/// When the bound PLAY index and its mirror both miss, SuperFastMode may have
+/// executed the unique legal play that matches the observed combat subset
+/// (FIDL01727 PLAY 1192: Offering, not Strike).
+fn deferred_alternate_play_card_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    default_next: &RunState,
+    post: &TraceState,
+) -> Option<RunState> {
+    let bound = match decision {
+        RunDecisionAction::Combat(action @ CombatAction::PlayCard { .. }) => action,
+        _ => return None,
+    };
+    let observed = seed_start_combat_observed_subset(&post.message);
+    if subset_diffs(
+        observed.clone(),
+        seed_start_simulated_combat_subset(default_next),
+    )
+    .is_empty()
+    {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    let mut matched = None;
+    for action in sts_core::combat::legal_combat_actions(combat).ok()? {
+        if !matches!(action, CombatAction::PlayCard { .. }) || action == bound {
+            continue;
+        }
+        let applied = apply_run_decision_action(source, RunDecisionAction::Combat(action)).ok()?;
+        if !applied.pending_external_rng.is_empty() || applied.validate().is_err() {
+            continue;
+        }
+        if subset_diffs(
+            observed.clone(),
+            seed_start_simulated_combat_subset(&applied),
+        )
+        .is_empty()
+        {
+            if matched.is_some() {
+                return None;
+            }
+            matched = Some(applied);
+        }
+    }
+    matched
+}
+
 /// Bind the unused command after a leftover play using the post-leftover hand.
 /// Pre-leftover PLAY 2 on [Dropkick, Heavy Blade+, True Grit] is Heavy Blade+;
 /// after leftover Dropkick it is True Grit (FIDL01617).
@@ -2209,6 +2304,7 @@ fn leftover_end_state_publication_candidate(
     }
     let mut finished = source.clone();
     let combat = finished.combat.as_mut()?;
+    let skip_post_queue_rolls = combat.nilrys_skip_post_queue_rolls;
     sts_core::combat::settle_leftover_end_turn_monster_and_draw(combat).ok()?;
     finished.player_hp = combat.player.hp;
     finished.player_max_hp = combat.player.max_hp;
@@ -2220,6 +2316,25 @@ fn leftover_end_state_publication_candidate(
     .is_empty()
     {
         return Some(finished);
+    }
+    if !skip_post_queue_rolls {
+        let mut skipped = source.clone();
+        if let Some(combat) = skipped.combat.as_mut() {
+            combat.nilrys_skip_post_queue_rolls = true;
+            if sts_core::combat::settle_leftover_end_turn_monster_and_draw(combat).is_ok() {
+                skipped.player_hp = combat.player.hp;
+                skipped.player_max_hp = combat.player.max_hp;
+                if skipped.validate().is_ok()
+                    && subset_diffs(
+                        observed.clone(),
+                        seed_start_simulated_combat_subset(&skipped),
+                    )
+                    .is_empty()
+                {
+                    return Some(skipped);
+                }
+            }
+        }
     }
     leftover_end_state_mid_draw_from_finished(finished, observed)
 }
@@ -3532,6 +3647,16 @@ pub(super) fn verify_seed_start_transition(
                             .or_else(|| {
                                 deferred_nilrys_leftover_end_instead_of_play_candidate(
                                     &source, decision, post,
+                                )
+                            })
+                            .or_else(|| {
+                                deferred_reversed_play_index_candidate(
+                                    &source, decision, &next, post,
+                                )
+                            })
+                            .or_else(|| {
+                                deferred_alternate_play_card_candidate(
+                                    &source, decision, &next, post,
                                 )
                             })
                             .or_else(|| {
