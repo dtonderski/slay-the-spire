@@ -1079,8 +1079,13 @@ pub(crate) fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey
 }
 
 fn roll_bonus_relic_offer(run: &mut RunState) -> Relic {
+    // Black Star's extra elite drop is a second elite relic, not an act-chest
+    // relic. Target `MonsterRoomElite.returnRandomRelicTier` uses
+    // `relicRng.random(99)` (`target_elite_relic_tier`). Using the act table
+    // `returnRandomRelicTier` / `relicRng.random(0, 99)` consumes a different
+    // bound and can promote a common Pocketwatch into an uncommon Girya.
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
-    let tier = target_relic_tier(&mut relic_rng, run.current_act);
+    let tier = target_elite_relic_tier(&mut relic_rng);
     run.store_rng_counter(RunRngStream::Relic, &relic_rng);
     roll_relic_reward(run, tier)
 }
@@ -2932,6 +2937,47 @@ mod tests {
             .iter()
             .map(|choice| choice.content_id)
             .collect()
+    }
+
+    #[test]
+    fn black_star_bonus_elite_uses_elite_tier_table_not_act_table() {
+        // Each elite relic burns one relicRng tier draw and then pops the pool
+        // with no further relicRng. Black Star's second draw must use
+        // `random(99)`, not act `random(0, 99)`.
+        let seed = 34_961_238_667_323_i64;
+        let mut bonus_counter = None;
+        let mut elite_bonus_tier = RelicTier::Common;
+        let mut act_bonus_tier = RelicTier::Common;
+        for first_counter in 0..256u32 {
+            let bonus_at = first_counter + 1;
+            let mut elite_probe = StsRng::with_counter(seed, bonus_at);
+            let mut act_probe = StsRng::with_counter(seed, bonus_at);
+            elite_bonus_tier = target_elite_relic_tier(&mut elite_probe);
+            act_bonus_tier = target_relic_tier(&mut act_probe, 2);
+            if elite_bonus_tier != act_bonus_tier {
+                bonus_counter = Some(first_counter);
+                break;
+            }
+        }
+        let first_counter = bonus_counter.expect("elite vs act tables must diverge");
+        assert_ne!(elite_bonus_tier, act_bonus_tier);
+
+        let mut run = RunState::seeded_ironclad(seed as u64, 0);
+        run.current_act = 2;
+        run.current_floor = 29;
+        run.relic_rng_counter = first_counter;
+        run.relics.push(Relic::BlackStar);
+        prepare_won_combat_reward_fixture(&mut run);
+        run.current_room_override = Some(RoomKind::Elite);
+        enter_elite_combat_reward_screen(&mut run).expect("elite reward entry succeeds");
+
+        let reward = run.reward.as_ref().expect("reward screen");
+        let bonus = reward.pending_relic_offer.expect("Black Star bonus relic");
+        assert_eq!(
+            bonus.tier(),
+            Some(elite_bonus_tier),
+            "Black Star bonus must use elite random(99) ({elite_bonus_tier:?}), not act random(0,99) ({act_bonus_tier:?})"
+        );
     }
 
     #[test]
