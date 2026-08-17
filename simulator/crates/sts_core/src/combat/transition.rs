@@ -373,13 +373,6 @@ pub(crate) fn process_internal_queue(
                 } else {
                     push_follow_up(&mut queue, follow_up);
                 }
-            } else if matches!(follow_up, InternalAction::ResolveTopDrawCard { .. })
-                && next.play_top_resolving_depth == 0
-            {
-                // Outer PlayTopCardAction addToTop's the forced play before the
-                // parent's UseCardAction. Nested PlayTop still settles its own
-                // source before resolving a further top card (FIDL00394).
-                queue.push_front(follow_up);
             } else {
                 push_follow_up(&mut queue, follow_up);
             }
@@ -2675,16 +2668,6 @@ fn apply_play_top_draw_card(
             return Ok(Vec::new());
         }
         player_shuffle_discard_into_draw(state)?;
-        // Nested PlayTop addToTop's EmptyDeckShuffle, then resumes. Dark Embrace
-        // DrawCardAction already on the bot queue can consume that refill
-        // (FIDL01677: Defend drawn, not played). Outer empty-draw PlayTop still
-        // plays the forced card first (FIDL00276).
-        if state.play_top_resolving_depth > 0 && state.player.powers.dark_embrace > 0 {
-            player_draw_cards(state, state.player.powers.dark_embrace.max(0) as usize)?;
-        }
-        if state.piles.draw_pile.is_empty() {
-            return Ok(Vec::new());
-        }
     }
 
     let card = state
@@ -2851,36 +2834,8 @@ fn resolve_top_draw_card(
         }
     }
     state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_add(1);
-    // The parent card is cardInUse, not in hand, while PlayTop runs. Nested
-    // exhausters (Sever Soul) must not take it from the hand (UnknownCard on
-    // the later UseCardAction).
-    let staged_parent = previous_in_use.and_then(|parent_id| {
-        state
-            .piles
-            .hand
-            .iter()
-            .position(|card| card.id == parent_id)
-            .map(|index| (index, state.piles.hand.remove(index)))
-    });
     let transition = process_internal_queue(state, immediate)?;
     *state = transition.state;
-    if let Some((index, card)) = staged_parent {
-        let still_unpiled = ![
-            &state.piles.hand,
-            &state.piles.draw_pile,
-            &state.piles.discard_pile,
-            &state.piles.exhaust_pile,
-            &state.piles.limbo,
-        ]
-        .into_iter()
-        .any(|pile| pile.iter().any(|other| other.id == card.id));
-        if still_unpiled {
-            state
-                .piles
-                .hand
-                .insert(index.min(state.piles.hand.len()), card);
-        }
-    }
     state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_sub(1);
     let nested_blocks = std::mem::take(&mut state.deferred_play_top_monster_blocks);
     for (target, amount) in nested_blocks {
