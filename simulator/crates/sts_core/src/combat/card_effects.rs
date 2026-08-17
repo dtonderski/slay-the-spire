@@ -3759,9 +3759,8 @@ fn havoc_queue(
         queue.push_back(play_top);
     } else {
         // Non-empty draw, Headbutt empty-draw preview, or dual-Havoc empty-draw.
-        // AbstractPlayer.useCard runs card.use() (PlayTop) before UseCardAction.
-        queue.push_back(play_top);
         queue.push_back(settle);
+        queue.push_back(play_top);
     }
 
     Ok(queue)
