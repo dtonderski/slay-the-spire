@@ -1725,6 +1725,8 @@ fn deferred_nilrys_hold_attack_multiple_rolls_on_second_choice_candidate(
 /// First-offer SKIP leaves EndTurn queued. SuperFastMode can discard that
 /// hand (swallowing the next PLAY) and publish the next turn in one frame
 /// (FIDL01772 step 614). Ordinary apply would spend the leftover hand.
+/// After a first-offer CHOOSE that parked at stage 2, the same leftover
+/// EndTurn can swallow PLAY and finish the monster turn (FIDL01486 PLAY 515).
 fn deferred_nilrys_leftover_end_instead_of_play_candidate(
     source: &RunState,
     decision: RunDecisionAction,
@@ -1737,14 +1739,19 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
         return None;
     }
     let combat = source.combat.as_ref()?;
-    if !combat.resume_end_turn_after_nilrys_codex
-        || combat.nilrys_codex_end_turn_stage != 1
-        || combat.decision.is_some()
-    {
+    if !combat.resume_end_turn_after_nilrys_codex || combat.decision.is_some() {
+        return None;
+    }
+    if combat.nilrys_codex_end_turn_stage != 1 && combat.nilrys_codex_end_turn_stage != 2 {
         return None;
     }
     let mut candidate = source.clone();
     let combat = candidate.combat.as_mut()?;
+    if combat.nilrys_codex_end_turn_stage == 2 {
+        combat.nilrys_codex_end_turn_stage = 3;
+        combat.nilrys_duplicate_monster_queue = true;
+        combat.nilrys_end_powers_pending = true;
+    }
     let finished = sts_core::combat::end_player_turn(combat).ok()?;
     candidate.player_hp = finished.player.hp;
     candidate.player_max_hp = finished.player.max_hp;
