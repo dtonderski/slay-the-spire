@@ -8185,20 +8185,17 @@ fn apply_collector_spawn_torch_heads_inner(
     if spawn_count == 0 {
         return Ok(());
     }
-    let slots = if spawn_beyond_two_living {
-        vec![3u8, 4]
-    } else {
-        (1u8..=2)
-            .filter(|slot| {
-                !monsters.iter().any(|monster| {
+    let slots = (1u8..=2)
+        .filter(|slot| {
+            spawn_beyond_two_living
+                || !monsters.iter().any(|monster| {
                     monster.alive
                         && monster.content_id == TORCH_HEAD_ID
                         && monster.gremlin_leader_slot == Some(*slot)
                 })
-            })
-            .take(spawn_count)
-            .collect::<Vec<_>>()
-    };
+        })
+        .take(spawn_count)
+        .collect::<Vec<_>>();
     let first_id = reserve_monster_spawn_ids(monsters, slots.len())?;
     let mut hp_values = (0..slots.len())
         .map(|_| {
@@ -8231,10 +8228,16 @@ fn apply_collector_spawn_torch_heads_inner(
             .iter()
             .enumerate()
             .find_map(|(index, monster)| {
-                (monster.content_id == TORCH_HEAD_ID
-                    && monster.gremlin_leader_slot == Some(slot)
-                    && !monster.alive)
-                    .then_some(index)
+                let same_slot = monster.content_id == TORCH_HEAD_ID
+                    && monster.gremlin_leader_slot == Some(slot);
+                if spawn_beyond_two_living {
+                    // Duplicate leftover SpawnMonsterActions reuse the same
+                    // x positions, so each new head inserts in front of the
+                    // occupant already standing there.
+                    (same_slot && monster.alive).then_some(index)
+                } else {
+                    (same_slot && !monster.alive).then_some(index)
+                }
             })
             .or_else(|| {
                 monsters
@@ -13311,9 +13314,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 (TORCH_HEAD_ID, Some(1), true),
+                (TORCH_HEAD_ID, Some(1), true),
                 (TORCH_HEAD_ID, Some(2), true),
-                (TORCH_HEAD_ID, Some(3), true),
-                (TORCH_HEAD_ID, Some(4), true),
+                (TORCH_HEAD_ID, Some(2), true),
                 (THE_COLLECTOR_ID, None, true),
             ]
         );
