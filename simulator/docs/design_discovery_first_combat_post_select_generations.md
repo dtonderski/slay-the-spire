@@ -28,12 +28,15 @@ The same 6+ remaining-hand shape against Darklings / Giant Head / Champ
 FIDL01255 colorless hand). Smaller remaining hands against Awakened One
 are one pulse (FIDL01665). Another Discovery still in hand still needs
 two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
-needs two pulses when that Discovery is among the first two cards played
-that turn (FIDL01787: post-Discovery Magnetism is Transmutation, not
-Enlightenment). The same Magnetism-generated source later in the turn
-stays one pulse (FIDL01255 colorless hand; FIDL01623 Jack of All Trades
-turn). Deck Discovery with Magnetism up stays one pulse. Skipped
-retrieval still burns nothing.
+among the first two cards of the turn needs two pulses when the remaining
+hand is smaller than 6 or another Magnetism-generated card is still in
+hand (FIDL01787 first-combat Transmutation; later Discoveries that leave
+Master of Strategy / other generated cards). A lone early-turn retrieve
+from a 6+ card hand is one pulse (FIDL01787 Writhing Mass: next Magnetism
+is Flash of Steel, not Good Instincts). The same Magnetism-generated
+source later in the turn stays one pulse (FIDL01255 colorless hand;
+FIDL01623 Jack of All Trades turn). Deck Discovery with Magnetism up
+stays one pulse. Skipped retrieval still burns nothing.
 
 A global or remaining-hand-only two-generation retrieve regresses those
 already-green traces. A CHOOSE-time candidate cannot distinguish 1 vs 2
@@ -42,7 +45,8 @@ pulses: both publish the same compared combat subset.
 ## Decision
 
 Burn two discarded generations when another Discovery is still in hand,
-when Magnetism is active, the source was Magnetism-generated, and
-`cards_played_this_turn <= 2`, or when Awakened One is present and
-`hand.len() >= 6` at retrieve. Otherwise burn one. Do not hydrate the
-Void insert index from the observed leftover pile.
+when Awakened One is present and `hand.len() >= 6` at retrieve, or when
+Magnetism is active, the source was Magnetism-generated,
+`cards_played_this_turn <= 2`, and either fewer than 6 cards remain or
+another Magnetism-generated card is still in hand. Otherwise burn one.
+Do not hydrate the Void insert index from the observed leftover pile.
