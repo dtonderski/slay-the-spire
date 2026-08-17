@@ -1388,7 +1388,7 @@ fn apotheosis_queue(
 }
 
 fn headbutt_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
@@ -1407,18 +1407,14 @@ fn headbutt_queue(
         },
     ]);
 
-    if state.piles.discard_pile.is_empty() {
-        queue.push_back(InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: CardPile::DiscardPile,
-        });
-    } else {
-        queue.push_back(InternalAction::AwaitDiscardSelect {
-            source_card_id: card_id,
-            purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
-        });
-    }
+    // Headbutt.use() always queues PutOnDeckAction. Discard emptiness is
+    // checked when that action runs, not when the card is queued. Double Tap /
+    // Necronomicon copies therefore still auto-put after the original settles
+    // into an empty discard (FIDL01747).
+    queue.push_back(InternalAction::AwaitDiscardSelect {
+        source_card_id: card_id,
+        purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
+    });
 
     Ok(queue)
 }

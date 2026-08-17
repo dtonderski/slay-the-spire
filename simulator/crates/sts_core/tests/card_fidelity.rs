@@ -2398,6 +2398,37 @@ fn pommel_strike_double_tap_keeps_source_available_for_copied_draw() {
 }
 
 #[test]
+fn double_tap_headbutt_empty_discard_copy_retrieves_the_settled_source() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 2;
+    state.double_tap_pending = 1;
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::HEADBUTT_ID)];
+    state.piles.draw_pile.clear();
+    state.piles.discard_pile.clear();
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("Double Tap Headbutt with empty discard should resolve");
+
+    assert!(next.piles.discard_pile.is_empty());
+    assert_eq!(
+        next.piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::HEADBUTT_ID],
+        "the copy's PutOnDeck auto-puts the original after it settles"
+    );
+}
+
+#[test]
 fn double_tap_headbutt_copies_discard_to_draw_effect() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 2;

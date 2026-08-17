@@ -52,3 +52,7 @@ When those two listings later sit in hand together, Java `UseCardAction`
 the same `AbstractCard` and discard the object once (FIDL01747 `Strike`). The
 simulator evaporates the reminted sibling from hand on the real pile move when
 `content_id` matches. Unrelated high-id combat-only statuses (Wounds) stay.
+
+`Headbutt.use()` always queues `PutOnDeckAction`. An empty discard at queue
+build time is not a reason to omit that action: a Double Tap copy still runs
+PutOnDeck after the original settles (FIDL01747).
