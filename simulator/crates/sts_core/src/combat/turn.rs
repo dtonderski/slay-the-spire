@@ -1067,7 +1067,7 @@ pub fn run_first_monster_action_without_cleanup(state: &mut CombatState) -> SimR
     if execute_state_oriented_special_intent(state, actor_id, index, ascension)? {
         return Ok(());
     }
-    if execute_spawning_or_targeted_special_intent(state, actor_id, index, ascension)? {
+    if execute_spawning_or_targeted_special_intent(state, actor_id, index, ascension, false)? {
         return Ok(());
     }
     let _ = execute_generic_monster_intent(
@@ -1176,7 +1176,13 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             if execute_state_oriented_special_intent(state, actor_id, index, ascension)? {
                 continue;
             }
-            if execute_spawning_or_targeted_special_intent(state, actor_id, index, ascension)? {
+            if execute_spawning_or_targeted_special_intent(
+                state,
+                actor_id,
+                index,
+                ascension,
+                queued_turn == 1 && nilrys_duplicate_monster_queue,
+            )? {
                 continue;
             }
             if matches!(
@@ -1748,6 +1754,7 @@ fn execute_spawning_or_targeted_special_intent(
     actor_id: MonsterId,
     index: usize,
     ascension: u8,
+    nilrys_second_queue_item: bool,
 ) -> SimResult<bool> {
     match state.monsters[index].intent {
         crate::MonsterIntent::Attack { damage }
@@ -1810,6 +1817,7 @@ fn execute_spawning_or_targeted_special_intent(
                     &mut state.rng.monster_rng,
                     &mut state.rng.monster_hp_rng,
                     ascension,
+                    nilrys_second_queue_item,
                 )?;
             } else if state.monsters[index].content_id == ACID_SLIME_ID {
                 apply_large_acid_slime_split(
@@ -1885,6 +1893,7 @@ fn execute_spawning_or_targeted_special_intent(
                 &mut state.rng.monster_rng,
                 &mut state.rng.monster_hp_rng,
                 ascension,
+                nilrys_second_queue_item,
             )?;
             apply_spawn_relic_effects(&mut state.monsters, max_existing_monster_id, &state.relics)?;
             if let Some(monster) = state

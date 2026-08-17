@@ -8120,6 +8120,7 @@ pub(crate) fn apply_collector_spawn_torch_heads(
     ai_rng: &mut crate::rng::StsRng,
     hp_rng: &mut crate::rng::StsRng,
     ascension: u8,
+    spawn_beyond_two_living: bool,
 ) -> SimResult<()> {
     let mut next_monsters = monsters.clone();
     let mut next_ai_rng = ai_rng.clone();
@@ -8130,6 +8131,7 @@ pub(crate) fn apply_collector_spawn_torch_heads(
         &mut next_ai_rng,
         &mut next_hp_rng,
         ascension,
+        spawn_beyond_two_living,
     )?;
     *monsters = next_monsters;
     *ai_rng = next_ai_rng;
@@ -8143,6 +8145,7 @@ fn apply_collector_spawn_torch_heads_inner(
     ai_rng: &mut crate::rng::StsRng,
     hp_rng: &mut crate::rng::StsRng,
     ascension: u8,
+    spawn_beyond_two_living: bool,
 ) -> SimResult<()> {
     let count = positive_monster_spawn_count(count)?;
     if count != 2 {
@@ -8171,20 +8174,31 @@ fn apply_collector_spawn_torch_heads_inner(
         .iter()
         .filter(|monster| monster.alive && monster.content_id == TORCH_HEAD_ID)
         .count();
-    let spawn_count = count.min(2usize.saturating_sub(live_torch_heads));
+    // Two leftover EndTurn MonsterQueueItems both run Collector's captured
+    // spawn intent (FIDL01727). SpawnMonsterAction still creates two heads per
+    // takeTurn; the usual two-living cap would drop the second pair.
+    let spawn_count = if spawn_beyond_two_living {
+        count
+    } else {
+        count.min(2usize.saturating_sub(live_torch_heads))
+    };
     if spawn_count == 0 {
         return Ok(());
     }
-    let slots = (1u8..=2)
-        .filter(|slot| {
-            !monsters.iter().any(|monster| {
-                monster.alive
-                    && monster.content_id == TORCH_HEAD_ID
-                    && monster.gremlin_leader_slot == Some(*slot)
+    let slots = if spawn_beyond_two_living {
+        vec![3u8, 4]
+    } else {
+        (1u8..=2)
+            .filter(|slot| {
+                !monsters.iter().any(|monster| {
+                    monster.alive
+                        && monster.content_id == TORCH_HEAD_ID
+                        && monster.gremlin_leader_slot == Some(*slot)
+                })
             })
-        })
-        .take(spawn_count)
-        .collect::<Vec<_>>();
+            .take(spawn_count)
+            .collect::<Vec<_>>()
+    };
     let first_id = reserve_monster_spawn_ids(monsters, slots.len())?;
     let mut hp_values = (0..slots.len())
         .map(|_| {
@@ -12159,7 +12173,7 @@ mod tests {
         let hp_rng_before = hp_rng.clone();
 
         let result =
-            apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0);
+            apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0, false);
 
         assert_eq!(
             result,
@@ -13235,7 +13249,7 @@ mod tests {
         let _second_constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
         let second_hp = TORCH_HEAD_A9_HP_RANGE.roll(&mut expected_hp_rng);
 
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 9)
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 9, false)
             .expect("Collector summon is valid");
 
         assert_eq!(hp_rng.counter(), 4);
@@ -13263,13 +13277,46 @@ mod tests {
         let _second_constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
         let second_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
 
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0, false)
             .expect("Collector summon is valid");
 
         assert_eq!(hp_rng.counter(), 4);
         assert_eq!(ai_rng.counter(), 2);
         assert_eq!((monsters[0].hp, monsters[0].max_hp), (second_hp, second_hp));
         assert_eq!((monsters[1].hp, monsters[1].max_hp), (first_hp, first_hp));
+    }
+
+    #[test]
+    fn collector_nilry_second_queue_item_spawns_two_extra_torch_heads() {
+        let mut monsters = vec![monster_state(&THE_COLLECTOR_A0, MonsterId::new(1))];
+        let mut hp_rng = StsRng::new(2468);
+        let mut ai_rng = StsRng::new(1357);
+
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0, false)
+            .expect("first MonsterQueueItem fills slots 1 and 2");
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0, true)
+            .expect("second leftover EndTurn queue item still constructs two heads");
+
+        assert_eq!(hp_rng.counter(), 8);
+        assert_eq!(ai_rng.counter(), 4);
+        assert_eq!(monsters.len(), 5);
+        assert_eq!(
+            monsters
+                .iter()
+                .map(|monster| (
+                    monster.content_id,
+                    monster.gremlin_leader_slot,
+                    monster.alive
+                ))
+                .collect::<Vec<_>>(),
+            vec![
+                (TORCH_HEAD_ID, Some(1), true),
+                (TORCH_HEAD_ID, Some(2), true),
+                (TORCH_HEAD_ID, Some(3), true),
+                (TORCH_HEAD_ID, Some(4), true),
+                (THE_COLLECTOR_ID, None, true),
+            ]
+        );
     }
 
     #[test]
@@ -13285,7 +13332,7 @@ mod tests {
         let _constructor_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
         let replacement_hp = TORCH_HEAD_A0_HP_RANGE.roll(&mut expected_hp_rng);
 
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0, false)
             .expect("Collector initial summon is valid");
         let dead = monsters
             .iter_mut()
@@ -13294,7 +13341,7 @@ mod tests {
         dead.hp = 0;
         dead.alive = false;
 
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0, false)
             .expect("Collector replacement summon is valid");
 
         assert_eq!(hp_rng.counter(), 6);
@@ -13323,7 +13370,7 @@ mod tests {
             .expect("Collector has a fixed setHp roll")
             .roll(&mut hp_rng);
         assert_eq!(collector_hp, 282);
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0, false)
             .expect("Collector initial summon is valid");
         assert_eq!(
             monsters
@@ -13340,7 +13387,7 @@ mod tests {
                 monster.hp = 0;
             }
         }
-        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0)
+        apply_collector_spawn_torch_heads(&mut monsters, 2, &mut ai_rng, &mut hp_rng, 0, false)
             .expect("Collector replacement summon is valid");
 
         assert_eq!(hp_rng.counter(), 9);
