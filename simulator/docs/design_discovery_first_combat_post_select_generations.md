@@ -29,8 +29,11 @@ FIDL01255 colorless hand). Smaller remaining hands against Awakened One
 are one pulse (FIDL01665). Another Discovery still in hand still needs
 two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
 needs two pulses when that Discovery is among the first two cards played
-that turn (FIDL01787: post-Discovery Magnetism is Transmutation, not
-Enlightenment). The same Magnetism-generated source later in the turn
+that turn **and another Magnetism-generated card remains in hand**
+(FIDL01787 step 325: post-Discovery Magnetism is Transmutation, not
+Enlightenment). A lone early-turn Magnetism Discovery stays one pulse
+(FIDL01787 step 1115: next Magnetism is Flash of Steel, not Good
+Instincts). The same Magnetism-generated source later in the turn
 stays one pulse (FIDL01255 colorless hand; FIDL01623 Jack of All Trades
 turn). Deck Discovery with Magnetism up stays one pulse. Skipped
 retrieval still burns nothing.
@@ -42,7 +45,8 @@ pulses: both publish the same compared combat subset.
 ## Decision
 
 Burn two discarded generations when another Discovery is still in hand,
-when Magnetism is active, the source was Magnetism-generated, and
-`cards_played_this_turn <= 2`, or when Awakened One is present and
-`hand.len() >= 6` at retrieve. Otherwise burn one. Do not hydrate the
-Void insert index from the observed leftover pile.
+when Magnetism is active, the source was Magnetism-generated,
+`cards_played_this_turn <= 2`, and another Magnetism-generated card
+remains in hand, or when Awakened One is present and `hand.len() >= 6`
+at retrieve. Otherwise burn one. Do not hydrate the Void insert index
+from the observed leftover pile.
