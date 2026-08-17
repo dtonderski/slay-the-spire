@@ -10,9 +10,11 @@ pauses. `UseCardAction` has not settled yet, so Armaments is still in
 candidates, exhaust does not yet contain Armaments, and Charon's Ashes has
 not fired.
 
-On `CONFIRM`, `UseCardAction` force-exhausts Armaments. Charon's Ashes,
-Feel No Pain, Dark Embrace, and Dead Branch then resolve, and the selected
-card returns upgraded.
+On `CONFIRM`, `ArmamentsAction` returns the upgraded card (and any cards it
+removed from the select projection) first. `UseCardAction` then force-exhausts
+Armaments. Charon's Ashes, Feel No Pain, Dark Embrace, and Dead Branch resolve
+after that rebuilt hand (FIDL01334: Dark Embrace draws Berserk after Rampage+ /
+Armaments+ / Havoc+).
 
 Witness: FIDL01254 steps 1070–1072. Maw stays at 246 HP while the select is
 open; it drops to 243 only after CONFIRM, when Armaments first appears in

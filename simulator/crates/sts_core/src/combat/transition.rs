@@ -3901,7 +3901,12 @@ fn confirm_armaments_select(
     };
     let selected_card_id = selected.id;
     let _removed = remove_card_from_pile(state, selected_card_id, CardPile::Hand)?;
-    let card = upgraded;
+    // ArmamentsAction returns the upgraded card (and any cards it pulled out of
+    // the select projection) before UseCardAction settles the source. Dark
+    // Embrace / Dead Branch draws therefore land after Rampage+ and leftover
+    // upgraded cards (FIDL01334 Berserk after Havoc+).
+    state.piles.hand.push(upgraded);
+    state.piles.hand.extend(cannot_upgrade);
     if state.play_top_force_exhaust_active && !source_already_settled {
         force_exhaust_armaments_source(state, source_card_id)?;
     } else if !source_already_settled {
@@ -3909,8 +3914,6 @@ fn confirm_armaments_select(
         move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
     }
     state.play_top_force_exhaust_active = false;
-    state.piles.hand.push(card);
-    state.piles.hand.extend(cannot_upgrade);
     Ok(())
 }
 
@@ -7986,6 +7989,48 @@ mod tests {
                 .filter(|card| card.content_id == DAZED_ID)
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn armaments_dark_embrace_draw_lands_after_upgraded_card_and_leftovers() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.player.powers.dark_embrace = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(2), HAVOC_ID),
+            CardInstance::new(CardId::new(3), ARMAMENTS_PLUS_ID),
+            CardInstance::new(CardId::new(4), RAMPAGE_ID),
+            CardInstance::new(CardId::new(5), HAVOC_PLUS_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(6), BERSERK_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Armaments opens its hand-select screen");
+        next.play_top_force_exhaust_active = true;
+        choose_hand_select(&mut next, 1).expect("Rampage is selectable among upgradeables");
+        confirm_hand_select(&mut next).expect("Armaments confirm");
+
+        let hand: Vec<ContentId> = next.piles.hand.iter().map(|card| card.content_id).collect();
+        assert_eq!(
+            hand,
+            vec![
+                HAVOC_ID,
+                RAMPAGE_PLUS_ID,
+                ARMAMENTS_PLUS_ID,
+                HAVOC_PLUS_ID,
+                BERSERK_ID,
+            ],
+            "Dark Embrace draw must follow ArmamentsAction's returned cards"
         );
     }
 
