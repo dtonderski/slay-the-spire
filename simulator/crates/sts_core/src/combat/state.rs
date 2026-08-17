@@ -523,6 +523,9 @@ pub struct PlayerState {
     pub no_block_turns: i32,
     #[serde(default, skip_serializing_if = "is_false")]
     pub vulnerable_just_applied: bool,
+    /// WeakPower.atEndOfRound skips one decrement after a monster apply.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub weak_just_applied: bool,
 }
 
 impl PlayerState {
@@ -550,6 +553,7 @@ impl PlayerState {
             temp_rage_block: 0,
             no_block_turns: 0,
             vulnerable_just_applied: false,
+            weak_just_applied: false,
         })
     }
 }
@@ -1098,6 +1102,7 @@ impl CombatState {
                 temp_rage_block: 0,
                 no_block_turns: 0,
                 vulnerable_just_applied: false,
+                weak_just_applied: false,
             },
             vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))],
             CardPiles {

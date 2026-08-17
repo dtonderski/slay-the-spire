@@ -151,9 +151,6 @@ fn apply_player_end_of_turn_powers_for_combat_state(
     if apply_regeneration {
         apply_end_of_player_turn_regeneration(state)?;
     }
-    if state.player.powers.weak > 0 {
-        state.player.powers.weak -= 1;
-    }
     if state.player.powers.frail > 0 {
         state.player.powers.frail -= 1;
     }
@@ -199,9 +196,6 @@ pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, rel
             relics,
         );
         player.powers.regen -= 1;
-    }
-    if player.powers.weak > 0 {
-        player.powers.weak -= 1;
     }
     if player.powers.frail > 0 {
         player.powers.frail -= 1;

@@ -560,26 +560,25 @@ pub fn settle_leftover_end_turn_monster_and_draw(state: &mut CombatState) -> Sim
     // end_player_turn (FIDL01691: Head Slam then Reverberate).
     state.time_warp_end_turn = false;
     state.time_warp_end_turn_pre_discard_settled = false;
-    // Leftover EndTurn never ran `apply_player_end_of_turn_powers` (Weak tick
-    // lives there in the sim). Java's WeakPower.atEndOfRound is
-    // MonsterGroup.applyEndOfTurnPowers after takeTurn. A first application
-    // this takeTurn sets justApplied and must not tick (FIDL01274 Ripple).
-    // Stacking onto an existing Weak does not set justApplied, so leftover
-    // cleanup decrements once (FIDL01782: Weak 1 + ATTACK_DEBUFF 2 → 2).
-    let weak_before_monster_turn = state.player.powers.weak;
+    // Leftover EndTurn never ran player atEndOfTurn Weak (that tick lives in
+    // MonsterGroup.applyEndOfTurnPowers after takeTurn). First monster apply
+    // sets justApplied and must not tick (FIDL01274 Ripple). Stacking onto
+    // existing Weak does not set justApplied, so cleanup decrements once
+    // (FIDL01782: Weak 1 + ATTACK_DEBUFF 2 → 2).
     run_monster_turn(state)?;
-    if weak_before_monster_turn > 0 {
-        tick_leftover_end_turn_player_weak(state);
-    }
     if state.player.hp > 0 && state.monsters.iter().any(|monster| monster.alive) {
         start_player_turn(state)?;
     }
     Ok(())
 }
 
-fn tick_leftover_end_turn_player_weak(state: &mut CombatState) {
-    if state.player.powers.weak > 0 {
+fn tick_player_weak_at_end_of_round(state: &mut CombatState) {
+    if state.player.powers.weak > 0 && state.player.weak_just_applied {
+        state.player.weak_just_applied = false;
+    } else if state.player.powers.weak > 0 {
         state.player.powers.weak -= 1;
+    } else {
+        state.player.weak_just_applied = false;
     }
 }
 
@@ -588,16 +587,10 @@ pub fn apply_pending_nilry_end_powers(state: &mut CombatState) -> SimResult<()> 
         return Ok(());
     }
     let mut deferred_monster_deaths = Vec::new();
-    // WeakPower.atEndOfRound waits until after takeTurn. This leftover
-    // atEndOfTurn window still ticks Frail/plated for the two-step display,
-    // but decrementing Weak here drops it a turn early (FIDL01727 Perfected
-    // Strike 19 through Weak 1, not 26).
-    let weak = state.player.powers.weak;
     crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand_deferred(
         state,
         &mut deferred_monster_deaths,
     )?;
-    state.player.powers.weak = weak;
     state.nilrys_end_powers_pending = false;
     Ok(())
 }
@@ -868,6 +861,7 @@ fn finish_monster_turn_after_player_revival_inner(state: &mut CombatState) -> Si
     } else {
         state.player.vulnerable_just_applied = false;
     }
+    tick_player_weak_at_end_of_round(state);
     if state.player.powers.intangible > 0 {
         state.player.powers.intangible -= 1;
     }
@@ -1630,11 +1624,15 @@ fn execute_state_oriented_special_intent(
             if had_no_vulnerable && applied {
                 state.player.vulnerable_just_applied = true;
             }
+            let had_no_weak = state.player.powers.weak == 0;
             crate::relic::apply_player_weak_with_relics(
                 &mut state.player.powers,
                 &state.relics,
                 1,
             )?;
+            if had_no_weak && state.player.powers.weak > 0 {
+                state.player.weak_just_applied = true;
+            }
             if ascension >= 19 {
                 crate::relic::apply_player_frail_with_relics(
                     &mut state.player.powers,
@@ -2043,6 +2041,7 @@ fn finish_monster_turn_cleanup(
     } else {
         state.player.vulnerable_just_applied = false;
     }
+    tick_player_weak_at_end_of_round(state);
     if state.player.powers.intangible > 0 {
         state.player.powers.intangible -= 1;
     }
@@ -6294,7 +6293,7 @@ mod tests {
     }
 
     #[test]
-    fn nilry_stage_three_close_does_not_tick_weak_before_monster_turn() {
+    fn nilry_stage_three_close_ticks_weak_after_monster_turn() {
         use crate::relic::Relic;
         use crate::run::potion::apply_combat_card_reward_skip;
         use crate::RunState;
@@ -6321,8 +6320,8 @@ mod tests {
                 .player
                 .powers
                 .weak,
-            1,
-            "Weak stays through leftover atEndOfTurn so the next player turn still has it"
+            0,
+            "WeakPower.atEndOfRound ticks after leftover takeTurn"
         );
     }
 

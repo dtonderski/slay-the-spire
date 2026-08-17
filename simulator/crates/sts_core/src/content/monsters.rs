@@ -10029,11 +10029,15 @@ fn checked_monster_intent_mul(value: i32, amount: i32) -> SimResult<i32> {
 }
 
 fn apply_player_weak_from_monster(
-    powers: &mut crate::power::PlayerPowers,
+    player: &mut crate::PlayerState,
     relics: &[crate::Relic],
     amount: i32,
 ) -> SimResult<()> {
-    crate::relic::apply_player_weak_with_relics(powers, relics, amount)?;
+    let first_application = player.powers.weak == 0;
+    crate::relic::apply_player_weak_with_relics(&mut player.powers, relics, amount)?;
+    if first_application && player.powers.weak > 0 {
+        player.weak_just_applied = true;
+    }
     Ok(())
 }
 
@@ -10205,11 +10209,11 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
         MonsterIntent::ApplyPlayerWeak { amount } => {
-            apply_player_weak_from_monster(&mut player.powers, relics, amount)?;
+            apply_player_weak_from_monster(player, relics, amount)?;
             (0, 0)
         }
         MonsterIntent::AttackApplyPlayerWeak { damage, weak } => {
-            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+            apply_player_weak_from_monster(player, relics, weak)?;
             (
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
@@ -10231,7 +10235,7 @@ fn apply_monster_intent_with_card_rng_inner(
             weak,
             vulnerable,
         } => {
-            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+            apply_player_weak_from_monster(player, relics, weak)?;
             let had_no_vulnerable = player.powers.vulnerable == 0;
             let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
             if had_no_vulnerable && applied {
@@ -10264,7 +10268,7 @@ fn apply_monster_intent_with_card_rng_inner(
             weak,
         } => {
             apply_player_frail_from_monster(&mut player.powers, relics, frail)?;
-            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+            apply_player_weak_from_monster(player, relics, weak)?;
             (
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
                 1,
@@ -10306,9 +10310,9 @@ fn apply_monster_intent_with_card_rng_inner(
                 // (FIDL01475/FIDL01632).
                 if monster.content_id == SNAKE_PLANT_ID {
                     apply_player_frail_from_monster(&mut player.powers, relics, applied_frail)?;
-                    apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+                    apply_player_weak_from_monster(player, relics, weak)?;
                 } else {
-                    apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+                    apply_player_weak_from_monster(player, relics, weak)?;
                     apply_player_frail_from_monster(&mut player.powers, relics, applied_frail)?;
                 }
             }
@@ -10320,7 +10324,7 @@ fn apply_monster_intent_with_card_rng_inner(
             vulnerable,
         } => {
             apply_player_frail_from_monster(&mut player.powers, relics, frail)?;
-            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+            apply_player_weak_from_monster(player, relics, weak)?;
             let had_no_vulnerable = player.powers.vulnerable == 0;
             let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
             if had_no_vulnerable && applied {
@@ -10329,7 +10333,7 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
         MonsterIntent::ApplyPlayerWeakStrengthSelf { weak, strength } => {
-            apply_player_weak_from_monster(&mut player.powers, relics, weak)?;
+            apply_player_weak_from_monster(player, relics, weak)?;
             checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
             (0, 0)
         }
