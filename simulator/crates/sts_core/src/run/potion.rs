@@ -843,8 +843,18 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // the same run). A lone early-turn retrieve from a 6+ card hand
             // settles in one pulse (FIDL01787 Writhing Mass Flash of Steel).
             // The same source later in the turn stays one pulse (FIDL01255,
-            // FIDL01623).
-            let generations = discovery_post_select_generations(combat, source_card.as_ref());
+            // FIDL01623). Havoc PlayTop force-exhausts the source before
+            // DiscoveryAction; that path keeps pulsing through leftover
+            // ExhaustSpecificCardAction / ShowCard settlement and burns six
+            // discarded generations (FIDL01614 Infernal Blade after
+            // Havoc-Discovery). Mayhem PlayTop does not force-exhaust and
+            // stays on the 1/2-pulse path (FIDL01787). Hand-played Discovery
+            // on the same FIDL01614 run stays one pulse (steps 325, 366).
+            let generations = discovery_post_select_generations(
+                combat,
+                source_card.as_ref(),
+                source_card_force_exhaust,
+            );
             burn_all_discovery_card_choice_generations(
                 &mut combat.rng.card_random_rng,
                 3,
@@ -1044,10 +1054,20 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
     }
 }
 
+/// Post-select `generateCardChoices` pulses after a Havoc / Distilled Chaos
+/// PlayTop Discovery. PlayTop queues `ExhaustSpecificCardAction` on top of
+/// `DiscoveryAction`; under SuperFastMode the resumed action keeps generating
+/// discarded offers until that leftover settlement finishes.
+const PLAY_TOP_FORCE_EXHAUST_DISCOVERY_POST_SELECT_GENERATIONS: usize = 6;
+
 fn discovery_post_select_generations(
     combat: &CombatState,
     source_card: Option<&CardInstance>,
+    source_card_force_exhaust: bool,
 ) -> usize {
+    if source_card_force_exhaust {
+        return PLAY_TOP_FORCE_EXHAUST_DISCOVERY_POST_SELECT_GENERATIONS;
+    }
     let fighting_awakened_one = combat
         .monsters
         .iter()
@@ -2744,6 +2764,37 @@ mod tests {
             combat.rng.card_random_rng.counter(),
             19,
             "Discovery retrieve burns one discarded generateCardChoices generation"
+        );
+    }
+
+    #[test]
+    fn havoc_play_top_discovery_retrieve_burns_six_generations() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        let choice_content = combat.piles.hand[0].content_id;
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                choice_content,
+            )],
+            source_card: None,
+            source_card_force_exhaust: true,
+            pending_actions: Default::default(),
+        });
+
+        let next =
+            apply_combat_card_reward_choice(&run, 0).expect("Havoc PlayTop Discovery card choice");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            34,
+            "Havoc PlayTop Discovery retrieve burns six discarded generateCardChoices generations"
         );
     }
 
