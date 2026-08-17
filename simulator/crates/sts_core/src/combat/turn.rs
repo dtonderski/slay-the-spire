@@ -1346,12 +1346,16 @@ fn execute_generic_monster_intent(
         (deferred_burn_to_discard > 0 || deferred_upgrade_burns > 0).then(|| state.piles.clone());
     let allocated_card_id_through = state.max_authoritative_card_instance_id();
     let player_can_revive = player_can_revive_after_monster_hit(state);
+    // Same-frame Time Warp queues DamageInfo before the +2 Strength action.
+    // Lagged CONFIRM (FIDL01425) already published that Strength, so both
+    // duplicate-queue attacks use live strength.
     let time_warp_queued_damage_snapshot = state.time_warp_duplicate_monster_queue
         && state.monsters[index].content_id == crate::content::monsters::TIME_EATER_ID
         && matches!(
             intent,
             crate::MonsterIntent::Attack { .. } | crate::MonsterIntent::AttackMultiple { .. }
-        );
+        )
+        && !state.time_warp_end_turn;
     // TimeWarpPower queues its +2 Strength action, while the monster queue's
     // DamageInfo objects were created from the pre-action intent. Preserve that
     // source FIFO for the duplicated queue; the monster's +2 remains in state

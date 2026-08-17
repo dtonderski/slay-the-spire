@@ -57,5 +57,7 @@ Seed-start candidate: Time Eater put-on-deck CONFIRM, selected card
 is not an autoplay status, and some other remaining hand card is.
 PutOnDeck + settle source, then
 `resolve_end_of_turn_playing_cards_for_time_warp_lag`, leave
-`time_warp_end_turn` queued. Do not change the FIDL01274 skip-PutOnDeck
-path.
+`time_warp_end_turn` queued, and mark `time_warp_duplicate_monster_queue`
+so the following explicit END runs two MonsterQueueItems at the already
+published Strength (FIDL01425: two Reverberate 3-hits for 66, thorns 18).
+Do not change the FIDL01274 skip-PutOnDeck path.

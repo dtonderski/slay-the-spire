@@ -3086,6 +3086,10 @@ pub fn confirm_hand_select_time_warp_remaining_status_lag(
 ) -> SimResult<()> {
     confirm_hand_select_with_time_warp_policy(state, false)?;
     crate::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(state)?;
+    // Explicit END after this lagged CONFIRM is a second EndTurnAction, so the
+    // monster queue has two items. Strength +2 already published on CONFIRM;
+    // both items use live strength (FIDL01425 two Reverberates for 66).
+    state.time_warp_duplicate_monster_queue = true;
     Ok(())
 }
 
@@ -11392,6 +11396,10 @@ mod tests {
         );
         assert_eq!(next.monsters[0].block, 0, "monster turn has not run");
         assert!(next.time_warp_end_turn);
+        assert!(
+            next.time_warp_duplicate_monster_queue,
+            "explicit END after lagged CONFIRM must run two MonsterQueueItems"
+        );
     }
 
     #[test]
