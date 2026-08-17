@@ -408,8 +408,11 @@ Source inspected: target 12-18-2022 desktop-jar bytecode for
 
 - Pre-battle setup applies both Compulsive (`ReactivePower`) and Malleable 3.
 - A nonlethal, positive, non-HP-loss/non-Thorns attack queues `RollMoveAction`.
-  The reroll consumes `aiRng.random(99)` immediately, so every qualifying hit
-  can replace the visible intent before the monster acts.
+  The reroll consumes `aiRng.random(99)` when that action runs. PutOnDeck's
+  GRID (Headbutt discard select) is already on the bot queue, so the ready
+  select frame still shows the pre-hit intent; CONFIRM then publishes the
+  new move. A play that does not pause still shows the reroll on the same
+  command's ready frame.
 - `AbstractMonster.setMove` records the selected move byte immediately.
   Reactive rerolls therefore affect both RNG position and future history checks,
   and subsequent selection must inspect the complete recorded history.

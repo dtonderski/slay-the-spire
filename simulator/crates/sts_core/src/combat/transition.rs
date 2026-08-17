@@ -666,11 +666,18 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         }
     }
 
-    if matches!(follow_up, InternalAction::GainMonsterBlock { .. }) {
-        // STS CurlUpPower / MalleablePower onAttacked use addToBot(GainBlockAction).
-        // Remaining same-card hits and other already-queued bot actions (notably
-        // Juggernaut's DamageRandomEnemyAction from an earlier GainBlock in the
-        // same card) therefore resolve before the monster gains block.
+    if matches!(
+        follow_up,
+        InternalAction::GainMonsterBlock { .. }
+            | InternalAction::RerollWrithingMassAfterAttack { .. }
+    ) {
+        // STS CurlUpPower / MalleablePower / ReactivePower onAttacked use
+        // addToBot. Remaining same-card hits and other already-queued bot
+        // actions (notably Juggernaut's DamageRandomEnemyAction from an earlier
+        // GainBlock in the same card) therefore resolve before the monster
+        // gains block. Compulsive's RollMoveAction is also addToBot, so a
+        // Headbutt PutOnDeck GRID pauses before the visible intent changes
+        // (FIDL01747).
         //
         // Double Tap / Echo Form card-queue copies are modeled as PlayCardCopy
         // and must stay behind Malleable/Curl Up so the copy encounters the
@@ -930,6 +937,10 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::GainMonsterBlock { target, amount } => {
             defense_actions::gain_monster_block(state, target, amount)
+        }
+        InternalAction::RerollWrithingMassAfterAttack { target } => {
+            crate::combat::turn::reroll_writhing_mass_after_attack(state, target);
+            Ok(Vec::new())
         }
         InternalAction::PreventBlockGain { turns } => {
             defense_actions::prevent_block_gain(state, turns)
@@ -1560,7 +1571,7 @@ fn push_attack_block_follow_ups(
         && malleable_block.is_some()
         && monster_content_id == crate::content::monsters::WRITHING_MASS_ID
     {
-        crate::combat::turn::reroll_writhing_mass_after_attack(state, target);
+        follow_ups.push(InternalAction::RerollWrithingMassAfterAttack { target });
     }
     if still_alive {
         // Only delay Malleable/Curl Up when Letter Opener blasts are already on
@@ -12270,6 +12281,64 @@ mod tests {
         assert_eq!(next.monsters[0].hp, 33, "Bash 8 + LO 5");
         assert_eq!(next.monsters[0].block, 3, "Malleable after LO");
         assert_eq!(next.monsters[0].powers.malleable, 4);
+    }
+
+    #[test]
+    fn writhing_mass_compulsive_reroll_waits_for_headbutt_discard_grid() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(
+            &crate::content::monsters::WRITHING_MASS_A0,
+            target,
+        )];
+        state.monsters[0].hp = 70;
+        state.monsters[0].max_hp = 70;
+        state.monsters[0].intent = crate::MonsterIntent::AttackAndBlock {
+            damage: 15,
+            block: 15,
+        };
+        state.monsters[0].move_history = vec![2];
+        state.monsters[0].powers.malleable = 3;
+        state.monsters[0].powers.malleable_base = 3;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HEADBUTT_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+
+        let opened = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Headbutt opens discard select");
+        assert!(opened.discard_select().is_some());
+        assert_eq!(
+            opened.monsters[0].intent,
+            crate::MonsterIntent::AttackAndBlock {
+                damage: 15,
+                block: 15,
+            },
+            "RollMoveAction stays behind PutOnDeck's GRID"
+        );
+
+        let mut chosen = opened;
+        crate::combat::transition::choose_discard_select(&mut chosen, 0)
+            .expect("choose discard card");
+        crate::combat::transition::confirm_headbutt_select(&mut chosen)
+            .expect("close Headbutt GRID");
+        assert_ne!(
+            chosen.monsters[0].intent,
+            crate::MonsterIntent::AttackAndBlock {
+                damage: 15,
+                block: 15,
+            },
+            "Compulsive rerolls after the GRID closes"
+        );
     }
 
     #[test]

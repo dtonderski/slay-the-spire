@@ -127,6 +127,10 @@ pub enum InternalAction {
         target: MonsterId,
         amount: i32,
     },
+    /// Compulsive (`ReactivePower`) queues `RollMoveAction` with addToBot.
+    RerollWrithingMassAfterAttack {
+        target: MonsterId,
+    },
     PreventBlockGain {
         turns: i32,
     },
