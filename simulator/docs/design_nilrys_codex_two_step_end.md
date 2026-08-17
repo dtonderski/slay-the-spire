@@ -92,7 +92,9 @@ clears living monster block without executing the queue. SuperFastMode
 may also publish only one `MonsterQueueItem` on the stage-3 close
 when that frame matches. FIDL01486 still uses the duplicate queue once
 leftover plated lands; SuperFastMode can hold Byrd's Caw display
-(skip StrengthSelf RollMoves) while Chosen consumes both leftover rolls.
+(skip StrengthSelf RollMoves) while Chosen consumes both leftover rolls,
+or publish after Byrd's first leftover roll while Chosen still shows Drain
+(FIDL01486 SKIP 468).
 
 Closing the first Codex offer continues `callEndOfTurnActions` card
 autoplays (Regret/Burn) without Combust or the bulk hand discard

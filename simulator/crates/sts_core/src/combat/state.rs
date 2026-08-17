@@ -257,6 +257,11 @@ pub struct CombatState {
     /// Attackers still consume both leftover rolls.
     #[serde(default, skip_serializing_if = "is_false")]
     pub nilrys_hold_strength_self_rolls: bool,
+    /// SuperFastMode can publish after StrengthSelf's first leftover roll
+    /// and before other monsters' RollMoveActions (FIDL01486 SKIP 468:
+    /// Byrd Peck, Chosen still Drain).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_one_strength_self_roll_hold_others: bool,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -1163,6 +1168,7 @@ impl CombatState {
             nilrys_duplicate_monster_queue: false,
             nilrys_book_second_stab_uses_live_count: false,
             nilrys_hold_strength_self_rolls: false,
+            nilrys_one_strength_self_roll_hold_others: false,
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
