@@ -454,14 +454,14 @@ fn apply_exhaust_select_confirm_skipped_burning_pact_retrieval_with_time_warp_po
     validate_exhaust_select_confirm(run)?;
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
-    let before = combat.clone();
-    let exhaust_before = combat.piles.exhaust_pile.len();
     let selected = confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
         &mut combat,
         settle_time_warp,
     )?;
-    let exhaust_count = exhaust_count_for_confirmed_select(&before, &combat, exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    // Source exhaust already queues Dead Branch inside the combat confirm
+    // (same handled count as a normal Burning Pact CONFIRM). Re-applying from
+    // the exhaust-pile delta minted a second card while the selected card was
+    // still unretrieved (FIDL01534 Headbutt vs Bloodletting).
     let next = settle_run_after_select_confirm(next, combat)?;
     Ok((next, selected))
 }
@@ -1817,8 +1817,8 @@ mod tests {
     use crate::{
         apply_combat_action_on_run, apply_run_action,
         content::cards::{
-            BASH_ID, BURNING_PACT_ID, BURN_ID, CLASH_ID, CLEAVE_ID, DAZED_ID, DEFEND_R_ID,
-            STRIKE_R_ID, WARCRY_ID,
+            BASH_ID, BURNING_PACT_ID, BURNING_PACT_PLUS_ID, BURN_ID, CLASH_ID, CLEAVE_ID, DAZED_ID,
+            DEFEND_R_ID, STRIKE_R_ID, WARCRY_ID, WOUND_ID,
         },
         content::shop_pool::ironclad_combat_discovery_pool,
         CombatAction,
@@ -1943,6 +1943,67 @@ mod tests {
         assert_eq!(hand_ids[4], CardId::new(4));
         assert_eq!(hand_ids[3], CardId::new(7));
         assert!(combat.piles.hand[3].combat_only);
+        assert_eq!(
+            after_confirm.card_random_rng_counter,
+            initial_card_random_counter + 1
+        );
+    }
+
+    #[test]
+    fn skipped_burning_pact_retrieval_does_not_double_dead_branch() {
+        // FIDL01534: skipped selected-card retrieval still exhausts Burning Pact
+        // under Corruption. Dead Branch must fire once for that source, not
+        // again from the exhaust-pile delta.
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        let initial_card_random_counter = run.card_random_rng_counter;
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.player.powers.corruption = 1;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), BURNING_PACT_PLUS_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), WOUND_ID),
+                CardInstance::new(CardId::new(4), WOUND_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(5), DEFEND_R_ID),
+                CardInstance::new(CardId::new(6), CLASH_ID),
+                CardInstance::new(CardId::new(7), CLEAVE_ID),
+            ];
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile.clear();
+        }
+
+        let after_play = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact+ opens exhaust select");
+        let after_choose =
+            apply_run_action(&after_play, RunAction::ChooseExhaustSelect { index: 1 })
+                .expect("select a Wound");
+        let (after_confirm, hidden) =
+            apply_exhaust_select_confirm_skipped_burning_pact_retrieval_without_time_warp_end(
+                &after_choose,
+            )
+            .expect("skipped Burning Pact retrieval");
+        let combat = after_confirm.combat.expect("combat remains open");
+        let generated = combat
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.combat_only)
+            .count();
+        assert_eq!(generated, 1);
+        assert_eq!(hidden.content_id, WOUND_ID);
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .all(|card| card.id != hidden.id));
         assert_eq!(
             after_confirm.card_random_rng_counter,
             initial_card_random_counter + 1
