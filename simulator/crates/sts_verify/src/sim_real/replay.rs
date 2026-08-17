@@ -1773,9 +1773,7 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
         let mut flagged = candidate.clone();
         {
             let combat = flagged.combat.as_mut()?;
-            combat.nilrys_codex_end_turn_stage = 2;
-            let discarded = sts_core::combat::end_player_turn(combat).ok()?;
-            *combat = discarded;
+            sts_core::combat::transition::settle_leftover_end_turn_hand_discard(combat).ok()?;
             combat.decision = None;
             combat.nilrys_codex_end_turn_stage = 3;
             combat.resume_end_turn_after_nilrys_codex = true;
