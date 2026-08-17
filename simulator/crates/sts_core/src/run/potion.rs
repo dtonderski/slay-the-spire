@@ -839,9 +839,10 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // enemy is still alive (FIDL01665 Cultist+AO). A five-card remaining
             // hand against solo living Awakened One still takes two pulses
             // (FIDL01357 leftover Sludge Void at draw index 7, not 4).
-            // Two or fewer remaining cards still take two pulses (FIDL01357
-            // Wild Strike Wound after Defend+Dazed). Another Discovery
-            // still in hand still needs two (FIDL01630 first pick). A
+            // Two remaining cards with a status still take two pulses (FIDL01357
+            // Wild Strike Wound after Defend+Dazed). Two remaining attacks/skills
+            // stay one pulse (FIDL01614 Infernal Blade after Strike+Infernal Blade).
+            // Another Discovery still in hand still needs two (FIDL01630 first pick). A
             // Magnetism-generated Discovery played among the first two cards
             // of the turn leaves two pulses when the remaining hand is small
             // or another Magnetism-generated card is still in hand (FIDL01787
@@ -1107,13 +1108,17 @@ fn discovery_post_select_generations(
         && source_card.is_some_and(|card| card.magnetism_generated)
         && combat.relic_counters.cards_played_this_turn <= 2
         && !source_card_play_top;
-    let tiny_remaining_hand = combat.piles.hand.len() <= 2;
+    let remaining_status = combat.piles.hand.iter().any(|card| {
+        get_card_definition(card.content_id)
+            .is_some_and(|definition| definition.card_type == CardType::Status)
+    });
+    let tiny_remaining_hand_with_status = combat.piles.hand.len() <= 2 && remaining_status;
     if another_discovery_in_hand
         || hexed_with_two_living
         || (fighting_awakened_one
             && (combat.piles.hand.len() >= 6
                 || (combat.piles.hand.len() >= 5 && living_monsters <= 1)))
-        || tiny_remaining_hand
+        || tiny_remaining_hand_with_status
         || (early_magnetism_generated_source
             && (combat.piles.hand.len() < 5 || another_magnetism_card_in_hand))
     {
@@ -3386,7 +3391,44 @@ mod tests {
         assert_eq!(
             combat.rng.card_random_rng.counter(),
             22,
-            "two remaining cards burn two discarded generateCardChoices generations"
+            "two remaining cards including a status burn two discarded generateCardChoices generations"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_with_two_remaining_non_status_cards_burns_one_generation() {
+        use crate::content::cards::STRIKE_R_ID;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            source_card_play_top: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("two-card remaining non-status Discovery retrieve");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            19,
+            "two remaining non-status cards stay one discarded generateCardChoices generation"
         );
     }
 

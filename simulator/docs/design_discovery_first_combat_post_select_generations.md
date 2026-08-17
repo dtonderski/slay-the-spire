@@ -28,9 +28,10 @@ The same 6+ remaining-hand shape against Darklings / Giant Head / Champ
 FIDL01255 colorless hand). Remaining hands of 3–5 against Awakened One
 are one pulse while another enemy is still alive (FIDL01665 Cultist+AO).
 Five remaining cards against **solo living** Awakened One take two pulses
-(FIDL01357 leftover Sludge Void at draw index 7, not 4). Two or fewer remaining cards take two pulses
-(FIDL01357: Defend+Dazed then Wild Strike Wound at draw index 21, not 0).
-Another Discovery still in hand still needs
+(FIDL01357 leftover Sludge Void at draw index 7, not 4). Two remaining cards
+that include a status take two pulses (FIDL01357: Defend+Dazed then Wild Strike
+Wound at draw index 21, not 0). Two remaining non-status cards stay one pulse
+(FIDL01614 Infernal Blade). Another Discovery still in hand still needs
 two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
 among the first two cards of the turn needs two pulses when the remaining
 hand is smaller than 5 or another Magnetism-generated card is still in
@@ -70,9 +71,9 @@ Burn six discarded generations when the Discovery source was force-exhausted
 by PlayTop (Havoc / Distilled Chaos). Burn two when another Discovery is still
 in hand, when Hex is up and two or more enemies are alive, when Awakened One
 is present and `hand.len() >= 6` at retrieve, when Awakened One is the sole
-living enemy and `hand.len() >= 5`, when two or fewer cards remain
-after the source left, or when a hand-played Magnetism source is
-Magnetism-generated, `cards_played_this_turn <= 2`, and either fewer than 5
-cards remain or another Magnetism-generated card is still in hand. Mayhem
+living enemy and `hand.len() >= 5`, when two or fewer remaining cards include a
+status, or when a hand-played Magnetism source is Magnetism-generated,
+`cards_played_this_turn <= 2`, and either fewer than 5 cards remain or another
+Magnetism-generated card is still in hand. Mayhem
 PlayTop skips that Magnetism two-pulse branch. Otherwise burn one.
 Do not hydrate the Void insert index from the observed leftover pile.
