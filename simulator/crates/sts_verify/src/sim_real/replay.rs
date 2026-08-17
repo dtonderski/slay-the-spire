@@ -267,6 +267,17 @@ fn deferred_headbutt_alias_candidate(
             return Some(candidate);
         }
     }
+    // The same auto-put can also republish the previous top of draw with the
+    // same UUID after the discard card is added (FIDL01787 Strike). Remint
+    // that simulator top; do not copy observed identities.
+    for alias in combat.piles.draw_pile.iter().rev().copied() {
+        if let Some(candidate) = apply_headbutt_draw_alias(source, decision, post, alias, true) {
+            return Some(candidate);
+        }
+        if let Some(candidate) = apply_headbutt_draw_alias(source, decision, post, alias, false) {
+            return Some(candidate);
+        }
+    }
     None
 }
 

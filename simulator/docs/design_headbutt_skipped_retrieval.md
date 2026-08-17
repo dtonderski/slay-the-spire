@@ -39,3 +39,10 @@ The verifier tries a post-PLAY Headbutt / Headbutt+ candidate that remints
 each simulator exhaust card (top first) as `combat_only` onto draw. Accept
 the first remint whose combat subset matches the observed post. The remint
 id is derived from the exhaust instance, not from the observation.
+
+The same singleton auto-put can republish the previous top of draw with the
+same UUID after the discard card is added (FIDL01787 `Strike`). The candidate
+then remints that simulator draw-pile top (top first) onto draw. The remint
+id is derived from the live draw instance, not from the observation. The
+extra copy is gameplay-affecting: the next draw takes it, and the original
+card remains in the pile.
