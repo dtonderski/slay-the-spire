@@ -4066,10 +4066,10 @@ mod tests {
     }
 
     #[test]
-    fn purity_confirm_draws_dark_embrace_before_dead_branch() {
+    fn purity_confirm_dead_branch_precedes_dark_embrace_draw() {
         // FIDL01373 step 1145: Purity CONFIRM with no selection exhausts Purity.
-        // Dark Embrace's DrawCardAction is addToBot before Dead Branch's
-        // MakeTempCardInHand, so the drawn card sits ahead of the generated card.
+        // AbstractPlayer.onExhaust runs relics before powers, so Dead Branch's
+        // MakeTempCardInHand is addToBot before Dark Embrace's DrawCardAction.
         let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
         {
             let combat = run.combat.as_mut().expect("combat");
@@ -4081,7 +4081,7 @@ mod tests {
             ];
             combat.piles.draw_pile = vec![CardInstance::new(
                 CardId::new(3),
-                crate::content::cards::POMMEL_STRIKE_ID,
+                crate::content::cards::DARK_EMBRACE_ID,
             )];
             combat.piles.discard_pile.clear();
             combat.piles.exhaust_pile.clear();
@@ -4096,21 +4096,23 @@ mod tests {
         .expect("Purity opens exhaust select");
         let next = apply_exhaust_select_confirm(&opened).expect("Purity CONFIRM with no picks");
         let combat = next.combat.as_ref().expect("combat");
-        let hand: Vec<_> = combat
-            .piles
-            .hand
-            .iter()
-            .map(|card| card.content_id)
-            .collect();
+        let hand: Vec<_> = combat.piles.hand.iter().collect();
         assert_eq!(
-            hand.first().copied(),
+            hand.first().map(|card| card.content_id),
             Some(CLASH_ID),
-            "Clash remains in hand: {hand:?}"
+            "Clash remains in hand: {:?}",
+            hand.iter().map(|card| card.content_id).collect::<Vec<_>>()
+        );
+        assert!(
+            hand.get(1).is_some_and(|card| card.combat_only),
+            "Dead Branch should generate before Dark Embrace draws: {:?}",
+            hand.iter().map(|card| card.content_id).collect::<Vec<_>>()
         );
         assert_eq!(
-            hand.get(1).copied(),
-            Some(crate::content::cards::POMMEL_STRIKE_ID),
-            "Dark Embrace should draw before Dead Branch generates: {hand:?}"
+            hand.get(2).map(|card| card.content_id),
+            Some(crate::content::cards::DARK_EMBRACE_ID),
+            "Dark Embrace should draw after Dead Branch generates: {:?}",
+            hand.iter().map(|card| card.content_id).collect::<Vec<_>>()
         );
     }
 }
