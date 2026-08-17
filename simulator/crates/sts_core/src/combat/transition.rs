@@ -5691,27 +5691,17 @@ pub fn confirm_gambling_chip_select_skipped_retrieval(state: &mut CombatState) -
 }
 
 fn evaporate_headbutt_alias_hand_siblings(state: &mut CombatState, card: &CardInstance) {
-    let Some(sibling_id) = crate::ids::headbutt_alias_sibling_id(card.id) else {
+    let raw = card.id.get();
+    if raw < crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET {
         return;
-    };
+    }
+    let sibling_id = CardId::new(raw - crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET);
     if sibling_id == card.id {
         return;
     }
-    // The remint exists to represent a second listing of one Java object
-    // (FIDL01747). A later same-UUID pair can be two objects that only share
-    // the verifier offset (FIDL01722); those listings are not combat_only.
-    let Some(sibling_is_combat_only) = state
-        .piles
-        .hand
-        .iter()
-        .find(|other| other.id == sibling_id && other.content_id == card.content_id)
-        .map(|other| other.combat_only)
-    else {
-        return;
-    };
-    if !card.combat_only && !sibling_is_combat_only {
-        return;
-    }
+    // Playing the reminted listing drops the original extra ArrayList slot
+    // (FIDL01747). Playing the original keeps a later same-offset card that is
+    // a separate object (FIDL01722).
     state
         .piles
         .hand
