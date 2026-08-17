@@ -509,13 +509,17 @@ pub fn apply_draw_select_choice(run: &RunState, index: usize) -> SimResult<RunSt
         .is_some_and(|select| select.purpose != crate::combat::DrawSelectPurpose::Scry)
     {
         let exhaust_before = combat.piles.exhaust_pile.len();
-        confirm_draw_select(&mut combat)?;
+        let handled_dead_branch_count = confirm_draw_select(&mut combat)?;
         let exhaust_count = combat
             .piles
             .exhaust_pile
             .len()
             .saturating_sub(exhaust_before);
-        apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+        apply_dead_branch_for_exhaust_count(
+            &mut next,
+            &mut combat,
+            exhaust_count.saturating_sub(handled_dead_branch_count),
+        )?;
     }
     next.combat = Some(combat);
     Ok(next)
@@ -531,13 +535,18 @@ pub fn apply_draw_select_choice_skipped_retrieval(
     let mut combat = next.combat.take().expect("validated combat");
     choose_draw_select(&mut combat, index)?;
     let exhaust_before = combat.piles.exhaust_pile.len();
-    crate::combat::confirm_draw_select_skipped_retrieval(&mut combat)?;
+    let handled_dead_branch_count =
+        crate::combat::confirm_draw_select_skipped_retrieval(&mut combat)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile
         .len()
         .saturating_sub(exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
     next.combat = Some(combat);
     Ok(next)
 }
@@ -547,13 +556,17 @@ pub fn apply_draw_select_confirm(run: &RunState) -> SimResult<RunState> {
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
     let exhaust_before = combat.piles.exhaust_pile.len();
-    confirm_draw_select(&mut combat)?;
+    let handled_dead_branch_count = confirm_draw_select(&mut combat)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile
         .len()
         .saturating_sub(exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
     next.combat = Some(combat);
     Ok(next)
 }
@@ -1836,8 +1849,9 @@ mod tests {
     use crate::{
         apply_combat_action_on_run, apply_run_action,
         content::cards::{
-            BASH_ID, BURNING_PACT_ID, BURNING_PACT_PLUS_ID, BURN_ID, CLASH_ID, CLEAVE_ID,
-            DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, PURITY_ID, STRIKE_R_ID, WARCRY_ID, WOUND_ID,
+            ANGER_ID, BASH_ID, BURNING_PACT_ID, BURNING_PACT_PLUS_ID, BURN_ID, CLASH_ID, CLEAVE_ID,
+            DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, PURITY_ID, SECRET_TECHNIQUE_ID, STRIKE_R_ID,
+            WARCRY_ID, WOUND_ID,
         },
         content::shop_pool::ironclad_combat_discovery_pool,
         CombatAction,
@@ -4179,5 +4193,59 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn secret_technique_skipped_retrieval_dead_branch_precedes_dark_embrace() {
+        // FIDL01373 step 1181: CHOOSE skips retrieving Entrench. Exhausting
+        // Secret Technique still runs relic onExhaust (Dead Branch) before
+        // Dark Embrace draws the top two cards.
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 0;
+            combat.player.powers.dark_embrace = 2;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), SECRET_TECHNIQUE_ID),
+                CardInstance::new(CardId::new(2), CLASH_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                CardInstance::new(CardId::new(6), PURITY_ID),
+                CardInstance::new(CardId::new(4), STRIKE_R_ID),
+                CardInstance::new(CardId::new(5), ANGER_ID),
+            ];
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile.clear();
+        }
+        let opened = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Secret Technique opens draw select");
+        let next = apply_draw_select_choice_skipped_retrieval(&opened, 0)
+            .expect("skipped Secret Technique retrieval");
+        let combat = next.combat.as_ref().expect("combat");
+        combat.validate().expect("unique card ids");
+        assert!(
+            combat
+                .piles
+                .draw_pile
+                .iter()
+                .any(|card| card.content_id == DEFEND_R_ID),
+            "selected skill stays in draw"
+        );
+        let hand: Vec<_> = combat.piles.hand.iter().collect();
+        assert_eq!(hand[0].content_id, CLASH_ID);
+        assert!(
+            hand[1].combat_only,
+            "Dead Branch should land before Dark Embrace draws: {:?}",
+            hand.iter().map(|card| card.content_id).collect::<Vec<_>>()
+        );
+        assert_eq!(hand[2].content_id, ANGER_ID);
+        assert_eq!(hand[3].content_id, STRIKE_R_ID);
     }
 }

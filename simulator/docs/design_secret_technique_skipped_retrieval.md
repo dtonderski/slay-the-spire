@@ -8,7 +8,10 @@ If that retrieval update completes before the selected card is moved — the
 same SuperFastMode / CommunicationMod skipped-retrieval family as Exhume and
 Discovery — CommunicationMod publishes a closed `NONE` combat screen whose
 draw pile still contains the chosen card. The source still settles (Secret
-Technique exhausts; Secret Weapon discards).
+Technique exhausts; Secret Weapon discards). Relic `onExhaust` (Dead Branch)
+is addToBot before power `onExhaust` (Dark Embrace draw), matching
+`AbstractPlayer.onExhaust` (FIDL01373 CHOOSE 1: Feel No Pain generated, then
+Anger and Strike drawn).
 
 Witness: FIDL01255 step 217. `CHOOSE 0` on Shrug It Off / Burning Pact /
 Shrug It Off leaves the first Shrug It Off in the draw pile, exhausts Secret

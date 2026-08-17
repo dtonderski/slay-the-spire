@@ -3436,35 +3436,38 @@ fn draw_select_allows_card(
     }
 }
 
-pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<()> {
+pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<usize> {
     let draw_select = state
         .take_draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
-    match draw_select.purpose {
+    let dead_branch_count = match draw_select.purpose {
         DrawSelectPurpose::SecretTechniqueSkillToHand => {
             let index = draw_select
                 .selected_draw_index
                 .ok_or(SimError::IllegalAction("draw select choice is required"))?;
-            confirm_secret_technique_select(state, draw_select.source_card_id, index)
+            confirm_secret_technique_select(state, draw_select.source_card_id, index)?
         }
         DrawSelectPurpose::SecretWeaponAttackToHand => {
             let index = draw_select
                 .selected_draw_index
                 .ok_or(SimError::IllegalAction("draw select choice is required"))?;
-            confirm_secret_weapon_select(state, draw_select.source_card_id, index)
+            confirm_secret_weapon_select(state, draw_select.source_card_id, index)?
         }
-        DrawSelectPurpose::Scry => confirm_scry_select(
-            state,
-            draw_select.source_card_id,
-            draw_select.selected_draw_index,
-        ),
-    }?;
+        DrawSelectPurpose::Scry => {
+            confirm_scry_select(
+                state,
+                draw_select.source_card_id,
+                draw_select.selected_draw_index,
+            )?;
+            0
+        }
+    };
     // The source card and selected draw card settle before deferred on-use
     // follow-ups. This matches the action queue order while keeping the draw
     // grid itself stable until CONFIRM.
     resume_actions_after_hand_select(state, draw_select.pending_actions)?;
     state.activate_next_queued_decision_if_idle();
-    Ok(())
+    Ok(dead_branch_count)
 }
 
 /// Close Secret Technique / Secret Weapon without retrieving the selected card.
@@ -3472,7 +3475,7 @@ pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<()> {
 /// Target `SkillFromDeckToHandAction` / `AttackFromDeckToHandAction` can complete
 /// after CHOOSE before the selected card is moved. The source still settles
 /// through the ordinary exhaust/discard path.
-pub fn confirm_draw_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
+pub fn confirm_draw_select_skipped_retrieval(state: &mut CombatState) -> SimResult<usize> {
     let draw_select = state
         .take_draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
@@ -3503,10 +3506,11 @@ pub fn confirm_draw_select_skipped_retrieval(state: &mut CombatState) -> SimResu
         DrawSelectPurpose::Scry => {}
     }
     let source_definition = draw_select_source_definition(state, draw_select.source_card_id)?;
-    move_draw_select_source_card(state, draw_select.source_card_id, source_definition)?;
+    let dead_branch_count =
+        move_draw_select_source_card(state, draw_select.source_card_id, source_definition)?;
     resume_actions_after_hand_select(state, draw_select.pending_actions)?;
     state.activate_next_queued_decision_if_idle();
-    Ok(())
+    Ok(dead_branch_count)
 }
 
 fn confirm_scry_select(
@@ -3550,7 +3554,7 @@ fn confirm_secret_technique_select(
     state: &mut CombatState,
     source_card_id: CardId,
     index: usize,
-) -> SimResult<()> {
+) -> SimResult<usize> {
     let source_definition = draw_select_source_definition(state, source_card_id)?;
     let card = state
         .piles
@@ -3564,15 +3568,14 @@ fn confirm_secret_technique_select(
         return Err(SimError::IllegalAction("Secret Technique requires a Skill"));
     }
     move_selected_draw_card_to_hand_or_discard(state, index);
-    move_draw_select_source_card(state, source_card_id, source_definition)?;
-    Ok(())
+    move_draw_select_source_card(state, source_card_id, source_definition)
 }
 
 fn confirm_secret_weapon_select(
     state: &mut CombatState,
     source_card_id: CardId,
     index: usize,
-) -> SimResult<()> {
+) -> SimResult<usize> {
     let source_definition = draw_select_source_definition(state, source_card_id)?;
     let card = state
         .piles
@@ -3586,8 +3589,7 @@ fn confirm_secret_weapon_select(
         return Err(SimError::IllegalAction("Secret Weapon requires an Attack"));
     }
     move_selected_draw_card_to_hand_or_discard(state, index);
-    move_draw_select_source_card(state, source_card_id, source_definition)?;
-    Ok(())
+    move_draw_select_source_card(state, source_card_id, source_definition)
 }
 
 fn draw_select_source_definition(
@@ -3610,7 +3612,7 @@ fn move_draw_select_source_card(
     state: &mut CombatState,
     source_card_id: CardId,
     source_definition: &'static crate::card::CardDefinition,
-) -> SimResult<()> {
+) -> SimResult<usize> {
     // Prefer limbo (await_draw_select parks Secret Technique/Weapon there so the
     // retrieved card can fill the last hand slot — FIDL00413).
     if let Some(index) = state
@@ -3624,26 +3626,27 @@ fn move_draw_select_source_card(
         match destination {
             CardPile::ExhaustPile => {
                 state.piles.exhaust_pile.push(card);
-                apply_on_exhaust_effects(state, source_card_id)?;
+                apply_purity_card_exhausted(state, source_card_id)
             }
-            CardPile::DiscardPile => state.piles.discard_pile.push(card),
-            CardPile::Hand | CardPile::DrawPile => {
-                return Err(SimError::InvalidState(
-                    "unexpected Secret Technique/Weapon destination",
-                ));
+            CardPile::DiscardPile => {
+                state.piles.discard_pile.push(card);
+                Ok(0)
             }
+            CardPile::Hand | CardPile::DrawPile => Err(SimError::InvalidState(
+                "unexpected Secret Technique/Weapon destination",
+            )),
         }
-        return Ok(());
-    }
-    if state
+    } else if state
         .piles
         .hand
         .iter()
         .any(|card| card.id == source_card_id)
     {
         move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+        Ok(0)
+    } else {
+        Ok(0)
     }
-    Ok(())
 }
 
 fn move_selected_draw_card_to_hand_or_discard(state: &mut CombatState, index: usize) {
