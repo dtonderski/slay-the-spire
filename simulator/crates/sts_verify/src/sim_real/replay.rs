@@ -1429,7 +1429,25 @@ fn deferred_nilrys_first_choice_candidate(
         .is_empty()
         .then_some(candidate)
     };
-    park(false).or_else(|| park(true))
+    // Later two-steps can insert the first pick while the hand is still held
+    // (FIDL01486 CHOOSE 466 Iron Wave in the draw pile) and still grant the
+    // leftover plated tick. Keep no-insert first so 461 stays a pure pause.
+    let insert_and_plated = || -> Option<RunState> {
+        let mut candidate = apply_run_decision_action(source, decision).ok()?;
+        let combat = candidate.combat.as_mut()?;
+        sts_core::relic::nilrys_codex_apply_paused_end_turn_block_powers(combat).ok()?;
+        combat.nilrys_codex_end_turn_stage = 2;
+        candidate.validate().ok()?;
+        subset_diffs(
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&candidate),
+        )
+        .is_empty()
+        .then_some(candidate)
+    };
+    park(false)
+        .or_else(|| park(true))
+        .or_else(insert_and_plated)
 }
 
 /// Book.takeTurn reads live `stabCount` after the first queued multi-stab.

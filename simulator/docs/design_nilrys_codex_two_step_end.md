@@ -99,11 +99,12 @@ autoplays (Regret/Burn) without Combust or the bulk hand discard
 (FIDL01597 CHOOSE 470: Regret 4 HP, other cards stay). The same resume
 window can apply Plated Armor / Metallicize automatic block while the
 pre-discard hand is still held (FIDL01486 CHOOSE 461: block 5→9 from
-Thread and Needle, Evolve not yet in the draw pile). Stage-2 END must
-not grant that block again (462 stays 9). The leftover EndTurn's
+Thread and Needle, Evolve not yet in the draw pile). A later first-offer
+CHOOSE in the same fight can insert the pick *and* grant that block
+(FIDL01486 CHOOSE 466: Iron Wave enters the draw pile, block 0→4).
+Stage-2 END must not grant that block again. The leftover EndTurn's
 matching `atEndOfTurn` lands on the stage-3 close before the duplicate
-MonsterQueue (two weakened Chosen Pokes are 12 through 9+4 block).
-Combust already uses that window via `nilrys_end_powers_pending`.
+MonsterQueue.
 
 Unit: `nilry_two_step_second_offer_runs_two_snecko_bites_then_tail`,
 `nilry_two_step_gremlin_leader_rally_applies_between_duplicate_hits`,
