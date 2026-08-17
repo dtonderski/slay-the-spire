@@ -475,6 +475,12 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         return Ok(next);
     }
     run_monster_turn(&mut next)?;
+    if resuming_after_nilrys {
+        // WeakPower.atEndOfRound runs after leftover takeTurn, not in the
+        // stage-3 atEndOfTurn window (FIDL01727 Weak 1 on Perfected Strike,
+        // then 0 on the next leftover close's Strike).
+        tick_leftover_end_turn_player_weak(&mut next);
+    }
     if resuming_time_warp_monster_action && next.player.hp > 0 {
         // The queued Time Warp publication exposes the next RollMoveAction on
         // the following END after the captured attack settles. The source
@@ -6321,9 +6327,21 @@ mod tests {
                 .player
                 .powers
                 .weak,
-            1,
-            "WeakPower.atEndOfRound waits until after takeTurn"
+            0,
+            "WeakPower.atEndOfRound ticks once after leftover takeTurn"
         );
+    }
+
+    #[test]
+    fn nilry_stage_three_pending_powers_do_not_tick_weak() {
+        let mut state = CombatState::initial_fixture();
+        state.nilrys_end_powers_pending = true;
+        state.player.powers.weak = 2;
+        state.player.powers.frail = 2;
+        apply_pending_nilry_end_powers(&mut state).expect("pending powers");
+        assert_eq!(state.player.powers.weak, 2);
+        assert_eq!(state.player.powers.frail, 1);
+        assert!(!state.nilrys_end_powers_pending);
     }
 
     #[test]
