@@ -104,9 +104,10 @@ pre-discard hand is still held (FIDL01486 CHOOSE 461: block 5→9 from
 Thread and Needle, Evolve not yet in the draw pile). A later first-offer
 CHOOSE in the same fight can insert the pick *and* grant that block
 (FIDL01486 CHOOSE 466: Iron Wave enters the draw pile, block 0→4).
-Stage-2 END must not grant that block again. The leftover EndTurn's
-matching `atEndOfTurn` lands on the stage-3 close before the duplicate
-MonsterQueue.
+An extra leftover EndTurn can open another Codex while the hand is still
+held (FIDL01486 END 475). Stage-2 END must not grant plated again when
+that frame discards. The leftover EndTurn's matching `atEndOfTurn` lands
+on the final Codex close before the duplicate MonsterQueue.
 
 Unit: `nilry_two_step_second_offer_runs_two_snecko_bites_then_tail`,
 `nilry_two_step_gremlin_leader_rally_applies_between_duplicate_hits`,

@@ -1365,6 +1365,40 @@ fn deferred_monster_death_gremlin_horn_candidate(
     .then_some(candidate)
 }
 
+/// Extra leftover EndTurn can open another Codex while the hand is still held
+/// (FIDL01486 END 475: Clash/Twin/Immolate, Sword Boomerang stays). Ordinary
+/// stage-2 END would discard. Keep stage 1 so the next CHOOSE is another
+/// first-offer pause.
+fn deferred_nilrys_keep_hand_extra_offer_on_end_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    if !matches!(decision, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    if !combat.resume_end_turn_after_nilrys_codex
+        || combat.decision.is_some()
+        || combat.piles.hand.is_empty()
+        || !matches!(combat.nilrys_codex_end_turn_stage, 1 | 2)
+    {
+        return None;
+    }
+    let mut candidate = source.clone();
+    let combat = candidate.combat.as_mut()?;
+    sts_core::relic::open_nilrys_codex_card_reward(combat).ok()?;
+    combat.resume_end_turn_after_nilrys_codex = true;
+    combat.nilrys_codex_end_turn_stage = 1;
+    candidate.validate().ok()?;
+    subset_diffs(
+        seed_start_combat_observed_subset(&post.message),
+        seed_start_simulated_combat_subset(&candidate),
+    )
+    .is_empty()
+    .then_some(candidate)
+}
+
 fn deferred_nilrys_second_offer_on_end_candidate(
     source: &RunState,
     decision: RunDecisionAction,
@@ -3017,6 +3051,11 @@ pub(super) fn verify_seed_start_transition(
                                 decision,
                                 post,
                             )
+                            .or_else(|| {
+                                deferred_nilrys_keep_hand_extra_offer_on_end_candidate(
+                                    &source, decision, post,
+                                )
+                            })
                             .or_else(|| {
                                 deferred_nilrys_second_offer_on_end_candidate(
                                     &source, decision, post,
