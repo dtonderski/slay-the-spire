@@ -5697,6 +5697,21 @@ fn evaporate_headbutt_alias_hand_siblings(state: &mut CombatState, card: &CardIn
     if sibling_id == card.id {
         return;
     }
+    // The remint exists to represent a second listing of one Java object
+    // (FIDL01747). A later same-UUID pair can be two objects that only share
+    // the verifier offset (FIDL01722); those listings are not combat_only.
+    let Some(sibling_is_combat_only) = state
+        .piles
+        .hand
+        .iter()
+        .find(|other| other.id == sibling_id && other.content_id == card.content_id)
+        .map(|other| other.combat_only)
+    else {
+        return;
+    };
+    if !card.combat_only && !sibling_is_combat_only {
+        return;
+    }
     state
         .piles
         .hand
@@ -6835,6 +6850,42 @@ mod tests {
                 .count(),
             1,
             "the alias listing evaporates instead of discarding twice"
+        );
+    }
+
+    #[test]
+    fn playing_non_combat_only_headbutt_offset_pair_keeps_the_sibling() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        let original = CardInstance::new(CardId::new(5), STRIKE_R_ID);
+        let mut pair = original;
+        pair.id = CardId::new(5 + crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET);
+        state.piles.hand = vec![
+            pair,
+            CardInstance::new(CardId::new(7), TRUE_GRIT_ID),
+            original,
+        ];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: original.id,
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("playing one Strike of a non-combat_only offset pair");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![STRIKE_R_ID, TRUE_GRIT_ID],
+            "two non-combat_only listings are separate objects"
         );
     }
 

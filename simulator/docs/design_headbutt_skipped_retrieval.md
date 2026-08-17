@@ -51,7 +51,9 @@ When those two listings later sit in hand together, Java `UseCardAction`
 `removeCard` plus `resetCardBeforeMoving` drop every `hand.contains(c)` slot of
 the same `AbstractCard` and discard the object once (FIDL01747 `Strike`). The
 simulator evaporates the reminted sibling from hand on the real pile move when
-`content_id` matches. Unrelated high-id combat-only statuses (Wounds) stay.
+`content_id` matches and at least one listing is `combat_only`. Unrelated
+high-id combat-only statuses (Wounds) stay. Two non-`combat_only` cards that
+only share the remint offset stay as separate objects (FIDL01722).
 
 `Headbutt.use()` always queues `PutOnDeckAction`. An empty discard at queue
 build time is not a reason to omit that action: a Double Tap copy still runs
