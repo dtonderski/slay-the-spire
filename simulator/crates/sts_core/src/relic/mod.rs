@@ -2585,15 +2585,20 @@ pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> S
         }
     }
 
-    if state.relics.contains(&Relic::Pocketwatch)
-        && state.relic_counters.player_turns_started > 1
-        && state.relic_counters.cards_played_last_turn <= POCKETWATCH_CARD_LIMIT
-    {
-        crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW)?;
-    }
-
-    if state.relics.contains(&Relic::WarpedTongs) {
-        upgrade_random_non_status_hand_card(state)?;
+    // atTurnStartPostDraw walks relics in acquisition order. Pocketwatch draws
+    // must not run before an earlier Warped Tongs upgrade (FIDL01534: Rupture
+    // in the 5-card hand, not Strike after the extra 3 cards).
+    for relic in state.relics.clone() {
+        match relic {
+            Relic::Pocketwatch
+                if state.relic_counters.player_turns_started > 1
+                    && state.relic_counters.cards_played_last_turn <= POCKETWATCH_CARD_LIMIT =>
+            {
+                crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW)?;
+            }
+            Relic::WarpedTongs => upgrade_random_non_status_hand_card(state)?,
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -3393,5 +3398,65 @@ mod tests {
             Relic::NlothsGift.definition().effect_status,
             RelicEffectStatus::Unsupported
         );
+    }
+
+    #[test]
+    fn warped_tongs_upgrades_before_later_pocketwatch_draws() {
+        use crate::{
+            combat::CombatState,
+            content::cards::{
+                BASH_ID, DEFEND_R_ID, FLEX_PLUS_ID, RAGE_PLUS_ID, RUPTURE_ID, STRIKE_R_ID,
+                THUNDERCLAP_ID, WARCRY_PLUS_ID,
+            },
+            ids::CardId,
+            CardInstance,
+        };
+
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::WarpedTongs, Relic::Pocketwatch];
+        state.relic_counters.player_turns_started = 2;
+        state.relic_counters.cards_played_last_turn = 2;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), WARCRY_PLUS_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), RUPTURE_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(6), RAGE_PLUS_ID),
+            CardInstance::new(CardId::new(7), FLEX_PLUS_ID),
+            CardInstance::new(CardId::new(8), THUNDERCLAP_ID),
+        ];
+
+        apply_start_of_player_turn_post_draw_relics(&mut state).expect("post-draw relics");
+
+        assert_eq!(state.piles.hand.len(), 8);
+        assert!(
+            state
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == THUNDERCLAP_ID),
+            "Pocketwatch-drawn Thunderclap must remain unupgraded"
+        );
+        assert!(!state
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == crate::content::cards::THUNDERCLAP_PLUS_ID));
+        let upgraded_original = state.piles.hand[..5]
+            .iter()
+            .filter(|card| {
+                matches!(
+                    card.content_id,
+                    crate::content::cards::DEFEND_R_PLUS_ID
+                        | crate::content::cards::BASH_PLUS_ID
+                        | crate::content::cards::STRIKE_R_PLUS_ID
+                        | crate::content::cards::RUPTURE_PLUS_ID
+                )
+            })
+            .count();
+        assert_eq!(upgraded_original, 1);
     }
 }
