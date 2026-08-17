@@ -10,8 +10,9 @@ For the installed Slay the Spire 1.0 target with SuperFastMode configured for
 2. The reward screen pauses the action manager. `CHOOSE` retrieves the
    visible selected card after burning discarded post-select
    `generateCardChoices` updates: two when another Discovery is still in
-   hand, or when Awakened One is present and 6+ cards remain after the
-   source left (FIDL01561); otherwise one. A global no-burn SuperFastMode
+   hand, when Magnetism is active (FIDL01787), or when Awakened One is
+   present and 6+ cards remain after the source left (FIDL01561);
+   otherwise one. A global no-burn SuperFastMode
    candidate regresses
    FIDL01630. See
    [design_discovery_first_combat_post_select_generations.md](design_discovery_first_combat_post_select_generations.md).
