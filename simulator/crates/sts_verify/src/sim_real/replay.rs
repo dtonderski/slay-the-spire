@@ -1576,6 +1576,35 @@ fn deferred_nilrys_single_monster_queue_on_second_choice_candidate(
     .then_some(next)
 }
 
+/// SuperFastMode can publish after the first leftover RollMoveAction
+/// (FIDL01727 Collector Mega Debuff instead of the second Fireball roll).
+fn deferred_nilrys_single_post_queue_roll_on_second_choice_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    match decision {
+        RunDecisionAction::Run(
+            RunAction::ChooseCombatCardReward { .. } | RunAction::SkipCombatCardReward,
+        ) => {}
+        _ => return None,
+    }
+    let combat = source.combat.as_ref()?;
+    if combat.nilrys_codex_end_turn_stage != 3 || !combat.nilrys_duplicate_monster_queue {
+        return None;
+    }
+    let mut candidate = source.clone();
+    candidate.combat.as_mut()?.nilrys_single_post_queue_roll = true;
+    let next = apply_run_decision_action(&candidate, decision).ok()?;
+    next.validate().ok()?;
+    subset_diffs(
+        seed_start_combat_observed_subset(&post.message),
+        seed_start_simulated_combat_subset(&next),
+    )
+    .is_empty()
+    .then_some(next)
+}
+
 /// SuperFastMode can snapshot after duplicate takeTurns but before
 /// StrengthSelf RollMoveActions apply (FIDL01486 Byrd remains Caw while Chosen
 /// consumes both leftover rolls into Drain). The leftover Byrd rolls still
@@ -1915,6 +1944,7 @@ fn deferred_nilrys_second_choice_without_insert_candidate(
         })
         .or_else(|| try_close(|c| c.nilrys_book_second_stab_uses_live_count = true))
         .or_else(|| try_close(|c| c.nilrys_hold_attack_multiple_rolls = true))
+        .or_else(|| try_close(|c| c.nilrys_single_post_queue_roll = true))
         .or_else(|| try_close(|c| c.nilrys_interleave_post_queue_rolls = true))
 }
 
@@ -1982,6 +2012,7 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
     discard_then_monsters(|_| {})
         .or_else(|| discard_then_monsters(|c| c.nilrys_interleave_post_queue_rolls = true))
         .or_else(|| discard_then_monsters(|c| c.nilrys_hold_attack_multiple_rolls = true))
+        .or_else(|| discard_then_monsters(|c| c.nilrys_single_post_queue_roll = true))
         .or_else(|| discard_then_monsters(|c| c.nilrys_book_second_stab_uses_live_count = true))
         .or_else(|| discard_then_monsters(|c| c.nilrys_duplicate_monster_queue = false))
         .or_else(|| {
@@ -3439,6 +3470,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_hold_attack_multiple_rolls_on_second_choice_candidate(
+                                    &source, decision, post,
+                                )
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_single_post_queue_roll_on_second_choice_candidate(
                                     &source, decision, post,
                                 )
                             })

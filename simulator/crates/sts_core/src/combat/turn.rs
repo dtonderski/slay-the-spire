@@ -1203,6 +1203,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 state.nilrys_one_strength_self_roll_hold_others = false;
                 state.nilrys_interleave_post_queue_rolls = false;
                 state.nilrys_hold_attack_multiple_rolls = false;
+                state.nilrys_single_post_queue_roll = false;
                 let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
                 return Ok(());
             }
@@ -1219,6 +1220,8 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
     state.nilrys_interleave_post_queue_rolls = false;
     let hold_attack_multiple_rolls = state.nilrys_hold_attack_multiple_rolls;
     state.nilrys_hold_attack_multiple_rolls = false;
+    let single_post_queue_roll = state.nilrys_single_post_queue_roll;
+    state.nilrys_single_post_queue_roll = false;
     if nilrys_duplicate_monster_queue {
         // Both MonsterQueueItems ran with the captured intent. Their
         // RollMoveActions then run in order and each advances lastMove.
@@ -1230,7 +1233,8 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             .map(|monster| monster.id)
             .collect::<Vec<_>>();
         if interleave_post_queue_rolls {
-            for _ in 0..2 {
+            let roll_passes = if single_post_queue_roll { 1 } else { 2 };
+            for _ in 0..roll_passes {
                 for actor_id in actors.iter().copied() {
                     prepare_next_intent_for_actor(state, actor_id)?;
                 }
@@ -1274,7 +1278,9 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     continue;
                 }
                 prepare_next_intent_for_actor(state, actor_id)?;
-                prepare_next_intent_for_actor(state, actor_id)?;
+                if !single_post_queue_roll {
+                    prepare_next_intent_for_actor(state, actor_id)?;
+                }
             }
         }
     }
@@ -6349,6 +6355,44 @@ mod tests {
         );
         assert_eq!(combat.nilrys_codex_end_turn_stage, 0);
         assert!(!combat.nilrys_duplicate_monster_queue);
+    }
+
+    #[test]
+    fn nilry_two_step_single_post_queue_roll_keeps_collector_mega_debuff() {
+        use crate::relic::Relic;
+        use crate::run::potion::apply_combat_card_reward_skip;
+        use crate::RunState;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.relics = vec![Relic::NilrysCodex];
+        combat.resume_end_turn_after_nilrys_codex = true;
+        combat.nilrys_codex_end_turn_stage = 3;
+        combat.nilrys_duplicate_monster_queue = true;
+        combat.nilrys_single_post_queue_roll = true;
+        combat.piles.hand.clear();
+        combat.piles.draw_pile = (1..=8)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let mut collector = monster_state_for_ascension(
+            &crate::content::monsters::THE_COLLECTOR_A0,
+            MonsterId::new(1),
+            0,
+        );
+        collector.intent = crate::MonsterIntent::Attack { damage: 18 };
+        collector.move_history = vec![1, 2, 2];
+        combat.monsters = vec![collector];
+        crate::relic::open_nilrys_codex_card_reward(combat).expect("second offer");
+
+        let next = apply_combat_card_reward_skip(&run).expect("skip second offer");
+        let combat = next.combat.as_ref().expect("combat remains");
+        assert!(
+            matches!(
+                combat.monsters[0].intent,
+                crate::MonsterIntent::ApplyPlayerFrailWeakVulnerable { .. }
+            ),
+            "first leftover RollMoveAction is Mega Debuff, not a second Fireball"
+        );
     }
 
     #[test]

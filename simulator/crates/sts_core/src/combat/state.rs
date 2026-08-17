@@ -271,6 +271,10 @@ pub struct CombatState {
     /// (FIDL01486 SKIP 491: Peck stays, Chosen rolls Drain).
     #[serde(default, skip_serializing_if = "is_false")]
     pub nilrys_hold_attack_multiple_rolls: bool,
+    /// SuperFastMode can publish after the first leftover RollMoveAction
+    /// (FIDL01727 Collector Mega Debuff, not the second roll's Fireball).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_single_post_queue_roll: bool,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -1180,6 +1184,7 @@ impl CombatState {
             nilrys_one_strength_self_roll_hold_others: false,
             nilrys_interleave_post_queue_rolls: false,
             nilrys_hold_attack_multiple_rolls: false,
+            nilrys_single_post_queue_roll: false,
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
