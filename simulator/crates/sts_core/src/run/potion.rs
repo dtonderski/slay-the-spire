@@ -840,9 +840,8 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // of the turn leaves two pulses when the remaining hand is small
             // or another Magnetism-generated card is still in hand (FIDL01787
             // Transmutation vs Enlightenment; later Magnetism Discoveries on
-            // the same run). A deck Discovery with Magnetism up and fewer than
-            // 6 cards remaining among the first two plays also leaves two
-            // pulses (FIDL01582 The Bomb, not Blind). A lone early-turn retrieve
+            // the same run). Remaining hand of 5 with no other generated card
+            // stays one pulse (FIDL01582 The Bomb, not Blind). A lone early-turn retrieve
             // from a 6+ card hand settles in one pulse (FIDL01787 Writhing Mass
             // Flash of Steel).
             // The same source later in the turn stays one pulse (FIDL01255,
@@ -1098,16 +1097,11 @@ fn discovery_post_select_generations(
     let early_magnetism_generated_source = combat.player.powers.magnetism > 0
         && source_card.is_some_and(|card| card.magnetism_generated)
         && combat.relic_counters.cards_played_this_turn <= 2;
-    let early_deck_discovery_with_magnetism_small_hand = combat.player.powers.magnetism > 0
-        && source_card.is_some_and(|card| !card.combat_only && !card.magnetism_generated)
-        && combat.relic_counters.cards_played_this_turn <= 2
-        && combat.piles.hand.len() < 6;
     if another_discovery_in_hand
         || hexed_with_two_living
         || (fighting_awakened_one && combat.piles.hand.len() >= 6)
         || (early_magnetism_generated_source
-            && (combat.piles.hand.len() < 6 || another_magnetism_card_in_hand))
-        || early_deck_discovery_with_magnetism_small_hand
+            && (combat.piles.hand.len() < 5 || another_magnetism_card_in_hand))
     {
         2
     } else {
@@ -3145,7 +3139,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_retrieve_early_deck_source_with_magnetism_small_hand_burns_two_generations() {
+    fn discovery_retrieve_early_magnetism_source_from_five_card_hand_burns_one_generation() {
         use crate::content::cards::{DISCOVERY_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
@@ -3166,18 +3160,22 @@ mod tests {
                 CardId::new(chosen_id.get() + 1),
                 STRIKE_R_ID,
             )],
-            source_card: Some(CardInstance::new(CardId::new(99), DISCOVERY_ID)),
+            source_card: Some(CardInstance {
+                combat_only: true,
+                magnetism_generated: true,
+                ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
+            }),
             source_card_force_exhaust: false,
             pending_actions: Default::default(),
         });
 
         let next = apply_combat_card_reward_choice(&run, 0)
-            .expect("early-turn deck Discovery retrieve with Magnetism");
+            .expect("early-turn Magnetism Discovery from a 5-card remaining hand");
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            22,
-            "early-turn deck Discovery with Magnetism and a small remaining hand burns two discarded generations"
+            19,
+            "early-turn Magnetism-generated Discovery from a 5-card remaining hand burns one discarded generation"
         );
     }
 
