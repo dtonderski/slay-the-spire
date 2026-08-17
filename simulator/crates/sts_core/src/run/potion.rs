@@ -834,8 +834,10 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // pulses when Awakened One is in the fight and 6+ cards remain
             // after the source left (FIDL01561 Sludge Void). The same 6+
             // remaining-hand shape against other encounters stays one pulse
-            // (FIDL01309 Wild Strike Wound; FIDL01248 / FIDL01255). Smaller
-            // remaining hands are one pulse (FIDL01665). Another Discovery
+            // (FIDL01309 Wild Strike Wound; FIDL01248 / FIDL01255). Remaining
+            // hands of 3–5 against Awakened One stay one pulse (FIDL01665).
+            // Two or fewer remaining cards still take two pulses (FIDL01357
+            // Wild Strike Wound after Defend+Dazed). Another Discovery
             // still in hand still needs two (FIDL01630 first pick). A
             // Magnetism-generated Discovery played among the first two cards
             // of the turn leaves two pulses when the remaining hand is small
@@ -1102,9 +1104,11 @@ fn discovery_post_select_generations(
         && source_card.is_some_and(|card| card.magnetism_generated)
         && combat.relic_counters.cards_played_this_turn <= 2
         && !source_card_play_top;
+    let tiny_remaining_hand = combat.piles.hand.len() <= 2;
     if another_discovery_in_hand
         || hexed_with_two_living
         || (fighting_awakened_one && combat.piles.hand.len() >= 6)
+        || tiny_remaining_hand
         || (early_magnetism_generated_source
             && (combat.piles.hand.len() < 5 || another_magnetism_card_in_hand))
     {
@@ -3259,6 +3263,43 @@ mod tests {
             combat.rng.card_random_rng.counter(),
             19,
             "Mayhem PlayTop Magnetism-generated Discovery burns one discarded generation"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_with_two_remaining_cards_burns_two_generations() {
+        use crate::content::cards::{DAZED_ID, STRIKE_R_ID};
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DAZED_ID),
+        ];
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            source_card_play_top: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("two-card remaining Discovery retrieve");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            22,
+            "two remaining cards burn two discarded generateCardChoices generations"
         );
     }
 

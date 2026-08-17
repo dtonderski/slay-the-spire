@@ -25,8 +25,10 @@ When Awakened One is in the fight and **6+ cards remain** after the
 source left, that settlement takes two post-select pulses (FIDL01561).
 The same 6+ remaining-hand shape against Darklings / Giant Head / Champ
 / Time Eater stays one pulse (FIDL01309 Wound insert; FIDL01248 energy;
-FIDL01255 colorless hand). Smaller remaining hands against Awakened One
-are one pulse (FIDL01665). Another Discovery still in hand still needs
+FIDL01255 colorless hand). Remaining hands of 3–5 against Awakened One
+are one pulse (FIDL01665). Two or fewer remaining cards take two pulses
+(FIDL01357: Defend+Dazed then Wild Strike Wound at draw index 21, not 0).
+Another Discovery still in hand still needs
 two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
 among the first two cards of the turn needs two pulses when the remaining
 hand is smaller than 5 or another Magnetism-generated card is still in
@@ -65,8 +67,9 @@ inserts (FIDL01561).
 Burn six discarded generations when the Discovery source was force-exhausted
 by PlayTop (Havoc / Distilled Chaos). Burn two when another Discovery is still
 in hand, when Hex is up and two or more enemies are alive, when Awakened One
-is present and `hand.len() >= 6` at retrieve, or when a hand-played Magnetism
-source is Magnetism-generated, `cards_played_this_turn <= 2`, and either
-fewer than 5 cards remain or another Magnetism-generated card is still in
-hand. Mayhem PlayTop skips that Magnetism two-pulse branch. Otherwise burn one.
+is present and `hand.len() >= 6` at retrieve, when two or fewer cards remain
+after the source left, or when a hand-played Magnetism source is
+Magnetism-generated, `cards_played_this_turn <= 2`, and either fewer than 5
+cards remain or another Magnetism-generated card is still in hand. Mayhem
+PlayTop skips that Magnetism two-pulse branch. Otherwise burn one.
 Do not hydrate the Void insert index from the observed leftover pile.
