@@ -2793,6 +2793,7 @@ pub fn nilrys_codex_apply_paused_end_turn_block_powers(state: &mut CombatState) 
             state.player.powers.plated_armor,
         )?;
     }
+    state.time_warp_end_powers_applied = true;
     Ok(())
 }
 

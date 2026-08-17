@@ -142,7 +142,7 @@ fn apply_player_end_of_turn_powers_for_combat_state(
             state.player.powers.metallicize,
         )?
     }
-    if state.player.powers.plated_armor > 0 {
+    if state.player.powers.plated_armor > 0 && !state.time_warp_end_powers_applied {
         crate::combat::transition::apply_player_end_turn_automatic_block_gain(
             state,
             state.player.powers.plated_armor,
