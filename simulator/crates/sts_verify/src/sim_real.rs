@@ -2344,7 +2344,11 @@ fn seed_start_visible_event_choice_label_for_event(
 
 fn seed_start_visible_event_choice_label(label: &str) -> Option<String> {
     let mut label = label.to_ascii_lowercase();
-    if let Some((visible, _effect_text)) = label.split_once(" (") {
+    if let Some((visible, rest)) = label.split_once(" (") {
+        let rest = rest.trim_end_matches(')').trim();
+        if rest == "locked" {
+            return None;
+        }
         label = visible.to_owned();
     }
     label = label.trim_end_matches(['!', '?', '.', ':', ';']).to_owned();

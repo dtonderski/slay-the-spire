@@ -4427,7 +4427,8 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) -> S
 }
 
 fn event_choice_is_locked(choice: &EventChoice) -> bool {
-    choice.label.eq_ignore_ascii_case("locked")
+    let label = choice.label.to_ascii_lowercase();
+    label == "locked" || label.ends_with("(locked)")
 }
 
 pub fn legal_event_actions(run: &RunState) -> SimResult<Vec<EventAction>> {
@@ -6269,6 +6270,31 @@ mod tests {
                 .stage,
             2
         );
+    }
+
+    #[test]
+    fn designer_omits_locked_full_service_from_legal_actions() {
+        // FIDL01427: gold 85 cannot pay Full Service (90). CommunicationMod
+        // drops that locked button, so CHOOSE 2 is Punch, not Full Service.
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.current_act = 3;
+        run.gold = 85;
+        run.phase = RunPhase::Event;
+        run.event = Some(designer_screen(&run, 0, 0));
+        let main = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Designer intro applies");
+        let legal = legal_event_actions(&main).expect("legal Designer actions");
+        assert_eq!(
+            legal,
+            vec![
+                EventAction::Choose { choice_index: 0 },
+                EventAction::Choose { choice_index: 1 },
+                EventAction::Choose { choice_index: 3 },
+            ]
+        );
+        let punched = apply_event_action(&main, EventAction::Choose { choice_index: 3 })
+            .expect("Punch remains index 3");
+        assert_eq!(punched.event.as_ref().expect("leave").stage, 2);
     }
 
     #[test]
