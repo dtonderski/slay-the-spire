@@ -92,7 +92,10 @@ clears living monster block without executing the queue.
 
 Closing the first Codex offer continues `callEndOfTurnActions` card
 autoplays (Regret/Burn) without Combust or the bulk hand discard
-(FIDL01597 CHOOSE 470: Regret 4 HP, other cards stay).
+(FIDL01597 CHOOSE 470: Regret 4 HP, other cards stay). The same resume
+window can apply Plated Armor / Metallicize automatic block while the
+pre-discard hand is still held (FIDL01486 CHOOSE 461: block 5→9 from
+Thread and Needle, Evolve not yet in the draw pile).
 
 Unit: `nilry_two_step_second_offer_runs_two_snecko_bites_then_tail`,
 `nilry_two_step_gremlin_leader_rally_applies_between_duplicate_hits`.

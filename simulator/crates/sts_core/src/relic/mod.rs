@@ -2777,6 +2777,25 @@ pub fn nilrys_codex_park_choice_without_insert(
     Ok(())
 }
 
+/// Closing the first Codex offer continues `callEndOfTurnActions` power
+/// hooks that grant block (Plated Armor / Metallicize) while the hand is
+/// still held (FIDL01486 CHOOSE 461: Thread and Needle +4).
+pub fn nilrys_codex_apply_paused_end_turn_block_powers(state: &mut CombatState) -> SimResult<()> {
+    if state.player.powers.metallicize > 0 {
+        crate::combat::transition::apply_player_end_turn_automatic_block_gain(
+            state,
+            state.player.powers.metallicize,
+        )?;
+    }
+    if state.player.powers.plated_armor > 0 {
+        crate::combat::transition::apply_player_end_turn_automatic_block_gain(
+            state,
+            state.player.powers.plated_armor,
+        )?;
+    }
+    Ok(())
+}
+
 /// Insert every parked Nilry card into a random draw-pile spot.
 pub fn nilrys_codex_flush_pending_draw_inserts(state: &mut CombatState) -> SimResult<()> {
     let pending = std::mem::take(&mut state.pending_nilrys_codex_draw_inserts);

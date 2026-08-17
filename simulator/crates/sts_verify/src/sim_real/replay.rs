@@ -1413,17 +1413,23 @@ fn deferred_nilrys_first_choice_candidate(
     {
         return None;
     }
-    let mut candidate = source.clone();
-    let combat = candidate.combat.as_mut()?;
-    sts_core::relic::nilrys_codex_park_choice_without_insert(combat, index).ok()?;
-    combat.nilrys_codex_end_turn_stage = 2;
-    candidate.validate().ok()?;
-    subset_diffs(
-        seed_start_combat_observed_subset(&post.message),
-        seed_start_simulated_combat_subset(&candidate),
-    )
-    .is_empty()
-    .then_some(candidate)
+    let park = |apply_end_turn_block: bool| -> Option<RunState> {
+        let mut candidate = source.clone();
+        let combat = candidate.combat.as_mut()?;
+        sts_core::relic::nilrys_codex_park_choice_without_insert(combat, index).ok()?;
+        if apply_end_turn_block {
+            sts_core::relic::nilrys_codex_apply_paused_end_turn_block_powers(combat).ok()?;
+        }
+        combat.nilrys_codex_end_turn_stage = 2;
+        candidate.validate().ok()?;
+        subset_diffs(
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&candidate),
+        )
+        .is_empty()
+        .then_some(candidate)
+    };
+    park(false).or_else(|| park(true))
 }
 
 /// Book.takeTurn reads live `stabCount` after the first queued multi-stab.
