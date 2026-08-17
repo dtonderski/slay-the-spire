@@ -1779,6 +1779,74 @@ fn deferred_nilrys_play_then_leftover_end_candidate(
         .or_else(|| try_finish(true, true, true))
 }
 
+/// After a first-offer CHOOSE parks at stage 2, leftover EndTurn can skip the
+/// second Codex, finish the monster turn, draw, and immediately open the next
+/// turn's first Codex (FIDL01486 END 601: Book's captured 14-hit through 8
+/// block, then Offering / Pummel / Clothesline with the new hand held).
+fn deferred_nilrys_leftover_end_skip_second_offer_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    if !matches!(decision, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    if !combat.resume_end_turn_after_nilrys_codex
+        || combat.decision.is_some()
+        || combat.piles.hand.is_empty()
+        || (combat.nilrys_codex_end_turn_stage != 1 && combat.nilrys_codex_end_turn_stage != 2)
+    {
+        return None;
+    }
+    let try_finish =
+        |dup: bool, pending_powers: bool, live_book: bool, open_next: bool| -> Option<RunState> {
+            let mut candidate = source.clone();
+            let combat = candidate.combat.as_mut()?;
+            sts_core::combat::transition::settle_leftover_end_turn_hand_discard(combat).ok()?;
+            combat.decision = None;
+            combat.nilrys_codex_end_turn_stage = 3;
+            combat.resume_end_turn_after_nilrys_codex = true;
+            combat.nilrys_duplicate_monster_queue = dup;
+            combat.nilrys_end_powers_pending = pending_powers;
+            combat.nilrys_book_second_stab_uses_live_count = live_book;
+            let finished = sts_core::combat::end_player_turn(combat).ok()?;
+            candidate.player_hp = finished.player.hp;
+            candidate.player_max_hp = finished.player.max_hp;
+            candidate.card_random_rng_counter = finished.rng.card_random_rng.counter();
+            candidate.combat = Some(finished);
+            if open_next
+                && candidate
+                    .combat
+                    .as_ref()
+                    .is_some_and(|combat| combat.monsters.iter().any(|monster| monster.alive))
+            {
+                candidate = apply_run_decision_action(
+                    &candidate,
+                    RunDecisionAction::Combat(CombatAction::EndTurn),
+                )
+                .ok()?;
+            }
+            candidate.validate().ok()?;
+            subset_diffs(
+                seed_start_combat_observed_subset(&post.message),
+                seed_start_simulated_combat_subset(&candidate),
+            )
+            .is_empty()
+            .then_some(candidate)
+        };
+    try_finish(false, false, false, true)
+        .or_else(|| try_finish(true, false, false, true))
+        .or_else(|| try_finish(false, true, false, true))
+        .or_else(|| try_finish(true, true, false, true))
+        .or_else(|| try_finish(true, false, true, true))
+        .or_else(|| try_finish(true, true, true, true))
+        .or_else(|| try_finish(false, false, false, false))
+        .or_else(|| try_finish(true, false, false, false))
+        .or_else(|| try_finish(false, true, false, false))
+        .or_else(|| try_finish(true, true, false, false))
+}
+
 /// First-offer SKIP leaves EndTurn queued. SuperFastMode can discard that
 /// hand (swallowing the next PLAY) and publish the next turn in one frame
 /// (FIDL01772 step 614). Ordinary apply would spend the leftover hand.
@@ -3233,6 +3301,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_second_offer_on_end_candidate(
+                                    &source, decision, post,
+                                )
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_leftover_end_skip_second_offer_candidate(
                                     &source, decision, post,
                                 )
                             })

@@ -42,6 +42,10 @@ is applied when end-turn resumes after that offer.
     discard that hand (swallowing the PLAY) and publish the next turn
     (`deferred_nilrys_leftover_end_instead_of_play_candidate`). Rejected PLAY
     still uses discard-only leftover settlement plus STATE polls.
+  - Stage-2 leftover END can skip the second offer, run a single captured
+    monster queue, draw, and open the *next* turn's first Codex in one frame
+    (`deferred_nilrys_leftover_end_skip_second_offer_candidate`; FIDL01486
+    END 601).
 
 ## Step 508 residual (open)
 
