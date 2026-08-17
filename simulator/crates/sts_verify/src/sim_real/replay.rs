@@ -1984,6 +1984,40 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
         })
 }
 
+/// After leftover EndTurn already finished the previous turn, SuperFastMode can
+/// publish the next EndTurn's first Codex on a PLAY (FIDL01486 PLAY 621:
+/// Combust stays in hand, Flex / Shockwave / Evolve). Ordinary apply spends
+/// the card.
+fn deferred_nilrys_play_opens_next_first_codex_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    if !matches!(
+        decision,
+        RunDecisionAction::Combat(CombatAction::PlayCard { .. })
+    ) {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    if combat.decision.is_some()
+        || combat.resume_end_turn_after_nilrys_codex
+        || combat.piles.hand.is_empty()
+        || !combat.relics.contains(&sts_core::relic::Relic::NilrysCodex)
+    {
+        return None;
+    }
+    let candidate =
+        apply_run_decision_action(source, RunDecisionAction::Combat(CombatAction::EndTurn)).ok()?;
+    candidate.validate().ok()?;
+    subset_diffs(
+        seed_start_combat_observed_subset(&post.message),
+        seed_start_simulated_combat_subset(&candidate),
+    )
+    .is_empty()
+    .then_some(candidate)
+}
+
 /// Writhing Mass queues `AddCardToDeckAction(Parasite)` after Mega Debuff.
 /// SuperFastMode can publish that obtain on a PLAY that Java rejects, so the
 /// captured frame shows the new deck/gold and an unchanged combat hand
@@ -3416,6 +3450,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_leftover_end_instead_of_play_candidate(
+                                    &source, decision, post,
+                                )
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_play_opens_next_first_codex_candidate(
                                     &source, decision, post,
                                 )
                             })
