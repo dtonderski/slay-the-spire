@@ -1816,7 +1816,11 @@ mod tests {
     use super::*;
     use crate::{
         apply_combat_action_on_run, apply_run_action,
-        content::cards::{BASH_ID, BURNING_PACT_ID, BURN_ID, CLASH_ID, DEFEND_R_ID, STRIKE_R_ID},
+        content::cards::{
+            BASH_ID, BURNING_PACT_ID, BURN_ID, CLASH_ID, CLEAVE_ID, DAZED_ID, DEFEND_R_ID,
+            STRIKE_R_ID, WARCRY_ID,
+        },
+        content::shop_pool::ironclad_combat_discovery_pool,
         CombatAction,
     };
 
@@ -1942,6 +1946,84 @@ mod tests {
         assert_eq!(
             after_confirm.card_random_rng_counter,
             initial_card_random_counter + 1
+        );
+    }
+
+    #[test]
+    fn warcry_hex_dead_branch_uses_combat_rng_after_dazed_insert() {
+        // FIDL01442: Warcry CONFIRM puts the selected card on draw, Hex inserts
+        // Dazed, then Dead Branch rolls into hand on the same cardRandomRng.
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.player.powers.hex = 1;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), WARCRY_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(4), BASH_ID),
+                CardInstance::new(CardId::new(5), CLEAVE_ID),
+                CardInstance::new(CardId::new(6), DEFEND_R_ID),
+            ];
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile.clear();
+        }
+
+        let after_play = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Warcry should open its hand-select screen");
+        let after_choose = apply_run_action(&after_play, RunAction::ChooseHandSelect { index: 0 })
+            .expect("select Strike");
+
+        let combat = after_choose.combat.as_ref().expect("combat remains open");
+        let mut expected_rng = combat.rng.card_random_rng.clone();
+        let mut expected_draw = combat
+            .piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>();
+        expected_draw.push(STRIKE_R_ID);
+        let generated_index = expected_rng.random_int((expected_draw.len() - 1) as i32) as usize;
+        expected_draw.insert(generated_index, DAZED_ID);
+        let pool = ironclad_combat_discovery_pool();
+        let dead_branch_id = pool[expected_rng.random_int((pool.len() - 1) as i32) as usize];
+
+        let after_confirm = apply_run_action(&after_choose, RunAction::ConfirmHandSelect)
+            .expect("confirm Warcry selection");
+        let combat = after_confirm.combat.expect("combat remains open");
+
+        assert_eq!(
+            combat
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            expected_draw
+        );
+        assert_eq!(
+            combat.piles.hand.last().map(|card| card.content_id),
+            Some(dead_branch_id)
+        );
+        assert_ne!(
+            dead_branch_id,
+            pool[after_choose
+                .combat
+                .as_ref()
+                .expect("pre-confirm combat")
+                .rng
+                .card_random_rng
+                .clone()
+                .random_int((pool.len() - 1) as i32) as usize],
+            "Dead Branch must not reuse the pre-Hex cardRandomRng counter"
         );
     }
 

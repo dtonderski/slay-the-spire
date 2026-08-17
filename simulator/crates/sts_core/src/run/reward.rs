@@ -2214,7 +2214,11 @@ fn apply_dead_branch_for_exhaust_count_with_placement(
 
     let first_id = combat.reserve_card_instance_ids(exhaust_count)?;
     let pool = dead_branch_card_pool();
-    let mut rng = run.card_random_rng();
+    // Pending CONFIRM actions (Hex Dazed insert, etc.) already advanced
+    // combat.card_random_rng. Rebuilding from the run counter would ignore
+    // those draws and pick the wrong card (FIDL01442 Warcry+Hex: Clothesline
+    // vs Ghostly Armor).
+    let mut rng = combat.rng.card_random_rng.clone();
     let available_hand_slots = MAX_HAND_SIZE.saturating_sub(combat.piles.hand.len());
     let mut generated = Vec::with_capacity(exhaust_count);
     for offset in 0..exhaust_count {
