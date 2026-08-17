@@ -1722,6 +1722,63 @@ fn deferred_nilrys_hold_attack_multiple_rolls_on_second_choice_candidate(
     .then_some(next)
 }
 
+/// SuperFastMode can resolve a legal PLAY and the leftover EndTurn in one
+/// frame (FIDL01486 PLAY 515: Strike hits Book for 9, then a 2-hit stab
+/// through the parked plated block). Skipping the PLAY leaves Book HP and
+/// the discard pile short.
+fn deferred_nilrys_play_then_leftover_end_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    if !matches!(
+        decision,
+        RunDecisionAction::Combat(CombatAction::PlayCard { .. })
+    ) {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    if !combat.resume_end_turn_after_nilrys_codex
+        || combat.decision.is_some()
+        || (combat.nilrys_codex_end_turn_stage != 1 && combat.nilrys_codex_end_turn_stage != 2)
+    {
+        return None;
+    }
+    let played = apply_run_decision_action(source, decision).ok()?;
+    if !played.pending_external_rng.is_empty() {
+        return None;
+    }
+    let try_finish = |dup: bool, pending_powers: bool, live_book: bool| -> Option<RunState> {
+        let mut candidate = played.clone();
+        let combat = candidate.combat.as_mut()?;
+        sts_core::combat::transition::settle_leftover_end_turn_hand_discard(combat).ok()?;
+        combat.decision = None;
+        combat.nilrys_codex_end_turn_stage = 3;
+        combat.resume_end_turn_after_nilrys_codex = true;
+        combat.nilrys_duplicate_monster_queue = dup;
+        combat.nilrys_end_powers_pending = pending_powers;
+        combat.nilrys_book_second_stab_uses_live_count = live_book;
+        let finished = sts_core::combat::end_player_turn(combat).ok()?;
+        candidate.player_hp = finished.player.hp;
+        candidate.player_max_hp = finished.player.max_hp;
+        candidate.card_random_rng_counter = finished.rng.card_random_rng.counter();
+        candidate.combat = Some(finished);
+        candidate.validate().ok()?;
+        subset_diffs(
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&candidate),
+        )
+        .is_empty()
+        .then_some(candidate)
+    };
+    try_finish(false, false, false)
+        .or_else(|| try_finish(true, false, false))
+        .or_else(|| try_finish(false, true, false))
+        .or_else(|| try_finish(true, true, false))
+        .or_else(|| try_finish(true, false, true))
+        .or_else(|| try_finish(true, true, true))
+}
+
 /// First-offer SKIP leaves EndTurn queued. SuperFastMode can discard that
 /// hand (swallowing the next PLAY) and publish the next turn in one frame
 /// (FIDL01772 step 614). Ordinary apply would spend the leftover hand.
@@ -3209,6 +3266,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_book_live_second_stab_candidate(
+                                    &source, decision, post,
+                                )
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_play_then_leftover_end_candidate(
                                     &source, decision, post,
                                 )
                             })
