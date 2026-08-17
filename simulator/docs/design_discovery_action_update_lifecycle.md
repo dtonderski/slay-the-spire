@@ -17,7 +17,8 @@ For the installed Slay the Spire 1.0 target with SuperFastMode configured for
    first two cards of the turn (FIDL01787; Mayhem PlayTop stays one pulse,
    FIDL01255),
    or when Awakened One is present and 6+ cards remain after the source left
-   (FIDL01561); otherwise one. A global no-burn SuperFastMode
+   (FIDL01561), or when Awakened One is the sole living enemy and 5+ cards
+   remain (FIDL01357 leftover Void); otherwise one. A global no-burn SuperFastMode
    candidate regresses
    FIDL01630. See
    [design_discovery_first_combat_post_select_generations.md](design_discovery_first_combat_post_select_generations.md).

@@ -835,7 +835,10 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // after the source left (FIDL01561 Sludge Void). The same 6+
             // remaining-hand shape against other encounters stays one pulse
             // (FIDL01309 Wild Strike Wound; FIDL01248 / FIDL01255). Remaining
-            // hands of 3–5 against Awakened One stay one pulse (FIDL01665).
+            // hands of 3–5 against Awakened One stay one pulse while another
+            // enemy is still alive (FIDL01665 Cultist+AO). A five-card remaining
+            // hand against solo living Awakened One still takes two pulses
+            // (FIDL01357 leftover Sludge Void at draw index 7, not 4).
             // Two or fewer remaining cards still take two pulses (FIDL01357
             // Wild Strike Wound after Defend+Dazed). Another Discovery
             // still in hand still needs two (FIDL01630 first pick). A
@@ -1107,7 +1110,9 @@ fn discovery_post_select_generations(
     let tiny_remaining_hand = combat.piles.hand.len() <= 2;
     if another_discovery_in_hand
         || hexed_with_two_living
-        || (fighting_awakened_one && combat.piles.hand.len() >= 6)
+        || (fighting_awakened_one
+            && (combat.piles.hand.len() >= 6
+                || (combat.piles.hand.len() >= 5 && living_monsters <= 1)))
         || tiny_remaining_hand
         || (early_magnetism_generated_source
             && (combat.piles.hand.len() < 5 || another_magnetism_card_in_hand))
@@ -3083,6 +3088,88 @@ mod tests {
             combat.rng.card_random_rng.counter(),
             22,
             "Awakened One + 6 remaining cards burn two discarded generations"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_with_five_remaining_cards_vs_solo_awakened_one_burns_two_generations() {
+        use crate::content::cards::STRIKE_R_ID;
+        use crate::content::monsters::{monster_state, AWAKENED_ONE_A0};
+        use crate::ids::MonsterId;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.monsters = vec![monster_state(&AWAKENED_ONE_A0, MonsterId::new(1))];
+        combat.piles.hand = (1..=5)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            source_card_play_top: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("five-card remaining Discovery vs solo Awakened One");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            22,
+            "solo living Awakened One + 5 remaining cards burn two discarded generations"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_with_five_remaining_cards_vs_awakened_one_and_cultist_burns_one_generation(
+    ) {
+        use crate::content::cards::STRIKE_R_ID;
+        use crate::content::monsters::{monster_state, AWAKENED_ONE_A0, CULTIST_A0};
+        use crate::ids::MonsterId;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.monsters = vec![
+            monster_state(&CULTIST_A0, MonsterId::new(1)),
+            monster_state(&AWAKENED_ONE_A0, MonsterId::new(2)),
+        ];
+        combat.piles.hand = (1..=5)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            source_card_play_top: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("five-card remaining Discovery vs Awakened One and Cultist");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            19,
+            "Awakened One with another living enemy + 5 remaining cards stay one discarded generation"
         );
     }
 
