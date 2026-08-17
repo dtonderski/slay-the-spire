@@ -819,9 +819,8 @@ public class ChoiceScreenUtils {
             ReflectionHacks.setPrivate(event, GremlinWheelGame.class, "buttonPressed", true);
             CardCrawlGame.sound.play("WHEEL");
         } else if (AbstractDungeon.getCurrRoom().event instanceof GremlinMatchGame) {
-            ArrayList<AbstractCard> pickable = GremlinMatchGamePatch.getOrderedCards();
-            GremlinMatchGamePatch.HoverCardPatch.hoverCard = pickable.get(choice);
-            GremlinMatchGamePatch.HoverCardPatch.doHover = true;
+            GremlinMatchGamePatch.chooseFaceDownCard(
+                    (GremlinMatchGame) AbstractDungeon.getCurrRoom().event, choice);
         }
     }
 

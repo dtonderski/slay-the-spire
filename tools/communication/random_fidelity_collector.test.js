@@ -202,6 +202,15 @@ assert.strictEqual(
   }),
   true,
 );
+assert.deepStrictEqual(
+  enumerateGameplayActions({
+    available_commands: ["choose"],
+    screen_type: "EVENT",
+    event_id: "Match and Keep!",
+    choices: ["double tap", "card1", "normality", "card3", "card5", "sever soul", "card7", "double tap", "card10"],
+  }),
+  ["CHOOSE 0", "CHOOSE 1", "CHOOSE 2", "CHOOSE 3", "CHOOSE 4", "CHOOSE 5", "CHOOSE 6", "CHOOSE 7", "CHOOSE 8"],
+);
 assert.strictEqual(
   isCommandInFlightHang(new Error("bridge command did not complete after acceptance: CHOOSE 8")),
   true,

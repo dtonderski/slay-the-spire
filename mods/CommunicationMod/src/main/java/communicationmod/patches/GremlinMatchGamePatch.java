@@ -12,6 +12,7 @@ import communicationmod.GameStateListener;
 import javassist.CannotCompileException;
 import javassist.CtBehavior;
 
+import java.lang.reflect.Method;
 import java.util.*;
 
 public class GremlinMatchGamePatch {
@@ -25,6 +26,82 @@ public class GremlinMatchGamePatch {
         returnedCards.sort(Comparator.comparingInt(c -> cardPositions.get(c.uuid)));
         returnedCards.removeIf(c -> !c.isFlipped);
         return returnedCards;
+    }
+
+    /**
+     * Apply a Match and Keep face-down pick without waiting for a later
+     * updateMatchGameLogic / Hitbox.update frame. The hover+justClickedLeft
+     * fake needs that frame to land; SuperFastMode 100x and software GL can
+     * skip it or freeze waitForEndTimer when getDeltaTime() is 0, leaving
+     * CHOOSE accepted and never completing.
+     */
+    public static void chooseFaceDownCard(GremlinMatchGame event, int choiceIndex) {
+        ArrayList<AbstractCard> pickable = getOrderedCards();
+        AbstractCard card = pickable.get(choiceIndex);
+        finishPendingMismatchWait(event);
+        armCardClick(card);
+        HoverCardPatch.hoverCard = card;
+        HoverCardPatch.doHover = true;
+        invokeUpdateMatchGameLogic(event);
+        if (HoverCardPatch.doHover) {
+            finishPendingMismatchWait(event);
+            armCardClick(card);
+            HoverCardPatch.hoverCard = card;
+            HoverCardPatch.doHover = true;
+            invokeUpdateMatchGameLogic(event);
+        }
+        HoverCardPatch.doHover = false;
+        GameStateListener.registerStateChange();
+    }
+
+    private static void armCardClick(AbstractCard card) {
+        card.hb.hovered = true;
+        card.hb.clickStarted = true;
+        card.hb.clicked = true;
+        InputHelper.justClickedLeft = true;
+    }
+
+    private static void finishPendingMismatchWait(GremlinMatchGame event) {
+        event.waitTimer = 0.0F;
+        Float waitForEndTimer = readWaitForEndTimer(event);
+        if (waitForEndTimer == null || waitForEndTimer <= 0.0F) {
+            return;
+        }
+        AbstractCard chosen = (AbstractCard) ReflectionHacks.getPrivate(
+                event, GremlinMatchGame.class, "chosenCard");
+        AbstractCard hovered = (AbstractCard) ReflectionHacks.getPrivate(
+                event, GremlinMatchGame.class, "hoveredCard");
+        if (chosen != null) {
+            chosen.isFlipped = true;
+        }
+        if (hovered != null) {
+            hovered.isFlipped = true;
+        }
+        ReflectionHacks.setPrivate(event, GremlinMatchGame.class, "chosenCard", null);
+        ReflectionHacks.setPrivate(event, GremlinMatchGame.class, "hoveredCard", null);
+        try {
+            ReflectionHacks.setPrivate(event, GremlinMatchGame.class, "waitForEndTimer", 0.0F);
+        } catch (RuntimeException ignored) {
+        }
+    }
+
+    private static Float readWaitForEndTimer(GremlinMatchGame event) {
+        try {
+            Object value = ReflectionHacks.getPrivate(event, GremlinMatchGame.class, "waitForEndTimer");
+            return value instanceof Float ? (Float) value : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static void invokeUpdateMatchGameLogic(GremlinMatchGame event) {
+        try {
+            Method update = GremlinMatchGame.class.getDeclaredMethod("updateMatchGameLogic");
+            update.setAccessible(true);
+            update.invoke(event);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException("updateMatchGameLogic cannot be invoked", e);
+        }
     }
 
     @SpirePatch(
@@ -83,6 +160,8 @@ public class GremlinMatchGamePatch {
             }
             if (c.equals(hoverCard)) {
                 c.hb.hovered = true;
+                c.hb.clickStarted = true;
+                c.hb.clicked = true;
                 InputHelper.justClickedLeft = true;
                 doHover = false;
             } else {

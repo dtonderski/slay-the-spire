@@ -1113,15 +1113,6 @@ async function main() {
         });
         return;
       }
-      if (isMatchAndKeepScreen(summary)) {
-        await abandonAndSkip({
-          kind: "discarded_match_and_keep",
-          reason:
-            "Match and Keep CHOOSE never completes: CommunicationMod accepts a card flip then never publishes a completing boundary",
-          actions: actionCount,
-        });
-        return;
-      }
       const command = chooseRandomAction(summary, random);
       if (!command) {
         throw new Error(

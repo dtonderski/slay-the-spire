@@ -131,7 +131,10 @@ replaced owner and lease age.
 
 - `random_fidelity_collector.js` plays random Ironclad actions against a live
   CommunicationMod bridge. It only collects; it does not verify, minimize, or
-  promote traces.
+  promote traces. Match and Keep is driven by a synchronous CommunicationMod
+  card pick (not a later hover/click frame). If a command is accepted and never
+  completes, the collector preempts with `ABANDON`, skips the seed, and the
+  campaign continues.
 - `run_random_fidelity_campaign.js` walks policy seeds under prefix `FIDL`.
   `STS_RANDOM_MAX_RUNS` (default 100) is the number of policy seeds consumed:
   successful collects and skipped seeds both count. Collector retries of the
