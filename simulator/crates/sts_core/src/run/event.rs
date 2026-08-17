@@ -3958,8 +3958,28 @@ pub fn enter_event_screen(run: &mut RunState) -> SimResult<()> {
     next.phase = RunPhase::Event;
     next.match_and_keep = None;
     next.event = Some(entered_event_screen_for_run(&mut next, event)?);
+    if event == Event::Duplicator {
+        apply_duplicator_leftover_grid_selected_copy(&mut next)?;
+    }
     *run = next;
     Ok(())
+}
+
+/// Headbutt's GridCardSelectScreen can leave `selectedCards` populated after a
+/// skipped-retrieval confirm. Duplicator.update copies that leftover with
+/// makeStatEquivalentCopy + ShowCardAndObtainEffect on the first event frame.
+fn apply_duplicator_leftover_grid_selected_copy(run: &mut RunState) -> SimResult<()> {
+    let Some(alias) = run.pending_headbutt_alias.take() else {
+        return Ok(());
+    };
+    let id = CardId::new(run.next_card_instance_id()?);
+    let mut copy = CardInstance::new(id, alias.content_id);
+    copy.upgrades = alias.upgrades;
+    copy.searing_blow_upgrades = alias.searing_blow_upgrades;
+    copy.ritual_dagger_damage_bonus = alias.ritual_dagger_damage_bonus;
+    copy.bottled = false;
+    copy.combat_only = false;
+    run.add_deck_card(copy)
 }
 
 #[must_use]
@@ -6242,6 +6262,28 @@ mod tests {
                 .stage,
             2
         );
+    }
+
+    #[test]
+    fn duplicator_enter_copies_leftover_headbutt_grid_selected_card() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        let original_len = run.deck.len();
+        let alias_id = CardId::new(9_000);
+        run.pending_headbutt_alias = Some(CardInstance::new(
+            alias_id,
+            crate::content::cards::CLEAVE_ID,
+        ));
+
+        apply_duplicator_leftover_grid_selected_copy(&mut run)
+            .expect("Duplicator consumes leftover Headbutt grid selection");
+
+        assert!(run.pending_headbutt_alias.is_none());
+        assert_eq!(run.deck.len(), original_len + 1);
+        let copied = run.deck.last().expect("copied Cleave");
+        assert_eq!(copied.content_id, crate::content::cards::CLEAVE_ID);
+        assert_ne!(copied.id, alias_id);
+        assert!(!copied.bottled);
+        assert!(!copied.combat_only);
     }
 
     #[test]
