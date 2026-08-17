@@ -35,8 +35,11 @@ Master of Strategy / other generated cards). A lone early-turn retrieve
 from a 6+ card hand is one pulse (FIDL01787 Writhing Mass: next Magnetism
 is Flash of Steel, not Good Instincts). The same Magnetism-generated
 source later in the turn stays one pulse (FIDL01255 colorless hand;
-FIDL01623 Jack of All Trades turn). Deck Discovery with Magnetism up
-stays one pulse. Skipped retrieval still burns nothing.
+FIDL01623 Jack of All Trades turn). Deck Discovery with Magnetism up and
+a remaining hand smaller than 6 among the first two plays needs two pulses
+(FIDL01582: Magnetism creates The Bomb, not Blind). Larger remaining hands
+or later-turn deck Discovery stay one pulse. Skipped retrieval still burns
+nothing.
 
 A global or remaining-hand-only two-generation retrieve regresses those
 already-green traces. A CHOOSE-time candidate cannot distinguish 1 vs 2
@@ -61,8 +64,10 @@ inserts (FIDL01561).
 Burn six discarded generations when the Discovery source was force-exhausted
 by PlayTop (Havoc / Distilled Chaos). Burn two when another Discovery is still
 in hand, when Hex is up and two or more enemies are alive, when Awakened One
-is present and `hand.len() >= 6` at retrieve, or when Magnetism is active,
+is present and `hand.len() >= 6` at retrieve, when Magnetism is active,
 the source was Magnetism-generated, `cards_played_this_turn <= 2`, and either
 fewer than 6 cards remain or another Magnetism-generated card is still in
-hand. Otherwise burn one.
+hand, or when Magnetism is active, the source is a deck Discovery (not
+combat-only / Magnetism-generated), `cards_played_this_turn <= 2`, and
+fewer than 6 cards remain. Otherwise burn one.
 Do not hydrate the Void insert index from the observed leftover pile.
