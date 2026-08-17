@@ -252,6 +252,11 @@ pub struct CombatState {
     /// default (step 880: 6+6). StabCount still advances only in `getMove`.
     #[serde(default, skip_serializing_if = "is_false")]
     pub nilrys_book_second_stab_uses_live_count: bool,
+    /// SuperFastMode can publish the stage-3 close after duplicate takeTurns
+    /// but before StrengthSelf RollMoveActions (FIDL01486 Byrd stays Caw).
+    /// Attackers still consume both leftover rolls.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_hold_strength_self_rolls: bool,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -1157,6 +1162,7 @@ impl CombatState {
             time_warp_duplicate_monster_queue: false,
             nilrys_duplicate_monster_queue: false,
             nilrys_book_second_stab_uses_live_count: false,
+            nilrys_hold_strength_self_rolls: false,
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,

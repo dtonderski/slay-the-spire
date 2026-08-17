@@ -90,8 +90,9 @@ The leftover first `EndTurnAction` can also run `MonsterStartTurnAction`
 460: Rally block gone, takeTurn has not run). Stage-2 END therefore
 clears living monster block without executing the queue. SuperFastMode
 may also publish only one `MonsterQueueItem` on the stage-3 close
-when that frame matches (FIDL01486 Byrd Caw / Chosen Poke still uses
-the duplicate queue once leftover plated lands).
+when that frame matches. FIDL01486 still uses the duplicate queue once
+leftover plated lands; SuperFastMode can hold Byrd's Caw display
+(skip StrengthSelf RollMoves) while Chosen consumes both leftover rolls.
 
 Closing the first Codex offer continues `callEndOfTurnActions` card
 autoplays (Regret/Burn) without Combust or the bulk hand discard

@@ -1184,6 +1184,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 state.time_warp_duplicate_monster_queue = false;
                 state.nilrys_duplicate_monster_queue = false;
                 state.nilrys_book_second_stab_uses_live_count = false;
+                state.nilrys_hold_strength_self_rolls = false;
                 let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
                 return Ok(());
             }
@@ -1192,6 +1193,8 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
     }
     state.time_warp_duplicate_monster_queue = false;
     state.nilrys_book_second_stab_uses_live_count = false;
+    let hold_strength_self_rolls = state.nilrys_hold_strength_self_rolls;
+    state.nilrys_hold_strength_self_rolls = false;
     if nilrys_duplicate_monster_queue {
         // Both MonsterQueueItems ran with the captured intent. Their
         // RollMoveActions then run in order and each advances lastMove.
@@ -1203,6 +1206,14 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             .map(|monster| monster.id)
             .collect::<Vec<_>>();
         for actor_id in actors {
+            let hold_buff = hold_strength_self_rolls
+                && queued_intents.iter().any(|(queued_id, intent)| {
+                    *queued_id == actor_id
+                        && matches!(intent, crate::MonsterIntent::StrengthSelf { amount } if *amount != 0)
+                });
+            if hold_buff {
+                continue;
+            }
             prepare_next_intent_for_actor(state, actor_id)?;
             prepare_next_intent_for_actor(state, actor_id)?;
         }
