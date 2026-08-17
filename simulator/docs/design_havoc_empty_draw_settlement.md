@@ -11,12 +11,6 @@ selection of the played source. The source-included preview is disabled while
 Dark Embrace is active. Corruption / exhaust Havoc is always settle-first;
 see `design_corruption_havoc_dead_branch_order.md`.
 
-A nested PlayTop (parent Havoc already force-playing a second Havoc) that
-hits an empty draw while Dark Embrace is up lets the on-exhaust draw consume
-the EmptyDeckShuffle refill before the resumed PlayTop (FIDL01677: Defend
-enters hand, both Havocs exhaust, no extra block). The outer empty-draw
-PlayTop still plays first, then Dark Embrace draws (FIDL00276).
-
 ## Evidence
 
 - The source-backed transition path models `DarkEmbracePower.onExhaust` as a

@@ -2668,17 +2668,6 @@ fn apply_play_top_draw_card(
             return Ok(Vec::new());
         }
         player_shuffle_discard_into_draw(state)?;
-        // Nested PlayTopCardAction addToTop's EmptyDeckShuffleAction, then a
-        // fresh PlayTop. DarkEmbracePower.onExhaust already queued DrawCardAction
-        // addToBot; that draw can consume the refill before the resumed PlayTop
-        // (FIDL01677: nested Havoc, Defend drawn not played). An outer empty-draw
-        // PlayTop still plays the forced card first (FIDL00276).
-        if state.play_top_resolving_depth > 0 && state.player.powers.dark_embrace > 0 {
-            player_draw_cards(state, state.player.powers.dark_embrace.max(0) as usize)?;
-        }
-        if state.piles.draw_pile.is_empty() {
-            return Ok(Vec::new());
-        }
     }
 
     let card = state
