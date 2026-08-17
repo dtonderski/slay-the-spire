@@ -173,6 +173,17 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     } else if resuming_after_nilrys {
         // Nilry's Codex already ran the pre-discard half of end-turn. Resume
         // after the card-reward decision with hand still present.
+        if next.nilrys_codex_end_turn_stage == 3 {
+            // Closing the first Codex offer can apply Plated Armor / Metallicize
+            // while the hand is still held (FIDL01486 CHOOSE 461). The leftover
+            // EndTurn's matching atEndOfTurn is skipped on the stage-2 END so
+            // the second offer still shows that block (462 stays 9, not 13).
+            // Stage-3 close continues that leftover EndTurn: Combust already
+            // re-queues via `nilrys_end_powers_pending`; plated / Metallicize
+            // must tick here before the duplicate MonsterQueue (two weakened
+            // Chosen Pokes are 12 through 9+4 block).
+            next.time_warp_end_powers_applied = false;
+        }
         next.resume_end_turn_after_nilrys_codex = false;
         next.nilrys_codex_end_turn_stage = 0;
         apply_pending_nilry_end_powers(&mut next)?;
@@ -6253,6 +6264,44 @@ mod tests {
         );
         assert_eq!(combat.nilrys_codex_end_turn_stage, 0);
         assert!(!combat.nilrys_duplicate_monster_queue);
+    }
+
+    #[test]
+    fn nilry_two_step_second_choice_ticks_leftover_plated_before_duplicate_queue() {
+        use crate::relic::Relic;
+        use crate::run::potion::apply_combat_card_reward_skip;
+        use crate::RunState;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.relics = vec![Relic::NilrysCodex];
+        combat.resume_end_turn_after_nilrys_codex = true;
+        combat.nilrys_codex_end_turn_stage = 3;
+        combat.nilrys_duplicate_monster_queue = true;
+        combat.nilrys_end_powers_pending = true;
+        combat.time_warp_end_powers_applied = true;
+        combat.player.hp = 80;
+        combat.player.max_hp = 80;
+        combat.player.block = 9;
+        combat.player.powers.plated_armor = 4;
+        combat.piles.hand.clear();
+        combat.piles.draw_pile = (1..=8)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        combat.piles.discard_pile.clear();
+        let mut chosen =
+            monster_state_for_ascension(&crate::content::monsters::CHOSEN_A0, MonsterId::new(1), 0);
+        chosen.intent = crate::MonsterIntent::AttackMultiple { damage: 5, hits: 2 };
+        chosen.powers.weak = 1;
+        chosen.move_history = vec![5];
+        combat.monsters = vec![chosen];
+        crate::relic::open_nilrys_codex_card_reward(combat).expect("second offer");
+
+        let next = apply_combat_card_reward_skip(&run).expect("skip second offer");
+        assert_eq!(
+            next.player_hp, 80,
+            "leftover plated +4 covers two weakened Pokes (12) through 9+4 block"
+        );
     }
 
     #[test]
