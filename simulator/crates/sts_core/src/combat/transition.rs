@@ -4718,6 +4718,11 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
     let purpose = exhaust_select.purpose;
     let pending_actions = exhaust_select.pending_actions.clone();
     let mut dead_branch_count = 0;
+    let burning_pact_drains_pending = matches!(
+        purpose,
+        crate::combat::ExhaustSelectPurpose::BurningPactDraw2
+            | crate::combat::ExhaustSelectPurpose::BurningPactDraw3
+    );
     match purpose {
         crate::combat::ExhaustSelectPurpose::GamblingChip => {
             confirm_gambling_chip_select(state, exhaust_select.selected_hand_indices)?;
@@ -4773,7 +4778,9 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
     // (see desktop-1.0 CardGroup.addToRandomSpot). Do not burn a phantom
     // random_int(0) here: it desyncs later Hex inserts (15ab4cc Battle Trance
     // Dazed index 6 vs 5 → unplayable PLAY).
-    if !pending_actions.is_empty() {
+    // Burning Pact already drained these after DrawCardAction(2/3) and before
+    // Evolve follow-ups (FIDL01740).
+    if !burning_pact_drains_pending && !pending_actions.is_empty() {
         let transition = process_internal_queue(state, pending_actions)?;
         *state = transition.state;
     }
@@ -5127,7 +5134,17 @@ fn confirm_burning_pact_select(
         }
         deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
     }
-    player_draw_cards(state, draw_count)?;
+    // DrawCardAction(2/3) is queued in card.use() before HexPower.onUseCard
+    // MakeTempCardInDrawPile and before UseCardAction. Evolve/Fire Breathing
+    // onCardDraw use addToBot during that draw, so they land after Hex.
+    // Inlining Evolve here inserted Hex into the post-Evolve pile
+    // (FIDL01740 Dazed vs Battle Trance).
+    let evolve_follow_ups = player_draw_cards_with_deferred_evolve(state, draw_count)?;
+    if !exhaust_select.pending_actions.is_empty() {
+        let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
+        *state = transition.state;
+    }
+    resolve_deferred_draw_follow_ups(state, evolve_follow_ups)?;
     // UseCardAction settles Burning Pact after DrawCardAction. Under Corruption
     // (or Exhaust) the source exhausts; Dark Embrace / Feel No Pain are bot-
     // queued after that settlement, so defer them with the selected-card procs
@@ -5260,7 +5277,12 @@ pub fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
     // Reserve the hidden card's instance ID while the draw and deferred queue
     // settle, then return it to the verifier rather than exposing it in limbo.
     state.piles.limbo.push(selected_card);
-    player_draw_cards(state, draw_count)?;
+    let evolve_follow_ups = player_draw_cards_with_deferred_evolve(state, draw_count)?;
+    if !exhaust_select.pending_actions.is_empty() {
+        let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
+        *state = transition.state;
+    }
+    resolve_deferred_draw_follow_ups(state, evolve_follow_ups)?;
 
     // Havoc / Mayhem already force-exhausted the source when the select opened.
     // Re-pushing that held instance would duplicate Burning Pact in exhaust
@@ -5287,10 +5309,6 @@ pub fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
 
     if !deferred_bot_on_exhaust.is_empty() {
         let transition = process_internal_queue(state, deferred_bot_on_exhaust.into())?;
-        *state = transition.state;
-    }
-    if !exhaust_select.pending_actions.is_empty() {
-        let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
         *state = transition.state;
     }
     state.defer_time_warp_end_turn = previous_defer_time_warp;
@@ -8264,6 +8282,75 @@ mod tests {
                 .map(|c| c.content_id)
                 .collect::<Vec<_>>(),
             expected_draw
+        );
+    }
+
+    #[test]
+    fn burning_pact_hex_inserts_before_evolve_extra_draw() {
+        // Hex onUseCard is queued after Burning Pact's DrawCardAction(2) and
+        // before Evolve's addToBot extra draw. Inserting after Evolve samples
+        // the wrong pile size (FIDL01740 Battle Trance vs Dazed).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.hex = 1;
+        state.player.powers.evolve = 1;
+        state.rng.card_random_rng = StsRng::new(7_141_693_325_691_831_207);
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), RECKLESS_CHARGE_ID),
+            CardInstance::new(CardId::new(3), THUNDERCLAP_ID),
+        ];
+        // Last entry is the top. Draw(2) takes Strike then Dazed; Evolve should
+        // then take Exhume after Hex inserts into this 4-card remainder.
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(4), CLASH_ID),
+            CardInstance::new(CardId::new(5), BATTLE_TRANCE_ID),
+            CardInstance::new(CardId::new(6), STRIKE_R_ID),
+            CardInstance::new(CardId::new(7), EXHUME_ID),
+            CardInstance::new(CardId::new(8), DAZED_ID),
+            CardInstance::new(CardId::new(9), STRIKE_R_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut expected_rng = state.rng.card_random_rng.clone();
+        let mut expected_draw = vec![CLASH_ID, BATTLE_TRANCE_ID, STRIKE_R_ID, EXHUME_ID];
+        let insert_index = expected_rng.random_int((expected_draw.len() - 1) as i32) as usize;
+        expected_draw.insert(insert_index, DAZED_ID);
+        let evolved = expected_draw.pop().expect("Evolve draws the post-Hex top");
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact opens exhaust select");
+        choose_exhaust_select(&mut next, 1).expect("select Thunderclap");
+        confirm_exhaust_select(&mut next).expect("BP resolves");
+
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            expected_draw,
+            "Hex must insert against the post-Draw(2) pile, then Evolve draws"
+        );
+        assert_eq!(evolved, EXHUME_ID);
+        assert!(
+            next.piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == EXHUME_ID),
+            "Evolve extra draw should be Exhume, got {:?}",
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()
         );
     }
 
