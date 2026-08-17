@@ -12,8 +12,9 @@ For the installed Slay the Spire 1.0 target with SuperFastMode configured for
    `generateCardChoices` updates: six when PlayTop force-exhausted the
    source (FIDL01614 Havoc-Discovery), two when another Discovery is still in
    hand, when Hex is up with two living enemies (FIDL01614 Chosen+Cultist),
-   when Magnetism plays a Magnetism-generated Discovery among the
-   first two cards of the turn (FIDL01787),
+   when a hand-played Magnetism-generated Discovery is among the
+   first two cards of the turn (FIDL01787; Mayhem PlayTop stays one pulse,
+   FIDL01255),
    or when Awakened One is present and 6+ cards remain after the source left
    (FIDL01561); otherwise one. A global no-burn SuperFastMode
    candidate regresses

@@ -432,10 +432,12 @@ pub(super) fn open_discovery_card_reward(
     *decision_source = source_card;
     if let Some(CombatDecisionState::DiscoveryCardReward {
         source_card_force_exhaust,
+        source_card_play_top,
         ..
     }) = state.decision.as_mut()
     {
         *source_card_force_exhaust = state.play_top_force_exhaust_active;
+        *source_card_play_top = *source_card_play_top || state.play_top_resolving_depth > 0;
     }
     Ok(Vec::new())
 }

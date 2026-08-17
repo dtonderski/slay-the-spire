@@ -4964,6 +4964,7 @@ mod tests {
                 sts_core::content::cards::DISCOVERY_ID,
             )),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: VecDeque::new(),
         });
 

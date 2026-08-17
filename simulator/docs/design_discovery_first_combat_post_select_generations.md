@@ -48,9 +48,12 @@ on top of `DiscoveryAction`) before the reward screen. After CHOOSE that path
 burns **six** discarded generations (FIDL01614 Infernal Blade: Blood for Blood
 rather than Perfected Strike). Hand-played Discovery on the same run stays
 one pulse (steps 325 and 366, both followed by a matching Infernal Blade).
-Mayhem PlayTop does not set `source_card_force_exhaust` and stays on the 1/2
-path (FIDL01787). FIDL01806's Havoc-Discovery has no later compared
-`card_random` in that combat.
+Mayhem PlayTop does not set `source_card_force_exhaust`. Leftover SuperFastMode
+already drained the extra Magnetism pulse before CHOOSE, so early-turn
+Magnetism retrieve stays one pulse even when other generated cards remain
+(FIDL01255 Deep Breath / Good Instincts, not Swift Strike / Hand of Greed).
+Hand-played Magnetism Discovery still uses the 1/2 path (FIDL01787).
+FIDL01806's Havoc-Discovery has no later compared `card_random` in that combat.
 
 Hex parks a Dazed `addToRandomSpot` until CHOOSE. With two living enemies that
 insert needs two discarded generations (FIDL01614 Cultist+Chosen: Dazed at
@@ -62,8 +65,8 @@ inserts (FIDL01561).
 Burn six discarded generations when the Discovery source was force-exhausted
 by PlayTop (Havoc / Distilled Chaos). Burn two when another Discovery is still
 in hand, when Hex is up and two or more enemies are alive, when Awakened One
-is present and `hand.len() >= 6` at retrieve, or when Magnetism is active,
-the source was Magnetism-generated, `cards_played_this_turn <= 2`, and either
+is present and `hand.len() >= 6` at retrieve, or when a hand-played Magnetism
+source is Magnetism-generated, `cards_played_this_turn <= 2`, and either
 fewer than 5 cards remain or another Magnetism-generated card is still in
-hand. Otherwise burn one.
+hand. Mayhem PlayTop skips that Magnetism two-pulse branch. Otherwise burn one.
 Do not hydrate the Void insert index from the observed leftover pile.

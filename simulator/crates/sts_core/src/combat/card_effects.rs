@@ -1955,6 +1955,7 @@ pub(crate) fn open_discovery_card_reward_for_play(
             .collect(),
         source_card: None,
         source_card_force_exhaust: state.play_top_force_exhaust_active,
+        source_card_play_top: state.play_top_resolving_depth > 0,
         pending_actions: std::collections::VecDeque::new(),
     });
     Ok(())

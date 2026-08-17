@@ -821,6 +821,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             choices,
             source_card,
             source_card_force_exhaust,
+            source_card_play_top,
             pending_actions,
         } => {
             let card_id = if let Some(card_id) = played_discovery_card_id {
@@ -844,22 +845,24 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // stays one pulse (FIDL01582 The Bomb, not Blind). A lone early-turn retrieve
             // from a 6+ card hand settles in one pulse (FIDL01787 Writhing Mass
             // Flash of Steel).
-            // The same source later in the turn stays one pulse (FIDL01255,
-            // FIDL01623). Havoc PlayTop force-exhausts the source before
-            // DiscoveryAction; that path keeps pulsing through leftover
-            // ExhaustSpecificCardAction / ShowCard settlement and burns six
-            // discarded generations (FIDL01614 Infernal Blade after
-            // Havoc-Discovery). Mayhem PlayTop does not force-exhaust and
-            // stays on the 1/2-pulse path (FIDL01787). Hand-played Discovery
-            // on the same FIDL01614 run stays one pulse (steps 325, 366)
-            // unless Hex is up with two living enemies, which leaves two
-            // pulses so the parked Hex Dazed insert uses the observed
-            // addToRandomSpot index (FIDL01614 Chosen+Cultist). Solo Chosen
-            // Hex stays one pulse (FIDL01561).
+            // The same source later in the turn stays one pulse (FIDL01255
+            // player-played Discovery, FIDL01623). Havoc PlayTop force-exhausts
+            // the source before DiscoveryAction; that path keeps pulsing through
+            // leftover ExhaustSpecificCardAction / ShowCard settlement and burns
+            // six discarded generations (FIDL01614 Infernal Blade after
+            // Havoc-Discovery). Mayhem PlayTop does not force-exhaust, but
+            // leftover SuperFastMode already drained the extra Magnetism pulse
+            // before CHOOSE, so early-turn Magnetism retrieve stays one pulse
+            // (FIDL01255). Hand-played Discovery on the same FIDL01614 run stays
+            // one pulse (steps 325, 366) unless Hex is up with two living
+            // enemies, which leaves two pulses so the parked Hex Dazed insert
+            // uses the observed addToRandomSpot index (FIDL01614 Chosen+Cultist).
+            // Solo Chosen Hex stays one pulse (FIDL01561).
             let generations = discovery_post_select_generations(
                 combat,
                 source_card.as_ref(),
                 source_card_force_exhaust,
+                source_card_play_top,
             );
             burn_all_discovery_card_choice_generations(
                 &mut combat.rng.card_random_rng,
@@ -1070,6 +1073,7 @@ fn discovery_post_select_generations(
     combat: &CombatState,
     source_card: Option<&CardInstance>,
     source_card_force_exhaust: bool,
+    source_card_play_top: bool,
 ) -> usize {
     if source_card_force_exhaust {
         return PLAY_TOP_FORCE_EXHAUST_DISCOVERY_POST_SELECT_GENERATIONS;
@@ -1096,7 +1100,8 @@ fn discovery_post_select_generations(
         .any(|card| card.magnetism_generated);
     let early_magnetism_generated_source = combat.player.powers.magnetism > 0
         && source_card.is_some_and(|card| card.magnetism_generated)
-        && combat.relic_counters.cards_played_this_turn <= 2;
+        && combat.relic_counters.cards_played_this_turn <= 2
+        && !source_card_play_top;
     if another_discovery_in_hand
         || hexed_with_two_living
         || (fighting_awakened_one && combat.piles.hand.len() >= 6)
@@ -2901,6 +2906,7 @@ mod tests {
             )],
             source_card: None,
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -2941,6 +2947,7 @@ mod tests {
             )],
             source_card: None,
             source_card_force_exhaust: true,
+            source_card_play_top: true,
             pending_actions: Default::default(),
         });
 
@@ -2983,6 +2990,7 @@ mod tests {
             )],
             source_card: None,
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3022,6 +3030,7 @@ mod tests {
             )],
             source_card: None,
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3060,6 +3069,7 @@ mod tests {
             )],
             source_card: None,
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3100,6 +3110,7 @@ mod tests {
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3141,6 +3152,7 @@ mod tests {
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3188,6 +3200,7 @@ mod tests {
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3198,6 +3211,54 @@ mod tests {
             combat.rng.card_random_rng.counter(),
             22,
             "early-turn Magnetism-generated Discovery that leaves another generated card burns two discarded generations"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_mayhem_play_top_magnetism_source_burns_one_generation() {
+        use crate::content::cards::{DISCOVERY_ID, FLASH_OF_STEEL_ID, STRIKE_R_ID};
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.player.powers.magnetism = 2;
+        combat.player.powers.mayhem = 1;
+        combat.relic_counters.cards_played_this_turn = 1;
+        combat.piles.hand = (1..=5)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .chain(std::iter::once(CardInstance {
+                combat_only: true,
+                magnetism_generated: true,
+                ..CardInstance::new(CardId::new(50), FLASH_OF_STEEL_ID)
+            }))
+            .collect();
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: Some(CardInstance {
+                combat_only: true,
+                magnetism_generated: true,
+                ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
+            }),
+            source_card_force_exhaust: false,
+            source_card_play_top: true,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("Mayhem PlayTop Magnetism Discovery retrieve");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            19,
+            "Mayhem PlayTop Magnetism-generated Discovery burns one discarded generation"
         );
     }
 
@@ -3229,6 +3290,7 @@ mod tests {
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3268,6 +3330,7 @@ mod tests {
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3309,6 +3372,7 @@ mod tests {
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3347,6 +3411,7 @@ mod tests {
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3382,6 +3447,7 @@ mod tests {
             )],
             source_card: None,
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3413,6 +3479,7 @@ mod tests {
             choices: vec![CardInstance::new(choice_id, choice_content)],
             source_card: Some(CardInstance::new(source_id, DISCOVERY_ID)),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
@@ -3459,6 +3526,7 @@ mod tests {
             )],
             source_card: Some(CardInstance::new(source_id, DISCOVERY_ID)),
             source_card_force_exhaust: false,
+            source_card_play_top: false,
             pending_actions: Default::default(),
         });
 

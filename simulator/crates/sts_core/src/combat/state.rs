@@ -456,6 +456,12 @@ pub enum CombatDecisionState {
         /// reward closes, even when the card itself has no Exhaust keyword.
         #[serde(default, skip_serializing_if = "is_false")]
         source_card_force_exhaust: bool,
+        /// Mayhem PlayTop opens Discovery without force-exhaust. SuperFastMode
+        /// leftover settlement drains extra `DiscoveryAction` pulses before
+        /// CHOOSE, so Magnetism's two-pulse early-turn retrieve does not apply
+        /// (FIDL01255 Deep Breath / Good Instincts).
+        #[serde(default, skip_serializing_if = "is_false")]
+        source_card_play_top: bool,
         /// Hex/onUseCard bot follow-ups that must wait until the reward closes
         /// (FIDL00233: Hex Dazed lands on Discovery CHOOSE, not on PLAY open).
         #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
