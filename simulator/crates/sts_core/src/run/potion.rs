@@ -849,7 +849,11 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // discarded generations (FIDL01614 Infernal Blade after
             // Havoc-Discovery). Mayhem PlayTop does not force-exhaust and
             // stays on the 1/2-pulse path (FIDL01787). Hand-played Discovery
-            // on the same FIDL01614 run stays one pulse (steps 325, 366).
+            // on the same FIDL01614 run stays one pulse (steps 325, 366)
+            // unless Hex is up with two living enemies, which leaves two
+            // pulses so the parked Hex Dazed insert uses the observed
+            // addToRandomSpot index (FIDL01614 Chosen+Cultist). Solo Chosen
+            // Hex stays one pulse (FIDL01561).
             let generations = discovery_post_select_generations(
                 combat,
                 source_card.as_ref(),
@@ -1072,6 +1076,12 @@ fn discovery_post_select_generations(
         .monsters
         .iter()
         .any(|monster| monster.content_id == AWAKENED_ONE_ID);
+    let living_monsters = combat
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .count();
+    let hexed_with_two_living = combat.player.powers.hex > 0 && living_monsters >= 2;
     let another_discovery_in_hand = combat
         .piles
         .hand
@@ -1086,6 +1096,7 @@ fn discovery_post_select_generations(
         && source_card.is_some_and(|card| card.magnetism_generated)
         && combat.relic_counters.cards_played_this_turn <= 2;
     if another_discovery_in_hand
+        || hexed_with_two_living
         || (fighting_awakened_one && combat.piles.hand.len() >= 6)
         || (early_magnetism_generated_source
             && (combat.piles.hand.len() < 6 || another_magnetism_card_in_hand))
@@ -2795,6 +2806,87 @@ mod tests {
             combat.rng.card_random_rng.counter(),
             34,
             "Havoc PlayTop Discovery retrieve burns six discarded generateCardChoices generations"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_while_hexed_with_two_living_enemies_burns_two_generations() {
+        use crate::content::cards::STRIKE_R_ID;
+        use crate::content::monsters::{monster_state, CHOSEN_A0, CULTIST_A0};
+        use crate::ids::MonsterId;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.player.powers.hex = 1;
+        combat.monsters = vec![
+            monster_state(&CULTIST_A0, MonsterId::new(1)),
+            monster_state(&CHOSEN_A0, MonsterId::new(2)),
+        ];
+        combat.piles.hand = (1..=4)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            pending_actions: Default::default(),
+        });
+
+        let next =
+            apply_combat_card_reward_choice(&run, 0).expect("Hexed two-enemy Discovery retrieve");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            22,
+            "Hex with two living enemies burns two discarded generateCardChoices generations"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_while_hexed_vs_solo_chosen_burns_one_generation() {
+        use crate::content::cards::STRIKE_R_ID;
+        use crate::content::monsters::{monster_state, CHOSEN_A0};
+        use crate::ids::MonsterId;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.player.powers.hex = 1;
+        combat.monsters = vec![monster_state(&CHOSEN_A0, MonsterId::new(1))];
+        combat.piles.hand = (1..=4)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            pending_actions: Default::default(),
+        });
+
+        let next =
+            apply_combat_card_reward_choice(&run, 0).expect("solo Chosen Hexed Discovery retrieve");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            19,
+            "Hex against a single living enemy burns one discarded generateCardChoices generation"
         );
     }
 

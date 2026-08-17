@@ -51,12 +51,18 @@ Mayhem PlayTop does not set `source_card_force_exhaust` and stays on the 1/2
 path (FIDL01787). FIDL01806's Havoc-Discovery has no later compared
 `card_random` in that combat.
 
+Hex parks a Dazed `addToRandomSpot` until CHOOSE. With two living enemies that
+insert needs two discarded generations (FIDL01614 Cultist+Chosen: Dazed at
+draw index 3). Solo Chosen stays one generation; two would desync later Hex
+inserts (FIDL01561).
+
 ## Decision
 
 Burn six discarded generations when the Discovery source was force-exhausted
 by PlayTop (Havoc / Distilled Chaos). Burn two when another Discovery is still
-in hand, when Awakened One is present and `hand.len() >= 6` at retrieve, or
-when Magnetism is active, the source was Magnetism-generated,
-`cards_played_this_turn <= 2`, and either fewer than 6 cards remain or
-another Magnetism-generated card is still in hand. Otherwise burn one.
+in hand, when Hex is up and two or more enemies are alive, when Awakened One
+is present and `hand.len() >= 6` at retrieve, or when Magnetism is active,
+the source was Magnetism-generated, `cards_played_this_turn <= 2`, and either
+fewer than 6 cards remain or another Magnetism-generated card is still in
+hand. Otherwise burn one.
 Do not hydrate the Void insert index from the observed leftover pile.
