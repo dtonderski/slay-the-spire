@@ -798,12 +798,17 @@ public class ChoiceScreenUtils {
         } else if(AbstractDungeon.getCurrRoom().event instanceof GremlinWheelGame) {
             choiceList.add("spin");
         } else if(AbstractDungeon.getCurrRoom().event instanceof GremlinMatchGame) {
+            GremlinMatchGame matchGame = (GremlinMatchGame) AbstractDungeon.getCurrRoom().event;
             ArrayList<AbstractCard> pickableCards = GremlinMatchGamePatch.getOrderedCards();
-            for (AbstractCard c : pickableCards) {
-                if (GremlinMatchGamePatch.revealedCards.contains(c.uuid)) {
-                    choiceList.add(c.cardID);
-                } else {
-                    choiceList.add(String.format("card%d", GremlinMatchGamePatch.cardPositions.get(c.uuid)));
+            if (pickableCards.isEmpty() && GremlinMatchGamePatch.shouldLeaveMatchGame(matchGame)) {
+                choiceList.add("leave");
+            } else {
+                for (AbstractCard c : pickableCards) {
+                    if (GremlinMatchGamePatch.revealedCards.contains(c.uuid)) {
+                        choiceList.add(c.cardID);
+                    } else {
+                        choiceList.add(String.format("card%d", GremlinMatchGamePatch.cardPositions.get(c.uuid)));
+                    }
                 }
             }
         }
@@ -819,8 +824,16 @@ public class ChoiceScreenUtils {
             ReflectionHacks.setPrivate(event, GremlinWheelGame.class, "buttonPressed", true);
             CardCrawlGame.sound.play("WHEEL");
         } else if (AbstractDungeon.getCurrRoom().event instanceof GremlinMatchGame) {
-            GremlinMatchGamePatch.chooseFaceDownCard(
-                    (GremlinMatchGame) AbstractDungeon.getCurrRoom().event, choice);
+            GremlinMatchGame matchGame = (GremlinMatchGame) AbstractDungeon.getCurrRoom().event;
+            if (GremlinMatchGamePatch.getOrderedCards().isEmpty()) {
+                GremlinMatchGamePatch.finishMatchGameIfDone(matchGame);
+                ArrayList<LargeDialogOptionButton> leaveButtons = getActiveEventButtons();
+                if (!leaveButtons.isEmpty()) {
+                    leaveButtons.get(Math.min(choice, leaveButtons.size() - 1)).pressed = true;
+                }
+                return;
+            }
+            GremlinMatchGamePatch.chooseFaceDownCard(matchGame, choice);
         }
     }
 

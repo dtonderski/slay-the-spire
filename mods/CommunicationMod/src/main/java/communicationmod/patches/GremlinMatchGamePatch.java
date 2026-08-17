@@ -51,7 +51,34 @@ public class GremlinMatchGamePatch {
             invokeUpdateMatchGameLogic(event);
         }
         HoverCardPatch.doHover = false;
+        finishMatchGameIfDone(event);
         GameStateListener.registerStateChange();
+    }
+
+    /**
+     * After the last pair (or when attempts are exhausted) vanilla waits on
+     * {@code waitForEndTimer} then {@code waitTimer} before showing the leave
+     * dialog. SuperFastMode / software GL can freeze those timers, so the
+     * snapshot stays EVENT with an empty choice list and no proceed/leave.
+     */
+    public static void finishMatchGameIfDone(GremlinMatchGame event) {
+        if (!shouldLeaveMatchGame(event)) {
+            return;
+        }
+        setMatchWaitTimer(event, 0.0F);
+        setWaitForEndTimer(event, 0.0F);
+        invokeUpdateMatchGameLogic(event);
+        setMatchWaitTimer(event, 0.0F);
+        setWaitForEndTimer(event, 0.0F);
+        invokeUpdateMatchGameLogic(event);
+    }
+
+    public static boolean shouldLeaveMatchGame(GremlinMatchGame event) {
+        if (readBoolean(event, "gameDone")) {
+            return true;
+        }
+        Integer attemptCount = readInteger(event, "attemptCount");
+        return attemptCount != null && attemptCount <= 0 && getOrderedCards().isEmpty();
     }
 
     private static void armCardClick(AbstractCard card) {
@@ -62,7 +89,8 @@ public class GremlinMatchGamePatch {
     }
 
     private static void finishPendingMismatchWait(GremlinMatchGame event) {
-        event.waitTimer = 0.0F;
+        // GremlinMatchGame.waitTimer is private and shadows AbstractEvent.waitTimer.
+        setMatchWaitTimer(event, 0.0F);
         Float waitForEndTimer = readWaitForEndTimer(event);
         if (waitForEndTimer == null || waitForEndTimer <= 0.0F) {
             return;
@@ -79,18 +107,57 @@ public class GremlinMatchGamePatch {
         }
         ReflectionHacks.setPrivate(event, GremlinMatchGame.class, "chosenCard", null);
         ReflectionHacks.setPrivate(event, GremlinMatchGame.class, "hoveredCard", null);
-        try {
-            ReflectionHacks.setPrivate(event, GremlinMatchGame.class, "waitForEndTimer", 0.0F);
-        } catch (RuntimeException ignored) {
-        }
+        setWaitForEndTimer(event, 0.0F);
     }
 
     private static Float readWaitForEndTimer(GremlinMatchGame event) {
+        return readFloat(event, "waitForEndTimer");
+    }
+
+    private static float readMatchWaitTimer(GremlinMatchGame event) {
+        Float value = readFloat(event, "waitTimer");
+        return value == null ? 0.0F : value;
+    }
+
+    private static void setMatchWaitTimer(GremlinMatchGame event, float value) {
+        setPrivateFloat(event, "waitTimer", value);
+    }
+
+    private static void setWaitForEndTimer(GremlinMatchGame event, float value) {
+        setPrivateFloat(event, "waitForEndTimer", value);
+    }
+
+    private static Float readFloat(GremlinMatchGame event, String field) {
         try {
-            Object value = ReflectionHacks.getPrivate(event, GremlinMatchGame.class, "waitForEndTimer");
+            Object value = ReflectionHacks.getPrivate(event, GremlinMatchGame.class, field);
             return value instanceof Float ? (Float) value : null;
         } catch (RuntimeException ignored) {
             return null;
+        }
+    }
+
+    private static Integer readInteger(GremlinMatchGame event, String field) {
+        try {
+            Object value = ReflectionHacks.getPrivate(event, GremlinMatchGame.class, field);
+            return value instanceof Integer ? (Integer) value : null;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static boolean readBoolean(GremlinMatchGame event, String field) {
+        try {
+            Object value = ReflectionHacks.getPrivate(event, GremlinMatchGame.class, field);
+            return value instanceof Boolean && (Boolean) value;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static void setPrivateFloat(GremlinMatchGame event, String field, float value) {
+        try {
+            ReflectionHacks.setPrivate(event, GremlinMatchGame.class, field, value);
+        } catch (RuntimeException ignored) {
         }
     }
 
@@ -147,16 +214,12 @@ public class GremlinMatchGamePatch {
             // The match minigame ignores clicks while the previous pair is still
             // flipping. Consuming doHover in that window leaves CommunicationMod
             // waiting for a completing boundary that never arrives.
-            if (_instance.waitTimer > 0.0F) {
+            if (readMatchWaitTimer(_instance) > 0.0F) {
                 return;
             }
-            try {
-                Float waitForEndTimer = (Float) ReflectionHacks.getPrivate(
-                        _instance, GremlinMatchGame.class, "waitForEndTimer");
-                if (waitForEndTimer != null && waitForEndTimer > 0.0F) {
-                    return;
-                }
-            } catch (RuntimeException ignored) {
+            Float waitForEndTimer = readWaitForEndTimer(_instance);
+            if (waitForEndTimer != null && waitForEndTimer > 0.0F) {
+                return;
             }
             if (c.equals(hoverCard)) {
                 c.hb.hovered = true;

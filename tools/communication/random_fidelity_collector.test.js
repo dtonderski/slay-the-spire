@@ -550,6 +550,33 @@ assert.ok(
     combat: { ...summary.combat, discard_pile_count: 1 },
   }).includes("PLAY 4 0"),
 );
+assert.deepStrictEqual(
+  enumerateGameplayActions({
+    available_commands: ["key", "click", "wait", "state", "profile", "abandon"],
+    screen_type: "EVENT",
+    room_type: "EventRoom",
+    event_id: "Match and Keep!",
+    choices: null,
+  }),
+  ["WAIT 240"],
+);
+assert.deepStrictEqual(
+  enumerateGameplayActions({
+    available_commands: ["key", "click", "wait", "state", "profile"],
+    screen_type: "EVENT",
+    choices: [],
+  }),
+  ["WAIT 240"],
+);
+assert.ok(
+  !enumerateGameplayActions({
+    available_commands: ["play", "end", "wait"],
+    screen_type: "NONE",
+    combat: {
+      hand: [{ index: 1, playable: true, has_target: false }],
+    },
+  }).some((action) => action.startsWith("WAIT ")),
+);
 
 const first = seededRandom(1234);
 const second = seededRandom(1234);

@@ -294,6 +294,19 @@ function enumerateGameplayActions(summary) {
     }
     actions.push(command);
   }
+  if (
+    actions.length === 0
+    && available.has("wait")
+    && String(summary?.screen_type).toUpperCase() === "EVENT"
+    && (!Array.isArray(summary?.choices) || summary.choices.length === 0)
+    && !["choose", "proceed", "leave", "confirm"].some((verb) => available.has(verb))
+  ) {
+    // Finished Match and Keep (and similar leftover events) can publish
+    // EVENT with a null/empty choice list and no proceed/leave while the
+    // leave dialog is still behind a wait timer. WAIT lets that timer
+    // elapse; CommunicationMod also skips the timer after the last pick.
+    actions.push("WAIT 240");
+  }
   return [...new Set(actions)];
 }
 
