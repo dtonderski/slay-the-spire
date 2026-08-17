@@ -505,30 +505,6 @@ pub(super) fn play_top_draw_card_queue(
             } if *card_id == card.id
         )
     });
-    // Discovery's reward screen pauses the queue before this movement. Defer
-    // its exhaust/Spoon decision until CHOOSE, after DiscoveryAction's final
-    // discarded choice generation, while keeping an exhaust destination for
-    // the queue shape used by the source-card builder.
-    let destination = if matches!(definition.id, DISCOVERY_ID | DISCOVERY_PLUS_ID)
-        && (force_exhaust
-            || definition.keywords.exhaust
-            || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0))
-    {
-        CardPile::ExhaustPile
-    } else {
-        top_draw_card_destination(
-            &mut queued_state,
-            definition,
-            force_exhaust,
-            shared_destination,
-        )
-    };
-    queue.retain(|action| !is_card_move_for(*action, card.id));
-    let movement = InternalAction::MoveCard {
-        card_id: card.id,
-        from: CardPile::Hand,
-        to: destination,
-    };
     // PutOnDeckAction completes before UseCardAction settles its source. For a
     // force-played top card, keep the source staged until the selection closes
     // and queue the source MoveCard after AwaitHandSelect. Other force-played
@@ -618,6 +594,34 @@ pub(super) fn play_top_draw_card_queue(
             }));
     let discovery_reward_defers_source_settlement =
         matches!(definition.id, DISCOVERY_ID | DISCOVERY_PLUS_ID);
+    // Discovery's reward screen pauses the queue before this movement. Defer
+    // its exhaust/Spoon decision until CHOOSE, after DiscoveryAction's final
+    // discarded choice generation, while keeping an exhaust destination for
+    // the queue shape used by the source-card builder.
+    // Force-played Armaments / Dual Wield / Forethought also settle on CONFIRM
+    // (FIDL01254 / FIDL01427): do not consume Strange Spoon here or CONFIRM
+    // re-rolls a later counter and can exhaust a Spoon-saved Armaments.
+    let destination = if (discovery_reward_defers_source_settlement
+        && (force_exhaust
+            || definition.keywords.exhaust
+            || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0)))
+        || force_exhaust_opens_deferred_source_select
+    {
+        CardPile::ExhaustPile
+    } else {
+        top_draw_card_destination(
+            &mut queued_state,
+            definition,
+            force_exhaust,
+            shared_destination,
+        )
+    };
+    queue.retain(|action| !is_card_move_for(*action, card.id));
+    let movement = InternalAction::MoveCard {
+        card_id: card.id,
+        from: CardPile::Hand,
+        to: destination,
+    };
     // Mayhem's ordinary (non-force-exhaust) top-play keeps Burning Pact in
     // cardInUse while its ExhaustSelect screen is open; the decision owns the
     // staged source until CONFIRM settles it. Havoc's force-exhaust path is
