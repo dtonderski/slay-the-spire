@@ -11,6 +11,12 @@ selection of the played source. The source-included preview is disabled while
 Dark Embrace is active. Corruption / exhaust Havoc is always settle-first;
 see `design_corruption_havoc_dead_branch_order.md`.
 
+Outer PlayTop resolves before the parent's UseCardAction, so a nested
+empty-draw shuffle does not include the parent (FIDL01677). Nested PlayTop
+still settles its own source before a further top card (FIDL00394). When
+that nested PlayTop shuffles under Dark Embrace, the on-exhaust draw can
+consume the refill before the resumed PlayTop.
+
 ## Evidence
 
 - The source-backed transition path models `DarkEmbracePower.onExhaust` as a
