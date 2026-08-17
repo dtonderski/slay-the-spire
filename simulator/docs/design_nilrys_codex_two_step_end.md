@@ -37,7 +37,10 @@ is applied when end-turn resumes after that offer.
   - END matching the second-offer frame: discard hand, open second offer,
     stage → 3
   - CHOOSE/SKIP at stage 3: insert only a CHOOSE pick, then `end_player_turn`
-    (duplicate captured monster queue + two rolls)
+    (duplicate captured monster queue + two rolls). When the first offer
+    already inserted, a later CHOOSE can close without a second insert
+    (`deferred_nilrys_second_choice_without_insert_candidate`; FIDL01486
+    CHOOSE 610).
   - PLAY after a stage-1 SKIP (offer already closed): SuperFastMode may
     discard that hand (swallowing the PLAY) and publish the next turn
     (`deferred_nilrys_leftover_end_instead_of_play_candidate`). Rejected PLAY

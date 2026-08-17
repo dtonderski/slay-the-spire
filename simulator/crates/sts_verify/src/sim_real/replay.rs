@@ -1847,6 +1847,68 @@ fn deferred_nilrys_leftover_end_skip_second_offer_candidate(
         .or_else(|| try_finish(true, true, false, false))
 }
 
+/// Two-step second CHOOSE can close the offer without inserting when the first
+/// pick already entered the draw pile (FIDL01486 CHOOSE 610: Flame Barrier is
+/// the only new card; Disarm is not shuffled in). Default apply inserts then
+/// resumes the monster turn.
+fn deferred_nilrys_second_choice_without_insert_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    let index = match decision {
+        RunDecisionAction::Run(RunAction::ChooseCombatCardReward { index }) => Some(index),
+        RunDecisionAction::Run(RunAction::SkipCombatCardReward) => None,
+        _ => return None,
+    };
+    let combat = source.combat.as_ref()?;
+    if combat.nilrys_codex_end_turn_stage != 3
+        || !matches!(
+            combat.decision.as_ref(),
+            Some(CombatDecisionState::NilrysCodexCardReward { .. })
+        )
+    {
+        return None;
+    }
+    let try_close = |set: fn(&mut sts_core::combat::CombatState)| -> Option<RunState> {
+        let mut candidate = source.clone();
+        let combat = candidate.combat.as_mut()?;
+        match index {
+            Some(index) => {
+                sts_core::relic::nilrys_codex_park_choice_without_insert(combat, index).ok()?;
+            }
+            None => {
+                combat.decision = None;
+            }
+        }
+        set(combat);
+        let finished = sts_core::combat::end_player_turn(combat).ok()?;
+        candidate.player_hp = finished.player.hp;
+        candidate.player_max_hp = finished.player.max_hp;
+        candidate.card_random_rng_counter = finished.rng.card_random_rng.counter();
+        candidate.combat = Some(finished);
+        candidate.validate().ok()?;
+        subset_diffs(
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&candidate),
+        )
+        .is_empty()
+        .then_some(candidate)
+    };
+    try_close(|_| {})
+        .or_else(|| try_close(|c| c.nilrys_duplicate_monster_queue = false))
+        .or_else(|| try_close(|c| c.nilrys_end_powers_pending = false))
+        .or_else(|| {
+            try_close(|c| {
+                c.nilrys_duplicate_monster_queue = false;
+                c.nilrys_end_powers_pending = false;
+            })
+        })
+        .or_else(|| try_close(|c| c.nilrys_book_second_stab_uses_live_count = true))
+        .or_else(|| try_close(|c| c.nilrys_hold_attack_multiple_rolls = true))
+        .or_else(|| try_close(|c| c.nilrys_interleave_post_queue_rolls = true))
+}
+
 /// First-offer SKIP leaves EndTurn queued. SuperFastMode can discard that
 /// hand (swallowing the next PLAY) and publish the next turn in one frame
 /// (FIDL01772 step 614). Ordinary apply would spend the leftover hand.
@@ -3311,6 +3373,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_first_choice_candidate(&source, decision, post)
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_second_choice_without_insert_candidate(
+                                    &source, decision, post,
+                                )
                             })
                             .or_else(|| {
                                 deferred_nilrys_hold_strength_self_rolls_on_second_choice_candidate(
