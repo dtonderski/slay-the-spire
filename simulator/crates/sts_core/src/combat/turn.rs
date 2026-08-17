@@ -161,13 +161,19 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
             // Leftover EndTurn 1 plus this EndTurn 2 each queue a
             // MonsterQueueItem before either RollMoveAction.
             next.nilrys_duplicate_monster_queue = true;
-            // The second EndTurnAction also runs atEndOfTurn (FIDL01727
-            // Combust ticks again on the stage-3 SKIP).
+            // Frail / plated / Metallicize wait for the stage-3 close so the
+            // second offer still shows pre-tick durations (FIDL01597). Combust
+            // LoseHP / DamageAll was already queued behind the first Codex and
+            // resolves on this leftover EndTurn (FIDL01727: 8975→8974, Sentry
+            // 36→31, Barricade block 59→54). Do not loseBlock here — Barricade
+            // keeps residual block until the real monster-turn start.
             next.nilrys_end_powers_pending = true;
-            // Leftover EndTurn 1 can publish MonsterStartTurn loseBlock
-            // while Codex 2 is still open (FIDL01597 step 460: minion
-            // Rally block is gone, takeTurn has not run).
-            clear_living_monster_block(&mut next);
+            let mut deferred_deaths = Vec::new();
+            crate::combat::turn_powers::apply_deferred_end_of_turn_combust(
+                &mut next,
+                &mut deferred_deaths,
+            )?;
+            let _ = deferred_deaths;
         } else {
             next.nilrys_codex_end_turn_stage = 0;
             next.resume_end_turn_after_nilrys_codex = false;
@@ -6236,13 +6242,20 @@ mod tests {
         state.monsters[0].block = 8;
         state.nilrys_end_powers_pending = true;
         state.player.powers.frail = 2;
+        state.player.hp = 50;
+        state.player.powers.combust = 1;
+        state.player.powers.combust_damage = 5;
 
         let next = end_player_turn(&state).expect("second Nilry offer opens");
         assert!(
             next.piles.hand.is_empty(),
             "hand is discarded before offer two"
         );
-        assert_eq!(next.monsters[0].block, 0, "loseBlock before takeTurn");
+        assert_eq!(
+            next.monsters[0].block, 3,
+            "Combust hits Barricade block; loseBlock waits for monster turn"
+        );
+        assert_eq!(next.player.hp, 49, "Combust LoseHP on leftover EndTurn");
         assert_eq!(next.piles.discard_pile.len(), 2);
         assert_eq!(next.player.powers.frail, 2, "Frail waits for stage-3 close");
         assert!(next.nilrys_end_powers_pending);
