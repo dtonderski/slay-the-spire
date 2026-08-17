@@ -275,6 +275,11 @@ pub struct CombatState {
     /// (FIDL01727 Collector Mega Debuff, not the second roll's Fireball).
     #[serde(default, skip_serializing_if = "is_false")]
     pub nilrys_single_post_queue_roll: bool,
+    /// SuperFastMode can finish leftover takeTurns and the next player draw
+    /// before any leftover RollMoveAction (FIDL01727 CHOOSE 1059: Collector
+    /// stays Fireball; the Buff / Spawn rolls publish on later closes).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_skip_post_queue_rolls: bool,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -1190,6 +1195,7 @@ impl CombatState {
             nilrys_interleave_post_queue_rolls: false,
             nilrys_hold_attack_multiple_rolls: false,
             nilrys_single_post_queue_roll: false,
+            nilrys_skip_post_queue_rolls: false,
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
