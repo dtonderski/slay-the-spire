@@ -27,9 +27,10 @@ The same 6+ remaining-hand shape against Darklings / Giant Head / Champ
 / Time Eater stays one pulse (FIDL01309 Wound insert; FIDL01248 energy;
 FIDL01255 colorless hand). Smaller remaining hands against Awakened One
 are one pulse (FIDL01665). Another Discovery still in hand still needs
-two pulses (FIDL01630 first pick). Magnetism also needs two pulses
-(FIDL01787: post-Discovery Magnetism is Transmutation, not Enlightenment).
-Skipped retrieval still burns nothing.
+two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
+needs two pulses (FIDL01787: post-Discovery Magnetism is Transmutation,
+not Enlightenment). Deck Discovery with Magnetism up, and other
+combat-generated Discovery, stay one pulse. Skipped retrieval still burns nothing.
 
 A global or remaining-hand-only two-generation retrieve regresses those
 already-green traces. A CHOOSE-time candidate cannot distinguish 1 vs 2
@@ -38,6 +39,6 @@ pulses: both publish the same compared combat subset.
 ## Decision
 
 Burn two discarded generations when another Discovery is still in hand,
-when Magnetism is active, or when Awakened One is present and
-`hand.len() >= 6` at retrieve. Otherwise burn one. Do not hydrate the
-Void insert index from the observed leftover pile.
+when Magnetism is active and the Discovery source is combat-generated,
+or when Awakened One is present and `hand.len() >= 6` at retrieve.
+Otherwise burn one. Do not hydrate the Void insert index from the observed leftover pile.
