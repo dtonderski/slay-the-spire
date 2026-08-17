@@ -977,6 +977,69 @@ fn time_warp_status_lag_hand_select_candidate(
     Ok(Some(candidate))
 }
 
+fn time_warp_remaining_status_lag_hand_select_candidate(
+    run: &RunState,
+    decision: RunDecisionAction,
+) -> Result<Option<RunState>, String> {
+    if !matches!(
+        decision,
+        RunDecisionAction::Run(RunAction::ConfirmHandSelect)
+    ) {
+        return Ok(None);
+    }
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(None);
+    };
+    let Some(hand_select) = combat.hand_select() else {
+        return Ok(None);
+    };
+    if !matches!(
+        hand_select.purpose,
+        HandSelectPurpose::WarcryPutOnDraw
+            | HandSelectPurpose::ThinkingAheadPutOnDraw
+            | HandSelectPurpose::ForethoughtPutOnDraw
+    ) {
+        return Ok(None);
+    }
+    if !combat.monsters.iter().any(|monster| {
+        monster.alive && monster.content_id == sts_core::content::monsters::TIME_EATER_ID
+    }) {
+        return Ok(None);
+    }
+    let Some(selected_index) = hand_select.selected_hand_index else {
+        return Ok(None);
+    };
+    let Some(selected) = combat.piles.hand.get(selected_index) else {
+        return Ok(None);
+    };
+    let is_end_turn_autoplay = |content_id| {
+        matches!(
+            content_id,
+            sts_core::content::cards::BURN_ID
+                | sts_core::content::cards::DECAY_ID
+                | sts_core::content::cards::REGRET_ID
+                | sts_core::content::cards::DOUBT_ID
+                | sts_core::content::cards::SHAME_ID
+        )
+    };
+    if is_end_turn_autoplay(selected.content_id) {
+        return Ok(None);
+    }
+    let leftover_autoplay = combat.piles.hand.iter().enumerate().any(|(index, card)| {
+        index != selected_index
+            && card.id != hand_select.source_card_id
+            && is_end_turn_autoplay(card.content_id)
+    });
+    if !leftover_autoplay {
+        return Ok(None);
+    }
+
+    let candidate = sts_core::run::apply_hand_select_confirm_time_warp_remaining_status_lag(run)
+        .map_err(|error| error.to_string())?;
+    candidate.validate().map_err(|error| error.to_string())?;
+    Ok(Some(candidate))
+}
+
 fn skipped_armaments_candidate(
     run: &RunState,
     decision: RunDecisionAction,
@@ -3795,6 +3858,28 @@ pub(super) fn verify_seed_start_transition(
                                             )
                                             .is_empty()
                                         })
+                                })
+                                .or_else(|| {
+                                    time_warp_remaining_status_lag_hand_select_candidate(
+                                        &source, decision,
+                                    )
+                                    .ok()
+                                    .flatten()
+                                    .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                    .filter(|_| {
+                                        !subset_diffs(
+                                            seed_start_combat_observed_subset(&post.message),
+                                            seed_start_simulated_combat_subset(&next),
+                                        )
+                                        .is_empty()
+                                    })
+                                    .filter(|candidate| {
+                                        subset_diffs(
+                                            seed_start_combat_observed_subset(&post.message),
+                                            seed_start_simulated_combat_subset(candidate),
+                                        )
+                                        .is_empty()
+                                    })
                                 })
                                 .or_else(|| {
                                     skipped_armaments_candidate(&source, decision)

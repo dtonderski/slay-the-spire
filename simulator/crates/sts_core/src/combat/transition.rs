@@ -3078,6 +3078,17 @@ pub fn confirm_hand_select_time_warp_status_lag(state: &mut CombatState) -> SimR
     Ok(())
 }
 
+/// Time Warp 12th-card Warcry CONFIRM can PutOnDeck the selected card and still
+/// autoplay a *remaining* end-turn curse before DiscardAtEndOfTurn (FIDL01425:
+/// Pommel on draw, leftover Regret deals 2 and sits in discard, Reaper held).
+pub fn confirm_hand_select_time_warp_remaining_status_lag(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    confirm_hand_select_with_time_warp_policy(state, false)?;
+    crate::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(state)?;
+    Ok(())
+}
+
 fn settle_delayed_source_without_bot_exhaust_powers(
     state: &mut CombatState,
     source_card_id: CardId,
@@ -11314,6 +11325,72 @@ mod tests {
         );
         assert_eq!(next.monsters[0].block, 0, "monster turn has not run");
         assert_eq!(next.monsters[0].powers.strength, 2);
+        assert!(next.time_warp_end_turn);
+    }
+
+    #[test]
+    fn time_warp_warcry_remaining_status_lag_put_on_deck_then_autoplays_leftover_regret() {
+        // FIDL01425: Warcry as 12th card selects Pommel onto draw; leftover
+        // Regret autoplays for remaining-hand size 2; Reaper stays held.
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 2;
+        state.player.hp = 40;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), WARCRY_ID),
+            CardInstance::new(CardId::new(2), REGRET_ID),
+            CardInstance::new(CardId::new(3), POMMEL_STRIKE_PLUS_ID),
+            CardInstance::new(CardId::new(4), REAPER_ID),
+        ];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(5), BASH_ID),
+            CardInstance::new(CardId::new(6), CLEAVE_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.monsters[0].content_id = crate::content::monsters::TIME_EATER_ID;
+        state.monsters[0].powers.time_warp = 11;
+        state.monsters[0].hp = 200;
+        state.monsters[0].max_hp = 200;
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Warcry opens select");
+        choose_hand_select(&mut next, 1).expect("select Pommel");
+        confirm_hand_select_time_warp_remaining_status_lag(&mut next)
+            .expect("remaining-status-lag CONFIRM");
+
+        assert!(next.hand_select().is_none());
+        assert_eq!(next.player.energy, 2, "energy refill must wait");
+        assert_eq!(
+            next.player.hp, 38,
+            "leftover Regret deals remaining hand size 2"
+        );
+        assert_eq!(
+            next.piles.draw_pile.last().map(|card| card.content_id),
+            Some(POMMEL_STRIKE_PLUS_ID),
+            "selected Pommel is put on draw"
+        );
+        assert!(
+            next.piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == REGRET_ID),
+            "leftover Regret lands in discard after autoplay"
+        );
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![REAPER_ID],
+            "non-status leftover stays in hand"
+        );
+        assert_eq!(next.monsters[0].block, 0, "monster turn has not run");
         assert!(next.time_warp_end_turn);
     }
 

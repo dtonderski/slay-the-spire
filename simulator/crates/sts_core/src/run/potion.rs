@@ -10,6 +10,7 @@ use crate::{
         confirm_exhume_select_skipped_return, confirm_gambling_chip_select_skipped_retrieval,
         confirm_hand_select, confirm_hand_select_skipped_put_on_deck_retrieval,
         confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy,
+        confirm_hand_select_time_warp_remaining_status_lag,
         confirm_hand_select_time_warp_status_lag, confirm_hand_select_with_time_warp_policy,
         confirm_headbutt_select_skipped_retrieval, confirm_recycle_select_skipped_retrieval,
         discard_select_ui_to_discard_index, draw_select_ui_to_draw_index,
@@ -343,6 +344,26 @@ pub fn apply_hand_select_confirm_time_warp_status_lag(run: &RunState) -> SimResu
     let mut combat = next.combat.take().expect("validated combat");
     let exhaust_before = combat.piles.exhaust_pile.len();
     confirm_hand_select_time_warp_status_lag(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    next.combat = Some(combat);
+    Ok(next)
+}
+
+/// Confirm put-on-deck, autoplay remaining end-turn statuses, and leave Time
+/// Warp's EndTurn queued (FIDL01425 Warcry retrieving Pommel with leftover Regret).
+pub fn apply_hand_select_confirm_time_warp_remaining_status_lag(
+    run: &RunState,
+) -> SimResult<RunState> {
+    validate_hand_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    confirm_hand_select_time_warp_remaining_status_lag(&mut combat)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile

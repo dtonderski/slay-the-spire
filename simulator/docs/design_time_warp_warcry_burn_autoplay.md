@@ -41,3 +41,21 @@ Leftover Ripple applies Vulnerable then Weak. WeakPower.atEndOfRound
 after that takeTurn skips a just-applied first stack. Only decrement
 leftover Weak when Weak was already present before takeTurn (FIDL01782
 stacking). FIDL01274 leftover Strike+ then deals 6, not 9.
+
+FIDL01425 is the complementary boundary: Warcry as the 12th card
+*does* PutOnDeck the selected non-status (Pommel Strike+), then
+autoplays a leftover end-turn curse (Regret) before discard. Observed
+CONFIRM: energy still 2, HP −2 (Regret uses remaining hand size 2
+after Pommel is on draw and Warcry exhausts), Regret in discard,
+Reaper held, Time Eater still ATTACK. Ordinary CONFIRM consumes the
+full Time Warp EndTurn (energy 3, Reaper discarded, monster attack).
+Deferred PutOnDeck without autoplay leaves Regret in hand and HP
+unchanged. Selected-status lag skips PutOnDeck and is not offered
+when the selected card is Pommel.
+
+Seed-start candidate: Time Eater put-on-deck CONFIRM, selected card
+is not an autoplay status, and some other remaining hand card is.
+PutOnDeck + settle source, then
+`resolve_end_of_turn_playing_cards_for_time_warp_lag`, leave
+`time_warp_end_turn` queued. Do not change the FIDL01274 skip-PutOnDeck
+path.
