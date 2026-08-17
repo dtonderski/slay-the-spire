@@ -12,6 +12,8 @@ const {
   currentRunRecords,
   enumerateGameplayActions,
   immutableTracePath,
+  isCommandInFlightHang,
+  isMatchAndKeepScreen,
   isSoleEventLeaveScreen,
   loadBossUnlocks,
   localBridgeTracePath,
@@ -175,6 +177,48 @@ assert.deepStrictEqual(
   }),
   ["CHOOSE 0", "CHOOSE 2"],
 );
+
+assert.strictEqual(
+  isMatchAndKeepScreen({
+    screen_type: "EVENT",
+    event_id: "Match and Keep!",
+    event_name: "Match and Keep!",
+    choices: ["double tap", "card1", "normality", "card3", "card5", "sever soul", "card7", "double tap", "card10"],
+  }),
+  true,
+);
+assert.strictEqual(
+  isMatchAndKeepScreen({
+    screen_type: "EVENT",
+    event_id: "The Cleric",
+    choices: ["heal", "leave"],
+  }),
+  false,
+);
+assert.strictEqual(
+  isMatchAndKeepScreen({
+    screen_type: "EVENT",
+    choices: ["card3", "card7"],
+  }),
+  true,
+);
+assert.strictEqual(
+  isCommandInFlightHang(new Error("bridge command did not complete after acceptance: CHOOSE 8")),
+  true,
+);
+assert.strictEqual(isCommandInFlightHang(new Error("bridge ownership rejected")), false);
+
+{
+  const { resolveRandomFidelityOutputDir } = require("./random_fidelity_paths");
+  assert.strictEqual(
+    resolveRandomFidelityOutputDir({}),
+    path.join(os.homedir(), "sts-traces", "random-fidelity"),
+  );
+  assert.strictEqual(
+    resolveRandomFidelityOutputDir({ STS_RANDOM_OUTPUT_DIR: "/tmp/custom-fidelity" }),
+    path.resolve("/tmp/custom-fidelity"),
+  );
+}
 
 
 const bossUnlocks = parseBossUnlocks(JSON.stringify({
@@ -620,12 +664,10 @@ async function testOffsetRunRead() {
 
 async function testWindowsBridgePathTranslation() {
   if (process.platform === "win32") return;
-  assert.strictEqual(
-    localBridgeTracePath(
-      "D:\\dev\\slay-the-spire\\tools\\communication\\session\\raw_bridge_current.jsonl",
-    ),
-    "/mnt/d/dev/slay-the-spire/tools/communication/session/raw_bridge_current.jsonl",
-  );
+  const advertised = "D:\\dev\\slay-the-spire\\tools\\communication\\session\\raw_bridge_current.jsonl";
+  const translated = "/mnt/d/dev/slay-the-spire/tools/communication/session/raw_bridge_current.jsonl";
+  if (!fs.existsSync(translated)) return;
+  assert.strictEqual(localBridgeTracePath(advertised), translated);
 }
 
 Promise.all([testOffsetRunRead(), testWindowsBridgePathTranslation()])

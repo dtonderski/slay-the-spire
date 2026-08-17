@@ -127,6 +127,20 @@ replaced owner and lease age.
 - `harvest_status.test.js` is a fast Node regression test for non-mutating harvest report inspection.
 - `trace_tools.test.js` is a fast Node regression test for trace validation and harvest coverage summaries.
 
+## Random Fidelity Collection
+
+- `random_fidelity_collector.js` plays random Ironclad actions against a live
+  CommunicationMod bridge. It only collects; it does not verify, minimize, or
+  promote traces.
+- `run_random_fidelity_campaign.js` walks policy seeds under prefix `FIDL`.
+  `STS_RANDOM_MAX_RUNS` (default 100) is the number of policy seeds consumed:
+  successful collects and skipped seeds both count. Collector retries of the
+  same seed do not. Finite and indefinite modes both skip a seed after
+  `STS_RANDOM_FAILURES_PER_SEED` (default 3) non-zero collector exits.
+- Default `STS_RANDOM_OUTPUT_DIR` is `$HOME/sts-traces/random-fidelity`, outside
+  the git worktree so traces survive `git clean` / reclones. An explicit env
+  override still wins. Do not commit traces.
+
 Useful environment variables:
 
 - `STS_AUTO_SEED_PREFIX`: seed prefix, default `M29`
@@ -145,6 +159,8 @@ Useful environment variables:
 - `TRACE_ALLOW_FILE_COMMANDS`: set to `1` to allow legacy
   `session/next_command.txt` command ingestion even when `TRACE_CONTROL_PORT`
   is enabled. Leave unset for guided auto-collection and normal UI use.
+- `STS_RANDOM_OUTPUT_DIR`: random-fidelity campaign output directory. Default
+  `$HOME/sts-traces/random-fidelity`.
 
 ## Trace Health
 
@@ -164,6 +180,9 @@ node tools\communication\overnight_supervisor.test.js
 node tools\communication\harvest_status.test.js
 node tools\communication\guided_collect_status.test.js
 node tools\communication\trace_tools.test.js
+node tools\communication\random_fidelity_collector.test.js
+node tools\communication\run_random_fidelity_campaign.test.js
+node tools\communication\trace_client.test.js
 ```
 
 Before a guided auto-collection run:

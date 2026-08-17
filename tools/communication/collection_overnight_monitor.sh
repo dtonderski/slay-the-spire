@@ -10,7 +10,7 @@ cd "$ROOT" || exit 1
 
 SESSION="${STS_BRIDGE_SESSION_DIR:-/mnt/d/dev/slay-the-spire/tools/communication/session}"
 GAME_DIR="${STS_GAME_DIR:-/mnt/d/SteamLibrary/steamapps/common/SlayTheSpire}"
-OUT="${STS_RANDOM_OUTPUT_DIR:-$ROOT/random_traces_loop}"
+OUT="${STS_RANDOM_OUTPUT_DIR:-$HOME/sts-traces/random-fidelity}"
 NODE="${NODE_BIN:-$(command -v node)}"
 LOG="$OUT/collection_monitor.log"
 LOCK="$OUT/collection_monitor.lock"
@@ -178,10 +178,10 @@ while true; do
   newest="$(find "$OUT/traces" -maxdepth 1 -type f -name '*.jsonl' -printf '%T@ %f\n' 2>/dev/null | sort -n | tail -n1)"
   camp_status="missing"
   if [[ -f "$STATUS" ]]; then
-    camp_status="$(python3 - <<'PY'
-import json
+    camp_status="$(STATUS_PATH="$STATUS" python3 - <<'PY'
+import json, os
 from pathlib import Path
-p=Path("random_traces_loop/campaign_status.json")
+p=Path(os.environ["STATUS_PATH"])
 d=json.loads(p.read_text())
 print(f"{d.get('status')}|run={d.get('run_number')}|seed={d.get('game_seed')}|updated={d.get('updated_at')}|fail={d.get('consecutive_failures')}")
 PY

@@ -4,6 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 
+const { resolveRandomFidelityOutputDir } = require("./random_fidelity_paths");
+
 const collector = path.join(__dirname, "random_fidelity_collector.js");
 const root = path.resolve(__dirname, "..", "..");
 const maxRuns = Number.parseInt(process.env.STS_RANDOM_MAX_RUNS || "100", 10);
@@ -17,13 +19,10 @@ const failuresPerSeed = Number.parseInt(
   process.env.STS_RANDOM_FAILURES_PER_SEED || "3",
   10,
 );
-const outputDir = path.resolve(
-  process.env.STS_RANDOM_OUTPUT_DIR || path.join(root, "simulator", "target", "random-fidelity"),
-);
+const outputDir = resolveRandomFidelityOutputDir();
 const statusPath = path.join(outputDir, "campaign_status.json");
 const indefinite = maxRuns <= 0;
 
-fs.mkdirSync(outputDir, { recursive: true });
 if (!Number.isInteger(failuresPerSeed) || failuresPerSeed < 1) {
   throw new Error("STS_RANDOM_FAILURES_PER_SEED must be a positive integer");
 }
@@ -89,6 +88,24 @@ function isInfrastructureFailure(child) {
       .test(detail);
 }
 
+/**
+ * Finite and indefinite campaigns share skip-after-N. STS_RANDOM_MAX_RUNS is
+ * the number of policy seeds consumed (successful collects or skipped seeds),
+ * not collector retries of the same seed.
+ */
+function nextCampaignAction({
+  indefinite,
+  child,
+  consecutiveFailures,
+  failuresPerSeed: failureLimit,
+}) {
+  if (child.code === 0) return { type: "advance" };
+  if (indefinite && isInfrastructureFailure(child)) return { type: "retry_infrastructure" };
+  const failures = consecutiveFailures + 1;
+  if (failures >= failureLimit) return { type: "skip_seed", consecutiveFailures: failures };
+  return { type: "retry_seed", consecutiveFailures: failures };
+}
+
 function runCollector(gameSeed, policySeed) {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
@@ -116,6 +133,7 @@ function runCollector(gameSeed, policySeed) {
 }
 
 async function main() {
+  fs.mkdirSync(outputDir, { recursive: true });
   const requestedPolicySeed = Number.parseInt(process.env.STS_RANDOM_POLICY_SEED || "1", 10);
   const firstPolicySeed = firstUncollectedPolicySeed(
     outputDir,
@@ -143,7 +161,13 @@ async function main() {
       child = { code: null, signal: null, error: error.message };
     }
     if (child.code !== 0) {
-      if (indefinite && isInfrastructureFailure(child)) {
+      const action = nextCampaignAction({
+        indefinite,
+        child,
+        consecutiveFailures,
+        failuresPerSeed,
+      });
+      if (action.type === "retry_infrastructure") {
         appendJsonl(path.join(outputDir, "campaign_failures.jsonl"), {
           recorded_at: new Date().toISOString(),
           game_seed: gameSeed,
@@ -167,7 +191,7 @@ async function main() {
         sleep(retryDelayMs);
         continue;
       }
-      consecutiveFailures += 1;
+      consecutiveFailures = action.consecutiveFailures;
       const effectiveRetryDelayMs = retryDelayForFailures(consecutiveFailures);
       const failure = {
         recorded_at: new Date().toISOString(),
@@ -179,7 +203,7 @@ async function main() {
         collector_error: child.error || null,
       };
       appendJsonl(path.join(outputDir, "campaign_failures.jsonl"), failure);
-      if (indefinite && consecutiveFailures >= failuresPerSeed) {
+      if (action.type === "skip_seed") {
         appendJsonl(path.join(outputDir, "skipped_policy_seeds.jsonl"), {
           ...failure,
           seed_prefix: seedPrefix,
@@ -187,7 +211,7 @@ async function main() {
         });
         writeStatus({
           status: "skipping_failed_seed",
-          mode: "indefinite",
+          mode: indefinite ? "indefinite" : "finite",
           run_number: offset + 1,
           game_seed: gameSeed,
           policy_seed: policySeed,
@@ -199,7 +223,7 @@ async function main() {
         continue;
       }
       writeStatus({
-        status: indefinite ? "retrying_after_error" : "failed",
+        status: "retrying_after_error",
         mode: indefinite ? "indefinite" : "finite",
         run_number: offset + 1,
         game_seed: gameSeed,
@@ -208,14 +232,10 @@ async function main() {
         collector_signal: child.signal,
         collector_error: child.error || null,
         consecutive_failures: consecutiveFailures,
-        retry_delay_ms: indefinite ? effectiveRetryDelayMs : null,
+        retry_delay_ms: effectiveRetryDelayMs,
       });
-      if (indefinite) {
-        sleep(effectiveRetryDelayMs);
-        continue;
-      }
-      process.exitCode = child.code || 1;
-      return;
+      sleep(effectiveRetryDelayMs);
+      continue;
     }
     consecutiveFailures = 0;
     offset += 1;
@@ -234,6 +254,7 @@ module.exports = {
   appendJsonl,
   firstUncollectedPolicySeed,
   isInfrastructureFailure,
+  nextCampaignAction,
   retryDelayForFailures,
   runCollector,
 };

@@ -1349,6 +1349,99 @@ async function testTcpControlAllowsStartupStartBeforeObservedState() {
   }
 }
 
+async function testTcpControlPreemptsInFlightCommandWithAbandon() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-preempt-abandon-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+      TRACE_AUTO_STATE_MS: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose", "state"],
+      game_state: { screen_type: "EVENT", floor: 12, event_id: "Match and Keep!" },
+    })}\n`);
+
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const acquired = await controlRequest(status.control.port, {
+      type: "acquire",
+      owner_id: "test-controller",
+    });
+    const liveState = await controlRequest(status.control.port, { type: "state" });
+    const first = await controlRequest(status.control.port, {
+      type: "command",
+      command: "CHOOSE 8",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(first.ok, true);
+    await waitFor(() => stdout.includes("CHOOSE 8\n"));
+
+    const abandon = await controlRequest(status.control.port, {
+      type: "abandon_run",
+      owner_token: acquired.owner_token,
+      preempt_in_flight: true,
+      wait_for_state_update: true,
+      update_timeout_ms: 200,
+    });
+    assert.strictEqual(abandon.ok, true, abandon.error);
+    await waitFor(() => stdout.includes("ABANDON\n"), 3000, "preempt ABANDON output");
+
+    child.stdin.write(`${JSON.stringify({
+      in_game: false,
+      ready_for_command: true,
+      available_commands: ["start", "state"],
+      boundary_schema: 1,
+      boundary_kind: "terminal",
+      game_update_seq: 3,
+      dungeon_update_seq: 2,
+      current_action: null,
+      current_action_instance: null,
+      current_action_update_count: null,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
+      game_state: { screen_type: "NONE", floor: 0 },
+    })}\n`);
+    await waitFor(() => {
+      const current = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
+      return current.pending_command === false;
+    }, 3000, "preempted abandon completed");
+
+    child.stdin.end();
+    await new Promise((resolve) => child.on("exit", resolve));
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 Promise.resolve()
   .then(() => runTest(testCommandMetadataIsPreservedInTraceActions))
   .then(() => runTest(testExternalRngIsRecordedAgainstProducingAction))
@@ -1358,6 +1451,7 @@ Promise.resolve()
   .then(() => runTest(testTcpControlDisablesLegacyFileCommandsByDefault))
   .then(() => runTest(testTcpControlRecordsObservedUpdateTimeout))
   .then(() => runTest(testTcpControlRejectsAbandonBehindDispatchedCommand))
+  .then(() => runTest(testTcpControlPreemptsInFlightCommandWithAbandon))
   .then(() => runTest(testTcpControlAbandonRunBypassesAvailableCommands))
   .then(() => runTest(testTcpControlAcceptsAdvertisedStartFromUnreadyMenu))
   .then(() => runTest(testTcpControlRejectsSecondCommandUntilStateUpdate))

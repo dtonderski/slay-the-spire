@@ -64,14 +64,29 @@ public class GremlinMatchGamePatch {
                 localvars = {"c"}
         )
         public static void Insert(GremlinMatchGame _instance, AbstractCard c) {
-            if (doHover) {
-                if (c.equals(hoverCard)) {
-                    c.hb.hovered = true;
-                    InputHelper.justClickedLeft = true;
-                    doHover = false;
-                } else {
-                    c.hb.hovered = false;
+            if (!doHover) {
+                return;
+            }
+            // The match minigame ignores clicks while the previous pair is still
+            // flipping. Consuming doHover in that window leaves CommunicationMod
+            // waiting for a completing boundary that never arrives.
+            if (_instance.waitTimer > 0.0F) {
+                return;
+            }
+            try {
+                Float waitForEndTimer = (Float) ReflectionHacks.getPrivate(
+                        _instance, GremlinMatchGame.class, "waitForEndTimer");
+                if (waitForEndTimer != null && waitForEndTimer > 0.0F) {
+                    return;
                 }
+            } catch (RuntimeException ignored) {
+            }
+            if (c.equals(hoverCard)) {
+                c.hb.hovered = true;
+                InputHelper.justClickedLeft = true;
+                doHover = false;
+            } else {
+                c.hb.hovered = false;
             }
         }
 

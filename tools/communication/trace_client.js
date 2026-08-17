@@ -465,6 +465,22 @@ function waitForQueuedCommand(timeoutMs) {
   });
 }
 
+function dispatchImmediateCommand(command, commandMeta) {
+  step += 1;
+  writeStatus({
+    step,
+    client_pid: clientPid,
+    status: "sent",
+    trace_path: tracePath,
+    command,
+    command_meta: commandMeta,
+    pending_command: Boolean(commandInFlight),
+    command_in_flight: commandInFlight,
+    sent_at: new Date().toISOString(),
+  });
+  writeAction(command, commandMeta);
+}
+
 function writeAction(command, commandMeta) {
   const actionRecord = { type: "action", step, sent_at: new Date().toISOString(), command };
   if (commandMeta) {
@@ -597,7 +613,7 @@ function validateProtocolCommand(payload) {
 function validateAbandonRun(payload) {
   if (!latestSummary) return "no observed state is available";
   if (queuedCommands.length > 0) return "a command is already queued";
-  if (commandInFlight) return "a command is already in flight";
+  if (commandInFlight && !payload.preempt_in_flight) return "a command is already in flight";
   if (controlOwner && payload.owner_token !== controlOwner.owner_token) {
     return "controller owner_token is required";
   }
@@ -637,6 +653,19 @@ async function enqueueAbandonRun(payload) {
   }
   const acceptedStateSeq = stateSeq;
   const acceptedStateId = latestSummary?.state_id ?? null;
+  const preempted = Boolean(payload.preempt_in_flight && commandInFlight);
+  if (preempted) {
+    writeRecord({
+      type: "metadata",
+      event: "in_flight_command_preempted",
+      step,
+      preempted_at: new Date().toISOString(),
+      command: commandInFlight.command,
+      command_id: commandInFlight.command_id,
+      replacement_command: "ABANDON",
+    });
+    commandInFlight = null;
+  }
   commandInFlight = {
     command_id: commandId,
     command: commandMeta.command,
@@ -663,7 +692,13 @@ async function enqueueAbandonRun(payload) {
     accepted_state_id: acceptedStateId,
     accepted_state_seq: acceptedStateSeq,
   });
-  enqueueCommand(commandMeta.command, commandMeta);
+  if (preempted) {
+    // waitForCommand returns immediately while a command is in flight, so a
+    // queued ABANDON would never reach CommunicationMod stdin. Emit it now.
+    dispatchImmediateCommand(commandMeta.command, commandMeta);
+  } else {
+    enqueueCommand(commandMeta.command, commandMeta);
+  }
   const response = {
     ok: true,
     command_id: commandId,

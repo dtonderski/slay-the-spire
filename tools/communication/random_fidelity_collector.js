@@ -6,6 +6,8 @@ const net = require("net");
 const path = require("path");
 const readline = require("readline");
 
+const { resolveRandomFidelityOutputDir } = require("./random_fidelity_paths");
+
 const root = path.resolve(__dirname, "..", "..");
 const defaultSessionDir = path.join(__dirname, "session");
 
@@ -376,6 +378,35 @@ function isSoleEventLeaveScreen(summary) {
     summary.choices.length === 1 &&
     String(summary.choices[0]).toLowerCase() === "leave"
   );
+}
+
+function normalizeEventLabel(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[!]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * CommunicationMod exposes Gremlin Match and Keep as a generic EVENT choice
+ * list. Each CHOOSE is supposed to flip one card, but the hover/click patch
+ * is consumed while the previous pair is still animating and never produces a
+ * completing boundary. Detect that screen so the collector can abandon it
+ * instead of sending a CHOOSE the game cannot finish.
+ */
+function isMatchAndKeepScreen(summary) {
+  const eventId = normalizeEventLabel(summary?.event_id);
+  const eventName = normalizeEventLabel(summary?.event_name);
+  if (eventId.includes("match") && eventId.includes("keep")) return true;
+  if (eventName.includes("match") && eventName.includes("keep")) return true;
+  const choices = Array.isArray(summary?.choices) ? summary.choices : [];
+  const hasCardPlaceholder = choices.some((choice) => /^card\d+$/i.test(String(choice)));
+  return String(summary?.screen_type).toUpperCase() === "EVENT" && hasCardPlaceholder;
+}
+
+function isCommandInFlightHang(error) {
+  return /bridge command did not complete after acceptance:/i.test(String(error?.message || error));
 }
 
 function controlRequest(control, payload, timeoutMs = 15000) {
@@ -777,7 +808,10 @@ async function send(control, ownerToken, protocolState, command, metadata) {
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(`bridge command did not complete after acceptance: ${command}`);
+  const hang = new Error(`bridge command did not complete after acceptance: ${command}`);
+  hang.code = "COMMAND_IN_FLIGHT_HANG";
+  hang.command = command;
+  throw hang;
 }
 
 async function main() {
@@ -806,9 +840,7 @@ async function main() {
   });
   if (!acquired.ok) throw new Error(acquired.error || "bridge ownership rejected");
 
-  const campaignDir = path.resolve(
-    process.env.STS_RANDOM_OUTPUT_DIR || path.join(root, "simulator", "target", "random-fidelity"),
-  );
+  const campaignDir = resolveRandomFidelityOutputDir();
   fs.mkdirSync(campaignDir, { recursive: true });
   const activeTrace = immutableTracePath(campaignDir, gameSeed, policySeed, traceStartedAt);
   const ledgerPath = path.join(campaignDir, "ledger.jsonl");
@@ -822,6 +854,74 @@ async function main() {
     } catch {
       // best-effort: stall traces must not remain as corpus evidence
     }
+  };
+
+  const recordSkippedRun = (kind, reason, actions) => {
+    const entry = {
+      recorded_at: new Date().toISOString(),
+      kind,
+      game_seed: gameSeed,
+      policy_seed: policySeed,
+      starting_hp: startingHp,
+      actions,
+      reason,
+      trace: null,
+    };
+    fs.appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
+    fs.appendFileSync(
+      skippedSeedsPath,
+      `${JSON.stringify({
+        recorded_at: entry.recorded_at,
+        seed_prefix: seedPrefix,
+        policy_seed: policySeed,
+        game_seed: gameSeed,
+        reason,
+      })}\n`,
+    );
+    console.log(JSON.stringify(entry));
+  };
+
+  const abandonAndSkip = async ({ kind, reason, actions, preemptInFlight = false }) => {
+    const abandoned = await controlRequest(
+      status.control,
+      {
+        type: "abandon_run",
+        owner_token: acquired.owner_token,
+        preempt_in_flight: preemptInFlight || undefined,
+        metadata: {
+          source: "random_fidelity_collector",
+          reason: kind,
+          detail: reason,
+        },
+        wait_for_state_update: true,
+        update_timeout_ms: 20000,
+      },
+      25000,
+    );
+    if (!abandoned.ok) {
+      throw new Error(abandoned.error || `failed to abandon run: ${reason}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const current = await controlRequest(status.control, { type: "state" });
+      if (!current.summary?.in_game) break;
+      if (current.summary?.ready_for_command && !current.pending_command) {
+        try {
+          await send(status.control, acquired.owner_token, current, "STATE", {
+            source: "random_fidelity_collector",
+            reason: "settle_skip_abandon",
+            operator_control: "settle_poll",
+          });
+        } catch (error) {
+          if (!isCommandInFlightHang(error)) throw error;
+          break;
+        }
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
+    discardActiveTrace();
+    recordSkippedRun(kind, reason, actions);
   };
 
   try {
@@ -1006,61 +1106,20 @@ async function main() {
       }
       const stall = observeCombatStall(combatStallTracker, summary);
       if (stall.shouldAbandon) {
-        const abandoned = await controlRequest(
-          status.control,
-          {
-            type: "abandon_run",
-            owner_token: acquired.owner_token,
-            metadata: {
-              source: "random_fidelity_collector",
-              reason: "combat_stall",
-              detail: stall.reason,
-            },
-            wait_for_state_update: true,
-            update_timeout_ms: 20000,
-          },
-          25000,
-        );
-        if (!abandoned.ok) {
-          throw new Error(abandoned.error || `failed to abandon stalled combat: ${stall.reason}`);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        for (let attempt = 0; attempt < 20; attempt += 1) {
-          protocolState = await controlRequest(status.control, { type: "state" });
-          if (!protocolState.summary?.in_game) break;
-          if (protocolState.summary?.ready_for_command) {
-            await send(status.control, acquired.owner_token, protocolState, "STATE", {
-              source: "random_fidelity_collector",
-              reason: "settle_combat_stall_abandon",
-              operator_control: "settle_poll",
-            });
-          } else {
-            await new Promise((resolve) => setTimeout(resolve, 250));
-          }
-        }
-        discardActiveTrace();
-        const entry = {
-          recorded_at: new Date().toISOString(),
+        await abandonAndSkip({
           kind: "discarded_combat_stall",
-          game_seed: gameSeed,
-          policy_seed: policySeed,
-          starting_hp: startingHp,
-          actions: actionCount,
           reason: stall.reason,
-          trace: null,
-        };
-        fs.appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
-        fs.appendFileSync(
-          skippedSeedsPath,
-          `${JSON.stringify({
-            recorded_at: entry.recorded_at,
-            seed_prefix: seedPrefix,
-            policy_seed: policySeed,
-            game_seed: gameSeed,
-            reason: stall.reason,
-          })}\n`,
-        );
-        console.log(JSON.stringify(entry));
+          actions: actionCount,
+        });
+        return;
+      }
+      if (isMatchAndKeepScreen(summary)) {
+        await abandonAndSkip({
+          kind: "discarded_match_and_keep",
+          reason:
+            "Match and Keep CHOOSE never completes: CommunicationMod accepts a card flip then never publishes a completing boundary",
+          actions: actionCount,
+        });
         return;
       }
       const command = chooseRandomAction(summary, random);
@@ -1089,13 +1148,24 @@ async function main() {
               ? "confirm_fold"
               : "confirm"
         : null;
-      await send(status.control, acquired.owner_token, protocolState, command, {
-        source: "random_fidelity_collector",
-        policy_seed: policySeed,
-        game_seed: gameSeed,
-        action_index: actionIndex,
-        action_count: enumerateGameplayActions(summary).length,
-      });
+      try {
+        await send(status.control, acquired.owner_token, protocolState, command, {
+          source: "random_fidelity_collector",
+          policy_seed: policySeed,
+          game_seed: gameSeed,
+          action_index: actionIndex,
+          action_count: enumerateGameplayActions(summary).length,
+        });
+      } catch (error) {
+        if (!isCommandInFlightHang(error)) throw error;
+        await abandonAndSkip({
+          kind: "discarded_command_hang",
+          reason: error.message,
+          actions: actionCount,
+          preemptInFlight: true,
+        });
+        return;
+      }
       pendingEventLeave = eventLeaveMode;
     }
   } finally {
@@ -1111,7 +1181,7 @@ if (require.main === module) {
     const detail = error.stack || error.message || String(error);
     console.error(detail);
     try {
-      const errorPath = path.join(root, "simulator", "target", "random-fidelity", "errors.log");
+      const errorPath = path.join(resolveRandomFidelityOutputDir(), "errors.log");
       fs.mkdirSync(path.dirname(errorPath), { recursive: true });
       fs.appendFileSync(errorPath, `[${new Date().toISOString()}] ${detail}\n`);
     } catch {}
@@ -1126,6 +1196,8 @@ module.exports = {
   currentRunRecords,
   enumerateGameplayActions,
   immutableTracePath,
+  isCommandInFlightHang,
+  isMatchAndKeepScreen,
   loadBossUnlocks,
   localBridgeTracePath,
   isSoleEventLeaveScreen,
