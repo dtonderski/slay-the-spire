@@ -1836,8 +1836,8 @@ mod tests {
     use crate::{
         apply_combat_action_on_run, apply_run_action,
         content::cards::{
-            BASH_ID, BURNING_PACT_ID, BURNING_PACT_PLUS_ID, BURN_ID, CLASH_ID, CLEAVE_ID, DAZED_ID,
-            DEFEND_R_ID, STRIKE_R_ID, WARCRY_ID, WOUND_ID,
+            BASH_ID, BURNING_PACT_ID, BURNING_PACT_PLUS_ID, BURN_ID, CLASH_ID, CLEAVE_ID,
+            DARK_EMBRACE_ID, DAZED_ID, DEFEND_R_ID, PURITY_ID, STRIKE_R_ID, WARCRY_ID, WOUND_ID,
         },
         content::shop_pool::ironclad_combat_discovery_pool,
         CombatAction,
@@ -4066,23 +4066,20 @@ mod tests {
     }
 
     #[test]
-    fn purity_confirm_draws_dark_embrace_before_dead_branch() {
+    fn purity_confirm_dead_branch_precedes_dark_embrace_draw() {
         // FIDL01373 step 1145: Purity CONFIRM with no selection exhausts Purity.
-        // Dark Embrace's DrawCardAction is addToBot before Dead Branch's
-        // MakeTempCardInHand, so the drawn card sits ahead of the generated card.
+        // AbstractPlayer.onExhaust runs relics before powers, so Dead Branch's
+        // MakeTempCardInHand is addToBot before Dark Embrace's DrawCardAction.
         let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
         {
             let combat = run.combat.as_mut().expect("combat");
             combat.player.energy = 0;
             combat.player.powers.dark_embrace = 1;
             combat.piles.hand = vec![
-                CardInstance::new(CardId::new(1), crate::content::cards::PURITY_ID),
+                CardInstance::new(CardId::new(1), PURITY_ID),
                 CardInstance::new(CardId::new(2), CLASH_ID),
             ];
-            combat.piles.draw_pile = vec![CardInstance::new(
-                CardId::new(3),
-                crate::content::cards::POMMEL_STRIKE_ID,
-            )];
+            combat.piles.draw_pile = vec![CardInstance::new(CardId::new(3), DARK_EMBRACE_ID)];
             combat.piles.discard_pile.clear();
             combat.piles.exhaust_pile.clear();
         }
@@ -4096,21 +4093,90 @@ mod tests {
         .expect("Purity opens exhaust select");
         let next = apply_exhaust_select_confirm(&opened).expect("Purity CONFIRM with no picks");
         let combat = next.combat.as_ref().expect("combat");
-        let hand: Vec<_> = combat
-            .piles
-            .hand
-            .iter()
-            .map(|card| card.content_id)
-            .collect();
+        combat.validate().expect("Purity CONFIRM piles stay unique");
+        let hand: Vec<_> = combat.piles.hand.iter().collect();
         assert_eq!(
-            hand.first().copied(),
+            hand.first().map(|card| card.content_id),
             Some(CLASH_ID),
-            "Clash remains in hand: {hand:?}"
+            "Clash remains in hand: {:?}",
+            hand.iter().map(|card| card.content_id).collect::<Vec<_>>()
+        );
+        assert!(
+            hand.get(1).is_some_and(|card| card.combat_only),
+            "Dead Branch should generate before Dark Embrace draws: {:?}",
+            hand.iter().map(|card| card.content_id).collect::<Vec<_>>()
         );
         assert_eq!(
-            hand.get(1).copied(),
-            Some(crate::content::cards::POMMEL_STRIKE_ID),
-            "Dark Embrace should draw before Dead Branch generates: {hand:?}"
+            hand.get(2).map(|card| card.content_id),
+            Some(DARK_EMBRACE_ID),
+            "Dark Embrace should draw after Dead Branch generates: {:?}",
+            hand.iter().map(|card| card.content_id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn purity_multi_select_dead_branch_keeps_unique_card_ids() {
+        // FIDL01582 step 967: three selected cards plus Purity. Full retrieval
+        // must remain a valid combat state so skipped-retrieval can still be
+        // considered when the observed frame parked the selection.
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 1;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), PURITY_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), STRIKE_R_ID),
+                CardInstance::new(CardId::new(4), STRIKE_R_ID),
+                CardInstance::new(CardId::new(5), CLASH_ID),
+            ];
+            combat.piles.draw_pile.clear();
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile.clear();
+        }
+        let opened = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Purity opens exhaust select");
+        let mut selected = opened;
+        for _ in 0..3 {
+            selected = apply_run_action(&selected, RunAction::ChooseExhaustSelect { index: 0 })
+                .expect("select a card");
+        }
+        let next =
+            apply_exhaust_select_confirm(&selected).expect("Purity CONFIRM with three picks");
+        let combat = next.combat.as_ref().expect("combat");
+        combat
+            .validate()
+            .expect("multi-select Purity plus Dead Branch must not duplicate card ids");
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .filter(|card| card.content_id == CLASH_ID && !card.combat_only)
+                .count(),
+            1,
+            "unselected Clash remains: {:?}",
+            combat
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            combat
+                .piles
+                .exhaust_pile
+                .iter()
+                .filter(|card| card.content_id == PURITY_ID)
+                .count(),
+            1
         );
     }
 }

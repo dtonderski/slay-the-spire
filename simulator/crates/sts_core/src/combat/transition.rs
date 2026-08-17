@@ -4734,7 +4734,7 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
             confirm_exhume_select(state, exhaust_select)?;
         }
         crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 => {
-            confirm_purity_select(state, exhaust_select)?;
+            dead_branch_count = confirm_purity_select(state, exhaust_select)?;
         }
         crate::combat::ExhaustSelectPurpose::BurningPactDraw2 => {
             dead_branch_count = confirm_burning_pact_select(state, exhaust_select, 2)?;
@@ -5324,10 +5324,29 @@ pub fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
     ))
 }
 
+/// Relic `onExhaust` (Dead Branch MakeTempCardInHand) is addToBot before power
+/// `onExhaust` (Dark Embrace DrawCardAction). Inlining the Dark Embrace draw
+/// first leaves the generated card behind the drawn card (FIDL01373 empty-select
+/// Purity: Pommel then Dark Embrace). Do not run these hooks through
+/// `process_internal_queue`: cloning mid-CONFIRM can leave the same instance in
+/// two piles when several cards exhaust (FIDL01582).
+fn apply_purity_card_exhausted(state: &mut CombatState, card_id: CardId) -> SimResult<usize> {
+    apply_on_exhaust_effects_inner(state, card_id, false, true, false)?;
+    let mut dead_branch_count = 0;
+    if let Some(content_id) = reserve_dead_branch_card_content(state) {
+        add_generated_card_to_pile(state, content_id, CardPile::Hand, None, false)?;
+        dead_branch_count = 1;
+    }
+    if state.player.powers.dark_embrace > 0 {
+        player_draw_cards(state, state.player.powers.dark_embrace as usize)?;
+    }
+    Ok(dead_branch_count)
+}
+
 fn confirm_purity_select(
     state: &mut CombatState,
     exhaust_select: crate::combat::ExhaustSelectState,
-) -> SimResult<()> {
+) -> SimResult<usize> {
     let source_card_id = exhaust_select
         .source_card_id
         .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
@@ -5364,16 +5383,17 @@ fn confirm_purity_select(
     for index in removal_order.into_iter().rev() {
         state.piles.hand.remove(index);
     }
+    let mut dead_branch_count = 0;
     for card in exhausted {
         state.piles.exhaust_pile.push(card);
-        apply_on_exhaust_effects(state, card.id)?;
+        dead_branch_count += apply_purity_card_exhausted(state, card.id)?;
     }
     if let Some(source_card) = exhaust_select.source_card {
         let source_destination = purity_source_destination(state);
         let source_card_id = source_card.id;
         push_card_to_pile(state, source_card, source_destination);
         if source_destination == CardPile::ExhaustPile {
-            apply_on_exhaust_effects(state, source_card_id)?;
+            dead_branch_count += apply_purity_card_exhausted(state, source_card_id)?;
         }
     } else if state
         .piles
@@ -5384,13 +5404,13 @@ fn confirm_purity_select(
         let source_destination = purity_source_destination(state);
         move_card(state, source_card_id, CardPile::Hand, source_destination)?;
         if source_destination == CardPile::ExhaustPile {
-            apply_on_exhaust_effects(state, source_card_id)?;
+            dead_branch_count += apply_purity_card_exhausted(state, source_card_id)?;
         }
     }
     if state.piles.hand.is_empty() {
         apply_unceasing_top_after_hand_emptied(state)?;
     }
-    Ok(())
+    Ok(dead_branch_count)
 }
 
 /// Purity ExhaustAction skipped-retrieval.
