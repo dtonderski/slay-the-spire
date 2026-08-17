@@ -1458,6 +1458,12 @@ fn deferred_nilrys_first_choice_candidate(
                 combat.decision = None;
             }
         }
+        // First-offer close continues callEndOfTurnActions card autoplays
+        // (Regret/Burn) while the chosen Codex card stays unpublished
+        // (FIDL01597 CHOOSE 822: Regret discards, Rampage is not inserted).
+        sts_core::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(combat).ok()?;
+        candidate.player_hp = combat.player.hp;
+        candidate.player_max_hp = combat.player.max_hp;
         if apply_end_turn_block {
             sts_core::relic::nilrys_codex_apply_paused_end_turn_block_powers(combat).ok()?;
         }
