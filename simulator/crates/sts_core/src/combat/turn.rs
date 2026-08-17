@@ -1214,6 +1214,22 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     && matches!(intent, crate::MonsterIntent::StrengthSelf { amount } if *amount != 0)
             });
             if hold_strength_self_rolls && is_buff {
+                let snapshot = state
+                    .monsters
+                    .iter()
+                    .find(|monster| monster.id == actor_id)
+                    .cloned();
+                prepare_next_intent_for_actor(state, actor_id)?;
+                prepare_next_intent_for_actor(state, actor_id)?;
+                if let Some(snapshot) = snapshot {
+                    if let Some(monster) = state
+                        .monsters
+                        .iter_mut()
+                        .find(|monster| monster.id == actor_id)
+                    {
+                        *monster = snapshot;
+                    }
+                }
                 continue;
             }
             if one_strength_self_roll_hold_others {

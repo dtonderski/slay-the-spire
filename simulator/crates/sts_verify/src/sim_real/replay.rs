@@ -1525,8 +1525,9 @@ fn deferred_nilrys_single_monster_queue_on_second_choice_candidate(
 }
 
 /// SuperFastMode can snapshot after duplicate takeTurns but before
-/// StrengthSelf RollMoveActions (FIDL01486 Byrd remains Caw while Chosen
-/// consumes both leftover rolls into Drain).
+/// StrengthSelf RollMoveActions apply (FIDL01486 Byrd remains Caw while Chosen
+/// consumes both leftover rolls into Drain). The leftover Byrd rolls still
+/// burn `monster_rng` so later Caw rolls stay on-stream.
 fn deferred_nilrys_hold_strength_self_rolls_on_second_choice_candidate(
     source: &RunState,
     decision: RunDecisionAction,
