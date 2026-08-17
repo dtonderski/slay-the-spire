@@ -1784,6 +1784,7 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
         .or_else(|| with(|c| c.nilrys_hold_attack_multiple_rolls = true))
         .or_else(|| with(|c| c.nilrys_hold_strength_self_rolls = true))
         .or_else(|| with(|c| c.nilrys_one_strength_self_roll_hold_others = true))
+        .or_else(|| with(|c| c.nilrys_book_second_stab_uses_live_count = true))
         .or_else(|| with(|c| c.nilrys_duplicate_monster_queue = false))
 }
 
