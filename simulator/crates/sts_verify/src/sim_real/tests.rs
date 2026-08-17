@@ -491,6 +491,46 @@ fn forethought_multi_select_hides_selected_cards_from_hand_projection() {
 }
 
 #[test]
+fn armaments_select_keeps_ritual_dagger_in_hand_projection() {
+    // Ritual Dagger upgrades in place (no + content id). CommunicationMod still
+    // lists it in combat_state.hand while ArmamentsAction is open (FIDL01774).
+    let mut run = RunState::combat_fixture();
+    {
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.piles.hand.push(CardInstance::new(
+            CardId::new(10_001),
+            sts_core::content::cards::RITUAL_DAGGER_ID,
+        ));
+        combat.piles.hand.push(CardInstance::new(
+            CardId::new(10_002),
+            sts_core::content::cards::DAZED_ID,
+        ));
+        combat.decision = Some(CombatDecisionState::HandSelect {
+            state: sts_core::combat::HandSelectState {
+                purpose: HandSelectPurpose::ArmamentsUpgrade,
+                source_card_id: CardId::new(999_999),
+                selected_hand_index: None,
+                selected_hand_indices: Vec::new(),
+                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_force_exhaust: false,
+            },
+            pending_actions: VecDeque::new(),
+        });
+    }
+
+    let projected = seed_start_simulated_combat_subset(&run);
+    let hand = projected["hand_ids"].as_array().expect("hand projection");
+    assert!(
+        hand.iter().any(|card| card == &json!("Ritual Dagger")),
+        "Ritual Dagger must remain visible: {hand:?}"
+    );
+    assert!(
+        !hand.iter().any(|card| card == &json!("Dazed")),
+        "statuses are not Armaments-upgradeable: {hand:?}"
+    );
+}
+
+#[test]
 fn spire_heart_sleep_uses_complete_phase_for_terminal_game_over_projection() {
     let mut run = RunState::seeded_ironclad(1, 0);
     run.current_act = 3;
