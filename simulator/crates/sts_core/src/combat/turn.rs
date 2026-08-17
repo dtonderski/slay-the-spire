@@ -491,6 +491,11 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         return Ok(next);
     }
 
+    // This EndTurn consumed Time Warp's forced end. Clearing before draw
+    // prevents start_player_turn's settle_time_warp_end_turn_if_ready from
+    // running a second full turn (FIDL01425: two queued Reverberates, one
+    // Draw Reduction hand, not a follow-up empty END).
+    next.time_warp_end_turn = false;
     start_player_turn(&mut next)?;
     Ok(next)
 }
