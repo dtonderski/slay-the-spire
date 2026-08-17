@@ -13,8 +13,11 @@
 5. Otherwise fall back to `new SwiftStrike()`.
 
 The shuffle mutates the global pool order, so later
-`returnColorlessCard` / Match-and-Keep colorless rolls must continue from the
-mutated order and consume further `shuffleRng.randomLong()` seeds.
+`returnColorlessCard` / Match-and-Keep colorless rolls **in the same act**
+must continue from the mutated order and consume further
+`shuffleRng.randomLong()` seeds. `AbstractDungeon.initializeCardPools` rebuilds
+`colorlessCardPool` from CardLibrary at every act, so the live order does not
+carry across act transitions.
 
 ## Simulator mapping
 

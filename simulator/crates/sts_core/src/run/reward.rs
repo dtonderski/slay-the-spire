@@ -1797,6 +1797,10 @@ fn enter_next_act_map(run: &mut RunState) -> SimResult<()> {
     run.current_room_override = None;
     run.normal_combat_count = 0;
     run.elite_combat_count = 0;
+    // AbstractDungeon.initializeCardPools rebuilds colorlessCardPool from
+    // CardLibrary at every act. A prior Match-and-Keep / Knowing Skull shuffle
+    // must not carry into the next act (FIDL01323 Blind vs Finesse).
+    run.colorless_card_pool.clear();
     // NOTE: Target AbstractDungeon.initializeRelicList reshuffles every act.
     // Calling reinitialize_ironclad_relic_pools_for_new_act() here is source-
     // correct but currently desyncs act-2 treasure fronts on FIDL00241 (Singing
@@ -4118,6 +4122,37 @@ mod tests {
 
         assert_eq!(run.current_act, 3);
         assert_eq!(run.potion_chance, 0);
+    }
+
+    #[test]
+    fn colorless_card_pool_resets_entering_city() {
+        use crate::content::cards::DRAMATIC_ENTRANCE_ID;
+
+        let mut run = RunState::map_fixture();
+        run.current_act = 1;
+        run.colorless_card_pool = vec![DRAMATIC_ENTRANCE_ID];
+
+        enter_next_act_map(&mut run).expect("static target encounter pools are valid");
+
+        assert_eq!(run.current_act, 2);
+        assert!(
+            run.colorless_card_pool.is_empty(),
+            "act transition rebuilds colorlessCardPool from CardLibrary"
+        );
+    }
+
+    #[test]
+    fn colorless_card_pool_resets_entering_beyond() {
+        use crate::content::cards::FINESSE_ID;
+
+        let mut run = RunState::map_fixture();
+        run.current_act = 2;
+        run.colorless_card_pool = vec![FINESSE_ID];
+
+        enter_next_act_map(&mut run).expect("static target encounter pools are valid");
+
+        assert_eq!(run.current_act, 3);
+        assert!(run.colorless_card_pool.is_empty());
     }
 
     #[test]
