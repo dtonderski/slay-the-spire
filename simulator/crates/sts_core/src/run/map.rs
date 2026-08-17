@@ -1,10 +1,8 @@
 use crate::{
-    card::CardInstance,
     combat::{
         initialize_combat_piles_with_relics, CombatRngState, CombatState, MonsterState,
         PlayerState, SlimeSize,
     },
-    content::cards::WOUND_ID,
     content::monsters::{
         advance_reptomancer_monster_hp_rng_for_entry, content_id_from_game_monster_id,
         donu_deca_boss_monsters_for_ascension, get_monster_definition, living_monster_missing_hp,
@@ -37,12 +35,10 @@ use crate::{
         SNAKE_PLANT_ID, SNECKO_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID,
         WRITHING_MASS_ID,
     },
-    ids::CardId,
     map::{
         apply_map_action, legal_map_actions, reachable_nodes, validate_map_action,
         wing_boots_reachable_nodes, MapAction, RoomKind, TargetMapAct,
     },
-    relic::MARK_OF_PAIN_WOUNDS,
     rng::{seed_for_floor, StsRng},
     MonsterPowers, Relic, RunPhase, RunState, SimError, SimResult,
 };
@@ -298,23 +294,14 @@ pub(crate) fn add_mark_of_pain_wounds_to_draw_pile(
     if !run.relics.contains(&Relic::MarkOfPain) {
         return Ok(());
     }
-    let first_id = combat.reserve_card_instance_ids(MARK_OF_PAIN_WOUNDS)?;
-    for offset in 0..MARK_OF_PAIN_WOUNDS {
-        let next_id = CardId::new(first_id + offset as u64);
-        // MakeTempCardInDrawPileAction creates combat-only status cards.
-        let wound = CardInstance {
-            combat_only: true,
-            ..CardInstance::new(next_id, WOUND_ID)
-        };
-        if combat.piles.draw_pile.is_empty() {
-            combat.piles.draw_pile.push(wound);
-        } else {
-            // CardGroup.addToRandomSpot: random(group.size() - 1) then insert.
-            let bound = (combat.piles.draw_pile.len() - 1) as i32;
-            let index = combat.rng.card_random_rng.random_int(bound) as usize;
-            combat.piles.draw_pile.insert(index, wound);
-        }
+    // Toolbox parks DrawCardAction behind ChooseOneColorless. Mark of Pain's
+    // atBattleStart MakeTempCard sits after that draw, so skip until the
+    // opening queue drains (FIDL01611). Other deferred opening draws (event
+    // fight-two) still insert here, matching pre-Toolbox combat entry.
+    if combat.pending_opening_hand_draw > 0 && combat.relics.contains(&Relic::Toolbox) {
+        return Ok(());
     }
+    crate::relic::insert_mark_of_pain_wounds(combat)?;
     run.store_rng_counter(RunRngStream::CardRandom, &combat.rng.card_random_rng);
     Ok(())
 }
@@ -1161,6 +1148,8 @@ fn apply_tiny_chest(run: &mut RunState) -> SimResult<bool> {
 mod tests {
     use super::*;
     use crate::{
+        card::CardInstance,
+        content::cards::WOUND_ID,
         content::monsters::{
             target_book_of_stabbing_next_intent_from_roll, target_bronze_orb_next_intent_from_roll,
             target_exploder_next_intent_from_roll, target_giant_head_next_intent_from_roll,
@@ -1171,6 +1160,8 @@ mod tests {
             EXPLODER_ID, GIANT_HEAD_ID, ORB_WALKER_ID, REPULSOR_ID, SENTRY_ID, SLAVER_RED_ID,
             SNECKO_ID, SPIKER_ID, SPIKE_SLIME_ID, TASKMASTER_ID,
         },
+        ids::CardId,
+        relic::MARK_OF_PAIN_WOUNDS,
         ContentId, MonsterIntent,
     };
 

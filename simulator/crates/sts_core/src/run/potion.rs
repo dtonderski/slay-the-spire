@@ -3623,6 +3623,43 @@ mod tests {
     }
 
     #[test]
+    fn toolbox_defers_mark_of_pain_wounds_until_after_choice() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Combat);
+        run.relics = vec![
+            crate::relic::Relic::MarkOfPain,
+            crate::relic::Relic::Toolbox,
+        ];
+
+        let mut combat = run
+            .init_combat(CombatState::initial_fixture())
+            .expect("combat initializes");
+        crate::run::map::add_mark_of_pain_wounds_to_draw_pile(&mut run, &mut combat)
+            .expect("deferred Mark of Pain at combat entry");
+        assert!(combat.toolbox_card_reward_choices().is_some());
+        assert!(
+            combat
+                .piles
+                .draw_pile
+                .iter()
+                .all(|card| card.content_id != crate::content::cards::WOUND_ID),
+            "Wounds must not appear on the Toolbox reward screen"
+        );
+        run.combat = Some(combat);
+
+        let next = apply_combat_card_reward_choice(&run, 0).expect("Toolbox card choice");
+        let combat = next.combat.expect("combat remains open");
+        let wound_count = combat
+            .piles
+            .draw_pile
+            .iter()
+            .filter(|card| card.content_id == crate::content::cards::WOUND_ID)
+            .count();
+        assert_eq!(wound_count, crate::relic::MARK_OF_PAIN_WOUNDS);
+    }
+
+    #[test]
     fn mercury_hourglass_damage_waits_for_opening_toolbox_choice() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Combat;

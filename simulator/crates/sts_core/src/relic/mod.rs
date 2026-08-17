@@ -1,12 +1,11 @@
 use crate::action::InternalAction;
 use crate::card::CardType;
 use crate::combat::CombatState;
-use crate::content::cards::upgrade_card_instance;
+use crate::content::cards::{upgrade_card_instance, WOUND_ID};
+use crate::ids::{CardId, ContentId};
 use crate::rng::{JavaRng, StsRng};
-use crate::{SimError, SimResult};
+use crate::{CardInstance, SimError, SimResult};
 use serde::{Deserialize, Serialize};
-
-use crate::ids::ContentId;
 
 /// Strength granted by [Relic::Vajra] at combat start.
 pub const VAJRA_STRENGTH: i32 = 1;
@@ -2703,6 +2702,10 @@ pub fn settle_pending_opening_combat_actions(state: &mut CombatState) -> SimResu
         if next.relics.contains(&Relic::WarpedTongs) {
             upgrade_random_non_status_hand_card(&mut next)?;
         }
+        // Mark of Pain atBattleStart is queued after DrawCardAction. Toolbox's
+        // ChooseOneColorless parks that draw, so the Wounds must not appear on
+        // the reward screen (FIDL01611 Strike vs Wound).
+        insert_mark_of_pain_wounds(&mut next)?;
     }
     if next.pending_opening_combat_block > 0 {
         checked_add_relic_value(&mut next.player.block, next.pending_opening_combat_block)?;
@@ -2710,6 +2713,29 @@ pub fn settle_pending_opening_combat_actions(state: &mut CombatState) -> SimResu
     next.pending_opening_hand_draw = 0;
     next.pending_opening_combat_block = 0;
     *state = next;
+    Ok(())
+}
+
+/// Shuffle two combat-only Wounds into the draw pile (`MakeTempCardInDrawPileAction`).
+pub(crate) fn insert_mark_of_pain_wounds(combat: &mut CombatState) -> SimResult<()> {
+    if !combat.relics.contains(&Relic::MarkOfPain) {
+        return Ok(());
+    }
+    let first_id = combat.reserve_card_instance_ids(MARK_OF_PAIN_WOUNDS)?;
+    for offset in 0..MARK_OF_PAIN_WOUNDS {
+        let next_id = CardId::new(first_id + offset as u64);
+        let wound = CardInstance {
+            combat_only: true,
+            ..CardInstance::new(next_id, WOUND_ID)
+        };
+        if combat.piles.draw_pile.is_empty() {
+            combat.piles.draw_pile.push(wound);
+        } else {
+            let bound = (combat.piles.draw_pile.len() - 1) as i32;
+            let index = combat.rng.card_random_rng.random_int(bound) as usize;
+            combat.piles.draw_pile.insert(index, wound);
+        }
+    }
     Ok(())
 }
 
