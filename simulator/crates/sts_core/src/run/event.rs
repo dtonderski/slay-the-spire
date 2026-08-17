@@ -3,11 +3,11 @@ use crate::{
     combat::{initialize_combat_piles_with_relics, CombatRngState, PlayerState},
     content::cards::{
         card_instance_after_upgrades, card_instance_is_upgradeable, get_card_definition,
-        is_basic_starter_card, is_curse_content_id, is_purgeable_card, upgrade_card_instance,
-        APPARITION_ID, ASCENDERS_BANE_ID, BASH_ID, BASH_PLUS_ID, BITE_ID, CURSE_OF_THE_BELL_ID,
-        DECAY_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DOUBT_ID, INJURY_ID, JAX_ID, MADNESS_ID,
-        NECRONOMICURSE_ID, NORMALITY_ID, PAIN_ID, PARASITE_ID, REGRET_ID, RITUAL_DAGGER_ID,
-        SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
+        is_basic_starter_card, is_curse_content_id, is_purgeable_card, is_purgeable_card_content,
+        upgrade_card_instance, APPARITION_ID, ASCENDERS_BANE_ID, BASH_ID, BASH_PLUS_ID, BITE_ID,
+        CURSE_OF_THE_BELL_ID, DECAY_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DOUBT_ID, INJURY_ID, JAX_ID,
+        MADNESS_ID, NECRONOMICURSE_ID, NORMALITY_ID, PAIN_ID, PARASITE_ID, REGRET_ID,
+        RITUAL_DAGGER_ID, SHAME_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, WRITHE_ID,
     },
     content::{
         monsters::{
@@ -958,7 +958,7 @@ pub(super) fn validate_event_screen_authority(
                 ));
             }
             let transform_enabled =
-                purgeable_event_card_count(run) >= usize::from(DRUG_DEALER_TRANSFORM_COUNT);
+                transformable_event_card_count(run) >= usize::from(DRUG_DEALER_TRANSFORM_COUNT);
             if screen.choices != drug_dealer_choices(screen.stage as u8, transform_enabled) {
                 return Err(SimError::InvalidState(
                     "Drug Dealer choices do not match its stage",
@@ -1938,7 +1938,7 @@ fn pending_event_transform_is_authoritative(
             || transform.sources[..index]
                 .iter()
                 .any(|previous| previous.id == source.id)
-            || !is_purgeable_card(source)
+            || !is_purgeable_card_content(source.content_id)
             || run.deck.iter().any(|card| card.id == source.id)
         {
             return false;
@@ -2171,6 +2171,13 @@ fn purgeable_event_card_count(run: &RunState) -> usize {
     run.deck
         .iter()
         .filter(|card| is_purgeable_card(card))
+        .count()
+}
+
+fn transformable_event_card_count(run: &RunState) -> usize {
+    run.deck
+        .iter()
+        .filter(|card| is_purgeable_card_content(card.content_id))
         .count()
 }
 
@@ -4160,7 +4167,7 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
             event,
             drug_dealer_choices(
                 0,
-                purgeable_event_card_count(run) >= usize::from(DRUG_DEALER_TRANSFORM_COUNT),
+                transformable_event_card_count(run) >= usize::from(DRUG_DEALER_TRANSFORM_COUNT),
             ),
             0,
         ),

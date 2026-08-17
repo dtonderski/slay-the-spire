@@ -504,7 +504,7 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             0 if choice_index == 1 => {
-                if purgeable_event_card_count(next) < usize::from(DRUG_DEALER_TRANSFORM_COUNT) {
+                if transformable_event_card_count(next) < usize::from(DRUG_DEALER_TRANSFORM_COUNT) {
                     return Err(SimError::IllegalAction("not enough transformable cards"));
                 }
                 open_event_transform_return_to_event_grid(
