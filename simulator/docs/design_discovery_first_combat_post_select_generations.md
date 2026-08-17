@@ -37,8 +37,9 @@ among the first two cards of the turn needs two pulses when the remaining
 hand is smaller than 5 or another Magnetism-generated card is still in
 hand (FIDL01787 first-combat Transmutation, remaining 4; later Discoveries
 that leave Master of Strategy / other generated cards). Remaining five with
-another Magnetism-generated card in hand burns **no** discarded generation
-(FIDL01416: next Magnetism is Jack of All Trades, not Panic Button). Remaining hand of
+another Magnetism-generated card in hand stays **one** discarded generation
+(FIDL01416: next Magnetism is Jack of All Trades; two pulses yield Panic
+Button and zero yield Metamorphosis). Remaining hand of
 5 with no other generated card is one pulse (FIDL01582: next Magnetism is
 The Bomb, not Blind). A lone early-turn retrieve from a 6+ card hand is
 one pulse (FIDL01787 Writhing Mass: next Magnetism is Flash of Steel, not
@@ -76,7 +77,7 @@ is present and `hand.len() >= 6` at retrieve, when Awakened One is the sole
 living enemy and `hand.len() >= 5`, when two or fewer remaining cards include a
 status, or when a hand-played Magnetism source is Magnetism-generated,
 `cards_played_this_turn <= 2`, and either fewer than 5 cards remain or another
-Magnetism-generated card is still in hand (except remaining hand of exactly 5
-with another Magnetism card, which burns none). Mayhem
+Magnetism-generated card is still in hand with remaining hand size other than 5.
+Remaining 5 with another Magnetism card stays one pulse. Mayhem
 PlayTop skips that Magnetism two-pulse branch. Otherwise burn one.
 Do not hydrate the Void insert index from the observed leftover pile.
