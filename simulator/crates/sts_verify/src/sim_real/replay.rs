@@ -1746,24 +1746,45 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
         return None;
     }
     let mut candidate = source.clone();
-    let combat = candidate.combat.as_mut()?;
-    if combat.nilrys_codex_end_turn_stage == 2 {
-        combat.nilrys_codex_end_turn_stage = 3;
-        combat.nilrys_duplicate_monster_queue = true;
-        combat.nilrys_end_powers_pending = true;
+    let stage_three = {
+        let combat = candidate.combat.as_mut()?;
+        if combat.nilrys_codex_end_turn_stage == 2 {
+            combat.nilrys_codex_end_turn_stage = 3;
+            combat.nilrys_duplicate_monster_queue = true;
+            combat.nilrys_end_powers_pending = true;
+        }
+        combat.nilrys_codex_end_turn_stage == 3
+    };
+    let try_finish = |source: &RunState| -> Option<RunState> {
+        let mut candidate = source.clone();
+        let combat = candidate.combat.as_mut()?;
+        let finished = sts_core::combat::end_player_turn(combat).ok()?;
+        candidate.player_hp = finished.player.hp;
+        candidate.player_max_hp = finished.player.max_hp;
+        candidate.card_random_rng_counter = finished.rng.card_random_rng.counter();
+        candidate.combat = Some(finished);
+        candidate.validate().ok()?;
+        subset_diffs(
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&candidate),
+        )
+        .is_empty()
+        .then_some(candidate)
+    };
+    if !stage_three {
+        return try_finish(&candidate);
     }
-    let finished = sts_core::combat::end_player_turn(combat).ok()?;
-    candidate.player_hp = finished.player.hp;
-    candidate.player_max_hp = finished.player.max_hp;
-    candidate.card_random_rng_counter = finished.rng.card_random_rng.counter();
-    candidate.combat = Some(finished);
-    candidate.validate().ok()?;
-    subset_diffs(
-        seed_start_combat_observed_subset(&post.message),
-        seed_start_simulated_combat_subset(&candidate),
-    )
-    .is_empty()
-    .then_some(candidate)
+    let with = |set: fn(&mut sts_core::combat::CombatState)| -> Option<RunState> {
+        let mut flagged = candidate.clone();
+        set(flagged.combat.as_mut()?);
+        try_finish(&flagged)
+    };
+    try_finish(&candidate)
+        .or_else(|| with(|c| c.nilrys_interleave_post_queue_rolls = true))
+        .or_else(|| with(|c| c.nilrys_hold_attack_multiple_rolls = true))
+        .or_else(|| with(|c| c.nilrys_hold_strength_self_rolls = true))
+        .or_else(|| with(|c| c.nilrys_one_strength_self_roll_hold_others = true))
+        .or_else(|| with(|c| c.nilrys_duplicate_monster_queue = false))
 }
 
 /// Writhing Mass queues `AddCardToDeckAction(Parasite)` after Mega Debuff.
