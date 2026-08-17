@@ -83,6 +83,10 @@ pub struct CardInstance {
     /// Cards created only for the current combat vanish after play.
     #[serde(default)]
     pub combat_only: bool,
+    /// Set only on cards Magnetism adds at turn start. Discovery retrieve
+    /// pulse count depends on this source, not on every combat-only card.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub magnetism_generated: bool,
     /// Combat-local Rampage damage growth for this specific card instance.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub rampage_damage_bonus: i32,
@@ -113,6 +117,7 @@ impl CardInstance {
             temp_cost_turn_only: false,
             free_to_play_once: false,
             combat_only: false,
+            magnetism_generated: false,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,
             ritual_dagger_damage_bonus: 0,
@@ -131,6 +136,7 @@ impl CardInstance {
             temp_cost_turn_only: false,
             free_to_play_once: false,
             combat_only: true,
+            magnetism_generated: false,
             rampage_damage_bonus: 0,
             blood_for_blood_cost_reduction: 0,
             ritual_dagger_damage_bonus: 0,
