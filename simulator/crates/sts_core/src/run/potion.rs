@@ -899,14 +899,17 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // stay one pulse (FIDL01614 Infernal Blade after Strike+Infernal Blade).
             // Another Discovery still in hand still needs two (FIDL01630 first pick). A
             // Magnetism-generated Discovery played among the first two cards
-            // of the turn leaves two pulses when the remaining hand is five or
-            // fewer, or another Magnetism-generated card is still in hand
-            // (FIDL01416 Jack vs Panic Button after remaining-5 retrieve;
-            // FIDL01787 Transmutation vs Enlightenment; later Magnetism
-            // Discoveries on the same run). Remaining hand of 5 with no
-            // Magnetism-generated source stays one pulse (FIDL01582 The Bomb,
-            // not Blind). A lone early-turn retrieve from a 6+ card hand
-            // settles in one pulse (FIDL01787 Writhing Mass Flash of Steel).
+            // of the turn leaves two pulses when the remaining hand is small
+            // or another Magnetism-generated card is still in hand (FIDL01787
+            // Transmutation vs Enlightenment; later Magnetism Discoveries on
+            // the same run). An early-turn deck Discovery while a Magnetism
+            // card remains also leaves two pulses (FIDL01416: Magnetism applied
+            // before draw, so Enlightenment is first and Discovery is from the
+            // deck; next Magnetism is Jack of All Trades, not Panic Button).
+            // Remaining hand of 5 with no other generated card stays one pulse
+            // (FIDL01582 The Bomb, not Blind). A lone early-turn retrieve
+            // from a 6+ card hand settles in one pulse (FIDL01787 Writhing Mass
+            // Flash of Steel).
             // The same source later in the turn stays one pulse (FIDL01255
             // player-played Discovery, FIDL01623). Havoc PlayTop force-exhausts
             // the source before DiscoveryAction; that path keeps pulsing through
@@ -1160,10 +1163,11 @@ fn discovery_post_select_generations(
         .hand
         .iter()
         .any(|card| card.magnetism_generated);
-    let early_magnetism_generated_source = combat.player.powers.magnetism > 0
-        && source_card.is_some_and(|card| card.magnetism_generated)
+    let early_magnetism_turn = combat.player.powers.magnetism > 0
         && combat.relic_counters.cards_played_this_turn <= 2
         && !source_card_play_top;
+    let early_magnetism_generated_source =
+        early_magnetism_turn && source_card.is_some_and(|card| card.magnetism_generated);
     let remaining_status = combat.piles.hand.iter().any(|card| {
         get_card_definition(card.content_id)
             .is_some_and(|definition| definition.card_type == CardType::Status)
@@ -1175,8 +1179,8 @@ fn discovery_post_select_generations(
             && (combat.piles.hand.len() >= 6
                 || (combat.piles.hand.len() >= 5 && living_monsters <= 1)))
         || tiny_remaining_hand_with_status
-        || (early_magnetism_generated_source
-            && (combat.piles.hand.len() <= 5 || another_magnetism_card_in_hand))
+        || (early_magnetism_turn && another_magnetism_card_in_hand)
+        || (early_magnetism_generated_source && combat.piles.hand.len() < 5)
     {
         2
     } else {
@@ -3320,17 +3324,25 @@ mod tests {
     }
 
     #[test]
-    fn discovery_retrieve_lone_early_magnetism_source_from_five_card_hand_burns_two_generations() {
-        use crate::content::cards::{DISCOVERY_ID, STRIKE_R_ID};
+    fn discovery_retrieve_early_deck_source_with_leftover_magnetism_card_burns_two_generations() {
+        use crate::content::cards::{DISCOVERY_ID, ENLIGHTENMENT_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
         combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
         combat.player.powers.magnetism = 1;
         combat.relic_counters.cards_played_this_turn = 1;
-        combat.piles.hand = (1..=5)
-            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
-            .collect();
+        combat.piles.hand = vec![
+            CardInstance {
+                combat_only: true,
+                magnetism_generated: true,
+                ..CardInstance::new(CardId::new(1), ENLIGHTENMENT_ID)
+            },
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+        ];
         let chosen_id = CardId::new(
             combat
                 .next_card_instance_id()
@@ -3341,23 +3353,19 @@ mod tests {
                 CardId::new(chosen_id.get() + 1),
                 STRIKE_R_ID,
             )],
-            source_card: Some(CardInstance {
-                combat_only: true,
-                magnetism_generated: true,
-                ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
-            }),
+            source_card: Some(CardInstance::new(CardId::new(99), DISCOVERY_ID)),
             source_card_force_exhaust: false,
             source_card_play_top: false,
             pending_actions: Default::default(),
         });
 
         let next = apply_combat_card_reward_choice(&run, 0)
-            .expect("lone early-turn Magnetism Discovery remaining-5 retrieve");
+            .expect("early-turn deck Discovery with leftover Magnetism card");
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
             22,
-            "lone early-turn Magnetism-generated Discovery from a 5-card remaining hand burns two discarded generations"
+            "early-turn deck Discovery while a Magnetism card remains burns two discarded generations"
         );
     }
 

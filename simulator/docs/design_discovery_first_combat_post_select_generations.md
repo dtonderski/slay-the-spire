@@ -36,7 +36,11 @@ two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
 among the first two cards of the turn needs two pulses when the remaining
 hand is smaller than 5 or another Magnetism-generated card is still in
 hand (FIDL01787 first-combat Transmutation, remaining 4; later Discoveries
-that leave Master of Strategy / other generated cards). Remaining hand of
+that leave Master of Strategy / other generated cards). An early-turn
+**deck** Discovery while a Magnetism-generated card remains also needs two
+pulses: Magnetism `atStartOfTurn` runs before draw, so the generated card
+is first in hand (FIDL01416 Enlightenment then Discovery from the deck;
+next Magnetism is Jack of All Trades, not Panic Button). Remaining hand of
 5 with no other generated card is one pulse (FIDL01582: next Magnetism is
 The Bomb, not Blind). A lone early-turn retrieve from a 6+ card hand is
 one pulse (FIDL01787 Writhing Mass: next Magnetism is Flash of Steel, not
@@ -74,6 +78,7 @@ is present and `hand.len() >= 6` at retrieve, when Awakened One is the sole
 living enemy and `hand.len() >= 5`, when two or fewer remaining cards include a
 status, or when a hand-played Magnetism source is Magnetism-generated,
 `cards_played_this_turn <= 2`, and either fewer than 5 cards remain or another
-Magnetism-generated card is still in hand. Mayhem
+Magnetism-generated card is still in hand, or when an early-turn hand-played
+Discovery leaves another Magnetism-generated card in hand. Mayhem
 PlayTop skips that Magnetism two-pulse branch. Otherwise burn one.
 Do not hydrate the Void insert index from the observed leftover pile.
