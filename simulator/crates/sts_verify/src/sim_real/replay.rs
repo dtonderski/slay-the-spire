@@ -2143,53 +2143,6 @@ fn deferred_leftover_rejected_play_candidate(
         .then_some(discarded)
 }
 
-/// SuperFastMode can publish a new hand while the collector's PLAY index still
-/// names a card from that hand's CommunicationMod ordering rather than the
-/// bound 1-based index (FIDL01727 PLAY 1191: Ghostly Armor, not Offering).
-fn deferred_alternate_play_card_candidate(
-    source: &RunState,
-    decision: RunDecisionAction,
-    default_next: &RunState,
-    post: &TraceState,
-) -> Option<RunState> {
-    let bound = match decision {
-        RunDecisionAction::Combat(action @ CombatAction::PlayCard { .. }) => action,
-        _ => return None,
-    };
-    let observed = seed_start_combat_observed_subset(&post.message);
-    if subset_diffs(
-        observed.clone(),
-        seed_start_simulated_combat_subset(default_next),
-    )
-    .is_empty()
-    {
-        return None;
-    }
-    let combat = source.combat.as_ref()?;
-    let mut matched = None;
-    for action in sts_core::combat::legal_combat_actions(combat).ok()? {
-        if !matches!(action, CombatAction::PlayCard { .. }) || action == bound {
-            continue;
-        }
-        let applied = apply_run_decision_action(source, RunDecisionAction::Combat(action)).ok()?;
-        if !applied.pending_external_rng.is_empty() || applied.validate().is_err() {
-            continue;
-        }
-        if subset_diffs(
-            observed.clone(),
-            seed_start_simulated_combat_subset(&applied),
-        )
-        .is_empty()
-        {
-            if matched.is_some() {
-                return None;
-            }
-            matched = Some(applied);
-        }
-    }
-    matched
-}
-
 /// Bind the unused command after a leftover play using the post-leftover hand.
 /// Pre-leftover PLAY 2 on [Dropkick, Heavy Blade+, True Grit] is Heavy Blade+;
 /// after leftover Dropkick it is True Grit (FIDL01617).
@@ -3599,11 +3552,6 @@ pub(super) fn verify_seed_start_transition(
                             .or_else(|| {
                                 deferred_nilrys_leftover_end_instead_of_play_candidate(
                                     &source, decision, post,
-                                )
-                            })
-                            .or_else(|| {
-                                deferred_alternate_play_card_candidate(
-                                    &source, decision, &next, post,
                                 )
                             })
                             .or_else(|| {
