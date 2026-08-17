@@ -228,19 +228,33 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
                 .copied()
                 .collect::<Vec<_>>(),
         ),
-        // Target transform screens use `CardGroup.getPurgeableCards` only.
-        // Remove screens additionally call `getGroupWithoutBottledCards`;
-        // transform does not, so bottled cards stay selectable (FIDL01718
-        // Drug Dealer grid includes bottled Bash).
-        GridPurpose::EventTransform { .. } | GridPurpose::EventTransformReturnToEvent { .. } => {
-            Some(
-                run.deck
-                    .iter()
-                    .filter(|card| is_purgeable_card_content(card.content_id))
-                    .copied()
-                    .collect::<Vec<_>>(),
-            )
-        }
+        GridPurpose::EventTransform { .. } => Some(
+            run.deck
+                .iter()
+                .filter(|card| is_purgeable_card(card))
+                .copied()
+                .collect::<Vec<_>>(),
+        ),
+        // Drug Dealer's transform grid is `masterDeck.getPurgeableCards()` with
+        // no bottled filter (FIDL01718 includes bottled Bash). Living Wall and
+        // Transmogrifier wrap that group in `getGroupWithoutBottledCards`.
+        GridPurpose::EventTransformReturnToEvent {
+            event: Event::DrugDealer,
+            ..
+        } => Some(
+            run.deck
+                .iter()
+                .filter(|card| is_purgeable_card_content(card.content_id))
+                .copied()
+                .collect::<Vec<_>>(),
+        ),
+        GridPurpose::EventTransformReturnToEvent { .. } => Some(
+            run.deck
+                .iter()
+                .filter(|card| is_purgeable_card(card))
+                .copied()
+                .collect::<Vec<_>>(),
+        ),
         // BonfireElementals uses the same purgeable-card authority as the
         // event's card-removal grid; soulbound curses such as Necronomicurse
         // are not selectable even though ordinary curses are.
@@ -618,7 +632,7 @@ pub fn open_event_transform_grid(run: &mut RunState, count: u8) {
     let cards = run
         .deck
         .iter()
-        .filter(|card| is_purgeable_card_content(card.content_id))
+        .filter(|card| is_purgeable_card(card))
         .copied()
         .collect::<Vec<_>>();
     if cards.is_empty() || count == 0 {
@@ -637,7 +651,10 @@ pub fn open_event_transform_return_to_event_grid(run: &mut RunState, event: Even
     let cards = run
         .deck
         .iter()
-        .filter(|card| is_purgeable_card_content(card.content_id))
+        .filter(|card| match event {
+            Event::DrugDealer => is_purgeable_card_content(card.content_id),
+            _ => is_purgeable_card(card),
+        })
         .copied()
         .collect::<Vec<_>>();
     if cards.is_empty() || count == 0 {
@@ -2017,6 +2034,28 @@ mod tests {
         opened
             .validate()
             .expect("bottled transform grid is authoritative");
+    }
+
+    #[test]
+    fn living_wall_transform_grid_excludes_bottled_cards() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.deck[0].bottled = true;
+        let bottled = run.deck[0];
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            Event::LivingWall,
+        ));
+        let opened = crate::run::event::apply_event_action(
+            &run,
+            crate::EventAction::Choose { choice_index: 1 },
+        )
+        .expect("Living Wall change opens its transform grid");
+        let grid = opened.card_grid.as_ref().expect("transform grid");
+        assert!(!grid.cards.contains(&bottled));
+        opened
+            .validate()
+            .expect("Living Wall transform grid is authoritative");
     }
 
     #[test]
