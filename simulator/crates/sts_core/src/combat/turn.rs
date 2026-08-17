@@ -1186,6 +1186,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 state.nilrys_book_second_stab_uses_live_count = false;
                 state.nilrys_hold_strength_self_rolls = false;
                 state.nilrys_one_strength_self_roll_hold_others = false;
+                state.nilrys_interleave_post_queue_rolls = false;
                 let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
                 return Ok(());
             }
@@ -1198,6 +1199,8 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
     state.nilrys_hold_strength_self_rolls = false;
     let one_strength_self_roll_hold_others = state.nilrys_one_strength_self_roll_hold_others;
     state.nilrys_one_strength_self_roll_hold_others = false;
+    let interleave_post_queue_rolls = state.nilrys_interleave_post_queue_rolls;
+    state.nilrys_interleave_post_queue_rolls = false;
     if nilrys_duplicate_monster_queue {
         // Both MonsterQueueItems ran with the captured intent. Their
         // RollMoveActions then run in order and each advances lastMove.
@@ -1208,38 +1211,46 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             .filter(|monster| monster.alive)
             .map(|monster| monster.id)
             .collect::<Vec<_>>();
-        for actor_id in actors {
-            let is_buff = queued_intents.iter().any(|(queued_id, intent)| {
-                *queued_id == actor_id
-                    && matches!(intent, crate::MonsterIntent::StrengthSelf { amount } if *amount != 0)
-            });
-            if hold_strength_self_rolls && is_buff {
-                let snapshot = state
-                    .monsters
-                    .iter()
-                    .find(|monster| monster.id == actor_id)
-                    .cloned();
-                prepare_next_intent_for_actor(state, actor_id)?;
-                prepare_next_intent_for_actor(state, actor_id)?;
-                if let Some(snapshot) = snapshot {
-                    if let Some(monster) = state
-                        .monsters
-                        .iter_mut()
-                        .find(|monster| monster.id == actor_id)
-                    {
-                        *monster = snapshot;
-                    }
-                }
-                continue;
-            }
-            if one_strength_self_roll_hold_others {
-                if is_buff {
+        if interleave_post_queue_rolls {
+            for _ in 0..2 {
+                for actor_id in actors.iter().copied() {
                     prepare_next_intent_for_actor(state, actor_id)?;
                 }
-                continue;
             }
-            prepare_next_intent_for_actor(state, actor_id)?;
-            prepare_next_intent_for_actor(state, actor_id)?;
+        } else {
+            for actor_id in actors {
+                let is_buff = queued_intents.iter().any(|(queued_id, intent)| {
+                    *queued_id == actor_id
+                        && matches!(intent, crate::MonsterIntent::StrengthSelf { amount } if *amount != 0)
+                });
+                if hold_strength_self_rolls && is_buff {
+                    let snapshot = state
+                        .monsters
+                        .iter()
+                        .find(|monster| monster.id == actor_id)
+                        .cloned();
+                    prepare_next_intent_for_actor(state, actor_id)?;
+                    prepare_next_intent_for_actor(state, actor_id)?;
+                    if let Some(snapshot) = snapshot {
+                        if let Some(monster) = state
+                            .monsters
+                            .iter_mut()
+                            .find(|monster| monster.id == actor_id)
+                        {
+                            *monster = snapshot;
+                        }
+                    }
+                    continue;
+                }
+                if one_strength_self_roll_hold_others {
+                    if is_buff {
+                        prepare_next_intent_for_actor(state, actor_id)?;
+                    }
+                    continue;
+                }
+                prepare_next_intent_for_actor(state, actor_id)?;
+                prepare_next_intent_for_actor(state, actor_id)?;
+            }
         }
     }
 
