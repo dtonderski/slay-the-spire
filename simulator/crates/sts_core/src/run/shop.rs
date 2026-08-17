@@ -220,21 +220,24 @@ fn apply_relic_discounts_to_price(mut price: i32, run: &RunState) -> i32 {
 }
 
 fn set_restocked_card_price(offer: &mut ShopCardSlot, run: &RunState, merchant_rng: &mut StsRng) {
+    // ShopScreen.purchaseCard keeps the 0.9–1.1 jitter as a float, then
+    // multiplies Courier 0.8 / Membership 0.5, then one `(int)` cast.
+    // Truncating after jitter and again after 0.8 undercharges when
+    // `base * jitter` is in `[n+0.5, n+1)` (FIDL01407 Searing Blow 62 vs 61)
+    // while leaving values like Rupture's 61 unchanged (FIDL01407 step 1716).
     let mut price = if shop_card_is_colorless(offer.card.content_id) {
-        shop_colorless_card_price_for_rarity(
-            shop_card_price_rarity(offer.card.content_id),
-            merchant_rng,
-        )
+        card_price_float_for_rarity(shop_card_price_rarity(offer.card.content_id), merchant_rng)
+            * 1.2
     } else {
-        card_price_for_rarity(shop_card_price_rarity(offer.card.content_id), merchant_rng)
+        card_price_float_for_rarity(shop_card_price_rarity(offer.card.content_id), merchant_rng)
     };
     if has_the_courier(run) {
-        price = (price as f32 * 0.8) as i32;
+        price *= 0.8;
     }
     if has_membership_card(run) {
-        price = (price as f32 * 0.5) as i32;
+        price *= 0.5;
     }
-    offer.price = price;
+    offer.price = price as i32;
 }
 
 fn owns_relic_key(run: &RunState, key: RelicKey) -> bool {
@@ -802,6 +805,17 @@ pub fn shop_action_for_choice_index(run: &RunState, choice_index: usize) -> SimR
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn courier_restock_casts_combined_jitter_and_discount_once() {
+        // Double truncation: (int)(77.6) then (int)(77*0.8) = 61.
+        // One cast of the product: (int)(77.6*0.8) = 62. Rupture-like 77.4
+        // stays 61 either way, so a global 4/5 round is not this rule.
+        assert_eq!((77.6_f32 as i32 as f32 * 0.8) as i32, 61);
+        assert_eq!((77.6_f32 * 0.8) as i32, 62);
+        assert_eq!((77.4_f32 as i32 as f32 * 0.8) as i32, 61);
+        assert_eq!((77.4_f32 * 0.8) as i32, 61);
+    }
 
     #[test]
     fn shop_remove_prices_are_checked_without_changing_valid_discounts() {
