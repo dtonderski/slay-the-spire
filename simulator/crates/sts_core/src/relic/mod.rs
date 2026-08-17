@@ -942,12 +942,19 @@ impl RelicPoolState {
     ) -> RelicKey {
         loop {
             let relic = self.return_random_relic(tier, context);
+            // Target `AbstractDungeon.returnRandomScreenlessRelic` also rejects
+            // Girya / Peace Pipe / Shovel so a screenless grant cannot fill the
+            // two-campfire-relic cap. Black Star's extra elite relic uses this
+            // helper, so those three never appear as the bonus drop.
             if !matches!(
                 relic,
                 RelicKey::BottledFlame
                     | RelicKey::BottledLightning
                     | RelicKey::BottledTornado
                     | RelicKey::Whetstone
+                    | RelicKey::Girya
+                    | RelicKey::PeacePipe
+                    | RelicKey::Shovel
             ) {
                 return relic;
             }
@@ -3141,6 +3148,27 @@ mod tests {
             RelicKey::BottledFlame
         );
         assert!(pools.uncommon.is_empty());
+    }
+
+    #[test]
+    fn screenless_relic_skips_girya_and_takes_next_front_rare() {
+        let context = RelicSpawnContext {
+            floor_num: 29,
+            ..RelicSpawnContext::default()
+        };
+        assert!(relic_can_spawn(RelicKey::Girya, &context));
+        let mut pools = RelicPoolState {
+            common: Vec::new(),
+            uncommon: Vec::new(),
+            rare: vec![RelicKey::Girya, RelicKey::Pocketwatch, RelicKey::StoneCalendar],
+            shop: Vec::new(),
+            boss: Vec::new(),
+        };
+        assert_eq!(
+            pools.return_random_screenless_relic(RelicTier::Rare, &context),
+            RelicKey::Pocketwatch
+        );
+        assert_eq!(pools.rare, vec![RelicKey::StoneCalendar]);
     }
 
     #[test]
