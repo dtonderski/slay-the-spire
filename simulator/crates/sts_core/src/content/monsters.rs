@@ -10771,6 +10771,18 @@ mod tests {
             assert!(!card_matches_stasis_rarity(id, CardRarity::Common));
         }
         assert!(card_matches_stasis_rarity(WOUND_ID, CardRarity::Common));
+        for id in [
+            crate::content::cards::STRIKE_R_ID,
+            crate::content::cards::STRIKE_R_PLUS_ID,
+            crate::content::cards::DEFEND_R_ID,
+            crate::content::cards::DEFEND_R_PLUS_ID,
+            crate::content::cards::BASH_ID,
+            crate::content::cards::BASH_PLUS_ID,
+        ] {
+            assert!(!card_matches_stasis_rarity(id, CardRarity::Rare));
+            assert!(!card_matches_stasis_rarity(id, CardRarity::Uncommon));
+            assert!(!card_matches_stasis_rarity(id, CardRarity::Common));
+        }
 
         let mut pile = vec![
             CardInstance::new(CardId::new(1), APPARITION_ID),
@@ -10782,6 +10794,28 @@ mod tests {
             .expect("the rare Stasis pool contains Barricade and Berserk");
 
         assert_eq!(selected.content_id, BARRICADE_ID);
+    }
+
+    #[test]
+    fn stasis_common_bucket_skips_basic_strikes_and_defends() {
+        use crate::content::cards::{BODY_SLAM_ID, CLEAVE_ID, DEFEND_R_ID, FLEX_ID, STRIKE_R_ID};
+
+        let mut pile = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), CLEAVE_ID),
+            CardInstance::new(CardId::new(4), BODY_SLAM_ID),
+            CardInstance::new(CardId::new(5), FLEX_ID),
+        ];
+        let mut rng = StsRng::new(3);
+        let selected = take_random_card_by_stasis_priority(&mut pile, &mut rng)
+            .expect("common Stasis pool is non-empty");
+
+        assert_eq!(selected.content_id, BODY_SLAM_ID);
+        assert!(pile.iter().any(|card| card.content_id == STRIKE_R_ID));
+        assert!(pile.iter().any(|card| card.content_id == DEFEND_R_ID));
+        assert!(pile.iter().any(|card| card.content_id == CLEAVE_ID));
+        assert!(pile.iter().any(|card| card.content_id == FLEX_ID));
     }
 
     #[test]

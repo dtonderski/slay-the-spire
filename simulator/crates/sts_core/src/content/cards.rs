@@ -5576,8 +5576,13 @@ pub fn card_type_and_rarity(id: ContentId) -> Option<(CardType, CardRarity)> {
 ///
 /// `CardDefinition::rarity` deliberately models reward rarity, which does not
 /// represent status cards or colorless event cards with `SPECIAL` rarity.
+/// Starter Strike/Defend/Bash are `BASIC` in the target, not `COMMON`, so they
+/// are skipped until Stasis falls through to a uniform pile roll.
 #[must_use]
 pub(crate) fn card_matches_stasis_rarity(id: ContentId, rarity: CardRarity) -> bool {
+    if is_basic_starter_card(id) {
+        return false;
+    }
     match id {
         WOUND_ID | DAZED_ID | BURN_ID | SLIMED_ID | VOID_ID => rarity == CardRarity::Common,
         BITE_ID | BITE_PLUS_ID | RITUAL_DAGGER_ID | APPARITION_ID | APPARITION_PLUS_ID | JAX_ID
