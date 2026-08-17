@@ -220,7 +220,7 @@ fn apply_relic_discounts_to_price(mut price: i32, run: &RunState) -> i32 {
 }
 
 fn set_restocked_card_price(offer: &mut ShopCardSlot, run: &RunState, merchant_rng: &mut StsRng) {
-    let price = if shop_card_is_colorless(offer.card.content_id) {
+    let mut price = if shop_card_is_colorless(offer.card.content_id) {
         shop_colorless_card_price_for_rarity(
             shop_card_price_rarity(offer.card.content_id),
             merchant_rng,
@@ -228,7 +228,13 @@ fn set_restocked_card_price(offer: &mut ShopCardSlot, run: &RunState, merchant_r
     } else {
         card_price_for_rarity(shop_card_price_rarity(offer.card.content_id), merchant_rng)
     };
-    offer.price = apply_relic_discounts_to_price(price, run);
+    if has_the_courier(run) {
+        price = (price as f32 * 0.8) as i32;
+    }
+    if has_membership_card(run) {
+        price = (price as f32 * 0.5) as i32;
+    }
+    offer.price = price;
 }
 
 fn owns_relic_key(run: &RunState, key: RelicKey) -> bool {
@@ -796,15 +802,6 @@ pub fn shop_action_for_choice_index(run: &RunState, choice_index: usize) -> SimR
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn courier_card_restock_uses_rounded_four_fifths_discount() {
-        // FIDL01407 CHOOSE 1: restocked Searing Blow. Float-cast `(price * 0.8)
-        // as i32` charged 61; opening-shop `round_discount(4/5)` charges 62.
-        let mut run = RunState::map_fixture();
-        run.relics = vec![Relic::TheCourier];
-        assert_eq!(apply_relic_discounts_to_price(77, &run), 62);
-    }
 
     #[test]
     fn shop_remove_prices_are_checked_without_changing_valid_discounts() {

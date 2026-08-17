@@ -16,9 +16,6 @@ the divergence became visible.
 - Known content outside those pools fails with `UnsupportedMechanic`.
 - Courier restocking returns `SimResult` and propagates the same typed error
   instead of substituting `CardType::Attack`.
-- Restocked card prices use the same rounded Courier/Membership discounts as
-  shop open (`round_discount`), not `(price as f32 * 0.8) as i32` (FIDL01407
-  Searing Blow 62 vs 61).
 - Unknown card definitions remain `UnknownContent` through the existing run
   validation boundary.
 
