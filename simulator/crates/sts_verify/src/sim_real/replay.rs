@@ -2209,6 +2209,7 @@ fn leftover_end_state_publication_candidate(
     }
     let mut finished = source.clone();
     let combat = finished.combat.as_mut()?;
+    let skip_post_queue_rolls = combat.nilrys_skip_post_queue_rolls;
     sts_core::combat::settle_leftover_end_turn_monster_and_draw(combat).ok()?;
     finished.player_hp = combat.player.hp;
     finished.player_max_hp = combat.player.max_hp;
@@ -2220,6 +2221,25 @@ fn leftover_end_state_publication_candidate(
     .is_empty()
     {
         return Some(finished);
+    }
+    if !skip_post_queue_rolls {
+        let mut skipped = source.clone();
+        if let Some(combat) = skipped.combat.as_mut() {
+            combat.nilrys_skip_post_queue_rolls = true;
+            if sts_core::combat::settle_leftover_end_turn_monster_and_draw(combat).is_ok() {
+                skipped.player_hp = combat.player.hp;
+                skipped.player_max_hp = combat.player.max_hp;
+                if skipped.validate().is_ok()
+                    && subset_diffs(
+                        observed.clone(),
+                        seed_start_simulated_combat_subset(&skipped),
+                    )
+                    .is_empty()
+                {
+                    return Some(skipped);
+                }
+            }
+        }
     }
     leftover_end_state_mid_draw_from_finished(finished, observed)
 }
