@@ -276,8 +276,7 @@ fn queue_eager_card_reward_choices(run: &mut RunState, count: u8) -> SimResult<(
 }
 
 /// Event paths that grant a relic without opening the combat reward screen use
-/// `AbstractDungeon.returnRandomScreenlessRelic` (skip bottled relics, Whetstone,
-/// and the three rest-site relics).
+/// `AbstractDungeon.returnRandomScreenlessRelic` (skip bottled relics / Whetstone).
 pub fn roll_event_relic_reward(run: &mut RunState, act: i32) -> RelicKey {
     run.ensure_ironclad_relic_pools();
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
@@ -1080,15 +1079,20 @@ pub(crate) fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey
 }
 
 fn roll_bonus_relic_offer(run: &mut RunState) -> Relic {
-    // Black Star's extra elite drop is a second elite relic, then
-    // `returnRandomScreenlessRelic`: it uses `target_elite_relic_tier` and skips
-    // Girya / Peace Pipe / Shovel (and bottles / Whetstone). The ordinary elite
-    // relic still uses `returnRandomRelic`, so those rest-site relics remain
-    // valid as the first elite drop.
+    // Black Star adds a second elite relic via `returnRandomRelic`, but the
+    // extra drop rejects Girya / Peace Pipe / Shovel so it cannot fill the
+    // two-campfire-relic cap. Bottles and Whetstone stay legal (they appear on
+    // the combat reward screen). Rejected rest-site relics are consumed from
+    // the pool, then the same tier is drawn from the front again.
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_elite_relic_tier(&mut relic_rng);
     run.store_rng_counter(RunRngStream::Relic, &relic_rng);
-    roll_screenless_relic_reward(run, tier)
+    loop {
+        let relic = roll_relic_reward(run, tier);
+        if !matches!(relic, Relic::Girya | Relic::PeacePipe | Relic::Shovel) {
+            return relic;
+        }
+    }
 }
 
 fn roll_matryoshka_bonus_relic_offer(run: &mut RunState) -> Relic {
@@ -2943,8 +2947,8 @@ mod tests {
     #[test]
     fn black_star_bonus_skips_girya_for_next_rare_in_pool() {
         // Ordinary elite relic uses returnRandomRelic (Girya is legal). Black
-        // Star's extra drop uses returnRandomScreenlessRelic and skips Girya,
-        // so the next rare in the pool (Pocketwatch) is offered instead.
+        // Star's extra drop retries the same tier after consuming Girya /
+        // Peace Pipe / Shovel, so the next rare in the pool is offered.
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 2;
         run.current_floor = 29;
