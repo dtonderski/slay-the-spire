@@ -2425,9 +2425,7 @@ fn prepare_next_intent_for_actor(state: &mut CombatState, actor_id: MonsterId) -
     // Two leftover EndTurns each queue a MonsterQueueItem, then two
     // RollMoveActions. takeTurn must not consume those rolls (FIDL01597:
     // Gremlin Wizard stays on CHARGE / UNKNOWN after the pair).
-    // SuperFastMode can also publish the next player turn before those
-    // leftover RollMoveActions (FIDL01727 CHOOSE 1059 / STATE 1106).
-    if state.nilrys_duplicate_monster_queue || state.nilrys_skip_post_queue_rolls {
+    if state.nilrys_duplicate_monster_queue {
         return Ok(());
     }
     prepare_next_intents_for_ids(state, Some(&[actor_id]))
