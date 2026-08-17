@@ -1683,6 +1683,45 @@ fn deferred_nilrys_interleave_post_queue_rolls_on_second_choice_candidate(
     .then_some(next)
 }
 
+/// SuperFastMode can keep Peck displayed while Chosen consumes the leftover
+/// `monster_rng` draws (FIDL01486 SKIP 491: Drain, not Swoop / Debilitate).
+fn deferred_nilrys_hold_attack_multiple_rolls_on_second_choice_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    match decision {
+        RunDecisionAction::Run(
+            RunAction::ChooseCombatCardReward { .. } | RunAction::SkipCombatCardReward,
+        ) => {}
+        _ => return None,
+    }
+    let combat = source.combat.as_ref()?;
+    if combat.nilrys_codex_end_turn_stage != 3 || !combat.nilrys_duplicate_monster_queue {
+        return None;
+    }
+    let holds_multi = combat.monsters.iter().any(|monster| {
+        monster.alive
+            && matches!(
+                monster.intent,
+                sts_core::MonsterIntent::AttackMultiple { .. }
+            )
+    });
+    if !holds_multi {
+        return None;
+    }
+    let mut candidate = source.clone();
+    candidate.combat.as_mut()?.nilrys_hold_attack_multiple_rolls = true;
+    let next = apply_run_decision_action(&candidate, decision).ok()?;
+    next.validate().ok()?;
+    subset_diffs(
+        seed_start_combat_observed_subset(&post.message),
+        seed_start_simulated_combat_subset(&next),
+    )
+    .is_empty()
+    .then_some(next)
+}
+
 /// First-offer SKIP leaves EndTurn queued. SuperFastMode can discard that
 /// hand (swallowing the next PLAY) and publish the next turn in one frame
 /// (FIDL01772 step 614). Ordinary apply would spend the leftover hand.
@@ -3117,6 +3156,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_interleave_post_queue_rolls_on_second_choice_candidate(
+                                    &source, decision, post,
+                                )
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_hold_attack_multiple_rolls_on_second_choice_candidate(
                                     &source, decision, post,
                                 )
                             })

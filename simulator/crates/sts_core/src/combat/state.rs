@@ -266,6 +266,11 @@ pub struct CombatState {
     /// both Byrd rolls first (FIDL01486 CHOOSE 478: Caw then Debilitate).
     #[serde(default, skip_serializing_if = "is_false")]
     pub nilrys_interleave_post_queue_rolls: bool,
+    /// SuperFastMode can publish Peck without applying leftover Byrd
+    /// RollMoveActions, so Chosen consumes those `monster_rng` draws
+    /// (FIDL01486 SKIP 491: Peck stays, Chosen rolls Drain).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_hold_attack_multiple_rolls: bool,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -1174,6 +1179,7 @@ impl CombatState {
             nilrys_hold_strength_self_rolls: false,
             nilrys_one_strength_self_roll_hold_others: false,
             nilrys_interleave_post_queue_rolls: false,
+            nilrys_hold_attack_multiple_rolls: false,
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,

@@ -1187,6 +1187,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 state.nilrys_hold_strength_self_rolls = false;
                 state.nilrys_one_strength_self_roll_hold_others = false;
                 state.nilrys_interleave_post_queue_rolls = false;
+                state.nilrys_hold_attack_multiple_rolls = false;
                 let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
                 return Ok(());
             }
@@ -1201,6 +1202,8 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
     state.nilrys_one_strength_self_roll_hold_others = false;
     let interleave_post_queue_rolls = state.nilrys_interleave_post_queue_rolls;
     state.nilrys_interleave_post_queue_rolls = false;
+    let hold_attack_multiple_rolls = state.nilrys_hold_attack_multiple_rolls;
+    state.nilrys_hold_attack_multiple_rolls = false;
     if nilrys_duplicate_monster_queue {
         // Both MonsterQueueItems ran with the captured intent. Their
         // RollMoveActions then run in order and each advances lastMove.
@@ -1246,6 +1249,13 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                     if is_buff {
                         prepare_next_intent_for_actor(state, actor_id)?;
                     }
+                    continue;
+                }
+                let is_multi = queued_intents.iter().any(|(queued_id, intent)| {
+                    *queued_id == actor_id
+                        && matches!(intent, crate::MonsterIntent::AttackMultiple { .. })
+                });
+                if hold_attack_multiple_rolls && is_multi {
                     continue;
                 }
                 prepare_next_intent_for_actor(state, actor_id)?;
