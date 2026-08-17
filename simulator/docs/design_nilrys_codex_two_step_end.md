@@ -88,7 +88,9 @@ duplicate inside each actor would land both hits before Encourage.
 The leftover first `EndTurnAction` can also run `MonsterStartTurnAction`
 `loseBlock` while the second Codex offer is still open (FIDL01597 step
 460: Rally block gone, takeTurn has not run). Stage-2 END therefore
-clears living monster block without executing the queue.
+clears living monster block without executing the queue. SuperFastMode
+may also publish only one `MonsterQueueItem` on the stage-3 close
+(FIDL01486: Byrd Grow and Chosen Hex, player HP unchanged).
 
 Closing the first Codex offer continues `callEndOfTurnActions` card
 autoplays (Regret/Burn) without Combust or the bulk hand discard

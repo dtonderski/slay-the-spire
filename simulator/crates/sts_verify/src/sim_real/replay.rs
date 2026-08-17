@@ -1476,6 +1476,36 @@ fn deferred_nilrys_book_live_second_stab_candidate(
     .then_some(next)
 }
 
+/// Two leftover EndTurn actions usually duplicate MonsterQueueItem
+/// (FIDL01727). SuperFastMode can still publish a single takeTurn + rollMove
+/// (FIDL01486 Byrd Grow / Chosen Hex, no extra player HP loss).
+fn deferred_nilrys_single_monster_queue_on_second_choice_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    match decision {
+        RunDecisionAction::Run(
+            RunAction::ChooseCombatCardReward { .. } | RunAction::SkipCombatCardReward,
+        ) => {}
+        _ => return None,
+    }
+    let combat = source.combat.as_ref()?;
+    if combat.nilrys_codex_end_turn_stage != 3 || !combat.nilrys_duplicate_monster_queue {
+        return None;
+    }
+    let mut candidate = source.clone();
+    candidate.combat.as_mut()?.nilrys_duplicate_monster_queue = false;
+    let next = apply_run_decision_action(&candidate, decision).ok()?;
+    next.validate().ok()?;
+    subset_diffs(
+        seed_start_combat_observed_subset(&post.message),
+        seed_start_simulated_combat_subset(&next),
+    )
+    .is_empty()
+    .then_some(next)
+}
+
 /// First-offer SKIP leaves EndTurn queued. SuperFastMode can discard that
 /// hand (swallowing the next PLAY) and publish the next turn in one frame
 /// (FIDL01772 step 614). Ordinary apply would spend the leftover hand.
@@ -2892,6 +2922,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_first_choice_candidate(&source, decision, post)
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_single_monster_queue_on_second_choice_candidate(
+                                    &source, decision, post,
+                                )
                             })
                             .or_else(|| {
                                 deferred_nilrys_book_live_second_stab_candidate(
