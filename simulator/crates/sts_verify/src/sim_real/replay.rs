@@ -214,7 +214,10 @@ fn apply_headbutt_draw_alias(
 ) -> Option<RunState> {
     let mut candidate = apply_run_decision_action(source, decision).ok()?;
     let combat = candidate.combat.as_mut()?;
-    let verifier_id = alias.id.get().checked_add(4_000_000_000_000_000_000)?;
+    let verifier_id = alias
+        .id
+        .get()
+        .checked_add(sts_core::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET)?;
     let mut aliased = alias;
     aliased.id = sts_core::CardId::new(verifier_id);
     if combat_only {

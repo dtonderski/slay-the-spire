@@ -5679,22 +5679,41 @@ pub fn confirm_gambling_chip_select_skipped_retrieval(state: &mut CombatState) -
     Ok(())
 }
 
+fn evaporate_headbutt_alias_hand_siblings(state: &mut CombatState, card: &CardInstance) {
+    let Some(sibling_id) = crate::ids::headbutt_alias_sibling_id(card.id) else {
+        return;
+    };
+    if sibling_id == card.id {
+        return;
+    }
+    state
+        .piles
+        .hand
+        .retain(|other| !(other.id == sibling_id && other.content_id == card.content_id));
+}
+
 fn remove_card_from_pile(
     state: &mut CombatState,
     card_id: CardId,
     pile: CardPile,
 ) -> SimResult<CardInstance> {
-    let cards = match pile {
-        CardPile::Hand => &mut state.piles.hand,
-        CardPile::DrawPile => &mut state.piles.draw_pile,
-        CardPile::DiscardPile => &mut state.piles.discard_pile,
-        CardPile::ExhaustPile => &mut state.piles.exhaust_pile,
+    let card = {
+        let cards = match pile {
+            CardPile::Hand => &mut state.piles.hand,
+            CardPile::DrawPile => &mut state.piles.draw_pile,
+            CardPile::DiscardPile => &mut state.piles.discard_pile,
+            CardPile::ExhaustPile => &mut state.piles.exhaust_pile,
+        };
+        let index = cards
+            .iter()
+            .position(|card| card.id == card_id)
+            .ok_or(SimError::UnknownCard(card_id))?;
+        cards.remove(index)
     };
-    let index = cards
-        .iter()
-        .position(|card| card.id == card_id)
-        .ok_or(SimError::UnknownCard(card_id))?;
-    Ok(cards.remove(index))
+    if pile == CardPile::Hand {
+        evaporate_headbutt_alias_hand_siblings(state, &card);
+    }
+    Ok(card)
 }
 
 fn find_hand_card(state: &CombatState, card_id: CardId) -> SimResult<CardInstance> {
@@ -5786,7 +5805,9 @@ fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<
         .position(|card| card.id == card_id)
         .ok_or(SimError::UnknownCard(card_id))?;
 
-    Ok(state.piles.hand.remove(index))
+    let card = state.piles.hand.remove(index);
+    evaporate_headbutt_alias_hand_siblings(state, &card);
+    Ok(card)
 }
 
 fn move_card(
@@ -6756,6 +6777,82 @@ mod tests {
             !exhaust.iter().any(|(id, _)| *id == CardId::new(9)),
             "Defend must not be force-played: {exhaust:?}"
         );
+    }
+
+    #[test]
+    fn playing_headbutt_alias_evaporates_same_content_hand_sibling() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        let original = CardInstance::new(CardId::new(5), STRIKE_R_ID);
+        let mut alias = original;
+        alias.id = CardId::new(5 + crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET);
+        alias.combat_only = true;
+        state.piles.hand = vec![
+            original,
+            alias,
+            CardInstance::new(CardId::new(7), TRUE_GRIT_ID),
+            CardInstance::new(CardId::new(8), WOUND_ID),
+            CardInstance::new(CardId::new(9), WOUND_ID),
+        ];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: alias.id,
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("playing the reminted Headbutt listing should resolve Strike");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![TRUE_GRIT_ID, WOUND_ID, WOUND_ID],
+            "the same Java object must leave both hand listings"
+        );
+        assert_eq!(
+            next.piles
+                .discard_pile
+                .iter()
+                .filter(|card| card.content_id == STRIKE_R_ID)
+                .count(),
+            1,
+            "the alias listing evaporates instead of discarding twice"
+        );
+    }
+
+    #[test]
+    fn playing_a_card_does_not_evaporate_unrelated_high_id_status() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        let strike = CardInstance::new(CardId::new(6), STRIKE_R_ID);
+        let mut wound = CardInstance::new(
+            CardId::new(6 + crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET),
+            WOUND_ID,
+        );
+        wound.combat_only = true;
+        state.piles.hand = vec![strike, wound];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: strike.id,
+                target: Some(MonsterId::new(1)),
+            },
+        )
+        .expect("Strike should play beside an unrelated high-id Wound");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].content_id, WOUND_ID);
     }
 
     #[test]

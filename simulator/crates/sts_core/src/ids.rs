@@ -40,6 +40,27 @@ id_type!(MapNodeId, "map_node");
 /// state and reserve the upper unsigned range for allocation headroom.
 pub(crate) const MAX_SUPPORTED_CARD_INSTANCE_ID: u64 = i64::MAX as u64;
 
+/// Offset used to remint a Headbutt skipped-retrieval alias so two listings of
+/// the same Java `AbstractCard` can coexist under unique instance IDs.
+///
+/// Generated combat-only cards (Wounds, Dazed) can also occupy this high band.
+/// Pairing therefore requires matching `content_id`, not the offset alone.
+pub const HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET: u64 = 4_000_000_000_000_000_000;
+
+/// Returns the Headbutt alias pairing for `id`, if the offset arithmetic fits.
+#[must_use]
+pub fn headbutt_alias_sibling_id(id: CardId) -> Option<CardId> {
+    let raw = id.get();
+    if raw >= HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET {
+        Some(CardId::new(
+            raw - HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET,
+        ))
+    } else {
+        raw.checked_add(HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET)
+            .map(CardId::new)
+    }
+}
+
 #[must_use]
 pub(crate) const fn card_instance_id_is_supported(id: CardId) -> bool {
     id.get() > 0 && id.get() <= MAX_SUPPORTED_CARD_INSTANCE_ID
@@ -105,6 +126,14 @@ mod tests {
         assert!(!card_instance_id_is_supported(CardId::new(
             i64::MAX as u64 + 1
         )));
+    }
+
+    #[test]
+    fn headbutt_alias_sibling_pairs_across_the_remint_offset() {
+        let original = CardId::new(5);
+        let alias = CardId::new(5 + HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET);
+        assert_eq!(headbutt_alias_sibling_id(original), Some(alias));
+        assert_eq!(headbutt_alias_sibling_id(alias), Some(original));
     }
 
     #[test]

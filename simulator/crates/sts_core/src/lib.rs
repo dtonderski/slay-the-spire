@@ -35,7 +35,10 @@ pub use content::ascension::AscensionConfig;
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
 pub use content::deck::{ironclad_starter_deck, ironclad_starter_deck_for_ascension};
 pub use error::{SimError, SimResult};
-pub use ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
+pub use ids::{
+    headbutt_alias_sibling_id, ActionId, CardId, ContentId, MapNodeId, MonsterId,
+    HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET,
+};
 pub use map::{
     apply_map_action, city_room_kinds_on_path, exordium_room_kinds_on_path,
     generate_city_fixed_map, generate_city_map_choices_after_path, generate_city_map_topology,

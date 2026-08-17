@@ -46,3 +46,9 @@ then remints that simulator draw-pile top (top first) onto draw. The remint
 id is derived from the live draw instance, not from the observation. The
 extra copy is gameplay-affecting: the next draw takes it, and the original
 card remains in the pile.
+
+When those two listings later sit in hand together, Java `UseCardAction`
+`removeCard` plus `resetCardBeforeMoving` drop every `hand.contains(c)` slot of
+the same `AbstractCard` and discard the object once (FIDL01747 `Strike`). The
+simulator evaporates the reminted sibling from hand on the real pile move when
+`content_id` matches. Unrelated high-id combat-only statuses (Wounds) stay.
