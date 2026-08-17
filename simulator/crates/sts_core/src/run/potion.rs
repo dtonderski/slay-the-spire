@@ -4116,7 +4116,8 @@ mod tests {
 
     #[test]
     fn purity_multi_select_dead_branch_keeps_unique_card_ids() {
-        // FIDL01582 step 967: three selected cards plus Purity. Full retrieval
+        // FIDL01582 step 967: three selected cards plus Purity. Purity holds the
+        // highest instance id so Dead Branch cannot reuse it. Full retrieval
         // must remain a valid combat state so skipped-retrieval can still be
         // considered when the observed frame parked the selection.
         let mut run = RunState::combat_fixture_with_relics(vec![Relic::DeadBranch]);
@@ -4124,11 +4125,11 @@ mod tests {
             let combat = run.combat.as_mut().expect("combat");
             combat.player.energy = 1;
             combat.piles.hand = vec![
-                CardInstance::new(CardId::new(1), PURITY_ID),
                 CardInstance::new(CardId::new(2), STRIKE_R_ID),
                 CardInstance::new(CardId::new(3), STRIKE_R_ID),
                 CardInstance::new(CardId::new(4), STRIKE_R_ID),
                 CardInstance::new(CardId::new(5), CLASH_ID),
+                CardInstance::new(CardId::new(50), PURITY_ID),
             ];
             combat.piles.draw_pile.clear();
             combat.piles.discard_pile.clear();
@@ -4137,7 +4138,7 @@ mod tests {
         let opened = apply_combat_action_on_run(
             &run,
             CombatAction::PlayCard {
-                card_id: CardId::new(1),
+                card_id: CardId::new(50),
                 target: None,
             },
         )

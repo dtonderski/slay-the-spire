@@ -21,7 +21,9 @@ selection immediately and remains the default combat path.
   Each exhaust applies relic `onExhaust` (Dead Branch) before power `onExhaust`
   (Dark Embrace draw), matching `AbstractPlayer.onExhaust` (FIDL01373 empty
   select: generated Pommel then drawn Dark Embrace). Hooks run in place so
-  multi-select CONFIRM stays a valid unique-id state (FIDL01582).
+  multi-select CONFIRM stays a valid unique-id state (FIDL01582). Purity stays
+  in limbo while selected cards exhaust so Dead Branch cannot reuse its
+  instance id.
 - Core: `confirm_purity_select_skipped_retrieval` parks the selection in
   `pending_hidden_hand_card_until_end_turn` and exhausts only Purity (via
   `CardExhausted` so Feel No Pain / Dark Embrace / Dead Branch stay ordered).

@@ -5383,14 +5383,26 @@ fn confirm_purity_select(
     for index in removal_order.into_iter().rev() {
         state.piles.hand.remove(index);
     }
+    // `take_exhaust_select` holds Purity outside every pile. Dead Branch
+    // `next_card_instance_id` is max(remaining)+1, so a source that owned the
+    // previous max would mint a generated card with Purity's id, then this
+    // retrieve would put the same instance in two piles (FIDL01582).
+    if let Some(source_card) = exhaust_select.source_card {
+        state.piles.limbo.push(source_card);
+    }
     let mut dead_branch_count = 0;
     for card in exhausted {
         state.piles.exhaust_pile.push(card);
         dead_branch_count += apply_purity_card_exhausted(state, card.id)?;
     }
-    if let Some(source_card) = exhaust_select.source_card {
+    if let Some(source_index) = state
+        .piles
+        .limbo
+        .iter()
+        .position(|card| card.id == source_card_id)
+    {
+        let source_card = state.piles.limbo.remove(source_index);
         let source_destination = purity_source_destination(state);
-        let source_card_id = source_card.id;
         push_card_to_pile(state, source_card, source_destination);
         if source_destination == CardPile::ExhaustPile {
             dead_branch_count += apply_purity_card_exhausted(state, source_card_id)?;
