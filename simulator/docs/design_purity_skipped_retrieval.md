@@ -18,9 +18,6 @@ selection immediately and remains the default combat path.
 ## Implementation
 
 - Core: `confirm_purity_select` keeps full retrieval (exhaust selection + Purity).
-  Selected-card and source exhaust use relic `onExhaust` (Dead Branch) before
-  power `onExhaust` (Dark Embrace draw), matching `AbstractPlayer.onExhaust`
-  (FIDL01373 empty-select CONFIRM: generated Pommel then drawn Dark Embrace).
 - Core: `confirm_purity_select_skipped_retrieval` parks the selection in
   `pending_hidden_hand_card_until_end_turn` and exhausts only Purity (via
   `CardExhausted` so Feel No Pain / Dark Embrace / Dead Branch stay ordered).
