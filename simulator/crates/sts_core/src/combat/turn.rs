@@ -125,8 +125,11 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     } else if resuming_after_nilrys && next.nilrys_codex_end_turn_stage == 2 {
         // FIDL00451 two-step: after the first Codex CHOOSE/SKIP, the next END
         // discards the hand and opens a *second* Codex offer before monsters act.
+        // Do not drain `nilrys_end_powers_pending` here. The leftover EndTurn's
+        // atEndOfTurn (Frail, Combust, plated) waits for the stage-3 close so
+        // the second offer still shows pre-tick powers (FIDL01597 Frail 2 on
+        // the empty-hand Codex frame; FIDL01486 plated block 9 not 13).
         let queued_autoplay = queued_end_turn_autoplay_ids(&next);
-        apply_pending_nilry_end_powers(&mut next)?;
         next.resume_end_turn_after_nilrys_codex = true;
         end_of_turn_hand = crate::combat::hand::resolve_end_of_turn_hand_with_queued_autoplay(
             &mut next,
@@ -6231,6 +6234,8 @@ mod tests {
         state.piles.discard_pile.clear();
         state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), ARMAMENTS_ID)];
         state.monsters[0].block = 8;
+        state.nilrys_end_powers_pending = true;
+        state.player.powers.frail = 2;
 
         let next = end_player_turn(&state).expect("second Nilry offer opens");
         assert!(
@@ -6239,6 +6244,8 @@ mod tests {
         );
         assert_eq!(next.monsters[0].block, 0, "loseBlock before takeTurn");
         assert_eq!(next.piles.discard_pile.len(), 2);
+        assert_eq!(next.player.powers.frail, 2, "Frail waits for stage-3 close");
+        assert!(next.nilrys_end_powers_pending);
         assert_eq!(next.nilrys_codex_end_turn_stage, 3);
         assert!(next.nilrys_duplicate_monster_queue);
         assert!(matches!(
