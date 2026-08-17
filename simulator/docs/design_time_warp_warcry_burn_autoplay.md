@@ -60,4 +60,6 @@ PutOnDeck + settle source, then
 `time_warp_end_turn` queued, and mark `time_warp_duplicate_monster_queue`
 so the following explicit END runs two MonsterQueueItems at the already
 published Strength (FIDL01425: two Reverberate 3-hits for 66, thorns 18).
+That EndTurn consumes `time_warp_end_turn` before start-of-turn draw so
+the refill is not immediately force-ended again.
 Do not change the FIDL01274 skip-PutOnDeck path.
