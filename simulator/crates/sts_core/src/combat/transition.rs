@@ -4416,18 +4416,21 @@ fn resume_actions_after_discard_select(
     Ok(())
 }
 
-pub fn confirm_discard_select(state: &mut CombatState) -> SimResult<()> {
+pub fn confirm_discard_select(state: &mut CombatState) -> SimResult<usize> {
     let purpose = state
         .discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?
         .purpose;
     match purpose {
-        DiscardSelectPurpose::LiquidMemoriesReturnToHand => confirm_liquid_memories_select(state),
+        DiscardSelectPurpose::LiquidMemoriesReturnToHand => {
+            confirm_liquid_memories_select(state)?;
+            Ok(0)
+        }
         DiscardSelectPurpose::HeadbuttPutOnDraw => confirm_headbutt_select(state),
     }
 }
 
-pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
+pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<usize> {
     let discard_select = state
         .take_discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
@@ -4457,8 +4460,10 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
         });
     let force_exhaust =
         discard_select.source_card_force_exhaust || state.play_top_force_exhaust_active;
+    let mut dead_branch_count = 0;
     if let Some(source_card) = discard_select.source_card {
-        settle_headbutt_source_after_discard_select(state, Some(source_card), force_exhaust)?;
+        dead_branch_count +=
+            settle_headbutt_source_after_discard_select(state, Some(source_card), force_exhaust)?;
     } else if let Some(source_card_id) = discard_select.source_card_id {
         if !forced_top_draw_source {
             if force_exhaust {
@@ -4469,7 +4474,8 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
                     .position(|card| card.id == source_card_id)
                 {
                     let source = state.piles.hand.remove(position);
-                    settle_headbutt_source_after_discard_select(state, Some(source), true)?;
+                    dead_branch_count +=
+                        settle_headbutt_source_after_discard_select(state, Some(source), true)?;
                 }
             } else {
                 move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
@@ -4489,41 +4495,54 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<()> {
         flush_pending_monster_death_relics_if_ready(state)?;
     }
     state.activate_next_queued_decision_if_idle();
-    Ok(())
+    Ok(dead_branch_count)
 }
 
 pub(super) fn settle_headbutt_source_after_discard_select(
     state: &mut CombatState,
     source_card: Option<CardInstance>,
     force_exhaust: bool,
-) -> SimResult<()> {
+) -> SimResult<usize> {
     let Some(source) = source_card else {
-        return Ok(());
+        return Ok(0);
     };
     let source_id = source.id;
     if force_exhaust {
         let definition = get_card_definition(source.content_id)
             .ok_or(SimError::UnknownContent(source.content_id))?;
-        match forced_source_card_destination(state, definition) {
+        let dead_branch_count = match forced_source_card_destination(state, definition) {
             CardPile::ExhaustPile => {
                 state.piles.exhaust_pile.push(source);
-                apply_on_exhaust_effects(state, source_id)?;
+                // Relic onExhaust (Dead Branch) before power onExhaust (Dark
+                // Embrace), same as Purity / Secret Technique. Headbutt's
+                // UseCardAction is paused while the discard grid is open, so
+                // CardExhausted never runs for this source (FIDL01410).
+                apply_purity_card_exhausted(state, source_id)?
             }
-            CardPile::DiscardPile => state.piles.discard_pile.push(source),
-            CardPile::Hand => state.piles.hand.push(source),
-            CardPile::DrawPile => state.piles.draw_pile.push(source),
-        }
+            CardPile::DiscardPile => {
+                state.piles.discard_pile.push(source);
+                0
+            }
+            CardPile::Hand => {
+                state.piles.hand.push(source);
+                0
+            }
+            CardPile::DrawPile => {
+                state.piles.draw_pile.push(source);
+                0
+            }
+        };
         state.play_top_force_exhaust_active = false;
-        return Ok(());
+        return Ok(dead_branch_count);
     }
     state.piles.discard_pile.push(source);
-    Ok(())
+    Ok(0)
 }
 
 /// Close Headbutt without putting the chosen discard card on draw.
 /// Force-played Headbutt still exhausts so Dark Embrace / Feel No Pain /
 /// Charon's Ashes / Dead Branch resolve after the grid closes.
-pub fn confirm_headbutt_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
+pub fn confirm_headbutt_select_skipped_retrieval(state: &mut CombatState) -> SimResult<usize> {
     let discard_select = state
         .take_discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
@@ -4545,7 +4564,11 @@ pub fn confirm_headbutt_select_skipped_retrieval(state: &mut CombatState) -> Sim
             "skipped Headbutt retrieval requires force-played source",
         ));
     }
-    settle_headbutt_source_after_discard_select(state, discard_select.source_card, force_exhaust)?;
+    let dead_branch_count = settle_headbutt_source_after_discard_select(
+        state,
+        discard_select.source_card,
+        force_exhaust,
+    )?;
     state.play_top_force_exhaust_active = false;
     state.pen_nib_double_active = false;
     if !discard_select.pending_actions.is_empty() {
@@ -4556,7 +4579,7 @@ pub fn confirm_headbutt_select_skipped_retrieval(state: &mut CombatState) -> Sim
         flush_pending_monster_death_relics_if_ready(state)?;
     }
     state.activate_next_queued_decision_if_idle();
-    Ok(())
+    Ok(dead_branch_count)
 }
 
 pub fn open_exhaust_select(state: &mut CombatState) -> SimResult<()> {

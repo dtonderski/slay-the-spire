@@ -9,8 +9,10 @@ grid and pauses. `UseCardAction` has not settled yet, so Headbutt is still in
 were there when Headbutt played, and Dark Embrace has not drawn.
 
 On `CHOOSE`, Headbutt puts the selected discard card on top of draw, then
-force-exhausts. Dark Embrace, Feel No Pain, Charon's Ashes, and Dead Branch
-resolve after that exhaust.
+force-exhausts. Relic `onExhaust` (Dead Branch into hand) runs before power
+`onExhaust` (Dark Embrace draw), matching Purity / Secret Technique. Feel No
+Pain and Charon's Ashes also resolve on that exhaust. UseCardAction is paused
+while the discard grid is open, so `CardExhausted` never fires for this source.
 
 Witness: FIDL01306 step 1065. Havoc force-plays Headbutt while discard is
 `Thunderclap, Havoc`. The GRID frame still shows that discard and an empty

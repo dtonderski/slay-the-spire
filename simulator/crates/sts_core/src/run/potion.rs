@@ -578,47 +578,89 @@ pub fn apply_discard_select_choice_skipped_retrieval(
 ) -> SimResult<RunState> {
     validate_discard_select_choice(run, index)?;
     let mut next = run.clone();
-    let combat = next.combat.as_mut().expect("validated combat");
-    if combat.discard_select().map(|select| select.purpose)
+    if next
+        .combat
+        .as_ref()
+        .and_then(CombatState::discard_select)
+        .map(|select| select.purpose)
         != Some(DiscardSelectPurpose::HeadbuttPutOnDraw)
     {
         return Err(SimError::IllegalAction(
             "skipped discard retrieval requires Headbutt discard select",
         ));
     }
-    choose_discard_select(combat, index)?;
-    confirm_headbutt_select_skipped_retrieval(combat)?;
-    flush_pending_player_spikes_damage_if_ready(combat)?;
+    let mut combat = next.combat.take().expect("validated combat");
+    choose_discard_select(&mut combat, index)?;
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    let handled_dead_branch_count = confirm_headbutt_select_skipped_retrieval(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
+    flush_pending_player_spikes_damage_if_ready(&mut combat)?;
+    next.combat = Some(combat);
     Ok(next)
 }
 
 pub fn apply_discard_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_discard_select_choice(run, index)?;
     let mut next = run.clone();
-    let combat = next.combat.as_mut().expect("validated combat");
-    let purpose = combat
-        .discard_select()
+    let purpose = next
+        .combat
+        .as_ref()
+        .and_then(CombatState::discard_select)
         .map(|select| select.purpose)
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
-    choose_discard_select(combat, index)?;
+    let mut combat = next.combat.take().expect("validated combat");
+    choose_discard_select(&mut combat, index)?;
     if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw
         || (purpose == DiscardSelectPurpose::LiquidMemoriesReturnToHand
             && combat
                 .discard_select()
                 .is_some_and(|select| select.max_choices == 1))
     {
-        confirm_discard_select(combat)?;
-        flush_pending_player_spikes_damage_if_ready(combat)?;
+        let exhaust_before = combat.piles.exhaust_pile.len();
+        let handled_dead_branch_count = confirm_discard_select(&mut combat)?;
+        let exhaust_count = combat
+            .piles
+            .exhaust_pile
+            .len()
+            .saturating_sub(exhaust_before);
+        apply_dead_branch_for_exhaust_count(
+            &mut next,
+            &mut combat,
+            exhaust_count.saturating_sub(handled_dead_branch_count),
+        )?;
+        flush_pending_player_spikes_damage_if_ready(&mut combat)?;
     }
+    next.combat = Some(combat);
     Ok(next)
 }
 
 pub fn apply_discard_select_confirm(run: &RunState) -> SimResult<RunState> {
     validate_discard_select_confirm(run)?;
     let mut next = run.clone();
-    let combat = next.combat.as_mut().expect("validated combat");
-    confirm_discard_select(combat)?;
-    flush_pending_player_spikes_damage_if_ready(combat)?;
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    let handled_dead_branch_count = confirm_discard_select(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
+    flush_pending_player_spikes_damage_if_ready(&mut combat)?;
+    next.combat = Some(combat);
     Ok(next)
 }
 
