@@ -22,6 +22,12 @@ FIDL00394 dual Havoc → Doubt + Dead Branch expected Fiend Fire then Sword Boom
 When the top-draw use queue contains `PlayTopDrawCard`, append source settlement
 at the **end** of the queue. Other top-draw cards keep the relative MoveCard index.
 
+PlayTop then parks the forced card as `ResolveTopDrawCard` (the card queue).
+Dead Branch `MakeTempCardInHand` is still an action-queue `addToBot` and must
+insert *before* that parked resolve so the nested Havoc's Dead Branch lands
+before the inner card's (FIDL01582 Havoc+ → Havoc → Strike: Feel No Pain then
+Sword Boomerang). Dark Embrace draws already used this insert.
+
 ## Tests
 
 - `dual_havoc_doubt_dead_branch_probe`

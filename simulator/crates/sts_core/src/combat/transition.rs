@@ -715,6 +715,18 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         follow_up,
         InternalAction::AddGeneratedHandCardBeforePendingDraw { .. }
     ) {
+        // Dead Branch onExhaust is addToBot(MakeTempCardInHand). PlayTop parks
+        // the forced card on the card queue (`ResolveTopDrawCard`); the action
+        // queue must still drain that MakeTempCard before the parked card is
+        // serviced (FIDL01582 nested Havoc → Strike: Feel No Pain then Sword
+        // Boomerang, not the reverse).
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::ResolveTopDrawCard { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
         if let Some(index) = queue
             .iter()
             .position(|action| matches!(action, InternalAction::DrawCardsFromInkBottle { .. }))
@@ -748,6 +760,13 @@ fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalActio
         if let Some(index) = queue
             .iter()
             .position(|action| matches!(action, InternalAction::PlayTopDrawCard { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::ResolveTopDrawCard { .. }))
         {
             queue.insert(index, follow_up);
             return;
@@ -9919,6 +9938,52 @@ mod tests {
             "dead branch picks"
         );
         assert_eq!(next.rng.card_random_rng.counter(), 4);
+    }
+
+    #[test]
+    fn nested_havoc_strike_dead_branch_lands_before_inner_card_branch() {
+        // FIDL01582 PLAY 1645: Havoc+ PlayTops Havoc, which PlayTops Strike.
+        // Both force-exhaust. Dead Branch on the action queue must add the
+        // nested Havoc card before Strike's. This seed's first two branch
+        // rolls are True Grit then Fiend Fire.
+        use crate::content::cards::{FIEND_FIRE_ID, HAVOC_PLUS_ID, STRIKE_R_ID, TRUE_GRIT_ID};
+        use crate::relic::Relic;
+
+        let mut state = CombatState::cultist_fixture();
+        state.relics = vec![Relic::DeadBranch];
+        state.player.energy = 1;
+        state.monsters[0].hp = 50;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), HAVOC_PLUS_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.rng.card_random_rng = crate::rng::StsRng::with_counter(34_961_238_664_907, 0);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("nested Havoc PlayTop");
+
+        let exhaust: Vec<_> = next
+            .piles
+            .exhaust_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect();
+        assert_eq!(exhaust, vec![HAVOC_PLUS_ID, STRIKE_R_ID], "exhaust order");
+        let db: Vec<_> = next.piles.hand.iter().map(|card| card.content_id).collect();
+        assert_eq!(
+            db,
+            vec![TRUE_GRIT_ID, FIEND_FIRE_ID],
+            "Dead Branch from nested Havoc then Strike"
+        );
     }
 
     #[test]
