@@ -1873,7 +1873,7 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
         return None;
     }
     let combat = source.combat.as_ref()?;
-    if combat.nilrys_codex_end_turn_stage != 3 {
+    if combat.nilrys_codex_end_turn_stage == 1 {
         return None;
     }
     if !combat.resume_end_turn_after_nilrys_codex
@@ -2048,6 +2048,18 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
                 })
             })
             .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 1, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_hold_codex_insert_after_post_draw = true;
+                })
+            })
+            .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 2, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_hold_codex_insert_after_post_draw = true;
+                })
+            })
+            .or_else(|| {
                 let mut applied = apply_run_decision_action(source, decision).ok()?;
                 sts_core::combat::roll_last_living_monster_intent(applied.combat.as_mut()?).ok()?;
                 applied.player_hp = applied.combat.as_ref()?.player.hp;
@@ -2129,25 +2141,6 @@ fn park_nilry_choice_then_leftover_draw_before_insert(
             try_parked(|c| {
                 c.nilrys_duplicate_monster_queue = true;
                 c.nilrys_skip_post_queue_rolls = true;
-            })
-        })
-        .or_else(|| try_parked(|c| c.nilrys_hold_codex_insert_after_post_draw = true))
-        .or_else(|| {
-            try_parked(|c| {
-                c.nilrys_hold_codex_insert_after_post_draw = true;
-                c.nilrys_skip_post_queue_rolls = true;
-            })
-        })
-        .or_else(|| {
-            try_parked(|c| {
-                c.nilrys_hold_codex_insert_after_post_draw = true;
-                c.nilrys_interleave_post_queue_rolls = true;
-            })
-        })
-        .or_else(|| {
-            try_parked(|c| {
-                c.nilrys_hold_codex_insert_after_post_draw = true;
-                c.nilrys_single_post_queue_roll = true;
             })
         })
 }
