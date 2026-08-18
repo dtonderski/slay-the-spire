@@ -87,8 +87,9 @@ pub fn apply_combat_action_with_events(
         // (FIDL01576).
         transition.state.opening_end_turn_pending = false;
         transition.state.preserve_temp_strength_on_next_start = true;
-        settle_leftover_end_turn_hand_discard(&mut transition.state)?;
-        crate::combat::turn::settle_leftover_end_turn_monster_and_draw(&mut transition.state)?;
+        crate::combat::hand::resolve_end_of_turn_hand(&mut transition.state)?;
+        crate::combat::hand::discard_end_of_turn_hand(&mut transition.state);
+        crate::combat::turn::settle_opening_end_turn_monster_and_draw(&mut transition.state)?;
     }
     transition.state.validate()?;
     Ok(transition)
@@ -3405,21 +3406,11 @@ pub fn settle_queued_end_turn_discard_after_rejected_command(
             .saturating_add(gained);
         crate::combat::hand::discard_end_of_turn_hand(state);
         state.resume_end_turn_after_nilrys_codex = false;
-        state.nilrys_codex_end_turn_stage = 0;
-        state.nilrys_duplicate_monster_queue = false;
         state.nilrys_end_powers_pending = false;
         state.time_warp_end_turn_pre_discard_settled = true;
         return Ok(());
     }
     settle_time_warp_pre_discard_if_ready_public(state)
-}
-
-/// Discard the current hand for a leftover `EndTurnAction` that CommunicationMod
-/// published before the monster turn (FIDL01782 after Parasite PLAY).
-pub fn settle_leftover_end_turn_hand_discard(state: &mut CombatState) -> SimResult<()> {
-    crate::combat::hand::resolve_end_of_turn_hand(state)?;
-    crate::combat::hand::discard_end_of_turn_hand(state);
-    Ok(())
 }
 
 /// Resolve the target's observable pre-monster portion of a forced Time Warp
@@ -6565,52 +6556,6 @@ mod tests {
                 HEMOKINESIS_ID
             ]
         );
-    }
-
-    #[test]
-    fn rejected_play_after_nilry_skip_exhausts_ethereal_before_discard() {
-        let mut state = CombatState::cultist_fixture();
-        state.resume_end_turn_after_nilrys_codex = true;
-        state.nilrys_codex_end_turn_stage = 1;
-        state.player.powers.feel_no_pain = 3;
-        state.player.powers.frail = 5;
-        state.piles.hand = vec![
-            CardInstance::new(CardId::new(1), FEEL_NO_PAIN_ID),
-            CardInstance::new(CardId::new(2), DAZED_ID),
-            CardInstance::new(CardId::new(3), STRIKE_R_ID),
-        ];
-        state.piles.discard_pile.clear();
-        state.piles.exhaust_pile.clear();
-
-        settle_queued_end_turn_discard_after_rejected_command(&mut state)
-            .expect("leftover Nilry EndTurn resolves ethereal then discards");
-
-        assert!(!state.resume_end_turn_after_nilrys_codex);
-        assert!(state.time_warp_end_turn_pre_discard_settled);
-        assert!(state.piles.hand.is_empty());
-        assert_eq!(
-            state
-                .piles
-                .exhaust_pile
-                .iter()
-                .map(|card| card.content_id)
-                .collect::<Vec<_>>(),
-            vec![DAZED_ID]
-        );
-        assert_eq!(
-            state.player.block, 0,
-            "FNP block waits for the next leftover STATE"
-        );
-        assert_eq!(state.pending_end_turn_feel_no_pain_block, 3);
-        assert_eq!(
-            state.player.powers.frail, 5,
-            "FrailPower.atEndOfRound waits for leftover takeTurn"
-        );
-        assert!(!state
-            .piles
-            .discard_pile
-            .iter()
-            .any(|card| card.content_id == DAZED_ID));
     }
 
     #[test]

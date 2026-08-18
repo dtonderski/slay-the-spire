@@ -206,11 +206,6 @@ pub struct CombatState {
     /// second 3-card offer (hand discarded) → CHOOSE/SKIP → monster/draw.
     #[serde(default, skip_serializing_if = "is_false")]
     pub resume_end_turn_after_nilrys_codex: bool,
-    /// Nilry two-offer end-turn stage (FIDL00451):
-    /// 0 inactive, 1 first offer open, 2 await END for second offer,
-    /// 3 second offer open.
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
-    pub nilrys_codex_end_turn_stage: u8,
     /// Combust / other `atEndOfTurn` powers wait behind the first Codex offer
     /// because `onPlayerEndTurn` queues Nilry before those powers (FIDL01727).
     #[serde(default, skip_serializing_if = "is_false")]
@@ -253,18 +248,6 @@ pub struct CombatState {
     /// intent before its RollMoveAction ran.
     #[serde(default, skip_serializing_if = "is_false")]
     pub time_warp_duplicate_monster_queue: bool,
-    /// Two-step Nilry `END` leaves the first `EndTurnAction` queued while a
-    /// second `EndTurnAction` opens the second Codex. Both
-    /// `MonsterQueueItem`s are captured before either `RollMoveAction`
-    /// (FIDL01772 / FIDL01727), the same multiplicity as Time Warp.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_duplicate_monster_queue: bool,
-    /// SuperFastMode leftover stage-3 Codex close can run `DrawCardAction` and
-    /// Warped Tongs before `MakeTempCardInDrawPileAction` (FIDL01807 CHOOSE
-    /// 1167: Strike is drawn; the chosen Codex card lands in the remaining
-    /// draw pile). Default insert-before-draw displaces that last deck card.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_defer_codex_insert_until_after_draw: bool,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -279,10 +262,6 @@ pub struct CombatState {
     /// DrawCardAction, then the EndTurnAction appended by Time Warp.
     #[serde(default, skip_serializing_if = "is_false")]
     pub defer_time_warp_end_turn: bool,
-    /// SuperFastMode leftover EndTurn published after EmptyDeckShuffleAction
-    /// and before the remaining DrawCardAction cards (FIDL01691 STATE 1352).
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
-    pub leftover_end_turn_draw_remaining: u8,
     /// DiscoveryAction retrieved a card this combat. SuperFastMode leftover
     /// MakeTempCardInDrawPile occupancy after that retrieve lasts into later
     /// Reckless Charge Dazed inserts versus Time Eater (FIDL01680).
@@ -1175,7 +1154,6 @@ impl CombatState {
             pending_hidden_hand_card_until_end_turn: Vec::new(),
             pending_hidden_hand_card_exhausts_with_fiend_fire: false,
             resume_end_turn_after_nilrys_codex: false,
-            nilrys_codex_end_turn_stage: 0,
             nilrys_end_powers_pending: false,
             pending_nilrys_codex_draw_inserts: Vec::new(),
             pending_end_turn_dead_branch_cards: Vec::new(),
@@ -1187,12 +1165,9 @@ impl CombatState {
             time_warp_end_turn_pre_discard_settled: false,
             time_warp_end_powers_applied: false,
             time_warp_duplicate_monster_queue: false,
-            nilrys_duplicate_monster_queue: false,
-            nilrys_defer_codex_insert_until_after_draw: false,
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
-            leftover_end_turn_draw_remaining: 0,
             discovery_retrieved_this_combat: false,
         }
     }

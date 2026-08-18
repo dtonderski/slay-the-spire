@@ -2843,7 +2843,6 @@ pub fn nilrys_codex_park_choice_for_deferred_draw_insert(
     state
         .pending_nilrys_codex_draw_inserts
         .push(choice.content_id);
-    state.nilrys_defer_codex_insert_until_after_draw = true;
     Ok(())
 }
 
@@ -2874,18 +2873,6 @@ pub fn nilrys_codex_flush_pending_draw_inserts(state: &mut CombatState) -> SimRe
         crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
             state, content_id,
         )?;
-    }
-    state.nilrys_defer_codex_insert_until_after_draw = false;
-    Ok(())
-}
-
-/// Leftover SuperFastMode can draw (and Warped Tongs) before the parked Codex
-/// card is shuffled into the remaining draw pile.
-pub fn nilrys_codex_flush_deferred_draw_inserts_after_draw(
-    state: &mut CombatState,
-) -> SimResult<()> {
-    if state.nilrys_defer_codex_insert_until_after_draw {
-        nilrys_codex_flush_pending_draw_inserts(state)?;
     }
     Ok(())
 }

@@ -1099,33 +1099,16 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
         CombatDecisionState::NilrysCodexCardReward { choices } => {
             let choice = choices[index];
             // Shuffle the chosen card into a random draw-pile spot (combat-only).
-            // Do not finish end-turn here: CommunicationMod captures the closed
-            // reward with the pre-discard hand still visible. The remainder of
-            // end-turn resumes on the next combat command (see replay) or when
-            // `end_player_turn` is invoked with `resume_end_turn_after_nilrys_codex`.
-            // Leftover SuperFastMode can draw first and insert afterward.
-            if combat.nilrys_defer_codex_insert_until_after_draw {
-                combat
-                    .pending_nilrys_codex_draw_inserts
-                    .push(choice.content_id);
-            } else {
-                crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
-                    combat,
-                    choice.content_id,
-                )?;
-            }
+            crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
+                combat,
+                choice.content_id,
+            )?;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-            // The second Nilry offer closes the paused end-turn queue itself;
-            // no additional END command is emitted before the monster turn.
-            if combat.nilrys_codex_end_turn_stage == 3 {
-                *combat = crate::combat::turn::end_player_turn(combat)?;
-            } else {
-                // callEndOfTurnActions queued card autoplays (Regret/Burn)
-                // continue after the first Codex screen closes and before the
-                // leftover second EndTurn / Combust (FIDL01597 CHOOSE 470).
-                crate::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(combat)?;
-                next.player_hp = combat.player.hp;
-            }
+            // Closing the offer resumes the paused end-turn queue: no further
+            // END command is emitted before the monster turn.
+            *combat = crate::combat::turn::end_player_turn(combat)?;
+            next.player_hp = combat.player.hp;
+            next.player_max_hp = combat.player.max_hp;
         }
         other => {
             combat.decision = Some(other);
@@ -1228,24 +1211,16 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
             Ok(next)
         }
         Some(CombatDecisionState::NilrysCodexCardReward { .. }) => {
-            // First-offer SKIP leaves end-turn queued (FIDL01772 leftover
-            // EndTurn). Second-offer SKIP (stage 3) continues that queue:
-            // no insert, then monsters and the next hand.
-            if combat.nilrys_codex_end_turn_stage == 3 {
-                let finished = crate::combat::turn::end_player_turn(combat)?;
-                next.player_hp = finished.player.hp;
-                next.player_max_hp = finished.player.max_hp;
-                next.card_random_rng_counter = finished.rng.card_random_rng.counter();
-                next.combat = Some(finished);
-                if let Some(combat) = next.combat.as_mut() {
-                    combat.activate_next_queued_decision_if_idle();
-                }
-                return Ok(next);
+            // Skipping the offer resumes the paused end-turn queue with no
+            // insert: powers, discard, monsters, then the next hand.
+            let finished = crate::combat::turn::end_player_turn(combat)?;
+            next.player_hp = finished.player.hp;
+            next.player_max_hp = finished.player.max_hp;
+            next.card_random_rng_counter = finished.rng.card_random_rng.counter();
+            next.combat = Some(finished);
+            if let Some(combat) = next.combat.as_mut() {
+                combat.activate_next_queued_decision_if_idle();
             }
-            crate::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(combat)?;
-            next.player_hp = combat.player.hp;
-            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-            combat.activate_next_queued_decision_if_idle();
             Ok(next)
         }
         other => {
