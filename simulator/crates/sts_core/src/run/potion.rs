@@ -967,7 +967,10 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // one pulse (steps 325, 366) unless Hex is up with two living
             // enemies, which leaves two pulses so the parked Hex Dazed insert
             // uses the observed addToRandomSpot index (FIDL01614 Chosen+Cultist).
-            // Solo Chosen Hex stays one pulse (FIDL01561).
+            // Solo Chosen Hex stays one pulse (FIDL01561). Three living enemies
+            // with at most three cards remaining after the source left also
+            // leave two pulses (FIDL01525 Infernal Blade Whirlwind after
+            // Jaw Worm Discovery).
             let generations = discovery_post_select_generations(
                 combat,
                 source_card.as_ref(),
@@ -1232,6 +1235,10 @@ fn discovery_post_select_generations(
         || (early_magnetism_generated_source
             && another_magnetism_card_in_hand
             && combat.piles.hand.len() != 5)
+        || (living_monsters >= 3
+            && !fighting_awakened_one
+            && !fighting_donu_deca
+            && combat.piles.hand.len() <= 3)
     {
         2
     } else {
