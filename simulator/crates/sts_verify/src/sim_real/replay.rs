@@ -1921,32 +1921,6 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
             })
             .or_else(|| try_flagged(|c| c.nilrys_interleave_post_queue_rolls = true))
             .or_else(|| try_flagged(|c| c.nilrys_single_post_queue_roll = true))
-            .or_else(|| try_flagged(|c| c.nilrys_defer_codex_insert_until_after_draw = true))
-            .or_else(|| {
-                try_flagged(|c| {
-                    c.nilrys_defer_codex_insert_until_after_draw = true;
-                    c.nilrys_skip_post_queue_rolls = true;
-                })
-            })
-            .or_else(|| {
-                try_flagged(|c| {
-                    c.nilrys_defer_codex_insert_until_after_draw = true;
-                    c.nilrys_interleave_post_queue_rolls = true;
-                })
-            })
-            .or_else(|| {
-                try_flagged(|c| {
-                    c.nilrys_defer_codex_insert_until_after_draw = true;
-                    c.nilrys_single_post_queue_roll = true;
-                })
-            })
-            .or_else(|| {
-                try_flagged(|c| {
-                    c.nilrys_defer_codex_insert_until_after_draw = true;
-                    c.nilrys_duplicate_monster_queue = true;
-                    c.nilrys_skip_post_queue_rolls = true;
-                })
-            })
             // Interleaved leftover rolls can leave the first Darkling on CHOMP;
             // SuperFastMode still flushes one more RollMoveAction onto Harden
             // (FIDL01807 CHOOSE 1112). A single leftover post-queue roll can

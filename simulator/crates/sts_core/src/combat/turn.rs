@@ -919,8 +919,7 @@ fn start_player_turn_in_place(
     // atTurnStartPostDraw relics (FIDL01807 Warped Tongs still queued).
     if apply_post_draw_relics {
         crate::relic::apply_start_of_player_turn_post_draw_relics(state)?;
-        // Leftover SuperFastMode can publish the new hand after Warped Tongs and
-        // before MakeTempCardInDrawPileAction (FIDL01807 CHOOSE 1167).
+        crate::relic::nilrys_codex_flush_deferred_draw_inserts_after_draw(state)?;
     }
     apply_demon_form_strength_post_draw(state)?;
     let brutality_draw_follow_ups = apply_start_of_turn_brutality_post_draw(state)?;
