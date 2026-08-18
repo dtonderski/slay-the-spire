@@ -549,6 +549,38 @@ fn clear_living_monster_block(state: &mut CombatState) {
     }
 }
 
+/// Leftover `EndTurnAction` can publish after player `atEndOfTurn` (Combust)
+/// and `DiscardAtEndOfTurnAction`, before monster `loseBlock` / `takeTurn`
+/// (FIDL01515 STATE 917 after a Parasite duplicate END).
+pub fn settle_leftover_end_turn_player_powers_and_discard(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    if state.player.hp <= 0 {
+        return Ok(());
+    }
+    crate::relic::apply_orichalcum_end_of_player_turn(state)?;
+    let defer_combust = hand_has_end_turn_autoplay_cards(state);
+    let mut deferred_monster_deaths = Vec::new();
+    crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand_deferred_with_combust(
+        state,
+        &mut deferred_monster_deaths,
+        !defer_combust,
+    )?;
+    if defer_combust {
+        crate::combat::hand::resolve_end_of_turn_hand(state)?;
+        crate::combat::turn_powers::apply_deferred_end_of_turn_combust(
+            state,
+            &mut deferred_monster_deaths,
+        )?;
+        crate::combat::hand::discard_end_of_turn_hand(state);
+    } else {
+        crate::combat::hand::resolve_end_of_turn_hand(state)?;
+        crate::combat::hand::discard_end_of_turn_hand(state);
+    }
+    let _ = deferred_monster_deaths;
+    Ok(())
+}
+
 /// Leftover `EndTurnAction` can publish after `loseBlock` and before takeTurn
 /// (FIDL01782 STATE 1094).
 pub fn settle_leftover_end_turn_monster_lose_block(state: &mut CombatState) {
@@ -1053,48 +1085,6 @@ fn reset_turn_only_temp_costs(state: &mut CombatState) {
             }
         }
     }
-}
-
-/// Advance the first queued monster action without running end-of-monster-turn
-/// cleanup or starting a new player turn. The source action manager can accept
-/// a duplicate END while a prior END's first MonsterQueueItem is settling; the
-/// publication frame is stale, but the first queued monster action is already
-/// authoritative for the following END (FIDL01595).
-pub fn run_first_monster_action_without_cleanup(state: &mut CombatState) -> SimResult<()> {
-    let Some(actor_id) = state
-        .monsters
-        .iter()
-        .find(|monster| monster.alive)
-        .map(|monster| monster.id)
-    else {
-        return Ok(());
-    };
-    let Some(index) = state
-        .monsters
-        .iter()
-        .position(|monster| monster.id == actor_id)
-    else {
-        return Ok(());
-    };
-    let ascension = state.ascension;
-    let relics = state.relics.clone();
-    let mut skip_ritual_tick = Vec::new();
-    clear_lagavulin_metallicize_if_awake(&mut state.monsters[index]);
-    if execute_state_oriented_special_intent(state, actor_id, index, ascension)? {
-        return Ok(());
-    }
-    if execute_spawning_or_targeted_special_intent(state, actor_id, index, ascension, false)? {
-        return Ok(());
-    }
-    let _ = execute_generic_monster_intent(
-        state,
-        actor_id,
-        index,
-        ascension,
-        &relics,
-        &mut skip_ritual_tick,
-    )?;
-    Ok(())
 }
 
 fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {

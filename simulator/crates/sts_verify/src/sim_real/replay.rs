@@ -116,14 +116,20 @@ fn immediate_combat_obtain_simulated_subset(next: &RunState) -> Option<Value> {
 /// A duplicate END can publish a queued combat obtain without starting a
 /// second player/monster turn. CommunicationMod accepts the button command
 /// while `endTurnQueued` is still settling, and the following frame can expose
-/// only the typed AddCardToDeckAction (FIDL01595). Flush the authoritative
-/// pending queue, then require the complete observed combat projection to
-/// match; never hydrate the card or its UUID from the observation.
+/// only the typed AddCardToDeckAction (FIDL01595 / FIDL01515 Parasite +
+/// Ceramic Fish). Flush the authoritative pending queue, then require the
+/// complete observed combat projection to match; never hydrate the card or
+/// its UUID from the observation.
+///
+/// Do not execute the queued `EndTurnAction` here. SuperFastMode can still
+/// show the live hand (FIDL01595 END 1119, FIDL01515 END 915). The leftover
+/// EndTurn discards and runs Combust on a later STATE, or a following END
+/// finishes the turn from this published combat.
 fn duplicate_end_combat_obtain_publication_candidate(
     source: &RunState,
     post: &TraceState,
     command: &str,
-) -> Option<(RunState, RunState)> {
+) -> Option<RunState> {
     if !command_head_eq(command, "END")
         || source.phase != RunPhase::Combat
         || source.pending_combat_obtain_cards.is_empty()
@@ -138,11 +144,6 @@ fn duplicate_end_combat_obtain_publication_candidate(
     let source_combat = source.combat.as_ref()?;
     let mut published = source.clone();
     published.flush_pending_combat_obtain_cards().ok()?;
-    // The first duplicate END is a publication boundary, but the accepted
-    // command still advances the authoritative action queue. The target can
-    // publish the pre-monster state for this frame and expose the first
-    // monster turn only on the following END (FIDL01595). Keep both states:
-    // compare the stale publication, but carry the real post-END state forward.
     if published.combat.as_ref()? != source_combat {
         return None;
     }
@@ -154,11 +155,8 @@ fn duplicate_end_combat_obtain_publication_candidate(
     {
         return None;
     }
-    let mut advanced = published.clone();
-    let combat = advanced.combat.as_mut()?;
-    sts_core::combat::turn::run_first_monster_action_without_cleanup(combat).ok()?;
-    advanced.validate().ok()?;
-    Some((advanced, published))
+    published.validate().ok()?;
+    Some(published)
 }
 
 fn deferred_pending_combat_obtain_candidate(
@@ -2333,6 +2331,20 @@ fn leftover_end_state_is_eligible(source: &RunState, leftover: Option<&RunDecisi
     })
 }
 
+fn leftover_end_completed_next_player_turn(source: &RunState, candidate: &RunState) -> bool {
+    let source_turns = source
+        .combat
+        .as_ref()
+        .map(|combat| combat.relic_counters.player_turns_started)
+        .unwrap_or(0);
+    let candidate_turns = candidate
+        .combat
+        .as_ref()
+        .map(|combat| combat.relic_counters.player_turns_started)
+        .unwrap_or(0);
+    candidate_turns > source_turns
+}
+
 fn leftover_end_state_publication_candidate(
     source: &RunState,
     leftover: Option<RunDecisionAction>,
@@ -2351,6 +2363,29 @@ fn leftover_end_state_publication_candidate(
         .is_some_and(|combat| combat.leftover_end_turn_draw_remaining > 0)
     {
         return leftover_end_state_continue_draw(source, observed);
+    }
+    if source
+        .combat
+        .as_ref()
+        .is_some_and(|combat| !combat.piles.hand.is_empty())
+    {
+        let mut discarded = source.clone();
+        if let Some(combat) = discarded.combat.as_mut() {
+            if sts_core::combat::settle_leftover_end_turn_player_powers_and_discard(combat).is_ok()
+            {
+                discarded.player_hp = combat.player.hp;
+                discarded.player_max_hp = combat.player.max_hp;
+                if discarded.validate().is_ok()
+                    && subset_diffs(
+                        observed.clone(),
+                        seed_start_simulated_combat_subset(&discarded),
+                    )
+                    .is_empty()
+                {
+                    return Some(discarded);
+                }
+            }
+        }
     }
     let mut lose_block = source.clone();
     if let Some(combat) = lose_block.combat.as_mut() {
@@ -3124,10 +3159,18 @@ impl StreamingSeedStartReplay {
             return Ok(());
         };
         if leftover_end {
-            sts_core::combat::settle_leftover_end_turn_hand_discard(combat)
-                .map_err(|error| error.to_string())?;
-            run.player_hp = combat.player.hp;
-            run.player_max_hp = combat.player.max_hp;
+            // Time Warp already queued discard. A Parasite duplicate END only
+            // published AddCardToDeckAction; Combust is still pending and must
+            // wait for the leftover STATE (FIDL01515 PLAY 916).
+            let time_warp = combat.time_warp_end_turn
+                || combat.time_warp_end_turn_pre_discard_settled
+                || combat.time_warp_end_powers_applied;
+            if time_warp {
+                sts_core::combat::settle_leftover_end_turn_hand_discard(combat)
+                    .map_err(|error| error.to_string())?;
+                run.player_hp = combat.player.hp;
+                run.player_max_hp = combat.player.max_hp;
+            }
             return Ok(());
         }
         sts_core::combat::settle_queued_end_turn_discard_after_rejected_command(combat)
@@ -3483,19 +3526,19 @@ pub(super) fn verify_seed_start_transition(
                 return None;
             }
             if external_rng.is_empty() {
-                if let Some((advanced, _published)) =
-                    duplicate_end_combat_obtain_publication_candidate(
-                        current,
-                        post,
-                        &action.command,
-                    )
-                {
+                if let Some(published) = duplicate_end_combat_obtain_publication_candidate(
+                    current,
+                    post,
+                    &action.command,
+                ) {
+                    state.pending_rejected_combat_play =
+                        Some(RunDecisionAction::Combat(CombatAction::EndTurn));
                     report.verified.push(VerifiedTransition {
                         action_step: action.step,
                         command: action.command.clone(),
                         label: "duplicate END deferred combat obtain publication".to_owned(),
                     });
-                    state.seed_sim = Some(advanced);
+                    state.seed_sim = Some(published);
                     return None;
                 }
             }
@@ -3526,10 +3569,16 @@ pub(super) fn verify_seed_start_transition(
                         if let Some(candidate) =
                             deferred_leftover_rejected_play_candidate(&source, leftover, post)
                         {
-                            if let Some(rebound) =
-                                rebind_leftover_pending_command(&candidate, &action.command)
-                            {
-                                state.pending_rejected_combat_play = Some(rebound);
+                            let skip_end_rebind = leftover
+                                == RunDecisionAction::Combat(CombatAction::EndTurn)
+                                && command_head_eq(&action.command, "END")
+                                && leftover_end_completed_next_player_turn(&source, &candidate);
+                            if !skip_end_rebind {
+                                if let Some(rebound) =
+                                    rebind_leftover_pending_command(&candidate, &action.command)
+                                {
+                                    state.pending_rejected_combat_play = Some(rebound);
+                                }
                             }
                             report.verified.push(VerifiedTransition {
                                 action_step: action.step,
@@ -4556,6 +4605,18 @@ mod tests {
             !leftover_end_finished_player_turn(&partial, &fixture),
             "a source that still holds cards is not a leftover END frame"
         );
+        assert!(
+            !leftover_end_completed_next_player_turn(&fixture, &fixture),
+            "the same player-turn counter is not a completed leftover END"
+        );
+        let mut advanced = fixture.clone();
+        advanced
+            .combat
+            .as_mut()
+            .expect("combat")
+            .relic_counters
+            .player_turns_started += 1;
+        assert!(leftover_end_completed_next_player_turn(&fixture, &advanced));
 
         let mut pending_decision = fixture.clone();
         let combat = pending_decision.combat.as_mut().expect("combat");

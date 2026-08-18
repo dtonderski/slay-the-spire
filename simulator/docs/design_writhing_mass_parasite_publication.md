@@ -25,3 +25,11 @@ parked combat action only when the observed subset matches. If it matches,
 park the recorded command as the next leftover so a following END can settle
 the rejected play's original click (FIDL01782 discarded hand; FIDL01572
 Warcry select).
+
+A duplicate END can be the same publication boundary while the live hand is
+still held (FIDL01515 END 915, FIDL01595 END 1119). Flush Parasite and park
+leftover `EndTurnAction`. Do not run `takeTurn` on that frame: the queued end
+still has Combust and discard ahead of the monster (FIDL01515 STATE 917 empty
+hand, Combust 10, then STATE 918 monster attack). A following END that is the
+leftover itself (FIDL01595 END 1120) finishes the turn and must not rebind
+another EndTurn.
