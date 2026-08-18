@@ -48,6 +48,8 @@ pub const EMPTY_MIND_ANY_COLOR_ID: ContentId = ContentId::new(1_892_284_736_503_
 pub const TRANQUILITY_ANY_COLOR_ID: ContentId = ContentId::new(71_074_483_415_927_220);
 pub const SKIM_ANY_COLOR_ID: ContentId = ContentId::new(2_547_668);
 pub const DOPPELGANGER_ANY_COLOR_ID: ContentId = ContentId::new(1_794_712_432_598_607_498);
+/// Prismatic/Defect Beam Cell — id matches `shop_card_content_id("BEAM_CELL")`.
+pub const BEAM_CELL_ANY_COLOR_ID: ContentId = ContentId::new(58_249_160_828_490);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5167,6 +5169,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | TRANQUILITY_ANY_COLOR_ID
             | SKIM_ANY_COLOR_ID
             | DOPPELGANGER_ANY_COLOR_ID
+            | BEAM_CELL_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -5456,6 +5459,23 @@ pub static EQUILIBRIUM_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static BEAM_CELL_ANY_COLOR: CardDefinition = CardDefinition {
+    id: BEAM_CELL_ANY_COLOR_ID,
+    key: "BEAM_CELL",
+    name: "Beam Cell",
+    cost: 0,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(3),
+        block: None,
+        vulnerable: Some(1),
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static GO_FOR_THE_EYES_ANY_COLOR: CardDefinition = CardDefinition {
     id: GO_FOR_THE_EYES_ANY_COLOR_ID,
     key: "GO_FOR_THE_EYES",
@@ -5528,6 +5548,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == SKIM_ANY_COLOR_ID).then_some(&SKIM_ANY_COLOR))
         .or_else(|| (id == DOPPELGANGER_ANY_COLOR_ID).then_some(&DOPPELGANGER_ANY_COLOR))
         .or_else(|| (id == GO_FOR_THE_EYES_ANY_COLOR_ID).then_some(&GO_FOR_THE_EYES_ANY_COLOR))
+        .or_else(|| (id == BEAM_CELL_ANY_COLOR_ID).then_some(&BEAM_CELL_ANY_COLOR))
         .or_else(|| (id == JUST_LUCKY_ANY_COLOR_ID).then_some(&JUST_LUCKY_ANY_COLOR))
         .or_else(|| (id == EMPTY_BODY_ANY_COLOR_ID).then_some(&EMPTY_BODY_ANY_COLOR))
 }
