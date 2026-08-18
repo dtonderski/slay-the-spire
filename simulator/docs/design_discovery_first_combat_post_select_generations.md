@@ -32,7 +32,9 @@ are one pulse while another enemy is still alive (FIDL01665 Cultist+AO).
 Five remaining cards against **solo living** Awakened One take two pulses
 (FIDL01357 leftover Sludge Void at draw index 7, not 4). Two remaining cards
 that include a status take two pulses (FIDL01357: Defend+Dazed then Wild Strike
-Wound at draw index 21, not 0). Two remaining non-status cards stay one pulse
+Wound at draw index 21, not 0). Donu/Deca does not take that extra pulse
+(FIDL01622: Clash+Dazed then Wild Strike Wound at draw index 21, not 11).
+Two remaining non-status cards stay one pulse
 (FIDL01614 Infernal Blade). Another Discovery still in hand still needs
 two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
 among the first two cards of the turn needs two pulses when the remaining
@@ -78,7 +80,7 @@ in hand, when Hex is up and two or more enemies are alive, when Awakened One
 is present and `hand.len() >= 6` at retrieve, when Awakened One is the sole
 living enemy and `hand.len() >= 5`, when Donu or Deca is present and
 `hand.len() >= 6`, when two or fewer remaining cards include a
-status, or when a hand-played Magnetism source is Magnetism-generated,
+status except against Donu/Deca, or when a hand-played Magnetism source is Magnetism-generated,
 `cards_played_this_turn <= 2`, and either fewer than 5 cards remain or another
 Magnetism-generated card is still in hand with remaining hand size other than 5.
 Remaining 5 with another Magnetism card stays one pulse. Mayhem

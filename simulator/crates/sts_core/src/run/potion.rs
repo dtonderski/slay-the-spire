@@ -942,8 +942,11 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // with 6+ remaining also takes two pulses (FIDL01431 Metamorphosis
             // Blood for Blood / Clash / Immolate).
             // Two remaining cards with a status still take two pulses (FIDL01357
-            // Wild Strike Wound after Defend+Dazed). Two remaining attacks/skills
-            // stay one pulse (FIDL01614 Infernal Blade after Strike+Infernal Blade).
+            // Wild Strike Wound after Defend+Dazed vs Spheric Guardian). Donu/Deca
+            // does not take that extra pulse: two remaining with a status stays
+            // one (FIDL01622 Clash+Dazed then Wild Strike Wound at draw index 21,
+            // not 11). Two remaining attacks/skills stay one pulse (FIDL01614
+            // Infernal Blade after Strike+Infernal Blade).
             // Another Discovery still in hand still needs two (FIDL01630 first pick). A
             // Magnetism-generated Discovery played among the first two cards
             // of the turn leaves two pulses when the remaining hand is small
@@ -1224,7 +1227,9 @@ fn discovery_post_select_generations(
         get_card_definition(card.content_id)
             .is_some_and(|definition| definition.card_type == CardType::Status)
     });
-    let tiny_remaining_hand_with_status = combat.piles.hand.len() <= 2 && remaining_status;
+    let tiny_remaining_hand_with_status = combat.piles.hand.len() <= 2
+        && remaining_status
+        && !fighting_donu_deca;
     if another_discovery_in_hand
         || hexed_with_two_living
         || (fighting_awakened_one
@@ -3564,6 +3569,49 @@ mod tests {
             combat.rng.card_random_rng.counter(),
             22,
             "two remaining cards including a status burn two discarded generateCardChoices generations"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_with_two_remaining_status_cards_vs_donu_deca_burns_one_generation() {
+        use crate::content::cards::{DAZED_ID, STRIKE_R_ID};
+        use crate::content::monsters::{monster_state, DECA_A0, DONU_A0};
+        use crate::ids::MonsterId;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.monsters = vec![
+            monster_state(&DECA_A0, MonsterId::new(1)),
+            monster_state(&DONU_A0, MonsterId::new(2)),
+        ];
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DAZED_ID),
+        ];
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            source_card_play_top: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("Donu/Deca two-card remaining Discovery retrieve");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            19,
+            "Donu/Deca two remaining with a status stay one discarded generateCardChoices generation"
         );
     }
 
