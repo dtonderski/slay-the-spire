@@ -1435,11 +1435,13 @@ fn execute_generic_monster_intent(
     }
     if state.monsters[index].content_id == crate::content::monsters::TIME_EATER_ID
         && matches!(intent, crate::MonsterIntent::Attack { damage: 26 | 32 })
-        && !state.time_warp_end_turn
+        && !state.time_warp_duplicate_monster_queue
     {
         // Head Slam addToBot ApplyPowerAction(DrawReductionPower). Artifact
         // consumes that DEBUFF (FIDL01762 step 1846) instead of shrinking
-        // gameHandSize for the following start-of-turn draw.
+        // gameHandSize for the following start-of-turn draw. A leftover Time
+        // Warp END still runs that same action (FIDL01566); skip only the
+        // duplicate-queue replay that would stack a second Head Slam.
         crate::power::apply_player_draw_reduction(&mut state.player.powers, 1)?;
     }
     let died_during_intent =
@@ -4605,6 +4607,29 @@ mod tests {
             !state.time_warp_end_turn,
             "leftover EndTurn consumed the Time Warp forced end"
         );
+    }
+
+    #[test]
+    fn time_warp_end_player_turn_head_slam_applies_draw_reduction() {
+        // Time Warp leftover PLAY/END still runs Head Slam's ApplyPowerAction.
+        // Skipping that while `time_warp_end_turn` is set draws a full next
+        // hand after Runic Pyramid (FIDL01566 END 1301).
+        let mut state = CombatState::initial_fixture();
+        state.time_warp_end_turn = true;
+        state.piles.hand.clear();
+        state.piles.draw_pile = (1..=6)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        let mut time_eater = monster_state_for_ascension(&TIME_EATER_A0, MonsterId::new(1), 0);
+        time_eater.intent = MonsterIntent::Attack { damage: 26 };
+        state.monsters = vec![time_eater];
+
+        let next = end_player_turn(&state).expect("Time Warp leftover Head Slam");
+
+        assert_eq!(next.player.powers.draw_reduction, 1);
+        assert_eq!(next.piles.hand.len(), 4);
+        assert!(!next.time_warp_end_turn);
     }
 
     #[test]

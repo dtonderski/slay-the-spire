@@ -5384,7 +5384,7 @@ mod tests {
 
     #[test]
     fn deferred_time_warp_end_instead_of_play_requires_pending_end() {
-        let mut run = RunState::combat_fixture();
+        let run = RunState::combat_fixture();
         let card_id = run.combat.as_ref().expect("combat").piles.hand[0].id;
         let decision = RunDecisionAction::Combat(CombatAction::PlayCard {
             card_id,
