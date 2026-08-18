@@ -2,7 +2,7 @@ use crate::{
     action::{CardPile, HpLossSource, InternalAction},
     card::{CardDefinition, CardType, TargetRequirement},
     combat::{
-        cost::effective_card_cost,
+        cost::{effective_card_cost, printed_card_cost},
         damage::{DamageInfo, DamageSource},
         draw::MAX_HAND_SIZE,
         CombatDecisionState, CombatState, HandSelectPurpose,
@@ -783,14 +783,14 @@ fn should_apply_necronomicon(
     {
         return Ok(false);
     }
-    // NecronomiconPower.onUseCard requires costForTurn >= 2. X-cost cards keep
-    // printed cost -1 (and Infernal Blade may overlay 0-cost-this-turn), so the
-    // game uses energyOnUse instead: a 2+ Energy Whirlwind is played twice
-    // (FIDL01485 Giant Head 376→340).
+    // NecronomiconPower.onUseCard uses the card's stored cost, not Snecko's
+    // costForTurn overlay: Sever Soul+ stays 1 under Confusion and is not
+    // copied (FIDL01511 PLAY 1190). X-cost printed cost is -1; those attacks
+    // use energyOnUse instead (FIDL01485 Infernal Blade Whirlwind at X=3).
     let necronomicon_cost = if definition.cost < 0 {
         state.player.energy
     } else {
-        effective_card_cost(card)?
+        printed_card_cost(card)?
     };
     Ok(necronomicon_cost >= 2)
 }
