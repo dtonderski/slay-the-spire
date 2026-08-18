@@ -2048,6 +2048,30 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
                 })
             })
             .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 1, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_hold_codex_insert_after_post_draw = true;
+                })
+            })
+            .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 2, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_hold_codex_insert_after_post_draw = true;
+                })
+            })
+            .or_else(|| {
+                extra_first_and_last_monster_roll_after(source, decision, post, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_hold_codex_insert_after_post_draw = true;
+                })
+            })
+            .or_else(|| {
+                extra_first_and_last_monster_roll_after(source, decision, post, 2, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_hold_codex_insert_after_post_draw = true;
+                })
+            })
+            .or_else(|| {
                 let mut applied = apply_run_decision_action(source, decision).ok()?;
                 sts_core::combat::roll_last_living_monster_intent(applied.combat.as_mut()?).ok()?;
                 applied.player_hp = applied.combat.as_ref()?.player.hp;
@@ -2129,6 +2153,25 @@ fn park_nilry_choice_then_leftover_draw_before_insert(
             try_parked(|c| {
                 c.nilrys_duplicate_monster_queue = true;
                 c.nilrys_skip_post_queue_rolls = true;
+            })
+        })
+        .or_else(|| try_parked(|c| c.nilrys_hold_codex_insert_after_post_draw = true))
+        .or_else(|| {
+            try_parked(|c| {
+                c.nilrys_hold_codex_insert_after_post_draw = true;
+                c.nilrys_skip_post_queue_rolls = true;
+            })
+        })
+        .or_else(|| {
+            try_parked(|c| {
+                c.nilrys_hold_codex_insert_after_post_draw = true;
+                c.nilrys_interleave_post_queue_rolls = true;
+            })
+        })
+        .or_else(|| {
+            try_parked(|c| {
+                c.nilrys_hold_codex_insert_after_post_draw = true;
+                c.nilrys_single_post_queue_roll = true;
             })
         })
 }
@@ -2421,23 +2464,22 @@ fn deferred_nilrys_hold_attack_multiple_rolls_on_second_choice_candidate(
 }
 
 /// Leftover stage-3 close can publish after draw/Tongs with the Codex card
-/// still queued. The next PLAY flushes `MakeTempCardInDrawPileAction` first
-/// (FIDL01807 PLAY 1168 after CHOOSE 1167).
-fn deferred_nilrys_flush_codex_insert_then_play_candidate(
+/// still queued. A later PLAY / END / CHOOSE flushes MakeTempCardInDrawPile
+/// first (FIDL01807 PLAY 1168 after CHOOSE 1167).
+fn deferred_nilrys_flush_codex_insert_then_action_candidate(
     source: &RunState,
     decision: RunDecisionAction,
     post: &TraceState,
 ) -> Option<RunState> {
-    if !matches!(
-        decision,
-        RunDecisionAction::Combat(CombatAction::PlayCard { .. })
-    ) {
-        return None;
+    match decision {
+        RunDecisionAction::Combat(CombatAction::PlayCard { .. } | CombatAction::EndTurn)
+        | RunDecisionAction::Run(
+            RunAction::ChooseCombatCardReward { .. } | RunAction::SkipCombatCardReward,
+        ) => {}
+        _ => return None,
     }
     let combat = source.combat.as_ref()?;
-    if !combat.nilrys_defer_codex_insert_until_after_draw
-        || combat.pending_nilrys_codex_draw_inserts.is_empty()
-    {
+    if combat.pending_nilrys_codex_draw_inserts.is_empty() {
         return None;
     }
     let mut flushed = source.clone();
@@ -3289,11 +3331,10 @@ fn leftover_end_state_continue_draw(source: &RunState, observed: Value) -> Optio
             {
                 return Some(next);
             }
-            if next
-                .combat
-                .as_ref()
-                .is_some_and(|combat| combat.nilrys_defer_codex_insert_until_after_draw)
-            {
+            if next.combat.as_ref().is_some_and(|combat| {
+                combat.nilrys_defer_codex_insert_until_after_draw
+                    && !combat.nilrys_hold_codex_insert_after_post_draw
+            }) {
                 {
                     let combat = next.combat.as_mut()?;
                     sts_core::relic::nilrys_codex_flush_pending_draw_inserts(combat).ok()?;
@@ -4661,7 +4702,7 @@ pub(super) fn verify_seed_start_transition(
                                 )
                             })
                             .or_else(|| {
-                                deferred_nilrys_flush_codex_insert_then_play_candidate(
+                                deferred_nilrys_flush_codex_insert_then_action_candidate(
                                     &source, decision, post,
                                 )
                             })
