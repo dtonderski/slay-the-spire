@@ -2602,6 +2602,23 @@ fn leftover_end_state_continue_draw(source: &RunState, observed: Value) -> Optio
         if subset_diffs(observed.clone(), seed_start_simulated_combat_subset(&next)).is_empty() {
             return Some(next);
         }
+        if combat.leftover_end_turn_draw_remaining == 0 {
+            // Mid-draw leftover STATE peels before atTurnStartPostDraw. The
+            // completing poll draws the last card then Warped Tongs (FIDL01807
+            // STATE 853 Ghostly Armor+).
+            if sts_core::relic::apply_start_of_player_turn_post_draw_relics(combat).is_err() {
+                continue;
+            }
+            next.player_hp = combat.player.hp;
+            next.player_max_hp = combat.player.max_hp;
+            if next.validate().is_err() {
+                continue;
+            }
+            if subset_diffs(observed.clone(), seed_start_simulated_combat_subset(&next)).is_empty()
+            {
+                return Some(next);
+            }
+        }
     }
     None
 }
