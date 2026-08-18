@@ -2641,6 +2641,27 @@ fn upgrade_hand_card(state: &mut CombatState, card_id: CardId) -> SimResult<()> 
     Ok(())
 }
 
+fn is_play_top_draw_pile_insert(action: &InternalAction) -> bool {
+    matches!(
+        action,
+        InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
+            | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
+    )
+}
+
+pub(crate) fn flush_deferred_mayhem_play_top_draw_inserts(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    state.defer_mayhem_play_top_draw_inserts = false;
+    let inserts = std::mem::take(&mut state.deferred_mayhem_play_top_draw_inserts);
+    if inserts.is_empty() || state.player.hp <= 0 {
+        return Ok(());
+    }
+    let transition = process_internal_queue(state, VecDeque::from(inserts))?;
+    *state = transition.state;
+    Ok(())
+}
+
 fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
     matches!(
         action,
@@ -2876,6 +2897,9 @@ fn resolve_top_draw_card(
     for action in queue {
         if is_play_top_deferred_power_gain(&action) {
             deferred_power_gains.push(action);
+        } else if state.defer_mayhem_play_top_draw_inserts && is_play_top_draw_pile_insert(&action)
+        {
+            state.deferred_mayhem_play_top_draw_inserts.push(action);
         } else {
             immediate.push_back(action);
         }

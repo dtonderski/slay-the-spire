@@ -759,18 +759,25 @@ fn start_player_turn_in_place(state: &mut CombatState, apply_start_relics: bool)
     // Mayhem is queued ahead of Evolve's residual DrawCardAction from the base
     // hand refill. If Mayhem is the twelfth card, Time Warp appends EndTurnAction
     // behind that pending draw; defer the forced turn until FIFO evolve draws settle.
+    // PlayTop card use() still addToBot(MakeTempCardInDrawPile) behind that
+    // Evolve draw, so Wild Strike's Wound insert sees the post-Evolve pile
+    // (FIDL01469).
     state.defer_time_warp_end_turn = true;
+    state.defer_mayhem_play_top_draw_inserts = true;
     apply_start_of_turn_mayhem(state, &mayhem_targets)?;
     if state.player.hp <= 0 {
         state.player.hp = 0;
         state.phase = CombatPhase::Lost;
         state.clear_decisions_on_combat_end();
         state.defer_time_warp_end_turn = false;
+        state.defer_mayhem_play_top_draw_inserts = false;
+        state.deferred_mayhem_play_top_draw_inserts.clear();
         return Ok(());
     }
     if state.player.hp > 0 {
         crate::combat::transition::resolve_deferred_draw_follow_ups(state, base_draw_follow_ups)?;
     }
+    crate::combat::transition::flush_deferred_mayhem_play_top_draw_inserts(state)?;
     state.defer_time_warp_end_turn = false;
     crate::combat::transition::settle_time_warp_end_turn_if_ready(state)?;
     if state

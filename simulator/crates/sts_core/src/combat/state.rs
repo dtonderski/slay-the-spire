@@ -131,6 +131,12 @@ pub struct CombatState {
     /// Depth while expanding nested PlayTop card queues (not sticky across turns).
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub play_top_resolving_depth: u32,
+    /// Start-of-turn Mayhem PlayTop `MakeTempCardInDrawPile` waits behind Evolve
+    /// residual draws from the base hand refill (FIDL01469 Wild Strike Wound).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub defer_mayhem_play_top_draw_inserts: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deferred_mayhem_play_top_draw_inserts: Vec<InternalAction>,
     /// Letter Opener all-enemy hits still on the action queue (FIDL00428).
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub pending_letter_opener_blasts: u32,
@@ -1172,6 +1178,8 @@ impl CombatState {
             skip_put_on_deck_auto_place: false,
             deferred_play_top_monster_blocks: Vec::new(),
             play_top_resolving_depth: 0,
+            defer_mayhem_play_top_draw_inserts: false,
+            deferred_mayhem_play_top_draw_inserts: Vec::new(),
             pending_letter_opener_blasts: 0,
             opening_turn_pending: false,
             pending_opening_monster_intents: Vec::new(),
