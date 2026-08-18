@@ -1438,9 +1438,60 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 }
             }
         }
+        // Two leftover MonsterQueueItems run with captured intents, then
+        // RollMoveAction can set Exploder to UNKNOWN/Stun. SuperFastMode
+        // still flushes that suicide on the same leftover frame
+        // (FIDL01807 CHOOSE 1034: 9968→9938, Exploder dies). Hold the
+        // duplicate-queue skip so the dead Exploder does not consume a
+        // leftover RollMoveAction while another enemy is still alive.
+        state.nilrys_duplicate_monster_queue = true;
+        flush_leftover_exploder_stun_suicide(state, &relics, &mut skip_ritual_tick)?;
+        state.nilrys_duplicate_monster_queue = false;
     }
 
     finish_monster_turn_cleanup(state, &skip_ritual_tick)
+}
+
+fn flush_leftover_exploder_stun_suicide(
+    state: &mut CombatState,
+    relics: &[crate::Relic],
+    skip_ritual_tick: &mut Vec<MonsterId>,
+) -> SimResult<()> {
+    let ascension = state.ascension;
+    let actor_ids: Vec<_> = state
+        .monsters
+        .iter()
+        .filter(|monster| {
+            monster.alive
+                && monster.content_id == EXPLODER_ID
+                && monster.powers.explosive > 0
+                && matches!(monster.intent, crate::MonsterIntent::Stun)
+        })
+        .map(|monster| monster.id)
+        .collect();
+    for actor_id in actor_ids {
+        let Some(index) = state
+            .monsters
+            .iter()
+            .position(|monster| monster.id == actor_id)
+        else {
+            continue;
+        };
+        if matches!(
+            execute_generic_monster_intent(
+                state,
+                actor_id,
+                index,
+                ascension,
+                relics,
+                skip_ritual_tick,
+            )?,
+            ActorTurnDisposition::StopPlayerDead
+        ) {
+            return Ok(());
+        }
+    }
+    Ok(())
 }
 
 enum ActorTurnDisposition {
