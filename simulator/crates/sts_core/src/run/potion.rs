@@ -935,9 +935,10 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // remaining-hand shape against other encounters stays one pulse
             // (FIDL01309 Wild Strike Wound; FIDL01248 / FIDL01255). Remaining
             // hands of 3–5 against Awakened One stay one pulse while another
-            // enemy is still alive (FIDL01665 Cultist+AO). A five-card remaining
-            // hand against solo living Awakened One still takes two pulses
-            // (FIDL01357 leftover Sludge Void at draw index 7, not 4). Donu/Deca
+            // enemy is still alive (FIDL01665 Cultist+AO). A four-or-five-card
+            // remaining hand against solo living Awakened One still takes two
+            // pulses (FIDL01357 leftover Sludge Void at draw index 7, not 4;
+            // FIDL01525 Chrysalis insert after Anger retrieve). Donu/Deca
             // with 6+ remaining also takes two pulses (FIDL01431 Metamorphosis
             // Blood for Blood / Clash / Immolate).
             // Two remaining cards with a status still take two pulses (FIDL01357
@@ -1228,7 +1229,7 @@ fn discovery_post_select_generations(
         || hexed_with_two_living
         || (fighting_awakened_one
             && (combat.piles.hand.len() >= 6
-                || (combat.piles.hand.len() >= 5 && living_monsters <= 1)))
+                || (combat.piles.hand.len() >= 4 && living_monsters <= 1)))
         || (fighting_donu_deca && combat.piles.hand.len() >= 6)
         || tiny_remaining_hand_with_status
         || (early_magnetism_generated_source && combat.piles.hand.len() < 5)
