@@ -757,6 +757,10 @@ fn start_player_turn_in_place(state: &mut CombatState, apply_start_relics: bool)
         state.player.temp_dexterity = 0;
     }
     state.player.energy = checked_turn_add(state.player.energy, state.player.powers.berserk)?;
+    if state.player.powers.fasting != 0 {
+        state.player.energy =
+            checked_turn_add(state.player.energy, -state.player.powers.fasting)?.max(0);
+    }
     if apply_start_relics {
         crate::relic::apply_start_of_player_turn_relics(state)?;
     }

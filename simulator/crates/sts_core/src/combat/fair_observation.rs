@@ -611,6 +611,7 @@ fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
         ("barricade", p.barricade),
         ("evolve", p.evolve),
         ("berserk", p.berserk),
+        ("fasting", p.fasting),
         ("rupture", p.rupture),
         ("juggernaut", p.juggernaut),
         ("brutality", p.brutality),

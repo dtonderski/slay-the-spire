@@ -1409,11 +1409,15 @@ pub fn any_color_reward_card_key(content_id: ContentId) -> Option<&'static str> 
 
 #[must_use]
 pub fn any_color_reward_card_key_from_identity(identity: &str) -> Option<&'static str> {
-    let normalized = identity
+    let mut normalized = identity
         .chars()
         .filter(|character| character.is_ascii_alphanumeric())
         .map(|character| character.to_ascii_lowercase())
         .collect::<String>();
+    // Vanilla Watcher Fasting uses cardID `Fasting2` (Fasting was taken).
+    if normalized == "fasting2" {
+        normalized = "fasting".to_owned();
+    }
     ANY_COLOR_COMMON_CARDS
         .iter()
         .chain(ANY_COLOR_UNCOMMON_CARDS.iter())

@@ -307,6 +307,9 @@ pub enum InternalAction {
     GainBerserk {
         amount: i32,
     },
+    GainFasting {
+        amount: i32,
+    },
     GainRupture {
         amount: i32,
     },

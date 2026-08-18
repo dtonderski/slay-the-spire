@@ -50,6 +50,8 @@ pub const SKIM_ANY_COLOR_ID: ContentId = ContentId::new(2_547_668);
 pub const DOPPELGANGER_ANY_COLOR_ID: ContentId = ContentId::new(1_794_712_432_598_607_498);
 /// Prismatic/Defect Beam Cell — id matches `shop_card_content_id("BEAM_CELL")`.
 pub const BEAM_CELL_ANY_COLOR_ID: ContentId = ContentId::new(58_249_160_828_490);
+/// Prismatic/Watcher Fasting (`Fasting2`) — id matches `shop_card_content_id("FASTING")`.
+pub const FASTING_ANY_COLOR_ID: ContentId = ContentId::new(64_065_380_414);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5170,6 +5172,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | SKIM_ANY_COLOR_ID
             | DOPPELGANGER_ANY_COLOR_ID
             | BEAM_CELL_ANY_COLOR_ID
+            | FASTING_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -5459,6 +5462,23 @@ pub static EQUILIBRIUM_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static FASTING_ANY_COLOR: CardDefinition = CardDefinition {
+    id: FASTING_ANY_COLOR_ID,
+    key: "FASTING",
+    name: "Fasting",
+    cost: 2,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static BEAM_CELL_ANY_COLOR: CardDefinition = CardDefinition {
     id: BEAM_CELL_ANY_COLOR_ID,
     key: "BEAM_CELL",
@@ -5549,6 +5569,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == DOPPELGANGER_ANY_COLOR_ID).then_some(&DOPPELGANGER_ANY_COLOR))
         .or_else(|| (id == GO_FOR_THE_EYES_ANY_COLOR_ID).then_some(&GO_FOR_THE_EYES_ANY_COLOR))
         .or_else(|| (id == BEAM_CELL_ANY_COLOR_ID).then_some(&BEAM_CELL_ANY_COLOR))
+        .or_else(|| (id == FASTING_ANY_COLOR_ID).then_some(&FASTING_ANY_COLOR))
         .or_else(|| (id == JUST_LUCKY_ANY_COLOR_ID).then_some(&JUST_LUCKY_ANY_COLOR))
         .or_else(|| (id == EMPTY_BODY_ANY_COLOR_ID).then_some(&EMPTY_BODY_ANY_COLOR))
 }

@@ -41,6 +41,10 @@ pub struct PlayerPowers {
     pub evolve: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub berserk: i32,
+    /// Fasting (`EnergyDownPower`): lose this much Energy at turn start and
+    /// block later Dexterity gains from cards.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub fasting: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub rupture: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]

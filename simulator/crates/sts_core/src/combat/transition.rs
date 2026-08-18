@@ -1147,6 +1147,7 @@ fn apply_internal_action_with_defer(
         InternalAction::GainBarricade { amount } => player_actions::gain_barricade(state, amount),
         InternalAction::GainEvolve { amount } => player_actions::gain_evolve(state, amount),
         InternalAction::GainBerserk { amount } => player_actions::gain_berserk(state, amount),
+        InternalAction::GainFasting { amount } => player_actions::gain_fasting(state, amount),
         InternalAction::GainRupture { amount } => player_actions::gain_rupture(state, amount),
         InternalAction::GainJuggernaut { amount } => player_actions::gain_juggernaut(state, amount),
         InternalAction::GainBrutality { amount } => player_actions::gain_brutality(state, amount),
@@ -2726,6 +2727,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainBarricade { .. }
             | InternalAction::GainEvolve { .. }
             | InternalAction::GainBerserk { .. }
+            | InternalAction::GainFasting { .. }
             | InternalAction::GainRupture { .. }
             | InternalAction::GainJuggernaut { .. }
             | InternalAction::GainBrutality { .. }
