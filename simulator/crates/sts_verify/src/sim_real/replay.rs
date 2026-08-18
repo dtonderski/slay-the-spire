@@ -1814,6 +1814,19 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
                     c.nilrys_single_post_queue_roll = true;
                 })
             })
+            .or_else(|| extra_first_monster_roll_after(source, decision, post, |_| {}))
+            .or_else(|| {
+                let mut applied = apply_run_decision_action(source, decision).ok()?;
+                sts_core::combat::roll_last_living_monster_intent(applied.combat.as_mut()?).ok()?;
+                applied.player_hp = applied.combat.as_ref()?.player.hp;
+                applied.validate().ok()?;
+                subset_diffs(
+                    seed_start_combat_observed_subset(&post.message),
+                    seed_start_simulated_combat_subset(&applied),
+                )
+                .is_empty()
+                .then_some(applied)
+            })
     })
 }
 
