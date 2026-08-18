@@ -1752,19 +1752,31 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
         )
     })
     .or_else(|| {
-        let mut flagged = source.clone();
-        {
-            let combat = flagged.combat.as_mut()?;
-            combat.nilrys_duplicate_monster_queue = true;
-        }
-        let applied = apply_run_decision_action(&flagged, decision).ok()?;
-        applied.validate().ok()?;
-        subset_diffs(
-            seed_start_combat_observed_subset(&post.message),
-            seed_start_simulated_combat_subset(&applied),
-        )
-        .is_empty()
-        .then_some(applied)
+        let try_flagged = |set: fn(&mut sts_core::combat::CombatState)| -> Option<RunState> {
+            let mut flagged = source.clone();
+            {
+                let combat = flagged.combat.as_mut()?;
+                set(combat);
+            }
+            let applied = apply_run_decision_action(&flagged, decision).ok()?;
+            applied.validate().ok()?;
+            subset_diffs(
+                seed_start_combat_observed_subset(&post.message),
+                seed_start_simulated_combat_subset(&applied),
+            )
+            .is_empty()
+            .then_some(applied)
+        };
+        try_flagged(|c| c.nilrys_duplicate_monster_queue = true)
+            .or_else(|| try_flagged(|c| c.nilrys_skip_post_queue_rolls = true))
+            .or_else(|| {
+                try_flagged(|c| {
+                    c.nilrys_duplicate_monster_queue = true;
+                    c.nilrys_skip_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| try_flagged(|c| c.nilrys_interleave_post_queue_rolls = true))
+            .or_else(|| try_flagged(|c| c.nilrys_single_post_queue_roll = true))
     })
 }
 
