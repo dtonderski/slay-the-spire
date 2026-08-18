@@ -158,7 +158,9 @@ pub const SECRET_TECHNIQUE_ID: ContentId = ContentId::new(2_746_448_811_048_118_
 pub const SECRET_TECHNIQUE_PLUS_ID: ContentId = ContentId::new(2_746_448_811_048_118_714);
 pub const SECRET_WEAPON_ID: ContentId = ContentId::new(11_846_108_130_828_291_299);
 pub const SECRET_WEAPON_PLUS_ID: ContentId = ContentId::new(11_846_108_130_828_291_300);
-/// Prismatic/Watcher Blasphemy — id matches `shop_card_content_id("BLASPHEMY")`.
+/// Prismatic/Watcher Sands of Time — id matches `shop_card_content_id("SANDS_OF_TIME")`.
+pub const SANDS_OF_TIME_ID: ContentId = ContentId::new(11_753_132_208_140_307_101);
+pub const SANDS_OF_TIME_PLUS_ID: ContentId = ContentId::new(13_858_961_051_868_021_470);
 pub const BLASPHEMY_ID: ContentId = ContentId::new(58_441_907_198_357);
 pub const BLASPHEMY_PLUS_ID: ContentId = ContentId::new(58_441_907_198_358);
 pub const VIOLENCE_ID: ContentId = ContentId::new(2_433_206_606_067);
@@ -2946,6 +2948,52 @@ pub const BLASPHEMY_PLUS: CardDefinition = CardDefinition {
     },
 };
 
+pub const SANDS_OF_TIME: CardDefinition = CardDefinition {
+    id: SANDS_OF_TIME_ID,
+    key: "SANDS_OF_TIME",
+    name: "Sands of Time",
+    cost: 4,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: Some(SANDS_OF_TIME_PLUS_ID),
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(20),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: true,
+        unplayable: false,
+    },
+};
+
+pub const SANDS_OF_TIME_PLUS: CardDefinition = CardDefinition {
+    id: SANDS_OF_TIME_PLUS_ID,
+    key: "SANDS_OF_TIME+",
+    name: "Sands of Time+",
+    cost: 4,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(26),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: true,
+        unplayable: false,
+    },
+};
+
 pub const VIOLENCE: CardDefinition = CardDefinition {
     id: VIOLENCE_ID,
     key: "VIOLENCE",
@@ -4843,7 +4891,7 @@ pub const MILESTONE5_COMPLEX_CARDS: [CardDefinition; 8] = [
 ];
 pub const MILESTONE5_POWER_CARDS: [CardDefinition; 4] =
     [FEEL_NO_PAIN, DARK_EMBRACE, INFLAME, INFLAME_PLUS];
-pub static ALL_CARDS: [CardDefinition; 249] = [
+pub static ALL_CARDS: [CardDefinition; 251] = [
     STRIKE_R,
     STRIKE_R_PLUS,
     DEFEND_R,
@@ -5007,6 +5055,8 @@ pub static ALL_CARDS: [CardDefinition; 249] = [
     SECRET_WEAPON_PLUS,
     BLASPHEMY,
     BLASPHEMY_PLUS,
+    SANDS_OF_TIME,
+    SANDS_OF_TIME_PLUS,
     VIOLENCE,
     VIOLENCE_PLUS,
     THE_BOMB,

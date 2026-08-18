@@ -276,6 +276,7 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
 
 fn discard_non_retain_hand(state: &mut CombatState) {
     if state.relics.contains(&crate::Relic::RunicPyramid) {
+        apply_sands_of_time_end_of_turn_cost(state);
         return;
     }
     let retain_hand = std::mem::take(&mut state.player.retain_hand_next_turn);
@@ -297,6 +298,25 @@ fn discard_non_retain_hand(state: &mut CombatState) {
     state.piles.hand = retained;
     discarded.reverse();
     state.piles.discard_pile.extend(discarded);
+    apply_sands_of_time_end_of_turn_cost(state);
+}
+
+fn apply_sands_of_time_end_of_turn_cost(state: &mut CombatState) {
+    use crate::content::cards::{SANDS_OF_TIME_ID, SANDS_OF_TIME_PLUS_ID};
+    for card in &mut state.piles.hand {
+        if !matches!(card.content_id, SANDS_OF_TIME_ID | SANDS_OF_TIME_PLUS_ID) {
+            continue;
+        }
+        let current = card.temp_cost.map_or_else(
+            || {
+                get_card_definition(card.content_id)
+                    .map(|definition| i32::from(definition.cost))
+                    .unwrap_or(4)
+            },
+            i32::from,
+        );
+        card.temp_cost = Some(current.saturating_sub(1).clamp(0, 255) as u8);
+    }
 }
 
 #[cfg(test)]

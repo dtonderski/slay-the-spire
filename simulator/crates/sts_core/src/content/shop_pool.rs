@@ -303,6 +303,7 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "SECRET_TECHNIQUE" => SECRET_TECHNIQUE_ID,
         "SECRET_WEAPON" => SECRET_WEAPON_ID,
         "BLASPHEMY" => crate::content::cards::BLASPHEMY_ID,
+        "SANDS_OF_TIME" => crate::content::cards::SANDS_OF_TIME_ID,
         "THE_BOMB" => THE_BOMB_ID,
         "THINKING_AHEAD" => THINKING_AHEAD_ID,
         "TRANSMUTATION" => TRANSMUTATION_ID,
