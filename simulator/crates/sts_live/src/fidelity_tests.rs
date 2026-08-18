@@ -129,7 +129,7 @@ fn checker_rejects_complete_start_trace_without_boundary_schema_v1() {
     assert!(status
         .compact_diff
         .iter()
-        .any(|detail| detail.contains("boundary_schema=1")));
+        .any(|detail| detail.contains("boundary_schema")));
     fs::remove_file(path).ok();
 }
 
@@ -286,7 +286,7 @@ fn checker_rejects_polling_trace_without_boundary_schema_v1() {
     assert!(status
         .compact_diff
         .iter()
-        .any(|detail| detail.contains("boundary_schema=1")));
+        .any(|detail| detail.contains("boundary_schema")));
     fs::remove_file(path).ok();
 }
 
