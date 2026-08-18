@@ -402,7 +402,7 @@ pub(super) fn play_card_queue(
             queued_state.player.retain_hand_next_turn = true;
             equilibrium_queue(card_id, *card, definition)
         }
-        PROSTRATE_ANY_COLOR_ID => prostrate_queue(card_id, definition),
+        PROSTRATE_ANY_COLOR_ID => prostrate_queue(card_id, *card, definition),
         RECYCLE_ANY_COLOR_ID => recycle_queue(card_id, definition),
         BIASED_COGNITION_ANY_COLOR_ID => biased_cognition_queue(card_id, definition),
         PRESSURE_POINTS_ANY_COLOR_ID => pressure_points_queue(state, card_id, target, definition),
@@ -2815,17 +2815,21 @@ fn cloak_and_dagger_queue(
 
 fn prostrate_queue(
     card_id: CardId,
+    card: CardInstance,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
+    let upgraded = card.upgrades > 0;
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: required_block(definition)?,
+            amount: required_block(definition)? + if upgraded { 2 } else { 0 },
         },
-        InternalAction::GainMantra { amount: 3 },
+        InternalAction::GainMantra {
+            amount: if upgraded { 3 } else { 2 },
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
