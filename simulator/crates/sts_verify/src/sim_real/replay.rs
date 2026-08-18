@@ -2185,7 +2185,13 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
         .then_some(candidate)
     };
     if !from_stage_two {
-        return try_finish(&candidate);
+        return try_finish(&candidate).or_else(|| {
+            leftover_end_state_publication_candidate(
+                source,
+                Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+                post,
+            )
+        });
     }
     let discard_then_monsters = |set: fn(&mut sts_core::combat::CombatState)| -> Option<RunState> {
         let mut flagged = candidate.clone();
@@ -2214,6 +2220,13 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
             combat.nilrys_duplicate_monster_queue = true;
             combat.nilrys_end_powers_pending = true;
             try_finish(&candidate)
+        })
+        .or_else(|| {
+            leftover_end_state_publication_candidate(
+                source,
+                Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+                post,
+            )
         })
 }
 
