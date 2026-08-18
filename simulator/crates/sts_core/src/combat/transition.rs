@@ -3116,13 +3116,7 @@ pub fn confirm_hand_select_with_time_warp_policy(
     };
     resume_actions_after_hand_select(state, pending_before_source)?;
     if source_settlement_after_pending {
-        let queue_bot_exhaust = state.player.powers.dark_embrace > 0
-            && state.relics.contains(&crate::relic::Relic::DeadBranch);
-        if queue_bot_exhaust {
-            move_delayed_played_source_with_bot_exhaust_queue(state, hand_select.source_card_id)?;
-        } else {
-            move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
-        }
+        move_delayed_played_source_with_bot_exhaust_queue(state, hand_select.source_card_id)?;
         state.defer_time_warp_end_turn = previous_defer_time_warp;
     }
     resume_actions_after_hand_select(state, pending_after_source)?;
