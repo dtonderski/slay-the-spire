@@ -1212,10 +1212,13 @@ fn apply_internal_action_with_defer(
             // (after remaining card.use / onUseCard / UseCardAction settlement).
             // Immediate DE draws would reshuffle before the played card reaches
             // discard (Sever Soul + empty draw), desyncing hand/draw order.
-            // Gremlin Horn onDeath is addToBot during card.use(), before
-            // UseCardAction's onExhaust bots, so the death draw precedes Dead
-            // Branch (FIDL01520 Havoc → Bite kill: Madness then Perfected Strike).
-            flush_pending_monster_death_relics_if_ready(state)?;
+            // Gremlin Horn onDeath is addToBot during that card's use(), before
+            // its UseCardAction onExhaust bots. Flush only for the killing
+            // card: Fiend Fire exhausts *other* cards first, and a death draw
+            // mid-exhaust refills the hand (FIDL01456).
+            if state.card_in_use == Some(card_id) {
+                flush_pending_monster_death_relics_if_ready(state)?;
+            }
             apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
             let mut follow_ups = feel_no_pain_block_follow_up(state);
             follow_ups.extend(dead_branch_follow_up(state));
@@ -1223,7 +1226,9 @@ fn apply_internal_action_with_defer(
             Ok(follow_ups)
         }
         InternalAction::HandCardExhausted { card_id } => {
-            flush_pending_monster_death_relics_if_ready(state)?;
+            if state.card_in_use == Some(card_id) {
+                flush_pending_monster_death_relics_if_ready(state)?;
+            }
             apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
             let mut follow_ups = feel_no_pain_block_follow_up(state);
             follow_ups.extend(dead_branch_follow_up_before_pending_draw(state));
