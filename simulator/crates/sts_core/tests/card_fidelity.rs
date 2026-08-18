@@ -1160,6 +1160,57 @@ fn warcry_with_only_drawn_card_auto_puts_on_deck_without_selection() {
 }
 
 #[test]
+fn warcry_auto_place_redraws_with_unceasing_top() {
+    // PutOnDeck auto-place empties the hand while Warcry is in limbo, then
+    // Unceasing Top draws the card just put on top (FIDL01461 Clothesline+).
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 0;
+    state.relics.push(Relic::UnceasingTop);
+    let rng_before = state.rng.card_random_rng.counter();
+    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::WARCRY_ID)];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(3), cards::CLOTHESLINE_PLUS_ID),
+    ];
+    state.piles.discard_pile.clear();
+    state.piles.exhaust_pile.clear();
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Warcry auto-place with Unceasing Top still plays");
+
+    assert!(next.hand_select().is_none());
+    assert_eq!(
+        next.piles
+            .hand
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::CLOTHESLINE_PLUS_ID],
+        "Top redraws the auto-placed card"
+    );
+    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::WARCRY_ID);
+    assert_eq!(
+        next.piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        vec![cards::DEFEND_R_ID]
+    );
+    assert_eq!(
+        next.rng.card_random_rng.counter(),
+        rng_before + 1,
+        "auto-place still burns getRandomCard before Top draws"
+    );
+}
+
+#[test]
 fn warcry_empty_draw_shuffle_defers_abacus_block_until_confirm() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;

@@ -3690,7 +3690,17 @@ fn confirm_warcry_select(
 }
 
 fn finish_warcry_source(state: &mut CombatState, source_card_id: CardId) -> SimResult<()> {
-    move_delayed_played_source_with_strange_spoon(state, source_card_id)
+    move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+    // Warcry auto-place uses getRandomCard + moveToDeck rather than MoveCard, then
+    // delayed source exhaust. PutOnDeck empties the published hand (Warcry is in
+    // limbo), and Unceasing Top's later DrawCardAction redraws that top card.
+    // Skipping the relic here makes the skip-auto-place candidate look identical
+    // to ordinary put-back, so replay keeps the no-RNG path and later Madness
+    // samples the wrong remaining card (FIDL01461 Entrench vs Strike).
+    if state.piles.hand.is_empty() {
+        apply_unceasing_top_after_hand_emptied(state)?;
+    }
+    Ok(())
 }
 
 fn confirm_thinking_ahead_select(

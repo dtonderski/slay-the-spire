@@ -97,4 +97,5 @@ family as a confirmed PutOnDeckAction — Warcry still exhausts and the drawn ca
 stays in hand. `getRandomCard` is not burned. The ordinary auto-put path remains
 authoritative; the verifier may accept the skipped candidate only when the
 complete observed combat subset matches it and the ordinary put-back does not.
-Witnesses: FIDL01308, FIDL01461, FIDL01620.
+Witnesses: FIDL01308, FIDL01620. FIDL01461 last-card Warcry with Unceasing Top
+is ordinary auto-place plus Top redraw, not this skip.
