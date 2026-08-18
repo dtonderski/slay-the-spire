@@ -1773,6 +1773,68 @@ fn deferred_nilrys_first_choice_candidate(
     }
 }
 
+/// SuperFastMode can publish leftover draw/Tongs before a leftover Codex
+/// `MakeTempCardInDrawPileAction`, then insert that parked card on the next
+/// first-offer CHOOSE without also inserting the first-offer pick (FIDL01807
+/// CHOOSE 1170: leftover Impervious lands at remaining-draw `[0]`; Clash+
+/// stays parked for the second offer).
+fn deferred_nilrys_flush_pending_then_park_first_choice_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    let combat = source.combat.as_ref()?;
+    if combat.nilrys_codex_end_turn_stage != 1
+        || combat.pending_nilrys_codex_draw_inserts.is_empty()
+        || !matches!(
+            combat.decision.as_ref(),
+            Some(CombatDecisionState::NilrysCodexCardReward { .. })
+        )
+    {
+        return None;
+    }
+    let park = |index: Option<usize>, apply_end_turn_block: bool| -> Option<RunState> {
+        let mut candidate = source.clone();
+        {
+            let combat = candidate.combat.as_mut()?;
+            sts_core::relic::nilrys_codex_flush_pending_draw_inserts(combat).ok()?;
+            match index {
+                Some(index) => {
+                    sts_core::relic::nilrys_codex_park_choice_without_insert(combat, index).ok()?;
+                }
+                None => {
+                    combat.decision = None;
+                }
+            }
+            sts_core::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(combat)
+                .ok()?;
+            candidate.player_hp = combat.player.hp;
+            candidate.player_max_hp = combat.player.max_hp;
+            if apply_end_turn_block {
+                sts_core::relic::nilrys_codex_apply_paused_end_turn_block_powers(combat).ok()?;
+            }
+            combat.nilrys_codex_end_turn_stage = 2;
+            candidate.card_random_rng_counter = combat.rng.card_random_rng.counter();
+        }
+        candidate.validate().ok()?;
+        subset_diffs(
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&candidate),
+        )
+        .is_empty()
+        .then_some(candidate)
+    };
+    match decision {
+        RunDecisionAction::Run(RunAction::ChooseCombatCardReward { index }) => {
+            park(Some(index), false).or_else(|| park(Some(index), true))
+        }
+        RunDecisionAction::Run(RunAction::SkipCombatCardReward) => {
+            park(None, false).or_else(|| park(None, true))
+        }
+        _ => None,
+    }
+}
+
 fn extra_first_monster_roll_after(
     source: &RunState,
     decision: RunDecisionAction,
@@ -4619,6 +4681,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_first_choice_candidate(&source, decision, post)
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_flush_pending_then_park_first_choice_candidate(
+                                    &source, decision, post,
+                                )
                             })
                             .or_else(|| {
                                 deferred_nilrys_leftover_end_after_choice_candidate(
