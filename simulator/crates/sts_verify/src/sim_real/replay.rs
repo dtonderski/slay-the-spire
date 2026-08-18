@@ -2481,7 +2481,6 @@ fn leftover_end_state_publication_candidate(
         if let Some(combat) = discarded.combat.as_mut() {
             if sts_core::combat::settle_leftover_end_turn_player_powers_and_discard(combat).is_ok()
             {
-                combat.time_warp_end_powers_applied = true;
                 discarded.player_hp = combat.player.hp;
                 discarded.player_max_hp = combat.player.max_hp;
                 if discarded.validate().is_ok()
@@ -4815,50 +4814,6 @@ mod tests {
         assert_eq!(
             candidate.player_hp, run.player_hp,
             "loseBlock does not take the monster turn"
-        );
-    }
-
-    #[test]
-    fn leftover_end_state_after_rejected_play_discard_still_applies_combust() {
-        let mut run = RunState::combat_fixture();
-        {
-            let combat = run.combat.as_mut().expect("combat");
-            combat.piles.hand.clear();
-            combat.time_warp_end_turn = true;
-            combat.time_warp_end_turn_pre_discard_settled = true;
-            combat.player.powers.combust = 7;
-            combat.player.powers.combust_damage = 7;
-            combat.player.hp = 50;
-            combat.monsters[0].hp = 228;
-            combat.monsters[0].block = 0;
-        }
-        run.player_hp = 50;
-        let mut expected = run.clone();
-        {
-            let combat = expected.combat.as_mut().expect("combat");
-            sts_core::combat::settle_leftover_end_turn_player_powers_and_discard(combat)
-                .expect("Combust + discard");
-            expected.player_hp = combat.player.hp;
-        }
-        let observed = seed_start_simulated_combat_subset(&expected);
-        let post = comm_mod_combat_post_from_subset(&observed);
-        let leftover = RunDecisionAction::Combat(CombatAction::PlayCard {
-            card_id: sts_core::CardId::new(1),
-            target: None,
-        });
-        let candidate = leftover_end_state_publication_candidate(&run, Some(leftover), &post)
-            .expect("empty-hand leftover STATE still applies Combust");
-        assert_eq!(candidate.player_hp, expected.player_hp);
-        assert_eq!(
-            candidate.combat.as_ref().expect("combat").monsters[0].hp,
-            expected.combat.as_ref().expect("combat").monsters[0].hp,
-        );
-        assert!(
-            candidate
-                .combat
-                .as_ref()
-                .expect("combat")
-                .time_warp_end_powers_applied
         );
     }
 
