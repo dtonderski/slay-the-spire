@@ -1684,6 +1684,44 @@ fn deferred_nilrys_first_choice_candidate(
             };
             park(Some(index), false)
                 .or_else(|| park(Some(index), true))
+                .or_else(|| {
+                    // Leftover SuperFastMode can insert the first-offer pick at
+                    // remaining-draw `[0]` while a previous leftover Codex card
+                    // stays queued (FIDL01807 CHOOSE 1170: Impervious lands at
+                    // `[0]`; leftover Body Slam is still unpublished).
+                    let insert_front = |apply_end_turn_block: bool| -> Option<RunState> {
+                        let mut flagged = source.clone();
+                        {
+                            let combat = flagged.combat.as_mut()?;
+                            combat.nilrys_defer_codex_insert_until_after_draw = false;
+                            combat.nilrys_codex_insert_at_draw_front = true;
+                        }
+                        let mut candidate = apply_run_decision_action(&flagged, decision).ok()?;
+                        {
+                            let combat = candidate.combat.as_mut()?;
+                            combat.nilrys_codex_insert_at_draw_front = false;
+                            combat.nilrys_codex_end_turn_stage = 2;
+                            if apply_end_turn_block {
+                                sts_core::relic::nilrys_codex_apply_paused_end_turn_block_powers(
+                                    combat,
+                                )
+                                .ok()?;
+                            }
+                            candidate.player_hp = combat.player.hp;
+                            candidate.player_max_hp = combat.player.max_hp;
+                            candidate.card_random_rng_counter =
+                                combat.rng.card_random_rng.counter();
+                        }
+                        candidate.validate().ok()?;
+                        subset_diffs(
+                            seed_start_combat_observed_subset(&post.message),
+                            seed_start_simulated_combat_subset(&candidate),
+                        )
+                        .is_empty()
+                        .then_some(candidate)
+                    };
+                    insert_front(false).or_else(|| insert_front(true))
+                })
                 .or_else(insert_and_plated)
                 .or_else(|| {
                     let mut flagged = source.clone();
@@ -1773,11 +1811,10 @@ fn deferred_nilrys_first_choice_candidate(
     }
 }
 
-/// SuperFastMode can publish leftover draw/Tongs before a leftover Codex
-/// `MakeTempCardInDrawPileAction`, then insert that parked card on the next
-/// first-offer CHOOSE without also inserting the first-offer pick (FIDL01807
-/// CHOOSE 1170: leftover Impervious lands at remaining-draw `[0]`; Clash+
-/// stays parked for the second offer).
+/// SuperFastMode can still flush a parked leftover Codex card on a later
+/// first-offer CHOOSE without inserting the new pick. Keep this after the
+/// first-offer insert-at-front candidate so leftover remaining-draw inserts
+/// that really are the parked card can still match.
 fn deferred_nilrys_flush_pending_then_park_first_choice_candidate(
     source: &RunState,
     decision: RunDecisionAction,
@@ -1785,7 +1822,6 @@ fn deferred_nilrys_flush_pending_then_park_first_choice_candidate(
 ) -> Option<RunState> {
     let combat = source.combat.as_ref()?;
     if combat.nilrys_codex_end_turn_stage != 1
-        || combat.pending_nilrys_codex_draw_inserts.is_empty()
         || !matches!(
             combat.decision.as_ref(),
             Some(CombatDecisionState::NilrysCodexCardReward { .. })
@@ -1793,19 +1829,25 @@ fn deferred_nilrys_flush_pending_then_park_first_choice_candidate(
     {
         return None;
     }
+    if combat.pending_nilrys_codex_draw_inserts.is_empty() {
+        return None;
+    }
     let park = |index: Option<usize>,
                 apply_end_turn_block: bool,
                 same_bound_rolls: u8,
-                shuffle_rng: bool|
+                shuffle_rng: bool,
+                insert_front: bool|
      -> Option<RunState> {
         let mut candidate = source.clone();
         {
             let combat = candidate.combat.as_mut()?;
             combat.nilrys_codex_insert_same_bound_rolls = same_bound_rolls;
             combat.nilrys_codex_insert_uses_shuffle_rng = shuffle_rng;
+            combat.nilrys_codex_insert_at_draw_front = insert_front;
             sts_core::relic::nilrys_codex_flush_pending_draw_inserts(combat).ok()?;
             combat.nilrys_codex_insert_same_bound_rolls = 0;
             combat.nilrys_codex_insert_uses_shuffle_rng = false;
+            combat.nilrys_codex_insert_at_draw_front = false;
             match index {
                 Some(index) => {
                     sts_core::relic::nilrys_codex_park_choice_without_insert(combat, index).ok()?;
@@ -1833,17 +1875,22 @@ fn deferred_nilrys_flush_pending_then_park_first_choice_candidate(
         .then_some(candidate)
     };
     let park_all = |index: Option<usize>| -> Option<RunState> {
-        park(index, false, 0, false)
-            .or_else(|| park(index, true, 0, false))
-            .or_else(|| park(index, false, 0, true))
+        park(index, false, 0, false, true)
+            .or_else(|| park(index, true, 0, false, true))
+            .or_else(|| park(index, false, 0, false, false))
+            .or_else(|| park(index, true, 0, false, false))
+            .or_else(|| park(index, false, 0, true, false))
             .or_else(|| {
                 (2u8..=7).find_map(|rolls| {
-                    park(index, false, rolls, false).or_else(|| park(index, true, rolls, false))
+                    park(index, false, rolls, false, false)
+                        .or_else(|| park(index, true, rolls, false, false))
                 })
             })
     };
     match decision {
-        RunDecisionAction::Run(RunAction::ChooseCombatCardReward { index }) => park_all(Some(index)),
+        RunDecisionAction::Run(RunAction::ChooseCombatCardReward { index }) => {
+            park_all(Some(index))
+        }
         RunDecisionAction::Run(RunAction::SkipCombatCardReward) => park_all(None),
         _ => None,
     }

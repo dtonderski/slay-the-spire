@@ -2637,7 +2637,10 @@ fn add_generated_card_to_draw_pile_random_spot(
     let leftover_same_bound_rolls = leftover_make_temp_card_add_to_random_spot_rolls(state);
     state.nilrys_codex_insert_same_bound_rolls = 0;
     let mut index = 0usize;
-    if state.nilrys_codex_insert_uses_shuffle_rng {
+    if state.nilrys_codex_insert_at_draw_front {
+        state.nilrys_codex_insert_at_draw_front = false;
+        index = 0;
+    } else if state.nilrys_codex_insert_uses_shuffle_rng {
         state.nilrys_codex_insert_uses_shuffle_rng = false;
         index = state.rng.shuffle_rng.random_int(bound) as usize;
     } else {
