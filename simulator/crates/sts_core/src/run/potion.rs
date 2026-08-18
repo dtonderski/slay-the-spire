@@ -929,6 +929,27 @@ fn exhaust_count_for_confirmed_select(
     usize::from((source_started_in_hand || source_started_in_select) && source_ended_in_exhaust)
 }
 
+/// DiscoveryAction then UseCardAction run before Time Warp's EndTurnAction.
+/// CommunicationMod publishes the retrieve CHOOSE with the same-turn hand still
+/// held; leftover PLAY/END flushes EndTurn (FIDL01799).
+fn settle_discovery_source_without_time_warp_end(
+    combat: &mut CombatState,
+    source_card: Option<CardInstance>,
+    source_card_force_exhaust: bool,
+    pending_actions: std::collections::VecDeque<crate::InternalAction>,
+) -> SimResult<()> {
+    let previous_defer_time_warp = combat.defer_time_warp_end_turn;
+    combat.defer_time_warp_end_turn = true;
+    if !pending_actions.is_empty() {
+        let transition =
+            crate::combat::transition::process_internal_queue(combat, pending_actions)?;
+        *combat = transition.state;
+    }
+    close_discovery_source_card_with_force_exhaust(combat, source_card, source_card_force_exhaust)?;
+    combat.defer_time_warp_end_turn = previous_defer_time_warp;
+    Ok(())
+}
+
 pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_combat_card_reward_choice(run, index)?;
     let mut next = run.clone();
@@ -1049,15 +1070,13 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // card.use() follow-ups queued behind DiscoveryAction (for example
             // Hex's Dazed insertion) resolve after the selected card is
             // retrieved but before UseCardAction settles the Discovery source.
-            if !pending_actions.is_empty() {
-                let transition =
-                    crate::combat::transition::process_internal_queue(combat, pending_actions)?;
-                *combat = transition.state;
-            }
-            close_discovery_source_card_with_force_exhaust(
+            // Time Warp EndTurn stays behind that UseCardAction; CHOOSE must
+            // not flush it (FIDL01799 leftover PLAY).
+            settle_discovery_source_without_time_warp_end(
                 combat,
                 source_card,
                 source_card_force_exhaust,
+                pending_actions,
             )?;
             combat.play_top_force_exhaust_active = false;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
@@ -1132,15 +1151,11 @@ pub fn apply_combat_card_reward_choice_skipped_discovery_retrieval(
             pending_actions,
             ..
         }) => {
-            if !pending_actions.is_empty() {
-                let transition =
-                    crate::combat::transition::process_internal_queue(combat, pending_actions)?;
-                *combat = transition.state;
-            }
-            close_discovery_source_card_with_force_exhaust(
+            settle_discovery_source_without_time_warp_end(
                 combat,
                 source_card,
                 source_card_force_exhaust,
+                pending_actions,
             )?;
             combat.play_top_force_exhaust_active = false;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
@@ -4051,6 +4066,77 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|card| card.id == source_id && card.content_id == DISCOVERY_ID));
+    }
+
+    #[test]
+    fn discovery_retrieve_does_not_flush_time_warp_end_turn() {
+        use crate::content::cards::{BASH_ID, DISCOVERY_ID, HEAVY_BLADE_ID, SHRUG_IT_OFF_ID};
+        use crate::content::monsters::TIME_EATER_ID;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.player.energy = 2;
+        combat.time_warp_end_turn = true;
+        combat.monsters[0].content_id = TIME_EATER_ID;
+        combat.monsters[0].powers.time_warp = 0;
+        combat.monsters[0].hp = 200;
+        combat.monsters[0].max_hp = 200;
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HEAVY_BLADE_ID),
+            CardInstance::new(CardId::new(2), HEAVY_BLADE_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+        ];
+        combat.piles.draw_pile = (20..=29)
+            .map(|id| CardInstance::new(CardId::new(id), BASH_ID))
+            .collect();
+        combat.piles.discard_pile.clear();
+        let source_id = CardId::new(10);
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                SHRUG_IT_OFF_ID,
+            )],
+            source_card: Some(CardInstance::new(source_id, DISCOVERY_ID)),
+            source_card_force_exhaust: false,
+            source_card_play_top: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("Discovery retrieve after Time Warp 12th card");
+        let combat = next.combat.expect("combat remains open");
+
+        assert_eq!(
+            combat.player.energy, 2,
+            "energy refill must wait for leftover EndTurn"
+        );
+        assert!(
+            combat.time_warp_end_turn,
+            "Time Warp EndTurn stays queued behind UseCardAction"
+        );
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![HEAVY_BLADE_ID, HEAVY_BLADE_ID, BASH_ID, SHRUG_IT_OFF_ID]
+        );
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == source_id && card.content_id == DISCOVERY_ID));
+        assert!(
+            combat.piles.discard_pile.is_empty(),
+            "same-turn retrieve must not discard the remaining hand"
+        );
     }
 
     #[test]
