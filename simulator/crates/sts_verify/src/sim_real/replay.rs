@@ -1709,6 +1709,21 @@ fn deferred_nilrys_first_choice_candidate(
                         Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
                         post,
                     )
+                    .or_else(|| {
+                        let mut discarded = parked.clone();
+                        let combat = discarded.combat.as_mut()?;
+                        sts_core::combat::settle_leftover_end_turn_player_powers_and_discard(
+                            combat,
+                        )
+                        .ok()?;
+                        discarded.player_hp = combat.player.hp;
+                        discarded.player_max_hp = combat.player.max_hp;
+                        leftover_end_state_publication_candidate(
+                            &discarded,
+                            Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+                            post,
+                        )
+                    })
                 })
         }
         RunDecisionAction::Run(RunAction::SkipCombatCardReward) => {
@@ -1818,6 +1833,9 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
         return None;
     }
     let combat = source.combat.as_ref()?;
+    if combat.nilrys_codex_end_turn_stage == 1 {
+        return None;
+    }
     if !combat.resume_end_turn_after_nilrys_codex
         && combat.leftover_end_turn_draw_remaining == 0
         && combat.nilrys_codex_end_turn_stage == 0
