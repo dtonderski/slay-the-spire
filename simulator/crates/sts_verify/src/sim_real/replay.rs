@@ -1688,7 +1688,13 @@ fn deferred_nilrys_first_choice_candidate(
                     // Leftover SuperFastMode can insert the first-offer pick at
                     // remaining-draw `[0]` while a previous leftover Codex card
                     // stays queued (FIDL01807 CHOOSE 1170: Impervious lands at
-                    // `[0]`; leftover Body Slam is still unpublished).
+                    // `[0]`; leftover Body Slam is still unpublished). Do not
+                    // use this for ordinary first-offer inserts: those still
+                    // consume `cardRandomRng` even when the roll happens to be 0.
+                    let combat = source.combat.as_ref()?;
+                    if combat.pending_nilrys_codex_draw_inserts.is_empty() {
+                        return None;
+                    }
                     let insert_front = |apply_end_turn_block: bool| -> Option<RunState> {
                         let mut flagged = source.clone();
                         {
