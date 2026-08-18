@@ -59,7 +59,7 @@ pub use transition::{
 };
 pub use turn::{
     end_player_turn, finish_monster_turn_after_player_revival, roll_first_living_monster_intent,
-    settle_leftover_end_turn_monster_and_draw,
+    roll_last_living_monster_intent, settle_leftover_end_turn_monster_and_draw,
     settle_leftover_end_turn_monster_and_draw_skipping_post_draw_relics,
     settle_leftover_end_turn_monster_lose_block,
     settle_leftover_end_turn_monster_then_start_without_draw,

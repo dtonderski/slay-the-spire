@@ -2799,7 +2799,10 @@ fn leftover_end_state_publication_candidate(
         .or_else(|| {
             leftover_end_state_monster_and_draw_first_post_roll(source, observed.clone(), 1)
         })
-        .or_else(|| leftover_end_state_monster_and_draw_first_post_roll(source, observed, 2))
+        .or_else(|| {
+            leftover_end_state_monster_and_draw_first_post_roll(source, observed.clone(), 2)
+        })
+        .or_else(|| leftover_end_state_monster_and_draw_last_post_roll(source, observed))
 }
 
 fn leftover_end_state_monster_and_draw_skipping_post_draw(
@@ -2841,6 +2844,24 @@ fn leftover_end_state_monster_and_draw_first_post_roll(
     for _ in 0..extra_rolls {
         sts_core::combat::roll_first_living_monster_intent(combat).ok()?;
     }
+    finished.player_hp = combat.player.hp;
+    finished.player_max_hp = combat.player.max_hp;
+    finished.validate().ok()?;
+    subset_diffs(observed, seed_start_simulated_combat_subset(&finished))
+        .is_empty()
+        .then_some(finished)
+}
+
+/// Default leftover takeTurns plus rolls can leave the last Darkling on Harden;
+/// SuperFastMode still flushes one more NIP roll (FIDL01807 STATE 1141).
+fn leftover_end_state_monster_and_draw_last_post_roll(
+    source: &RunState,
+    observed: Value,
+) -> Option<RunState> {
+    let mut finished = source.clone();
+    let combat = finished.combat.as_mut()?;
+    sts_core::combat::settle_leftover_end_turn_monster_and_draw(combat).ok()?;
+    sts_core::combat::roll_last_living_monster_intent(combat).ok()?;
     finished.player_hp = combat.player.hp;
     finished.player_max_hp = combat.player.max_hp;
     finished.validate().ok()?;
