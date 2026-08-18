@@ -1186,6 +1186,64 @@ fn deferred_time_warp_exhaust_select_metallicize_candidate(
     Ok(Some(candidate))
 }
 
+/// CommunicationMod can still emit PLAY after a Time Warp exhaust/hand select
+/// CONFIRM parked the forced END. That leftover command must flush the end-turn
+/// instead of resolving the card (FIDL01566 PLAY after Burning Pact).
+fn deferred_time_warp_end_instead_of_play_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    if !matches!(
+        decision,
+        RunDecisionAction::Combat(CombatAction::PlayCard { .. })
+    ) {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    if combat.decision.is_some() {
+        return None;
+    }
+    if !(combat.time_warp_end_turn
+        || combat.time_warp_end_turn_pre_discard_settled
+        || combat.time_warp_end_powers_applied)
+    {
+        return None;
+    }
+    let observed = seed_start_combat_observed_subset(&post.message);
+    flush_deferred_time_warp_end_for_leftover_play(source, &observed, false)
+        .or_else(|| flush_deferred_time_warp_end_for_leftover_play(source, &observed, true))
+}
+
+fn flush_deferred_time_warp_end_for_leftover_play(
+    source: &RunState,
+    observed: &serde_json::Value,
+    resume_pre_discard: bool,
+) -> Option<RunState> {
+    let mut candidate = source.clone();
+    let mut combat = candidate.combat.take()?;
+    if resume_pre_discard {
+        if !combat.time_warp_end_turn_pre_discard_settled {
+            return None;
+        }
+        combat.time_warp_duplicate_monster_queue = false;
+        combat.time_warp_end_turn = false;
+    }
+    let finished = sts_core::combat::end_player_turn(&combat).ok()?;
+    candidate.player_hp = finished.player.hp;
+    candidate.player_max_hp = finished.player.max_hp;
+    candidate.combat = Some(finished);
+    if !candidate.pending_external_rng.is_empty() || candidate.validate().is_err() {
+        return None;
+    }
+    subset_diffs(
+        observed.clone(),
+        seed_start_simulated_combat_subset(&candidate),
+    )
+    .is_empty()
+    .then_some(candidate)
+}
+
 fn skipped_purity_candidate(
     run: &RunState,
     decision: RunDecisionAction,
@@ -3783,6 +3841,19 @@ pub(super) fn verify_seed_start_transition(
                                 )
                             })
                             .or_else(|| {
+                                deferred_time_warp_end_instead_of_play_candidate(
+                                    &source, decision, post,
+                                )
+                                .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                .filter(|_| {
+                                    !subset_diffs(
+                                        seed_start_combat_observed_subset(&post.message),
+                                        seed_start_simulated_combat_subset(&next),
+                                    )
+                                    .is_empty()
+                                })
+                            })
+                            .or_else(|| {
                                 deferred_reversed_play_index_candidate(
                                     &source, decision, &next, post,
                                 )
@@ -5309,6 +5380,31 @@ mod tests {
         let combat = candidate.combat.as_ref().expect("candidate combat");
         assert!(combat.decision.is_none());
         assert_eq!(combat.piles.hand.len(), original_hand_len.saturating_sub(2));
+    }
+
+    #[test]
+    fn deferred_time_warp_end_instead_of_play_requires_pending_end() {
+        let mut run = RunState::combat_fixture();
+        let card_id = run.combat.as_ref().expect("combat").piles.hand[0].id;
+        let decision = RunDecisionAction::Combat(CombatAction::PlayCard {
+            card_id,
+            target: None,
+        });
+        let post = TraceState {
+            step: 1,
+            received_at: None,
+            message: json!({}),
+        };
+        assert!(
+            deferred_time_warp_end_instead_of_play_candidate(&run, decision, &post).is_none(),
+            "ordinary PLAY must not flush a turn that Time Warp has not ended"
+        );
+        run.combat.as_mut().expect("combat").time_warp_end_turn = true;
+        let flushed = deferred_time_warp_end_instead_of_play_candidate(&run, decision, &post);
+        assert!(
+            flushed.is_some(),
+            "leftover PLAY after Time Warp must flush the parked end-turn"
+        );
     }
 
     #[test]
