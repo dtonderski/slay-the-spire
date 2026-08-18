@@ -1873,7 +1873,7 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
         return None;
     }
     let combat = source.combat.as_ref()?;
-    if combat.nilrys_codex_end_turn_stage == 1 {
+    if combat.nilrys_codex_end_turn_stage != 3 {
         return None;
     }
     if !combat.resume_end_turn_after_nilrys_codex
@@ -2045,30 +2045,6 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
                 extra_monster_index_rolls_after(source, decision, post, 2, 1, |c| {
                     c.nilrys_defer_codex_insert_until_after_draw = true;
                     c.nilrys_single_post_queue_roll = true;
-                })
-            })
-            .or_else(|| {
-                extra_monster_index_rolls_after(source, decision, post, 1, 1, |c| {
-                    c.nilrys_defer_codex_insert_until_after_draw = true;
-                    c.nilrys_hold_codex_insert_after_post_draw = true;
-                })
-            })
-            .or_else(|| {
-                extra_monster_index_rolls_after(source, decision, post, 2, 1, |c| {
-                    c.nilrys_defer_codex_insert_until_after_draw = true;
-                    c.nilrys_hold_codex_insert_after_post_draw = true;
-                })
-            })
-            .or_else(|| {
-                extra_first_and_last_monster_roll_after(source, decision, post, 1, |c| {
-                    c.nilrys_defer_codex_insert_until_after_draw = true;
-                    c.nilrys_hold_codex_insert_after_post_draw = true;
-                })
-            })
-            .or_else(|| {
-                extra_first_and_last_monster_roll_after(source, decision, post, 2, |c| {
-                    c.nilrys_defer_codex_insert_until_after_draw = true;
-                    c.nilrys_hold_codex_insert_after_post_draw = true;
                 })
             })
             .or_else(|| {
@@ -2472,7 +2448,7 @@ fn deferred_nilrys_flush_codex_insert_then_action_candidate(
     post: &TraceState,
 ) -> Option<RunState> {
     match decision {
-        RunDecisionAction::Combat(CombatAction::PlayCard { .. } | CombatAction::EndTurn)
+        RunDecisionAction::Combat(CombatAction::PlayCard { .. })
         | RunDecisionAction::Run(
             RunAction::ChooseCombatCardReward { .. } | RunAction::SkipCombatCardReward,
         ) => {}
