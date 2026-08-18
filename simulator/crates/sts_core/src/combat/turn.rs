@@ -602,6 +602,22 @@ pub fn settle_leftover_end_turn_monster_lose_block(state: &mut CombatState) {
 
 /// Finish a leftover `EndTurnAction` after the hand is already discarded.
 pub fn settle_leftover_end_turn_monster_and_draw(state: &mut CombatState) -> SimResult<()> {
+    settle_leftover_end_turn_monster_and_draw_with_post_draw_relics(state, true)
+}
+
+/// Like [`settle_leftover_end_turn_monster_and_draw`], but skip
+/// `atTurnStartPostDraw` relics so a mid-draw leftover STATE can publish
+/// before Warped Tongs (FIDL01807 STATE 851).
+pub fn settle_leftover_end_turn_monster_and_draw_skipping_post_draw_relics(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    settle_leftover_end_turn_monster_and_draw_with_post_draw_relics(state, false)
+}
+
+fn settle_leftover_end_turn_monster_and_draw_with_post_draw_relics(
+    state: &mut CombatState,
+    apply_post_draw_relics: bool,
+) -> SimResult<()> {
     if state.player.hp <= 0 {
         return Ok(());
     }
@@ -617,7 +633,7 @@ pub fn settle_leftover_end_turn_monster_and_draw(state: &mut CombatState) -> Sim
     // (FIDL01782: Weak 1 + ATTACK_DEBUFF 2 → 2).
     run_monster_turn(state)?;
     if state.player.hp > 0 && state.monsters.iter().any(|monster| monster.alive) {
-        start_player_turn(state)?;
+        start_player_turn_with_start_relics_and_post_draw(state, true, apply_post_draw_relics)?;
     }
     Ok(())
 }
@@ -711,13 +727,25 @@ fn start_player_turn_with_start_relics(
     state: &mut CombatState,
     apply_start_relics: bool,
 ) -> SimResult<()> {
+    start_player_turn_with_start_relics_and_post_draw(state, apply_start_relics, true)
+}
+
+fn start_player_turn_with_start_relics_and_post_draw(
+    state: &mut CombatState,
+    apply_start_relics: bool,
+    apply_post_draw_relics: bool,
+) -> SimResult<()> {
     let mut next = state.clone();
-    start_player_turn_in_place(&mut next, apply_start_relics)?;
+    start_player_turn_in_place(&mut next, apply_start_relics, apply_post_draw_relics)?;
     *state = next;
     Ok(())
 }
 
-fn start_player_turn_in_place(state: &mut CombatState, apply_start_relics: bool) -> SimResult<()> {
+fn start_player_turn_in_place(
+    state: &mut CombatState,
+    apply_start_relics: bool,
+    apply_post_draw_relics: bool,
+) -> SimResult<()> {
     // EndTurnDeathPower.atStartOfTurn (Blasphemy): LoseHP 99999 then remove power.
     if state.player.powers.end_turn_death > 0 {
         state.player.hp = 0;
@@ -796,7 +824,11 @@ fn start_player_turn_in_place(state: &mut CombatState, apply_start_relics: bool)
     // BrutalityPower.atStartOfTurnPostDraw queues LoseHP + DrawCard before
     // Mayhem's forced top-play must see the post-Brutality draw pile top
     // (FIDL00381: Mayhem plays Anger+ after Brutality draws Shrug+).
-    crate::relic::apply_start_of_player_turn_post_draw_relics(state)?;
+    // Leftover EndTurn STATE can publish mid-DrawCardAction before
+    // atTurnStartPostDraw relics (FIDL01807 Warped Tongs still queued).
+    if apply_post_draw_relics {
+        crate::relic::apply_start_of_player_turn_post_draw_relics(state)?;
+    }
     apply_demon_form_strength_post_draw(state)?;
     let brutality_draw_follow_ups = apply_start_of_turn_brutality_post_draw(state)?;
     if state.player.hp > 0 {
@@ -3175,9 +3207,9 @@ mod tests {
     use crate::combat::hand::resolve_end_of_turn_hand;
     use crate::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BASH_ID, BERSERK_ID, BLOODLETTING_ID, BURNING_PACT_ID, BURN_ID,
-        DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, FIEND_FIRE_ID,
-        GHOSTLY_ARMOR_ID, INFLAME_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID,
-        SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
+        CLEAVE_ID, DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, ENTRENCH_ID,
+        FIEND_FIRE_ID, GHOSTLY_ARMOR_ID, INFLAME_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID,
+        SHAME_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -3186,14 +3218,14 @@ mod tests {
         target_looter_direct_next_intent_after_turn, target_nemesis_next_intent_from_roll,
         target_spheric_guardian_next_intent_from_roll, target_spire_growth_next_intent_from_roll,
         transient_attack_damage, ACID_SLIME_A0, BOOK_OF_STABBING_A0, BRONZE_AUTOMATON_A0,
-        BRONZE_ORB_A0, BYRD_A0, CENTURION_A0, DAGGER_A0, DAGGER_EXPLODE_DAMAGE, DAGGER_ID,
-        DARKLING_A0, EXPLODER_A0, FUNGI_BEAST_A0, GIANT_HEAD_A0, GIANT_HEAD_ID, GREMLIN_NOB_A0,
-        GREMLIN_THIEF_A0, GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0, GREMLIN_WIZARD_A0, GUARDIAN_A0,
-        GUARDIAN_DEFENSIVE_BLOCK, HEALER_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0,
-        LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
-        SHELLED_PARASITE_A0, SHELLED_PARASITE_ID, SLIME_BOSS_A0, SNECKO_A0, SPHERIC_GUARDIAN_A0,
-        SPHERIC_GUARDIAN_ID, SPIKE_SLIME_A0, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TIME_EATER_A0,
-        TRANSIENT_A0,
+        BRONZE_ORB_A0, BYRD_A0, CENTURION_A0, CHAMP_A0, DAGGER_A0, DAGGER_EXPLODE_DAMAGE,
+        DAGGER_ID, DARKLING_A0, EXPLODER_A0, FUNGI_BEAST_A0, GIANT_HEAD_A0, GIANT_HEAD_ID,
+        GREMLIN_NOB_A0, GREMLIN_THIEF_A0, GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0,
+        GREMLIN_WIZARD_A0, GUARDIAN_A0, GUARDIAN_DEFENSIVE_BLOCK, HEALER_A0, HEXAGHOST_A0,
+        JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0, LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID,
+        NEMESIS_A0, NEMESIS_ID, SENTRY_A0, SHELLED_PARASITE_A0, SHELLED_PARASITE_ID, SLIME_BOSS_A0,
+        SNECKO_A0, SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID, SPIKE_SLIME_A0, SPIRE_GROWTH_A0,
+        SPIRE_GROWTH_ID, TIME_EATER_A0, TRANSIENT_A0,
     };
     use crate::{CardId, CardInstance, MonsterIntent, Relic};
 
@@ -4697,6 +4729,51 @@ mod tests {
         assert_eq!(next.player.powers.draw_reduction, 1);
         assert_eq!(next.piles.hand.len(), 4);
         assert!(!next.time_warp_end_turn);
+    }
+
+    #[test]
+    fn leftover_end_turn_mid_draw_skips_warped_tongs() {
+        let mut with_tongs = CombatState::initial_fixture();
+        with_tongs.player.max_energy = 4;
+        with_tongs.player.energy = 3;
+        with_tongs.piles.hand.clear();
+        with_tongs.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), CLEAVE_ID),
+            CardInstance::new(CardId::new(3), ENTRENCH_ID),
+            CardInstance::new(CardId::new(4), GHOSTLY_ARMOR_ID),
+            CardInstance::new(CardId::new(5), DEFEND_R_ID),
+        ];
+        with_tongs.piles.discard_pile.clear();
+        with_tongs.relics = vec![Relic::WarpedTongs];
+        with_tongs.time_warp_end_turn_pre_discard_settled = true;
+        let mut champ = monster_state_for_ascension(&CHAMP_A0, MonsterId::new(1), 0);
+        champ.intent = MonsterIntent::Attack { damage: 12 };
+        champ.powers.strength = 0;
+        with_tongs.monsters = vec![champ];
+
+        let mut skipped = with_tongs.clone();
+        settle_leftover_end_turn_monster_and_draw_skipping_post_draw_relics(&mut skipped)
+            .expect("leftover EndTurn draws before Warped Tongs");
+        assert!(
+            skipped
+                .piles
+                .hand
+                .iter()
+                .all(crate::content::cards::card_instance_is_upgradeable),
+            "mid-draw leftover STATE publishes before Warped Tongs"
+        );
+
+        settle_leftover_end_turn_monster_and_draw(&mut with_tongs)
+            .expect("full leftover EndTurn runs Warped Tongs");
+        assert!(
+            with_tongs
+                .piles
+                .hand
+                .iter()
+                .any(|card| !crate::content::cards::card_instance_is_upgradeable(card)),
+            "completed draw upgrades one hand card"
+        );
     }
 
     #[test]
