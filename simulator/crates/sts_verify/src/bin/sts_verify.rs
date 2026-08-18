@@ -787,11 +787,33 @@ struct TraceStatusEntry {
     status: String,
     boundary: String,
     frontier: String,
+    quarantined: bool,
 }
 
 struct StatusTraceInput {
     path: PathBuf,
     trace: String,
+    quarantined: bool,
+}
+
+/// Trace-id prefixes retained as evidence but excluded from the parity gate.
+///
+/// The manifest sits beside the corpus root so a corpus directory carries its
+/// own quarantine list. A missing manifest quarantines nothing.
+fn load_quarantine_manifest(root: &Path) -> Vec<String> {
+    let manifest = root
+        .parent()
+        .map(|parent| parent.join("quarantine.txt"))
+        .unwrap_or_else(|| PathBuf::from("quarantine.txt"));
+    let Ok(contents) = fs::read_to_string(&manifest) else {
+        return Vec::new();
+    };
+    contents
+        .lines()
+        .map(|line| line.split('#').next().unwrap_or("").trim())
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 fn status_path(input: &str) -> PathBuf {
@@ -911,6 +933,7 @@ fn trace_status_entry(input: &StatusTraceInput) -> TraceStatusEntry {
         status: outcome_status(&outcome).to_owned(),
         boundary: boundary.unwrap_or_else(|| "-".to_owned()),
         frontier: trace_frontier(&report, &outcome),
+        quarantined: input.quarantined,
     }
 }
 
@@ -925,15 +948,23 @@ fn status_trace_inputs(root: &Path) -> Result<Vec<StatusTraceInput>, String> {
         .collect::<Result<Vec<_>, _>>()?;
     paths.retain(|path| path.extension().and_then(|extension| extension.to_str()) == Some("jsonl"));
     paths.sort();
+    let quarantine = load_quarantine_manifest(root);
     Ok(paths
         .into_iter()
-        .map(|path| StatusTraceInput {
-            trace: path
+        .map(|path| {
+            let trace = path
                 .file_name()
                 .and_then(|name| name.to_str())
                 .unwrap_or("<unknown>")
-                .to_owned(),
-            path,
+                .to_owned();
+            let quarantined = quarantine
+                .iter()
+                .any(|prefix| trace.starts_with(prefix.as_str()));
+            StatusTraceInput {
+                trace,
+                path,
+                quarantined,
+            }
         })
         .collect())
 }
@@ -1029,13 +1060,21 @@ fn trace_error_entry(trace: String, error: String) -> TraceStatusEntry {
         status: "invalid_input".to_owned(),
         boundary: "-".to_owned(),
         frontier: error,
+        quarantined: false,
     }
 }
 
+/// Quarantined traces are evidence, not a gate: they are excluded from the
+/// exit status so a known-unreproducible boundary cannot mask a real failure
+/// or block a green corpus.
 fn trace_status_exit_code(entries: &[TraceStatusEntry]) -> i32 {
-    if entries.iter().any(|entry| entry.status == "invalid_input") {
+    let mut authoritative = entries.iter().filter(|entry| !entry.quarantined);
+    if authoritative
+        .clone()
+        .any(|entry| entry.status == "invalid_input")
+    {
         1
-    } else if entries.iter().any(|entry| entry.status == "failed") {
+    } else if authoritative.any(|entry| entry.status == "failed") {
         2
     } else {
         0
@@ -1085,34 +1124,40 @@ fn trace_frontier(report: &sts_verify::SimRealReport, outcome: &VerificationOutc
 }
 
 fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
-    let failures = entries
+    // The gate counts only authoritative traces. Quarantined traces are
+    // reported alongside so their state stays visible without gating.
+    let authoritative = || entries.iter().filter(|entry| !entry.quarantined);
+    let quarantined_total = entries.iter().filter(|entry| entry.quarantined).count();
+    let quarantined_passing = entries
         .iter()
+        .filter(|entry| entry.quarantined && entry.status == "complete_pass")
+        .count();
+    let failures = authoritative()
         .filter(|entry| entry.status == "failed")
         .count();
-    let passing = entries
-        .iter()
+    let passing = authoritative()
         .filter(|entry| entry.status == "complete_pass")
         .count();
-    let errors = entries
-        .iter()
+    let errors = authoritative()
         .filter(|entry| entry.status == "invalid_input")
         .count();
     let complete_passes = passing;
-    let raw_diffs: usize = entries.iter().map(|entry| entry.raw_diffs).sum();
-    let unsupported: usize = entries.iter().map(|entry| entry.unsupported).sum();
-    let verified: usize = entries.iter().map(|entry| entry.verified).sum();
-    let applicable_actions: usize = entries.iter().map(|entry| entry.applicable_actions).sum();
-    let disposed_actions: usize = entries.iter().map(|entry| entry.disposed_actions).sum();
-    let rejected_actions: usize = entries.iter().map(|entry| entry.rejected_actions).sum();
-    let duplicate_dispositions: usize = entries
-        .iter()
+    let raw_diffs: usize = authoritative().map(|entry| entry.raw_diffs).sum();
+    let unsupported: usize = authoritative().map(|entry| entry.unsupported).sum();
+    let verified: usize = authoritative().map(|entry| entry.verified).sum();
+    let applicable_actions: usize = authoritative().map(|entry| entry.applicable_actions).sum();
+    let disposed_actions: usize = authoritative().map(|entry| entry.disposed_actions).sum();
+    let rejected_actions: usize = authoritative().map(|entry| entry.rejected_actions).sum();
+    let duplicate_dispositions: usize = authoritative()
         .map(|entry| entry.duplicate_dispositions)
         .sum();
-    println!("traces={}", entries.len());
+    println!("traces={}", entries.len() - quarantined_total);
     println!("trace_failures={failures}");
     println!("trace_errors={errors}");
     println!("passing_traces={passing}");
     println!("complete_passes={complete_passes}");
+    println!("quarantined_traces={quarantined_total}");
+    println!("quarantined_passing={quarantined_passing}");
     println!("raw_unexpected_diffs={raw_diffs}");
     println!("unsupported_transitions={unsupported}");
     println!("verified_transitions={verified}");
@@ -1134,7 +1179,11 @@ fn print_trace_status(entries: &[TraceStatusEntry], markdown: bool) {
                 entry.disposed_actions,
                 entry.rejected_actions,
                 entry.verified,
-                entry.status,
+                if entry.quarantined {
+                    format!("{} (quarantined)", entry.status)
+                } else {
+                    entry.status.clone()
+                },
                 entry.raw_diffs,
                 entry.unsupported,
                 entry.duplicate_dispositions,
@@ -1171,6 +1220,62 @@ fn escape_markdown_cell(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn status_entry(trace: &str, status: &str, quarantined: bool) -> TraceStatusEntry {
+        TraceStatusEntry {
+            trace: trace.to_owned(),
+            verified_floor: 0,
+            total_actions: 0,
+            verified: 0,
+            raw_diffs: 0,
+            unsupported: 0,
+            applicable_actions: 0,
+            disposed_actions: 0,
+            rejected_actions: 0,
+            duplicate_dispositions: 0,
+            status: status.to_owned(),
+            boundary: "-".to_owned(),
+            frontier: "-".to_owned(),
+            quarantined,
+        }
+    }
+
+    #[test]
+    fn quarantine_manifest_ignores_comments_and_blank_lines() {
+        let dir = std::env::temp_dir().join(format!("sts_quarantine_{}", std::process::id()));
+        let root = dir.join("permanent_traces");
+        fs::create_dir_all(&root).expect("temp corpus dir");
+        fs::write(
+            dir.join("quarantine.txt"),
+            "# leading comment\n\nFIDL01807\n  FIDL01727  # inline reason\n\n# trailing\n",
+        )
+        .expect("write manifest");
+
+        let prefixes = load_quarantine_manifest(&root);
+
+        assert_eq!(prefixes, vec!["FIDL01807", "FIDL01727"]);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_quarantine_manifest_quarantines_nothing() {
+        let root = std::env::temp_dir().join("sts_quarantine_absent/permanent_traces");
+        assert!(load_quarantine_manifest(&root).is_empty());
+    }
+
+    #[test]
+    fn quarantined_failures_do_not_gate_the_corpus() {
+        let clean = vec![
+            status_entry("FIDL00001.jsonl", "complete_pass", false),
+            status_entry("FIDL01807.jsonl", "failed", true),
+            status_entry("FIDL01819.jsonl", "invalid_input", true),
+        ];
+        assert_eq!(trace_status_exit_code(&clean), 0);
+
+        let mut with_real_failure = clean;
+        with_real_failure.push(status_entry("FIDL00002.jsonl", "failed", false));
+        assert_eq!(trace_status_exit_code(&with_real_failure), 2);
+    }
 
     #[test]
     fn typed_outcomes_have_stable_process_exit_codes() {

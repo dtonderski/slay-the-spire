@@ -5188,8 +5188,12 @@ mod tests {
         left.validate().expect("Neow Leave produces a valid run");
     }
 
+    /// The target's commit point for this reward is not reproducible: 14 of 19
+    /// corpus traces show the card in the master deck at the choice, 5 show it
+    /// only at the map transition, from identical commands. We take the
+    /// majority, so the card is in the deck as soon as the option resolves.
     #[test]
-    fn neow_random_rare_card_defers_obtain_until_leave() {
+    fn neow_random_rare_card_obtain_commits_at_the_choice() {
         let mut run = RunState::seeded_ironclad(34_961_238_662_287, 0);
         run.player_hp = 10_000;
         run.player_max_hp = 10_000;
@@ -5211,17 +5215,24 @@ mod tests {
                 choice_index: option_index,
             },
         )
-        .expect("rare card option queues its visual obtain");
+        .expect("rare card option commits its obtain");
 
-        assert_eq!(chosen.deck, original_deck);
-        assert_eq!(chosen.pending_obtain_cards, expected);
+        assert!(chosen.pending_obtain_cards.is_empty());
+        assert_eq!(chosen.deck.len(), original_deck.len() + expected.len());
+        assert_eq!(
+            chosen.deck[original_deck.len()..]
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            expected
+        );
         assert_eq!(chosen.event.as_ref().map(|event| event.stage), Some(2));
         chosen
             .validate()
-            .expect("pending Neow rare card obtain is authoritative");
+            .expect("committed Neow rare card obtain is authoritative");
 
         let left = apply_event_action(&chosen, EventAction::Choose { choice_index: 0 })
-            .expect("Neow Leave flushes the rare card");
+            .expect("Neow Leave completes the event");
         assert!(left.pending_obtain_cards.is_empty());
         assert_eq!(left.deck.len(), original_deck.len() + expected.len());
         assert_eq!(

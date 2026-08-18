@@ -1,0 +1,48 @@
+# Quarantined traces.
+#
+# These traces are retained as real-game evidence but are NOT authoritative for
+# parity: they contain boundaries that no deterministic simulator can reproduce,
+# because the collector's command landed on a game state that was still
+# resolving. `sts_verify status` reports them separately and excludes them from
+# the pass/fail gate.
+#
+# Never delete a quarantined trace. Captured payloads are unreproducible.
+#
+# Format: one trace-id prefix per line (the FIDL id, not the full filename).
+# Blank lines and `#` comments are ignored.
+#
+# ---------------------------------------------------------------------------
+# CommunicationMod readiness, boundary schema v1.
+#
+# GameStateListener.hasDungeonStateChanged reported ready while an end turn was
+# still resolving: the action queue is transiently empty after EndTurnAction is
+# popped and before its follow-ups are queued. The collector's next command then
+# landed mid-turn, producing a second EndTurnAction and, on Nilry frames,
+# dropping the pending card selection entirely.
+#
+# Fixed for future collection by the endTurnQueued guard in that branch
+# (boundary schema v2). Traces below were collected before the fix.
+#
+# Fingerprint A: two END commands accepted within the same combat turn.
+FIDL01807
+FIDL01727
+FIDL01597
+FIDL01486
+FIDL01595
+FIDL01772
+#
+# Fingerprint B: an END accepted, answered with a quiescent frame, but the turn
+# never advanced.
+FIDL01469
+FIDL01493
+FIDL01505
+FIDL01515
+FIDL01563
+FIDL01576
+FIDL01648
+FIDL01762
+FIDL01777
+FIDL01782
+FIDL01794
+FIDL01809
+FIDL01819
