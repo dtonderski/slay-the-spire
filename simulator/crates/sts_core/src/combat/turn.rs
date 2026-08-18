@@ -657,6 +657,8 @@ pub fn settle_leftover_end_turn_monster_then_start_without_draw(
     }
     state.time_warp_end_turn = false;
     state.time_warp_end_turn_pre_discard_settled = false;
+    state.nilrys_duplicate_monster_queue = false;
+    clear_living_monster_block(state);
     run_monster_turn(state)?;
     tick_player_frail_at_end_of_round(state);
     if state.player.hp > 0 && state.monsters.iter().any(|monster| monster.alive) {
