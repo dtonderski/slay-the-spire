@@ -12,12 +12,13 @@ use crate::{
         confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy,
         confirm_hand_select_time_warp_remaining_status_lag,
         confirm_hand_select_time_warp_status_lag, confirm_hand_select_with_time_warp_policy,
-        confirm_headbutt_select_skipped_retrieval, confirm_recycle_select_skipped_retrieval,
-        discard_select_ui_to_discard_index, draw_select_ui_to_draw_index,
-        exhaust_select_ui_to_hand_index, flush_pending_player_spikes_damage_if_ready,
-        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
-        open_gambling_chip_select, player_draw_cards, player_shuffle_discard_into_draw,
-        top_draw_card_definition,
+        confirm_headbutt_select_skipped_retrieval,
+        confirm_headbutt_select_skipped_retrieval_with_time_warp_policy,
+        confirm_recycle_select_skipped_retrieval, discard_select_ui_to_discard_index,
+        draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
+        flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
+        open_discard_select_with_max_choices, open_exhaust_select, open_gambling_chip_select,
+        player_draw_cards, player_shuffle_discard_into_draw, top_draw_card_definition,
     },
     combat::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
@@ -639,6 +640,47 @@ pub fn apply_discard_select_choice_skipped_retrieval(
     choose_discard_select(&mut combat, index)?;
     let exhaust_before = combat.piles.exhaust_pile.len();
     let handled_dead_branch_count = confirm_headbutt_select_skipped_retrieval(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
+    flush_pending_player_spikes_damage_if_ready(&mut combat)?;
+    next.combat = Some(combat);
+    Ok(next)
+}
+
+/// Like [`apply_discard_select_choice_skipped_retrieval`], but leave Time Warp's
+/// forced end-turn queued. Havoc PlayTop Headbutt can publish CHOOSE after Feel
+/// No Pain exhaust block and before `TimeWarpPower` callEndTurnEarlySequence
+/// (FIDL01702).
+pub fn apply_discard_select_choice_skipped_retrieval_without_time_warp_end(
+    run: &RunState,
+    index: usize,
+) -> SimResult<RunState> {
+    validate_discard_select_choice(run, index)?;
+    let mut next = run.clone();
+    if next
+        .combat
+        .as_ref()
+        .and_then(CombatState::discard_select)
+        .map(|select| select.purpose)
+        != Some(DiscardSelectPurpose::HeadbuttPutOnDraw)
+    {
+        return Err(SimError::IllegalAction(
+            "skipped discard retrieval requires Headbutt discard select",
+        ));
+    }
+    let mut combat = next.combat.take().expect("validated combat");
+    choose_discard_select(&mut combat, index)?;
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    let handled_dead_branch_count =
+        confirm_headbutt_select_skipped_retrieval_with_time_warp_policy(&mut combat, false)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile

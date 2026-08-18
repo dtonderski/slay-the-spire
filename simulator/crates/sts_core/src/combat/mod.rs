@@ -49,6 +49,7 @@ pub use transition::{
     confirm_hand_select_skipped_put_on_deck_retrieval,
     confirm_hand_select_time_warp_remaining_status_lag, confirm_hand_select_time_warp_status_lag,
     confirm_hand_select_with_time_warp_policy, confirm_headbutt_select_skipped_retrieval,
+    confirm_headbutt_select_skipped_retrieval_with_time_warp_policy,
     confirm_purity_select_skipped_retrieval, confirm_recycle_select_skipped_retrieval,
     confirm_true_grit_select_skipped_retrieval, draw_select_ui_to_draw_index,
     hand_select_ui_to_hand_index, open_gambling_chip_select, process_internal_queue_public,

@@ -49,8 +49,9 @@ pub use player_choice::{
 pub use potion::{
     apply_combat_card_reward_choice_skipped_discovery_retrieval,
     apply_combat_card_reward_choice_skipped_toolbox_retrieval,
-    apply_discard_select_choice_skipped_retrieval, apply_draw_select_choice_skipped_retrieval,
-    apply_exhaust_select_choice_skipped_exhume,
+    apply_discard_select_choice_skipped_retrieval,
+    apply_discard_select_choice_skipped_retrieval_without_time_warp_end,
+    apply_draw_select_choice_skipped_retrieval, apply_exhaust_select_choice_skipped_exhume,
     apply_exhaust_select_confirm_skipped_burning_pact_retrieval,
     apply_exhaust_select_confirm_skipped_burning_pact_retrieval_without_time_warp_end,
     apply_exhaust_select_confirm_skipped_gambling_chip_retrieval,

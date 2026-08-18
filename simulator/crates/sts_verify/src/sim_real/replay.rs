@@ -2709,6 +2709,48 @@ fn skipped_headbutt_candidate(
     Ok(Some(candidate))
 }
 
+fn deferred_time_warp_skipped_headbutt_candidate(
+    run: &RunState,
+    decision: RunDecisionAction,
+) -> Result<Option<RunState>, String> {
+    let RunDecisionAction::Run(RunAction::ChooseDiscardSelect { index }) = decision else {
+        return Ok(None);
+    };
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(None);
+    };
+    let Some(discard_select) = combat.discard_select() else {
+        return Ok(None);
+    };
+    if discard_select.purpose != DiscardSelectPurpose::HeadbuttPutOnDraw
+        || (discard_select.source_card.is_none() && !discard_select.source_card_force_exhaust)
+    {
+        return Ok(None);
+    }
+    if !combat.monsters.iter().any(|monster| {
+        monster.alive && monster.content_id == sts_core::content::monsters::TIME_EATER_ID
+    }) {
+        return Ok(None);
+    }
+    let selected = combat
+        .piles
+        .discard_pile
+        .get(index)
+        .cloned()
+        .ok_or_else(|| {
+            "Time Warp skipped Headbutt candidate selected index is out of range".to_owned()
+        })?;
+
+    let mut candidate =
+        sts_core::run::apply_discard_select_choice_skipped_retrieval_without_time_warp_end(
+            run, index,
+        )
+        .map_err(|error| error.to_string())?;
+    candidate.pending_headbutt_alias = Some(selected);
+    candidate.validate().map_err(|error| error.to_string())?;
+    Ok(Some(candidate))
+}
+
 fn skipped_draw_select_candidate(
     run: &RunState,
     decision: RunDecisionAction,
@@ -4245,6 +4287,26 @@ pub(super) fn verify_seed_start_transition(
                                 })
                                 .or_else(|| {
                                     skipped_headbutt_candidate(&source, decision)
+                                        .ok()
+                                        .flatten()
+                                        .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                        .filter(|_| {
+                                            !subset_diffs(
+                                                seed_start_combat_observed_subset(&post.message),
+                                                seed_start_simulated_combat_subset(&next),
+                                            )
+                                            .is_empty()
+                                        })
+                                        .filter(|candidate| {
+                                            subset_diffs(
+                                                seed_start_combat_observed_subset(&post.message),
+                                                seed_start_simulated_combat_subset(candidate),
+                                            )
+                                            .is_empty()
+                                        })
+                                })
+                                .or_else(|| {
+                                    deferred_time_warp_skipped_headbutt_candidate(&source, decision)
                                         .ok()
                                         .flatten()
                                         .filter(|candidate| candidate.pending_external_rng.is_empty())

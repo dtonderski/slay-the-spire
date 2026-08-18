@@ -4850,6 +4850,13 @@ pub(super) fn settle_headbutt_source_after_discard_select(
 /// Force-played Headbutt still exhausts so Dark Embrace / Feel No Pain /
 /// Charon's Ashes / Dead Branch resolve after the grid closes.
 pub fn confirm_headbutt_select_skipped_retrieval(state: &mut CombatState) -> SimResult<usize> {
+    confirm_headbutt_select_skipped_retrieval_with_time_warp_policy(state, true)
+}
+
+pub fn confirm_headbutt_select_skipped_retrieval_with_time_warp_policy(
+    state: &mut CombatState,
+    settle_time_warp: bool,
+) -> SimResult<usize> {
     let discard_select = state
         .take_discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
@@ -4878,14 +4885,20 @@ pub fn confirm_headbutt_select_skipped_retrieval(state: &mut CombatState) -> Sim
     )?;
     state.play_top_force_exhaust_active = false;
     state.pen_nib_double_active = false;
+    let previous_defer_time_warp = state.defer_time_warp_end_turn;
+    state.defer_time_warp_end_turn = true;
     if !discard_select.pending_actions.is_empty() {
         let transition = process_internal_queue(state, discard_select.pending_actions)?;
         *state = transition.state;
     }
+    state.defer_time_warp_end_turn = previous_defer_time_warp;
     if state.decision.is_none() {
         flush_pending_monster_death_relics_if_ready(state)?;
     }
     state.activate_next_queued_decision_if_idle();
+    if settle_time_warp {
+        settle_time_warp_end_turn_if_ready(state)?;
+    }
     Ok(dead_branch_count)
 }
 
