@@ -198,10 +198,7 @@ pub(super) fn resolve_fiend_fire(
     // not be exhausted by Fiend Fire (and must not steal exhaust slots from
     // Sentinel / etc. — FIDL584b energy from Sentinel on-exhaust). Double Tap
     // copies re-snapshot, so an empty hand yields zero hits (FIDL00237).
-    // FiendFireAction queues ExhaustSpecificCardAction per remaining hand card;
-    // that path does not roll cardRandomRng. Random exhaust order desynced
-    // Magnetism / Discovery after Fiend Fire (FIDL01609).
-    let pending_exhaust: Vec<CardId> = state
+    let mut pending_exhaust: Vec<CardId> = state
         .piles
         .hand
         .iter()
@@ -210,7 +207,15 @@ pub(super) fn resolve_fiend_fire(
         .collect();
     let hits = pending_exhaust.len();
     let mut follow_ups = Vec::new();
-    for card_id in pending_exhaust {
+    // Pick order with the same cardRandomRng pattern as ExhaustRandomHandCardExcept
+    // (one random_int per remaining snapshot card), without exhausting Dead Branch
+    // refills that land mid-resolve.
+    while !pending_exhaust.is_empty() {
+        let pick = state
+            .rng
+            .card_random_rng
+            .random_int((pending_exhaust.len() - 1) as i32) as usize;
+        let card_id = pending_exhaust.remove(pick);
         if state.piles.hand.iter().all(|card| card.id != card_id) {
             continue;
         }

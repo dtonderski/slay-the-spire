@@ -9757,33 +9757,6 @@ mod tests {
     }
 
     #[test]
-    fn fiend_fire_exhaust_order_does_not_consume_card_random_rng() {
-        let target = MonsterId::new(1);
-        let mut state = CombatState::initial_fixture();
-        state.monsters[0].hp = 200;
-        state.monsters[0].max_hp = 200;
-        state.player.energy = 3;
-        state.piles.hand = vec![
-            CardInstance::new(CardId::new(1), FIEND_FIRE_ID),
-            CardInstance::new(CardId::new(2), STRIKE_R_ID),
-            CardInstance::new(CardId::new(3), DEFEND_R_ID),
-            CardInstance::new(CardId::new(4), BASH_ID),
-        ];
-        state.piles.draw_pile.clear();
-        let before = state.rng.card_random_rng.counter();
-        let next = apply_combat_action(
-            &state,
-            CombatAction::PlayCard {
-                card_id: CardId::new(1),
-                target: Some(target),
-            },
-        )
-        .expect("Fiend Fire");
-        assert_eq!(next.piles.hand.len(), 0);
-        assert_eq!(next.rng.card_random_rng.counter(), before);
-    }
-
-    #[test]
     fn fiend_fire_with_dead_branch_spends_energy_and_refills_hand() {
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
