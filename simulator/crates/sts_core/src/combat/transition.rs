@@ -116,7 +116,14 @@ fn apply_end_turn(state: &CombatState) -> SimResult<CombatTransition> {
         });
     }
     let ethereal_ids = end_turn_ethereal_hand_card_ids(state);
-    let next = crate::combat::end_player_turn(state)?;
+    let mut prepared = state.clone();
+    if prepared.time_warp_end_turn {
+        // Explicit END after a lagged Time Warp CONFIRM is a second
+        // EndTurnAction on top of callEndTurnEarlySequence (FIDL01425 /
+        // FIDL01601 two Reverberates). Leftover PLAY still flushes once.
+        prepared.time_warp_duplicate_monster_queue = true;
+    }
+    let next = crate::combat::end_player_turn(&prepared)?;
     let event_log = ethereal_ids
         .into_iter()
         .filter(|card_id| {
@@ -11703,6 +11710,33 @@ mod tests {
             next.time_warp_duplicate_monster_queue,
             "explicit END after lagged CONFIRM must run two MonsterQueueItems"
         );
+    }
+
+    #[test]
+    fn explicit_end_after_deferred_time_warp_runs_duplicate_monster_queue() {
+        // FIDL01601 END 1773: Burning Pact CONFIRM parks Time Warp, then END
+        // is a second EndTurnAction. Reverberate 7+2 through Vulnerable hits
+        // twice (39+39) instead of once.
+        let mut state = CombatState::initial_fixture();
+        state.time_warp_end_turn = true;
+        state.player.hp = 4341;
+        state.player.max_hp = 4341;
+        state.player.powers.vulnerable = 1;
+        state.piles.hand.clear();
+        state.piles.draw_pile = (1..=10)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        state.monsters[0].content_id = crate::content::monsters::TIME_EATER_ID;
+        state.monsters[0].intent = crate::MonsterIntent::AttackMultiple { damage: 7, hits: 3 };
+        state.monsters[0].powers.strength = 2;
+        state.monsters[0].hp = 400;
+        state.monsters[0].max_hp = 400;
+
+        let next = apply_combat_action(&state, CombatAction::EndTurn).expect("duplicate END");
+
+        assert_eq!(next.player.hp, 4263);
+        assert!(!next.time_warp_end_turn);
     }
 
     #[test]
