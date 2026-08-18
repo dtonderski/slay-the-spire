@@ -286,7 +286,8 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
             !defer_combust_until_after_autoplay,
         )?;
         // The Bomb's end-turn explosion can end combat before hand cleanup;
-        // target skips Regret in that terminal queue (FIDL00244). Keep this
+        // target skips Regret in that terminal queue (FIDL00244) but still
+        // plays Burn/Decay from callEndOfTurnActions (FIDL01533). Keep this
         // limited to Bomb-triggered victory; other end-turn powers retain the
         // ordinary hand-before-victory ordering used by the corpus.
         // Constricted still resolves in that pre-hand bomb-lethal window as
@@ -302,6 +303,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         {
             // Constricted may already have run in before_hand when Combust was
             // also active (FIDL00440 ordering).
+            crate::combat::hand::apply_end_of_turn_burn_and_decay_for_bomb_victory(&mut next)?;
             if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next) {
                 crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
             }

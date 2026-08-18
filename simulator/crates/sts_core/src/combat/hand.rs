@@ -64,6 +64,7 @@ fn resolve_end_of_turn_hand_inner(
         state,
         hand_size_for_regret,
         queued_autoplay,
+        false,
     )?;
     let auto_play_emptied_hand = hand_was_nonempty && state.piles.hand.is_empty();
     let mut resolution = exhaust_unplayed_ethereal_cards(state)?;
@@ -82,13 +83,14 @@ pub fn resolve_end_of_turn_playing_cards_for_time_warp_lag(
     state: &mut CombatState,
 ) -> SimResult<()> {
     let hand_size = state.piles.hand.len() as i32;
-    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size, None)
+    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size, None, false)
 }
 
 fn apply_end_of_turn_for_playing_cards_in_hand_order(
     state: &mut CombatState,
     hand_size: i32,
     queued_autoplay: Option<&std::collections::HashSet<CardId>>,
+    skip_curses: bool,
 ) -> SimResult<()> {
     let hand = std::mem::take(&mut state.piles.hand);
 
@@ -98,11 +100,13 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
         let card = hand[index];
         let previous_card_in_use = state.card_in_use;
         let queued = queued_autoplay.is_none_or(|ids| ids.contains(&card.id));
+        let is_end_turn_curse = matches!(card.content_id, REGRET_ID | DOUBT_ID | SHAME_ID);
         let auto_played = queued
             && matches!(
                 card.content_id,
                 BURN_ID | DECAY_ID | REGRET_ID | DOUBT_ID | SHAME_ID
-            );
+            )
+            && !(skip_curses && is_end_turn_curse);
         if auto_played {
             // End-turn curses/statuses are queued as cards. AbstractPlayer moves
             // the queued card out of hand into cardInUse before its card action;
@@ -207,6 +211,16 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
     state.piles.hand = remaining;
     state.piles.hand.extend(drawn_during_cleanup);
     Ok(())
+}
+
+/// `TheBombPower` can end combat in the pre-hand end-turn window. The target
+/// still plays Burn/Decay from `callEndOfTurnActions` (FIDL01533 Burn+ 4 HP)
+/// while skipping Regret in that terminal queue (FIDL00244).
+pub(crate) fn apply_end_of_turn_burn_and_decay_for_bomb_victory(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    let hand_size = state.piles.hand.len() as i32;
+    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size, None, true)
 }
 
 pub(crate) fn exhaust_unplayed_ethereal_cards(
