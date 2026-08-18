@@ -646,6 +646,27 @@ fn settle_leftover_end_turn_monster_and_draw_with_post_draw_relics(
     Ok(())
 }
 
+/// Leftover EndTurn can publish after takeTurn and energy refill, before
+/// `DrawCardAction` (FIDL01807 PLAY 1001: empty hand, discarded last hand,
+/// next-turn energy, Champ's next intent).
+pub fn settle_leftover_end_turn_monster_then_start_without_draw(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    if state.player.hp <= 0 {
+        return Ok(());
+    }
+    state.time_warp_end_turn = false;
+    state.time_warp_end_turn_pre_discard_settled = false;
+    run_monster_turn(state)?;
+    tick_player_frail_at_end_of_round(state);
+    if state.player.hp > 0 && state.monsters.iter().any(|monster| monster.alive) {
+        let mut next = state.clone();
+        start_player_turn_in_place(&mut next, true, false, false)?;
+        *state = next;
+    }
+    Ok(())
+}
+
 fn tick_player_weak_at_end_of_round(state: &mut CombatState) {
     if state.player.powers.weak > 0 && state.player.weak_just_applied {
         state.player.weak_just_applied = false;
@@ -750,7 +771,7 @@ fn start_player_turn_with_start_relics_and_post_draw(
     apply_post_draw_relics: bool,
 ) -> SimResult<()> {
     let mut next = state.clone();
-    start_player_turn_in_place(&mut next, apply_start_relics, apply_post_draw_relics)?;
+    start_player_turn_in_place(&mut next, apply_start_relics, apply_post_draw_relics, true)?;
     *state = next;
     Ok(())
 }
@@ -759,6 +780,7 @@ fn start_player_turn_in_place(
     state: &mut CombatState,
     apply_start_relics: bool,
     apply_post_draw_relics: bool,
+    draw_hand: bool,
 ) -> SimResult<()> {
     // EndTurnDeathPower.atStartOfTurn (Blasphemy): LoseHP 99999 then remove power.
     if state.player.powers.end_turn_death > 0 {
@@ -816,6 +838,11 @@ fn start_player_turn_in_place(
     }
     if apply_start_relics {
         crate::relic::apply_start_of_player_turn_relics(state)?;
+    }
+    if !draw_hand {
+        state.leftover_end_turn_draw_remaining = next_hand_draw_count(state) as u8;
+        state.phase = CombatPhase::WaitingForPlayer;
+        return Ok(());
     }
     apply_start_of_turn_magnetism(state)?;
     // MayhemPower.atStartOfTurn queues one anonymous action per stack before
@@ -4807,6 +4834,24 @@ mod tests {
         settle_leftover_end_turn_monster_and_draw(&mut state)
             .expect("leftover EndTurn takeTurn ticks Frail");
         assert_eq!(state.player.powers.frail, 4);
+    }
+
+    #[test]
+    fn leftover_end_turn_monster_start_without_draw_keeps_empty_hand() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.frail = 6;
+        state.player.energy = 4;
+        state.player.max_energy = 4;
+        state.piles.hand.clear();
+        state.piles.draw_pile = (1..=5)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        settle_leftover_end_turn_monster_then_start_without_draw(&mut state)
+            .expect("leftover takeTurn then energy");
+        assert!(state.piles.hand.is_empty());
+        assert_eq!(state.player.energy, 4);
+        assert_eq!(state.player.powers.frail, 5);
+        assert!(state.leftover_end_turn_draw_remaining > 0);
     }
 
     #[test]

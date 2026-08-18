@@ -2562,6 +2562,24 @@ fn leftover_end_state_publication_candidate(
             return Some(lose_block);
         }
     }
+    let mut without_draw = source.clone();
+    if let Some(combat) = without_draw.combat.as_mut() {
+        if sts_core::combat::settle_leftover_end_turn_monster_then_start_without_draw(combat)
+            .is_ok()
+        {
+            without_draw.player_hp = combat.player.hp;
+            without_draw.player_max_hp = combat.player.max_hp;
+            if without_draw.validate().is_ok()
+                && subset_diffs(
+                    observed.clone(),
+                    seed_start_simulated_combat_subset(&without_draw),
+                )
+                .is_empty()
+            {
+                return Some(without_draw);
+            }
+        }
+    }
     let mut finished = source.clone();
     let combat = finished.combat.as_mut()?;
     let skip_post_queue_rolls = combat.nilrys_skip_post_queue_rolls;
