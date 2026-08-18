@@ -2000,7 +2000,30 @@ fn deferred_nilrys_play_then_leftover_end_candidate(
         .is_empty()
         .then_some(candidate)
     };
-    try_finish(false, false, false)
+    let discard_then_leftover = || -> Option<RunState> {
+        let mut discarded = played.clone();
+        {
+            let combat = discarded.combat.as_mut()?;
+            sts_core::combat::settle_leftover_end_turn_player_powers_and_discard(combat).ok()?;
+            discarded.player_hp = combat.player.hp;
+            discarded.player_max_hp = combat.player.max_hp;
+        }
+        discarded.validate().ok()?;
+        leftover_end_state_publication_candidate(
+            &discarded,
+            Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+            post,
+        )
+    };
+    discard_then_leftover()
+        .or_else(|| {
+            leftover_end_state_publication_candidate(
+                &played,
+                Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+                post,
+            )
+        })
+        .or_else(|| try_finish(false, false, false))
         .or_else(|| try_finish(true, false, false))
         .or_else(|| try_finish(false, true, false))
         .or_else(|| try_finish(true, true, false))
