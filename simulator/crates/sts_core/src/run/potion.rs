@@ -1227,9 +1227,8 @@ fn discovery_post_select_generations(
         get_card_definition(card.content_id)
             .is_some_and(|definition| definition.card_type == CardType::Status)
     });
-    let tiny_remaining_hand_with_status = combat.piles.hand.len() <= 2
-        && remaining_status
-        && !fighting_donu_deca;
+    let tiny_remaining_hand_with_status =
+        combat.piles.hand.len() <= 2 && remaining_status && !fighting_donu_deca;
     if another_discovery_in_hand
         || hexed_with_two_living
         || (fighting_awakened_one
