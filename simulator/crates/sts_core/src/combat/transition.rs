@@ -372,10 +372,10 @@ pub(crate) fn process_internal_queue(
                 {
                     queue.insert(index, follow_up);
                 } else {
-                    push_follow_up(&mut queue, follow_up);
+                    push_follow_up(&mut queue, follow_up, card_in_use_is_whirlwind(&next));
                 }
             } else {
-                push_follow_up(&mut queue, follow_up);
+                push_follow_up(&mut queue, follow_up, card_in_use_is_whirlwind(&next));
             }
         }
         if !queue.is_empty() {
@@ -407,7 +407,7 @@ pub(crate) fn process_internal_queue(
                             let free_follow_ups = apply_internal_action(&mut next, queued)?;
                             event_log.push(queued);
                             for free_follow_up in free_follow_ups {
-                                push_follow_up(&mut queue, free_follow_up);
+                                push_follow_up(&mut queue, free_follow_up, false);
                             }
                         } else {
                             deferred.push_back(queued);
@@ -526,26 +526,38 @@ pub(crate) fn process_internal_queue(
     })
 }
 
-fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalAction) {
-    if matches!(follow_up, InternalAction::GainBlockDirect { .. }) {
+fn card_in_use_is_whirlwind(state: &CombatState) -> bool {
+    let Some(card_id) = state.card_in_use else {
+        return false;
+    };
+    state
+        .piles
+        .hand
+        .iter()
+        .chain(state.piles.limbo.iter())
+        .chain(state.piles.discard_pile.iter())
+        .any(|card| {
+            card.id == card_id && matches!(card.content_id, WHIRLWIND_ID | WHIRLWIND_PLUS_ID)
+        })
+}
+
+fn push_follow_up(
+    queue: &mut VecDeque<InternalAction>,
+    follow_up: InternalAction,
+    whirlwind_in_use: bool,
+) {
+    if whirlwind_in_use && matches!(follow_up, InternalAction::GainBlockDirect { .. }) {
         // Whirlwind.use() only addToBots WhirlwindAction. UseCardAction then
         // addToBots Ornamental Fan / Rage GainBlock before that wrapper
         // addToBots DamageAllEnemiesAction, so Fan block is up for Spiker
-        // thorns (FIDL01552). Immediate Cleave/Strike damage stays ahead of Fan.
-        let whirlwind_wrapper = queue
+        // thorns (FIDL01552). Thunderclap/Cleave queue DamageAll in use()
+        // itself, so Fan stays after those hits.
+        if let Some(index) = queue
             .iter()
-            .any(|action| matches!(action, InternalAction::SpendEnergy { .. }))
-            && queue
-                .iter()
-                .any(|action| matches!(action, InternalAction::DealDamageAll { .. }));
-        if whirlwind_wrapper {
-            if let Some(index) = queue
-                .iter()
-                .position(|action| matches!(action, InternalAction::DealDamageAll { .. }))
-            {
-                queue.insert(index, follow_up);
-                return;
-            }
+            .position(|action| matches!(action, InternalAction::DealDamageAll { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
         }
     }
 
@@ -6479,6 +6491,7 @@ mod tests {
         push_follow_up(
             &mut queue,
             InternalAction::DrawCardsFromInkBottle { count: 1 },
+            false,
         );
 
         assert!(matches!(
@@ -6515,6 +6528,7 @@ mod tests {
         push_follow_up(
             &mut queue,
             InternalAction::DrawCardsFromInkBottle { count: 1 },
+            false,
         );
 
         assert!(matches!(
@@ -7378,6 +7392,7 @@ mod tests {
             InternalAction::AddGeneratedCardToDrawPileRandomSpot {
                 content_id: DAZED_ID,
             },
+            false,
         );
 
         assert!(matches!(
