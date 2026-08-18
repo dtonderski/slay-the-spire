@@ -3854,7 +3854,17 @@ pub(crate) fn move_delayed_played_source_with_strange_spoon(
     let destination = delayed_source_card_destination(state, definition);
     move_card(state, source_card_id, CardPile::Hand, destination)?;
     if destination == CardPile::ExhaustPile {
-        apply_on_exhaust_effects(state, source_card_id)?;
+        // UseCardAction exhaust is addToBot Feel No Pain / Dead Branch /
+        // Dark Embrace (FIDL01520: Dead Branch Perfected Strike then DE draws
+        // the Warcry put-on-top card). Immediate DE draw would append Dead
+        // Branch after the drawn card.
+        let transition = process_internal_queue(
+            state,
+            VecDeque::from([InternalAction::CardExhausted {
+                card_id: source_card_id,
+            }]),
+        )?;
+        *state = transition.state;
     }
     Ok(())
 }
