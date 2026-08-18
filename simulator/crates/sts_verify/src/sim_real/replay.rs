@@ -1718,6 +1718,29 @@ fn deferred_nilrys_first_choice_candidate(
     }
 }
 
+fn extra_first_monster_roll_after(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+    set: fn(&mut sts_core::combat::CombatState),
+) -> Option<RunState> {
+    let mut flagged = source.clone();
+    {
+        let combat = flagged.combat.as_mut()?;
+        set(combat);
+    }
+    let mut applied = apply_run_decision_action(&flagged, decision).ok()?;
+    sts_core::combat::roll_first_living_monster_intent(applied.combat.as_mut()?).ok()?;
+    applied.player_hp = applied.combat.as_ref()?.player.hp;
+    applied.validate().ok()?;
+    subset_diffs(
+        seed_start_combat_observed_subset(&post.message),
+        seed_start_simulated_combat_subset(&applied),
+    )
+    .is_empty()
+    .then_some(applied)
+}
+
 fn deferred_nilrys_leftover_end_after_choice_candidate(
     source: &RunState,
     decision: RunDecisionAction,
@@ -1779,24 +1802,17 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
             .or_else(|| try_flagged(|c| c.nilrys_single_post_queue_roll = true))
             // Interleaved leftover rolls can leave the first Darkling on CHOMP;
             // SuperFastMode still flushes one more RollMoveAction onto Harden
-            // (FIDL01807 CHOOSE 1112).
+            // (FIDL01807 CHOOSE 1112). A single leftover post-queue roll can
+            // need the same extra Harden roll (CHOOSE 1134).
             .or_else(|| {
-                let mut flagged = source.clone();
-                {
-                    let combat = flagged.combat.as_mut()?;
-                    combat.nilrys_interleave_post_queue_rolls = true;
-                }
-                let mut applied = apply_run_decision_action(&flagged, decision).ok()?;
-                sts_core::combat::roll_first_living_monster_intent(applied.combat.as_mut()?)
-                    .ok()?;
-                applied.player_hp = applied.combat.as_ref()?.player.hp;
-                applied.validate().ok()?;
-                subset_diffs(
-                    seed_start_combat_observed_subset(&post.message),
-                    seed_start_simulated_combat_subset(&applied),
-                )
-                .is_empty()
-                .then_some(applied)
+                extra_first_monster_roll_after(source, decision, post, |c| {
+                    c.nilrys_interleave_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| {
+                extra_first_monster_roll_after(source, decision, post, |c| {
+                    c.nilrys_single_post_queue_roll = true;
+                })
             })
     })
 }
