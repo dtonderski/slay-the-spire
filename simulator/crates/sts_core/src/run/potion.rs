@@ -1247,6 +1247,17 @@ fn discovery_post_select_generations(
             && combat.piles.hand.len() == 3)
     {
         2
+    } else if living_monsters == 1
+        && combat.piles.hand.len() == 3
+        && !fighting_awakened_one
+        && !fighting_donu_deca
+        && !early_magnetism_generated_source
+    {
+        // SuperFastMode leftover generateCardChoices does not run after CHOOSE
+        // when three cards remain versus a single non-AO/Donu enemy. The extra
+        // pulse desyncs Reckless Charge addToRandomSpot (FIDL01680: Dazed at
+        // draw index 5, not 2).
+        0
     } else {
         1
     }
@@ -3648,6 +3659,44 @@ mod tests {
             combat.rng.card_random_rng.counter(),
             19,
             "two remaining non-status cards stay one discarded generateCardChoices generation"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_with_three_remaining_cards_vs_solo_enemy_burns_zero_generations() {
+        use crate::content::cards::STRIKE_R_ID;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+        ];
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            source_card_play_top: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("three-card remaining solo-enemy Discovery retrieve");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            16,
+            "three remaining cards versus one non-AO/Donu enemy burn no discarded generateCardChoices generation"
         );
     }
 

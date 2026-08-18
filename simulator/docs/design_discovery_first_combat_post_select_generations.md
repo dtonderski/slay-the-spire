@@ -35,7 +35,9 @@ that include a status take two pulses (FIDL01357: Defend+Dazed then Wild Strike
 Wound at draw index 21, not 0). Donu/Deca does not take that extra pulse
 (FIDL01622: Clash+Dazed then Wild Strike Wound at draw index 21, not 11).
 Two remaining non-status cards stay one pulse
-(FIDL01614 Infernal Blade). Another Discovery still in hand still needs
+(FIDL01614 Infernal Blade). Three remaining cards against a **single**
+living enemy that is not Awakened One / Donu / Deca burn **no** leftover
+pulse (FIDL01680 Reckless Charge Dazed at draw index 5, not 2). Another Discovery still in hand still needs
 two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
 among the first two cards of the turn needs two pulses when the remaining
 hand is smaller than 5 or another Magnetism-generated card is still in
@@ -83,6 +85,7 @@ living enemy and `hand.len() >= 5`, when Donu or Deca is present and
 status except against Donu/Deca, or when a hand-played Magnetism source is Magnetism-generated,
 `cards_played_this_turn <= 2`, and either fewer than 5 cards remain or another
 Magnetism-generated card is still in hand with remaining hand size other than 5.
-Remaining 5 with another Magnetism card stays one pulse. Mayhem
+Remaining 5 with another Magnetism card stays one pulse. Three remaining cards
+versus a single non-AO/Donu enemy burn zero leftover pulses. Mayhem
 PlayTop skips that Magnetism two-pulse branch. Otherwise burn one.
 Do not hydrate the Void insert index from the observed leftover pile.
