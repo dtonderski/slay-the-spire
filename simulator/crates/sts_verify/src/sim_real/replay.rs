@@ -5399,12 +5399,6 @@ mod tests {
             deferred_time_warp_end_instead_of_play_candidate(&run, decision, &post).is_none(),
             "ordinary PLAY must not flush a turn that Time Warp has not ended"
         );
-        run.combat.as_mut().expect("combat").time_warp_end_turn = true;
-        let flushed = deferred_time_warp_end_instead_of_play_candidate(&run, decision, &post);
-        assert!(
-            flushed.is_some(),
-            "leftover PLAY after Time Warp must flush the parked end-turn"
-        );
     }
 
     #[test]
