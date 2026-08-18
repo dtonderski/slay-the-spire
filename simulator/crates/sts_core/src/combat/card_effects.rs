@@ -784,10 +784,14 @@ fn should_apply_necronomicon(
         return Ok(false);
     }
     // NecronomiconPower.onUseCard requires costForTurn >= 2. X-cost cards keep
-    // printed cost -1; the game uses energyOnUse (energy spent) instead, so a
-    // 2+ Energy Whirlwind is played twice (FIDL01485 Giant Head 376→340).
-    let cost = effective_card_cost(card)?;
-    let necronomicon_cost = if cost < 0 { state.player.energy } else { cost };
+    // printed cost -1 (and Infernal Blade may overlay 0-cost-this-turn), so the
+    // game uses energyOnUse instead: a 2+ Energy Whirlwind is played twice
+    // (FIDL01485 Giant Head 376→340).
+    let necronomicon_cost = if definition.cost < 0 {
+        state.player.energy
+    } else {
+        effective_card_cost(card)?
+    };
     Ok(necronomicon_cost >= 2)
 }
 
