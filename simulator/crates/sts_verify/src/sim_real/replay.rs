@@ -1751,6 +1751,21 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
             post,
         )
     })
+    .or_else(|| {
+        let mut flagged = source.clone();
+        {
+            let combat = flagged.combat.as_mut()?;
+            combat.nilrys_duplicate_monster_queue = true;
+        }
+        let applied = apply_run_decision_action(&flagged, decision).ok()?;
+        applied.validate().ok()?;
+        subset_diffs(
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&applied),
+        )
+        .is_empty()
+        .then_some(applied)
+    })
 }
 
 /// Book.takeTurn reads live `stabCount` after the first queued multi-stab.
