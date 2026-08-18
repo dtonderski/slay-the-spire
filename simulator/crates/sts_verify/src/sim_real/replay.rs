@@ -2168,6 +2168,7 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
         let combat = candidate.combat.as_mut()?;
         combat.nilrys_codex_end_turn_stage == 2
     };
+    let observed = seed_start_combat_observed_subset(&post.message);
     let try_finish = |source: &RunState| -> Option<RunState> {
         let mut candidate = source.clone();
         let combat = candidate.combat.as_mut()?;
@@ -2177,21 +2178,41 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
         candidate.card_random_rng_counter = finished.rng.card_random_rng.counter();
         candidate.combat = Some(finished);
         candidate.validate().ok()?;
-        subset_diffs(
-            seed_start_combat_observed_subset(&post.message),
+        if subset_diffs(
+            observed.clone(),
             seed_start_simulated_combat_subset(&candidate),
         )
         .is_empty()
-        .then_some(candidate)
+        {
+            return Some(candidate);
+        }
+        leftover_end_state_mid_draw_from_finished(candidate, observed.clone())
+    };
+    let discard_then_leftover_pulses = |source: &RunState| -> Option<RunState> {
+        let mut discarded = source.clone();
+        {
+            let combat = discarded.combat.as_mut()?;
+            sts_core::combat::settle_leftover_end_turn_player_powers_and_discard(combat).ok()?;
+            discarded.player_hp = combat.player.hp;
+            discarded.player_max_hp = combat.player.max_hp;
+        }
+        discarded.validate().ok()?;
+        leftover_end_state_publication_candidate(
+            &discarded,
+            Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+            post,
+        )
     };
     if !from_stage_two {
-        return try_finish(&candidate).or_else(|| {
-            leftover_end_state_publication_candidate(
-                source,
-                Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
-                post,
-            )
-        });
+        return try_finish(&candidate)
+            .or_else(|| discard_then_leftover_pulses(source))
+            .or_else(|| {
+                leftover_end_state_publication_candidate(
+                    source,
+                    Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+                    post,
+                )
+            });
     }
     let discard_then_monsters = |set: fn(&mut sts_core::combat::CombatState)| -> Option<RunState> {
         let mut flagged = candidate.clone();
