@@ -2112,6 +2112,15 @@ fn apply_on_exhaust_effects_inner(
     } else {
         None
     };
+    // Dead Branch `onExhaust` is addToBot MakeTempCardInHand. Dark Embrace is
+    // addToBot DrawCardAction. Relic callbacks run before powers, so the
+    // generated card lands before the exhaust draw (FIDL01520 Warcry CONFIRM:
+    // Perfected Strike then Pommel Strike).
+    if draw_with_dark_embrace {
+        if let Some(content_id) = reserve_dead_branch_card_content(state) {
+            add_generated_card_to_pile(state, content_id, CardPile::Hand, None, false)?;
+        }
+    }
     if draw_with_dark_embrace && state.player.powers.dark_embrace > 0 {
         player_draw_cards(state, state.player.powers.dark_embrace as usize)?;
     }
@@ -3854,17 +3863,7 @@ pub(crate) fn move_delayed_played_source_with_strange_spoon(
     let destination = delayed_source_card_destination(state, definition);
     move_card(state, source_card_id, CardPile::Hand, destination)?;
     if destination == CardPile::ExhaustPile {
-        // UseCardAction exhaust is addToBot Feel No Pain / Dead Branch /
-        // Dark Embrace (FIDL01520: Dead Branch Perfected Strike then DE draws
-        // the Warcry put-on-top card). Immediate DE draw would append Dead
-        // Branch after the drawn card.
-        let transition = process_internal_queue(
-            state,
-            VecDeque::from([InternalAction::CardExhausted {
-                card_id: source_card_id,
-            }]),
-        )?;
-        *state = transition.state;
+        apply_on_exhaust_effects(state, source_card_id)?;
     }
     Ok(())
 }
