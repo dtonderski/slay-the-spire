@@ -2757,7 +2757,10 @@ fn leftover_end_state_publication_candidate(
         .or_else(|| {
             leftover_end_state_monster_and_draw_skipping_post_draw(source, observed.clone())
         })
-        .or_else(|| leftover_end_state_monster_and_draw_first_post_roll(source, observed))
+        .or_else(|| {
+            leftover_end_state_monster_and_draw_first_post_roll(source, observed.clone(), 1)
+        })
+        .or_else(|| leftover_end_state_monster_and_draw_first_post_roll(source, observed, 2))
 }
 
 fn leftover_end_state_monster_and_draw_skipping_post_draw(
@@ -2782,19 +2785,23 @@ fn leftover_end_state_monster_and_draw_skipping_post_draw(
     leftover_end_state_mid_draw_from_finished(finished, observed)
 }
 
-/// SuperFastMode can flush leftover takeTurns plus only the first
-/// `RollMoveAction` before the next player turn (FIDL01807 STATE 1098:
-/// Darkling CHOMP rolls to move 3; the other two keep captured ATTACK).
+/// SuperFastMode can flush leftover takeTurns plus one or two leftover
+/// `RollMoveAction`s on the first living monster (FIDL01807 STATE 1098:
+/// CHOMP's first roll lands on Harden, the second on NIP; the other
+/// Darklings keep captured ATTACK).
 fn leftover_end_state_monster_and_draw_first_post_roll(
     source: &RunState,
     observed: Value,
+    extra_rolls: usize,
 ) -> Option<RunState> {
     let mut finished = source.clone();
     let combat = finished.combat.as_mut()?;
     combat.nilrys_skip_post_queue_rolls = true;
     sts_core::combat::settle_leftover_end_turn_monster_and_draw(combat).ok()?;
     combat.nilrys_skip_post_queue_rolls = false;
-    sts_core::combat::roll_first_living_monster_intent(combat).ok()?;
+    for _ in 0..extra_rolls {
+        sts_core::combat::roll_first_living_monster_intent(combat).ok()?;
+    }
     finished.player_hp = combat.player.hp;
     finished.player_max_hp = combat.player.max_hp;
     finished.validate().ok()?;
