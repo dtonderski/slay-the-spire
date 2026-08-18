@@ -1552,9 +1552,14 @@ fn deferred_nilrys_keep_hand_extra_offer_on_end_candidate(
     }
     let mut candidate = source.clone();
     let combat = candidate.combat.as_mut()?;
+    let next_stage = if combat.nilrys_codex_end_turn_stage == 2 {
+        3
+    } else {
+        1
+    };
     sts_core::relic::open_nilrys_codex_card_reward(combat).ok()?;
     combat.resume_end_turn_after_nilrys_codex = true;
-    combat.nilrys_codex_end_turn_stage = 1;
+    combat.nilrys_codex_end_turn_stage = next_stage;
     candidate.validate().ok()?;
     subset_diffs(
         seed_start_combat_observed_subset(&post.message),
@@ -1695,12 +1700,18 @@ fn deferred_nilrys_first_choice_candidate(
                     if combat.pending_nilrys_codex_draw_inserts.is_empty() {
                         return None;
                     }
-                    let insert_front = |apply_end_turn_block: bool| -> Option<RunState> {
+                    let insert_front = |apply_end_turn_block: bool,
+                                        consume_random_spot_roll: bool|
+                     -> Option<RunState> {
                         let mut flagged = source.clone();
                         {
                             let combat = flagged.combat.as_mut()?;
                             combat.nilrys_defer_codex_insert_until_after_draw = false;
                             combat.nilrys_codex_insert_at_draw_front = true;
+                            if consume_random_spot_roll && !combat.piles.draw_pile.is_empty() {
+                                let bound = (combat.piles.draw_pile.len() - 1) as i32;
+                                let _ = combat.rng.card_random_rng.random_int(bound);
+                            }
                         }
                         let mut candidate = apply_run_decision_action(&flagged, decision).ok()?;
                         {
@@ -1726,7 +1737,10 @@ fn deferred_nilrys_first_choice_candidate(
                         .is_empty()
                         .then_some(candidate)
                     };
-                    insert_front(false).or_else(|| insert_front(true))
+                    insert_front(false, true)
+                        .or_else(|| insert_front(true, true))
+                        .or_else(|| insert_front(false, false))
+                        .or_else(|| insert_front(true, false))
                 })
                 .or_else(insert_and_plated)
                 .or_else(|| {
