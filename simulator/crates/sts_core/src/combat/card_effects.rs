@@ -2825,7 +2825,7 @@ fn prostrate_queue(
             amount: i32::from(definition.cost),
         },
         InternalAction::GainBlock {
-            amount: required_block(definition)? + if upgraded { 2 } else { 0 },
+            amount: required_block(definition)?,
         },
         InternalAction::GainMantra {
             amount: if upgraded { 3 } else { 2 },
