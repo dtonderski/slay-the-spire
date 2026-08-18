@@ -1008,6 +1008,7 @@ fn apply_internal_action_with_defer(
                 follow_ups.extend(feel_no_pain_block_follow_up(state));
                 follow_ups.extend(dead_branch_follow_up(state));
                 follow_ups.extend(dark_embrace_draw_follow_up(state));
+                follow_ups.extend(necronomicurse_replacement_follow_up(state, card_id));
             }
             Ok(follow_ups)
         }
@@ -1216,6 +1217,7 @@ fn apply_internal_action_with_defer(
             let mut follow_ups = feel_no_pain_block_follow_up(state);
             follow_ups.extend(dead_branch_follow_up(state));
             follow_ups.extend(dark_embrace_draw_follow_up(state));
+            follow_ups.extend(necronomicurse_replacement_follow_up(state, card_id));
             Ok(follow_ups)
         }
         InternalAction::HandCardExhausted { card_id } => {
@@ -1223,6 +1225,7 @@ fn apply_internal_action_with_defer(
             let mut follow_ups = feel_no_pain_block_follow_up(state);
             follow_ups.extend(dead_branch_follow_up_before_pending_draw(state));
             follow_ups.extend(dark_embrace_draw_follow_up(state));
+            follow_ups.extend(necronomicurse_replacement_follow_up(state, card_id));
             Ok(follow_ups)
         }
         InternalAction::PlayTopDrawCard {
@@ -2040,6 +2043,23 @@ fn dark_embrace_draw_follow_up(state: &CombatState) -> Vec<InternalAction> {
     }
 }
 
+/// STS Necronomicurse.triggerOnExhaust queues MakeTempCardInHandAction after
+/// relic/power `onExhaust` bot actions (Dark Embrace DrawCardAction first).
+pub(crate) fn necronomicurse_replacement_follow_up(
+    state: &CombatState,
+    card_id: CardId,
+) -> Vec<InternalAction> {
+    if exhausted_card_content_id(state, card_id) != Some(NECRONOMICURSE_ID) {
+        return Vec::new();
+    }
+    vec![InternalAction::AddGeneratedCardToPile {
+        content_id: NECRONOMICURSE_ID,
+        to: CardPile::Hand,
+        temp_cost: None,
+        temp_cost_turn_only: false,
+    }]
+}
+
 fn apply_on_exhaust_effects_inner(
     state: &mut CombatState,
     card_id: CardId,
@@ -2052,15 +2072,6 @@ fn apply_on_exhaust_effects_inner(
         // overflow is rejected by the authoritative transition validation.
         Some(SENTINEL_PLUS_ID) => state.player.energy = state.player.energy.wrapping_add(3),
         Some(SENTINEL_ID) => state.player.energy = state.player.energy.wrapping_add(2),
-        // Necronomicurse.triggerOnExhaust queues MakeTempCardInHandAction.
-        Some(NECRONOMICURSE_ID) => {
-            let replacement = make_generated_card(state, NECRONOMICURSE_ID)?;
-            if state.piles.hand.len() < MAX_HAND_SIZE {
-                state.piles.hand.push(replacement);
-            } else {
-                state.piles.discard_pile.push(replacement);
-            }
-        }
         _ => {}
     }
     let deferred_juggernaut = if apply_feel_no_pain && state.player.powers.feel_no_pain > 0 {
@@ -2080,6 +2091,17 @@ fn apply_on_exhaust_effects_inner(
     };
     if draw_with_dark_embrace && state.player.powers.dark_embrace > 0 {
         player_draw_cards(state, state.player.powers.dark_embrace as usize)?;
+    }
+    if (apply_feel_no_pain || draw_with_dark_embrace)
+        && exhausted_card_content_id(state, card_id) == Some(NECRONOMICURSE_ID)
+    {
+        // Full onExhaust path: power DrawCardAction then card triggerOnExhaust.
+        let replacement = make_generated_card(state, NECRONOMICURSE_ID)?;
+        if state.piles.hand.len() < MAX_HAND_SIZE {
+            state.piles.hand.push(replacement);
+        } else {
+            state.piles.discard_pile.push(replacement);
+        }
     }
     if state.relics.contains(&Relic::CharonsAshes) {
         // Charon's Ashes queues DamageAllEnemiesAction THORNS. That hits
@@ -5228,6 +5250,7 @@ fn confirm_burning_pact_select(
             dead_branch_count += 1;
         }
         deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
+        deferred_bot_on_exhaust.extend(necronomicurse_replacement_follow_up(state, card.id));
     }
     // DrawCardAction(2/3) is queued in card.use() before HexPower.onUseCard
     // MakeTempCardInDrawPile and before UseCardAction. Evolve/Fire Breathing
@@ -5259,6 +5282,8 @@ fn confirm_burning_pact_select(
                     dead_branch_count += 1;
                 }
                 deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
+                deferred_bot_on_exhaust
+                    .extend(necronomicurse_replacement_follow_up(state, source_id));
             }
             CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
             CardPile::Hand => state.piles.hand.push(source_card),
@@ -5394,6 +5419,8 @@ pub fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
                         deferred_bot_on_exhaust.push(dead_branch);
                     }
                     deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
+                    deferred_bot_on_exhaust
+                        .extend(necronomicurse_replacement_follow_up(state, source_card_id));
                 }
                 CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
                 CardPile::Hand => state.piles.hand.push(source_card),

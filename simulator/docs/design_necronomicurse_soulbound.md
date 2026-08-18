@@ -10,12 +10,13 @@ which fires this trigger.
 
 `CardGroup.moveToExhaustPile` calls relic `onExhaust`, then power `onExhaust`,
 then `card.triggerOnExhaust`. Dark Embrace therefore queues `DrawCardAction`
-before Necronomicurse queues `MakeTempCardInHandAction` (FIDL01511 PLAY 1336:
-real hand is Iron Wave then the replacement curse). The simulator still
-creates the replacement before bot-queued Dark Embrace draws. Deferring the
-replacement after those draws advanced 1336 but first-dived earlier at
-Sever Soul PLAY 1190 (replacement missing). Do not retry a global after-DE
-append without covering that multi-exhaust path.
+before Necronomicurse queues `MakeTempCardInHandAction`. Exhaust bot follow-ups
+run that draw first, then `AddGeneratedCardToPile` for the replacement
+(FIDL01511 PLAY 1336: Iron Wave then the new curse).
+
+Sever Soul's `ExhaustAllNonAttackAction` still snapshots before those bot
+actions, so the replacement is not in the first exhaust batch. Necronomicon's
+second `use()` snapshots it (FIDL01518 Feel No Pain).
 
 ## Evidence
 

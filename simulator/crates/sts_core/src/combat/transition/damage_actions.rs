@@ -239,6 +239,7 @@ pub(super) fn resolve_fiend_fire(
                 count: state.player.powers.dark_embrace.max(0) as usize,
             });
         }
+        follow_ups.extend(super::necronomicurse_replacement_follow_up(state, card_id));
     }
     // A skipped selection remains owned by the closed hand-selection screen,
     // but Fiend Fire exhausts that residual selectedCards batch along with its
@@ -262,6 +263,7 @@ pub(super) fn resolve_fiend_fire(
                     count: state.player.powers.dark_embrace.max(0) as usize,
                 });
             }
+            follow_ups.extend(super::necronomicurse_replacement_follow_up(state, card.id));
         }
     }
     if state.piles.hand.is_empty() {
