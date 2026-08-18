@@ -240,10 +240,11 @@ pub(crate) fn process_internal_queue(
             InternalAction::SkipCopiedCardEffectsIfCombatDone
         ) {
             event_log.push(internal_action);
-            if next
-                .monsters
-                .iter()
-                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+            if next.time_warp_end_turn
+                || next
+                    .monsters
+                    .iter()
+                    .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
             {
                 while let Some(skipped_action) = queue.pop_front() {
                     event_log.push(skipped_action);
@@ -9645,6 +9646,39 @@ mod tests {
             .filter(|c| c.content_id == DAZED_ID)
             .count();
         assert_eq!(dazed_all, 2, "each RC adds 1 dazed; DT replays it");
+    }
+
+    #[test]
+    fn time_warp_twelfth_card_skips_double_tap_copy() {
+        // Time Warp's onAfterUseCard endTurnEarly clears the card queue, so a
+        // Double Tap copy queued by the 12th card never uses (FIDL01433 Strike+).
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.double_tap_pending = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.monsters[0].content_id = crate::content::monsters::TIME_EATER_ID;
+        state.monsters[0].powers.time_warp = 11;
+        state.monsters[0].hp = 200;
+        state.monsters[0].max_hp = 200;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Strike as Time Warp 12th card");
+
+        assert_eq!(
+            next.monsters[0].hp, 194,
+            "Time Warp must skip the Double Tap copy hit"
+        );
+        assert_eq!(next.monsters[0].powers.time_warp, 0);
+        assert_eq!(next.double_tap_pending, 0);
     }
 
     #[test]
