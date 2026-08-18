@@ -1254,16 +1254,19 @@ fn discovery_post_select_generations(
         2
     } else if living_monsters == 1
         && combat.piles.hand.len() == 3
+        && combat.player.powers.constricted > 0
         && !fighting_awakened_one
         && !fighting_donu_deca
         && !fighting_snecko
         && !early_magnetism_generated_source
     {
         // SuperFastMode leftover generateCardChoices does not run after CHOOSE
-        // when three cards remain versus a single non-AO/Donu/Snecko enemy. The
-        // extra pulse desyncs Reckless Charge addToRandomSpot (FIDL01680: Dazed
-        // at draw index 5, not 2). Snecko still burns one leftover pulse
-        // (FIDL01622: Confusion costs on the next draw stay energy 4).
+        // when three cards remain versus a single non-AO/Donu/Snecko enemy and
+        // Constricted is occupying the action queue. The extra pulse desyncs
+        // Reckless Charge addToRandomSpot (FIDL01680: Dazed at draw index 5,
+        // not 2). Without Constricted the leftover pulse still runs (FIDL01665
+        // Reckless Charge Dazed at draw index 1; FIDL01623 Magnetism). Snecko
+        // still burns one leftover pulse (FIDL01622: Confusion costs stay 4).
         0
     } else {
         1
@@ -3676,6 +3679,7 @@ mod tests {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
         combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.player.powers.constricted = 10;
         combat.piles.hand = vec![
             CardInstance::new(CardId::new(1), STRIKE_R_ID),
             CardInstance::new(CardId::new(2), STRIKE_R_ID),
@@ -3703,7 +3707,7 @@ mod tests {
         assert_eq!(
             combat.rng.card_random_rng.counter(),
             16,
-            "three remaining cards versus one non-AO/Donu/Snecko enemy burn no discarded generateCardChoices generation"
+            "three remaining cards versus one Constricted non-AO/Donu/Snecko enemy burn no discarded generateCardChoices generation"
         );
     }
 

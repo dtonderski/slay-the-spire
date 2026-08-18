@@ -538,6 +538,7 @@ fn leftover_make_temp_card_add_to_random_spot_rolls(state: &CombatState) -> usiz
     if state.player.powers.constricted > 0
         && state.player.powers.dark_embrace > 0
         && state.relic_counters.cards_played_this_turn <= 1
+        && card_in_use_is_reckless_charge(state)
     {
         return 7;
     }
