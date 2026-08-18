@@ -2754,7 +2754,10 @@ fn leftover_end_state_publication_candidate(
         }
     }
     leftover_end_state_mid_draw_from_finished(finished, observed.clone())
-        .or_else(|| leftover_end_state_monster_and_draw_skipping_post_draw(source, observed))
+        .or_else(|| {
+            leftover_end_state_monster_and_draw_skipping_post_draw(source, observed.clone())
+        })
+        .or_else(|| leftover_end_state_monster_and_draw_first_post_roll(source, observed))
 }
 
 fn leftover_end_state_monster_and_draw_skipping_post_draw(
@@ -2777,6 +2780,27 @@ fn leftover_end_state_monster_and_draw_skipping_post_draw(
         return Some(finished);
     }
     leftover_end_state_mid_draw_from_finished(finished, observed)
+}
+
+/// SuperFastMode can flush leftover takeTurns plus only the first
+/// `RollMoveAction` before the next player turn (FIDL01807 STATE 1098:
+/// Darkling CHOMP rolls to move 3; the other two keep captured ATTACK).
+fn leftover_end_state_monster_and_draw_first_post_roll(
+    source: &RunState,
+    observed: Value,
+) -> Option<RunState> {
+    let mut finished = source.clone();
+    let combat = finished.combat.as_mut()?;
+    combat.nilrys_skip_post_queue_rolls = true;
+    sts_core::combat::settle_leftover_end_turn_monster_and_draw(combat).ok()?;
+    combat.nilrys_skip_post_queue_rolls = false;
+    sts_core::combat::roll_first_living_monster_intent(combat).ok()?;
+    finished.player_hp = combat.player.hp;
+    finished.player_max_hp = combat.player.max_hp;
+    finished.validate().ok()?;
+    subset_diffs(observed, seed_start_simulated_combat_subset(&finished))
+        .is_empty()
+        .then_some(finished)
 }
 
 fn leftover_end_state_continue_draw(source: &RunState, observed: Value) -> Option<RunState> {

@@ -605,6 +605,20 @@ pub fn settle_leftover_end_turn_monster_lose_block(state: &mut CombatState) {
     clear_living_monster_block(state);
 }
 
+/// SuperFastMode can flush leftover takeTurns plus only the first
+/// `RollMoveAction` (FIDL01807 STATE 1098).
+pub fn roll_first_living_monster_intent(state: &mut CombatState) -> SimResult<()> {
+    let Some(actor_id) = state
+        .monsters
+        .iter()
+        .find(|monster| monster.alive)
+        .map(|monster| monster.id)
+    else {
+        return Ok(());
+    };
+    prepare_next_intent_for_actor(state, actor_id)
+}
+
 /// Finish a leftover `EndTurnAction` after the hand is already discarded.
 pub fn settle_leftover_end_turn_monster_and_draw(state: &mut CombatState) -> SimResult<()> {
     settle_leftover_end_turn_monster_and_draw_with_post_draw_relics(state, true)
