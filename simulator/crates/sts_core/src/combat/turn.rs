@@ -3160,10 +3160,10 @@ mod tests {
     use super::*;
     use crate::combat::hand::resolve_end_of_turn_hand;
     use crate::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BASH_ID, BERSERK_ID, BLOODLETTING_ID, BURNING_PACT_ID, BURN_ID, DAZED_ID,
-        DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, FIEND_FIRE_ID, GHOSTLY_ARMOR_ID, INFLAME_ID,
-        PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
-        STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
+        ANGER_ID, ARMAMENTS_ID, BASH_ID, BERSERK_ID, BLOODLETTING_ID, BURNING_PACT_ID, BURN_ID,
+        DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, FIEND_FIRE_ID, GHOSTLY_ARMOR_ID,
+        INFLAME_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID, SHRUG_IT_OFF_PLUS_ID,
+        SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
