@@ -1741,6 +1741,39 @@ fn extra_first_monster_roll_after(
     .then_some(applied)
 }
 
+fn extra_monster_index_rolls_after(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+    first_index_rolls: usize,
+    second_index_rolls: usize,
+    set: fn(&mut sts_core::combat::CombatState),
+) -> Option<RunState> {
+    let mut flagged = source.clone();
+    {
+        let combat = flagged.combat.as_mut()?;
+        set(combat);
+    }
+    let mut applied = apply_run_decision_action(&flagged, decision).ok()?;
+    {
+        let combat = applied.combat.as_mut()?;
+        for _ in 0..first_index_rolls {
+            sts_core::combat::roll_monster_intent_at_index(combat, 0).ok()?;
+        }
+        for _ in 0..second_index_rolls {
+            sts_core::combat::roll_monster_intent_at_index(combat, 1).ok()?;
+        }
+        applied.player_hp = combat.player.hp;
+    }
+    applied.validate().ok()?;
+    subset_diffs(
+        seed_start_combat_observed_subset(&post.message),
+        seed_start_simulated_combat_subset(&applied),
+    )
+    .is_empty()
+    .then_some(applied)
+}
+
 fn extra_first_and_last_monster_roll_after(
     source: &RunState,
     decision: RunDecisionAction,
@@ -1940,6 +1973,46 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
                 extra_first_monster_roll_after(source, decision, post, |c| {
                     c.nilrys_defer_codex_insert_until_after_draw = true;
                     c.nilrys_skip_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 1, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                })
+            })
+            .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 2, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                })
+            })
+            .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 1, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_skip_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 2, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_skip_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 2, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_interleave_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 1, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_single_post_queue_roll = true;
+                })
+            })
+            .or_else(|| {
+                extra_monster_index_rolls_after(source, decision, post, 2, 1, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_single_post_queue_roll = true;
                 })
             })
             .or_else(|| {
@@ -2306,6 +2379,42 @@ fn deferred_nilrys_hold_attack_multiple_rolls_on_second_choice_candidate(
     let mut candidate = source.clone();
     candidate.combat.as_mut()?.nilrys_hold_attack_multiple_rolls = true;
     let next = apply_run_decision_action(&candidate, decision).ok()?;
+    next.validate().ok()?;
+    subset_diffs(
+        seed_start_combat_observed_subset(&post.message),
+        seed_start_simulated_combat_subset(&next),
+    )
+    .is_empty()
+    .then_some(next)
+}
+
+/// Leftover stage-3 close can publish after draw/Tongs with the Codex card
+/// still queued. The next PLAY flushes `MakeTempCardInDrawPileAction` first
+/// (FIDL01807 PLAY 1168 after CHOOSE 1167).
+fn deferred_nilrys_flush_codex_insert_then_play_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    if !matches!(
+        decision,
+        RunDecisionAction::Combat(CombatAction::PlayCard { .. })
+    ) {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    if !combat.nilrys_defer_codex_insert_until_after_draw
+        || combat.pending_nilrys_codex_draw_inserts.is_empty()
+    {
+        return None;
+    }
+    let mut flushed = source.clone();
+    {
+        let combat = flushed.combat.as_mut()?;
+        sts_core::relic::nilrys_codex_flush_pending_draw_inserts(combat).ok()?;
+        flushed.card_random_rng_counter = combat.rng.card_random_rng.counter();
+    }
+    let next = apply_run_decision_action(&flushed, decision).ok()?;
     next.validate().ok()?;
     subset_diffs(
         seed_start_combat_observed_subset(&post.message),
@@ -4516,6 +4625,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_book_live_second_stab_candidate(
+                                    &source, decision, post,
+                                )
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_flush_codex_insert_then_play_candidate(
                                     &source, decision, post,
                                 )
                             })

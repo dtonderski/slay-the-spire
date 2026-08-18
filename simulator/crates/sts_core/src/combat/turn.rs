@@ -622,6 +622,22 @@ pub fn roll_first_living_monster_intent(state: &mut CombatState) -> SimResult<()
     prepare_next_intent_for_actor(state, actor_id)
 }
 
+/// SuperFastMode leftover RollMoveAction can target a specific monster slot,
+/// including when another living enemy is first in the array.
+pub fn roll_monster_intent_at_index(state: &mut CombatState, index: usize) -> SimResult<()> {
+    let Some(actor_id) = state.monsters.get(index).map(|monster| monster.id) else {
+        return Ok(());
+    };
+    if !state
+        .monsters
+        .get(index)
+        .is_some_and(|monster| monster.alive)
+    {
+        return Ok(());
+    }
+    prepare_next_intent_for_actor(state, actor_id)
+}
+
 /// SuperFastMode can flush leftover takeTurns plus an extra leftover
 /// `RollMoveAction` on the last living monster (FIDL01807 STATE 1141).
 pub fn roll_last_living_monster_intent(state: &mut CombatState) -> SimResult<()> {
@@ -903,7 +919,8 @@ fn start_player_turn_in_place(
     // atTurnStartPostDraw relics (FIDL01807 Warped Tongs still queued).
     if apply_post_draw_relics {
         crate::relic::apply_start_of_player_turn_post_draw_relics(state)?;
-        crate::relic::nilrys_codex_flush_deferred_draw_inserts_after_draw(state)?;
+        // Leftover SuperFastMode can publish the new hand after Warped Tongs and
+        // before MakeTempCardInDrawPileAction (FIDL01807 CHOOSE 1167).
     }
     apply_demon_form_strength_post_draw(state)?;
     let brutality_draw_follow_ups = apply_start_of_turn_brutality_post_draw(state)?;
