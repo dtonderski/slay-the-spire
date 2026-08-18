@@ -568,6 +568,18 @@ fn push_follow_up(
         }
     }
 
+    if matches!(follow_up, InternalAction::GainBlockDirect { .. }) {
+        // Rage / Fan onUseCard is addToBot after card.use() and before a
+        // Double Tap copy. Body Slam's copy must read that block (FIDL01618).
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
     if matches!(
         follow_up,
         InternalAction::CardExhausted { .. } | InternalAction::HandCardExhausted { .. }
@@ -9848,6 +9860,37 @@ mod tests {
             .filter(|c| c.content_id == DAZED_ID)
             .count();
         assert_eq!(dazed_all, 2, "each RC adds 1 dazed; DT replays it");
+    }
+
+    #[test]
+    fn double_tap_body_slam_copy_reads_rage_block() {
+        // Rage onUseCard is addToBot after Body Slam.use() (0 block) and before
+        // the Double Tap copy, so the copy deals the Rage block (FIDL01618).
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 50;
+        state.monsters[0].max_hp = 50;
+        state.player.energy = 1;
+        state.player.block = 0;
+        state.player.temp_rage_block = 5;
+        state.double_tap_pending = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BODY_SLAM_ID)];
+        state.piles.draw_pile.clear();
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Double Tap Body Slam");
+        assert_eq!(next.monsters[0].hp, 45, "copy deals Rage block, original 0");
+        assert_eq!(
+            next.player.block, 10,
+            "Rage grants block on original and copy"
+        );
+        assert_eq!(next.double_tap_pending, 0);
     }
 
     #[test]
