@@ -68,7 +68,7 @@ use crate::{
     ids::MonsterId,
     relic::HpLossDrawPolicy,
     rng::StsRng,
-    SimError, SimResult, TargetRequirement,
+    SimError, SimResult,
 };
 
 const HAND_SIZE: usize = 5;
