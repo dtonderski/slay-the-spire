@@ -216,8 +216,8 @@ impl std::fmt::Display for SimRealError {
             ),
             Self::InvalidProfileInput(reason) => write!(f, "invalid pre-run profile input: {reason}"),
             Self::UnsupportedSchema { boundary_schema } => match boundary_schema {
-                Some(schema) => write!(f, "unsupported CommunicationMod boundary schema {schema}; only schema 1 is supported"),
-                None => write!(f, "unsupported CommunicationMod boundary schema: explicit metadata boundary_schema=1 is required"),
+                Some(schema) => write!(f, "unsupported CommunicationMod boundary schema {schema}; supported schemas are 1 and 2"),
+                None => write!(f, "unsupported CommunicationMod boundary schema: explicit metadata boundary_schema of 1 or 2 is required"),
             },
             Self::InvalidBoundaryContract { step, reason } => {
                 write!(f, "invalid boundary-schema-v1 contract at step {step}: {reason}")
@@ -380,7 +380,7 @@ fn verify_seed_start_reader<R: BufRead>(
                 });
             }
             metadata_seen = true;
-            if metadata.boundary_schema != Some(1) {
+            if !matches!(metadata.boundary_schema, Some(1 | 2)) {
                 return Err(SimRealError::UnsupportedSchema {
                     boundary_schema: metadata.boundary_schema,
                 });
@@ -708,10 +708,13 @@ fn verify_seed_start_reader<R: BufRead>(
 
 fn validate_boundary_v1_state(state: &TraceState) -> Result<&str, SimRealError> {
     let message = &state.message;
-    if message.get("boundary_schema").and_then(Value::as_u64) != Some(1) {
+    if !matches!(
+        message.get("boundary_schema").and_then(Value::as_u64),
+        Some(1 | 2)
+    ) {
         return Err(SimRealError::InvalidBoundaryContract {
             step: state.step,
-            reason: "every state must declare integer boundary_schema=1".to_owned(),
+            reason: "every state must declare integer boundary_schema of 1 or 2".to_owned(),
         });
     }
     let kind = message

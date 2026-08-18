@@ -22,7 +22,11 @@ public class GameStateListener {
     private static boolean hasPresentedOutOfGameState = false;
     private static boolean waitOneUpdate = false;
     private static int timeout = 0;
-    private static final int BOUNDARY_SCHEMA = 1;
+    // 1: original readiness behaviour.
+    // 2: readiness no longer publishes during a queued end turn, and the
+    //    payload carries end_turn_queued. Traces are not comparable across
+    //    this boundary: a v1 trace can contain commands accepted mid-turn.
+    private static final int BOUNDARY_SCHEMA = 2;
     private static String boundaryKind = "unknown";
     private static boolean pollPending = false;
     private static long gameUpdateSeq = 0L;
@@ -193,7 +197,18 @@ public class GameStateListener {
                     return true;
                 }
                 // In combat, if no screen is up, we should wait for all actions to complete before indicating a state change.
-                else if (AbstractDungeon.actionManager.phase.equals(GameActionManager.Phase.WAITING_ON_USER)
+                //
+                // The action queue can be transiently empty in the middle of an
+                // end turn: the EndTurnAction has already been popped and its
+                // follow-up actions are not queued yet. Reporting ready in that
+                // window lets the next command land on an unfinished turn, which
+                // produces a second EndTurnAction and can drop a pending screen
+                // selection entirely. endTurnQueued stays true until the turn
+                // actually ends, so it distinguishes that window from a settled
+                // boundary. The same guard exists below at the externalChange
+                // case; this branch returns before reaching it.
+                else if (!AbstractDungeon.player.endTurnQueued
+                        && AbstractDungeon.actionManager.phase.equals(GameActionManager.Phase.WAITING_ON_USER)
                         && AbstractDungeon.actionManager.cardQueue.isEmpty()
                         && AbstractDungeon.actionManager.actions.isEmpty()) {
                     return true;
@@ -383,5 +398,16 @@ public class GameStateListener {
     public static int getPreTurnActionQueueSize() {
         return CommandExecutor.isInDungeon() && AbstractDungeon.actionManager != null
                 ? AbstractDungeon.actionManager.preTurnActions.size() : 0;
+    }
+
+    /**
+     * Whether an end turn is still resolving. A boundary published while this
+     * is true is mid-turn, even when the action queue looks empty, so traces
+     * can be audited for the transient-empty-queue window.
+     */
+    public static boolean isEndTurnQueued() {
+        return CommandExecutor.isInDungeon()
+                && AbstractDungeon.player != null
+                && AbstractDungeon.player.endTurnQueued;
     }
 }

@@ -274,9 +274,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         let err = minimize_communication_mod_trace(&content).expect_err("v0 is unsupported");
-        assert!(
-            matches!(err, MinimizeError::Parse(reason) if reason.contains("boundary_schema=1"))
-        );
+        assert!(matches!(err, MinimizeError::Parse(reason) if reason.contains("boundary_schema")));
     }
 
     #[test]

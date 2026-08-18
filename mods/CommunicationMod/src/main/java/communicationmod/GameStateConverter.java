@@ -63,6 +63,7 @@ public class GameStateConverter {
         response.put("actions_queued", GameStateListener.getActionQueueSize());
         response.put("card_queue_size", GameStateListener.getCardQueueSize());
         response.put("pre_turn_actions_size", GameStateListener.getPreTurnActionQueueSize());
+        response.put("end_turn_queued", GameStateListener.isEndTurnQueued());
         boolean isInGame = CommandExecutor.isInDungeon();
         response.put("in_game", isInGame);
         if(isInGame) {

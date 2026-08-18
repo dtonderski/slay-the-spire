@@ -163,10 +163,7 @@ fn schema_v0_metadata_is_rejected_before_replay() {
             boundary_schema: None
         }
     ));
-    assert!(
-        error.to_string().contains("only schema 1 is supported")
-            || error.to_string().contains("boundary_schema=1")
-    );
+    assert!(error.to_string().contains("boundary schema"));
 }
 
 #[test]
@@ -203,7 +200,7 @@ fn metadata_v1_cannot_fall_back_to_state_without_boundary_schema() {
         error,
         SimRealError::InvalidBoundaryContract { step: 1, .. }
     ));
-    assert!(error.to_string().contains("boundary_schema=1"));
+    assert!(error.to_string().contains("boundary_schema"));
 }
 
 #[test]
