@@ -1087,6 +1087,46 @@ fn reset_turn_only_temp_costs(state: &mut CombatState) {
     }
 }
 
+/// Advance the first queued monster action without running end-of-monster-turn
+/// cleanup or starting a new player turn. SuperFastMode can accept a duplicate
+/// obtain END while that MonsterQueueItem is already settling (FIDL01595).
+pub fn run_first_monster_action_without_cleanup(state: &mut CombatState) -> SimResult<()> {
+    let Some(actor_id) = state
+        .monsters
+        .iter()
+        .find(|monster| monster.alive)
+        .map(|monster| monster.id)
+    else {
+        return Ok(());
+    };
+    let Some(index) = state
+        .monsters
+        .iter()
+        .position(|monster| monster.id == actor_id)
+    else {
+        return Ok(());
+    };
+    let ascension = state.ascension;
+    let relics = state.relics.clone();
+    let mut skip_ritual_tick = Vec::new();
+    clear_lagavulin_metallicize_if_awake(&mut state.monsters[index]);
+    if execute_state_oriented_special_intent(state, actor_id, index, ascension)? {
+        return Ok(());
+    }
+    if execute_spawning_or_targeted_special_intent(state, actor_id, index, ascension, false)? {
+        return Ok(());
+    }
+    let _ = execute_generic_monster_intent(
+        state,
+        actor_id,
+        index,
+        ascension,
+        &relics,
+        &mut skip_ritual_tick,
+    )?;
+    Ok(())
+}
+
 fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
     let ascension = state.ascension;
     let relics = state.relics.clone();

@@ -28,8 +28,8 @@ Warcry select).
 
 A duplicate END can be the same publication boundary while the live hand is
 still held (FIDL01515 END 915, FIDL01595 END 1119). Flush Parasite and park
-leftover `EndTurnAction`. Do not run `takeTurn` on that frame: the queued end
-still has Combust and discard ahead of the monster (FIDL01515 STATE 917 empty
-hand, Combust 10, then STATE 918 monster attack). A following END that is the
-leftover itself (FIDL01595 END 1120) finishes the turn and must not rebind
-another EndTurn.
+leftover `EndTurnAction`. Do not run `takeTurn` on that frame: Combust and
+discard can still be ahead of the monster (FIDL01515 STATE 917). A following
+END may either finish the whole leftover turn or continue after the first
+already-settling MonsterQueueItem (FIDL01595 END 1120). An END that already
+started the next player turn must not rebind another EndTurn.

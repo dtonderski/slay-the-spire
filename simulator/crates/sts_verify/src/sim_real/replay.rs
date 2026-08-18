@@ -2199,9 +2199,30 @@ fn deferred_leftover_rejected_play_candidate(
     discarded.player_hp = combat.player.hp;
     discarded.player_max_hp = combat.player.max_hp;
     discarded.validate().ok()?;
-    subset_diffs(observed, seed_start_simulated_combat_subset(&discarded))
-        .is_empty()
-        .then_some(discarded)
+    if subset_diffs(
+        observed.clone(),
+        seed_start_simulated_combat_subset(&discarded),
+    )
+    .is_empty()
+    {
+        return Some(discarded);
+    }
+    // Duplicate obtain END can publish the live hand while the first
+    // MonsterQueueItem is already settling. The following END continues after
+    // that first action (FIDL01595 END 1120).
+    let mut advanced = source.clone();
+    let combat = advanced.combat.as_mut()?;
+    sts_core::combat::turn::run_first_monster_action_without_cleanup(combat).ok()?;
+    advanced.player_hp = combat.player.hp;
+    advanced.player_max_hp = combat.player.max_hp;
+    let continued = apply_run_decision_action(&advanced, leftover).ok()?;
+    if continued.pending_external_rng.is_empty()
+        && continued.validate().is_ok()
+        && subset_diffs(observed, seed_start_simulated_combat_subset(&continued)).is_empty()
+    {
+        return Some(continued);
+    }
+    None
 }
 
 /// SuperFastMode can execute the mirrored 1-based hand index (FIDL01727
