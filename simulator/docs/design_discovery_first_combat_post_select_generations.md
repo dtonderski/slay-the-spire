@@ -38,11 +38,7 @@ Two remaining non-status cards stay one pulse
 (FIDL01614 Infernal Blade). Three remaining cards against a **single**
 living enemy that is not Awakened One / Donu / Deca / Snecko burn **no** leftover
 pulse (FIDL01680 Reckless Charge Dazed at draw index 5, not 2). Snecko still
-burns one pulse (FIDL01622). Four remaining versus Time Eater burn no leftover
-pulse (FIDL01680 Reckless Charge Dazed at draw index 7). After that retrieve,
-early-turn Reckless Charge Dazed versus Time Eater burns seven leftover
-`addToRandomSpot` rolls against the same bound; later-turn Reckless Charge
-and Reckless Charge without Discovery this combat stay one roll. Another Discovery still in hand still needs
+burns one pulse (FIDL01622). Another Discovery still in hand still needs
 two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
 among the first two cards of the turn needs two pulses when the remaining
 hand is smaller than 5 or another Magnetism-generated card is still in
@@ -56,7 +52,10 @@ The Bomb, not Blind). A lone early-turn retrieve from a 6+ card hand is
 one pulse (FIDL01787 Writhing Mass: next Magnetism is Flash of Steel, not
 Good Instincts). The same Magnetism-generated source later in the turn
 stays one pulse (FIDL01255 colorless hand; FIDL01623 Jack of All Trades
-turn). Skipped retrieval still burns nothing.
+turn). Skipped retrieval still burns nothing. Four remaining versus Time
+Eater stay one leftover pulse; leftover Reckless Charge `addToRandomSpot`
+versus Time Eater after that retrieve last-wins four same-bound rolls on
+the first two plays of the turn (FIDL01680).
 
 A global or remaining-hand-only two-generation retrieve regresses those
 already-green traces. A CHOOSE-time candidate cannot distinguish 1 vs 2

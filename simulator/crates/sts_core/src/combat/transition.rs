@@ -550,7 +550,7 @@ fn leftover_make_temp_card_add_to_random_spot_rolls(state: &CombatState) -> usiz
         && state.relic_counters.cards_played_this_turn <= 2
         && card_in_use_is_reckless_charge(state)
     {
-        return 7;
+        return 4;
     }
     1
 }
@@ -2602,10 +2602,11 @@ fn add_generated_card_to_draw_pile_random_spot(
     // observed pile.
     //
     // After a Discovery retrieve in the same combat, Time Eater Reckless Charge
-    // Dazed inserts keep that leftover occupancy for the first two plays of
-    // the turn (FIDL01680 step 1224 index 7, not 19). Later-turn Reckless
-    // Charge stays one roll (step 1247 index 15). Reckless Charge versus Time
-    // Eater without Discovery this combat stays one roll (FIDL01666 step 1155).
+    // Dazed inserts keep leftover occupancy for the first two plays of the
+    // turn: four same-bound rolls (FIDL01680 step 1224 index 7, not 25; step
+    // 1229). Later-turn Reckless Charge stays one roll (step 1247 index 15).
+    // Reckless Charge versus Time Eater without Discovery this combat stays
+    // one roll (FIDL01666 step 1155).
     let leftover_same_bound_rolls = leftover_make_temp_card_add_to_random_spot_rolls(state);
     let mut index = 0usize;
     for _ in 0..leftover_same_bound_rolls {

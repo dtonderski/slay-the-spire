@@ -25,9 +25,7 @@ use crate::{
         PotionCardRewardKind,
     },
     content::cards::{get_card_definition, upgrade_card_instance, DISCOVERY_ID, DISCOVERY_PLUS_ID},
-    content::monsters::{
-        wake_lagavulin_on_damage, AWAKENED_ONE_ID, DECA_ID, DONU_ID, SNECKO_ID, TIME_EATER_ID,
-    },
+    content::monsters::{wake_lagavulin_on_damage, AWAKENED_ONE_ID, DECA_ID, DONU_ID, SNECKO_ID},
     content::shop_pool::{
         burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
@@ -1210,10 +1208,6 @@ fn discovery_post_select_generations(
         .monsters
         .iter()
         .any(|monster| monster.content_id == SNECKO_ID);
-    let fighting_time_eater = combat
-        .monsters
-        .iter()
-        .any(|monster| monster.content_id == TIME_EATER_ID);
     let living_monsters = combat
         .monsters
         .iter()
@@ -1270,15 +1264,6 @@ fn discovery_post_select_generations(
         // extra pulse desyncs Reckless Charge addToRandomSpot (FIDL01680: Dazed
         // at draw index 5, not 2). Snecko still burns one leftover pulse
         // (FIDL01622: Confusion costs on the next draw stay energy 4).
-        0
-    } else if living_monsters == 1
-        && combat.piles.hand.len() == 4
-        && fighting_time_eater
-        && !early_magnetism_generated_source
-    {
-        // Time Eater first-combat Discovery with four remaining cards does not
-        // burn a leftover generateCardChoices pulse. The extra pulse desyncs
-        // Reckless Charge addToRandomSpot (FIDL01680: Dazed at draw index 7).
         0
     } else {
         1
@@ -3723,7 +3708,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_retrieve_with_four_remaining_cards_vs_time_eater_burns_zero_generations() {
+    fn discovery_retrieve_with_four_remaining_cards_vs_time_eater_burns_one_generation() {
         use crate::content::cards::STRIKE_R_ID;
         use crate::content::monsters::TIME_EATER_ID;
 
@@ -3758,8 +3743,8 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            16,
-            "four remaining cards versus Time Eater burn no discarded generateCardChoices generation"
+            19,
+            "four remaining cards versus Time Eater burn one discarded generateCardChoices generation"
         );
         assert!(
             combat.discovery_retrieved_this_combat,
