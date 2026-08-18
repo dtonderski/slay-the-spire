@@ -1132,6 +1132,7 @@ fn warcry_dead_branch_precedes_dark_embrace_put_on_top_draw() {
         *id != cards::POMMEL_STRIKE_ID
             && *id != cards::STRIKE_R_ID
             && *id != cards::BASH_ID
+            && *id != cards::DEFEND_R_ID
             && *id != cards::WARCRY_ID
     });
     assert!(
@@ -1140,8 +1141,8 @@ fn warcry_dead_branch_precedes_dark_embrace_put_on_top_draw() {
     );
     assert_eq!(
         hand.len(),
-        3,
-        "Strike leftover, one Dead Branch card, one Dark Embrace draw: hand={hand:?} pending={pending}"
+        4,
+        "Strike leftover, Warcry-drawn Bash, one Dead Branch card, one Dark Embrace draw: hand={hand:?} pending={pending}"
     );
 }
 
