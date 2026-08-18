@@ -1777,6 +1777,27 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
             })
             .or_else(|| try_flagged(|c| c.nilrys_interleave_post_queue_rolls = true))
             .or_else(|| try_flagged(|c| c.nilrys_single_post_queue_roll = true))
+            // Interleaved leftover rolls can leave the first Darkling on CHOMP;
+            // SuperFastMode still flushes one more RollMoveAction onto Harden
+            // (FIDL01807 CHOOSE 1112).
+            .or_else(|| {
+                let mut flagged = source.clone();
+                {
+                    let combat = flagged.combat.as_mut()?;
+                    combat.nilrys_interleave_post_queue_rolls = true;
+                }
+                let mut applied = apply_run_decision_action(&flagged, decision).ok()?;
+                sts_core::combat::roll_first_living_monster_intent(applied.combat.as_mut()?)
+                    .ok()?;
+                applied.player_hp = applied.combat.as_ref()?.player.hp;
+                applied.validate().ok()?;
+                subset_diffs(
+                    seed_start_combat_observed_subset(&post.message),
+                    seed_start_simulated_combat_subset(&applied),
+                )
+                .is_empty()
+                .then_some(applied)
+            })
     })
 }
 
