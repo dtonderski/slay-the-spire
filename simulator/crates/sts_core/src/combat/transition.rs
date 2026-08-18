@@ -2548,7 +2548,29 @@ fn add_generated_card_to_draw_pile_random_spot(
     // CardGroup.addToRandomSpot selects an existing position; it does not
     // append the generated card after the current last entry.
     let bound = (state.piles.draw_pile.len() - 1) as i32;
-    let index = state.rng.card_random_rng.random_int(bound) as usize;
+    // SuperFastMode leftover MakeTempCardInDrawPile / ShowCardAndAddToDrawPile
+    // settlement can call addToRandomSpot more than once against the same
+    // bound (remove+reinsert last-wins, one card). DamageAction.DURATION is
+    // 0.1F; collection-fork tickDuration uses raw ~0.016 delta, so leftover
+    // occupancy is seven same-bound rolls. Constricted queues a THORNS
+    // DamageAction and Dark Embrace occupies extra power/VFX settlement;
+    // together they keep that leftover window open through the first
+    // MakeTempCard insert of the turn (FIDL01680 Reckless Charge Dazed at
+    // draw index 1, not 14). The same Reckless Charge without Dark Embrace
+    // uses a single roll (step 926). Do not hydrate the index from the
+    // observed pile.
+    let leftover_same_bound_rolls = if state.player.powers.constricted > 0
+        && state.player.powers.dark_embrace > 0
+        && state.relic_counters.cards_played_this_turn <= 1
+    {
+        7
+    } else {
+        1
+    };
+    let mut index = 0usize;
+    for _ in 0..leftover_same_bound_rolls {
+        index = state.rng.card_random_rng.random_int(bound) as usize;
+    }
     state.piles.draw_pile.insert(index, card);
     Ok(())
 }
