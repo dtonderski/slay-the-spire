@@ -2091,9 +2091,7 @@ fn random_hand_card_id_except(state: &mut CombatState, excluded_card_id: CardId)
 }
 
 pub(crate) fn reserve_dead_branch_card_content(state: &mut CombatState) -> Option<ContentId> {
-    if !state.relics.contains(&Relic::DeadBranch)
-        || !state.monsters.iter().any(|monster| monster.alive)
-    {
+    if !state.relics.contains(&Relic::DeadBranch) || !combat_continues_after_monster_death(state) {
         return None;
     }
 
@@ -9935,6 +9933,52 @@ mod tests {
                 .iter()
                 .any(|c| c.content_id == SENTINEL_ID),
             "Sentinel must be exhausted for energy refund"
+        );
+    }
+
+    #[test]
+    fn fiend_fire_dead_branch_still_generates_after_awakened_one_half_death() {
+        // Dead Branch MakeTempCardInHand is addToBot from UseCardAction after
+        // Fiend Fire's hits. Awakened One first-form death is not isBattleEnding,
+        // so the source exhaust still generates (FIDL01750 Anger).
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&AWAKENED_ONE_A0, target)];
+        state.monsters[0].hp = 8;
+        state.monsters[0].max_hp = 240;
+        state.player.energy = 2;
+        state.player.powers.strength = 0;
+        state.relics = vec![Relic::DeadBranch];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), FIEND_FIRE_ID),
+        ];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(2),
+                target: Some(target),
+            },
+        )
+        .expect("Fiend Fire kills first-form Awakened One");
+
+        assert!(
+            awakened_one_is_half_dead(&next.monsters[0]),
+            "hits must half-kill Awakened One so the source exhaust sees that window"
+        );
+        assert_eq!(
+            next.piles.hand.len(),
+            2,
+            "Dead Branch for the snapshot Strike and for Fiend Fire itself, hand={:?}",
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()
         );
     }
 
