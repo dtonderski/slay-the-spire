@@ -29,7 +29,7 @@ use crate::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape,
         apply_reptomancer_death_escape, awakened_one_is_half_dead, check_slime_boss_split,
         get_monster_definition, guardian_accumulate_hp_damage, release_stasis_card_on_death,
-        wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID, GUARDIAN_ID,
+        wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID, GUARDIAN_ID, TIME_EATER_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -2564,6 +2564,14 @@ fn add_generated_card_to_draw_pile_random_spot(
         && state.relic_counters.cards_played_this_turn <= 1
     {
         7
+    } else if state
+        .monsters
+        .iter()
+        .any(|monster| monster.alive && monster.content_id == TIME_EATER_ID)
+    {
+        // Time Eater leftover occupancy is shorter than Constricted+Dark
+        // Embrace (FIDL01680 Reckless Charge Dazed at draw index 7, not 25).
+        4
     } else {
         1
     };
