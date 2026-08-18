@@ -1228,6 +1228,7 @@ fn discovery_post_select_generations(
     if another_discovery_in_hand
         || hexed_with_two_living
         || (fighting_awakened_one
+            && !early_magnetism_generated_source
             && (combat.piles.hand.len() >= 6
                 || (combat.piles.hand.len() >= 4 && living_monsters <= 1)))
         || (fighting_donu_deca && combat.piles.hand.len() >= 6)
@@ -1235,7 +1236,7 @@ fn discovery_post_select_generations(
         || (early_magnetism_generated_source && combat.piles.hand.len() < 5)
         || (early_magnetism_generated_source
             && another_magnetism_card_in_hand
-            && combat.piles.hand.len() != 5)
+            && combat.piles.hand.len() < 5)
         || (living_monsters >= 3
             && !fighting_awakened_one
             && !fighting_donu_deca
