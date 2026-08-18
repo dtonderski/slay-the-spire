@@ -571,10 +571,16 @@ fn push_follow_up(
     if matches!(follow_up, InternalAction::GainBlockDirect { .. }) {
         // Rage / Fan onUseCard is addToBot after card.use() and before a
         // Double Tap copy. Body Slam's copy must read that block (FIDL01618).
-        if let Some(index) = queue
-            .iter()
-            .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
-        {
+        // Do not insert inside the copy-skip window: a lethal original would
+        // skip Rage and Juggernaut (FIDL01768 Anger).
+        if let Some(index) = queue.iter().position(|action| {
+            matches!(
+                action,
+                InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
+                    | InternalAction::SkipCopiedCardEffectsIfCombatDone
+                    | InternalAction::PlayCardCopy { .. }
+            )
+        }) {
             queue.insert(index, follow_up);
             return;
         }
@@ -9891,6 +9897,42 @@ mod tests {
             "Rage grants block on original and copy"
         );
         assert_eq!(next.double_tap_pending, 0);
+    }
+
+    #[test]
+    fn double_tap_anger_still_applies_rage_after_killing_the_target() {
+        // Lethal original Anger skips the Double Tap copy, but Rage/Juggernaut
+        // belong to the original onUseCard and must still resolve (FIDL01768).
+        let target = MonsterId::new(1);
+        let other = MonsterId::new(2);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&JAW_WORM_A0, target),
+            monster_state(&JAW_WORM_A0, other),
+        ];
+        state.monsters[0].hp = 1;
+        state.monsters[0].max_hp = 40;
+        state.monsters[1].hp = 40;
+        state.monsters[1].max_hp = 40;
+        state.monsters[1].block = 12;
+        state.player.energy = 0;
+        state.player.block = 0;
+        state.player.powers.strength = 20;
+        state.player.powers.juggernaut = 5;
+        state.player.temp_rage_block = 3;
+        state.double_tap_pending = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), ANGER_ID)];
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Anger");
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.player.block, 3);
+        assert_eq!(next.monsters[1].block, 7);
     }
 
     #[test]
