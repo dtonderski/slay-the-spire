@@ -1686,6 +1686,27 @@ fn deferred_nilrys_first_choice_candidate(
                 .or_else(|| park(Some(index), true))
                 .or_else(insert_and_plated)
                 .or_else(|| {
+                    (2u8..=7).find_map(|rolls| {
+                        let mut flagged = source.clone();
+                        flagged
+                            .combat
+                            .as_mut()?
+                            .nilrys_codex_insert_same_bound_rolls = rolls;
+                        let mut candidate = apply_run_decision_action(&flagged, decision).ok()?;
+                        candidate
+                            .combat
+                            .as_mut()?
+                            .nilrys_codex_insert_same_bound_rolls = 0;
+                        candidate.validate().ok()?;
+                        subset_diffs(
+                            seed_start_combat_observed_subset(&post.message),
+                            seed_start_simulated_combat_subset(&candidate),
+                        )
+                        .is_empty()
+                        .then_some(candidate)
+                    })
+                })
+                .or_else(|| {
                     let candidate = apply_run_decision_action(source, decision).ok()?;
                     leftover_end_state_publication_candidate(
                         &candidate,
