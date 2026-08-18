@@ -1007,8 +1007,7 @@ fn apply_internal_action_with_defer(
                 apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
                 follow_ups.extend(feel_no_pain_block_follow_up(state));
                 follow_ups.extend(dead_branch_follow_up(state));
-                follow_ups.extend(dark_embrace_draw_follow_up(state));
-                follow_ups.extend(necronomicurse_replacement_follow_up(state, card_id));
+                follow_ups.extend(dark_embrace_then_necronomicurse_follow_ups(state, card_id)?);
             }
             Ok(follow_ups)
         }
@@ -1216,16 +1215,14 @@ fn apply_internal_action_with_defer(
             apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
             let mut follow_ups = feel_no_pain_block_follow_up(state);
             follow_ups.extend(dead_branch_follow_up(state));
-            follow_ups.extend(dark_embrace_draw_follow_up(state));
-            follow_ups.extend(necronomicurse_replacement_follow_up(state, card_id));
+            follow_ups.extend(dark_embrace_then_necronomicurse_follow_ups(state, card_id)?);
             Ok(follow_ups)
         }
         InternalAction::HandCardExhausted { card_id } => {
             apply_on_exhaust_effects_except_bot_queued_powers(state, card_id)?;
             let mut follow_ups = feel_no_pain_block_follow_up(state);
             follow_ups.extend(dead_branch_follow_up_before_pending_draw(state));
-            follow_ups.extend(dark_embrace_draw_follow_up(state));
-            follow_ups.extend(necronomicurse_replacement_follow_up(state, card_id));
+            follow_ups.extend(dark_embrace_then_necronomicurse_follow_ups(state, card_id)?);
             Ok(follow_ups)
         }
         InternalAction::PlayTopDrawCard {
@@ -2058,6 +2055,32 @@ pub(crate) fn necronomicurse_replacement_follow_up(
         temp_cost: None,
         temp_cost_turn_only: false,
     }]
+}
+
+fn apply_necronomicurse_replacement(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
+    if exhausted_card_content_id(state, card_id) != Some(NECRONOMICURSE_ID) {
+        return Ok(());
+    }
+    add_generated_card_to_pile(state, NECRONOMICURSE_ID, CardPile::Hand, None, false)
+}
+
+/// Dark Embrace `DrawCardAction` before Necronomicurse `MakeTempCardInHand`.
+/// With no Dark Embrace, apply the replacement immediately so ExhaustAll
+/// batches (Sever Soul) still see it before later queue actions (FIDL01511
+/// PLAY 1190).
+pub(crate) fn dark_embrace_then_necronomicurse_follow_ups(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<Vec<InternalAction>> {
+    let draw = dark_embrace_draw_follow_up(state);
+    if draw.is_empty() {
+        apply_necronomicurse_replacement(state, card_id)?;
+        Ok(Vec::new())
+    } else {
+        let mut follow_ups = draw;
+        follow_ups.extend(necronomicurse_replacement_follow_up(state, card_id));
+        Ok(follow_ups)
+    }
 }
 
 fn apply_on_exhaust_effects_inner(
@@ -5249,8 +5272,8 @@ fn confirm_burning_pact_select(
             deferred_bot_on_exhaust.push(dead_branch);
             dead_branch_count += 1;
         }
-        deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
-        deferred_bot_on_exhaust.extend(necronomicurse_replacement_follow_up(state, card.id));
+        deferred_bot_on_exhaust
+            .extend(dark_embrace_then_necronomicurse_follow_ups(state, card.id)?);
     }
     // DrawCardAction(2/3) is queued in card.use() before HexPower.onUseCard
     // MakeTempCardInDrawPile and before UseCardAction. Evolve/Fire Breathing
@@ -5281,9 +5304,9 @@ fn confirm_burning_pact_select(
                     deferred_bot_on_exhaust.push(dead_branch);
                     dead_branch_count += 1;
                 }
-                deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
-                deferred_bot_on_exhaust
-                    .extend(necronomicurse_replacement_follow_up(state, source_id));
+                deferred_bot_on_exhaust.extend(dark_embrace_then_necronomicurse_follow_ups(
+                    state, source_id,
+                )?);
             }
             CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
             CardPile::Hand => state.piles.hand.push(source_card),
@@ -5418,9 +5441,10 @@ pub fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
                     if let Some(dead_branch) = dead_branch_follow_up(state) {
                         deferred_bot_on_exhaust.push(dead_branch);
                     }
-                    deferred_bot_on_exhaust.extend(dark_embrace_draw_follow_up(state));
-                    deferred_bot_on_exhaust
-                        .extend(necronomicurse_replacement_follow_up(state, source_card_id));
+                    deferred_bot_on_exhaust.extend(dark_embrace_then_necronomicurse_follow_ups(
+                        state,
+                        source_card_id,
+                    )?);
                 }
                 CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
                 CardPile::Hand => state.piles.hand.push(source_card),

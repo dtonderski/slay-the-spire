@@ -234,12 +234,9 @@ pub(super) fn resolve_fiend_fire(
         if let Some(db) = super::dead_branch_follow_up(state) {
             follow_ups.push(db);
         }
-        if state.player.powers.dark_embrace > 0 {
-            follow_ups.push(InternalAction::DrawCards {
-                count: state.player.powers.dark_embrace.max(0) as usize,
-            });
-        }
-        follow_ups.extend(super::necronomicurse_replacement_follow_up(state, card_id));
+        follow_ups.extend(super::dark_embrace_then_necronomicurse_follow_ups(
+            state, card_id,
+        )?);
     }
     // A skipped selection remains owned by the closed hand-selection screen,
     // but Fiend Fire exhausts that residual selectedCards batch along with its
@@ -258,12 +255,9 @@ pub(super) fn resolve_fiend_fire(
                     amount: state.player.powers.feel_no_pain,
                 });
             }
-            if state.player.powers.dark_embrace > 0 {
-                follow_ups.push(InternalAction::DrawCards {
-                    count: state.player.powers.dark_embrace.max(0) as usize,
-                });
-            }
-            follow_ups.extend(super::necronomicurse_replacement_follow_up(state, card.id));
+            follow_ups.extend(super::dark_embrace_then_necronomicurse_follow_ups(
+                state, card.id,
+            )?);
         }
     }
     if state.piles.hand.is_empty() {

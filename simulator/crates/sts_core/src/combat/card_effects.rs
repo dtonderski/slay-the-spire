@@ -783,17 +783,12 @@ fn should_apply_necronomicon(
     {
         return Ok(false);
     }
-    // X-cost printed cost is -1; Infernal Blade's 0-cost overlay still spends
-    // energyOnUse (FIDL01485). Confusion's turn-only costForTurn overlay does
-    // not change the relic gate: Snecko-rolled Sever Soul+ stays cost 1
-    // (FIDL01511 PLAY 1190). Blood for Blood still uses its reduced cost.
+    // NecronomiconPower.onUseCard requires costForTurn >= 2. X-cost cards keep
+    // printed cost -1 (and Infernal Blade may overlay 0-cost-this-turn), so the
+    // game uses energyOnUse instead: a 2+ Energy Whirlwind is played twice
+    // (FIDL01485 Giant Head 376→340).
     let necronomicon_cost = if definition.cost < 0 {
         state.player.energy
-    } else if card.temp_cost_turn_only {
-        let mut without_confusion = *card;
-        without_confusion.temp_cost = None;
-        without_confusion.temp_cost_turn_only = false;
-        effective_card_cost(&without_confusion)?
     } else {
         effective_card_cost(card)?
     };
