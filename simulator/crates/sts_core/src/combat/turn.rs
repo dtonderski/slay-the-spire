@@ -1288,6 +1288,16 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 {
                     if let Some(monster) = state.monsters.iter_mut().find(|m| m.id == actor_id) {
                         monster.intent = *intent;
+                        // First leftover queue reincarnates a half-dead Darkling
+                        // at half HP. The captured REGROW item then heals to
+                        // full max (FIDL01807 CHOOSE 1112: 28→56).
+                        if nilrys_duplicate_monster_queue
+                            && monster.content_id == DARKLING_ID
+                            && monster.alive
+                            && matches!(*intent, crate::MonsterIntent::StrengthSelf { amount: 0 })
+                        {
+                            monster.hp = monster.max_hp;
+                        }
                         // Book.takeTurn uses live `stabCount`. The first
                         // multi-stab of a fight always sees the increment on
                         // the second queue item (step 852: 2+3). Later frames
