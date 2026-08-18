@@ -1685,6 +1685,31 @@ fn deferred_nilrys_first_choice_candidate(
             park(Some(index), false)
                 .or_else(|| park(Some(index), true))
                 .or_else(insert_and_plated)
+                .or_else(|| {
+                    let mut candidate = apply_run_decision_action(source, decision).ok()?;
+                    leftover_end_state_publication_candidate(
+                        &candidate,
+                        Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+                        post,
+                    )
+                })
+                .or_else(|| {
+                    let parked = {
+                        let mut candidate = source.clone();
+                        let combat = candidate.combat.as_mut()?;
+                        sts_core::relic::nilrys_codex_park_choice_without_insert(combat, index)
+                            .ok()?;
+                        combat.decision = None;
+                        combat.nilrys_codex_end_turn_stage = 2;
+                        combat.resume_end_turn_after_nilrys_codex = true;
+                        candidate
+                    };
+                    leftover_end_state_publication_candidate(
+                        &parked,
+                        Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+                        post,
+                    )
+                })
         }
         RunDecisionAction::Run(RunAction::SkipCombatCardReward) => {
             park(None, false).or_else(|| park(None, true))
