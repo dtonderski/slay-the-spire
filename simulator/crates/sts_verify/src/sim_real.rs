@@ -8,19 +8,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::{BufRead, Cursor};
 use sts_core::card::CardType;
-use sts_core::combat::{DiscardSelectPurpose, ExhaustSelectPurpose, HandSelectPurpose};
-use sts_core::content::cards::{
-    card_instance_is_upgradeable, card_type_and_rarity, WARCRY_ID, WARCRY_PLUS_ID,
-};
+use sts_core::combat::{ExhaustSelectPurpose, HandSelectPurpose};
+use sts_core::content::cards::{card_instance_is_upgradeable, card_type_and_rarity};
 use sts_core::content::encounters::BossUnlockState;
 use sts_core::content::monsters::{target_move_byte, target_move_byte_for_monster};
 use sts_core::potion::Potion;
 use sts_core::{
     affordable_shop_picks, apply_run_decision_action, legal_run_decision_actions, CardGridScreen,
     CardId, CardInstance, CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId,
-    Event, EventAction, EventScreen, GridPurpose, MapAction, MonsterId, MonsterIntent,
-    MonsterState, Relic, RelicKey, RestAction, RewardContinuation, RewardScreen, RoomKind,
-    RunAction, RunDecisionAction, RunPhase, RunState, ShopPick,
+    Event, EventScreen, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState, Relic,
+    RelicKey, RestAction, RewardContinuation, RewardScreen, RoomKind, RunAction, RunDecisionAction,
+    RunPhase, RunState, ShopPick,
 };
 use sts_core::{Snapshot, SNAPSHOT_SCHEMA_VERSION};
 
