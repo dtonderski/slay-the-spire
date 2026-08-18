@@ -3116,7 +3116,7 @@ pub fn confirm_hand_select_with_time_warp_policy(
     };
     resume_actions_after_hand_select(state, pending_before_source)?;
     if source_settlement_after_pending {
-        move_delayed_played_source_with_bot_exhaust_queue(state, hand_select.source_card_id)?;
+        move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
         state.defer_time_warp_end_turn = previous_defer_time_warp;
     }
     resume_actions_after_hand_select(state, pending_after_source)?;
@@ -3829,24 +3829,6 @@ pub(crate) fn move_delayed_played_source_with_strange_spoon(
     state: &mut CombatState,
     source_card_id: CardId,
 ) -> SimResult<()> {
-    move_delayed_played_source_with_exhaust_policy(state, source_card_id, false)
-}
-
-/// Warcry / Thinking Ahead CONFIRM: UseCardAction exhaust is addToBot Feel No
-/// Pain, Dead Branch, then Dark Embrace. Immediate Dark Embrace draw would
-/// place Dead Branch after the put-on-top card (FIDL01520).
-fn move_delayed_played_source_with_bot_exhaust_queue(
-    state: &mut CombatState,
-    source_card_id: CardId,
-) -> SimResult<()> {
-    move_delayed_played_source_with_exhaust_policy(state, source_card_id, true)
-}
-
-fn move_delayed_played_source_with_exhaust_policy(
-    state: &mut CombatState,
-    source_card_id: CardId,
-    queue_bot_exhaust_follow_ups: bool,
-) -> SimResult<()> {
     let Some(source) = state
         .piles
         .hand
@@ -3872,17 +3854,7 @@ fn move_delayed_played_source_with_exhaust_policy(
     let destination = delayed_source_card_destination(state, definition);
     move_card(state, source_card_id, CardPile::Hand, destination)?;
     if destination == CardPile::ExhaustPile {
-        if queue_bot_exhaust_follow_ups {
-            let transition = process_internal_queue(
-                state,
-                VecDeque::from([InternalAction::CardExhausted {
-                    card_id: source_card_id,
-                }]),
-            )?;
-            *state = transition.state;
-        } else {
-            apply_on_exhaust_effects(state, source_card_id)?;
-        }
+        apply_on_exhaust_effects(state, source_card_id)?;
     }
     Ok(())
 }
