@@ -1003,6 +1003,7 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
         "combat_player_hp": if screen_type == "CARD_REWARD" { current_hp } else { player.map(|p| int(p, "current_hp")).unwrap_or(0) },
         "combat_player_block": player.map(|p| int(p, "block")).unwrap_or(0),
         "combat_player_energy": player.map(|p| int(p, "energy")).unwrap_or(0),
+        "combat_player_frail": power_amount(player.and_then(|p| p.get("powers")), "Frail"),
         "hand_ids": combat_card_ids(combat.and_then(|combat| combat.get("hand"))),
         "draw_ids": combat_card_ids(combat.and_then(|combat| combat.get("draw_pile"))),
         "discard_ids": combat_card_ids(combat.and_then(|combat| combat.get("discard_pile"))),
@@ -2458,6 +2459,7 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
             "combat_player_hp": run.player_hp,
             "combat_player_block": 0,
             "combat_player_energy": 0,
+            "combat_player_frail": 0,
             "hand_ids": Vec::<String>::new(),
             "draw_ids": Vec::<String>::new(),
             "discard_ids": Vec::<String>::new(),
@@ -2486,6 +2488,7 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
         "combat_player_hp": combat.player.hp,
         "combat_player_block": combat.player.block,
         "combat_player_energy": combat_player_energy,
+        "combat_player_frail": combat.player.powers.frail,
         "hand_ids": cards_to_comm_mod_visible_order(
             combat
                 .piles
