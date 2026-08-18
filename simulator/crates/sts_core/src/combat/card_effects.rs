@@ -642,15 +642,15 @@ pub(super) fn play_top_draw_card_queue(
     // is open; the decision owns the staged source until CONFIRM settles it.
     // Havoc still force-exhausts on CONFIRM (FIDL01636 Charon's Ashes).
     let burning_pact_opens_deferred_source_select = queue.iter().any(|action| {
-            matches!(
-                action,
-                InternalAction::AwaitExhaustSelect {
-                    source_card_id,
-                    purpose: crate::combat::ExhaustSelectPurpose::BurningPactDraw2
-                        | crate::combat::ExhaustSelectPurpose::BurningPactDraw3,
-                } if *source_card_id == card.id
-            )
-        });
+        matches!(
+            action,
+            InternalAction::AwaitExhaustSelect {
+                source_card_id,
+                purpose: crate::combat::ExhaustSelectPurpose::BurningPactDraw2
+                    | crate::combat::ExhaustSelectPurpose::BurningPactDraw3,
+            } if *source_card_id == card.id
+        )
+    });
     let played_index = queue
         .iter()
         .position(
