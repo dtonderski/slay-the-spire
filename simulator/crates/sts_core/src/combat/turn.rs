@@ -68,7 +68,7 @@ use crate::{
     ids::MonsterId,
     relic::HpLossDrawPolicy,
     rng::StsRng,
-    SimError, SimResult,
+    SimError, SimResult, TargetRequirement,
 };
 
 const HAND_SIZE: usize = 5;
@@ -1003,11 +1003,59 @@ fn apply_start_of_turn_mayhem(
     state: &mut CombatState,
     targets: &[Option<MonsterId>],
 ) -> SimResult<()> {
-    // PlayTop still executes after the base hand draw and Brutality's extra
-    // draw (FIDL00381). Only the getRandomMonster roll is early. Stacked
-    // PlayTopCardActions sit on the bot queue ahead of the first card's
-    // use() follow-ups, so Deep Breath cannot shuffle before the next PlayTop.
-    crate::combat::transition::apply_mayhem_play_top_cards(state, targets)
+    let mut remaining = targets;
+    while let Some((&random_target, rest)) = remaining.split_first() {
+        // PlayTop still executes after the base hand draw and Brutality's extra
+        // draw (FIDL00381). Only the getRandomMonster roll is early.
+        if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
+            // PlayTopCardAction queues EmptyDeckShuffleAction when its draw
+            // pile is empty, then plays the newly exposed top card.
+            crate::combat::transition::player_shuffle_discard_into_draw(state)?;
+        }
+        let Some(top_card) = state.piles.draw_pile.last() else {
+            return Ok(());
+        };
+        let definition = crate::content::cards::get_card_definition(top_card.content_id)
+            .ok_or(crate::SimError::UnknownContent(top_card.content_id))?;
+        if definition.keywords.unplayable {
+            // Target PlayTopCardAction removes the top card into limbo before
+            // autoplay checks whether it can be used. If autoplay cannot play
+            // an unplayable curse/status, the card still leaves the draw pile
+            // and resolves to discard.
+            if let Some(card) = state.piles.draw_pile.pop() {
+                state.piles.discard_pile.push(card);
+            }
+            remaining = rest;
+            continue;
+        }
+        if matches!(
+            definition.id,
+            crate::content::cards::DEEP_BREATH_ID | crate::content::cards::DEEP_BREATH_PLUS_ID
+        ) && !rest.is_empty()
+        {
+            // MayhemPower queues every PlayTopCardAction before DeepBreath.use
+            // addToBots ShuffleAction, so later PlayTops take the pre-shuffle
+            // tops (FIDL01709 Dramatic Entrance under Deep Breath).
+            crate::combat::transition::apply_mayhem_play_top_cards(state, remaining)?;
+            return Ok(());
+        }
+        let target = if definition.target == TargetRequirement::Enemy {
+            random_target
+        } else {
+            None
+        };
+        crate::combat::transition::apply_play_top_draw_card_to_state(state, target)?;
+        if state.player.hp <= 0
+            || state
+                .monsters
+                .iter()
+                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+        {
+            return Ok(());
+        }
+        remaining = rest;
+    }
+    Ok(())
 }
 
 fn mayhem_random_living_target(state: &mut CombatState) -> Option<MonsterId> {
