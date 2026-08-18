@@ -3109,15 +3109,31 @@ pub fn confirm_hand_select_with_time_warp_policy(
     // inserts are onUseCard and stay ahead of source settlement. Evolve extra
     // draws must run after the source leaves hand, or the limbo card occupies
     // a slot and the chain stops at 10 (FIDL01514: Shrug stays in the draw pile).
-    let (pending_before_source, pending_after_source) = if source_settlement_after_pending {
+    let (mut pending_before_source, mut pending_after_source) = if source_settlement_after_pending {
         partition_put_on_deck_source_pending(pending_actions)
     } else {
         (pending_actions, VecDeque::new())
     };
+    let queue_bot_exhaust = source_settlement_after_pending
+        && state.player.powers.dark_embrace > 0
+        && state.relics.contains(&crate::relic::Relic::DeadBranch);
+    if queue_bot_exhaust {
+        // CardExhausted already queues Dead Branch. Drop parked MakeTempCard
+        // follow-ups so the generated card is not added twice (FIDL01520).
+        let is_dead_branch_hand_add = |action: &InternalAction| {
+            matches!(
+                action,
+                InternalAction::AddGeneratedCardToPile {
+                    to: CardPile::Hand,
+                    ..
+                } | InternalAction::AddGeneratedHandCardBeforePendingDraw { .. }
+            )
+        };
+        pending_before_source.retain(|action| !is_dead_branch_hand_add(action));
+        pending_after_source.retain(|action| !is_dead_branch_hand_add(action));
+    }
     resume_actions_after_hand_select(state, pending_before_source)?;
     if source_settlement_after_pending {
-        let queue_bot_exhaust = state.player.powers.dark_embrace > 0
-            && state.relics.contains(&crate::relic::Relic::DeadBranch);
         if queue_bot_exhaust {
             move_delayed_played_source_with_bot_exhaust_queue(state, hand_select.source_card_id)?;
         } else {
