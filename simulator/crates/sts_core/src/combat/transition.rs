@@ -9944,7 +9944,7 @@ mod tests {
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
         state.monsters = vec![monster_state(&AWAKENED_ONE_A0, target)];
-        state.monsters[0].hp = 8;
+        state.monsters[0].hp = 1;
         state.monsters[0].max_hp = 240;
         state.player.energy = 2;
         state.player.powers.strength = 0;
