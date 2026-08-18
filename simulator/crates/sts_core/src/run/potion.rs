@@ -971,7 +971,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // Solo Chosen Hex stays one pulse (FIDL01561). Three living enemies
             // with at most three cards remaining after the source left also
             // leave two pulses (FIDL01525 Infernal Blade Whirlwind after
-            // Jaw Worm Discovery).
+            // Jaw Worm Discovery with exactly three remaining cards).
             let generations = discovery_post_select_generations(
                 combat,
                 source_card.as_ref(),
@@ -1239,7 +1239,7 @@ fn discovery_post_select_generations(
         || (living_monsters >= 3
             && !fighting_awakened_one
             && !fighting_donu_deca
-            && combat.piles.hand.len() <= 3)
+            && combat.piles.hand.len() == 3)
     {
         2
     } else {
