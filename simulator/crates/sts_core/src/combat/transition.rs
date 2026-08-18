@@ -2568,9 +2568,13 @@ fn add_generated_card_to_draw_pile_random_spot(
         .monsters
         .iter()
         .any(|monster| monster.alive && monster.content_id == TIME_EATER_ID)
+        && state.relic_counters.cards_played_this_turn <= 2
     {
         // Time Eater leftover occupancy is shorter than Constricted+Dark
-        // Embrace (FIDL01680 Reckless Charge Dazed at draw index 7, not 25).
+        // Embrace and only covers the first two plays of the turn
+        // (FIDL01680 Reckless Charge Dazed at draw index 7, not 25). Later
+        // Reckless Charge in the same fight uses a single roll (step 1247
+        // Dazed at 15, not 14).
         4
     } else {
         1
