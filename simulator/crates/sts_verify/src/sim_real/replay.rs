@@ -1718,6 +1718,41 @@ fn deferred_nilrys_first_choice_candidate(
     }
 }
 
+fn deferred_nilrys_leftover_end_after_choice_candidate(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    if !matches!(
+        decision,
+        RunDecisionAction::Run(
+            RunAction::ChooseCombatCardReward { .. } | RunAction::SkipCombatCardReward
+        )
+    ) {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    if !combat.resume_end_turn_after_nilrys_codex
+        && combat.leftover_end_turn_draw_remaining == 0
+        && combat.nilrys_codex_end_turn_stage == 0
+    {
+        return None;
+    }
+    let applied = apply_run_decision_action(source, decision).ok()?;
+    leftover_end_state_publication_candidate(
+        &applied,
+        Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+        post,
+    )
+    .or_else(|| {
+        leftover_end_state_publication_candidate(
+            source,
+            Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+            post,
+        )
+    })
+}
+
 /// Book.takeTurn reads live `stabCount` after the first queued multi-stab.
 /// The default two-step keeps captured N+N (FIDL01727 step 880). Accept the
 /// live N+(N+1) packet count only when that frame matches (step 887).
@@ -4053,6 +4088,11 @@ pub(super) fn verify_seed_start_transition(
                             })
                             .or_else(|| {
                                 deferred_nilrys_first_choice_candidate(&source, decision, post)
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_leftover_end_after_choice_candidate(
+                                    &source, decision, post,
+                                )
                             })
                             .or_else(|| {
                                 deferred_nilrys_second_choice_without_insert_candidate(
