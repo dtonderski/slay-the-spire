@@ -2884,6 +2884,9 @@ pub fn nilrys_codex_flush_pending_draw_inserts(state: &mut CombatState) -> SimRe
 pub fn nilrys_codex_flush_deferred_draw_inserts_after_draw(
     state: &mut CombatState,
 ) -> SimResult<()> {
+    if state.nilrys_hold_codex_insert_after_post_draw {
+        return Ok(());
+    }
     if state.nilrys_defer_codex_insert_until_after_draw {
         nilrys_codex_flush_pending_draw_inserts(state)?;
     }

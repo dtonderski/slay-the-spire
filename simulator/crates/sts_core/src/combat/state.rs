@@ -298,6 +298,10 @@ pub struct CombatState {
     /// draw pile). Default insert-before-draw displaces that last deck card.
     #[serde(default, skip_serializing_if = "is_false")]
     pub nilrys_defer_codex_insert_until_after_draw: bool,
+    /// Leftover stage-3 close can publish after Warped Tongs with the Codex
+    /// card still queued (FIDL01807 CHOOSE 1167).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_hold_codex_insert_after_post_draw: bool,
     /// SuperFastMode leftover Dual Wield / first-offer Codex close can keep
     /// MakeTempCardInDrawPile occupancy, so addToRandomSpot rolls the same
     /// bound more than once (FIDL01807 CHOOSE 949: Intimidate at draw index 12).
@@ -1238,6 +1242,7 @@ impl CombatState {
             nilrys_single_post_queue_roll: false,
             nilrys_skip_post_queue_rolls: false,
             nilrys_defer_codex_insert_until_after_draw: false,
+            nilrys_hold_codex_insert_after_post_draw: false,
             nilrys_codex_insert_same_bound_rolls: 0,
             nilrys_codex_insert_uses_shuffle_rng: false,
             pending_end_turn_feel_no_pain_block: 0,
