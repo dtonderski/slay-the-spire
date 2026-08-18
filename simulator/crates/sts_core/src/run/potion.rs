@@ -25,7 +25,9 @@ use crate::{
         PotionCardRewardKind,
     },
     content::cards::{get_card_definition, upgrade_card_instance, DISCOVERY_ID, DISCOVERY_PLUS_ID},
-    content::monsters::{wake_lagavulin_on_damage, AWAKENED_ONE_ID, DECA_ID, DONU_ID},
+    content::monsters::{
+        wake_lagavulin_on_damage, AWAKENED_ONE_ID, DECA_ID, DONU_ID, SNECKO_ID, TIME_EATER_ID,
+    },
     content::shop_pool::{
         burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
@@ -1203,6 +1205,14 @@ fn discovery_post_select_generations(
         .monsters
         .iter()
         .any(|monster| monster.content_id == DONU_ID || monster.content_id == DECA_ID);
+    let fighting_snecko = combat
+        .monsters
+        .iter()
+        .any(|monster| monster.content_id == SNECKO_ID);
+    let fighting_time_eater = combat
+        .monsters
+        .iter()
+        .any(|monster| monster.content_id == TIME_EATER_ID);
     let living_monsters = combat
         .monsters
         .iter()
@@ -1251,12 +1261,23 @@ fn discovery_post_select_generations(
         && combat.piles.hand.len() == 3
         && !fighting_awakened_one
         && !fighting_donu_deca
+        && !fighting_snecko
         && !early_magnetism_generated_source
     {
         // SuperFastMode leftover generateCardChoices does not run after CHOOSE
-        // when three cards remain versus a single non-AO/Donu enemy. The extra
-        // pulse desyncs Reckless Charge addToRandomSpot (FIDL01680: Dazed at
-        // draw index 5, not 2).
+        // when three cards remain versus a single non-AO/Donu/Snecko enemy. The
+        // extra pulse desyncs Reckless Charge addToRandomSpot (FIDL01680: Dazed
+        // at draw index 5, not 2). Snecko still burns one leftover pulse
+        // (FIDL01622: Confusion costs on the next draw stay energy 4).
+        0
+    } else if living_monsters == 1
+        && combat.piles.hand.len() == 4
+        && fighting_time_eater
+        && !early_magnetism_generated_source
+    {
+        // Time Eater first-combat Discovery with four remaining cards does not
+        // burn a leftover generateCardChoices pulse. The extra pulse desyncs
+        // Reckless Charge addToRandomSpot (FIDL01680: Dazed at draw index 7).
         0
     } else {
         1
@@ -3696,7 +3717,7 @@ mod tests {
         assert_eq!(
             combat.rng.card_random_rng.counter(),
             16,
-            "three remaining cards versus one non-AO/Donu enemy burn no discarded generateCardChoices generation"
+            "three remaining cards versus one non-AO/Donu/Snecko enemy burn no discarded generateCardChoices generation"
         );
     }
 
