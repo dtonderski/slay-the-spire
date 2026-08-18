@@ -551,7 +551,8 @@ pub(super) fn play_top_draw_card_queue(
     // screen, desyncing FIDL00253 (True Grit+ still in play at select open;
     // exhaust + on-exhaust settle on CONFIRM). await_exhaust_select parks the
     // source on the decision; confirm_* settles exhaust after the choice.
-    // Burning Pact still force-exhausts early (permanent-trace coverage).
+    // Burning Pact is the same family: Havoc force-exhaust waits for CONFIRM
+    // so Charon's Ashes does not hit while the select is open (FIDL01636).
     let selection_defers_source_settlement = queue.iter().any(|action| {
         // Ordinary Mayhem also leaves top-played Exhume/True Grit and Headbutt
         // in cardInUse until their selection closes; only the destination
@@ -637,12 +638,10 @@ pub(super) fn play_top_draw_card_queue(
         from: CardPile::Hand,
         to: destination,
     };
-    // Mayhem's ordinary (non-force-exhaust) top-play keeps Burning Pact in
-    // cardInUse while its ExhaustSelect screen is open; the decision owns the
-    // staged source until CONFIRM settles it. Havoc's force-exhaust path is
-    // intentionally unchanged and still exhausts Burning Pact at screen open.
-    let burning_pact_opens_deferred_source_select = !force_exhaust
-        && queue.iter().any(|action| {
+    // Top-play keeps Burning Pact in cardInUse while its ExhaustSelect screen
+    // is open; the decision owns the staged source until CONFIRM settles it.
+    // Havoc still force-exhausts on CONFIRM (FIDL01636 Charon's Ashes).
+    let burning_pact_opens_deferred_source_select = queue.iter().any(|action| {
             matches!(
                 action,
                 InternalAction::AwaitExhaustSelect {

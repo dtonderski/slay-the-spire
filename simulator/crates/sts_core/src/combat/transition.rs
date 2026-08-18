@@ -5425,7 +5425,11 @@ fn confirm_burning_pact_select(
     if let Some(source_card) = exhaust_select.source_card {
         let definition = get_card_definition(source_card.content_id)
             .ok_or(SimError::UnknownContent(source_card.content_id))?;
-        let destination = delayed_source_card_destination(state, definition);
+        let destination = if exhaust_select.source_card_force_exhaust {
+            forced_source_card_destination(state, definition)
+        } else {
+            delayed_source_card_destination(state, definition)
+        };
         let source_id = source_card.id;
         match destination {
             CardPile::ExhaustPile => {
@@ -5507,16 +5511,12 @@ pub fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
         .source_card_id
         .ok_or(SimError::IllegalAction("Burning Pact source is required"))?;
     let force_exhausted_source = exhaust_select.source_card_force_exhaust
+        && exhaust_select.source_card.is_none()
         && state
             .piles
             .exhaust_pile
             .iter()
             .any(|card| card.id == source_card_id);
-    if exhaust_select.source_card_force_exhaust && !force_exhausted_source {
-        return Err(SimError::IllegalAction(
-            "skipped Burning Pact force-exhaust source is not in exhaust",
-        ));
-    }
     let source_card = exhaust_select.source_card;
     if !force_exhausted_source && source_card.is_none() {
         return Err(SimError::IllegalAction("Burning Pact source is not held"));
@@ -5559,13 +5559,18 @@ pub fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
     }
     resolve_deferred_draw_follow_ups(state, evolve_follow_ups)?;
 
-    // Havoc / Mayhem already force-exhausted the source when the select opened.
-    // Re-pushing that held instance would duplicate Burning Pact in exhaust
-    // (FIDL00221). Only a held, non-force source still settles here.
+    // A held source still settles here, including Havoc force-exhaust that
+    // was parked on the decision until CONFIRM (FIDL01636). Older leftover
+    // frames that already moved Burning Pact to exhaust skip the re-push
+    // (FIDL00221).
     let mut deferred_bot_on_exhaust = Vec::new();
     if !force_exhausted_source {
         if let Some(source_card) = source_card {
-            match delayed_source_card_destination(state, source_definition) {
+            match if exhaust_select.source_card_force_exhaust {
+                forced_source_card_destination(state, source_definition)
+            } else {
+                delayed_source_card_destination(state, source_definition)
+            } {
                 CardPile::ExhaustPile => {
                     state.piles.exhaust_pile.push(source_card);
                     apply_on_exhaust_effects_except_bot_queued_powers(state, source_card_id)?;
@@ -10294,12 +10299,15 @@ mod tests {
                     crate::combat::ExhaustSelectPurpose::BurningPactDraw2
                         | crate::combat::ExhaustSelectPurpose::BurningPactDraw3
                 ) && select.source_card_force_exhaust
-                    && select.source_card.is_none()
+                    && select
+                        .source_card
+                        .as_ref()
+                        .is_some_and(|card| card.content_id == BURNING_PACT_ID)
             }),
-            "expected force-exhausted Burning Pact select, got {:?}",
+            "expected parked force-exhaust Burning Pact select, got {:?}",
             opened.decision
         );
-        assert!(opened
+        assert!(!opened
             .piles
             .exhaust_pile
             .iter()
@@ -11249,8 +11257,11 @@ mod tests {
             .expect("top-draw Burning Pact opens exhaust selection")
             .state;
         assert!(next.exhaust_select().is_some());
-        assert_eq!(next.piles.exhaust_pile.len(), 1);
-        assert_eq!(next.piles.exhaust_pile[0].content_id, BURNING_PACT_ID);
+        assert!(next
+            .exhaust_select()
+            .and_then(|select| select.source_card.as_ref())
+            .is_some_and(|card| card.content_id == BURNING_PACT_ID));
+        assert!(next.piles.exhaust_pile.is_empty());
 
         choose_exhaust_select(&mut next, 0).expect("select Defend");
         confirm_exhaust_select(&mut next).expect("resolve Burning Pact selection");
@@ -11272,6 +11283,50 @@ mod tests {
                 .filter(|card| card.content_id == BURNING_PACT_ID)
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn havoc_played_burning_pact_defers_charons_ashes_until_confirm() {
+        use crate::relic::{Relic, CHARONS_ASHES_DAMAGE};
+
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, target)];
+        state.monsters[0].hp = 160;
+        state.monsters[0].max_hp = 160;
+        state.player.energy = 1;
+        state.relics = vec![Relic::CharonsAshes];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(4), BURNING_PACT_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let opened = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc force-plays Burning Pact");
+        assert!(opened.exhaust_select().is_some());
+        assert_eq!(
+            opened.monsters[0].hp, 160,
+            "Charon's Ashes must wait while Burning Pact is still in play"
+        );
+
+        let mut next = opened;
+        choose_exhaust_select(&mut next, 0).expect("select Strike");
+        confirm_exhaust_select(&mut next).expect("confirm Burning Pact");
+        assert_eq!(
+            next.monsters[0].hp,
+            160 - CHARONS_ASHES_DAMAGE * 2,
+            "selected card and force-exhausted Burning Pact each proc Charon's Ashes"
         );
     }
 
