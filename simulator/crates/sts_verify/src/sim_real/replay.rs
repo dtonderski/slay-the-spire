@@ -2242,6 +2242,7 @@ fn deferred_nilrys_leftover_end_instead_of_play_candidate(
             combat.nilrys_end_powers_pending = true;
             try_finish(&candidate)
         })
+        .or_else(|| discard_then_leftover_pulses(source))
         .or_else(|| {
             leftover_end_state_publication_candidate(
                 source,
