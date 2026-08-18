@@ -574,11 +574,15 @@ pub fn settle_leftover_end_turn_player_powers_and_discard(
     crate::relic::apply_orichalcum_end_of_player_turn(state)?;
     let defer_combust = hand_has_end_turn_autoplay_cards(state);
     let mut deferred_monster_deaths = Vec::new();
+    // FrailPower.atEndOfRound runs with Weak after takeTurn. A leftover
+    // discarded-hand STATE still shows the pre-tick amount (FIDL01807 849).
+    let frail_before = state.player.powers.frail;
     crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand_deferred_with_combust(
         state,
         &mut deferred_monster_deaths,
         !defer_combust,
     )?;
+    state.player.powers.frail = frail_before;
     if defer_combust {
         crate::combat::hand::resolve_end_of_turn_hand(state)?;
         crate::combat::turn_powers::apply_deferred_end_of_turn_combust(
@@ -633,6 +637,9 @@ fn settle_leftover_end_turn_monster_and_draw_with_post_draw_relics(
     // existing Weak does not set justApplied, so cleanup decrements once
     // (FIDL01782: Weak 1 + ATTACK_DEBUFF 2 → 2).
     run_monster_turn(state)?;
+    // Frail is the same atEndOfRound sibling. Tick after leftover takeTurn so
+    // Face Slap can stack onto the pre-tick amount (FIDL01807: 5 + 2 → 6).
+    tick_player_frail_at_end_of_round(state);
     if state.player.hp > 0 && state.monsters.iter().any(|monster| monster.alive) {
         start_player_turn_with_start_relics_and_post_draw(state, true, apply_post_draw_relics)?;
     }
@@ -646,6 +653,12 @@ fn tick_player_weak_at_end_of_round(state: &mut CombatState) {
         state.player.powers.weak -= 1;
     } else {
         state.player.weak_just_applied = false;
+    }
+}
+
+fn tick_player_frail_at_end_of_round(state: &mut CombatState) {
+    if state.player.powers.frail > 0 {
+        state.player.powers.frail -= 1;
     }
 }
 
@@ -4774,6 +4787,52 @@ mod tests {
                 .iter()
                 .any(|card| !crate::content::cards::card_instance_is_upgradeable(card)),
             "completed draw upgrades one hand card"
+        );
+    }
+
+    #[test]
+    fn leftover_end_turn_player_powers_keep_frail_until_monster_round() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.frail = 5;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.discard_pile.clear();
+        settle_leftover_end_turn_player_powers_and_discard(&mut state)
+            .expect("leftover DiscardAtEndOfTurnAction");
+        assert!(state.piles.hand.is_empty());
+        assert_eq!(
+            state.player.powers.frail, 5,
+            "FrailPower.atEndOfRound waits for leftover takeTurn"
+        );
+
+        settle_leftover_end_turn_monster_and_draw(&mut state)
+            .expect("leftover EndTurn takeTurn ticks Frail");
+        assert_eq!(state.player.powers.frail, 4);
+    }
+
+    #[test]
+    fn leftover_end_turn_face_slap_stacks_frail_before_end_of_round_tick() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.frail = 5;
+        state.player.hp = 80;
+        state.player.max_hp = 80;
+        state.piles.hand.clear();
+        state.piles.draw_pile = (1..=5)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        let mut champ = monster_state_for_ascension(&CHAMP_A0, MonsterId::new(1), 0);
+        champ.intent = MonsterIntent::AttackApplyPlayerFrailAndVulnerable {
+            damage: crate::content::monsters::CHAMP_FACE_SLAP_DAMAGE,
+            frail: crate::content::monsters::CHAMP_FACE_SLAP_FRAIL,
+            vulnerable: 2,
+        };
+        state.monsters = vec![champ];
+
+        settle_leftover_end_turn_monster_and_draw(&mut state)
+            .expect("leftover Face Slap then atEndOfRound");
+        assert_eq!(
+            state.player.powers.frail, 6,
+            "5 + Face Slap 2 then one atEndOfRound tick"
         );
     }
 

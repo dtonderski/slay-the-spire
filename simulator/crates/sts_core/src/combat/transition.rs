@@ -3391,7 +3391,11 @@ pub fn settle_queued_end_turn_discard_after_rejected_command(
         return Ok(());
     }
     if state.resume_end_turn_after_nilrys_codex {
+        // FrailPower.atEndOfRound waits for leftover takeTurn (FIDL01807
+        // discarded-hand STATE after a rejected PLAY still shows Frail 5).
+        let frail_before = state.player.powers.frail;
         crate::combat::turn::apply_pending_nilry_end_powers(state)?;
+        state.player.powers.frail = frail_before;
         let block_before = state.player.block;
         crate::combat::hand::resolve_end_of_turn_hand(state)?;
         let gained = state.player.block.saturating_sub(block_before);
@@ -6569,6 +6573,7 @@ mod tests {
         state.resume_end_turn_after_nilrys_codex = true;
         state.nilrys_codex_end_turn_stage = 1;
         state.player.powers.feel_no_pain = 3;
+        state.player.powers.frail = 5;
         state.piles.hand = vec![
             CardInstance::new(CardId::new(1), FEEL_NO_PAIN_ID),
             CardInstance::new(CardId::new(2), DAZED_ID),
@@ -6597,6 +6602,10 @@ mod tests {
             "FNP block waits for the next leftover STATE"
         );
         assert_eq!(state.pending_end_turn_feel_no_pain_block, 3);
+        assert_eq!(
+            state.player.powers.frail, 5,
+            "FrailPower.atEndOfRound waits for leftover takeTurn"
+        );
         assert!(!state
             .piles
             .discard_pile
