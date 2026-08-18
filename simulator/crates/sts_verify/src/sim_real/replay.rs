@@ -2696,7 +2696,9 @@ fn leftover_end_state_publication_candidate(
         .as_ref()
         .is_some_and(|combat| combat.leftover_end_turn_draw_remaining > 0)
     {
-        return leftover_end_state_continue_draw(source, observed);
+        if let Some(drawn) = leftover_end_state_continue_draw(source, observed.clone()) {
+            return Some(drawn);
+        }
     }
     // CombustPower.atEndOfTurn runs before DiscardAtEndOfTurnAction. A rejected
     // leftover PLAY can drain discard first (FIDL01358 empty-hand STATE) while
