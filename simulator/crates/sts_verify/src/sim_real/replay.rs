@@ -1752,6 +1752,21 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
         )
     })
     .or_else(|| {
+        let mut closed = source.clone();
+        {
+            let combat = closed.combat.as_mut()?;
+            combat.decision = None;
+            combat.nilrys_codex_end_turn_stage = 3;
+            combat.resume_end_turn_after_nilrys_codex = true;
+            combat.nilrys_end_powers_pending = true;
+        }
+        leftover_end_state_publication_candidate(
+            &closed,
+            Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+            post,
+        )
+    })
+    .or_else(|| {
         let try_flagged = |set: fn(&mut sts_core::combat::CombatState)| -> Option<RunState> {
             let mut flagged = source.clone();
             {
