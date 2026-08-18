@@ -200,8 +200,11 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         next.resume_end_turn_after_nilrys_codex = false;
         next.nilrys_codex_end_turn_stage = 0;
         apply_pending_nilry_end_powers(&mut next)?;
-        // Flush any parked two-step choices before the post-discard refill.
-        crate::relic::nilrys_codex_flush_pending_draw_inserts(&mut next)?;
+        // Flush any parked two-step choices before the post-discard refill,
+        // unless leftover SuperFastMode is holding the insert until after draw.
+        if !next.nilrys_defer_codex_insert_until_after_draw {
+            crate::relic::nilrys_codex_flush_pending_draw_inserts(&mut next)?;
+        }
         deferred_stasis_cards = Vec::new();
         end_of_turn_hand = crate::combat::hand::EndOfTurnHandResolution {
             auto_play_emptied_hand: false,
@@ -900,6 +903,7 @@ fn start_player_turn_in_place(
     // atTurnStartPostDraw relics (FIDL01807 Warped Tongs still queued).
     if apply_post_draw_relics {
         crate::relic::apply_start_of_player_turn_post_draw_relics(state)?;
+        crate::relic::nilrys_codex_flush_deferred_draw_inserts_after_draw(state)?;
     }
     apply_demon_form_strength_post_draw(state)?;
     let brutality_draw_follow_ups = apply_start_of_turn_brutality_post_draw(state)?;

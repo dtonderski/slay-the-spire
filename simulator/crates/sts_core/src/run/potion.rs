@@ -1103,10 +1103,17 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // reward with the pre-discard hand still visible. The remainder of
             // end-turn resumes on the next combat command (see replay) or when
             // `end_player_turn` is invoked with `resume_end_turn_after_nilrys_codex`.
-            crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
-                combat,
-                choice.content_id,
-            )?;
+            // Leftover SuperFastMode can draw first and insert afterward.
+            if combat.nilrys_defer_codex_insert_until_after_draw {
+                combat
+                    .pending_nilrys_codex_draw_inserts
+                    .push(choice.content_id);
+            } else {
+                crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
+                    combat,
+                    choice.content_id,
+                )?;
+            }
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             // The second Nilry offer closes the paused end-turn queue itself;
             // no additional END command is emitted before the monster turn.

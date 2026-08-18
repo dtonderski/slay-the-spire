@@ -2826,6 +2826,27 @@ pub fn nilrys_codex_park_choice_without_insert(
     Ok(())
 }
 
+/// Close a stage-3 Codex offer and park the chosen card for insert after the
+/// leftover hand draw (FIDL01807 CHOOSE 1167).
+pub fn nilrys_codex_park_choice_for_deferred_draw_insert(
+    state: &mut CombatState,
+    index: usize,
+) -> SimResult<()> {
+    use crate::combat::state::CombatDecisionState;
+
+    let Some(CombatDecisionState::NilrysCodexCardReward { choices }) = state.decision.take() else {
+        return Err(SimError::IllegalAction("no Nilry Codex reward is open"));
+    };
+    let choice = choices.get(index).ok_or(SimError::IllegalAction(
+        "Nilry Codex choice index out of range",
+    ))?;
+    state
+        .pending_nilrys_codex_draw_inserts
+        .push(choice.content_id);
+    state.nilrys_defer_codex_insert_until_after_draw = true;
+    Ok(())
+}
+
 /// Closing the first Codex offer continues `callEndOfTurnActions` power
 /// hooks that grant block (Plated Armor / Metallicize) while the hand is
 /// still held (FIDL01486 CHOOSE 461: Thread and Needle +4).
@@ -2853,6 +2874,18 @@ pub fn nilrys_codex_flush_pending_draw_inserts(state: &mut CombatState) -> SimRe
         crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
             state, content_id,
         )?;
+    }
+    state.nilrys_defer_codex_insert_until_after_draw = false;
+    Ok(())
+}
+
+/// Leftover SuperFastMode can draw (and Warped Tongs) before the parked Codex
+/// card is shuffled into the remaining draw pile.
+pub fn nilrys_codex_flush_deferred_draw_inserts_after_draw(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    if state.nilrys_defer_codex_insert_until_after_draw {
+        nilrys_codex_flush_pending_draw_inserts(state)?;
     }
     Ok(())
 }

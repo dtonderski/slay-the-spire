@@ -1800,6 +1800,32 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
             })
             .or_else(|| try_flagged(|c| c.nilrys_interleave_post_queue_rolls = true))
             .or_else(|| try_flagged(|c| c.nilrys_single_post_queue_roll = true))
+            .or_else(|| try_flagged(|c| c.nilrys_defer_codex_insert_until_after_draw = true))
+            .or_else(|| {
+                try_flagged(|c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_skip_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| {
+                try_flagged(|c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_interleave_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| {
+                try_flagged(|c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_single_post_queue_roll = true;
+                })
+            })
+            .or_else(|| {
+                try_flagged(|c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_duplicate_monster_queue = true;
+                    c.nilrys_skip_post_queue_rolls = true;
+                })
+            })
             // Interleaved leftover rolls can leave the first Darkling on CHOMP;
             // SuperFastMode still flushes one more RollMoveAction onto Harden
             // (FIDL01807 CHOOSE 1112). A single leftover post-queue roll can
@@ -1816,6 +1842,29 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
             })
             .or_else(|| extra_first_monster_roll_after(source, decision, post, |_| {}))
             .or_else(|| {
+                extra_first_monster_roll_after(source, decision, post, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                })
+            })
+            .or_else(|| {
+                extra_first_monster_roll_after(source, decision, post, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_interleave_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| {
+                extra_first_monster_roll_after(source, decision, post, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_single_post_queue_roll = true;
+                })
+            })
+            .or_else(|| {
+                extra_first_monster_roll_after(source, decision, post, |c| {
+                    c.nilrys_defer_codex_insert_until_after_draw = true;
+                    c.nilrys_skip_post_queue_rolls = true;
+                })
+            })
+            .or_else(|| {
                 let mut applied = apply_run_decision_action(source, decision).ok()?;
                 sts_core::combat::roll_last_living_monster_intent(applied.combat.as_mut()?).ok()?;
                 applied.player_hp = applied.combat.as_ref()?.player.hp;
@@ -1827,7 +1876,78 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
                 .is_empty()
                 .then_some(applied)
             })
+            .or_else(|| {
+                let mut flagged = source.clone();
+                flagged
+                    .combat
+                    .as_mut()?
+                    .nilrys_defer_codex_insert_until_after_draw = true;
+                let mut applied = apply_run_decision_action(&flagged, decision).ok()?;
+                sts_core::combat::roll_last_living_monster_intent(applied.combat.as_mut()?).ok()?;
+                applied.player_hp = applied.combat.as_ref()?.player.hp;
+                applied.validate().ok()?;
+                subset_diffs(
+                    seed_start_combat_observed_subset(&post.message),
+                    seed_start_simulated_combat_subset(&applied),
+                )
+                .is_empty()
+                .then_some(applied)
+            })
     })
+    .or_else(|| park_nilry_choice_then_leftover_draw_before_insert(source, decision, post))
+}
+
+/// SuperFastMode leftover stage-3 CHOOSE can close Codex, run leftover
+/// takeTurns + DrawCard + Warped Tongs, then shuffle the chosen card into
+/// the remaining draw pile (FIDL01807 CHOOSE 1167).
+fn park_nilry_choice_then_leftover_draw_before_insert(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    let combat = source.combat.as_ref()?;
+    if combat.nilrys_codex_end_turn_stage != 3 {
+        return None;
+    }
+    let index = match decision {
+        RunDecisionAction::Run(RunAction::ChooseCombatCardReward { index }) => Some(index),
+        RunDecisionAction::Run(RunAction::SkipCombatCardReward) => None,
+        _ => return None,
+    };
+    let try_parked = |set: fn(&mut sts_core::combat::CombatState)| -> Option<RunState> {
+        let mut parked = source.clone();
+        {
+            let combat = parked.combat.as_mut()?;
+            match index {
+                Some(index) => {
+                    sts_core::relic::nilrys_codex_park_choice_for_deferred_draw_insert(
+                        combat, index,
+                    )
+                    .ok()?;
+                }
+                None => {
+                    combat.decision = None;
+                    combat.nilrys_defer_codex_insert_until_after_draw = true;
+                }
+            }
+            set(combat);
+        }
+        leftover_end_state_publication_candidate(
+            &parked,
+            Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
+            post,
+        )
+    };
+    try_parked(|_| {})
+        .or_else(|| try_parked(|c| c.nilrys_skip_post_queue_rolls = true))
+        .or_else(|| try_parked(|c| c.nilrys_interleave_post_queue_rolls = true))
+        .or_else(|| try_parked(|c| c.nilrys_single_post_queue_roll = true))
+        .or_else(|| {
+            try_parked(|c| {
+                c.nilrys_duplicate_monster_queue = true;
+                c.nilrys_skip_post_queue_rolls = true;
+            })
+        })
 }
 
 /// Book.takeTurn reads live `stabCount` after the first queued multi-stab.
@@ -2917,6 +3037,25 @@ fn leftover_end_state_continue_draw(source: &RunState, observed: Value) -> Optio
             if subset_diffs(observed.clone(), seed_start_simulated_combat_subset(&next)).is_empty()
             {
                 return Some(next);
+            }
+            if next
+                .combat
+                .as_ref()
+                .is_some_and(|combat| combat.nilrys_defer_codex_insert_until_after_draw)
+            {
+                {
+                    let combat = next.combat.as_mut()?;
+                    sts_core::relic::nilrys_codex_flush_pending_draw_inserts(combat).ok()?;
+                    next.player_hp = combat.player.hp;
+                    next.player_max_hp = combat.player.max_hp;
+                    next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                }
+                if next.validate().is_ok()
+                    && subset_diffs(observed.clone(), seed_start_simulated_combat_subset(&next))
+                        .is_empty()
+                {
+                    return Some(next);
+                }
             }
         }
     }

@@ -292,6 +292,12 @@ pub struct CombatState {
     /// stays Fireball; the Buff / Spawn rolls publish on later closes).
     #[serde(default, skip_serializing_if = "is_false")]
     pub nilrys_skip_post_queue_rolls: bool,
+    /// SuperFastMode leftover stage-3 Codex close can run `DrawCardAction` and
+    /// Warped Tongs before `MakeTempCardInDrawPileAction` (FIDL01807 CHOOSE
+    /// 1167: Strike is drawn; the chosen Codex card lands in the remaining
+    /// draw pile). Default insert-before-draw displaces that last deck card.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_defer_codex_insert_until_after_draw: bool,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -1222,6 +1228,7 @@ impl CombatState {
             nilrys_hold_attack_multiple_rolls: false,
             nilrys_single_post_queue_roll: false,
             nilrys_skip_post_queue_rolls: false,
+            nilrys_defer_codex_insert_until_after_draw: false,
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
