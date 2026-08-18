@@ -112,6 +112,14 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
 
     require_event_handler(handled)?;
 
+    // An event obtain reaches the master deck when the event is exited, not
+    // when the choice resolves. The leave screen still shows the pre-obtain
+    // deck; the card appears on the map transition (FIDL01244 transform: deck
+    // 10 -> 7 at the leave screen, 10 again at MAP; FIDL01246 curse; FIDL01248).
+    if run.phase == RunPhase::Event && next.phase != RunPhase::Event {
+        next.flush_pending_obtain_cards()?;
+    }
+
     Ok(next)
 }
 

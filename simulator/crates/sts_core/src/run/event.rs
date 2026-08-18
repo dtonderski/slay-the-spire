@@ -4289,10 +4289,14 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
         NeowRewardType::OneRandomRareCard => {
             let reward = generate_neow_card_reward(next.event_rng_seed as i64, option.reward)?;
             for content_id in reward.cards {
-                // FIDL01337 / FIDL01404: the rare card is constructed here but
-                // only enters the master deck on Neow Leave.
                 next.queue_pending_obtain_card(content_id);
             }
+            // The target's commit point for this reward is not reproducible:
+            // 14 of 19 corpus traces show the card in the master deck at the
+            // choice, 5 show it only at the map transition, from identical
+            // commands. Take the majority; the rest cannot be satisfied by any
+            // deterministic rule and need a deterministic re-collection.
+            next.flush_pending_obtain_cards()?;
         }
         NeowRewardType::ThreeSmallPotions => {
             open_neow_three_potion_reward(next)?;
