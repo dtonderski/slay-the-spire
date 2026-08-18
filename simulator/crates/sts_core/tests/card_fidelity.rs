@@ -5862,7 +5862,7 @@ fn deep_breath_shuffles_discard_before_drawing() {
 }
 
 #[test]
-fn deep_breath_uses_one_combined_draw_shuffle_rng_call() {
+fn deep_breath_uses_separate_discard_and_draw_shuffle_rng_calls() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
     state.rng.shuffle_rng = StsRng::new(123);
@@ -5886,7 +5886,7 @@ fn deep_breath_uses_one_combined_draw_shuffle_rng_call() {
     )
     .expect("Deep Breath plays with a non-empty discard pile");
 
-    assert_eq!(next.rng.shuffle_rng.counter(), 1);
+    assert_eq!(next.rng.shuffle_rng.counter(), 2);
     assert_eq!(next.piles.hand.len(), 1);
     assert_eq!(next.piles.draw_pile.len(), 3);
     assert_eq!(next.piles.discard_pile.len(), 1);

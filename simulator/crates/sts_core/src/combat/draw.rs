@@ -488,13 +488,16 @@ pub(crate) fn shuffle_discard_into_draw_with_combat_rng(
 pub(crate) fn deep_breath_shuffle_discard_into_draw_with_combat_rng(
     state: &mut CombatState,
 ) -> SimResult<Vec<InternalAction>> {
-    // Target DeepBreath.use queues ShuffleAction(discardPile, false) then
-    // DrawCardAction. ShuffleAction on the discard pile appends those cards
-    // onto the draw pile and collections-shuffles the combined pile once.
-    // Weekly Patch 47 stopped the older EmptyDeckShuffleAction +
-    // ShuffleAction(drawPile) pair from consuming a second shuffleRng long
-    // and double-firing Abacus/Sundial (FIDL01709 Mayhem PlayTop Deep Breath).
-    shuffle_discard_into_draw_with_combat_rng(state)
+    if state.piles.discard_pile.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let discard_shuffle_seed = state.rng.shuffle_rng.random_long();
+    JavaRng::new(discard_shuffle_seed).collections_shuffle(&mut state.piles.discard_pile);
+    state.piles.draw_pile.append(&mut state.piles.discard_pile);
+    let draw_shuffle_seed = state.rng.shuffle_rng.random_long();
+    JavaRng::new(draw_shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
+    crate::relic::apply_shuffle_relics(state)
 }
 
 #[cfg(test)]
