@@ -25,7 +25,9 @@ When Awakened One is in the fight and **6+ cards remain** after the
 source left, that settlement takes two post-select pulses (FIDL01561).
 The same 6+ remaining-hand shape against Darklings / Giant Head / Champ
 / Time Eater stays one pulse (FIDL01309 Wound insert; FIDL01248 energy;
-FIDL01255 colorless hand). Remaining hands of 3–5 against Awakened One
+FIDL01255 colorless hand). Donu/Deca with 6+ remaining takes two pulses
+(FIDL01431: Metamorphosis then generates Blood for Blood / Clash / Immolate).
+Remaining hands of 3–5 against Awakened One
 are one pulse while another enemy is still alive (FIDL01665 Cultist+AO).
 Five remaining cards against **solo living** Awakened One take two pulses
 (FIDL01357 leftover Sludge Void at draw index 7, not 4). Two remaining cards
@@ -74,7 +76,8 @@ Burn six discarded generations when the Discovery source was force-exhausted
 by PlayTop (Havoc / Distilled Chaos). Burn two when another Discovery is still
 in hand, when Hex is up and two or more enemies are alive, when Awakened One
 is present and `hand.len() >= 6` at retrieve, when Awakened One is the sole
-living enemy and `hand.len() >= 5`, when two or fewer remaining cards include a
+living enemy and `hand.len() >= 5`, when Donu or Deca is present and
+`hand.len() >= 6`, when two or fewer remaining cards include a
 status, or when a hand-played Magnetism source is Magnetism-generated,
 `cards_played_this_turn <= 2`, and either fewer than 5 cards remain or another
 Magnetism-generated card is still in hand with remaining hand size other than 5.

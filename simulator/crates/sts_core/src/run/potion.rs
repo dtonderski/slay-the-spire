@@ -25,7 +25,7 @@ use crate::{
         PotionCardRewardKind,
     },
     content::cards::{get_card_definition, upgrade_card_instance, DISCOVERY_ID, DISCOVERY_PLUS_ID},
-    content::monsters::{wake_lagavulin_on_damage, AWAKENED_ONE_ID},
+    content::monsters::{wake_lagavulin_on_damage, AWAKENED_ONE_ID, DECA_ID, DONU_ID},
     content::shop_pool::{
         burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
@@ -914,7 +914,9 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             // hands of 3–5 against Awakened One stay one pulse while another
             // enemy is still alive (FIDL01665 Cultist+AO). A five-card remaining
             // hand against solo living Awakened One still takes two pulses
-            // (FIDL01357 leftover Sludge Void at draw index 7, not 4).
+            // (FIDL01357 leftover Sludge Void at draw index 7, not 4). Donu/Deca
+            // with 6+ remaining also takes two pulses (FIDL01431 Metamorphosis
+            // Blood for Blood / Clash / Immolate).
             // Two remaining cards with a status still take two pulses (FIDL01357
             // Wild Strike Wound after Defend+Dazed). Two remaining attacks/skills
             // stay one pulse (FIDL01614 Infernal Blade after Strike+Infernal Blade).
@@ -1167,6 +1169,10 @@ fn discovery_post_select_generations(
         .monsters
         .iter()
         .any(|monster| monster.content_id == AWAKENED_ONE_ID);
+    let fighting_donu_deca = combat
+        .monsters
+        .iter()
+        .any(|monster| monster.content_id == DONU_ID || monster.content_id == DECA_ID);
     let living_monsters = combat
         .monsters
         .iter()
@@ -1197,6 +1203,7 @@ fn discovery_post_select_generations(
         || (fighting_awakened_one
             && (combat.piles.hand.len() >= 6
                 || (combat.piles.hand.len() >= 5 && living_monsters <= 1)))
+        || (fighting_donu_deca && combat.piles.hand.len() >= 6)
         || tiny_remaining_hand_with_status
         || (early_magnetism_generated_source && combat.piles.hand.len() < 5)
         || (early_magnetism_generated_source
