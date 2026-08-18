@@ -25,7 +25,9 @@ use crate::{
         PotionCardRewardKind,
     },
     content::cards::{get_card_definition, upgrade_card_instance, DISCOVERY_ID, DISCOVERY_PLUS_ID},
-    content::monsters::{wake_lagavulin_on_damage, AWAKENED_ONE_ID, DECA_ID, DONU_ID, SNECKO_ID},
+    content::monsters::{
+        wake_lagavulin_on_damage, AWAKENED_ONE_ID, DECA_ID, DONU_ID, SNECKO_ID, SPIRE_GROWTH_ID,
+    },
     content::shop_pool::{
         burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
         burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
@@ -1208,6 +1210,10 @@ fn discovery_post_select_generations(
         .monsters
         .iter()
         .any(|monster| monster.content_id == SNECKO_ID);
+    let fighting_spire_growth = combat
+        .monsters
+        .iter()
+        .any(|monster| monster.content_id == SPIRE_GROWTH_ID);
     let living_monsters = combat
         .monsters
         .iter()
@@ -1254,19 +1260,19 @@ fn discovery_post_select_generations(
         2
     } else if living_monsters == 1
         && combat.piles.hand.len() == 3
-        && combat.player.powers.constricted > 0
+        && fighting_spire_growth
         && !fighting_awakened_one
         && !fighting_donu_deca
         && !fighting_snecko
         && !early_magnetism_generated_source
     {
         // SuperFastMode leftover generateCardChoices does not run after CHOOSE
-        // when three cards remain versus a single non-AO/Donu/Snecko enemy and
-        // Constricted is occupying the action queue. The extra pulse desyncs
+        // when three cards remain versus Spire Growth. The extra pulse desyncs
         // Reckless Charge addToRandomSpot (FIDL01680: Dazed at draw index 5,
-        // not 2). Without Constricted the leftover pulse still runs (FIDL01665
-        // Reckless Charge Dazed at draw index 1; FIDL01623 Magnetism). Snecko
-        // still burns one leftover pulse (FIDL01622: Confusion costs stay 4).
+        // not 2). The same remaining-hand shape versus Transient / Jaw Worm /
+        // Writhing Mass still burns one leftover pulse (FIDL01665 Reckless
+        // Charge Dazed at 1; FIDL01623 Magnetism; FIDL01746 Infernal Blade).
+        // Snecko still burns one leftover pulse (FIDL01622).
         0
     } else {
         1
@@ -3673,13 +3679,14 @@ mod tests {
     }
 
     #[test]
-    fn discovery_retrieve_with_three_remaining_cards_vs_solo_enemy_burns_zero_generations() {
+    fn discovery_retrieve_with_three_remaining_cards_vs_spire_growth_burns_zero_generations() {
         use crate::content::cards::STRIKE_R_ID;
+        use crate::content::monsters::SPIRE_GROWTH_ID;
 
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat fixture");
         combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
-        combat.player.powers.constricted = 10;
+        combat.monsters[0].content_id = SPIRE_GROWTH_ID;
         combat.piles.hand = vec![
             CardInstance::new(CardId::new(1), STRIKE_R_ID),
             CardInstance::new(CardId::new(2), STRIKE_R_ID),
@@ -3702,12 +3709,12 @@ mod tests {
         });
 
         let next = apply_combat_card_reward_choice(&run, 0)
-            .expect("three-card remaining solo-enemy Discovery retrieve");
+            .expect("three-card remaining Spire Growth Discovery retrieve");
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
             16,
-            "three remaining cards versus one Constricted non-AO/Donu/Snecko enemy burn no discarded generateCardChoices generation"
+            "three remaining cards versus Spire Growth burn no discarded generateCardChoices generation"
         );
     }
 

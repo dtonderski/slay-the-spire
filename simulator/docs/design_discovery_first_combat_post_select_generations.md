@@ -37,7 +37,7 @@ Wound at draw index 21, not 0). Donu/Deca does not take that extra pulse
 Two remaining non-status cards stay one pulse
 (FIDL01614 Infernal Blade). Three remaining cards against a **single**
 living enemy that is not Awakened One / Donu / Deca / Snecko burn **no** leftover
-pulse when Constricted occupies the action queue (FIDL01680 Reckless Charge Dazed at draw index 5, not 2). Snecko still
+pulse versus Spire Growth (FIDL01680 Reckless Charge Dazed at draw index 5, not 2). Transient, Jaw Worm, and Writhing Mass keep one pulse. Snecko still
 burns one pulse (FIDL01622). Another Discovery still in hand still needs
 two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
 among the first two cards of the turn needs two pulses when the remaining
