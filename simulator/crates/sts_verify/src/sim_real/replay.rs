@@ -1552,7 +1552,10 @@ fn deferred_nilrys_keep_hand_extra_offer_on_end_candidate(
     }
     let mut candidate = source.clone();
     let combat = candidate.combat.as_mut()?;
-    let next_stage = if combat.nilrys_codex_end_turn_stage == 2 {
+    let next_stage = if combat.nilrys_codex_end_turn_stage == 2
+        && combat.nilrys_hold_codex_insert_after_post_draw
+        && !combat.pending_nilrys_codex_draw_inserts.is_empty()
+    {
         3
     } else {
         1
@@ -1697,7 +1700,9 @@ fn deferred_nilrys_first_choice_candidate(
                     // use this for ordinary first-offer inserts: those still
                     // consume `cardRandomRng` even when the roll happens to be 0.
                     let combat = source.combat.as_ref()?;
-                    if combat.pending_nilrys_codex_draw_inserts.is_empty() {
+                    if combat.pending_nilrys_codex_draw_inserts.is_empty()
+                        || !combat.nilrys_hold_codex_insert_after_post_draw
+                    {
                         return None;
                     }
                     let insert_front = |apply_end_turn_block: bool,
