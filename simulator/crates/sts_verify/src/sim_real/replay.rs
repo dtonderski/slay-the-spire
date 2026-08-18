@@ -1213,6 +1213,30 @@ fn deferred_time_warp_end_instead_of_play_candidate(
     let observed = seed_start_combat_observed_subset(&post.message);
     flush_deferred_time_warp_end_for_leftover_play(source, &observed, false)
         .or_else(|| flush_deferred_time_warp_end_for_leftover_play(source, &observed, true))
+        .or_else(|| flush_deferred_time_warp_powers_and_discard(source, &observed))
+}
+
+fn flush_deferred_time_warp_powers_and_discard(
+    source: &RunState,
+    observed: &serde_json::Value,
+) -> Option<RunState> {
+    // Leftover PLAY after a 12th-card CONFIRM can publish Combust + discard
+    // before DrawCardAction (FIDL01666 Hemokinesis STATE: empty hand, -1 HP,
+    // Time Eater -7). Full end_player_turn would already have drawn.
+    let mut candidate = source.clone();
+    let combat = candidate.combat.as_mut()?;
+    sts_core::combat::settle_leftover_end_turn_player_powers_and_discard(combat).ok()?;
+    candidate.player_hp = combat.player.hp;
+    candidate.player_max_hp = combat.player.max_hp;
+    if !candidate.pending_external_rng.is_empty() || candidate.validate().is_err() {
+        return None;
+    }
+    subset_diffs(
+        observed.clone(),
+        seed_start_simulated_combat_subset(&candidate),
+    )
+    .is_empty()
+    .then_some(candidate)
 }
 
 fn flush_deferred_time_warp_end_for_leftover_play(
@@ -2401,7 +2425,8 @@ fn leftover_end_state_is_eligible(source: &RunState, leftover: Option<&RunDecisi
         return true;
     }
     // Time Warp's leftover EndTurnAction can reject a PLAY and still publish
-    // loseBlock / takeTurn on later STATE polls (FIDL01645 / FIDL01691).
+    // Combust / discard / loseBlock / takeTurn on later STATE polls
+    // (FIDL01645 / FIDL01666 / FIDL01691).
     source.combat.as_ref().is_some_and(|combat| {
         combat.time_warp_end_turn
             || combat.time_warp_end_turn_pre_discard_settled
@@ -2443,15 +2468,20 @@ fn leftover_end_state_publication_candidate(
     {
         return leftover_end_state_continue_draw(source, observed);
     }
+    // CombustPower.atEndOfTurn runs before DiscardAtEndOfTurnAction. A rejected
+    // leftover PLAY can drain discard first (FIDL01358 empty-hand STATE) while
+    // Combust is still queued (FIDL01666 HP/enemy damage with an already-empty
+    // hand). Try the power pulse whenever end-of-turn powers have not run.
     if source
         .combat
         .as_ref()
-        .is_some_and(|combat| !combat.piles.hand.is_empty())
+        .is_some_and(|combat| !combat.time_warp_end_powers_applied)
     {
         let mut discarded = source.clone();
         if let Some(combat) = discarded.combat.as_mut() {
             if sts_core::combat::settle_leftover_end_turn_player_powers_and_discard(combat).is_ok()
             {
+                combat.time_warp_end_powers_applied = true;
                 discarded.player_hp = combat.player.hp;
                 discarded.player_max_hp = combat.player.max_hp;
                 if discarded.validate().is_ok()
@@ -4785,6 +4815,50 @@ mod tests {
         assert_eq!(
             candidate.player_hp, run.player_hp,
             "loseBlock does not take the monster turn"
+        );
+    }
+
+    #[test]
+    fn leftover_end_state_after_rejected_play_discard_still_applies_combust() {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.piles.hand.clear();
+            combat.time_warp_end_turn = true;
+            combat.time_warp_end_turn_pre_discard_settled = true;
+            combat.player.powers.combust = 7;
+            combat.player.powers.combust_damage = 7;
+            combat.player.hp = 50;
+            combat.monsters[0].hp = 228;
+            combat.monsters[0].block = 0;
+        }
+        run.player_hp = 50;
+        let mut expected = run.clone();
+        {
+            let combat = expected.combat.as_mut().expect("combat");
+            sts_core::combat::settle_leftover_end_turn_player_powers_and_discard(combat)
+                .expect("Combust + discard");
+            expected.player_hp = combat.player.hp;
+        }
+        let observed = seed_start_simulated_combat_subset(&expected);
+        let post = comm_mod_combat_post_from_subset(&observed);
+        let leftover = RunDecisionAction::Combat(CombatAction::PlayCard {
+            card_id: sts_core::CardId::new(1),
+            target: None,
+        });
+        let candidate = leftover_end_state_publication_candidate(&run, Some(leftover), &post)
+            .expect("empty-hand leftover STATE still applies Combust");
+        assert_eq!(candidate.player_hp, expected.player_hp);
+        assert_eq!(
+            candidate.combat.as_ref().expect("combat").monsters[0].hp,
+            expected.combat.as_ref().expect("combat").monsters[0].hp,
+        );
+        assert!(
+            candidate
+                .combat
+                .as_ref()
+                .expect("combat")
+                .time_warp_end_powers_applied
         );
     }
 
