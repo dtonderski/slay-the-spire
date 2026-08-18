@@ -978,6 +978,7 @@ fn apply_internal_action_with_defer(
             if state.card_in_use == Some(card_id) {
                 state.pen_nib_double_active = false;
             }
+            let to = apply_deferred_played_card_strange_spoon(state, card_id, to);
             pile_actions::move_card_between_piles(state, card_id, from, to)
         }
         InternalAction::ReturnExhaustCardToHand { card_id } => {
@@ -3702,6 +3703,21 @@ fn confirm_thinking_ahead_select(
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
     state.piles.draw_pile.push(card);
     Ok(())
+}
+
+fn apply_deferred_played_card_strange_spoon(
+    state: &mut CombatState,
+    card_id: CardId,
+    to: CardPile,
+) -> CardPile {
+    if state.defer_strange_spoon_until_source_move != Some(card_id) {
+        return to;
+    }
+    state.defer_strange_spoon_until_source_move = None;
+    if to != CardPile::ExhaustPile {
+        return to;
+    }
+    delayed_source_exhaust_destination(state)
 }
 
 pub(crate) fn move_delayed_played_source_with_strange_spoon(
@@ -8611,6 +8627,64 @@ mod tests {
                 .map(|card| card.id)
                 .collect::<Vec<_>>(),
             vec![CardId::new(1), CardId::new(2), CardId::new(3)]
+        );
+    }
+
+    #[test]
+    fn violence_strange_spoon_rolls_after_attack_tmp_group() {
+        // UseCardAction's Spoon roll is after ViolenceAction. An early roll
+        // would consume cardRandomRng before addToRandomSpot and pick a
+        // different three-attack set (FIDL01427).
+        let mut expected = CombatState::initial_fixture();
+        expected.piles.hand.clear();
+        expected.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), HEADBUTT_ID),
+            CardInstance::new(CardId::new(5), RAMPAGE_ID),
+            CardInstance::new(CardId::new(6), ANGER_ID),
+        ];
+        expected.rng.card_random_rng = StsRng::new(1_234);
+        expected.rng.shuffle_rng = StsRng::new(5_678);
+        draw_random_attacks_from_draw_pile(&mut expected, 3);
+        let expected_hand: Vec<_> = expected.piles.hand.iter().map(|card| card.id).collect();
+
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.relics.push(Relic::StrangeSpoon);
+        state.piles.hand = vec![CardInstance::new(CardId::new(20), VIOLENCE_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), HEADBUTT_ID),
+            CardInstance::new(CardId::new(5), RAMPAGE_ID),
+            CardInstance::new(CardId::new(6), ANGER_ID),
+        ];
+        state.rng.card_random_rng = StsRng::new(1_234);
+        state.rng.shuffle_rng = StsRng::new(5_678);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(20),
+                target: None,
+            },
+        )
+        .expect("Violence with Strange Spoon resolves");
+
+        assert_eq!(
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            expected_hand
+        );
+        assert_eq!(
+            next.rng.card_random_rng.counter(),
+            expected.rng.card_random_rng.counter() + 1
         );
     }
 

@@ -844,6 +844,18 @@ fn apply_strange_spoon_to_played_card_move(
         return;
     };
 
+    // ViolenceAction (and any other addToBot effect that draws from
+    // cardRandomRng) runs before UseCardAction calls moveToExhaustPile.
+    // Rolling Spoon at queue-build time steals the first cardRandomRng
+    // call from addToRandomSpot (FIDL01427 Bash/Rampage/Cleave+).
+    if queue
+        .iter()
+        .any(|action| matches!(action, InternalAction::DrawRandomAttacksFromDrawPile { .. }))
+    {
+        state.defer_strange_spoon_until_source_move = Some(card_id);
+        return;
+    }
+
     let rng = &mut state.rng.card_random_rng;
     if !rng.random_bool() {
         return;

@@ -110,6 +110,12 @@ pub struct CombatState {
     /// is mid-play must not reduce that copy).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_in_use: Option<CardId>,
+    /// UseCardAction applies Strange Spoon when the played card actually
+    /// `moveToExhaustPile`s, after that card's `addToBot` effects. Violence
+    /// builds its attack tmp group with `cardRandomRng` in ViolenceAction,
+    /// which runs before settlement (FIDL01427).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub defer_strange_spoon_until_source_move: Option<CardId>,
     /// Set while expanding `PlayTopDrawCard` with `exhaust_played_card` so nested
     /// Dual Wield select knows to force-exhaust on CONFIRM (no exhaust keyword).
     #[serde(default, skip_serializing_if = "is_false")]
@@ -1161,6 +1167,7 @@ impl CombatState {
             bomb_timers: Vec::new(),
             pending_player_spikes_damage: 0,
             card_in_use: None,
+            defer_strange_spoon_until_source_move: None,
             play_top_force_exhaust_active: false,
             skip_put_on_deck_auto_place: false,
             deferred_play_top_monster_blocks: Vec::new(),
