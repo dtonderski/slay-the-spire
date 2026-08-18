@@ -278,7 +278,14 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
             next.resume_end_turn_after_nilrys_codex = true;
             next.nilrys_codex_end_turn_stage = 1;
             next.nilrys_end_powers_pending = true;
-            next.pending_nilrys_codex_draw_inserts.clear();
+            // Leftover SuperFastMode can still have a parked Codex
+            // `MakeTempCardInDrawPileAction` in the queue when the next
+            // CodexAction opens. Clearing here drops that insert (FIDL01807
+            // CHOOSE 1170: leftover Impervious lands at remaining-draw `[0]`
+            // on the first-offer pick).
+            if !next.nilrys_defer_codex_insert_until_after_draw {
+                next.pending_nilrys_codex_draw_inserts.clear();
+            }
             return Ok(next);
         }
         let queued_autoplay = queued_end_turn_autoplay_ids(&next);

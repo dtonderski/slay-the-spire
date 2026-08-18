@@ -1793,11 +1793,19 @@ fn deferred_nilrys_flush_pending_then_park_first_choice_candidate(
     {
         return None;
     }
-    let park = |index: Option<usize>, apply_end_turn_block: bool| -> Option<RunState> {
+    let park = |index: Option<usize>,
+                apply_end_turn_block: bool,
+                same_bound_rolls: u8,
+                shuffle_rng: bool|
+     -> Option<RunState> {
         let mut candidate = source.clone();
         {
             let combat = candidate.combat.as_mut()?;
+            combat.nilrys_codex_insert_same_bound_rolls = same_bound_rolls;
+            combat.nilrys_codex_insert_uses_shuffle_rng = shuffle_rng;
             sts_core::relic::nilrys_codex_flush_pending_draw_inserts(combat).ok()?;
+            combat.nilrys_codex_insert_same_bound_rolls = 0;
+            combat.nilrys_codex_insert_uses_shuffle_rng = false;
             match index {
                 Some(index) => {
                     sts_core::relic::nilrys_codex_park_choice_without_insert(combat, index).ok()?;
@@ -1824,13 +1832,19 @@ fn deferred_nilrys_flush_pending_then_park_first_choice_candidate(
         .is_empty()
         .then_some(candidate)
     };
+    let park_all = |index: Option<usize>| -> Option<RunState> {
+        park(index, false, 0, false)
+            .or_else(|| park(index, true, 0, false))
+            .or_else(|| park(index, false, 0, true))
+            .or_else(|| {
+                (2u8..=7).find_map(|rolls| {
+                    park(index, false, rolls, false).or_else(|| park(index, true, rolls, false))
+                })
+            })
+    };
     match decision {
-        RunDecisionAction::Run(RunAction::ChooseCombatCardReward { index }) => {
-            park(Some(index), false).or_else(|| park(Some(index), true))
-        }
-        RunDecisionAction::Run(RunAction::SkipCombatCardReward) => {
-            park(None, false).or_else(|| park(None, true))
-        }
+        RunDecisionAction::Run(RunAction::ChooseCombatCardReward { index }) => park_all(Some(index)),
+        RunDecisionAction::Run(RunAction::SkipCombatCardReward) => park_all(None),
         _ => None,
     }
 }
