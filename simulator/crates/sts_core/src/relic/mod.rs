@@ -2108,7 +2108,14 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Pantograph => {}
             Relic::Ginger => {}
             Relic::Turnip => {}
-            Relic::MarkOfPain => {}
+            Relic::MarkOfPain => {
+                // atBattleStart queues MakeTempCardInDrawPile before later
+                // atBattleStart draws (Bag of Preparation). Inserting after those
+                // draws puts Wounds on the post-7 remaining pile (FIDL01469).
+                if combat.pending_opening_hand_draw == 0 {
+                    insert_mark_of_pain_wounds(combat)?;
+                }
+            }
             Relic::MagicFlower => {}
             Relic::PaperPhrog => {}
             Relic::ChampionBelt => {}
@@ -2719,6 +2726,17 @@ pub fn settle_pending_opening_combat_actions(state: &mut CombatState) -> SimResu
 /// Shuffle two combat-only Wounds into the draw pile (`MakeTempCardInDrawPileAction`).
 pub(crate) fn insert_mark_of_pain_wounds(combat: &mut CombatState) -> SimResult<()> {
     if !combat.relics.contains(&Relic::MarkOfPain) {
+        return Ok(());
+    }
+    let existing = combat
+        .piles
+        .hand
+        .iter()
+        .chain(combat.piles.draw_pile.iter())
+        .chain(combat.piles.discard_pile.iter())
+        .filter(|card| card.combat_only && card.content_id == WOUND_ID)
+        .count();
+    if existing >= MARK_OF_PAIN_WOUNDS {
         return Ok(());
     }
     let first_id = combat.reserve_card_instance_ids(MARK_OF_PAIN_WOUNDS)?;

@@ -283,7 +283,10 @@ fn record_initial_monster_moves(combat: &mut CombatState) {
 }
 
 /// Mark of Pain `atBattleStart` queues `MakeTempCardInDrawPileAction(Wound, 2, true, true)`
-/// after the opening hand draw. Target `CardGroup.addToRandomSpot` draws from
+/// after the opening five-card draw and in relic-list order relative to other
+/// `atBattleStart` hooks. Bag of Preparation's extra draw is also `atBattleStart`,
+/// so when Mark of Pain appears earlier on the relic bar the Wounds are inserted
+/// before those two cards are drawn. Target `CardGroup.addToRandomSpot` draws from
 /// `cardRandomRng`, which has already been advanced by Confusion/Snecko cost rolls
 /// (and any other pre-draw consumers) on that same stream. Must not re-seed from a
 /// fresh run-level counter of 0.
@@ -1261,6 +1264,78 @@ mod tests {
             expected_draw.insert(index, WOUND_ID);
         }
         assert_eq!(actual_ids, expected_draw);
+    }
+
+    #[test]
+    fn mark_of_pain_inserts_before_bag_of_preparation_draw() {
+        // Mark of Pain atBattleStart is earlier on the relic bar than Bag of
+        // Preparation, so addToRandomSpot uses the post-five remaining pile.
+        // Inserting after the bag's two draws is FIDL01469 (Bite vs Wound).
+        let mut run = RunState::map_fixture();
+        run.current_floor = 1;
+        run.current_act = 1;
+        run.relics = vec![Relic::MarkOfPain, Relic::BagOfPreparation];
+        run.deck = crate::content::deck::ironclad_starter_deck_for_ascension(0);
+        for (index, content_id) in [
+            crate::content::cards::CLEAVE_ID,
+            crate::content::cards::POMMEL_STRIKE_ID,
+            crate::content::cards::THUNDERCLAP_ID,
+            crate::content::cards::INFLAME_ID,
+            crate::content::cards::UPPERCUT_ID,
+            crate::content::cards::TWIN_STRIKE_ID,
+            crate::content::cards::HEAVY_BLADE_ID,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            run.deck.push(CardInstance::new(
+                CardId::new(100 + index as u64),
+                content_id,
+            ));
+        }
+        run.normal_encounter_list = vec!["Cultist".to_owned()];
+        run.normal_combat_count = 0;
+
+        enter_normal_combat(&mut run).expect("combat starts");
+        let combat = run.combat.as_ref().expect("combat present");
+        assert_eq!(combat.piles.hand.len(), 7);
+        assert_eq!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .chain(combat.piles.draw_pile.iter())
+                .filter(|card| card.content_id == WOUND_ID)
+                .count(),
+            MARK_OF_PAIN_WOUNDS
+        );
+        assert_eq!(combat.rng.card_random_rng.counter(), 2);
+
+        let non_wound_draw: Vec<ContentId> = combat
+            .piles
+            .draw_pile
+            .iter()
+            .filter(|card| card.content_id != WOUND_ID)
+            .map(|card| card.content_id)
+            .collect();
+        let seed = run.rng_stream_state(RunRngStream::CardRandom).seed as i64;
+        let mut after_bag_rng = StsRng::with_counter(seed, 0);
+        let mut after_bag_draw = non_wound_draw;
+        for _ in 0..MARK_OF_PAIN_WOUNDS {
+            let bound = (after_bag_draw.len() - 1) as i32;
+            let index = after_bag_rng.random_int(bound) as usize;
+            after_bag_draw.insert(index, WOUND_ID);
+        }
+        let actual_ids: Vec<ContentId> = combat
+            .piles
+            .draw_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect();
+        assert_ne!(
+            actual_ids, after_bag_draw,
+            "Mark of Pain must not insert into the post-Bag-of-Preparation pile"
+        );
     }
 
     #[test]
