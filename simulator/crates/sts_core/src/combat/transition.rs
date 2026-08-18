@@ -527,6 +527,28 @@ pub(crate) fn process_internal_queue(
 }
 
 fn push_follow_up(queue: &mut VecDeque<InternalAction>, follow_up: InternalAction) {
+    if matches!(follow_up, InternalAction::GainBlockDirect { .. }) {
+        // Whirlwind.use() only addToBots WhirlwindAction. UseCardAction then
+        // addToBots Ornamental Fan / Rage GainBlock before that wrapper
+        // addToBots DamageAllEnemiesAction, so Fan block is up for Spiker
+        // thorns (FIDL01552). Immediate Cleave/Strike damage stays ahead of Fan.
+        let whirlwind_wrapper = queue
+            .iter()
+            .any(|action| matches!(action, InternalAction::SpendEnergy { .. }))
+            && queue
+                .iter()
+                .any(|action| matches!(action, InternalAction::DealDamageAll { .. }));
+        if whirlwind_wrapper {
+            if let Some(index) = queue
+                .iter()
+                .position(|action| matches!(action, InternalAction::DealDamageAll { .. }))
+            {
+                queue.insert(index, follow_up);
+                return;
+            }
+        }
+    }
+
     if matches!(
         follow_up,
         InternalAction::CardExhausted { .. } | InternalAction::HandCardExhausted { .. }
