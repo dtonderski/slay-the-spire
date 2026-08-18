@@ -1564,6 +1564,35 @@ fn deferred_nilrys_keep_hand_extra_offer_on_end_candidate(
     .then_some(candidate)
 }
 
+fn deferred_nilrys_end_opens_codex_during_leftover_draw(
+    source: &RunState,
+    decision: RunDecisionAction,
+    post: &TraceState,
+) -> Option<RunState> {
+    if !matches!(decision, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+        return None;
+    }
+    let combat = source.combat.as_ref()?;
+    if combat.leftover_end_turn_draw_remaining == 0
+        || combat.decision.is_some()
+        || !combat.relics.contains(&sts_core::relic::Relic::NilrysCodex)
+    {
+        return None;
+    }
+    let mut candidate = source.clone();
+    let combat = candidate.combat.as_mut()?;
+    sts_core::relic::open_nilrys_codex_card_reward(combat).ok()?;
+    combat.resume_end_turn_after_nilrys_codex = true;
+    combat.nilrys_codex_end_turn_stage = 1;
+    candidate.validate().ok()?;
+    subset_diffs(
+        seed_start_combat_observed_subset(&post.message),
+        seed_start_simulated_combat_subset(&candidate),
+    )
+    .is_empty()
+    .then_some(candidate)
+}
+
 fn deferred_nilrys_second_offer_on_end_candidate(
     source: &RunState,
     decision: RunDecisionAction,
@@ -3979,6 +4008,11 @@ pub(super) fn verify_seed_start_transition(
                             )
                             .or_else(|| {
                                 deferred_nilrys_keep_hand_extra_offer_on_end_candidate(
+                                    &source, decision, post,
+                                )
+                            })
+                            .or_else(|| {
+                                deferred_nilrys_end_opens_codex_during_leftover_draw(
                                     &source, decision, post,
                                 )
                             })
