@@ -115,7 +115,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     // hand was non-empty when END was clicked — not after ethereal exhaust
     // empties an only-status hand (FIDL00278 Warcry skipped Inflame + Dazed).
     let hand_nonempty_at_end_click = !next.piles.hand.is_empty();
-    let deferred_stasis_cards;
+    let mut deferred_stasis_cards;
     let mut deferred_monster_deaths = Vec::new();
     let mut end_of_turn_hand;
 
@@ -343,6 +343,17 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         };
         end_of_turn_hand =
             resolve_end_of_turn_hand_with_queued_autoplay(&mut next, Some(&queued_autoplay))?;
+        // Charon's Ashes (and other on-exhaust damage) can kill a Stasis orb
+        // during ethereal settlement, after the pre-hand snapshot. Those
+        // cards must return after discard, not ride DiscardAtEndOfTurn into
+        // the discard pile (FIDL01646 Berserk). Metallicize/Juggernaut
+        // publications from before this call stay in already_published.
+        if next.monsters.iter().any(|monster| monster.alive) {
+            deferred_stasis_cards.extend(take_released_stasis_cards_from_piles(
+                &mut next,
+                &unreleased_stasis_ids,
+            ));
+        }
         if defer_combust_until_after_autoplay {
             // callEndOfTurnActions plays Burn/Decay/Regret first; Combust
             // LoseHPAction is queued from AbstractRoom.endTurn after that.
@@ -3149,7 +3160,7 @@ mod tests {
     use super::*;
     use crate::combat::hand::resolve_end_of_turn_hand;
     use crate::content::cards::{
-        ANGER_ID, ARMAMENTS_ID, BASH_ID, BLOODLETTING_ID, BURNING_PACT_ID, BURN_ID, DAZED_ID,
+        ANGER_ID, ARMAMENTS_ID, BASH_ID, BERSERK_ID, BLOODLETTING_ID, BURNING_PACT_ID, BURN_ID, DAZED_ID,
         DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, FIEND_FIRE_ID, GHOSTLY_ARMOR_ID, INFLAME_ID,
         PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID,
         STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
@@ -3969,6 +3980,48 @@ mod tests {
             .hand
             .iter()
             .any(|card| card.id == CardId::new(50)));
+    }
+
+    #[test]
+    fn charons_ashes_ethereal_kill_returns_stasis_after_hand_discard() {
+        use crate::relic::Relic;
+
+        let mut state = CombatState::initial_fixture();
+        let mut automaton =
+            monster_state_for_ascension(&BRONZE_AUTOMATON_A0, MonsterId::new(1), state.ascension);
+        automaton.intent = crate::MonsterIntent::Stun;
+        let mut orb =
+            monster_state_for_ascension(&BRONZE_ORB_A0, MonsterId::new(2), state.ascension);
+        orb.hp = 3;
+        orb.max_hp = 5;
+        orb.intent = crate::MonsterIntent::Stun;
+        orb.stasis_card = Some(CardInstance::new(CardId::new(50), BERSERK_ID));
+        state.monsters = vec![automaton, orb];
+        state.relics = vec![Relic::CharonsAshes];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), DAZED_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = (10..=14)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+
+        let next = end_player_turn(&state).expect("end turn resolves");
+
+        assert!(!next.monsters[1].alive);
+        assert!(
+            next.piles
+                .hand
+                .iter()
+                .any(|card| card.id == CardId::new(50)),
+            "Stasis Berserk must return to the next hand, not the discarded pile"
+        );
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .all(|card| card.id != CardId::new(50)));
     }
 
     #[test]
