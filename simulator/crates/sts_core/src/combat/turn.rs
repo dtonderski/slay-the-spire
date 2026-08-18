@@ -1003,45 +1003,11 @@ fn apply_start_of_turn_mayhem(
     state: &mut CombatState,
     targets: &[Option<MonsterId>],
 ) -> SimResult<()> {
-    for &random_target in targets {
-        // PlayTop still executes after the base hand draw and Brutality's
-        // extra draw (FIDL00381). Only the getRandomMonster roll is early.
-        if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
-            // PlayTopCardAction queues EmptyDeckShuffleAction when its draw
-            // pile is empty, then plays the newly exposed top card.
-            crate::combat::transition::player_shuffle_discard_into_draw(state)?;
-        }
-        let Some(top_card) = state.piles.draw_pile.last() else {
-            return Ok(());
-        };
-        let definition = crate::content::cards::get_card_definition(top_card.content_id)
-            .ok_or(crate::SimError::UnknownContent(top_card.content_id))?;
-        if definition.keywords.unplayable {
-            // Target PlayTopCardAction removes the top card into limbo before
-            // autoplay checks whether it can be used. If autoplay cannot play
-            // an unplayable curse/status, the card still leaves the draw pile
-            // and resolves to discard.
-            if let Some(card) = state.piles.draw_pile.pop() {
-                state.piles.discard_pile.push(card);
-            }
-            continue;
-        }
-        let target = if definition.target == TargetRequirement::Enemy {
-            random_target
-        } else {
-            None
-        };
-        crate::combat::transition::apply_play_top_draw_card_to_state(state, target)?;
-        if state.player.hp <= 0
-            || state
-                .monsters
-                .iter()
-                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
-        {
-            return Ok(());
-        }
-    }
-    Ok(())
+    // PlayTop still executes after the base hand draw and Brutality's extra
+    // draw (FIDL00381). Only the getRandomMonster roll is early. Stacked
+    // PlayTopCardActions sit on the bot queue ahead of the first card's
+    // use() follow-ups, so Deep Breath cannot shuffle before the next PlayTop.
+    crate::combat::transition::apply_mayhem_play_top_cards(state, targets)
 }
 
 fn mayhem_random_living_target(state: &mut CombatState) -> Option<MonsterId> {
@@ -3161,9 +3127,9 @@ mod tests {
     use crate::combat::hand::resolve_end_of_turn_hand;
     use crate::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BASH_ID, BERSERK_ID, BLOODLETTING_ID, BURNING_PACT_ID, BURN_ID,
-        DAZED_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, FIEND_FIRE_ID, GHOSTLY_ARMOR_ID,
-        INFLAME_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID, SHRUG_IT_OFF_PLUS_ID,
-        SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
+        DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, FIEND_FIRE_ID,
+        GHOSTLY_ARMOR_ID, INFLAME_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID,
+        SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -7233,6 +7199,68 @@ mod tests {
         assert!(state.piles.draw_pile.is_empty());
         assert_eq!(state.piles.discard_pile.len(), 1);
         assert_eq!(state.piles.discard_pile[0].content_id, DEFEND_R_ID);
+    }
+
+    #[test]
+    fn stacked_mayhem_plays_second_top_before_deep_breath_shuffle() {
+        // MayhemPower queues both PlayTopCardActions before DeepBreath.use
+        // addToBots ShuffleAction. The second PlayTop is therefore the card
+        // that was under Deep Breath, not a post-shuffle top.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 2;
+        state.piles.hand = (1..=10)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+            CardInstance::new(CardId::new(21), BASH_ID),
+            CardInstance::new(CardId::new(22), DEEP_BREATH_ID),
+        ];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(23), ANGER_ID)];
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+        let monster_hp = state.monsters[0].hp;
+
+        start_player_turn(&mut state).expect("Mayhem 2 PlayTops Deep Breath then Bash");
+
+        assert!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == BASH_ID),
+            "second PlayTop must be the pre-shuffle Bash, discard={:?}",
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == DEEP_BREATH_ID),
+            "Deep Breath still settles to discard after its delayed shuffle"
+        );
+        assert!(
+            state
+                .piles
+                .draw_pile
+                .iter()
+                .any(|card| card.content_id == ANGER_ID),
+            "Deep Breath shuffle still mixes the original discard after both PlayTops pop"
+        );
+        assert!(
+            state.monsters[0].hp < monster_hp,
+            "Bash must still deal its PlayTop damage"
+        );
     }
 
     #[test]

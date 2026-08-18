@@ -186,6 +186,31 @@ pub fn apply_play_top_draw_card_to_state(
     Ok(())
 }
 
+/// MayhemPower queues one PlayTopCardAction per stack before any of those
+/// cards' `use()` follow-ups (`addToBot`). Deep Breath therefore shuffles
+/// after the remaining PlayTops have already taken their cards off the pile
+/// (FIDL01709: Mayhem 2 plays the pre-shuffle Dramatic Entrance).
+pub fn apply_mayhem_play_top_cards(
+    state: &mut CombatState,
+    targets: &[Option<MonsterId>],
+) -> SimResult<()> {
+    if targets.is_empty() {
+        return Ok(());
+    }
+    let queue = targets
+        .iter()
+        .copied()
+        .map(|target| InternalAction::PlayTopDrawCard {
+            target,
+            exhaust_played_card: false,
+            random_living_target: false,
+        })
+        .collect();
+    let transition = process_internal_queue(state, queue)?;
+    *state = transition.state;
+    Ok(())
+}
+
 fn apply_play_card(
     state: &CombatState,
     card_id: CardId,
