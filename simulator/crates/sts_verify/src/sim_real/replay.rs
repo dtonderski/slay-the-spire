@@ -2024,6 +2024,12 @@ fn deferred_nilrys_leftover_end_after_choice_candidate(
     if combat.nilrys_codex_end_turn_stage == 1 {
         return None;
     }
+    if combat.nilrys_hold_codex_insert_after_post_draw
+        && !combat.pending_nilrys_codex_draw_inserts.is_empty()
+        && !combat.piles.hand.is_empty()
+    {
+        return None;
+    }
     if !combat.resume_end_turn_after_nilrys_codex
         && combat.leftover_end_turn_draw_remaining == 0
         && combat.nilrys_codex_end_turn_stage == 0
@@ -2786,6 +2792,26 @@ fn deferred_nilrys_second_choice_without_insert_candidate(
     {
         return None;
     }
+    let park_only = || -> Option<RunState> {
+        let mut candidate = source.clone();
+        let combat = candidate.combat.as_mut()?;
+        match index {
+            Some(index) => {
+                sts_core::relic::nilrys_codex_park_choice_without_insert(combat, index).ok()?;
+            }
+            None => {
+                combat.decision = None;
+            }
+        }
+        combat.resume_end_turn_after_nilrys_codex = true;
+        candidate.validate().ok()?;
+        subset_diffs(
+            seed_start_combat_observed_subset(&post.message),
+            seed_start_simulated_combat_subset(&candidate),
+        )
+        .is_empty()
+        .then_some(candidate)
+    };
     let try_close = |set: fn(&mut sts_core::combat::CombatState)| -> Option<RunState> {
         let mut candidate = source.clone();
         let combat = candidate.combat.as_mut()?;
@@ -2811,7 +2837,8 @@ fn deferred_nilrys_second_choice_without_insert_candidate(
         .is_empty()
         .then_some(candidate)
     };
-    try_close(|_| {})
+    park_only()
+        .or_else(|| try_close(|_| {}))
         .or_else(|| try_close(|c| c.nilrys_duplicate_monster_queue = false))
         .or_else(|| try_close(|c| c.nilrys_end_powers_pending = false))
         .or_else(|| {
