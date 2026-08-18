@@ -259,64 +259,12 @@ pub struct CombatState {
     /// (FIDL01772 / FIDL01727), the same multiplicity as Time Warp.
     #[serde(default, skip_serializing_if = "is_false")]
     pub nilrys_duplicate_monster_queue: bool,
-    /// Second Book multi-stab takeTurn reads the live StabCount after the
-    /// first queued take (FIDL01727 step 887: 7+8). Captured N+N stays the
-    /// default (step 880: 6+6). StabCount still advances only in `getMove`.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_book_second_stab_uses_live_count: bool,
-    /// SuperFastMode can publish the stage-3 close after duplicate takeTurns
-    /// but before StrengthSelf RollMoveActions (FIDL01486 Byrd stays Caw).
-    /// Attackers still consume both leftover rolls.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_hold_strength_self_rolls: bool,
-    /// SuperFastMode can publish after StrengthSelf's first leftover roll
-    /// and before other monsters' RollMoveActions (FIDL01486 SKIP 468:
-    /// Byrd Peck, Chosen still Drain).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_one_strength_self_roll_hold_others: bool,
-    /// Leftover RollMoveActions can run Byrd, Chosen, Byrd, Chosen instead of
-    /// both Byrd rolls first (FIDL01486 CHOOSE 478: Caw then Debilitate).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_interleave_post_queue_rolls: bool,
-    /// SuperFastMode can publish Peck without applying leftover Byrd
-    /// RollMoveActions, so Chosen consumes those `monster_rng` draws
-    /// (FIDL01486 SKIP 491: Peck stays, Chosen rolls Drain).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_hold_attack_multiple_rolls: bool,
-    /// SuperFastMode can publish after the first leftover RollMoveAction
-    /// (FIDL01727 Collector Mega Debuff, not the second roll's Fireball).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_single_post_queue_roll: bool,
-    /// SuperFastMode can finish leftover takeTurns and the next player draw
-    /// before any leftover RollMoveAction (FIDL01727 CHOOSE 1059: Collector
-    /// stays Fireball; the Buff / Spawn rolls publish on later closes).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_skip_post_queue_rolls: bool,
     /// SuperFastMode leftover stage-3 Codex close can run `DrawCardAction` and
     /// Warped Tongs before `MakeTempCardInDrawPileAction` (FIDL01807 CHOOSE
     /// 1167: Strike is drawn; the chosen Codex card lands in the remaining
     /// draw pile). Default insert-before-draw displaces that last deck card.
     #[serde(default, skip_serializing_if = "is_false")]
     pub nilrys_defer_codex_insert_until_after_draw: bool,
-    /// Leftover stage-3 close can publish after Warped Tongs with the Codex
-    /// card still queued (FIDL01807 CHOOSE 1167).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_hold_codex_insert_after_post_draw: bool,
-    /// SuperFastMode leftover Dual Wield / first-offer Codex close can keep
-    /// MakeTempCardInDrawPile occupancy, so addToRandomSpot rolls the same
-    /// bound more than once (FIDL01807 CHOOSE 949: Intimidate at draw index 12).
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
-    pub nilrys_codex_insert_same_bound_rolls: u8,
-    /// First-offer leftover Codex insert can consume `shuffleRng` instead of
-    /// `cardRandomRng` (FIDL01807 CHOOSE 949 Intimidate at draw index 12).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_codex_insert_uses_shuffle_rng: bool,
-    /// SuperFastMode leftover `MakeTempCardInDrawPileAction` can resolve with
-    /// `randomSpot=false` after remaining draw is already published, so the
-    /// parked card is `addToTop` at remaining-draw `[0]` (FIDL01807 CHOOSE
-    /// 1170 leftover Impervious).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub nilrys_codex_insert_at_draw_front: bool,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -1240,18 +1188,7 @@ impl CombatState {
             time_warp_end_powers_applied: false,
             time_warp_duplicate_monster_queue: false,
             nilrys_duplicate_monster_queue: false,
-            nilrys_book_second_stab_uses_live_count: false,
-            nilrys_hold_strength_self_rolls: false,
-            nilrys_one_strength_self_roll_hold_others: false,
-            nilrys_interleave_post_queue_rolls: false,
-            nilrys_hold_attack_multiple_rolls: false,
-            nilrys_single_post_queue_roll: false,
-            nilrys_skip_post_queue_rolls: false,
             nilrys_defer_codex_insert_until_after_draw: false,
-            nilrys_hold_codex_insert_after_post_draw: false,
-            nilrys_codex_insert_same_bound_rolls: 0,
-            nilrys_codex_insert_uses_shuffle_rng: false,
-            nilrys_codex_insert_at_draw_front: false,
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,

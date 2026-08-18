@@ -1342,10 +1342,8 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                             monster.hp = (monster.hp + monster.max_hp / 2).min(monster.max_hp);
                         }
                         // Book.takeTurn uses live `stabCount`. The first
-                        // multi-stab of a fight always sees the increment on
-                        // the second queue item (step 852: 2+3). Later frames
-                        // keep captured N+N unless the verifier accepts the
-                        // live-count candidate (step 887: 7+8).
+                        // multi-stab of a fight sees the increment on the
+                        // second queue item (step 852: 2+3).
                         if nilrys_duplicate_monster_queue
                             && monster.content_id == BOOK_OF_STABBING_ID
                         {
@@ -1354,7 +1352,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                                 .iter()
                                 .filter(|move_byte| **move_byte == 1)
                                 .count();
-                            if executed_stabs < 2 || state.nilrys_book_second_stab_uses_live_count {
+                            if executed_stabs < 2 {
                                 if let crate::MonsterIntent::AttackMultiple { damage, hits } =
                                     monster.intent
                                 {
@@ -1417,13 +1415,6 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             ) {
                 state.time_warp_duplicate_monster_queue = false;
                 state.nilrys_duplicate_monster_queue = false;
-                state.nilrys_book_second_stab_uses_live_count = false;
-                state.nilrys_hold_strength_self_rolls = false;
-                state.nilrys_one_strength_self_roll_hold_others = false;
-                state.nilrys_interleave_post_queue_rolls = false;
-                state.nilrys_hold_attack_multiple_rolls = false;
-                state.nilrys_single_post_queue_roll = false;
-                state.nilrys_skip_post_queue_rolls = false;
                 let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
                 return Ok(());
             }
@@ -1431,19 +1422,12 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
         }
     }
     state.time_warp_duplicate_monster_queue = false;
-    state.nilrys_book_second_stab_uses_live_count = false;
-    let hold_strength_self_rolls = state.nilrys_hold_strength_self_rolls;
-    state.nilrys_hold_strength_self_rolls = false;
-    let one_strength_self_roll_hold_others = state.nilrys_one_strength_self_roll_hold_others;
-    state.nilrys_one_strength_self_roll_hold_others = false;
-    let interleave_post_queue_rolls = state.nilrys_interleave_post_queue_rolls;
-    state.nilrys_interleave_post_queue_rolls = false;
-    let hold_attack_multiple_rolls = state.nilrys_hold_attack_multiple_rolls;
-    state.nilrys_hold_attack_multiple_rolls = false;
-    let single_post_queue_roll = state.nilrys_single_post_queue_roll;
-    state.nilrys_single_post_queue_roll = false;
-    let skip_post_queue_rolls = state.nilrys_skip_post_queue_rolls;
-    state.nilrys_skip_post_queue_rolls = false;
+    let hold_strength_self_rolls = false;
+    let one_strength_self_roll_hold_others = false;
+    let interleave_post_queue_rolls = false;
+    let hold_attack_multiple_rolls = false;
+    let single_post_queue_roll = false;
+    let skip_post_queue_rolls = false;
     if nilrys_duplicate_monster_queue {
         // Both MonsterQueueItems ran with the captured intent. Their
         // RollMoveActions then run in order and each advances lastMove.
@@ -2701,7 +2685,7 @@ fn prepare_next_intent_for_actor(state: &mut CombatState, actor_id: MonsterId) -
     // Two leftover EndTurns each queue a MonsterQueueItem, then two
     // RollMoveActions. takeTurn must not consume those rolls (FIDL01597:
     // Gremlin Wizard stays on CHARGE / UNKNOWN after the pair).
-    if state.nilrys_duplicate_monster_queue || state.nilrys_skip_post_queue_rolls {
+    if state.nilrys_duplicate_monster_queue {
         return Ok(());
     }
     prepare_next_intents_for_ids(state, Some(&[actor_id]))
@@ -6888,82 +6872,6 @@ mod tests {
     }
 
     #[test]
-    fn nilry_two_step_single_post_queue_roll_keeps_collector_mega_debuff() {
-        use crate::relic::Relic;
-        use crate::run::potion::apply_combat_card_reward_skip;
-        use crate::RunState;
-
-        let mut run = RunState::combat_fixture();
-        let combat = run.combat.as_mut().expect("combat fixture");
-        combat.relics = vec![Relic::NilrysCodex];
-        combat.resume_end_turn_after_nilrys_codex = true;
-        combat.nilrys_codex_end_turn_stage = 3;
-        combat.nilrys_duplicate_monster_queue = true;
-        combat.nilrys_single_post_queue_roll = true;
-        combat.piles.hand.clear();
-        combat.piles.draw_pile = (1..=8)
-            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
-            .collect();
-        let mut collector = monster_state_for_ascension(
-            &crate::content::monsters::THE_COLLECTOR_A0,
-            MonsterId::new(1),
-            0,
-        );
-        collector.intent = crate::MonsterIntent::Attack { damage: 18 };
-        collector.move_history = vec![1, 2, 2];
-        combat.monsters = vec![collector];
-        crate::relic::open_nilrys_codex_card_reward(combat).expect("second offer");
-
-        let next = apply_combat_card_reward_skip(&run).expect("skip second offer");
-        let combat = next.combat.as_ref().expect("combat remains");
-        assert!(
-            matches!(
-                combat.monsters[0].intent,
-                crate::MonsterIntent::ApplyPlayerFrailWeakVulnerable { .. }
-            ),
-            "first leftover RollMoveAction is Mega Debuff, not a second Fireball"
-        );
-    }
-
-    #[test]
-    fn nilry_two_step_skip_post_queue_rolls_keeps_collector_fireball() {
-        use crate::relic::Relic;
-        use crate::run::potion::apply_combat_card_reward_skip;
-        use crate::RunState;
-
-        let mut run = RunState::combat_fixture();
-        let combat = run.combat.as_mut().expect("combat fixture");
-        combat.relics = vec![Relic::NilrysCodex];
-        combat.resume_end_turn_after_nilrys_codex = true;
-        combat.nilrys_codex_end_turn_stage = 3;
-        combat.nilrys_duplicate_monster_queue = true;
-        combat.nilrys_skip_post_queue_rolls = true;
-        combat.piles.hand.clear();
-        combat.piles.draw_pile = (1..=8)
-            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
-            .collect();
-        let mut collector = monster_state_for_ascension(
-            &crate::content::monsters::THE_COLLECTOR_A0,
-            MonsterId::new(1),
-            0,
-        );
-        collector.intent = crate::MonsterIntent::Attack { damage: 18 };
-        collector.move_history = vec![1, 2, 2, 3, 2];
-        combat.monsters = vec![collector];
-        crate::relic::open_nilrys_codex_card_reward(combat).expect("second offer");
-
-        let next = apply_combat_card_reward_skip(&run).expect("skip second offer");
-        let combat = next.combat.as_ref().expect("combat remains");
-        assert!(
-            matches!(
-                combat.monsters[0].intent,
-                crate::MonsterIntent::Attack { damage: 18 }
-            ),
-            "SuperFastMode can publish the next turn before leftover RollMoveActions"
-        );
-    }
-
-    #[test]
     fn nilry_two_step_second_choice_ticks_leftover_plated_before_duplicate_queue() {
         use crate::relic::Relic;
         use crate::run::potion::apply_combat_card_reward_skip;
@@ -7259,44 +7167,6 @@ mod tests {
             .count();
         assert_eq!(wounds, 10, "later two-step matches FIDL01727 step 880");
         assert_eq!(next.player_hp, 8643, "two 6-stabs through 15 block");
-    }
-
-    #[test]
-    fn nilry_two_step_book_live_second_stab_adds_one_packet() {
-        use crate::relic::Relic;
-        use crate::run::potion::apply_combat_card_reward_skip;
-        use crate::RunState;
-
-        let mut run = RunState::combat_fixture();
-        let combat = run.combat.as_mut().expect("combat fixture");
-        combat.relics = vec![Relic::NilrysCodex];
-        combat.resume_end_turn_after_nilrys_codex = true;
-        combat.nilrys_codex_end_turn_stage = 3;
-        combat.nilrys_duplicate_monster_queue = true;
-        combat.nilrys_book_second_stab_uses_live_count = true;
-        combat.player.hp = 8643;
-        combat.player.max_hp = 10000;
-        combat.player.block = 10;
-        combat.piles.hand.clear();
-        combat.piles.draw_pile = (1..=8)
-            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
-            .collect();
-        combat.piles.discard_pile.clear();
-        let mut mon = monster_state_for_ascension(&BOOK_OF_STABBING_A0, MonsterId::new(1), 0);
-        mon.intent = crate::MonsterIntent::AttackMultiple { damage: 6, hits: 7 };
-        mon.powers.book_stab_count = 7;
-        mon.powers.painful_stabs = 1;
-        mon.move_history = vec![1, 1, 2, 1, 1, 2, 1, 2, 1];
-        mon.hp = 108;
-        mon.max_hp = 162;
-        combat.monsters = vec![mon];
-        crate::relic::open_nilrys_codex_card_reward(combat).expect("second offer");
-
-        let next = apply_combat_card_reward_skip(&run).expect("skip second offer");
-        assert_eq!(
-            next.player_hp, 8563,
-            "live second stab is 8 hits: 7×6+8×6 through 10 block"
-        );
     }
 
     #[test]

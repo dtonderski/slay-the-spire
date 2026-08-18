@@ -560,9 +560,6 @@ pub(crate) fn process_internal_queue(
 }
 
 fn leftover_make_temp_card_add_to_random_spot_rolls(state: &CombatState) -> usize {
-    if state.nilrys_codex_insert_same_bound_rolls > 0 {
-        return state.nilrys_codex_insert_same_bound_rolls as usize;
-    }
     if state.player.powers.constricted > 0
         && state.player.powers.dark_embrace > 0
         && state.relic_counters.cards_played_this_turn <= 1
@@ -2635,18 +2632,9 @@ fn add_generated_card_to_draw_pile_random_spot(
     // Reckless Charge versus Time Eater without Discovery this combat stays
     // one roll (FIDL01666 step 1155).
     let leftover_same_bound_rolls = leftover_make_temp_card_add_to_random_spot_rolls(state);
-    state.nilrys_codex_insert_same_bound_rolls = 0;
     let mut index = 0usize;
-    if state.nilrys_codex_insert_at_draw_front {
-        state.nilrys_codex_insert_at_draw_front = false;
-        index = 0;
-    } else if state.nilrys_codex_insert_uses_shuffle_rng {
-        state.nilrys_codex_insert_uses_shuffle_rng = false;
-        index = state.rng.shuffle_rng.random_int(bound) as usize;
-    } else {
-        for _ in 0..leftover_same_bound_rolls {
-            index = state.rng.card_random_rng.random_int(bound) as usize;
-        }
+    for _ in 0..leftover_same_bound_rolls {
+        index = state.rng.card_random_rng.random_int(bound) as usize;
     }
     state.piles.draw_pile.insert(index, card);
     Ok(())
