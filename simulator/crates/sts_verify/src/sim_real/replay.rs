@@ -1686,7 +1686,7 @@ fn deferred_nilrys_first_choice_candidate(
                 .or_else(|| park(Some(index), true))
                 .or_else(insert_and_plated)
                 .or_else(|| {
-                    let mut candidate = apply_run_decision_action(source, decision).ok()?;
+                    let candidate = apply_run_decision_action(source, decision).ok()?;
                     leftover_end_state_publication_candidate(
                         &candidate,
                         Some(RunDecisionAction::Combat(CombatAction::EndTurn)),
