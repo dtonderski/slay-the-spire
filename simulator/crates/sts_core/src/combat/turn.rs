@@ -591,6 +591,7 @@ pub fn settle_leftover_end_turn_player_powers_and_discard(
         crate::combat::hand::discard_end_of_turn_hand(state);
     }
     let _ = deferred_monster_deaths;
+    state.time_warp_end_powers_applied = true;
     Ok(())
 }
 
