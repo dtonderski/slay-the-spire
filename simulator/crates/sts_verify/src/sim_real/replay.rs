@@ -2591,26 +2591,30 @@ fn leftover_end_state_continue_draw(source: &RunState, observed: Value) -> Optio
     let remaining = source.combat.as_ref()?.leftover_end_turn_draw_remaining as usize;
     for extra in 1..=remaining {
         let mut next = source.clone();
-        let combat = next.combat.as_mut()?;
-        sts_core::combat::draw::draw_cards_with_combat_rng(combat, extra).ok()?;
-        combat.leftover_end_turn_draw_remaining = remaining.saturating_sub(extra) as u8;
-        next.player_hp = combat.player.hp;
-        next.player_max_hp = combat.player.max_hp;
+        let draw_finished = {
+            let combat = next.combat.as_mut()?;
+            sts_core::combat::draw::draw_cards_with_combat_rng(combat, extra).ok()?;
+            combat.leftover_end_turn_draw_remaining = remaining.saturating_sub(extra) as u8;
+            next.player_hp = combat.player.hp;
+            next.player_max_hp = combat.player.max_hp;
+            combat.leftover_end_turn_draw_remaining == 0
+        };
         if next.validate().is_err() {
             continue;
         }
         if subset_diffs(observed.clone(), seed_start_simulated_combat_subset(&next)).is_empty() {
             return Some(next);
         }
-        if combat.leftover_end_turn_draw_remaining == 0 {
+        if draw_finished {
             // Mid-draw leftover STATE peels before atTurnStartPostDraw. The
             // completing poll draws the last card then Warped Tongs (FIDL01807
             // STATE 853 Ghostly Armor+).
-            if sts_core::relic::apply_start_of_player_turn_post_draw_relics(combat).is_err() {
-                continue;
+            {
+                let combat = next.combat.as_mut()?;
+                sts_core::relic::apply_start_of_player_turn_post_draw_relics(combat).ok()?;
+                next.player_hp = combat.player.hp;
+                next.player_max_hp = combat.player.max_hp;
             }
-            next.player_hp = combat.player.hp;
-            next.player_max_hp = combat.player.max_hp;
             if next.validate().is_err() {
                 continue;
             }
