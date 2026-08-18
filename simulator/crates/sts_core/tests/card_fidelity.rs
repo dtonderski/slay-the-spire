@@ -23,8 +23,8 @@ use sts_core::{
         },
         shop_pool::colorless_discovery_pool,
     },
-    legal_combat_actions, CardId, CardInstance, CombatAction, CombatState, MonsterId,
-    MonsterIntent, Relic, RunPhase, RunState, StsRng,
+    legal_combat_actions, CardId, CardInstance, CombatAction, CombatDecisionState, CombatState,
+    MonsterId, MonsterIntent, Relic, RunPhase, RunState, StsRng,
 };
 
 fn valid_legal_combat_actions(state: &CombatState) -> Vec<CombatAction> {
@@ -995,7 +995,7 @@ fn skipped_havoc_warcry_put_on_deck_settles_pending_source_once() {
     )
     .expect("Havoc should open Warcry's put-on-deck selection");
     choose_hand_select(&mut next, 0).expect("select a card for forced Warcry");
-    let selected = confirm_hand_select_skipped_put_on_deck_retrieval(&mut next)
+    let (selected, _) = confirm_hand_select_skipped_put_on_deck_retrieval(&mut next)
         .expect("skipped retrieval should resume the queued Warcry source move");
 
     assert_ne!(selected.content_id, cards::WARCRY_ID);
@@ -1071,6 +1071,77 @@ fn warcry_with_dark_embrace_draws_the_card_put_on_top() {
         next.piles.draw_pile.last().map(|card| card.content_id),
         Some(cards::DEFEND_R_ID),
         "only the pre-existing non-top cards remain in the draw pile"
+    );
+}
+
+#[test]
+fn warcry_dead_branch_precedes_dark_embrace_put_on_top_draw() {
+    // FIDL01520 CONFIRM: relic onExhaust (Dead Branch MakeTempCardInHand) is
+    // addToBot before power onExhaust (Dark Embrace DrawCardAction).
+    let mut state = CombatState::initial_fixture();
+    state.relics.push(Relic::DeadBranch);
+    state.player.energy = 0;
+    state.player.powers.dark_embrace = 1;
+    state.player.powers.feel_no_pain = 3;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::WARCRY_ID),
+        CardInstance::new(CardId::new(2), cards::POMMEL_STRIKE_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(4), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(5), cards::BASH_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Warcry opens hand select after drawing");
+    let pending = match next.decision.as_ref() {
+        Some(CombatDecisionState::HandSelect {
+            pending_actions, ..
+        }) => {
+            format!("{pending_actions:?}")
+        }
+        other => format!("decision={other:?}"),
+    };
+    choose_hand_select(&mut next, 0).expect("select Pommel Strike");
+    confirm_hand_select(&mut next).expect("confirm Warcry selection");
+
+    let hand: Vec<_> = next.piles.hand.iter().map(|card| card.content_id).collect();
+    assert_eq!(
+        next.piles.exhaust_pile[0].content_id,
+        cards::WARCRY_ID,
+        "pending before confirm: {pending}"
+    );
+    assert_eq!(next.player.block, 3, "Feel No Pain 3 on Warcry exhaust");
+    assert!(
+        hand.contains(&cards::POMMEL_STRIKE_ID),
+        "Dark Embrace must draw the put-on-top card: hand={hand:?} pending={pending}"
+    );
+    let pommel = hand
+        .iter()
+        .position(|id| *id == cards::POMMEL_STRIKE_ID)
+        .expect("pommel in hand");
+    let generated = hand.iter().position(|id| {
+        *id != cards::POMMEL_STRIKE_ID
+            && *id != cards::STRIKE_R_ID
+            && *id != cards::BASH_ID
+            && *id != cards::WARCRY_ID
+    });
+    assert!(
+        generated.is_some_and(|index| index < pommel),
+        "Dead Branch card must precede Dark Embrace's put-on-top draw: hand={hand:?} pending={pending}"
+    );
+    assert_eq!(
+        hand.len(),
+        3,
+        "Strike leftover, one Dead Branch card, one Dark Embrace draw: hand={hand:?} pending={pending}"
     );
 }
 

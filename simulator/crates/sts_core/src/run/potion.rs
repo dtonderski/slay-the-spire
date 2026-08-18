@@ -325,13 +325,17 @@ pub fn apply_hand_select_confirm_without_time_warp_end(run: &RunState) -> SimRes
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
     let exhaust_before = combat.piles.exhaust_pile.len();
-    confirm_hand_select_with_time_warp_policy(&mut combat, false)?;
+    let handled_dead_branch_count = confirm_hand_select_with_time_warp_policy(&mut combat, false)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile
         .len()
         .saturating_sub(exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
     next.combat = Some(combat);
     Ok(next)
 }
@@ -363,13 +367,18 @@ pub fn apply_hand_select_confirm_time_warp_remaining_status_lag(
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
     let exhaust_before = combat.piles.exhaust_pile.len();
-    confirm_hand_select_time_warp_remaining_status_lag(&mut combat)?;
+    let handled_dead_branch_count =
+        confirm_hand_select_time_warp_remaining_status_lag(&mut combat)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile
         .len()
         .saturating_sub(exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
     next.combat = Some(combat);
     Ok(next)
 }
@@ -379,13 +388,17 @@ pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
     let exhaust_before = combat.piles.exhaust_pile.len();
-    confirm_hand_select(&mut combat)?;
+    let handled_dead_branch_count = confirm_hand_select(&mut combat)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile
         .len()
         .saturating_sub(exhaust_before);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
     settle_run_after_select_confirm(next, combat)
 }
 
@@ -402,7 +415,8 @@ pub fn apply_hand_select_confirm_skipped_put_on_deck_retrieval(
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
     let exhaust_before = combat.piles.exhaust_pile.len();
-    let selected = confirm_hand_select_skipped_put_on_deck_retrieval(&mut combat)?;
+    let (selected, handled_dead_branch_count) =
+        confirm_hand_select_skipped_put_on_deck_retrieval(&mut combat)?;
     let exhaust_count = combat
         .piles
         .exhaust_pile
@@ -413,7 +427,11 @@ pub fn apply_hand_select_confirm_skipped_put_on_deck_retrieval(
     // removed selected card and Dead Branch can reuse its CardId, later failing
     // validation when the limbo card re-enters discard at end of turn.
     combat.piles.limbo.push(selected);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
     let selected = combat.piles.limbo.pop().ok_or(SimError::InvalidState(
         "skipped put-on-deck limbo card missing after Dead Branch settlement",
     ))?;
@@ -431,17 +449,22 @@ pub fn apply_hand_select_confirm_skipped_put_on_deck_retrieval_without_time_warp
     let mut next = run.clone();
     let mut combat = next.combat.take().expect("validated combat");
     let exhaust_before = combat.piles.exhaust_pile.len();
-    let selected = confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy(
-        &mut combat,
-        false,
-    )?;
+    let (selected, handled_dead_branch_count) =
+        confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy(
+            &mut combat,
+            false,
+        )?;
     let exhaust_count = combat
         .piles
         .exhaust_pile
         .len()
         .saturating_sub(exhaust_before);
     combat.piles.limbo.push(selected);
-    apply_dead_branch_for_exhaust_count(&mut next, &mut combat, exhaust_count)?;
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
     let selected = combat.piles.limbo.pop().ok_or(SimError::InvalidState(
         "skipped put-on-deck limbo card missing after Dead Branch settlement",
     ))?;

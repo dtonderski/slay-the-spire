@@ -3028,7 +3028,7 @@ fn hand_select_allows_card(
     }
 }
 
-pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
+pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<usize> {
     confirm_hand_select_with_time_warp_policy(state, true)
 }
 
@@ -3040,7 +3040,7 @@ pub fn confirm_hand_select(state: &mut CombatState) -> SimResult<()> {
 pub fn confirm_hand_select_with_time_warp_policy(
     state: &mut CombatState,
     settle_time_warp: bool,
-) -> SimResult<()> {
+) -> SimResult<usize> {
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
@@ -3115,8 +3115,13 @@ pub fn confirm_hand_select_with_time_warp_policy(
         (pending_actions, VecDeque::new())
     };
     resume_actions_after_hand_select(state, pending_before_source)?;
+    let mut handled_dead_branch_count = 0;
     if source_settlement_after_pending {
-        move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
+        // UseCardAction exhaust is addToBot Feel No Pain, Dead Branch, then
+        // Dark Embrace. Immediate Dark Embrace draw would place the run-level
+        // Dead Branch card after the put-on-top draw (FIDL01520).
+        handled_dead_branch_count =
+            move_delayed_played_source_with_bot_exhaust_queue(state, hand_select.source_card_id)?;
         state.defer_time_warp_end_turn = previous_defer_time_warp;
     }
     resume_actions_after_hand_select(state, pending_after_source)?;
@@ -3124,7 +3129,7 @@ pub fn confirm_hand_select_with_time_warp_policy(
     if settle_time_warp {
         settle_time_warp_end_turn_if_ready(state)?;
     }
-    Ok(())
+    Ok(handled_dead_branch_count)
 }
 
 /// Time Warp 12th-card Warcry CONFIRM can publish after status autoplay and
@@ -3161,14 +3166,14 @@ pub fn confirm_hand_select_time_warp_status_lag(state: &mut CombatState) -> SimR
 /// Pommel on draw, leftover Regret deals 2 and sits in discard, Reaper held).
 pub fn confirm_hand_select_time_warp_remaining_status_lag(
     state: &mut CombatState,
-) -> SimResult<()> {
-    confirm_hand_select_with_time_warp_policy(state, false)?;
+) -> SimResult<usize> {
+    let handled_dead_branch_count = confirm_hand_select_with_time_warp_policy(state, false)?;
     crate::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(state)?;
     // Explicit END after this lagged CONFIRM is a second EndTurnAction, so the
     // monster queue has two items. Strength +2 already published on CONFIRM;
     // both items use live strength (FIDL01425 two Reverberates for 66).
     state.time_warp_duplicate_monster_queue = true;
-    Ok(())
+    Ok(handled_dead_branch_count)
 }
 
 fn settle_delayed_source_without_bot_exhaust_powers(
@@ -3318,7 +3323,7 @@ pub(crate) fn settle_time_warp_end_turn_if_ready(state: &mut CombatState) -> Sim
 pub fn confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy(
     state: &mut CombatState,
     settle_time_warp: bool,
-) -> SimResult<CardInstance> {
+) -> SimResult<(CardInstance, usize)> {
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
@@ -3361,18 +3366,19 @@ pub fn confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy(
     resume_actions_after_hand_select(state, pending_actions)?;
     // Source settlement still runs after PutOnDeckAction would have completed.
     // Dark Embrace therefore draws the real top, not the never-placed selected card.
-    move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
+    let handled_dead_branch_count =
+        move_delayed_played_source_with_bot_exhaust_queue(state, hand_select.source_card_id)?;
     state.defer_time_warp_end_turn = previous_defer_time_warp;
     state.activate_next_queued_decision_if_idle();
     if settle_time_warp {
         settle_time_warp_end_turn_if_ready(state)?;
     }
-    Ok(selected)
+    Ok((selected, handled_dead_branch_count))
 }
 
 pub fn confirm_hand_select_skipped_put_on_deck_retrieval(
     state: &mut CombatState,
-) -> SimResult<CardInstance> {
+) -> SimResult<(CardInstance, usize)> {
     confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy(state, true)
 }
 
@@ -3829,6 +3835,23 @@ pub(crate) fn move_delayed_played_source_with_strange_spoon(
     state: &mut CombatState,
     source_card_id: CardId,
 ) -> SimResult<()> {
+    move_delayed_played_source_with_exhaust_policy(state, source_card_id, false).map(|_| ())
+}
+
+/// Put-on-deck CONFIRM: UseCardAction exhaust queues Feel No Pain, Dead Branch,
+/// then Dark Embrace so relic `onExhaust` precedes power draws (FIDL01520).
+fn move_delayed_played_source_with_bot_exhaust_queue(
+    state: &mut CombatState,
+    source_card_id: CardId,
+) -> SimResult<usize> {
+    move_delayed_played_source_with_exhaust_policy(state, source_card_id, true)
+}
+
+fn move_delayed_played_source_with_exhaust_policy(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    queue_bot_exhaust_follow_ups: bool,
+) -> SimResult<usize> {
     let Some(source) = state
         .piles
         .hand
@@ -3843,7 +3866,7 @@ pub(crate) fn move_delayed_played_source_with_strange_spoon(
             .chain(state.piles.exhaust_pile.iter())
             .any(|card| card.id == source_card_id)
         {
-            return Ok(());
+            return Ok(0);
         }
         return Err(SimError::IllegalAction(
             "delayed source card is not in a resolved destination",
@@ -3854,9 +3877,21 @@ pub(crate) fn move_delayed_played_source_with_strange_spoon(
     let destination = delayed_source_card_destination(state, definition);
     move_card(state, source_card_id, CardPile::Hand, destination)?;
     if destination == CardPile::ExhaustPile {
+        if queue_bot_exhaust_follow_ups {
+            let generated = state.relics.contains(&Relic::DeadBranch)
+                && state.monsters.iter().any(|monster| monster.alive);
+            let transition = process_internal_queue(
+                state,
+                VecDeque::from([InternalAction::CardExhausted {
+                    card_id: source_card_id,
+                }]),
+            )?;
+            *state = transition.state;
+            return Ok(usize::from(generated));
+        }
         apply_on_exhaust_effects(state, source_card_id)?;
     }
-    Ok(())
+    Ok(0)
 }
 
 pub fn close_discovery_card_reward_source(state: &mut CombatState) -> SimResult<()> {
