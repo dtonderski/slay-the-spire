@@ -303,6 +303,10 @@ pub struct CombatState {
     /// bound more than once (FIDL01807 CHOOSE 949: Intimidate at draw index 12).
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub nilrys_codex_insert_same_bound_rolls: u8,
+    /// First-offer leftover Codex insert can consume `shuffleRng` instead of
+    /// `cardRandomRng` (FIDL01807 CHOOSE 949 Intimidate at draw index 12).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nilrys_codex_insert_uses_shuffle_rng: bool,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -1235,6 +1239,7 @@ impl CombatState {
             nilrys_skip_post_queue_rolls: false,
             nilrys_defer_codex_insert_until_after_draw: false,
             nilrys_codex_insert_same_bound_rolls: 0,
+            nilrys_codex_insert_uses_shuffle_rng: false,
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
