@@ -3104,15 +3104,22 @@ pub fn confirm_hand_select_with_time_warp_policy(
     if source_settlement_after_pending {
         state.defer_time_warp_end_turn = true;
     }
-    resume_actions_after_hand_select(state, pending_actions)?;
-    // PutOnDeckAction's queued follow-ups (notably Hex's generated Dazed)
-    // resolve before UseCardAction settles the source. With Dark Embrace this
-    // preserves the source order: selected card is put on draw, deferred
-    // on-use cards are inserted, then source exhaust draws the selected card.
+    // PutOnDeckAction completes, then UseCardAction, then Evolve's addToBot
+    // DrawCardAction from the earlier Warcry/Thinking Ahead draw. Hex Dazed
+    // inserts are onUseCard and stay ahead of source settlement. Evolve extra
+    // draws must run after the source leaves hand, or the limbo card occupies
+    // a slot and the chain stops at 10 (FIDL01514: Shrug stays in the draw pile).
+    let (pending_before_source, pending_after_source) = if source_settlement_after_pending {
+        partition_put_on_deck_source_pending(pending_actions)
+    } else {
+        (pending_actions, VecDeque::new())
+    };
+    resume_actions_after_hand_select(state, pending_before_source)?;
     if source_settlement_after_pending {
         move_delayed_played_source_with_strange_spoon(state, hand_select.source_card_id)?;
         state.defer_time_warp_end_turn = previous_defer_time_warp;
     }
+    resume_actions_after_hand_select(state, pending_after_source)?;
     state.activate_next_queued_decision_if_idle();
     if settle_time_warp {
         settle_time_warp_end_turn_if_ready(state)?;
@@ -3454,6 +3461,24 @@ fn resume_actions_after_hand_select(
     let transition = process_internal_queue(state, pending_actions)?;
     *state = transition.state;
     Ok(())
+}
+
+fn partition_put_on_deck_source_pending(
+    pending_actions: VecDeque<InternalAction>,
+) -> (VecDeque<InternalAction>, VecDeque<InternalAction>) {
+    let mut before_source = VecDeque::new();
+    let mut after_source = VecDeque::new();
+    for action in pending_actions {
+        if matches!(
+            action,
+            InternalAction::DrawCards { .. } | InternalAction::FireBreathingDamage { .. }
+        ) {
+            after_source.push_back(action);
+        } else {
+            before_source.push_back(action);
+        }
+    }
+    (before_source, after_source)
 }
 
 fn required_hand_select_index(hand_select: &crate::combat::HandSelectState) -> SimResult<usize> {
