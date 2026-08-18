@@ -310,6 +310,11 @@ pub struct CombatState {
     /// and before the remaining DrawCardAction cards (FIDL01691 STATE 1352).
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub leftover_end_turn_draw_remaining: u8,
+    /// DiscoveryAction retrieved a card this combat. SuperFastMode leftover
+    /// MakeTempCardInDrawPile occupancy after that retrieve lasts into later
+    /// Reckless Charge Dazed inserts versus Time Eater (FIDL01680).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub discovery_retrieved_this_combat: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1221,6 +1226,7 @@ impl CombatState {
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
             leftover_end_turn_draw_remaining: 0,
+            discovery_retrieved_this_combat: false,
         }
     }
 

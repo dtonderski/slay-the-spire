@@ -993,6 +993,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             card.temp_cost_turn_only = true;
             // DiscoveryAction adds the generated card after the cards already in hand.
             combat.piles.hand.push(card);
+            combat.discovery_retrieved_this_combat = true;
             // card.use() follow-ups queued behind DiscoveryAction (for example
             // Hex's Dazed insertion) resolve after the selected card is
             // retrieved but before UseCardAction settles the Discovery source.
@@ -3718,6 +3719,51 @@ mod tests {
             combat.rng.card_random_rng.counter(),
             16,
             "three remaining cards versus one non-AO/Donu/Snecko enemy burn no discarded generateCardChoices generation"
+        );
+    }
+
+    #[test]
+    fn discovery_retrieve_with_four_remaining_cards_vs_time_eater_burns_zero_generations() {
+        use crate::content::cards::STRIKE_R_ID;
+        use crate::content::monsters::TIME_EATER_ID;
+
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.rng.card_random_rng = StsRng::with_counter(-571_295_464_674_976_203, 16);
+        combat.monsters[0].content_id = TIME_EATER_ID;
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+        ];
+        let chosen_id = CardId::new(
+            combat
+                .next_card_instance_id()
+                .expect("fixture has card ID allocation headroom"),
+        );
+        combat.decision = Some(CombatDecisionState::DiscoveryCardReward {
+            choices: vec![CardInstance::new(
+                CardId::new(chosen_id.get() + 1),
+                STRIKE_R_ID,
+            )],
+            source_card: None,
+            source_card_force_exhaust: false,
+            source_card_play_top: false,
+            pending_actions: Default::default(),
+        });
+
+        let next = apply_combat_card_reward_choice(&run, 0)
+            .expect("four-card remaining Time Eater Discovery retrieve");
+        let combat = next.combat.expect("combat remains open");
+        assert_eq!(
+            combat.rng.card_random_rng.counter(),
+            16,
+            "four remaining cards versus Time Eater burn no discarded generateCardChoices generation"
+        );
+        assert!(
+            combat.discovery_retrieved_this_combat,
+            "Discovery retrieve marks leftover MakeTempCard occupancy for later Reckless Charge"
         );
     }
 

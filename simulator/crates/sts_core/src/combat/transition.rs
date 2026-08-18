@@ -23,13 +23,14 @@ use crate::{
         upgrade_card_instance, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID,
         CLASH_PLUS_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DAZED_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, NECRONOMICURSE_ID, NORMALITY_ID, PAIN_ID,
-        PURITY_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        PURITY_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape,
         apply_reptomancer_death_escape, awakened_one_is_half_dead, check_slime_boss_split,
         get_monster_definition, guardian_accumulate_hp_damage, release_stasis_card_on_death,
-        wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID, GUARDIAN_ID,
+        wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID, GUARDIAN_ID, TIME_EATER_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -531,6 +532,46 @@ pub(crate) fn process_internal_queue(
         state: next,
         event_log,
     })
+}
+
+fn leftover_make_temp_card_add_to_random_spot_rolls(state: &CombatState) -> usize {
+    if state.player.powers.constricted > 0
+        && state.player.powers.dark_embrace > 0
+        && state.relic_counters.cards_played_this_turn <= 1
+    {
+        return 7;
+    }
+    let fighting_time_eater = state
+        .monsters
+        .iter()
+        .any(|monster| monster.alive && monster.content_id == TIME_EATER_ID);
+    if fighting_time_eater
+        && state.discovery_retrieved_this_combat
+        && state.relic_counters.cards_played_this_turn <= 2
+        && card_in_use_is_reckless_charge(state)
+    {
+        return 7;
+    }
+    1
+}
+
+fn card_in_use_is_reckless_charge(state: &CombatState) -> bool {
+    let Some(card_id) = state.card_in_use else {
+        return false;
+    };
+    state
+        .piles
+        .hand
+        .iter()
+        .chain(state.piles.limbo.iter())
+        .chain(state.piles.discard_pile.iter())
+        .any(|card| {
+            card.id == card_id
+                && matches!(
+                    card.content_id,
+                    RECKLESS_CHARGE_ID | RECKLESS_CHARGE_PLUS_ID
+                )
+        })
 }
 
 fn card_in_use_is_whirlwind(state: &CombatState) -> bool {
@@ -2559,14 +2600,13 @@ fn add_generated_card_to_draw_pile_random_spot(
     // draw index 1, not 14). The same Reckless Charge without Dark Embrace
     // uses a single roll (step 926). Do not hydrate the index from the
     // observed pile.
-    let leftover_same_bound_rolls = if state.player.powers.constricted > 0
-        && state.player.powers.dark_embrace > 0
-        && state.relic_counters.cards_played_this_turn <= 1
-    {
-        7
-    } else {
-        1
-    };
+    //
+    // After a Discovery retrieve in the same combat, Time Eater Reckless Charge
+    // Dazed inserts keep that leftover occupancy for the first two plays of
+    // the turn (FIDL01680 step 1224 index 7, not 19). Later-turn Reckless
+    // Charge stays one roll (step 1247 index 15). Reckless Charge versus Time
+    // Eater without Discovery this combat stays one roll (FIDL01666 step 1155).
+    let leftover_same_bound_rolls = leftover_make_temp_card_add_to_random_spot_rolls(state);
     let mut index = 0usize;
     for _ in 0..leftover_same_bound_rolls {
         index = state.rng.card_random_rng.random_int(bound) as usize;

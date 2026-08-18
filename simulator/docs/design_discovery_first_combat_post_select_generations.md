@@ -39,7 +39,10 @@ Two remaining non-status cards stay one pulse
 living enemy that is not Awakened One / Donu / Deca / Snecko burn **no** leftover
 pulse (FIDL01680 Reckless Charge Dazed at draw index 5, not 2). Snecko still
 burns one pulse (FIDL01622). Four remaining versus Time Eater burn no leftover
-pulse (FIDL01680 Reckless Charge Dazed at draw index 7). Another Discovery still in hand still needs
+pulse (FIDL01680 Reckless Charge Dazed at draw index 7). After that retrieve,
+early-turn Reckless Charge Dazed versus Time Eater burns seven leftover
+`addToRandomSpot` rolls against the same bound; later-turn Reckless Charge
+and Reckless Charge without Discovery this combat stay one roll. Another Discovery still in hand still needs
 two pulses (FIDL01630 first pick). Playing a Magnetism-generated Discovery
 among the first two cards of the turn needs two pulses when the remaining
 hand is smaller than 5 or another Magnetism-generated card is still in
