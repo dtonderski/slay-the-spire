@@ -923,6 +923,25 @@ fn deferred_time_warp_hand_select_candidate(
     Ok(Some(candidate))
 }
 
+fn deferred_time_warp_hand_select_metallicize_candidate(
+    run: &RunState,
+    decision: RunDecisionAction,
+) -> Result<Option<RunState>, String> {
+    if deferred_time_warp_hand_select_candidate(run, decision)?.is_none() {
+        return Ok(None);
+    }
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(None);
+    };
+    if combat.player.powers.metallicize <= 0 {
+        return Ok(None);
+    }
+    let candidate = sts_core::run::apply_hand_select_confirm_time_warp_metallicize_lag(run)
+        .map_err(|error| error.to_string())?;
+    candidate.validate().map_err(|error| error.to_string())?;
+    Ok(Some(candidate))
+}
+
 fn time_warp_status_lag_hand_select_candidate(
     run: &RunState,
     decision: RunDecisionAction,
@@ -4028,6 +4047,28 @@ pub(super) fn verify_seed_start_transition(
                                             )
                                             .is_empty()
                                         })
+                                })
+                                .or_else(|| {
+                                    deferred_time_warp_hand_select_metallicize_candidate(
+                                        &source, decision,
+                                    )
+                                    .ok()
+                                    .flatten()
+                                    .filter(|candidate| candidate.pending_external_rng.is_empty())
+                                    .filter(|_| {
+                                        !subset_diffs(
+                                            seed_start_combat_observed_subset(&post.message),
+                                            seed_start_simulated_combat_subset(&next),
+                                        )
+                                        .is_empty()
+                                    })
+                                    .filter(|candidate| {
+                                        subset_diffs(
+                                            seed_start_combat_observed_subset(&post.message),
+                                            seed_start_simulated_combat_subset(candidate),
+                                        )
+                                        .is_empty()
+                                    })
                                 })
                                 .or_else(|| {
                                     deferred_time_warp_skipped_put_on_deck_candidate(

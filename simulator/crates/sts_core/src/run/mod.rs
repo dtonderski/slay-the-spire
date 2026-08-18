@@ -60,6 +60,7 @@ pub use potion::{
     apply_exhaust_select_confirm_without_time_warp_end,
     apply_hand_select_confirm_skipped_put_on_deck_retrieval,
     apply_hand_select_confirm_skipped_put_on_deck_retrieval_without_time_warp_end,
+    apply_hand_select_confirm_time_warp_metallicize_lag,
     apply_hand_select_confirm_time_warp_remaining_status_lag,
     apply_hand_select_confirm_time_warp_status_lag,
     apply_hand_select_confirm_without_time_warp_end, apply_potion_action, validate_potion_action,

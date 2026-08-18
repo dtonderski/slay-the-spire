@@ -343,6 +343,16 @@ pub fn apply_hand_select_confirm_without_time_warp_end(run: &RunState) -> SimRes
     Ok(next)
 }
 
+/// Confirm a put-on-deck hand select, keep Time Warp's forced END pending, and
+/// apply Metallicize's pre-discard block (FIDL01707 Warcry CONFIRM).
+pub fn apply_hand_select_confirm_time_warp_metallicize_lag(run: &RunState) -> SimResult<RunState> {
+    let mut next = apply_hand_select_confirm_without_time_warp_end(run)?;
+    if let Some(combat) = next.combat.as_mut() {
+        crate::combat::apply_time_warp_lag_metallicize_keep_hand(combat)?;
+    }
+    Ok(next)
+}
+
 /// Confirm a 12th-card Warcry without PutOnDeck, autoplay end-turn statuses,
 /// and leave Time Warp's remaining EndTurn queued (FIDL01274).
 pub fn apply_hand_select_confirm_time_warp_status_lag(run: &RunState) -> SimResult<RunState> {
