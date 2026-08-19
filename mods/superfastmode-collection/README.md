@@ -20,6 +20,10 @@ animations. That is the post-combat “wait for fade” tax during collection.
 Those paths are **removed** from the raw-delta exemption list so they use the
 global multiplied `getDeltaTime()` like combat actions.
 
+`GremlinMatchGame.update` / `updateMatchGameLogic` stay on raw 1× delta. The
+match minigame’s flip timer and hitbox path are one-frame click sensitive;
+100× plus software GL left `CHOOSE` accepted with no completing boundary.
+
 Map-screen and many UI flicker mitigations from upstream are kept.
 
 ## Install

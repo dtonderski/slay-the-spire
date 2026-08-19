@@ -207,7 +207,7 @@ public class GameStateListener {
                 // actually ends, so it distinguishes that window from a settled
                 // boundary. The same guard exists below at the externalChange
                 // case; this branch returns before reaching it.
-                else if (!AbstractDungeon.player.endTurnQueued
+                else if (!isEndTurnStillResolving()
                         && AbstractDungeon.actionManager.phase.equals(GameActionManager.Phase.WAITING_ON_USER)
                         && AbstractDungeon.actionManager.cardQueue.isEmpty()
                         && AbstractDungeon.actionManager.actions.isEmpty()) {
@@ -230,7 +230,7 @@ public class GameStateListener {
         // our attention, like retaining a card, occur after the end turn is queued, but the previous cases
         // cover those actions. We would like to avoid registering other state changes after the end turn
         // command but before the game actually ends your turn.
-        if (inCombat && AbstractDungeon.player.endTurnQueued) {
+        if (inCombat && isEndTurnStillResolving()) {
             return false;
         }
         // If some other code registered a state change through registerStateChange(), or if we notice a state
@@ -406,8 +406,56 @@ public class GameStateListener {
      * can be audited for the transient-empty-queue window.
      */
     public static boolean isEndTurnQueued() {
-        return CommandExecutor.isInDungeon()
-                && AbstractDungeon.player != null
-                && AbstractDungeon.player.endTurnQueued;
+        if (!isEndTurnStillResolving()) {
+            clearStaleEndTurnQueue();
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * True only while an END is still resolving inside an active combat. After
+     * SuperFastMode races the end-turn into COMBAT_REWARD / battle-over, vanilla
+     * can leave {@code player.endTurnQueued} stuck true. Schema 2 must not treat
+     * that leftover as a mid-turn window, or the accepted END never completes.
+     */
+    public static boolean isEndTurnStillResolving() {
+        if (!CommandExecutor.isInDungeon() || AbstractDungeon.player == null) {
+            return false;
+        }
+        if (!AbstractDungeon.player.endTurnQueued) {
+            return false;
+        }
+        return !combatHasEndedThroughEndTurn();
+    }
+
+    /**
+     * Clears a leftover {@code endTurnQueued} once combat is observably over so
+     * the next combat does not inherit a schema-2 block.
+     */
+    public static void clearStaleEndTurnQueue() {
+        if (!CommandExecutor.isInDungeon() || AbstractDungeon.player == null) {
+            return;
+        }
+        if (AbstractDungeon.player.endTurnQueued && combatHasEndedThroughEndTurn()) {
+            AbstractDungeon.player.endTurnQueued = false;
+            AbstractDungeon.player.isEndingTurn = false;
+        }
+    }
+
+    private static boolean combatHasEndedThroughEndTurn() {
+        if (!CommandExecutor.isInDungeon()) {
+            return true;
+        }
+        AbstractRoom room = AbstractDungeon.getCurrRoom();
+        if (room == null || room.isBattleOver || room.phase != AbstractRoom.RoomPhase.COMBAT) {
+            return true;
+        }
+        AbstractDungeon.CurrentScreen screen = AbstractDungeon.screen;
+        return screen == AbstractDungeon.CurrentScreen.COMBAT_REWARD
+                || screen == AbstractDungeon.CurrentScreen.DEATH
+                || screen == AbstractDungeon.CurrentScreen.VICTORY
+                || screen == AbstractDungeon.CurrentScreen.UNLOCK
+                || screen == AbstractDungeon.CurrentScreen.NEOW_UNLOCK;
     }
 }

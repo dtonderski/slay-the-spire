@@ -107,6 +107,20 @@ assert.throws(
   () => communicationBoundary({ message: { ...boundaryMessage, end_turn_queued: true } }),
   /cannot have an end turn queued/,
 );
+assert.strictEqual(
+  communicationBoundary({
+    message: {
+      ...boundaryMessage,
+      boundary_kind: "quiescent",
+      current_action: null,
+      actions_queued: 0,
+      end_turn_queued: true,
+      screen_type: "COMBAT_REWARD",
+      room_phase: "COMBAT",
+    },
+  }).kind,
+  "quiescent",
+);
 for (const invalid of ["100", null, false, 1.5]) {
   assert.throws(
     () => communicationBoundary({ message: { ...boundaryMessage, game_update_seq: invalid } }),

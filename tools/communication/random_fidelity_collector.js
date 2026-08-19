@@ -303,6 +303,16 @@ function chooseRandomAction(summary, random) {
 
 const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
 const REQUIRED_BOUNDARY_SCHEMA = 2;
+const POST_COMBAT_SCREENS = new Set(["COMBAT_REWARD", "DEATH", "VICTORY", "GAME_OVER", "UNLOCK"]);
+
+function endTurnStillResolving(message) {
+  if (message?.end_turn_queued !== true) return false;
+  const screen = String(message.screen_type || message.game_state?.screen_type || "").toUpperCase();
+  const phase = String(message.room_phase || message.game_state?.room_phase || "").toUpperCase();
+  if (POST_COMBAT_SCREENS.has(screen)) return false;
+  if (phase && phase !== "COMBAT") return false;
+  return true;
+}
 
 function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
   const message =
@@ -365,7 +375,7 @@ function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
     if (message?.ready_for_command !== true) {
       throw new Error(`${kind} CommunicationMod boundary is not ready for input`);
     }
-    if (message.end_turn_queued) {
+    if (endTurnStillResolving(message)) {
       throw new Error(`${kind} CommunicationMod boundary cannot have an end turn queued`);
     }
   }

@@ -1278,6 +1278,143 @@ async function testTcpControlRejectsSecondCommandUntilStateUpdate() {
   }
 }
 
+async function testTcpControlCompletesEndOnCombatRewardDespiteQueuedFlag() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-end-reward-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+      TRACE_AUTO_STATE_MS: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["play", "end", "state"],
+      boundary_schema: 2,
+      boundary_kind: "quiescent",
+      end_turn_queued: false,
+      game_update_seq: 1,
+      dungeon_update_seq: 1,
+      current_action: null,
+      current_action_instance: null,
+      current_action_update_count: null,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
+      game_state: {
+        screen_type: "NONE",
+        room_phase: "COMBAT",
+        floor: 1,
+      },
+    })}\n`);
+
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const liveState = await controlRequest(status.control.port, { type: "state" });
+    const acquired = await controlRequest(status.control.port, {
+      type: "acquire",
+      owner_id: "test-controller",
+    });
+
+    const accepted = controlRequest(status.control.port, {
+      type: "command",
+      command: "END",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+      wait_for_state_update: true,
+      update_timeout_ms: 3000,
+    });
+    await waitFor(() => stdout.includes("END\n"));
+
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose", "state"],
+      boundary_schema: 2,
+      boundary_kind: "interaction_ready",
+      end_turn_queued: true,
+      game_update_seq: 2,
+      dungeon_update_seq: 2,
+      current_action: "RetainCardsAction",
+      current_action_instance: 1,
+      current_action_update_count: 1,
+      actions_queued: 1,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
+      game_state: {
+        screen_type: "HAND_SELECT",
+        room_phase: "COMBAT",
+        floor: 1,
+      },
+    })}\n`);
+    await waitFor(() => {
+      const current = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
+      return current.pending_command === true
+        && current.command_in_flight?.command === "END"
+        && current.summary?.screen_type === "HAND_SELECT"
+        ? current
+        : null;
+    }, 3000, "retain screen does not complete END");
+
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["choose", "proceed", "state"],
+      boundary_schema: 2,
+      boundary_kind: "quiescent",
+      end_turn_queued: true,
+      game_update_seq: 3,
+      dungeon_update_seq: 3,
+      current_action: null,
+      current_action_instance: null,
+      current_action_update_count: null,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
+      game_state: {
+        screen_type: "COMBAT_REWARD",
+        room_phase: "COMBAT",
+        floor: 1,
+        choice_list: ["gold"],
+      },
+    })}\n`);
+
+    const result = await accepted;
+    assert.strictEqual(result.ok, true, stderr);
+    assert.strictEqual(result.observed_update.ok, true, stderr);
+    assert.strictEqual(result.observed_update.state.summary.screen_type, "COMBAT_REWARD");
+    const pendingStatus = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
+    assert.strictEqual(pendingStatus.pending_command, false);
+    assert.strictEqual(pendingStatus.command_in_flight, null);
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function testTcpControlKeepsDispatchedTimeoutInFlightUntilError() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-"));
   const sessionDir = path.join(root, "session");
@@ -1525,6 +1662,7 @@ Promise.resolve()
   .then(() => runTest(testTcpControlProfileRestoresGuardMetadataForNextStart))
   .then(() => runTest(testTcpControlAcceptsAdvertisedStartFromUnreadyMenu))
   .then(() => runTest(testTcpControlRejectsSecondCommandUntilStateUpdate))
+  .then(() => runTest(testTcpControlCompletesEndOnCombatRewardDespiteQueuedFlag))
   .then(() => runTest(testTcpControlAllowsOnlyStateBeforeStartupObservation))
   .then(() => runTest(testTcpControlAllowsStartupStartBeforeObservedState))
   .then(() => runTest(testTcpControlKeepsDispatchedTimeoutInFlightUntilError))

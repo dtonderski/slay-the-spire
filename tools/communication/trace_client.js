@@ -307,13 +307,23 @@ function summarize(message) {
 
 const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
 const SUPPORTED_BOUNDARY_SCHEMAS = new Set([1, 2]);
+const POST_COMBAT_SCREENS = new Set(["COMBAT_REWARD", "DEATH", "VICTORY", "GAME_OVER", "UNLOCK"]);
+
+function endTurnStillResolving(summary) {
+  if (summary?.end_turn_queued !== true) return false;
+  const screen = String(summary.screen_type || "").toUpperCase();
+  const phase = String(summary.room_phase || "").toUpperCase();
+  if (POST_COMBAT_SCREENS.has(screen)) return false;
+  if (phase && phase !== "COMBAT") return false;
+  return true;
+}
 
 function stateCompletesCommand(command, summary) {
   if (summary?.error) return true;
   const verb = String(command ?? "").trim().split(/\s+/)[0].toLowerCase();
   if (verb === "profile") return summary?.type === "profile";
   if (!SUPPORTED_BOUNDARY_SCHEMAS.has(summary?.boundary_schema)) return false;
-  if (summary.boundary_schema === 2 && summary.end_turn_queued !== false) return false;
+  if (summary.boundary_schema === 2 && endTurnStillResolving(summary)) return false;
   if (verb === "state") return summary.boundary_kind === "poll";
   return GAMEPLAY_BOUNDARY_KINDS.has(summary?.boundary_kind);
 }

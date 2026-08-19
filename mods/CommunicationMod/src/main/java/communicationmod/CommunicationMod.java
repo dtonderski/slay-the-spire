@@ -171,6 +171,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
 
     public void receivePostDungeonUpdate() {
         GameStateListener.signalDungeonUpdate();
+        GameStateListener.clearStaleEndTurnQueue();
         if (GameStateListener.checkForDungeonStateChange()) {
             mustSendGameState = true;
         }
