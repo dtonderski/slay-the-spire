@@ -4249,7 +4249,14 @@ fn confirm_forethought_select(
     if card_id == source_card_id {
         return Err(SimError::IllegalAction("cannot choose Forethought"));
     }
-    move_forethought_card_to_draw_bottom(state, source_card_id, card_id)
+    // PutOnDeckAction is still waiting on the screen when CommunicationMod
+    // reports CONFIRM ready. Closing the screen without retrieval leaves
+    // selectedCards off every pile until end-turn DiscardAction (FIDL01245:
+    // Heavy Blade absent through the next PLAY, then discarded on END).
+    // Auto-place with no screen still uses moveToBottom.
+    let source_definition = forethought_source_definition(state, source_card_id)?;
+    park_unretrieved_put_on_deck_card(state, card_id)?;
+    move_forethought_source_card(state, source_card_id, source_definition)
 }
 
 fn confirm_forethought_multi_select(
@@ -4273,7 +4280,7 @@ fn confirm_forethought_multi_select(
 
     let source_definition = forethought_source_definition(state, source_card_id)?;
     for card_id in card_ids {
-        move_forethought_selected_card_to_draw_bottom(state, card_id)?;
+        park_unretrieved_put_on_deck_card(state, card_id)?;
     }
     move_forethought_source_card(state, source_card_id, source_definition)
 }
@@ -4361,6 +4368,16 @@ fn move_forethought_selected_card_to_draw_bottom(
     card.temp_cost_turn_only = true;
     card.free_to_play_once = true;
     state.piles.draw_pile.insert(0, card);
+    Ok(())
+}
+
+fn park_unretrieved_put_on_deck_card(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
+    let mut card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
+    // PutOnDeck never applied freeToPlayOnce / cost-for-turn.
+    card.temp_cost = None;
+    card.temp_cost_turn_only = false;
+    card.free_to_play_once = false;
+    state.pending_hidden_hand_card_until_end_turn.push(card);
     Ok(())
 }
 
@@ -10274,14 +10291,19 @@ mod tests {
             "Havoc force-exhausts Forethought on CONFIRM"
         );
         assert_eq!(
-            confirmed
-                .piles
-                .draw_pile
-                .first()
-                .map(|card| card.content_id),
-            Some(BLOODLETTING_ID),
-            "selected card goes to the bottom of draw"
+            confirmed.pending_hidden_hand_card_until_end_turn.len(),
+            1,
+            "selected card is leftover selectedCards, not draw-bottom"
         );
+        assert_eq!(
+            confirmed.pending_hidden_hand_card_until_end_turn[0].content_id,
+            BLOODLETTING_ID
+        );
+        assert!(confirmed
+            .piles
+            .draw_pile
+            .iter()
+            .all(|card| card.content_id != BLOODLETTING_ID));
         assert!(confirmed
             .piles
             .hand
