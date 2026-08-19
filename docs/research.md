@@ -364,6 +364,11 @@ Source inspected: `%TEMP%\sts_lightspeed\src\game\Game.cpp`, `%TEMP%\sts_lightsp
 
 Normal monster `createCombatReward()` does not add any relic. Elite rewards call `returnRandomRelic(returnRandomRelicTierElite(relicRng))`. Black Star's extra elite relic is a second elite-tier `returnRandomRelic` that rejects Girya / Peace Pipe / Shovel (consumed from the pool, then the same tier is drawn again) so the bonus cannot fill the two-campfire-relic cap; bottles and Whetstone remain legal reward-screen drops. Relic pool selection itself is more involved: `initRelics()` fills class-specific common/uncommon/rare/shop/boss pools and shuffles each with Java `Collections.shuffle` using `java::Random(relicRng.nextLong())`; `returnRandomRelic` then pops from the front for normal rewards, with fallbacks for empty pools and spawn filters.
 
+Target 12-18-2022 constructor bytecode pins the pool lifecycle: `Exordium`
+calls `initializeRelicList`, while `TheCity`, `TheBeyond`, and `TheEnding` do
+not. The shuffled pools and their depletion order therefore persist across act
+transitions without five additional `relicRng.randomLong()` draws.
+
 The simulator now keeps this distinction explicit: target map/list shuffles that pass the game RNG directly still use raw `RandomXS128`, while relic pool initialization uses a Java `Random` LCG seeded from five public `relicRng.randomLong()` draws. For captured seed `CODEX04` (`22079335079`), those five Java-shuffled Ironclad pool prefixes are pinned in unit tests:
 
 - common: `ToyOrnithopter`, `BronzeScales`, `RegalPillow`, `SmilingMask`, `Orichalcum`, `Lantern`, `BagOfMarbles`, `Strawberry`

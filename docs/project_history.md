@@ -95,6 +95,16 @@ verifier can consult the answer, every unexplained divergence has a cheap local
 fix, and the cheap fix is always available. Prohibiting the shape is the only
 durable defence: transition code must not be able to see the post-state at all.
 
+Leftover candidate apply-paths later survived as unused public wrappers
+(skipped-retrieval confirms, Time Warp lag variants, deferred Colosseum
+opening), while Discovery used an encounter/hand-shape table to guess leftover
+`generateCardChoices` pulses. Those production-path guesses were removed so
+remaining mismatches fail honestly. Target bytecode also settled a rejected
+relic-pool experiment: only `Exordium` calls `initializeRelicList`; `TheCity`,
+`TheBeyond`, and `TheEnding` retain the depleted pools. `confirm_*_skipped_retrieval`
+helpers remain only for unit tests of CommunicationMod lag frames and are not
+on the `apply_run_action` path.
+
 Two defects surfaced immediately underneath. Event obtains were being published
 into the master deck a boundary early, which alone accounted for two thirds of
 the honest failures. And `CommunicationMod` had been reporting ready while an

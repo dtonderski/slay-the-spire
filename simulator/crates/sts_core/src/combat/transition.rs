@@ -239,16 +239,6 @@ fn apply_play_card(
     Ok(transition)
 }
 
-/// Public wrapper for verifier skipped-retrieval candidates that must drain
-/// ExhaustSelect `pending_actions` (Ink Bottle, Hex, etc.) after a custom
-/// CONFIRM rebuild.
-pub fn process_internal_queue_public(
-    state: &mut CombatState,
-    queue: VecDeque<InternalAction>,
-) -> SimResult<CombatTransition> {
-    process_internal_queue(state, queue)
-}
-
 pub(crate) fn process_internal_queue(
     state: &CombatState,
     mut queue: VecDeque<InternalAction>,
@@ -3297,7 +3287,8 @@ pub fn confirm_hand_select_with_time_warp_policy(
 /// discard; the rest of the hand is still held). PutOnDeck never moved the
 /// selected card. Dark Embrace's addToBot draw stays behind the leftover
 /// EndTurn and is dropped when that EndTurn sequence replaces the queue.
-pub fn confirm_hand_select_time_warp_status_lag(state: &mut CombatState) -> SimResult<()> {
+#[cfg(test)]
+fn confirm_hand_select_time_warp_status_lag(state: &mut CombatState) -> SimResult<()> {
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
@@ -3324,9 +3315,8 @@ pub fn confirm_hand_select_time_warp_status_lag(state: &mut CombatState) -> SimR
 /// Time Warp 12th-card Warcry CONFIRM can PutOnDeck the selected card and still
 /// autoplay a *remaining* end-turn curse before DiscardAtEndOfTurn (FIDL01425:
 /// Pommel on draw, leftover Regret deals 2 and sits in discard, Reaper held).
-pub fn confirm_hand_select_time_warp_remaining_status_lag(
-    state: &mut CombatState,
-) -> SimResult<usize> {
+#[cfg(test)]
+fn confirm_hand_select_time_warp_remaining_status_lag(state: &mut CombatState) -> SimResult<usize> {
     let handled_dead_branch_count = confirm_hand_select_with_time_warp_policy(state, false)?;
     crate::combat::hand::resolve_end_of_turn_playing_cards_for_time_warp_lag(state)?;
     // Explicit END after this lagged CONFIRM is a second EndTurnAction, so the
@@ -3336,6 +3326,7 @@ pub fn confirm_hand_select_time_warp_remaining_status_lag(
     Ok(handled_dead_branch_count)
 }
 
+#[cfg(test)]
 fn settle_delayed_source_without_bot_exhaust_powers(
     state: &mut CombatState,
     source_card_id: CardId,
@@ -3437,7 +3428,8 @@ pub fn settle_time_warp_pre_discard_if_ready_public(state: &mut CombatState) -> 
 
 /// MetallicizePower.atEndOfTurnPreEndTurnCards can publish on a Time Warp
 /// Burning Pact CONFIRM before DiscardAtEndOfTurnAction (FIDL01694).
-pub fn apply_time_warp_lag_metallicize_keep_hand(state: &mut CombatState) -> SimResult<()> {
+#[cfg(test)]
+fn apply_time_warp_lag_metallicize_keep_hand(state: &mut CombatState) -> SimResult<()> {
     if state.player.powers.metallicize > 0 && !state.time_warp_end_powers_applied {
         apply_player_end_turn_automatic_block_gain(state, state.player.powers.metallicize)?;
     }
@@ -3461,81 +3453,6 @@ pub(crate) fn settle_time_warp_end_turn_if_ready(state: &mut CombatState) -> Sim
     Ok(())
 }
 
-/// Confirm a single-card put-on-deck hand select without retrieving the selected
-/// card onto the draw pile.
-///
-/// Models the GameActionManager skipped-retrieval frame: `PutOnDeckAction` can
-/// `tickDuration()` when opening `HandCardSelectScreen`, complete before
-/// CONFIRM, and skip the later update that calls `hand.moveToDeck`. The selected
-/// card remains owned by the closed selection screen (absent from every
-/// serialized pile). Source settlement still runs, so Dark Embrace draws the
-/// pre-select top of the draw pile rather than the never-placed selected card.
-///
-/// Returns the stuck selected card for verifier limbo tracking until end-turn
-/// discard reintroduces it. Eligible purposes match the single-card put-on-deck
-/// family: Warcry, Thinking Ahead, and base Forethought.
-pub fn confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy(
-    state: &mut CombatState,
-    settle_time_warp: bool,
-) -> SimResult<(CardInstance, usize)> {
-    let (hand_select, pending_actions) = state
-        .take_hand_select()
-        .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    match hand_select.purpose {
-        HandSelectPurpose::WarcryPutOnDraw
-        | HandSelectPurpose::ThinkingAheadPutOnDraw
-        | HandSelectPurpose::ForethoughtPutOnDraw => {}
-        _ => {
-            return Err(SimError::IllegalAction(
-                "skipped put-on-deck retrieval requires a single-card put-on-deck hand select",
-            ));
-        }
-    }
-    let index = required_hand_select_index(&hand_select)?;
-    let selected_id = state
-        .piles
-        .hand
-        .get(index)
-        .ok_or(SimError::IllegalAction("hand select index out of range"))?
-        .id;
-    if selected_id == hand_select.source_card_id {
-        return Err(SimError::IllegalAction(
-            "cannot put the put-on-deck source card back onto the draw pile",
-        ));
-    }
-    // Leave the selected card outside every pile (selection-screen limbo).
-    // Because retrieval never completed, the card keeps its printed cost and
-    // does not receive Forethought's one-play free flag.
-    let mut selected = remove_card_from_pile(state, selected_id, CardPile::Hand)?;
-    selected.temp_cost = None;
-    selected.temp_cost_turn_only = false;
-    selected.free_to_play_once = false;
-    // Source settlement still runs after PutOnDeckAction would have completed.
-    // Dark Embrace therefore draws the real top, not the never-placed card.
-    // Resume the UseCardAction's queued source move first. The normal confirm
-    // path settles pending actions before its idempotent source fallback; doing
-    // this in the opposite order double-settles a queued Havoc/Warcry source.
-    let previous_defer_time_warp = state.defer_time_warp_end_turn;
-    state.defer_time_warp_end_turn = true;
-    resume_actions_after_hand_select(state, pending_actions)?;
-    // Source settlement still runs after PutOnDeckAction would have completed.
-    // Dark Embrace therefore draws the real top, not the never-placed selected card.
-    let handled_dead_branch_count =
-        move_delayed_played_source_with_bot_exhaust_queue(state, hand_select.source_card_id)?;
-    state.defer_time_warp_end_turn = previous_defer_time_warp;
-    state.activate_next_queued_decision_if_idle();
-    if settle_time_warp {
-        settle_time_warp_end_turn_if_ready(state)?;
-    }
-    Ok((selected, handled_dead_branch_count))
-}
-
-pub fn confirm_hand_select_skipped_put_on_deck_retrieval(
-    state: &mut CombatState,
-) -> SimResult<(CardInstance, usize)> {
-    confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy(state, true)
-}
-
 /// Confirm force-exhausted Armaments without retrieving the selected card as an
 /// upgrade in hand.
 ///
@@ -3556,7 +3473,8 @@ pub fn confirm_hand_select_skipped_put_on_deck_retrieval(
 /// Eligible only when Armaments is already in exhaust/discard (Havoc / Mayhem /
 /// Distilled Chaos). Ordinary hand Armaments keeps
 /// [`confirm_hand_select`] / [`confirm_armaments_select`] authoritative.
-pub fn confirm_hand_select_skipped_armaments_retrieval(state: &mut CombatState) -> SimResult<()> {
+#[cfg(test)]
+fn confirm_hand_select_skipped_armaments_retrieval(state: &mut CombatState) -> SimResult<()> {
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
@@ -3736,49 +3654,6 @@ pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<usize> {
     // The source card and selected draw card settle before deferred on-use
     // follow-ups. This matches the action queue order while keeping the draw
     // grid itself stable until CONFIRM.
-    resume_actions_after_hand_select(state, draw_select.pending_actions)?;
-    state.activate_next_queued_decision_if_idle();
-    Ok(dead_branch_count)
-}
-
-/// Close Secret Technique / Secret Weapon without retrieving the selected card.
-///
-/// Target `SkillFromDeckToHandAction` / `AttackFromDeckToHandAction` can complete
-/// after CHOOSE before the selected card is moved. The source still settles
-/// through the ordinary exhaust/discard path.
-pub fn confirm_draw_select_skipped_retrieval(state: &mut CombatState) -> SimResult<usize> {
-    let draw_select = state
-        .take_draw_select()
-        .ok_or(SimError::IllegalAction("no draw select is open"))?;
-    let index = draw_select
-        .selected_draw_index
-        .ok_or(SimError::IllegalAction("draw select choice is required"))?;
-    let card = state
-        .piles
-        .draw_pile
-        .get(index)
-        .copied()
-        .ok_or(SimError::IllegalAction("draw select index out of range"))?;
-    match draw_select.purpose {
-        DrawSelectPurpose::SecretTechniqueSkillToHand => {
-            if !get_card_definition(card.content_id)
-                .is_some_and(|definition| definition.card_type == CardType::Skill)
-            {
-                return Err(SimError::IllegalAction("Secret Technique requires a Skill"));
-            }
-        }
-        DrawSelectPurpose::SecretWeaponAttackToHand => {
-            if !get_card_definition(card.content_id)
-                .is_some_and(|definition| definition.card_type == CardType::Attack)
-            {
-                return Err(SimError::IllegalAction("Secret Weapon requires an Attack"));
-            }
-        }
-        DrawSelectPurpose::Scry => {}
-    }
-    let source_definition = draw_select_source_definition(state, draw_select.source_card_id)?;
-    let dead_branch_count =
-        move_draw_select_source_card(state, draw_select.source_card_id, source_definition)?;
     resume_actions_after_hand_select(state, draw_select.pending_actions)?;
     state.activate_next_queued_decision_if_idle();
     Ok(dead_branch_count)
@@ -4288,63 +4163,6 @@ fn confirm_forethought_multi_select(
     move_forethought_source_card(state, source_card_id, source_definition)
 }
 
-/// Forethought+ CONFIRM when PutOnDeck skipped retrieval for every selected card
-/// (FIDL00269 step 1190: draw pile identity unchanged; selected cards leave hand
-/// but are not on draw until end-turn discard reintroduces them).
-pub fn confirm_forethought_multi_select_skipped_retrieval(
-    state: &mut CombatState,
-) -> SimResult<()> {
-    let (hand_select, pending_actions) = state
-        .take_hand_select()
-        .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    if hand_select.purpose != HandSelectPurpose::ForethoughtPutAnyOnDraw {
-        return Err(SimError::IllegalAction(
-            "skipped Forethought+ retrieval requires ForethoughtPutAnyOnDraw",
-        ));
-    }
-    let source_card_id = hand_select.source_card_id;
-    // Capture selected cards in UI choice order before removing by descending
-    // index. The selection screen's order is observable when the cards later
-    // re-enter the END discard; sorting indices here must not reorder it.
-    let mut selected = Vec::with_capacity(hand_select.selected_hand_indices.len());
-    for index in hand_select.selected_hand_indices {
-        if !selected.contains(&index) {
-            selected.push(index);
-        }
-    }
-    let mut parked = Vec::with_capacity(selected.len());
-    for index in &selected {
-        if *index >= state.piles.hand.len() {
-            return Err(SimError::IllegalAction("hand select index out of range"));
-        }
-        let mut card = state.piles.hand[*index];
-        if card.id == source_card_id {
-            return Err(SimError::IllegalAction("cannot choose Forethought"));
-        }
-        card.temp_cost = None;
-        card.temp_cost_turn_only = false;
-        card.free_to_play_once = false;
-        parked.push(card);
-    }
-    let mut removal_order = selected.clone();
-    removal_order.sort_unstable();
-    for index in removal_order.into_iter().rev() {
-        state.piles.hand.remove(index);
-    }
-    if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
-        return Err(SimError::InvalidState(
-            "pending hidden hand card already set for skipped Forethought+",
-        ));
-    }
-    state.pending_hidden_hand_card_until_end_turn = parked;
-    let source_definition = forethought_source_definition(state, source_card_id)?;
-    move_forethought_source_card(state, source_card_id, source_definition)?;
-    resume_actions_after_hand_select(state, pending_actions)?;
-    state.activate_next_queued_decision_if_idle();
-    settle_time_warp_end_turn_if_ready(state)?;
-    Ok(())
-}
-
 fn move_forethought_card_to_draw_bottom(
     state: &mut CombatState,
     source_card_id: CardId,
@@ -4510,7 +4328,8 @@ pub(super) fn confirm_dual_wield_select(
 /// DualWieldAction skipped-retrieval: no MakeTempCardInHand copies; selected card
 /// stays outside serialized piles until end-turn discard flush; Dual Wield source
 /// still exhausts (force-play / exhaust keyword) so Dark Embrace can draw.
-pub fn confirm_dual_wield_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
+#[cfg(test)]
+fn confirm_dual_wield_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
     confirm_dual_wield_select_skipped_retrieval_with_restore(state, true)
 }
 
@@ -4518,12 +4337,14 @@ pub fn confirm_dual_wield_select_skipped_retrieval(state: &mut CombatState) -> S
 /// off the serialized piles. SuperFastMode can complete `tickDuration` before
 /// the select screen returns those cards (FIDL01816 Rage/Wound, FIDL01715
 /// Sentinel).
-pub fn confirm_dual_wield_select_skipped_retrieval_without_restore(
+#[cfg(test)]
+fn confirm_dual_wield_select_skipped_retrieval_without_restore(
     state: &mut CombatState,
 ) -> SimResult<()> {
     confirm_dual_wield_select_skipped_retrieval_with_restore(state, false)
 }
 
+#[cfg(test)]
 fn confirm_dual_wield_select_skipped_retrieval_with_restore(
     state: &mut CombatState,
     restore_dropped: bool,
@@ -4867,11 +4688,13 @@ pub(super) fn settle_headbutt_source_after_discard_select(
 /// Close Headbutt without putting the chosen discard card on draw.
 /// Force-played Headbutt still exhausts so Dark Embrace / Feel No Pain /
 /// Charon's Ashes / Dead Branch resolve after the grid closes.
-pub fn confirm_headbutt_select_skipped_retrieval(state: &mut CombatState) -> SimResult<usize> {
+#[cfg(test)]
+fn confirm_headbutt_select_skipped_retrieval(state: &mut CombatState) -> SimResult<usize> {
     confirm_headbutt_select_skipped_retrieval_with_time_warp_policy(state, true)
 }
 
-pub fn confirm_headbutt_select_skipped_retrieval_with_time_warp_policy(
+#[cfg(test)]
+fn confirm_headbutt_select_skipped_retrieval_with_time_warp_policy(
     state: &mut CombatState,
     settle_time_warp: bool,
 ) -> SimResult<usize> {
@@ -5214,9 +5037,8 @@ fn confirm_true_grit_select(
         .position(|card| card.id == target_card_id)
         .ok_or(SimError::UnknownCard(target_card_id))?;
     let target_card = state.piles.hand.remove(target_position);
-    // ExhaustAction always moves the selection to exhaust. Force-play skipped
-    // retrieval (FIDL00253) is a separate verifier candidate that parks the
-    // selection without exhausting it when CM never retrieves.
+    // ExhaustAction always moves the selection to exhaust before resolving
+    // on-exhaust hooks.
     state.piles.exhaust_pile.push(target_card);
     apply_on_exhaust_effects(state, target_card_id)?;
 
@@ -5316,73 +5138,14 @@ fn confirm_recycle_select(
     Ok(())
 }
 
-/// Recycle selection-screen skipped retrieval.
-///
-/// CommunicationMod can observe Recycle's source card settle before the
-/// selected card is retrieved from `HandCardSelectScreen.selectedCards`. In
-/// that source-backed window the selected card is absent from every published
-/// pile, receives no exhaust hooks, and does not refund its cost; the source
-/// Recycle card still settles to discard. The verifier parks the returned card
-/// in `pending_hidden_hand_card_until_end_turn` after matching the frame.
-pub fn confirm_recycle_select_skipped_retrieval(
-    state: &mut CombatState,
-) -> SimResult<CardInstance> {
-    let exhaust_select = state
-        .take_exhaust_select()
-        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
-    if exhaust_select.purpose != crate::combat::ExhaustSelectPurpose::RecycleExhaustOne {
-        return Err(SimError::IllegalAction(
-            "skipped Recycle retrieval requires RecycleExhaustOne",
-        ));
-    }
-    if exhaust_select.source_card_force_exhaust || exhaust_select.interrupted_by_cultist_potion {
-        return Err(SimError::IllegalAction(
-            "skipped Recycle retrieval requires an ordinary hand-played source",
-        ));
-    }
-    if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
-        return Err(SimError::IllegalAction(
-            "pending hidden hand card already occupied",
-        ));
-    }
-    let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
-    let target_index = selected
-        .first()
-        .copied()
-        .ok_or(SimError::IllegalAction("Recycle requires a selected card"))?;
-    if selected.len() != 1 || target_index >= state.piles.hand.len() {
-        return Err(SimError::IllegalAction(
-            "Recycle requires exactly one selected card",
-        ));
-    }
-    let selected_card = state.piles.hand.remove(target_index);
-    // Keep the selected instance reserved while any deferred source actions
-    // settle, then return it to the verifier for pending-hidden parking.
-    state.piles.limbo.push(selected_card);
-    let source_card = exhaust_select.source_card.ok_or(SimError::IllegalAction(
-        "skipped Recycle source is not held",
-    ))?;
-    state.piles.discard_pile.push(source_card);
-    if !exhaust_select.pending_actions.is_empty() {
-        let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
-        *state = transition.state;
-    }
-    state.activate_next_queued_decision_if_idle();
-    settle_time_warp_end_turn_if_ready(state)?;
-    state
-        .piles
-        .limbo
-        .pop()
-        .ok_or(SimError::InvalidState("skipped Recycle limbo card missing"))
-}
-
 /// True Grit ExhaustAction skipped-retrieval (force-played True Grit+).
 ///
 /// When ExhaustAction completes before CONFIRM, the selected card stays owned by
 /// the closed HandCardSelectScreen and only re-enters via end-turn DiscardAction
 /// leftover selectedCards. True Grit itself still exhausts (force-play / exhaust
 /// path) so Feel No Pain / Dead Branch fire once for the source.
-pub fn confirm_true_grit_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
+#[cfg(test)]
+fn confirm_true_grit_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
     let exhaust_select = state
         .take_exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
@@ -5566,13 +5329,15 @@ fn confirm_burning_pact_select(
 /// potion interruption. The source still settles through the normal delayed
 /// destination, including Corruption/keyword-driven exhaust and its queued
 /// on-exhaust callbacks; only the selected card's retrieval is skipped.
-pub fn confirm_burning_pact_select_skipped_retrieval(
+#[cfg(test)]
+fn confirm_burning_pact_select_skipped_retrieval(
     state: &mut CombatState,
 ) -> SimResult<CardInstance> {
     confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(state, true)
 }
 
-pub fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
+#[cfg(test)]
+fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
     state: &mut CombatState,
     settle_time_warp: bool,
 ) -> SimResult<CardInstance> {
@@ -5806,7 +5571,8 @@ fn confirm_purity_select(
 /// Purity itself exhausts (Feel No Pain / Dead Branch once). The chosen cards
 /// stay owned by the closed HandCardSelectScreen and re-enter discard on the
 /// next END (FIDL00405).
-pub fn confirm_purity_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
+#[cfg(test)]
+fn confirm_purity_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
     let exhaust_select = state
         .take_exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
@@ -5984,39 +5750,6 @@ fn confirm_exhume_select(
     settle_exhume_source_after_selection(state, exhaust_select, source_card_id)
 }
 
-/// Close Exhume exhaust-select without retrieving the chosen exhaust card.
-///
-/// Models a skipped-retrieval frame for ExhumeReturnToHand: Exhume still
-/// settles into exhaust (and Dark Embrace still draws), but the selected card
-/// remains in the exhaust pile. Observed CommunicationMod frames under
-/// Havoc-forced Exhume (6a06a48 step 561) show DE drawing the pre-select top
-/// of draw while the chosen exhaust card never leaves exhaust.
-pub fn confirm_exhume_select_skipped_return(state: &mut CombatState) -> SimResult<()> {
-    let exhaust_select = state
-        .take_exhaust_select()
-        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
-    if exhaust_select.purpose != crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand {
-        return Err(SimError::IllegalAction(
-            "skipped Exhume return requires ExhumeReturnToHand",
-        ));
-    }
-    let source_card_id = exhaust_select
-        .source_card_id
-        .ok_or(SimError::IllegalAction("exhaust select source is required"))?;
-    let pending_actions = exhaust_select.pending_actions.clone();
-    // Do not remove or return the selected exhaust card.
-    settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
-    if !pending_actions.is_empty() {
-        // UseCardAction still completes when the grid closes, even if the
-        // selected card has not left exhaust (FIDL01586 / FIDL01803).
-        let transition = process_internal_queue(state, pending_actions)?;
-        *state = transition.state;
-    }
-    state.activate_next_queued_decision_if_idle();
-    settle_time_warp_end_turn_if_ready(state)?;
-    Ok(())
-}
-
 fn settle_exhume_source_after_selection(
     state: &mut CombatState,
     exhaust_select: crate::combat::ExhaustSelectState,
@@ -6064,78 +5797,6 @@ fn confirm_gambling_chip_select(state: &mut CombatState, selected: Vec<usize>) -
     Ok(())
 }
 
-/// Gambling Chip / Gambler's Brew hand-select can finish while the selection
-/// screen is still open (same ExhaustAction-style duration race as Burning Pact
-/// and Put-on-Deck). When retrieval is skipped, selected cards leave the hand
-/// but never enter discard, and the replacement draws never run. The verifier
-/// parks them in `pending_hidden_hand_card_until_end_turn` so a later non-empty
-/// end-turn discard settles them in selection order.
-pub fn confirm_gambling_chip_select_skipped_retrieval(state: &mut CombatState) -> SimResult<()> {
-    let exhaust_select = state
-        .take_exhaust_select()
-        .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
-    if exhaust_select.purpose != crate::combat::ExhaustSelectPurpose::GamblingChip {
-        return Err(SimError::IllegalAction(
-            "skipped Gambling Chip retrieval requires GamblingChip select",
-        ));
-    }
-    if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
-        return Err(SimError::IllegalAction(
-            "pending hidden hand card already occupied",
-        ));
-    }
-    let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
-    for index in &selected {
-        if *index >= state.piles.hand.len() {
-            return Err(SimError::IllegalAction("exhaust select index out of range"));
-        }
-    }
-    // Capture cards in the UI's selection order before removing by descending
-    // hand index. The target HandCardSelectScreen.selectedCards group preserves
-    // click order; sorting is only an index-safety operation.
-    let hidden = selected
-        .iter()
-        .map(|index| state.piles.hand[*index])
-        .collect::<Vec<_>>();
-    let mut removal_order = selected;
-    removal_order.sort_unstable();
-    for index in removal_order.into_iter().rev() {
-        state.piles.hand.remove(index);
-    }
-    state.pending_hidden_hand_card_until_end_turn = hidden;
-    // Selected cards left the published hand. If that emptied it, Unceasing Top
-    // still draws even though retrieval/replacement draws were skipped.
-    if state.piles.hand.is_empty() {
-        apply_unceasing_top_after_hand_emptied(state)?;
-    }
-
-    if !exhaust_select.pending_actions.is_empty() {
-        let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
-        *state = transition.state;
-    }
-    state.activate_next_queued_decision_if_idle();
-    settle_time_warp_end_turn_if_ready(state)?;
-    Ok(())
-}
-
-fn evaporate_headbutt_alias_hand_siblings(state: &mut CombatState, card: &CardInstance) {
-    let raw = card.id.get();
-    if raw < crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET {
-        return;
-    }
-    let sibling_id = CardId::new(raw - crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET);
-    if sibling_id == card.id {
-        return;
-    }
-    // Playing the reminted listing drops the original extra ArrayList slot
-    // (FIDL01747). Playing the original keeps a later same-offset card that is
-    // a separate object (FIDL01722).
-    state
-        .piles
-        .hand
-        .retain(|other| !(other.id == sibling_id && other.content_id == card.content_id));
-}
-
 fn remove_card_from_pile(
     state: &mut CombatState,
     card_id: CardId,
@@ -6154,9 +5815,6 @@ fn remove_card_from_pile(
             .ok_or(SimError::UnknownCard(card_id))?;
         cards.remove(index)
     };
-    if pile == CardPile::Hand {
-        evaporate_headbutt_alias_hand_siblings(state, &card);
-    }
     Ok(card)
 }
 
@@ -6249,9 +5907,7 @@ fn remove_card_from_hand(state: &mut CombatState, card_id: CardId) -> SimResult<
         .position(|card| card.id == card_id)
         .ok_or(SimError::UnknownCard(card_id))?;
 
-    let card = state.piles.hand.remove(index);
-    evaporate_headbutt_alias_hand_siblings(state, &card);
-    Ok(card)
+    Ok(state.piles.hand.remove(index))
 }
 
 fn move_card(
@@ -6333,9 +5989,7 @@ mod tests {
     };
     use crate::relic::INK_BOTTLE_THRESHOLD;
     use crate::rng::StsRng;
-    use crate::run::potion::{
-        apply_exhaust_select_choice, apply_exhaust_select_choice_skipped_exhume,
-    };
+    use crate::run::potion::apply_exhaust_select_choice;
     use crate::{apply_combat_action_on_run, RunState};
 
     #[test]
@@ -7182,118 +6836,6 @@ mod tests {
             !exhaust.iter().any(|(id, _)| *id == CardId::new(9)),
             "Defend must not be force-played: {exhaust:?}"
         );
-    }
-
-    #[test]
-    fn playing_headbutt_alias_evaporates_same_content_hand_sibling() {
-        let mut state = CombatState::initial_fixture();
-        state.player.energy = 1;
-        let original = CardInstance::new(CardId::new(5), STRIKE_R_ID);
-        let mut alias = original;
-        alias.id = CardId::new(5 + crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET);
-        alias.combat_only = true;
-        state.piles.hand = vec![
-            original,
-            alias,
-            CardInstance::new(CardId::new(7), TRUE_GRIT_ID),
-            CardInstance::new(CardId::new(8), WOUND_ID),
-            CardInstance::new(CardId::new(9), WOUND_ID),
-        ];
-        state.piles.draw_pile.clear();
-        state.piles.discard_pile.clear();
-        state.piles.exhaust_pile.clear();
-
-        let next = apply_combat_action(
-            &state,
-            CombatAction::PlayCard {
-                card_id: alias.id,
-                target: Some(MonsterId::new(1)),
-            },
-        )
-        .expect("playing the reminted Headbutt listing should resolve Strike");
-
-        assert_eq!(
-            next.piles
-                .hand
-                .iter()
-                .map(|card| card.content_id)
-                .collect::<Vec<_>>(),
-            vec![TRUE_GRIT_ID, WOUND_ID, WOUND_ID],
-            "the same Java object must leave both hand listings"
-        );
-        assert_eq!(
-            next.piles
-                .discard_pile
-                .iter()
-                .filter(|card| card.content_id == STRIKE_R_ID)
-                .count(),
-            1,
-            "the alias listing evaporates instead of discarding twice"
-        );
-    }
-
-    #[test]
-    fn playing_non_combat_only_headbutt_offset_pair_keeps_the_sibling() {
-        let mut state = CombatState::initial_fixture();
-        state.player.energy = 1;
-        let original = CardInstance::new(CardId::new(5), STRIKE_R_ID);
-        let mut pair = original;
-        pair.id = CardId::new(5 + crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET);
-        state.piles.hand = vec![
-            pair,
-            CardInstance::new(CardId::new(7), TRUE_GRIT_ID),
-            original,
-        ];
-        state.piles.draw_pile.clear();
-        state.piles.discard_pile.clear();
-        state.piles.exhaust_pile.clear();
-
-        let next = apply_combat_action(
-            &state,
-            CombatAction::PlayCard {
-                card_id: original.id,
-                target: Some(MonsterId::new(1)),
-            },
-        )
-        .expect("playing one Strike of a non-combat_only offset pair");
-
-        assert_eq!(
-            next.piles
-                .hand
-                .iter()
-                .map(|card| card.content_id)
-                .collect::<Vec<_>>(),
-            vec![STRIKE_R_ID, TRUE_GRIT_ID],
-            "two non-combat_only listings are separate objects"
-        );
-    }
-
-    #[test]
-    fn playing_a_card_does_not_evaporate_unrelated_high_id_status() {
-        let mut state = CombatState::initial_fixture();
-        state.player.energy = 1;
-        let strike = CardInstance::new(CardId::new(6), STRIKE_R_ID);
-        let mut wound = CardInstance::new(
-            CardId::new(6 + crate::HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET),
-            WOUND_ID,
-        );
-        wound.combat_only = true;
-        state.piles.hand = vec![strike, wound];
-        state.piles.draw_pile.clear();
-        state.piles.discard_pile.clear();
-        state.piles.exhaust_pile.clear();
-
-        let next = apply_combat_action(
-            &state,
-            CombatAction::PlayCard {
-                card_id: strike.id,
-                target: Some(MonsterId::new(1)),
-            },
-        )
-        .expect("Strike should play beside an unrelated high-id Wound");
-
-        assert_eq!(next.piles.hand.len(), 1);
-        assert_eq!(next.piles.hand[0].content_id, WOUND_ID);
     }
 
     #[test]
@@ -12654,25 +12196,24 @@ mod tests {
             },
         )
         .expect("Havoc PlayTops Exhume");
-        let after_skip = apply_exhaust_select_choice_skipped_exhume(&after_havoc, 1)
-            .expect("skipped Exhume return");
+        let after_skip = apply_exhaust_select_choice(&after_havoc, 1).expect("Exhume return");
 
         let combat = after_skip.combat.as_ref().expect("combat");
         assert_eq!(
             combat.monsters[0].powers.time_warp, 11,
-            "skipped retrieval still completes UseCardAction Time Warp"
+            "UseCardAction still increments Time Warp"
         );
         assert!(
             combat
                 .piles
-                .exhaust_pile
+                .hand
                 .iter()
                 .any(|card| card.content_id == HEAVY_BLADE_PLUS_ID),
-            "selected exhaust card stays in exhaust"
+            "selected exhaust card returns to hand"
         );
         assert!(combat
             .piles
-            .hand
+            .exhaust_pile
             .iter()
             .all(|card| card.content_id != HEAVY_BLADE_PLUS_ID));
     }

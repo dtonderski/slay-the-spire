@@ -56,7 +56,7 @@ use crate::{
 };
 
 mod action;
-pub use action::{apply_event_action, apply_event_action_with_deferred_colosseum_opening};
+pub use action::apply_event_action;
 
 pub const SCRAP_OOZE_REACH_HP_LOSS: i32 = 3;
 pub const SCRAP_OOZE_DEEPER_HP_LOSS: i32 = 4;
@@ -4646,7 +4646,6 @@ fn enter_event_elite_combat(
 }
 
 fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) -> SimResult<()> {
-    let delayed_opening = run.defer_event_combat_opening;
     let (mut shuffle_rng, mut monster_rng, mut monster_hp_rng, mut card_random_rng) =
         if let Some(rng) = run.pending_event_combat_rng.take() {
             // The target's chained Colosseum setup advances these two streams
@@ -4722,29 +4721,9 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) ->
         record_target_move(monster);
     }
     combat.rng.monster_rng = monster_rng;
-    if delayed_opening {
-        // Event combat is published before the queued opening DrawCardAction
-        // and initial monster intents settle. Keep the already chosen intents
-        // authoritative, but expose the target's PendingAiRoll/DEBUG boundary
-        // until the first END drains that queue.
-        combat.pending_opening_monster_intents = combat
-            .monsters
-            .iter()
-            .map(|monster| monster.intent)
-            .collect();
-        for monster in &mut combat.monsters {
-            monster.intent = crate::MonsterIntent::PendingAiRoll;
-        }
-        combat.opening_turn_pending = true;
-    }
     run.phase = RunPhase::Combat;
     run.event = None;
     let mut initialized = run.init_combat_consuming_relics(combat)?;
-    run.defer_event_combat_opening = false;
-    if delayed_opening {
-        initialized.defer_opening_hand_draw();
-        initialized.player.energy = 0;
-    }
     // Same Mark of Pain / cardRandomRng ordering as map combat entry.
     add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized)?;
     initialized.validate()?;
@@ -10353,53 +10332,6 @@ mod tests {
         assert!(monsters
             .iter()
             .all(|monster| monster.hp == monster.max_hp * 3 / 4));
-    }
-
-    #[test]
-    fn colosseum_deferred_fight_two_opening_does_not_draw_pocketwatch() {
-        let mut run = RunState::seeded_ironclad(1, 0);
-        run.current_act = 2;
-        run.current_floor = 30;
-        run.relics.push(Relic::Pocketwatch);
-        run.relics.push(Relic::BagOfPreparation);
-        run.phase = RunPhase::Event;
-        run.event = Some(EventScreen {
-            event: Event::Colosseum,
-            choices: colosseum_choices(2),
-            stage: 2,
-            event_data: 0,
-        });
-
-        let opened = apply_event_action_with_deferred_colosseum_opening(
-            &run,
-            EventAction::Choose { choice_index: 1 },
-        )
-        .expect("deferred Colosseum fight two");
-        let combat = opened.combat.as_ref().expect("combat");
-        assert!(combat.opening_turn_pending);
-        assert!(combat.piles.hand.is_empty(), "pre-opening hand is empty");
-        assert_eq!(
-            combat.relic_counters.player_turns_started, 0,
-            "pre-opening turns={}",
-            combat.relic_counters.player_turns_started
-        );
-
-        let settled = crate::apply_combat_action_on_run(&opened, crate::CombatAction::EndTurn)
-            .expect("opening END settles the queued draw");
-        let combat = settled.combat.as_ref().expect("combat remains open");
-        assert_eq!(
-            combat.piles.hand.len(),
-            7,
-            "turns={} last_plays={} energy={} draw={}",
-            combat.relic_counters.player_turns_started,
-            combat.relic_counters.cards_played_last_turn,
-            combat.player.energy,
-            combat.piles.draw_pile.len(),
-        );
-        assert_eq!(
-            combat.relic_counters.player_turns_started, 1,
-            "fight two opening is the first Pocketwatch turn"
-        );
     }
 
     #[test]

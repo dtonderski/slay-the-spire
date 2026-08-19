@@ -8,7 +8,7 @@ use crate::{
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
-        get_monster_definition, is_unsupported_approximate_monster_intent, monster_state,
+        get_monster_definition, is_unsupported_monster_intent, monster_state,
         requires_rolled_attack_damage, CULTIST_A0, FIXED_SIMPLE_MONSTER, LAGAVULIN_A0,
         RED_LOUSE_A0, RED_LOUSE_BITE_DAMAGE, SENTRY_A0,
     },
@@ -120,10 +120,6 @@ pub struct CombatState {
     /// Dual Wield select knows to force-exhaust on CONFIRM (no exhaust keyword).
     #[serde(default, skip_serializing_if = "is_false")]
     pub play_top_force_exhaust_active: bool,
-    /// Verifier-only: PutOnDeckAction completed before its auto-place update,
-    /// so a singleton Warcry draw stays in hand instead of returning to draw.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub skip_put_on_deck_auto_place: bool,
     /// Malleable/Curl Up GainMonsterBlock from nested PlayTop attacks, flushed
     /// after the outer skill's bot actions (Letter Opener) — FIDL00428.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1137,7 +1133,6 @@ impl CombatState {
             card_in_use: None,
             defer_strange_spoon_until_source_move: None,
             play_top_force_exhaust_active: false,
-            skip_put_on_deck_auto_place: false,
             deferred_play_top_monster_blocks: Vec::new(),
             play_top_resolving_depth: 0,
             defer_mayhem_play_top_draw_inserts: false,
@@ -1338,7 +1333,7 @@ impl CombatState {
             if get_monster_definition(monster.content_id).is_none() {
                 return Err(SimError::UnknownContent(monster.content_id));
             }
-            if is_unsupported_approximate_monster_intent(monster.content_id) {
+            if is_unsupported_monster_intent(monster.content_id) {
                 return Err(SimError::UnsupportedMechanic(monster.content_id));
             }
             if requires_rolled_attack_damage(monster.content_id)
