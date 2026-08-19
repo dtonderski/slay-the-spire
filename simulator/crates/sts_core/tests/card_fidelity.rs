@@ -4156,18 +4156,14 @@ fn forethought_places_selected_card_on_bottom_of_draw_pile() {
     choose_hand_select(&mut next, 0).expect("select Bash");
     confirm_hand_select(&mut next).expect("confirm Forethought hand selection");
 
-    assert_eq!(next.piles.draw_pile.len(), 1);
-    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.draw_pile.len(), 2);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::BASH_ID);
+    assert_eq!(next.piles.draw_pile[0].temp_cost, Some(0));
+    assert_eq!(next.piles.draw_pile[1].content_id, cards::STRIKE_R_ID);
     assert_eq!(next.piles.hand.len(), 1);
     assert_eq!(next.piles.hand[0].content_id, cards::DEFEND_R_ID);
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(next.piles.discard_pile[0].content_id, cards::FORETHOUGHT_ID);
-    assert_eq!(next.pending_hidden_hand_card_until_end_turn.len(), 1);
-    assert_eq!(
-        next.pending_hidden_hand_card_until_end_turn[0].content_id,
-        cards::BASH_ID
-    );
-    assert!(!next.pending_hidden_hand_card_until_end_turn[0].free_to_play_once);
 }
 
 #[test]
@@ -4297,21 +4293,16 @@ fn forethought_plus_places_multiple_selected_cards_on_bottom_of_draw_pile() {
 
     assert_eq!(next.piles.hand.len(), 1);
     assert_eq!(next.piles.hand[0].content_id, cards::ANGER_ID);
-    assert_eq!(next.piles.draw_pile.len(), 1);
-    assert_eq!(next.piles.draw_pile[0].content_id, cards::STRIKE_R_ID);
+    assert_eq!(next.piles.draw_pile.len(), 3);
+    assert_eq!(next.piles.draw_pile[0].content_id, cards::DEFEND_R_ID);
+    assert_eq!(next.piles.draw_pile[0].temp_cost, Some(0));
+    assert_eq!(next.piles.draw_pile[1].content_id, cards::BASH_ID);
+    assert_eq!(next.piles.draw_pile[1].temp_cost, Some(0));
+    assert_eq!(next.piles.draw_pile[2].content_id, cards::STRIKE_R_ID);
     assert_eq!(next.piles.discard_pile.len(), 1);
     assert_eq!(
         next.piles.discard_pile[0].content_id,
         cards::FORETHOUGHT_PLUS_ID
-    );
-    assert_eq!(next.pending_hidden_hand_card_until_end_turn.len(), 2);
-    assert_eq!(
-        next.pending_hidden_hand_card_until_end_turn[0].content_id,
-        cards::BASH_ID
-    );
-    assert_eq!(
-        next.pending_hidden_hand_card_until_end_turn[1].content_id,
-        cards::DEFEND_R_ID
     );
 }
 
