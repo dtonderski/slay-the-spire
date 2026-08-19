@@ -2,8 +2,8 @@
 
 ## Evidence
 
-Target `AbstractDungeon.initializeRelicList` (bytecode) runs during each
-act/dungeon setup:
+Target `AbstractDungeon.initializeRelicList` populate/shuffle/strip is the
+**run-start** sequence:
 
 1. Clear common / uncommon / rare / shop / boss pools.
 2. `RelicLibrary.populateRelicPool` for each tier.
@@ -14,21 +14,34 @@ act/dungeon setup:
 5. Remove every `relicsToRemoveOnStart` id from all pools.
 
 Shop inventory uses `returnRandomRelicEnd` (pop pool tail) after
-`merchantRng` tier rolls. Without per-act reinit, act 2/3 shops keep the
-depleted act-1 pool order while the real game reshuffles.
+`merchantRng` tier rolls. Those leftover tails persist into later acts.
 
 ## Helper
 
 `RunState::reinitialize_ironclad_relic_pools_for_new_act` implements the
-shuffle + strip. Unit-tested.
+run-start shuffle + strip. Unit-tested. Do not invoke it from act entry.
 
 ## Wiring status
 
-Called from `enter_next_act_map`. Enabling it on FIDL00241 moves the first
-boundary earlier to act-2 treasure step 551 (`Singing Bowl` real vs `Kunai`
-sim), which implies `relic_rng` counter (or owned-set) at the act boundary is
-not yet aligned even though act-1 relic offers matched under the depleted pool.
-Do not “fix” FIDL00241 by observation rebinding or by skipping this reinit.
+`initializeRelicList`'s populate/shuffle/strip sequence is the run-start
+helper (`ensure_ironclad_relic_pools` / `reinitialize_ironclad_relic_pools_for_new_act`).
+It is **not** called from `enter_next_act_map`.
+
+Act-2 traces pin leftover act-1 order, not a second shuffle on the live
+`relicRng` counter:
+
+- FIDL01244 floor-26 uncommon chest is `Darkstone Periapt`, the untouched
+  front of the act-1 shuffled uncommon pool. Continued-counter reinit offers
+  `Blue Candle`.
+- FIDL01245 floor-19 shop is `Mercury Hourglass`, `Singing Bowl`,
+  `Clockwork Souvenir` — the depleted uncommon/shop tails after the act-1
+  shop. Continued-counter reinit offers `Question Card` / `Letter Opener` /
+  `Membership Card` at the same merchant prices.
+
+Resetting `relicRng` and reshuffling would put Darkstone first again but
+would also re-offer the act-1 shop-tail relic (`Cauldron`), which the act-2
+shop does not. Persist the leftover lists and leave `relic_rng_counter`
+unchanged at act entry.
 
 ## Related fix landed
 

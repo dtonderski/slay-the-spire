@@ -3012,10 +3012,10 @@ impl RunState {
         }
     }
 
-    /// Target `AbstractDungeon.initializeRelicList` runs at every act/dungeon
-    /// setup: clear pools, repopulate, shuffle each tier with a fresh
-    /// `relicRng.randomLong()`, then strip currently owned relics
-    /// (`relicsToRemoveOnStart` when `floorNum >= 1`).
+    /// Target `AbstractDungeon.initializeRelicList` at run start: populate
+    /// pools, shuffle each tier with `relicRng.randomLong()`, then strip
+    /// currently owned relics. Act transitions keep leftover lists; do not
+    /// call this from `enter_next_act_map`.
     pub fn reinitialize_ironclad_relic_pools_for_new_act(&mut self) {
         let mut rng = StsRng::with_counter_for_stream(
             self.relic_rng_seed as i64,

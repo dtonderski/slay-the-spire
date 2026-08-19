@@ -1805,10 +1805,11 @@ fn enter_next_act_map(run: &mut RunState) -> SimResult<()> {
     // CardLibrary at every act. A prior Match-and-Keep / Knowing Skull shuffle
     // must not carry into the next act (FIDL01323 Blind vs Finesse).
     run.colorless_card_pool.clear();
-    // AbstractDungeon.initializeRelicList reshuffles every act. Prior relic_rng
-    // drift still fails FIDL00241; keep the source-correct reinit anyway so the
-    // mismatch is visible instead of carrying depleted act-1 pool order.
-    run.reinitialize_ironclad_relic_pools_for_new_act();
+    // Relic pools are static leftover lists. initializeRelicList's five
+    // relicRng.randomLong shuffles run at run start; a second shuffle at act
+    // entry burns relicRng and permutes leftover tails (FIDL01244 Darkstone vs
+    // Blue Candle, FIDL01245 Clockwork Souvenir vs Membership Card).
+    // Do not rebuild pools here.
     if !run.has_mark_of_bloom() {
         run.player_hp = run.player_max_hp;
     }
@@ -4147,12 +4148,19 @@ mod tests {
     }
 
     #[test]
-    fn enter_next_act_map_reinitializes_relic_pools() {
+    fn enter_next_act_map_keeps_leftover_relic_pools() {
         let mut run = RunState::map_fixture();
         run.ensure_ironclad_relic_pools();
         let counter_after_first = run.relic_rng_counter;
+        let leftover = run
+            .relic_pools
+            .as_ref()
+            .expect("pools")
+            .common
+            .first()
+            .copied();
         if let Some(pools) = run.relic_pools.as_mut() {
-            pools.common.clear();
+            pools.common.truncate(1);
         }
         run.current_act = 1;
 
@@ -4160,17 +4168,16 @@ mod tests {
 
         assert_eq!(run.current_act, 2);
         assert_eq!(
-            run.relic_rng_counter,
-            counter_after_first + 5,
-            "act entry must reshuffle relic pools with five randomLong draws"
+            run.relic_rng_counter, counter_after_first,
+            "act entry must not burn five relicRng.randomLong shuffles"
         );
-        assert!(
-            !run.relic_pools
+        assert_eq!(
+            run.relic_pools
                 .as_ref()
                 .expect("pools after act entry")
-                .common
-                .is_empty(),
-            "act entry must repopulate depleted relic pools"
+                .common,
+            leftover.into_iter().collect::<Vec<_>>(),
+            "act entry must keep leftover relic pool order"
         );
     }
 

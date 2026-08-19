@@ -98,10 +98,13 @@ durable defence: transition code must not be able to see the post-state at all.
 Leftover candidate apply-paths later survived as unused public wrappers
 (skipped-retrieval confirms, Time Warp lag variants, deferred Colosseum
 opening) and as production-path guesses that never consulted the observer
-directly: skipping `initializeRelicList` at act boundaries to keep FIDL00241
-green, and an encounter/hand-shape table for Discovery leftover
-`generateCardChoices` pulses. Those were removed so the remaining mismatches
-fail honestly. `confirm_*_skipped_retrieval` helpers still exist in combat
+directly, including an encounter/hand-shape table for Discovery leftover
+`generateCardChoices` pulses. Relic pools were a different mistake: wiring
+`initializeRelicList` at every act entry looks like the bytecode, but act-2
+chests and shops keep leftover act-1 pool order. A second shuffle burns
+`relicRng` and is what turned Kunai/Darkstone/Clockwork Souvenir into
+Singing Bowl/Blue Candle/Membership Card. Act transitions persist the
+depleted lists. `confirm_*_skipped_retrieval` helpers still exist in combat
 code for unit tests of CommunicationMod lag frames; they are not on the
 `apply_run_action` path.
 
