@@ -23,6 +23,7 @@ pub const DAMAGE_ACTION_MILLIS: i32 = 100;
 pub const MULTIPLIED_DELTA_MILLIS: i32 = 167;
 /// Raw `getDelta()` milliticks used by collection-fork `SuperFastMode.tickDuration`
 /// (DiscardAction) and leftover occupancy windows (`0.1 / 0.016 ≈ 7`).
+#[allow(dead_code)]
 pub const RAW_DELTA_MILLIS: i32 = 16;
 
 /// Tick a duration-bearing action to completion and store leftover occupancy.
@@ -80,6 +81,7 @@ pub fn consume_skip_screen_retrieval(state: &mut CombatState) -> bool {
 
 /// Same-bound `addToRandomSpot` rolls while leftover occupancy still covers
 /// raw `tickDuration` frames (FIDL01680 Reckless Charge Dazed).
+#[allow(dead_code)]
 pub fn leftover_same_bound_add_to_random_spot_rolls(state: &CombatState) -> usize {
     let extra = (state.action_leftover_millis / RAW_DELTA_MILLIS).max(0) as usize;
     extra.saturating_add(1)
@@ -135,12 +137,14 @@ pub fn tick_internal_action_duration(state: &mut CombatState, action: &InternalA
         | InternalAction::AddRandomColorlessCardToHand { .. }
         | InternalAction::AddCardToPile { .. }
         | InternalAction::AddStatEquivalentCopyToPile { .. }
-        | InternalAction::AddCardInstanceToHandOrDiscard { .. }
-        | InternalAction::ApplyVulnerable { .. }
+        | InternalAction::AddCardInstanceToHandOrDiscard { .. } => {
+            complete_action_duration(state, ACTION_DUR_FAST_MILLIS);
+        }
+        InternalAction::ApplyVulnerable { .. }
         | InternalAction::ApplyPlayerVulnerable { .. }
         | InternalAction::ApplyWeak { .. }
-        | InternalAction::ApplyMark { .. }
-        | InternalAction::GainStrength { .. }
+        | InternalAction::ApplyMark { .. } => complete_action_duration(state, DAMAGE_ACTION_MILLIS),
+        InternalAction::GainStrength { .. }
         | InternalAction::GainDexterity { .. }
         | InternalAction::GainTempStrength { .. }
         | InternalAction::GainEnergy { .. } => {
@@ -212,5 +216,13 @@ mod tests {
         let mut state = CombatState::initial_fixture();
         complete_action_duration(&mut state, DAMAGE_ACTION_MILLIS);
         assert!(!tick_screen_open(&mut state));
+    }
+
+    #[test]
+    fn leftover_same_bound_rolls_scale_with_occupancy() {
+        let mut state = CombatState::initial_fixture();
+        assert_eq!(leftover_same_bound_add_to_random_spot_rolls(&state), 1);
+        complete_action_duration(&mut state, DAMAGE_ACTION_MILLIS);
+        assert!(leftover_same_bound_add_to_random_spot_rolls(&state) >= 4);
     }
 }
