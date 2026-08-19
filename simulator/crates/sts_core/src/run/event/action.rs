@@ -123,28 +123,6 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
     Ok(next)
 }
 
-/// Replays the source timing where a Colosseum stage-two combat publishes its
-/// pre-opening queue before the initial draw and monster intents settle.
-/// Production event transitions remain eager; strict replay may compare this
-/// source-owned timing candidate against the observed publication boundary.
-pub fn apply_event_action_with_deferred_colosseum_opening(
-    run: &RunState,
-    action: EventAction,
-) -> SimResult<RunState> {
-    if !run
-        .event
-        .as_ref()
-        .is_some_and(|screen| screen.event == Event::Colosseum && screen.stage == 2)
-    {
-        return Err(SimError::IllegalAction(
-            "deferred Colosseum opening requires stage-two Colosseum",
-        ));
-    }
-    let mut deferred = run.clone();
-    deferred.defer_event_combat_opening = true;
-    apply_event_action(&deferred, action)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

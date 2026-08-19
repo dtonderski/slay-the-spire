@@ -35,10 +35,7 @@ pub use content::ascension::AscensionConfig;
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
 pub use content::deck::{ironclad_starter_deck, ironclad_starter_deck_for_ascension};
 pub use error::{SimError, SimResult};
-pub use ids::{
-    headbutt_alias_sibling_id, ActionId, CardId, ContentId, MapNodeId, MonsterId,
-    HEADBUTT_SKIPPED_RETRIEVAL_ALIAS_ID_OFFSET,
-};
+pub use ids::{ActionId, CardId, ContentId, MapNodeId, MonsterId};
 pub use map::{
     apply_map_action, city_room_kinds_on_path, exordium_room_kinds_on_path,
     generate_city_fixed_map, generate_city_map_choices_after_path, generate_city_map_topology,
@@ -70,16 +67,15 @@ pub use rng::{
 };
 pub use run::{
     advance_card_rng_for_combat_entry, affordable_shop_picks, apply_combat_action_on_run,
-    apply_event_action, apply_event_action_with_deferred_colosseum_opening,
-    apply_initial_monster_ai_rolls, apply_map_action_on_run, apply_neow_boss_swap,
-    apply_neow_relic_reward, apply_neow_simple_drawback, apply_neow_simple_reward,
-    apply_potion_action, apply_rest_action, apply_run_action, apply_run_decision_action,
-    apply_shop_action, cancel_grid, confirm_grid, consume_neow_three_potions_hidden_card_reward,
-    enter_boss_relic_reward_screen, enter_chest_relic_reward_screen,
-    enter_elite_combat_reward_screen, enter_elite_relic_reward_screen, enter_event_screen,
-    enter_normal_combat_reward_screen, enter_reward_screen, enter_shop_room, enter_shop_screen,
-    event_screen, fair_run_observation, generate_neow_card_reward,
-    generate_neow_card_reward_with_rng, generate_neow_colorless_reward,
+    apply_event_action, apply_initial_monster_ai_rolls, apply_map_action_on_run,
+    apply_neow_boss_swap, apply_neow_relic_reward, apply_neow_simple_drawback,
+    apply_neow_simple_reward, apply_potion_action, apply_rest_action, apply_run_action,
+    apply_run_decision_action, apply_shop_action, cancel_grid, confirm_grid,
+    consume_neow_three_potions_hidden_card_reward, enter_boss_relic_reward_screen,
+    enter_chest_relic_reward_screen, enter_elite_combat_reward_screen,
+    enter_elite_relic_reward_screen, enter_event_screen, enter_normal_combat_reward_screen,
+    enter_reward_screen, enter_shop_room, enter_shop_screen, event_screen, fair_run_observation,
+    generate_neow_card_reward, generate_neow_card_reward_with_rng, generate_neow_colorless_reward,
     generate_neow_colorless_reward_with_rng, generate_neow_options,
     generate_neow_options_rng_counter, generate_neow_rare_card_reward,
     generate_neow_rare_card_reward_with_rng, generate_neow_three_potions,

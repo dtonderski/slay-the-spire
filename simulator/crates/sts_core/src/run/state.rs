@@ -1200,10 +1200,6 @@ pub struct RunState {
     /// event combat without conflating them with run-level RNG streams.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_event_combat_rng: Option<CombatRngState>,
-    /// Verifier-only source timing candidate: defer a Colosseum opening queue
-    /// until the first subsequent END instead of publishing it eagerly.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub defer_event_combat_opening: bool,
     #[serde(default)]
     pub monster_rng_seed: u64,
     #[serde(default)]
@@ -2718,7 +2714,6 @@ impl RunState {
             shop_merchant_open: false,
             card_grid: None,
             relics,
-            defer_event_combat_opening: false,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
@@ -2828,7 +2823,6 @@ impl RunState {
             shop_merchant_open: false,
             card_grid: None,
             relics: Vec::new(),
-            defer_event_combat_opening: false,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
@@ -3008,15 +3002,15 @@ impl RunState {
 
     pub fn ensure_ironclad_relic_pools(&mut self) {
         if self.relic_pools.is_none() {
-            self.reinitialize_ironclad_relic_pools_for_new_act();
+            self.initialize_ironclad_relic_pools();
         }
     }
 
-    /// Target `AbstractDungeon.initializeRelicList` runs at every act/dungeon
-    /// setup: clear pools, repopulate, shuffle each tier with a fresh
-    /// `relicRng.randomLong()`, then strip currently owned relics
-    /// (`relicsToRemoveOnStart` when `floorNum >= 1`).
-    pub fn reinitialize_ironclad_relic_pools_for_new_act(&mut self) {
+    /// Target `Exordium` dungeon setup calls `initializeRelicList`: populate and
+    /// shuffle each tier with a fresh `relicRng.randomLong()`, then strip relics
+    /// already owned when entering from a loaded run. Later acts retain these
+    /// pools and their depletion order.
+    fn initialize_ironclad_relic_pools(&mut self) {
         let mut rng = StsRng::with_counter_for_stream(
             self.relic_rng_seed as i64,
             self.relic_rng_counter,

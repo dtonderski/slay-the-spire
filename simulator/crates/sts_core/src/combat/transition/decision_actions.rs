@@ -34,9 +34,7 @@ pub(super) fn await_hand_select(
         // PutOnDeckAction amount is 1 for Warcry / Warcry+.
         const PUT_ON_DECK_AMOUNT: usize = 1;
         if selectable.len() <= PUT_ON_DECK_AMOUNT {
-            let skip_auto_place = state.skip_put_on_deck_auto_place;
-            state.skip_put_on_deck_auto_place = false;
-            if !selectable.is_empty() && !skip_auto_place {
+            if !selectable.is_empty() {
                 // CardGroup.getRandomCard(cardRandomRng) always draws
                 // random(size-1), including the singleton size==1 case.
                 let mut remaining = selectable.len();

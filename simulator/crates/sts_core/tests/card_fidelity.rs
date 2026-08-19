@@ -7,10 +7,8 @@ use sts_core::{
         hand::resolve_end_of_turn_hand,
         transition::{
             apply_play_top_draw_card_action, choose_discard_select, choose_draw_select,
-            choose_exhaust_select, choose_hand_select,
-            confirm_burning_pact_select_skipped_retrieval, confirm_draw_select,
-            confirm_exhaust_select, confirm_hand_select,
-            confirm_hand_select_skipped_put_on_deck_retrieval, confirm_headbutt_select,
+            choose_exhaust_select, choose_hand_select, confirm_draw_select, confirm_exhaust_select,
+            confirm_hand_select, confirm_headbutt_select,
         },
         turn::{end_player_turn, start_player_turn},
         turn_powers::apply_end_of_player_turn_powers,
@@ -971,50 +969,6 @@ fn havoc_force_played_warcry_keeps_source_until_put_on_deck_confirm() {
 }
 
 #[test]
-fn skipped_havoc_warcry_put_on_deck_settles_pending_source_once() {
-    let mut state = CombatState::initial_fixture();
-    state.player.energy = 1;
-    state.piles.hand = vec![
-        CardInstance::new(CardId::new(1), cards::HAVOC_ID),
-        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
-    ];
-    state.piles.draw_pile = vec![
-        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
-        CardInstance::new(CardId::new(4), cards::WARCRY_ID),
-    ];
-    state.piles.discard_pile.clear();
-    state.piles.exhaust_pile.clear();
-    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
-
-    let mut next = apply_combat_action(
-        &state,
-        CombatAction::PlayCard {
-            card_id: CardId::new(1),
-            target: None,
-        },
-    )
-    .expect("Havoc should open Warcry's put-on-deck selection");
-    choose_hand_select(&mut next, 0).expect("select a card for forced Warcry");
-    let (selected, _) = confirm_hand_select_skipped_put_on_deck_retrieval(&mut next)
-        .expect("skipped retrieval should resume the queued Warcry source move");
-
-    assert_ne!(selected.content_id, cards::WARCRY_ID);
-    assert!(next
-        .piles
-        .exhaust_pile
-        .iter()
-        .any(|card| card.content_id == cards::WARCRY_ID));
-    assert!(!next
-        .piles
-        .hand
-        .iter()
-        .chain(next.piles.draw_pile.iter())
-        .chain(next.piles.discard_pile.iter())
-        .chain(next.piles.exhaust_pile.iter())
-        .any(|card| card.id == selected.id));
-}
-
-#[test]
 fn warcry_with_dark_embrace_draws_the_card_put_on_top() {
     // PutOnDeckAction finishes before Warcry exhausts. Dark Embrace must
     // therefore draw the just-selected top card (e.g. Havoc) rather than the
@@ -1347,55 +1301,6 @@ fn warcry_empty_draw_shuffle_defers_sundial_energy_until_confirm() {
     choose_hand_select(&mut next, 0).expect("select a card");
     confirm_hand_select(&mut next).expect("confirm Warcry");
     assert_eq!(next.player.energy, 5);
-}
-
-#[test]
-fn warcry_skipped_auto_place_keeps_drawn_card_in_hand() {
-    let mut state = CombatState::initial_fixture();
-    state.player.energy = 0;
-    let rng_before = state.rng.card_random_rng.counter();
-    state.skip_put_on_deck_auto_place = true;
-    state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::WARCRY_ID)];
-    state.piles.draw_pile = vec![
-        CardInstance::new(CardId::new(2), cards::DEFEND_R_ID),
-        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
-    ];
-    state.piles.discard_pile.clear();
-    state.piles.exhaust_pile.clear();
-
-    let next = apply_combat_action(
-        &state,
-        CombatAction::PlayCard {
-            card_id: CardId::new(1),
-            target: None,
-        },
-    )
-    .expect("skipped Warcry auto-place still plays");
-
-    assert!(next.hand_select().is_none());
-    assert_eq!(
-        next.piles
-            .hand
-            .iter()
-            .map(|card| card.content_id)
-            .collect::<Vec<_>>(),
-        vec![cards::STRIKE_R_ID]
-    );
-    assert_eq!(next.piles.exhaust_pile[0].content_id, cards::WARCRY_ID);
-    assert_eq!(
-        next.piles
-            .draw_pile
-            .iter()
-            .map(|card| card.content_id)
-            .collect::<Vec<_>>(),
-        vec![cards::DEFEND_R_ID]
-    );
-    assert_eq!(
-        next.rng.card_random_rng.counter(),
-        rng_before,
-        "skipped auto-place does not burn getRandomCard"
-    );
-    assert!(!next.skip_put_on_deck_auto_place);
 }
 
 #[test]
@@ -1990,53 +1895,6 @@ fn burning_pact_plus_exhausts_one_other_card_then_draws_three() {
         next.piles.discard_pile[0].content_id,
         cards::BURNING_PACT_PLUS_ID
     );
-}
-
-#[test]
-fn skipped_burning_pact_under_corruption_exhausts_source_once() {
-    let mut state = CombatState::initial_fixture();
-    state.player.energy = 1;
-    state.player.powers.corruption = 1;
-    state.piles.hand = vec![
-        CardInstance::new(CardId::new(1), cards::BURNING_PACT_PLUS_ID),
-        CardInstance::new(CardId::new(2), cards::STRIKE_R_ID),
-        CardInstance::new(CardId::new(3), cards::DEFEND_R_ID),
-    ];
-    state.piles.draw_pile = vec![
-        CardInstance::new(CardId::new(4), cards::BASH_ID),
-        CardInstance::new(CardId::new(5), cards::ANGER_ID),
-        CardInstance::new(CardId::new(6), cards::IRON_WAVE_ID),
-        CardInstance::new(CardId::new(7), cards::CLOTHESLINE_ID),
-    ];
-    state.piles.discard_pile.clear();
-    state.piles.exhaust_pile.clear();
-    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
-
-    let mut next = apply_combat_action(
-        &state,
-        CombatAction::PlayCard {
-            card_id: CardId::new(1),
-            target: None,
-        },
-    )
-    .expect("Burning Pact+ should open its exhaust select");
-    choose_exhaust_select(&mut next, 0).expect("select a card for Burning Pact+");
-    let selected = confirm_burning_pact_select_skipped_retrieval(&mut next)
-        .expect("skipped selected-card retrieval should support Corruption source exhaust");
-
-    assert!(next
-        .piles
-        .exhaust_pile
-        .iter()
-        .any(|card| card.content_id == cards::BURNING_PACT_PLUS_ID));
-    assert!(!next
-        .piles
-        .hand
-        .iter()
-        .chain(next.piles.draw_pile.iter())
-        .chain(next.piles.discard_pile.iter())
-        .chain(next.piles.exhaust_pile.iter())
-        .any(|card| card.id == selected.id));
 }
 
 #[test]
