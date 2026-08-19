@@ -19,7 +19,7 @@ frame).
 
 `seed_start_burning_pact_deferred_selection_state` already rebuilt deferred
 selection (park selected, BP draws, settle source without DE). It now also
-drains `ExhaustSelectState.pending_actions` via `process_internal_queue_public`,
+drains `ExhaustSelectState.pending_actions` via `process_internal_queue`,
 matching `confirm_exhaust_select`'s trailing pending drain so Ink Bottle / Hex
 follow-ups still fire after skipped retrieval.
 

@@ -8,7 +8,7 @@ use crate::{
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
-        get_monster_definition, is_unsupported_approximate_monster_intent, monster_state,
+        get_monster_definition, is_unsupported_monster_intent, monster_state,
         requires_rolled_attack_damage, CULTIST_A0, FIXED_SIMPLE_MONSTER, LAGAVULIN_A0,
         RED_LOUSE_A0, RED_LOUSE_BITE_DAMAGE, SENTRY_A0,
     },
@@ -1338,7 +1338,7 @@ impl CombatState {
             if get_monster_definition(monster.content_id).is_none() {
                 return Err(SimError::UnknownContent(monster.content_id));
             }
-            if is_unsupported_approximate_monster_intent(monster.content_id) {
+            if is_unsupported_monster_intent(monster.content_id) {
                 return Err(SimError::UnsupportedMechanic(monster.content_id));
             }
             if requires_rolled_attack_damage(monster.content_id)

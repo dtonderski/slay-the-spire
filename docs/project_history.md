@@ -95,6 +95,16 @@ verifier can consult the answer, every unexplained divergence has a cheap local
 fix, and the cheap fix is always available. Prohibiting the shape is the only
 durable defence: transition code must not be able to see the post-state at all.
 
+Leftover candidate apply-paths later survived as unused public wrappers
+(skipped-retrieval confirms, Time Warp lag variants, deferred Colosseum
+opening) and as production-path guesses that never consulted the observer
+directly: skipping `initializeRelicList` at act boundaries to keep FIDL00241
+green, and an encounter/hand-shape table for Discovery leftover
+`generateCardChoices` pulses. Those were removed so the remaining mismatches
+fail honestly. `confirm_*_skipped_retrieval` helpers still exist in combat
+code for unit tests of CommunicationMod lag frames; they are not on the
+`apply_run_action` path.
+
 Two defects surfaced immediately underneath. Event obtains were being published
 into the master deck a boundary early, which alone accounted for two thirds of
 the honest failures. And `CommunicationMod` had been reporting ready while an

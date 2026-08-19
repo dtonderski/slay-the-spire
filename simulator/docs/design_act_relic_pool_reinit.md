@@ -24,12 +24,11 @@ shuffle + strip. Unit-tested.
 
 ## Wiring status
 
-**Not** called from `enter_next_act_map` yet. Enabling it on FIDL00241 moves
-the first boundary earlier to act-2 treasure step 551
-(`Singing Bowl` real vs `Kunai` sim), which implies `relic_rng` counter (or
-owned-set) at the act boundary is not yet aligned even though act-1 relic
-offers matched under the depleted pool. Do not wire until that counter is
-proven; do not “fix” FIDL00241 shop by observation rebinding.
+Called from `enter_next_act_map`. Enabling it on FIDL00241 moves the first
+boundary earlier to act-2 treasure step 551 (`Singing Bowl` real vs `Kunai`
+sim), which implies `relic_rng` counter (or owned-set) at the act boundary is
+not yet aligned even though act-1 relic offers matched under the depleted pool.
+Do not “fix” FIDL00241 by observation rebinding or by skipping this reinit.
 
 ## Related fix landed
 

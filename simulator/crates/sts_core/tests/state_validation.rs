@@ -151,7 +151,7 @@ fn unknown_content_fails_validation() {
 }
 
 #[test]
-fn known_approximate_monster_fails_before_action_execution() {
+fn unsupported_monster_fails_before_action_execution() {
     let mut state = CombatState::initial_fixture();
     let unsupported = CORRUPT_HEART_A0;
     state.monsters = vec![monster_state(&unsupported, MonsterId::new(1))];

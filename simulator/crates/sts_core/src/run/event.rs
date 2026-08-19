@@ -56,7 +56,9 @@ use crate::{
 };
 
 mod action;
-pub use action::{apply_event_action, apply_event_action_with_deferred_colosseum_opening};
+pub use action::apply_event_action;
+#[cfg(test)]
+pub(crate) use action::apply_event_action_with_deferred_colosseum_opening;
 
 pub const SCRAP_OOZE_REACH_HP_LOSS: i32 = 3;
 pub const SCRAP_OOZE_DEEPER_HP_LOSS: i32 = 4;

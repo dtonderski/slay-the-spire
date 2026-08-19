@@ -1805,12 +1805,10 @@ fn enter_next_act_map(run: &mut RunState) -> SimResult<()> {
     // CardLibrary at every act. A prior Match-and-Keep / Knowing Skull shuffle
     // must not carry into the next act (FIDL01323 Blind vs Finesse).
     run.colorless_card_pool.clear();
-    // NOTE: Target AbstractDungeon.initializeRelicList reshuffles every act.
-    // Calling reinitialize_ironclad_relic_pools_for_new_act() here is source-
-    // correct but currently desyncs act-2 treasure fronts on FIDL00241 (Singing
-    // Bowl vs Kunai at step 551) — likely relic_rng counter drift before the
-    // act boundary. Do not enable until that counter is proven aligned; shop
-    // tail desync (FIDL00241 choices[8]) remains open under depleted act-1 pools.
+    // AbstractDungeon.initializeRelicList reshuffles every act. Prior relic_rng
+    // drift still fails FIDL00241; keep the source-correct reinit anyway so the
+    // mismatch is visible instead of carrying depleted act-1 pool order.
+    run.reinitialize_ironclad_relic_pools_for_new_act();
     if !run.has_mark_of_bloom() {
         run.player_hp = run.player_max_hp;
     }
@@ -2876,53 +2874,6 @@ pub(crate) fn advance_pending_relic_offer(run: &mut RunState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn temp_trace_rng_probe() {
-        let initial = StsRng::new(34_961_238_615_913);
-        println!("initial={:?}", initial.state());
-        let mut rng = StsRng::with_counter(34_961_238_615_913, 533);
-        println!("state={:?}", rng.state());
-        for bound in [99, 14, 99, 19, 99, 14] {
-            println!("bound={bound} value={}", rng.random_int(bound));
-        }
-        let mut rng = StsRng::with_counter(34_961_238_615_913, 533);
-        let mut factor = -1;
-        println!(
-            "choices={:?}",
-            target_colorless_card_reward_choices_with_count(&mut rng, &mut factor, 0, 3,)
-        );
-    }
-
-    #[test]
-    fn debug_fidl86_card_reward() {
-        let mut rng = StsRng::with_counter(34_961_238_615_911, 518);
-        let mut factor = 2;
-        let choices = target_colorless_card_reward_choices_with_count(&mut rng, &mut factor, 0, 3);
-        println!(
-            "factor={factor} counter={} choices={choices:?}",
-            rng.counter()
-        );
-        let mut rng = StsRng::with_counter(34_961_238_615_911, 518);
-        let mut f = 2;
-        for bound in [19, 19, 19] {
-            let roll = roll_reward_rarity(&mut rng, f, NORMAL_REWARD_RARITY_CHANCES);
-            println!("rarity={roll:?} factor_before={f}");
-            match roll {
-                CardRarity::Common => f -= 1,
-                CardRarity::Rare => f = 5,
-                CardRarity::Uncommon => {}
-            }
-            println!("pick={}", rng.random_int(bound));
-        }
-
-        let mut rng = StsRng::with_counter(34_961_238_615_911, 286);
-        let mut factor = -7;
-        println!(
-            "floor24 factor={factor} choices={:?}",
-            target_card_reward_choices(&mut rng, &mut factor, 0)
-        );
-    }
 
     use crate::{
         content::cards::{
@@ -4158,8 +4109,7 @@ mod tests {
     #[test]
     fn reinitialize_relic_pools_reshuffles_and_strips_owned() {
         // AbstractDungeon.initializeRelicList: five relicRng.randomLong shuffles
-        // + remove owned. Helper is unit-tested; act-transition wiring waits on
-        // relic_rng counter parity (see design_act_relic_pool_reinit.md).
+        // + remove owned. enter_next_act_map calls the same helper.
         let mut run = RunState::map_fixture();
         run.ensure_ironclad_relic_pools();
         let counter_after_first = run.relic_rng_counter;
@@ -4193,6 +4143,34 @@ mod tests {
                 .chain(pools.boss.iter())
                 .all(|key| *key != crate::relic::RelicKey::MawBank),
             "owned relics must be stripped after reshuffle"
+        );
+    }
+
+    #[test]
+    fn enter_next_act_map_reinitializes_relic_pools() {
+        let mut run = RunState::map_fixture();
+        run.ensure_ironclad_relic_pools();
+        let counter_after_first = run.relic_rng_counter;
+        if let Some(pools) = run.relic_pools.as_mut() {
+            pools.common.clear();
+        }
+        run.current_act = 1;
+
+        enter_next_act_map(&mut run).expect("static target encounter pools are valid");
+
+        assert_eq!(run.current_act, 2);
+        assert_eq!(
+            run.relic_rng_counter,
+            counter_after_first + 5,
+            "act entry must reshuffle relic pools with five randomLong draws"
+        );
+        assert!(
+            !run.relic_pools
+                .as_ref()
+                .expect("pools after act entry")
+                .common
+                .is_empty(),
+            "act entry must repopulate depleted relic pools"
         );
     }
 

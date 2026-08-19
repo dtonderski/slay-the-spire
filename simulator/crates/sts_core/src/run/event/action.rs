@@ -127,7 +127,8 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
 /// pre-opening queue before the initial draw and monster intents settle.
 /// Production event transitions remain eager; strict replay may compare this
 /// source-owned timing candidate against the observed publication boundary.
-pub fn apply_event_action_with_deferred_colosseum_opening(
+#[cfg(test)]
+pub(crate) fn apply_event_action_with_deferred_colosseum_opening(
     run: &RunState,
     action: EventAction,
 ) -> SimResult<RunState> {

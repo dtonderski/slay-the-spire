@@ -4006,7 +4006,7 @@ pub fn prepare_monster_intent_for_ascension(
             block: TIME_EATER_RIPPLE_BLOCK,
         });
     }
-    if is_unsupported_approximate_monster_intent(monster.content_id) {
+    if is_unsupported_monster_intent(monster.content_id) {
         return Err(SimError::UnsupportedMechanic(monster.content_id));
     }
     if requires_rolled_attack_damage(monster.content_id) && monster.rolled_attack_damage.is_none() {
@@ -7200,7 +7200,7 @@ pub fn target_gremlin_wizard_direct_next_intent_after_turn(
     }
 }
 
-pub(crate) fn is_unsupported_approximate_monster_intent(content_id: ContentId) -> bool {
+pub(crate) fn is_unsupported_monster_intent(content_id: ContentId) -> bool {
     matches!(
         content_id,
         CORRUPT_HEART_ID | SPIRE_SHIELD_ID | SPIRE_SPEAR_ID
@@ -13504,7 +13504,7 @@ mod tests {
     }
 
     #[test]
-    fn generic_intent_preparation_rejects_unknown_and_approximate_content() {
+    fn generic_intent_preparation_rejects_unknown_and_unsupported_content() {
         let unhandled_definition = MonsterDefinition {
             content_id: ContentId::new(u64::MAX),
             ..FIXED_SIMPLE_MONSTER

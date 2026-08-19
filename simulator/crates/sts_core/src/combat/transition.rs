@@ -239,16 +239,6 @@ fn apply_play_card(
     Ok(transition)
 }
 
-/// Public wrapper for verifier skipped-retrieval candidates that must drain
-/// ExhaustSelect `pending_actions` (Ink Bottle, Hex, etc.) after a custom
-/// CONFIRM rebuild.
-pub fn process_internal_queue_public(
-    state: &mut CombatState,
-    queue: VecDeque<InternalAction>,
-) -> SimResult<CombatTransition> {
-    process_internal_queue(state, queue)
-}
-
 pub(crate) fn process_internal_queue(
     state: &CombatState,
     mut queue: VecDeque<InternalAction>,
@@ -6333,9 +6323,7 @@ mod tests {
     };
     use crate::relic::INK_BOTTLE_THRESHOLD;
     use crate::rng::StsRng;
-    use crate::run::potion::{
-        apply_exhaust_select_choice, apply_exhaust_select_choice_skipped_exhume,
-    };
+    use crate::run::potion::apply_exhaust_select_choice;
     use crate::{apply_combat_action_on_run, RunState};
 
     #[test]
@@ -12654,25 +12642,24 @@ mod tests {
             },
         )
         .expect("Havoc PlayTops Exhume");
-        let after_skip = apply_exhaust_select_choice_skipped_exhume(&after_havoc, 1)
-            .expect("skipped Exhume return");
+        let after_skip = apply_exhaust_select_choice(&after_havoc, 1).expect("Exhume return");
 
         let combat = after_skip.combat.as_ref().expect("combat");
         assert_eq!(
             combat.monsters[0].powers.time_warp, 11,
-            "skipped retrieval still completes UseCardAction Time Warp"
+            "UseCardAction still increments Time Warp"
         );
         assert!(
             combat
                 .piles
-                .exhaust_pile
+                .hand
                 .iter()
                 .any(|card| card.content_id == HEAVY_BLADE_PLUS_ID),
-            "selected exhaust card stays in exhaust"
+            "selected exhaust card returns to hand"
         );
         assert!(combat
             .piles
-            .hand
+            .exhaust_pile
             .iter()
             .all(|card| card.content_id != HEAVY_BLADE_PLUS_ID));
     }
