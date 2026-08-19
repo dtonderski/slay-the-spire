@@ -1,3 +1,4 @@
+pub(crate) mod action_duration;
 pub mod burning_blood;
 mod card_effects;
 pub(crate) mod cost;

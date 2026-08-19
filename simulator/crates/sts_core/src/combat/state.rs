@@ -267,6 +267,17 @@ pub struct CombatState {
     /// Reckless Charge Dazed inserts versus Time Eater (FIDL01680).
     #[serde(default, skip_serializing_if = "is_false")]
     pub discovery_retrieved_this_combat: bool,
+    /// Unused SuperFastMode occupancy after the last `tickDuration` overshoot.
+    /// Carries into the next action's first tick in the same GameActionManager
+    /// drain, including a later command in this combat.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub action_leftover_millis: i32,
+    /// Opening `tickDuration` already set the screen action `isDone`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub skip_screen_retrieval: bool,
+    /// Remaining duration on a paused screen action that is not yet `isDone`.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub screen_remaining_millis: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1174,6 +1185,9 @@ impl CombatState {
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
             discovery_retrieved_this_combat: false,
+            action_leftover_millis: 0,
+            skip_screen_retrieval: false,
+            screen_remaining_millis: 0,
         }
     }
 

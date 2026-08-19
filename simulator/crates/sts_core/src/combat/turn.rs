@@ -2226,6 +2226,10 @@ fn deal_damage_to_player_with_draw_policy(
     amount: i32,
     draw_policy: HpLossDrawPolicy,
 ) -> SimResult<i32> {
+    crate::combat::action_duration::complete_action_duration(
+        state,
+        crate::combat::action_duration::DAMAGE_ACTION_MILLIS,
+    );
     let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;

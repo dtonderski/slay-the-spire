@@ -570,6 +570,18 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     .then(|| combat.next_card_instance_id())
     .transpose()?
     .map(CardId::new);
+    let skip_discovery_retrieve = matches!(
+        combat.decision.as_ref(),
+        Some(CombatDecisionState::DiscoveryCardReward { .. })
+    ) && combat.skip_screen_retrieval;
+    if skip_discovery_retrieve {
+        crate::combat::action_duration::consume_skip_screen_retrieval(combat);
+    } else if matches!(
+        combat.decision.as_ref(),
+        Some(CombatDecisionState::DiscoveryCardReward { .. })
+    ) {
+        crate::combat::action_duration::tick_screen_retrieve(combat);
+    }
     let decision = combat
         .decision
         .take()
@@ -604,41 +616,52 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             source_card_play_top: _,
             pending_actions,
         } => {
-            let card_id = if let Some(card_id) = played_discovery_card_id {
-                card_id
+            if skip_discovery_retrieve {
+                settle_discovery_source_without_time_warp_end(
+                    combat,
+                    source_card,
+                    source_card_force_exhaust,
+                    pending_actions,
+                )?;
+                combat.play_top_force_exhaust_active = false;
+                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             } else {
-                CardId::new(combat.next_card_instance_id()?)
-            };
-            // DiscoveryAction.update generates a discarded three-card offer at
-            // the start of every leftover SuperFastMode pulse. Encounter- and
-            // hand-shape pulse tables used to guess 0/1/2/6 to match traces;
-            // keep a single leftover pulse so RNG drift stays visible until
-            // leftover action-queue settlement is modeled.
-            let generations = DISCOVERY_POST_SELECT_GENERATIONS;
-            burn_all_discovery_card_choice_generations(
-                &mut combat.rng.card_random_rng,
-                3,
-                generations,
-            );
-            let choice = choices[index];
-            let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
-            card.temp_cost_turn_only = true;
-            // DiscoveryAction adds the generated card after the cards already in hand.
-            combat.piles.hand.push(card);
-            combat.discovery_retrieved_this_combat = true;
-            // card.use() follow-ups queued behind DiscoveryAction (for example
-            // Hex's Dazed insertion) resolve after the selected card is
-            // retrieved but before UseCardAction settles the Discovery source.
-            // Time Warp EndTurn stays behind that UseCardAction; CHOOSE must
-            // not flush it (FIDL01799 leftover PLAY).
-            settle_discovery_source_without_time_warp_end(
-                combat,
-                source_card,
-                source_card_force_exhaust,
-                pending_actions,
-            )?;
-            combat.play_top_force_exhaust_active = false;
-            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                let card_id = if let Some(card_id) = played_discovery_card_id {
+                    card_id
+                } else {
+                    CardId::new(combat.next_card_instance_id()?)
+                };
+                // DiscoveryAction.update generates a discarded three-card offer at
+                // the start of every leftover SuperFastMode pulse. Encounter- and
+                // hand-shape pulse tables used to guess 0/1/2/6 to match traces;
+                // keep a single leftover pulse so RNG drift stays visible until
+                // leftover action-queue settlement is modeled.
+                let generations = DISCOVERY_POST_SELECT_GENERATIONS;
+                burn_all_discovery_card_choice_generations(
+                    &mut combat.rng.card_random_rng,
+                    3,
+                    generations,
+                );
+                let choice = choices[index];
+                let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
+                card.temp_cost_turn_only = true;
+                // DiscoveryAction adds the generated card after the cards already in hand.
+                combat.piles.hand.push(card);
+                combat.discovery_retrieved_this_combat = true;
+                // card.use() follow-ups queued behind DiscoveryAction (for example
+                // Hex's Dazed insertion) resolve after the selected card is
+                // retrieved but before UseCardAction settles the Discovery source.
+                // Time Warp EndTurn stays behind that UseCardAction; CHOOSE must
+                // not flush it (FIDL01799 leftover PLAY).
+                settle_discovery_source_without_time_warp_end(
+                    combat,
+                    source_card,
+                    source_card_force_exhaust,
+                    pending_actions,
+                )?;
+                combat.play_top_force_exhaust_active = false;
+                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            }
         }
         CombatDecisionState::ToolboxCardReward { choices } => {
             let choice = choices[index];

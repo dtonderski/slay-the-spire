@@ -23,14 +23,14 @@ use crate::{
         upgrade_card_instance, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID,
         CLASH_PLUS_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DAZED_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, NECRONOMICURSE_ID, NORMALITY_ID, PAIN_ID,
-        PURITY_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        PURITY_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape,
         apply_reptomancer_death_escape, awakened_one_is_half_dead, check_slime_boss_split,
         get_monster_definition, guardian_accumulate_hp_damage, release_stasis_card_on_death,
-        wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID, GUARDIAN_ID, TIME_EATER_ID,
+        wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID, GUARDIAN_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -332,6 +332,7 @@ pub(crate) fn process_internal_queue(
             && next.monsters.iter().any(|monster| {
                 monster.alive && monster.content_id == crate::content::monsters::TIME_EATER_ID
             });
+        crate::combat::action_duration::tick_internal_action_duration(&mut next, &internal_action);
         let follow_ups = if let InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card,
@@ -428,6 +429,9 @@ pub(crate) fn process_internal_queue(
                             InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
                                 | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
                         ) {
+                            crate::combat::action_duration::tick_internal_action_duration(
+                                &mut next, &queued,
+                            );
                             let free_follow_ups = apply_internal_action(&mut next, queued)?;
                             event_log.push(queued);
                             for free_follow_up in free_follow_ups {
@@ -548,47 +552,6 @@ pub(crate) fn process_internal_queue(
         state: next,
         event_log,
     })
-}
-
-fn leftover_make_temp_card_add_to_random_spot_rolls(state: &CombatState) -> usize {
-    if state.player.powers.constricted > 0
-        && state.player.powers.dark_embrace > 0
-        && state.relic_counters.cards_played_this_turn <= 1
-        && card_in_use_is_reckless_charge(state)
-    {
-        return 7;
-    }
-    let fighting_time_eater = state
-        .monsters
-        .iter()
-        .any(|monster| monster.alive && monster.content_id == TIME_EATER_ID);
-    if fighting_time_eater
-        && state.discovery_retrieved_this_combat
-        && state.relic_counters.cards_played_this_turn <= 2
-        && card_in_use_is_reckless_charge(state)
-    {
-        return 4;
-    }
-    1
-}
-
-fn card_in_use_is_reckless_charge(state: &CombatState) -> bool {
-    let Some(card_id) = state.card_in_use else {
-        return false;
-    };
-    state
-        .piles
-        .hand
-        .iter()
-        .chain(state.piles.limbo.iter())
-        .chain(state.piles.discard_pile.iter())
-        .any(|card| {
-            card.id == card_id
-                && matches!(
-                    card.content_id,
-                    RECKLESS_CHARGE_ID | RECKLESS_CHARGE_PLUS_ID
-                )
-        })
 }
 
 fn card_in_use_is_whirlwind(state: &CombatState) -> bool {
@@ -2622,7 +2585,8 @@ fn add_generated_card_to_draw_pile_random_spot(
     // 1229). Later-turn Reckless Charge stays one roll (step 1247 index 15).
     // Reckless Charge versus Time Eater without Discovery this combat stays
     // one roll (FIDL01666 step 1155).
-    let leftover_same_bound_rolls = leftover_make_temp_card_add_to_random_spot_rolls(state);
+    let leftover_same_bound_rolls =
+        crate::combat::action_duration::leftover_same_bound_add_to_random_spot_rolls(state);
     let mut index = 0usize;
     for _ in 0..leftover_same_bound_rolls {
         index = state.rng.card_random_rng.random_int(bound) as usize;
@@ -3191,6 +3155,10 @@ pub fn confirm_hand_select_with_time_warp_policy(
     state: &mut CombatState,
     settle_time_warp: bool,
 ) -> SimResult<usize> {
+    if crate::combat::action_duration::consume_skip_screen_retrieval(state) {
+        return confirm_hand_select_skipped_from_leftover(state, settle_time_warp);
+    }
+    crate::combat::action_duration::tick_screen_retrieve(state);
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
@@ -3280,6 +3248,43 @@ pub fn confirm_hand_select_with_time_warp_policy(
         settle_time_warp_end_turn_if_ready(state)?;
     }
     Ok(handled_dead_branch_count)
+}
+
+fn confirm_hand_select_skipped_from_leftover(
+    state: &mut CombatState,
+    settle_time_warp: bool,
+) -> SimResult<usize> {
+    // HandCardSelectScreen.prep() replaces leftover selectedCards from a prior skip.
+    state.pending_hidden_hand_card_until_end_turn.clear();
+    let purpose = state
+        .hand_select()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?
+        .purpose;
+    match purpose {
+        HandSelectPurpose::WarcryPutOnDraw
+        | HandSelectPurpose::ThinkingAheadPutOnDraw
+        | HandSelectPurpose::ForethoughtPutOnDraw => {
+            let (selected, handled) =
+                confirm_hand_select_skipped_put_on_deck_retrieval_with_time_warp_policy(
+                    state,
+                    settle_time_warp,
+                )?;
+            state.pending_hidden_hand_card_until_end_turn = vec![selected];
+            Ok(handled)
+        }
+        HandSelectPurpose::ForethoughtPutAnyOnDraw => {
+            confirm_forethought_multi_select_skipped_retrieval(state)?;
+            Ok(0)
+        }
+        HandSelectPurpose::ArmamentsUpgrade => {
+            confirm_hand_select_skipped_armaments_retrieval(state)?;
+            Ok(0)
+        }
+        HandSelectPurpose::DualWieldCopy => {
+            confirm_dual_wield_select_skipped_retrieval(state)?;
+            Ok(0)
+        }
+    }
 }
 
 /// Time Warp 12th-card Warcry CONFIRM can publish after status autoplay and
@@ -3698,6 +3703,11 @@ fn draw_select_allows_card(
 }
 
 pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<usize> {
+    if crate::combat::action_duration::consume_skip_screen_retrieval(state) {
+        state.pending_hidden_hand_card_until_end_turn.clear();
+        return confirm_draw_select_skipped_retrieval(state);
+    }
+    crate::combat::action_duration::tick_screen_retrieve(state);
     let draw_select = state
         .take_draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
@@ -4732,6 +4742,16 @@ fn resume_actions_after_discard_select(
 }
 
 pub fn confirm_discard_select(state: &mut CombatState) -> SimResult<usize> {
+    if crate::combat::action_duration::consume_skip_screen_retrieval(state) {
+        let purpose = state
+            .discard_select()
+            .ok_or(SimError::IllegalAction("no discard select is open"))?
+            .purpose;
+        if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
+            return confirm_headbutt_select_skipped_retrieval(state);
+        }
+    }
+    crate::combat::action_duration::tick_screen_retrieve(state);
     let purpose = state
         .discard_select()
         .ok_or(SimError::IllegalAction("no discard select is open"))?
@@ -4940,6 +4960,7 @@ pub fn open_gambling_chip_select(state: &mut CombatState) -> SimResult<()> {
             pending_actions: VecDeque::new(),
         },
     });
+    crate::combat::action_duration::tick_screen_open(state);
     Ok(())
 }
 
@@ -5061,6 +5082,10 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
     state: &mut CombatState,
     settle_time_warp: bool,
 ) -> SimResult<usize> {
+    if crate::combat::action_duration::consume_skip_screen_retrieval(state) {
+        return confirm_exhaust_select_skipped_from_leftover(state, settle_time_warp);
+    }
+    crate::combat::action_duration::tick_screen_retrieve(state);
     let exhaust_select = state
         .take_exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
@@ -6027,6 +6052,50 @@ fn settle_exhume_source_after_selection(
         }
     }
     Ok(())
+}
+
+fn confirm_exhaust_select_skipped_from_leftover(
+    state: &mut CombatState,
+    settle_time_warp: bool,
+) -> SimResult<usize> {
+    state.pending_hidden_hand_card_until_end_turn.clear();
+    let purpose = state
+        .exhaust_select()
+        .ok_or(SimError::IllegalAction("no exhaust select is open"))?
+        .purpose;
+    match purpose {
+        crate::combat::ExhaustSelectPurpose::GamblingChip => {
+            confirm_gambling_chip_select_skipped_retrieval(state)?;
+            Ok(0)
+        }
+        crate::combat::ExhaustSelectPurpose::BurningPactDraw2
+        | crate::combat::ExhaustSelectPurpose::BurningPactDraw3 => {
+            let hidden = confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
+                state,
+                settle_time_warp,
+            )?;
+            state.pending_hidden_hand_card_until_end_turn = vec![hidden];
+            Ok(0)
+        }
+        crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 => {
+            confirm_purity_select_skipped_retrieval(state)?;
+            Ok(0)
+        }
+        crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne => {
+            confirm_true_grit_select_skipped_retrieval(state)?;
+            Ok(0)
+        }
+        crate::combat::ExhaustSelectPurpose::RecycleExhaustOne => {
+            let hidden = confirm_recycle_select_skipped_retrieval(state)?;
+            state.pending_hidden_hand_card_until_end_turn = vec![hidden];
+            Ok(0)
+        }
+        crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand
+        | crate::combat::ExhaustSelectPurpose::Exhaust => {
+            crate::combat::action_duration::tick_screen_retrieve(state);
+            confirm_exhaust_select_with_dead_branch_count(state, settle_time_warp)
+        }
+    }
 }
 
 fn confirm_gambling_chip_select(state: &mut CombatState, selected: Vec<usize>) -> SimResult<()> {
