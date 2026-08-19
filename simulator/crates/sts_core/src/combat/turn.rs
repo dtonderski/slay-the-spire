@@ -24,11 +24,13 @@ use crate::{
         apply_bronze_automaton_orb_spawn, apply_collector_spawn_torch_heads,
         apply_gremlin_leader_encourage, apply_gremlin_leader_rally_target, apply_heal_all_monsters,
         apply_large_acid_slime_split, apply_large_spike_slime_split,
-        apply_monster_intent_with_card_rng_and_revival, apply_reptomancer_dagger_spawn,
-        apply_slime_boss_split, apply_strength_all_monsters, awaken_one_after_first_death,
-        awakened_one_is_half_dead, champ_strength_amount, check_slime_boss_split,
-        clear_lagavulin_metallicize_if_awake, heal_monster_to_stored_cap,
-        living_monster_missing_hp, prepare_monster_intent_for_ascension, record_target_move,
+        apply_monster_intent_with_card_rng_and_revival, apply_queued_post_attack_player_debuffs,
+        apply_reptomancer_dagger_spawn, apply_slime_boss_split, apply_strength_all_monsters,
+        awaken_one_after_first_death, awakened_one_is_half_dead, champ_strength_amount,
+        check_slime_boss_split, clear_lagavulin_metallicize_if_awake,
+        has_queued_post_attack_player_debuffs, heal_monster_to_stored_cap,
+        living_monster_missing_hp, prepare_monster_intent_for_ascension,
+        prepare_monster_intent_with_card_rng_and_revival, record_target_move,
         source_backed_gremlin_leader_minion_intent,
         target_book_of_stabbing_next_intent_from_roll_with_stab_count,
         target_bronze_automaton_next_intent, target_bronze_orb_next_intent_from_roll,
@@ -513,9 +515,13 @@ fn settle_leftover_end_turn_monster_and_draw_with_post_draw_relics(
     run_monster_turn(state)?;
     // Frail is the same atEndOfRound sibling. Tick after leftover takeTurn so
     // Face Slap can stack onto the pre-tick amount (FIDL01807: 5 + 2 → 6).
-    tick_player_frail_at_end_of_round(state);
-    if state.player.hp > 0 && state.monsters.iter().any(|monster| monster.alive) {
-        start_player_turn_with_start_relics_and_post_draw(state, true, apply_post_draw_relics)?;
+    // A lethal monster action stops the target queue before
+    // MonsterGroup.applyEndOfTurnPowers, so the debuff remains unchanged.
+    if state.player.hp > 0 {
+        tick_player_frail_at_end_of_round(state);
+        if state.monsters.iter().any(|monster| monster.alive) {
+            start_player_turn_with_start_relics_and_post_draw(state, true, apply_post_draw_relics)?;
+        }
     }
     Ok(())
 }
@@ -531,8 +537,12 @@ fn tick_player_weak_at_end_of_round(state: &mut CombatState) {
 }
 
 fn tick_player_frail_at_end_of_round(state: &mut CombatState) {
-    if state.player.powers.frail > 0 {
+    if state.player.powers.frail > 0 && state.player.frail_just_applied {
+        state.player.frail_just_applied = false;
+    } else if state.player.powers.frail > 0 {
         state.player.powers.frail -= 1;
+    } else {
+        state.player.frail_just_applied = false;
     }
 }
 
@@ -848,6 +858,7 @@ fn finish_monster_turn_after_player_revival_inner(state: &mut CombatState) -> Si
         state.player.vulnerable_just_applied = false;
     }
     tick_player_weak_at_end_of_round(state);
+    tick_player_frail_at_end_of_round(state);
     if state.player.powers.intangible > 0 {
         state.player.powers.intangible -= 1;
     }
@@ -1250,7 +1261,7 @@ fn execute_generic_monster_intent(
         state.monsters[index].powers.strength =
             strength_before_time_warp_snapshot.saturating_sub(2);
     }
-    let damage_result = apply_monster_intent_with_card_rng_and_revival(
+    let damage_result = prepare_monster_intent_with_card_rng_and_revival(
         &mut state.monsters[index],
         &mut state.player,
         &mut state.piles,
@@ -1314,6 +1325,7 @@ fn execute_generic_monster_intent(
         _ => 0,
     };
     if damage > 0
+        || has_queued_post_attack_player_debuffs(intent)
         || burn_to_discard_and_draw > 0
         || weak > 0
         || deferred_burn_to_discard > 0
@@ -1330,6 +1342,7 @@ fn execute_generic_monster_intent(
         let plated_armor_before_thorns_damage = state.player.powers.plated_armor;
         apply_monster_pending_effects(
             state,
+            intent,
             damage,
             hits,
             state.monsters[index].powers.painful_stabs,
@@ -1527,11 +1540,15 @@ fn execute_state_oriented_special_intent(
                 state.player.weak_just_applied = true;
             }
             if ascension >= 19 {
+                let had_no_frail = state.player.powers.frail == 0;
                 crate::relic::apply_player_frail_with_relics(
                     &mut state.player.powers,
                     &state.relics,
                     1,
                 )?;
+                if had_no_frail && state.player.powers.frail > 0 {
+                    state.player.frail_just_applied = true;
+                }
             }
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             prepare_next_intent_for_actor(state, actor_id)?;
@@ -1684,6 +1701,7 @@ fn execute_spawning_or_targeted_special_intent(
             let painful_stabs = state.monsters[index].powers.painful_stabs;
             apply_monster_pending_effects(
                 state,
+                crate::MonsterIntent::Attack { damage: 3 },
                 damage,
                 1,
                 painful_stabs,
@@ -1935,6 +1953,7 @@ fn finish_monster_turn_cleanup(
         state.player.vulnerable_just_applied = false;
     }
     tick_player_weak_at_end_of_round(state);
+    tick_player_frail_at_end_of_round(state);
     if state.player.powers.intangible > 0 {
         state.player.powers.intangible -= 1;
     }
@@ -2016,6 +2035,7 @@ fn apply_nemesis_intangible_if_absent(state: &mut CombatState) {
 #[allow(clippy::too_many_arguments)]
 fn apply_monster_pending_effects(
     state: &mut CombatState,
+    intent: crate::MonsterIntent,
     damage: i32,
     hits: i32,
     painful_stabs: i32,
@@ -2066,11 +2086,13 @@ fn apply_monster_pending_effects(
         total_hp_damage = checked_turn_add(total_hp_damage, hp_damage)?;
     }
     if state.player.hp <= 0 {
-        // Drop deferred draws — death screen freezes the bot queue.
+        // Drop the remaining queued effects — the death screen freezes the bot
+        // queue after the lethal DamageAction.
         state.relic_counters.deferred_centennial_puzzle_draw = false;
         state.relic_counters.deferred_runic_cube_draws = 0;
         return Ok(());
     }
+    apply_queued_post_attack_player_debuffs(intent, &mut state.player, &state.relics)?;
     // Nemesis.takeTurn queues ApplyPowerAction(Intangible) after its DamageActions
     // when it does not already have the power. RunicCube.wasHPLost addToTops a
     // DrawCardAction; FireBreathingPower.onCardDraw addToBots DamageAllEnemiesAction,
@@ -3510,7 +3532,20 @@ mod tests {
         let before = state.clone();
 
         assert_eq!(
-            apply_monster_pending_effects(&mut state, 0, 1, 0, None, 0, 0, 1, 0, false, 0),
+            apply_monster_pending_effects(
+                &mut state,
+                crate::MonsterIntent::Stun,
+                0,
+                1,
+                0,
+                None,
+                0,
+                0,
+                1,
+                0,
+                false,
+                0,
+            ),
             Err(SimError::InvalidState(
                 "player Weak application overflows i32"
             ))
@@ -5268,8 +5303,18 @@ mod tests {
         state.piles.discard_pile.clear();
 
         apply_monster_pending_effects(
-            &mut state, /*damage=*/ 4, /*hits=*/ 4, /*painful_stabs=*/ 1, None, 0,
-            0, 0, 0, false, 0,
+            &mut state,
+            crate::MonsterIntent::Stun,
+            /*damage=*/ 4,
+            /*hits=*/ 4,
+            /*painful_stabs=*/ 1,
+            None,
+            0,
+            0,
+            0,
+            0,
+            false,
+            0,
         )
         .expect("Runic Cube and Painful Stabs settle");
 
@@ -5298,8 +5343,18 @@ mod tests {
         let discard_before = state.piles.discard_pile.len();
 
         apply_monster_pending_effects(
-            &mut state, /*damage=*/ 18, /*hits=*/ 3, /*painful_stabs=*/ 1, None, 0,
-            0, 0, 0, false, 0,
+            &mut state,
+            crate::MonsterIntent::Stun,
+            /*damage=*/ 18,
+            /*hits=*/ 3,
+            /*painful_stabs=*/ 1,
+            None,
+            0,
+            0,
+            0,
+            0,
+            false,
+            0,
         )
         .expect("non-lethal multi-hit");
 
@@ -5330,6 +5385,7 @@ mod tests {
 
         apply_monster_pending_effects(
             &mut state,
+            crate::MonsterIntent::Stun,
             /*damage=*/ 6 * 36,
             /*hits=*/ 36,
             /*painful_stabs=*/ 1,
@@ -6113,14 +6169,62 @@ mod tests {
     }
 
     #[test]
-    fn nilry_stage_three_pending_powers_do_not_tick_weak() {
+    fn frail_ticks_after_a_survived_monster_turn_but_not_after_lethal_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 10;
+        state.player.powers.frail = 2;
+        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 1 };
+        state.monsters[0].initial_intent_locked = true;
+
+        let survived = end_player_turn(&state).expect("nonlethal monster turn resolves");
+        assert_eq!(survived.player.powers.frail, 1);
+
+        state.player.hp = 1;
+        let killed = end_player_turn(&state).expect("lethal monster turn resolves");
+        assert_eq!(killed.phase, CombatPhase::Lost);
+        assert_eq!(killed.player.powers.frail, 2);
+    }
+
+    #[test]
+    fn fully_blocked_attack_still_executes_its_later_frail_action() {
+        let mut state = CombatState::initial_fixture();
+        state.player.block = 999;
+        state.monsters[0].intent = crate::MonsterIntent::AttackApplyPlayerFrail {
+            damage: 1,
+            frail: 2,
+        };
+        state.monsters[0].initial_intent_locked = true;
+
+        let survived = end_player_turn(&state).expect("blocked monster turn resolves");
+        assert_eq!(survived.player.powers.frail, 2);
+    }
+
+    #[test]
+    fn lethal_attack_cancels_its_later_frail_action_without_consuming_artifact() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 1;
+        state.player.powers.artifact = 1;
+        state.monsters[0].intent = crate::MonsterIntent::AttackApplyPlayerFrail {
+            damage: 1,
+            frail: 2,
+        };
+        state.monsters[0].initial_intent_locked = true;
+
+        let killed = end_player_turn(&state).expect("lethal monster turn resolves");
+        assert_eq!(killed.phase, CombatPhase::Lost);
+        assert_eq!(killed.player.powers.frail, 0);
+        assert_eq!(killed.player.powers.artifact, 1);
+    }
+
+    #[test]
+    fn nilry_stage_three_pending_powers_do_not_tick_end_of_round_debuffs() {
         let mut state = CombatState::initial_fixture();
         state.nilrys_end_powers_pending = true;
         state.player.powers.weak = 2;
         state.player.powers.frail = 2;
         apply_pending_nilry_end_powers(&mut state).expect("pending powers");
         assert_eq!(state.player.powers.weak, 2);
-        assert_eq!(state.player.powers.frail, 1);
+        assert_eq!(state.player.powers.frail, 2);
         assert!(!state.nilrys_end_powers_pending);
     }
 

@@ -163,11 +163,15 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                     true
                 }
                 SHAME_ID => {
+                    let had_no_frail = state.player.powers.frail == 0;
                     crate::relic::apply_player_frail_with_relics(
                         &mut state.player.powers,
                         &state.relics,
                         1,
                     )?;
+                    if had_no_frail && state.player.powers.frail > 0 {
+                        state.player.frail_just_applied = true;
+                    }
                     true
                 }
                 _ => {

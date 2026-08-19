@@ -23,6 +23,12 @@ fair/hidden/omniscient state boundary.
   Fixed seeds are fine in tests and corpus metadata.
 - Never make a diff pass by excluding gameplay-affecting state, and never claim
   real-game parity without a real-game trace.
+- Never implement a successful gameplay transition by applying effects in the
+  wrong order and then copying/restoring selected fields from a pre-transition
+  snapshot to match the observed result. Model action ordering, queued effects,
+  cancellation, and conditional execution directly. Whole-state transactional
+  rollback on a rejected/error transition is still allowed; post-hoc gameplay
+  correction on an accepted transition is not.
 
 ## Testing
 

@@ -3969,28 +3969,8 @@ pub fn enter_event_screen(run: &mut RunState) -> SimResult<()> {
     next.phase = RunPhase::Event;
     next.match_and_keep = None;
     next.event = Some(entered_event_screen_for_run(&mut next, event)?);
-    if event == Event::Duplicator {
-        apply_duplicator_leftover_grid_selected_copy(&mut next)?;
-    }
     *run = next;
     Ok(())
-}
-
-/// Headbutt's GridCardSelectScreen can leave `selectedCards` populated after a
-/// skipped-retrieval confirm. Duplicator.update copies that leftover with
-/// makeStatEquivalentCopy + ShowCardAndObtainEffect on the first event frame.
-fn apply_duplicator_leftover_grid_selected_copy(run: &mut RunState) -> SimResult<()> {
-    let Some(alias) = run.pending_headbutt_alias.take() else {
-        return Ok(());
-    };
-    let id = CardId::new(run.next_card_instance_id()?);
-    let mut copy = CardInstance::new(id, alias.content_id);
-    copy.upgrades = alias.upgrades;
-    copy.searing_blow_upgrades = alias.searing_blow_upgrades;
-    copy.ritual_dagger_damage_bonus = alias.ritual_dagger_damage_bonus;
-    copy.bottled = false;
-    copy.combat_only = false;
-    run.add_deck_card(copy)
 }
 
 #[must_use]
@@ -4295,12 +4275,8 @@ fn apply_neow_immediate_option(next: &mut RunState, option: GeneratedNeowOption)
             for content_id in reward.cards {
                 next.queue_pending_obtain_card(content_id);
             }
-            // The target's commit point for this reward is not reproducible:
-            // 14 of 19 corpus traces show the card in the master deck at the
-            // choice, 5 show it only at the map transition, from identical
-            // commands. Take the majority; the rest cannot be satisfied by any
-            // deterministic rule and need a deterministic re-collection.
-            next.flush_pending_obtain_cards()?;
+            // ShowCardAndObtainEffect owns the card until the subsequent Neow
+            // Leave action settles the visual obtain queue.
         }
         NeowRewardType::ThreeSmallPotions => {
             open_neow_three_potion_reward(next)?;
@@ -5192,12 +5168,8 @@ mod tests {
         left.validate().expect("Neow Leave produces a valid run");
     }
 
-    /// The target's commit point for this reward is not reproducible: 14 of 19
-    /// corpus traces show the card in the master deck at the choice, 5 show it
-    /// only at the map transition, from identical commands. We take the
-    /// majority, so the card is in the deck as soon as the option resolves.
     #[test]
-    fn neow_random_rare_card_obtain_commits_at_the_choice() {
+    fn neow_random_rare_card_obtain_settles_on_leave() {
         let mut run = RunState::seeded_ironclad(34_961_238_662_287, 0);
         run.player_hp = 10_000;
         run.player_max_hp = 10_000;
@@ -5219,21 +5191,14 @@ mod tests {
                 choice_index: option_index,
             },
         )
-        .expect("rare card option commits its obtain");
+        .expect("rare card option queues its obtain");
 
-        assert!(chosen.pending_obtain_cards.is_empty());
-        assert_eq!(chosen.deck.len(), original_deck.len() + expected.len());
-        assert_eq!(
-            chosen.deck[original_deck.len()..]
-                .iter()
-                .map(|card| card.content_id)
-                .collect::<Vec<_>>(),
-            expected
-        );
+        assert_eq!(chosen.pending_obtain_cards, expected);
+        assert_eq!(chosen.deck, original_deck);
         assert_eq!(chosen.event.as_ref().map(|event| event.stage), Some(2));
         chosen
             .validate()
-            .expect("committed Neow rare card obtain is authoritative");
+            .expect("pending Neow rare card obtain is authoritative");
 
         let left = apply_event_action(&chosen, EventAction::Choose { choice_index: 0 })
             .expect("Neow Leave completes the event");
@@ -6314,28 +6279,6 @@ mod tests {
         let punched = apply_event_action(&main, EventAction::Choose { choice_index: 3 })
             .expect("Punch remains index 3");
         assert_eq!(punched.event.as_ref().expect("leave").stage, 2);
-    }
-
-    #[test]
-    fn duplicator_enter_copies_leftover_headbutt_grid_selected_card() {
-        let mut run = RunState::seeded_ironclad(1, 0);
-        let original_len = run.deck.len();
-        let alias_id = CardId::new(9_000);
-        run.pending_headbutt_alias = Some(CardInstance::new(
-            alias_id,
-            crate::content::cards::CLEAVE_ID,
-        ));
-
-        apply_duplicator_leftover_grid_selected_copy(&mut run)
-            .expect("Duplicator consumes leftover Headbutt grid selection");
-
-        assert!(run.pending_headbutt_alias.is_none());
-        assert_eq!(run.deck.len(), original_len + 1);
-        let copied = run.deck.last().expect("copied Cleave");
-        assert_eq!(copied.content_id, crate::content::cards::CLEAVE_ID);
-        assert_ne!(copied.id, alias_id);
-        assert!(!copied.bottled);
-        assert!(!copied.combat_only);
     }
 
     #[test]

@@ -2002,11 +2002,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
     apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat)?;
-    let defer_pending_combat_obtain_settlement = next.defer_pending_combat_obtain_settlement;
-    next.defer_pending_combat_obtain_settlement = false;
-    if !defer_pending_combat_obtain_settlement {
-        settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
-    }
+    settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
     queue_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &mut next_combat)?;
     sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
     next.store_rng_counter(RunRngStream::CardRandom, &next_combat.rng.card_random_rng);

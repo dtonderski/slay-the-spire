@@ -151,9 +151,6 @@ fn apply_player_end_of_turn_powers_for_combat_state(
     if apply_regeneration {
         apply_end_of_player_turn_regeneration(state)?;
     }
-    if state.player.powers.frail > 0 {
-        state.player.powers.frail -= 1;
-    }
     if state.player.powers.entangled > 0 {
         state.player.powers.entangled = 0;
     }

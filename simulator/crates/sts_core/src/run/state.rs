@@ -1089,14 +1089,6 @@ pub struct RunState {
     /// combat-owned transition, without consulting observations.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_combat_obtain_cards: Vec<ContentId>,
-    /// One-shot verifier candidate: retain the queued combat obtain through
-    /// this transition when the source publication is still pre-obtain.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub defer_pending_combat_obtain_settlement: bool,
-    /// Verifier-local provenance for a skipped Headbutt retrieval. It is not
-    /// serialized or consulted by ordinary gameplay transitions.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_headbutt_alias: Option<CardInstance>,
     /// Ordered call-time inputs for gameplay draws from process-global RNG.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_external_rng: Vec<ExternalRngInput>,
@@ -2735,8 +2727,6 @@ impl RunState {
             pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_combat_obtain_cards: Vec::new(),
-            defer_pending_combat_obtain_settlement: false,
-            pending_headbutt_alias: None,
             pending_external_rng: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
@@ -2847,8 +2837,6 @@ impl RunState {
             pending_astrolabe_transform: None,
             pending_obtain_cards_bypass_omamori: Vec::new(),
             pending_combat_obtain_cards: Vec::new(),
-            defer_pending_combat_obtain_settlement: false,
-            pending_headbutt_alias: None,
             pending_external_rng: Vec::new(),
             event_rng_seed: 0,
             reward_rng_seed: 0,
