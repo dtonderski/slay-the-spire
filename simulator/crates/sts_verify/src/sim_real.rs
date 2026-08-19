@@ -220,7 +220,7 @@ impl std::fmt::Display for SimRealError {
                 None => write!(f, "unsupported CommunicationMod boundary schema: explicit metadata boundary_schema of 1 or 2 is required"),
             },
             Self::InvalidBoundaryContract { step, reason } => {
-                write!(f, "invalid boundary-schema-v1 contract at step {step}: {reason}")
+                write!(f, "invalid boundary contract at step {step}: {reason}")
             }
             Self::OrphanExternalRng { step } => {
                 write!(f, "external RNG metadata at step {step} has no matching pending action")
@@ -353,6 +353,7 @@ fn verify_seed_start_reader<R: BufRead>(
     let mut replay = StreamingSeedStartReplay::default();
     let mut last_observed_playtime_seconds = None;
     let mut metadata_seen = false;
+    let mut metadata_boundary_schema = None;
     let mut profile = None;
     let mut boss_unlocks = BossUnlockState::default();
     let mut start = None;
@@ -385,6 +386,7 @@ fn verify_seed_start_reader<R: BufRead>(
                     boundary_schema: metadata.boundary_schema,
                 });
             }
+            metadata_boundary_schema = metadata.boundary_schema;
             if metadata.schema != 1 || metadata.source != "communication_mod" {
                 return Err(SimRealError::InvalidBoundaryContract {
                     step: 0,
@@ -489,7 +491,10 @@ fn verify_seed_start_reader<R: BufRead>(
                 pending_action.external_rng.extend(capture.draws);
             }
             TraceLine::State(state) => {
-                let kind = validate_boundary_v1_state(&state)?;
+                let kind = validate_boundary_state(
+                    &state,
+                    metadata_boundary_schema.expect("validated leading metadata schema"),
+                )?;
                 let Some(pending_action) = pending.take() else {
                     return Err(SimRealError::InvalidBoundaryContract {
                         step: state.step,
@@ -706,15 +711,32 @@ fn verify_seed_start_reader<R: BufRead>(
     Ok(report)
 }
 
-fn validate_boundary_v1_state(state: &TraceState) -> Result<&str, SimRealError> {
+fn validate_boundary_state(
+    state: &TraceState,
+    metadata_boundary_schema: u32,
+) -> Result<&str, SimRealError> {
     let message = &state.message;
-    if !matches!(
-        message.get("boundary_schema").and_then(Value::as_u64),
-        Some(1 | 2)
-    ) {
+    let state_boundary_schema = message.get("boundary_schema").and_then(Value::as_u64);
+    if state_boundary_schema != Some(u64::from(metadata_boundary_schema)) {
         return Err(SimRealError::InvalidBoundaryContract {
             step: state.step,
-            reason: "every state must declare integer boundary_schema of 1 or 2".to_owned(),
+            reason: format!(
+                "state boundary_schema must match metadata boundary_schema={metadata_boundary_schema}, received {}",
+                state_boundary_schema
+                    .map(|schema| schema.to_string())
+                    .unwrap_or_else(|| "missing".to_owned())
+            ),
+        });
+    }
+    if metadata_boundary_schema == 2
+        && message
+            .get("end_turn_queued")
+            .and_then(Value::as_bool)
+            .is_none()
+    {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: state.step,
+            reason: "boundary schema 2 requires boolean end_turn_queued".to_owned(),
         });
     }
     let kind = message
@@ -788,13 +810,21 @@ fn validate_boundary_v1_state(state: &TraceState) -> Result<&str, SimRealError> 
             reason: "interaction_ready boundary has no active or queued work".to_owned(),
         });
     }
-    if matches!(kind, "interaction_ready" | "quiescent" | "terminal")
-        && message.get("ready_for_command").and_then(Value::as_bool) != Some(true)
-    {
-        return Err(SimRealError::InvalidBoundaryContract {
-            step: state.step,
-            reason: format!("{kind} boundary is not ready for input"),
-        });
+    if matches!(kind, "interaction_ready" | "quiescent" | "terminal") {
+        if message.get("ready_for_command").and_then(Value::as_bool) != Some(true) {
+            return Err(SimRealError::InvalidBoundaryContract {
+                step: state.step,
+                reason: format!("{kind} boundary is not ready for input"),
+            });
+        }
+        if metadata_boundary_schema == 2
+            && message.get("end_turn_queued").and_then(Value::as_bool) != Some(false)
+        {
+            return Err(SimRealError::InvalidBoundaryContract {
+                step: state.step,
+                reason: format!("{kind} schema-2 boundary cannot have an end turn queued"),
+            });
+        }
     }
     Ok(kind)
 }
@@ -825,12 +855,19 @@ fn seed_start_take_first_diff_boundary(report: &mut SimRealReport) -> Option<See
 }
 
 fn validate_trace_profile(profile: &TraceProfile) -> Result<(), SimRealError> {
-    let content_id = content_id_from_key(&profile.note_card).ok_or_else(|| {
-        SimRealError::InvalidProfileInput(format!("unknown Note card {:?}", profile.note_card))
-    })?;
+    let content_id = profile
+        .note_card
+        .as_deref()
+        .map(|note_card| {
+            content_id_from_key(note_card).ok_or_else(|| {
+                SimRealError::InvalidProfileInput(format!("unknown Note card {note_card:?}"))
+            })
+        })
+        .transpose()?;
     let mut run = RunState::seeded_ironclad(0, 0);
     run.note_card_content_id = content_id;
     run.note_card_upgrades = profile.note_upgrades;
+    run.final_act_available = profile.final_act_available;
     run.validate().map_err(|error| {
         SimRealError::InvalidProfileInput(format!(
             "Note card {:?} with {} upgrade(s) is invalid: {error}",

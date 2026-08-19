@@ -11,6 +11,15 @@ use std::{
 /// Bridge backend contract. Real CommunicationMod support and fake tests share this surface.
 pub trait BridgeManager {
     fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>>;
+    /// Captures authoritative persistent profile inputs before a run starts.
+    /// Bridges without a dedicated pre-run snapshot retain the post-START
+    /// state fallback in `SessionStore` by returning `None`.
+    fn profile_snapshot(
+        &mut self,
+        _bridge_id: &BridgeId,
+    ) -> LiveResult<Option<sts_verify::TraceProfile>> {
+        Ok(None)
+    }
     fn start_run(&mut self, bridge_id: &BridgeId, config: &RunConfig) -> LiveResult<LiveState>;
     fn start_verification_run(
         &mut self,

@@ -381,6 +381,191 @@ fn communication_bridge_attach_falls_back_when_no_live_state_exists_yet() {
 }
 
 #[test]
+fn communication_bridge_captures_profile_snapshot_via_tcp_profile_command() {
+    let root = temp_dir("profile-snapshot");
+    write_bridge_files(&root, menu_summary());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let server_received = Arc::clone(&received);
+    let server = thread::spawn(move || {
+        for response in [
+            json!({"ok": true, "owner_token": "owner-profile"}),
+            json!({
+                "ok": true,
+                "observed_update": {
+                    "state": {
+                        "status": {"status": "ready"},
+                        "summary": {
+                            "type": "profile",
+                            "profile": {
+                                "note_card": "Twin Strike",
+                                "note_upgrades": 1,
+                                "final_act_available": true
+                            }
+                        }
+                    }
+                }
+            }),
+            json!({"ok": true, "released": true}),
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            server_received
+                .lock()
+                .unwrap()
+                .push(serde_json::from_str::<serde_json::Value>(&line).unwrap());
+            serde_json::to_writer(&mut stream, &response).unwrap();
+            stream.write_all(b"\n").unwrap();
+        }
+    });
+    fs::write(
+        root.join("status.json"),
+        serde_json::to_vec(&json!({
+            "step": 0,
+            "client_pid": 1234,
+            "status": "ready",
+            "trace_path": "trace.jsonl",
+            "control": {
+                "host": "127.0.0.1",
+                "port": port,
+                "protocol": "tcp-jsonl"
+            },
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut bridge = bridge(&root, false);
+
+    let profile = bridge
+        .profile_snapshot(&BridgeId("communication-mod".to_owned()))
+        .unwrap()
+        .expect("PROFILE response contains a profile snapshot");
+
+    server.join().unwrap();
+    assert_eq!(profile.note_card.as_deref(), Some("Twin Strike"));
+    assert_eq!(profile.note_upgrades, 1);
+    assert_eq!(profile.final_act_available, Some(true));
+    let requests = received.lock().unwrap();
+    assert_eq!(requests[0]["type"], "acquire");
+    assert_eq!(requests[1]["type"], "command");
+    assert_eq!(requests[1]["command"], "PROFILE");
+    assert_eq!(requests[2]["type"], "release");
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn communication_bridge_observes_startup_menu_before_profile_snapshot() {
+    let root = temp_dir("startup-profile-snapshot");
+    fs::create_dir_all(&root).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let server_received = Arc::clone(&received);
+    let menu = json!({
+        "step": 0,
+        "state_seq": 1,
+        "state_id": "observed-menu",
+        "available_commands": ["profile", "start", "state"],
+        "ready_for_command": true,
+        "in_game": false,
+        "screen_type": "MENU"
+    });
+    let server_menu = menu.clone();
+    let server = thread::spawn(move || {
+        for response in [
+            json!({"ok": true, "status": {"status": "ready"}, "summary": null}),
+            json!({"ok": true, "owner_token": "owner-state"}),
+            json!({
+                "ok": true,
+                "observed_update": {
+                    "state": {
+                        "status": {"status": "waiting"},
+                        "summary": server_menu.clone()
+                    }
+                }
+            }),
+            json!({"ok": true, "released": true}),
+            json!({"ok": true, "status": {"status": "waiting"}, "summary": server_menu}),
+            json!({"ok": true, "owner_token": "owner-profile"}),
+            json!({
+                "ok": true,
+                "observed_update": {
+                    "state": {
+                        "status": {"status": "waiting"},
+                        "summary": {
+                            "type": "profile",
+                            "profile": {
+                                "note_upgrades": 0,
+                                "final_act_available": true
+                            }
+                        }
+                    }
+                }
+            }),
+            json!({"ok": true, "released": true}),
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            server_received
+                .lock()
+                .unwrap()
+                .push(serde_json::from_str::<serde_json::Value>(&line).unwrap());
+            serde_json::to_writer(&mut stream, &response).unwrap();
+            stream.write_all(b"\n").unwrap();
+        }
+    });
+    fs::write(
+        root.join("status.json"),
+        serde_json::to_vec(&json!({
+            "step": 0,
+            "client_pid": 1234,
+            "status": "ready",
+            "trace_path": "trace.jsonl",
+            "control": {
+                "host": "127.0.0.1",
+                "port": port,
+                "protocol": "tcp-jsonl"
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let mut bridge = bridge(&root, false);
+
+    let profile = bridge
+        .profile_snapshot(&BridgeId("communication-mod".to_owned()))
+        .unwrap()
+        .expect("PROFILE response contains a profile snapshot");
+
+    server.join().unwrap();
+    assert_eq!(profile.note_card, None);
+    assert_eq!(profile.note_upgrades, 0);
+    assert_eq!(profile.final_act_available, Some(true));
+    let requests = received.lock().unwrap();
+    assert_eq!(requests.len(), 8);
+    assert_eq!(requests[0]["type"], "state");
+    assert_eq!(requests[1]["type"], "acquire");
+    assert_eq!(requests[2]["type"], "command");
+    assert_eq!(requests[2]["command"], "STATE");
+    assert_eq!(requests[3]["type"], "release");
+    assert_eq!(requests[4]["type"], "state");
+    assert_eq!(requests[5]["type"], "acquire");
+    assert_eq!(requests[6]["type"], "command");
+    assert_eq!(requests[6]["command"], "PROFILE");
+    assert_eq!(requests[6]["expected_state_id"], "observed-menu");
+    assert_eq!(requests[6]["expected_state_seq"], 1);
+    assert_eq!(requests[7]["type"], "release");
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn communication_bridge_start_sends_tcp_command_without_state_preflight() {
     let root = temp_dir("stale-summary-start");
     write_bridge_files(&root, menu_summary());

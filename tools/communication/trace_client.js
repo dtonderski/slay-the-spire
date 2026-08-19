@@ -229,6 +229,7 @@ function summarize(message) {
     current_action_update_count: message.current_action_update_count ?? null,
     actions_queued: message.actions_queued ?? null,
     card_queue_size: message.card_queue_size ?? null,
+    end_turn_queued: message.end_turn_queued ?? null,
     pre_turn_actions_size: message.pre_turn_actions_size ?? null,
     screen_type: gs.screen_type ?? null,
     screen_name: gs.screen_name ?? null,
@@ -305,12 +306,14 @@ function summarize(message) {
 }
 
 const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
+const SUPPORTED_BOUNDARY_SCHEMAS = new Set([1, 2]);
 
 function stateCompletesCommand(command, summary) {
   if (summary?.error) return true;
   const verb = String(command ?? "").trim().split(/\s+/)[0].toLowerCase();
   if (verb === "profile") return summary?.type === "profile";
-  if (summary?.boundary_schema !== 1) return false;
+  if (!SUPPORTED_BOUNDARY_SCHEMAS.has(summary?.boundary_schema)) return false;
+  if (summary.boundary_schema === 2 && summary.end_turn_queued !== false) return false;
   if (verb === "state") return summary.boundary_kind === "poll";
   return GAMEPLAY_BOUNDARY_KINDS.has(summary?.boundary_kind);
 }
@@ -350,8 +353,13 @@ function publishState(message) {
   notifyStateWaiters();
   const publishedSummary = latestSummary;
   if (auxiliaryProfile) {
-    latestState = previousState;
-    latestSummary = previousSummary;
+    const restoredStateId = previousSummary?.state_id ?? previousState?.state_id ?? null;
+    latestState = previousState
+      ? { ...previousState, state_seq: stateSeq, state_id: restoredStateId }
+      : null;
+    latestSummary = previousSummary
+      ? { ...previousSummary, state_seq: stateSeq, state_id: restoredStateId }
+      : null;
     if (latestState) writeJsonDeferred(statePath, latestState);
     if (latestSummary) writeJsonDeferred(summaryPath, latestSummary);
   }
@@ -561,13 +569,15 @@ function validateProtocolCommand(payload) {
   if (command.length > 200) return "command is too long";
   const verb = command.split(/\s+/)[0].toLowerCase();
   const isStartCommand = verb === "start" || verb === "start_verify";
-  const startupStart = isStartCommand && !latestSummary && latestStatus?.status === "ready";
+  const startupReady = !latestSummary && latestStatus?.status === "ready";
+  const startupStart = isStartCommand && startupReady;
+  const startupState = verb === "state" && startupReady;
   const available = new Set((latestSummary?.available_commands ?? []).map((item) => String(item).toLowerCase()));
   const menuStart =
     isStartCommand &&
     latestSummary?.in_game === false &&
     available.has(verb);
-  if (!latestSummary && !startupStart) return "no observed state is available";
+  if (!latestSummary && !startupStart && !startupState) return "no observed state is available";
   if (queuedCommands.length > 0) return "a command is already queued";
   if (commandInFlight) return "a command is already in flight";
   if (verb !== "state" && !startupStart && !payload.expected_state_id) {
@@ -828,7 +838,10 @@ async function handleControlMessage(payload) {
     const commandId = payload.command_id || crypto.randomUUID();
     const command = String(payload.command).trim();
     const verb = command.split(/\s+/)[0].toLowerCase();
-    const startupStart = verb === "start" && !latestSummary && latestStatus?.status === "ready";
+    const startupStart = (verb === "start" || verb === "start_verify")
+      && !latestSummary
+      && latestStatus?.status === "ready";
+    const startupState = verb === "state" && !latestSummary && latestStatus?.status === "ready";
     const commandMeta = {
       command_id: commandId,
       command,
@@ -859,7 +872,7 @@ async function handleControlMessage(payload) {
       accepted_state_id: acceptedStateId,
       accepted_state_seq: acceptedStateSeq,
     });
-    if (startupStart) {
+    if (startupStart || startupState) {
       writeAction(commandMeta.command, commandMeta);
     } else {
       enqueueCommand(commandMeta.command, commandMeta);

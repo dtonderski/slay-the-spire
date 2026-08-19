@@ -1,0 +1,10 @@
+{
+  "modid": "CommunicationMod",
+  "name": "Communication Mod",
+  "author_list": ["Forgotten Arbiter"],
+  "description": "Used to help external programs communicate with Slay the Spire",
+  "version": "${project.version}",
+  "sts_version": "${SlayTheSpire.version}",
+  "mts_version": "${ModTheSpire.version}",
+  "dependencies": ["basemod"]
+}

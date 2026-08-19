@@ -167,6 +167,16 @@ impl BridgeManager for RuntimeBridge {
         }
     }
 
+    fn profile_snapshot(
+        &mut self,
+        bridge_id: &BridgeId,
+    ) -> LiveResult<Option<sts_verify::TraceProfile>> {
+        match self {
+            Self::Communication(bridge) => bridge.profile_snapshot(bridge_id),
+            Self::Fake(bridge) => bridge.profile_snapshot(bridge_id),
+        }
+    }
+
     fn start_run(&mut self, bridge_id: &BridgeId, config: &RunConfig) -> LiveResult<LiveState> {
         match self {
             Self::Communication(bridge) => bridge.start_run(bridge_id, config),

@@ -2594,8 +2594,11 @@ fn note_card_for_run(run: &RunState) -> SimResult<CardInstance> {
 }
 
 fn note_card_for_run_with_id(run: &RunState, card_id: CardId) -> SimResult<CardInstance> {
+    let content_id = run.note_card_content_id.ok_or(SimError::InvalidState(
+        "Note For Yourself requires a saved profile card",
+    ))?;
     card_instance_after_upgrades(
-        CardInstance::new(card_id, run.note_card_content_id),
+        CardInstance::new(card_id, content_id),
         run.note_card_upgrades,
     )
 }
@@ -3629,9 +3632,10 @@ fn fountain_removes_curse(content_id: ContentId) -> bool {
 }
 
 fn note_for_yourself_is_available(run: &RunState) -> bool {
-    // Target enables NoteForYourself unconditionally at A0. A1-A14 also depends
-    // on local profile unlock prefs, which seed-start replay does not model.
-    run.ascension == 0
+    // Target enables NoteForYourself at A0 only when the profile has a saved
+    // Note card. A1-A14 also depends on local unlock prefs, which seed-start
+    // replay does not model.
+    run.ascension == 0 && run.note_card_content_id.is_some()
 }
 
 fn get_event(run: &mut RunState, rng: &mut StsRng) -> Event {
@@ -7887,7 +7891,7 @@ mod tests {
     #[test]
     fn note_for_yourself_uses_profile_card_and_upgrade() {
         let mut run = RunState::seeded_ironclad(1, 0);
-        run.note_card_content_id = BASH_ID;
+        run.note_card_content_id = Some(BASH_ID);
         run.note_card_upgrades = 1;
         run.phase = RunPhase::Event;
         run.event = Some(event_screen_for_run(&run, Event::NoteForYourself));

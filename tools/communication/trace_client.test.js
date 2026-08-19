@@ -247,7 +247,8 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
       in_game: true,
       ready_for_command: true,
       available_commands: ["choose", "state"],
-      boundary_schema: 1,
+      boundary_schema: 2,
+      end_turn_queued: false,
       boundary_kind: "interaction_ready",
       game_update_seq: 101,
       dungeon_update_seq: 99,
@@ -278,7 +279,8 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.strictEqual(liveState.ok, true);
     assert.ok(liveState.state_id);
     assert.ok(liveState.state_seq);
-    assert.strictEqual(liveState.summary.boundary_schema, 1);
+    assert.strictEqual(liveState.summary.boundary_schema, 2);
+    assert.strictEqual(liveState.summary.end_turn_queued, false);
     assert.strictEqual(liveState.summary.boundary_kind, "interaction_ready");
     assert.strictEqual(liveState.summary.current_action, "DiscoveryAction");
     assert.strictEqual(liveState.summary.current_action_instance, 4);
@@ -380,7 +382,8 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
       in_game: true,
       ready_for_command: true,
       available_commands: ["state"],
-      boundary_schema: 1,
+      boundary_schema: 2,
+      end_turn_queued: false,
       boundary_kind: "quiescent",
       game_update_seq: 103,
       dungeon_update_seq: 101,
@@ -1013,6 +1016,96 @@ async function testTcpControlAbandonRunBypassesAvailableCommands() {
   }
 }
 
+async function testTcpControlProfileRestoresGuardMetadataForNextStart() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-profile-start-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: { ...process.env, TRACE_SESSION_DIR: sessionDir, TRACE_OUT_DIR: outDir, TRACE_CONTROL_PORT: "0" },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: false,
+      ready_for_command: true,
+      available_commands: ["profile", "start", "state"],
+      boundary_schema: 1,
+      boundary_kind: "interaction_ready",
+      game_update_seq: 1,
+      dungeon_update_seq: 0,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
+      game_state: { screen_type: "MENU" },
+    })}\n`);
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const beforeProfile = await controlRequest(status.control.port, { type: "state" });
+    const acquired = await controlRequest(status.control.port, {
+      type: "acquire",
+      owner_id: "profile-start-test",
+    });
+    const profilePromise = controlRequest(status.control.port, {
+      type: "command",
+      command: "PROFILE",
+      expected_state_id: beforeProfile.state_id,
+      expected_state_seq: beforeProfile.state_seq,
+      owner_token: acquired.owner_token,
+      wait_for_state_update: true,
+      update_timeout_ms: 3000,
+    });
+    await waitFor(() => stdout.includes("PROFILE\n"));
+    child.stdin.write(`${JSON.stringify({
+      type: "profile",
+      profile: {
+        note_card: "Twin Strike",
+        note_upgrades: 1,
+        final_act_available: true,
+      },
+    })}\n`);
+    const profile = await profilePromise;
+    assert.strictEqual(profile.ok, true, profile.error);
+    assert.strictEqual(
+      profile.observed_update.state.summary.profile.final_act_available,
+      true,
+    );
+
+    const restored = await controlRequest(status.control.port, { type: "state" });
+    assert.strictEqual(restored.summary.type, null);
+    assert.strictEqual(restored.summary.in_game, false);
+    assert.strictEqual(restored.state_seq, restored.summary.state_seq);
+    assert.strictEqual(restored.state_seq, restored.state.state_seq);
+    assert.strictEqual(restored.state_id, restored.summary.state_id);
+    assert.strictEqual(restored.state_id, restored.state.state_id);
+
+    const start = await controlRequest(status.control.port, {
+      type: "command",
+      command: "START IRONCLAD 0 CODEX04",
+      expected_state_id: restored.summary.state_id,
+      expected_state_seq: restored.summary.state_seq,
+      owner_token: acquired.owner_token,
+      wait_for_state_update: false,
+    });
+    assert.strictEqual(start.ok, true, start.error || stderr);
+    await waitFor(() => stdout.includes("START IRONCLAD 0 CODEX04\n"));
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function testTcpControlAcceptsAdvertisedStartFromUnreadyMenu() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-menu-start-"));
   const sessionDir = path.join(root, "session");
@@ -1282,6 +1375,76 @@ async function testTcpControlKeepsDispatchedTimeoutInFlightUntilError() {
   }
 }
 
+async function testTcpControlAllowsOnlyStateBeforeStartupObservation() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-startup-state-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+      TRACE_AUTO_STATE_MS: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "ready" && parsed.control?.port ? parsed : null;
+    });
+    const acquired = await controlRequest(status.control.port, {
+      type: "acquire",
+      owner_id: "startup-state-test",
+    });
+    const blindGameplay = await controlRequest(status.control.port, {
+      type: "command",
+      command: "CHOOSE 0",
+      owner_token: acquired.owner_token,
+    });
+    assert.strictEqual(blindGameplay.ok, false);
+    assert.match(blindGameplay.error, /no observed state/);
+
+    const statePromise = controlRequest(status.control.port, {
+      type: "command",
+      command: "STATE",
+      owner_token: acquired.owner_token,
+      wait_for_state_update: true,
+      update_timeout_ms: 3000,
+    });
+    await waitFor(() => stdout.includes("STATE\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: false,
+      ready_for_command: true,
+      available_commands: ["profile", "start", "state"],
+      boundary_schema: 1,
+      boundary_kind: "poll",
+      game_update_seq: 1,
+      dungeon_update_seq: 0,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
+      game_state: { screen_type: "MENU" },
+    })}\n`);
+    const observed = await statePromise;
+    assert.strictEqual(observed.ok, true, observed.error);
+    assert.strictEqual(observed.observed_update.ok, true);
+    assert.strictEqual(observed.observed_update.state.summary.in_game, false);
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function testTcpControlAllowsStartupStartBeforeObservedState() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-startup-start-"));
   const sessionDir = path.join(root, "session");
@@ -1325,13 +1488,13 @@ async function testTcpControlAllowsStartupStartBeforeObservedState() {
 
     const start = await controlRequest(status.control.port, {
       type: "command",
-      command: "START IRONCLAD 0 CODEX04",
+      command: "START_VERIFY IRONCLAD 0 CODEX04 10000",
       owner_token: acquired.owner_token,
     });
     assert.strictEqual(start.ok, true, start.error);
     assert.strictEqual(start.accepted_state_id, null);
     assert.strictEqual(start.accepted_state_seq, 0);
-    await waitFor(() => stdout.includes("START IRONCLAD 0 CODEX04\n"), 3000);
+    await waitFor(() => stdout.includes("START_VERIFY IRONCLAD 0 CODEX04 10000\n"), 3000);
 
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
@@ -1339,10 +1502,10 @@ async function testTcpControlAllowsStartupStartBeforeObservedState() {
     const traceFiles = fs.readdirSync(outDir).filter((name) => name.endsWith(".jsonl"));
     assert.strictEqual(traceFiles.length, 1, stderr);
     const records = readJsonLines(path.join(outDir, traceFiles[0]));
-    const accept = records.find((record) => record.type === "command_accept" && record.command === "START IRONCLAD 0 CODEX04");
-    const action = records.find((record) => record.type === "action" && record.command === "START IRONCLAD 0 CODEX04");
-    assert.ok(accept, `missing START command_accept; stderr=${stderr}`);
-    assert.ok(action, `missing START action; stderr=${stderr}`);
+    const accept = records.find((record) => record.type === "command_accept" && record.command === "START_VERIFY IRONCLAD 0 CODEX04 10000");
+    const action = records.find((record) => record.type === "action" && record.command === "START_VERIFY IRONCLAD 0 CODEX04 10000");
+    assert.ok(accept, `missing START_VERIFY command_accept; stderr=${stderr}`);
+    assert.ok(action, `missing START_VERIFY action; stderr=${stderr}`);
   } finally {
     if (!child.killed && child.exitCode === null) child.kill();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1359,8 +1522,10 @@ Promise.resolve()
   .then(() => runTest(testTcpControlRecordsObservedUpdateTimeout))
   .then(() => runTest(testTcpControlRejectsAbandonBehindDispatchedCommand))
   .then(() => runTest(testTcpControlAbandonRunBypassesAvailableCommands))
+  .then(() => runTest(testTcpControlProfileRestoresGuardMetadataForNextStart))
   .then(() => runTest(testTcpControlAcceptsAdvertisedStartFromUnreadyMenu))
   .then(() => runTest(testTcpControlRejectsSecondCommandUntilStateUpdate))
+  .then(() => runTest(testTcpControlAllowsOnlyStateBeforeStartupObservation))
   .then(() => runTest(testTcpControlAllowsStartupStartBeforeObservedState))
   .then(() => runTest(testTcpControlKeepsDispatchedTimeoutInFlightUntilError))
   .then(() => {

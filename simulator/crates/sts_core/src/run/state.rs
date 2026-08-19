@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn run_validation_rejects_unrepresentable_note_card_upgrades() {
         let mut run = RunState::map_fixture();
-        run.note_card_content_id = crate::content::cards::BASH_ID;
+        run.note_card_content_id = Some(crate::content::cards::BASH_ID);
         run.note_card_upgrades = 2;
 
         assert_eq!(
@@ -249,7 +249,7 @@ mod tests {
             ))
         );
 
-        run.note_card_content_id = crate::content::cards::SEARING_BLOW_PLUS_ID;
+        run.note_card_content_id = Some(crate::content::cards::SEARING_BLOW_PLUS_ID);
         run.note_card_upgrades = 0;
         assert_eq!(
             run.validate(),
@@ -1227,11 +1227,17 @@ pub struct RunState {
     /// Source `CardCrawlGame.playtime`, used by Secret Portal eligibility.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub playtime_seconds: u32,
-    /// Profile-backed card used by Note For Yourself.
+    /// Profile-backed card used by Note For Yourself. `None` preserves a
+    /// profile that has no saved Note card instead of inventing one.
     #[serde(default = "default_note_card_content_id")]
-    pub note_card_content_id: ContentId,
+    pub note_card_content_id: Option<ContentId>,
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub note_card_upgrades: u8,
+    /// Pre-run profile capability retained for future Act 4 transitions.
+    /// Act 4 keys are not modeled yet, so this is authoritative state without
+    /// changing the current keyless Spire Heart terminal path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_act_available: Option<bool>,
     #[serde(default, skip_serializing_if = "Act1Boss::is_default")]
     pub act1_boss: Act1Boss,
     #[serde(default, skip_serializing_if = "Act3Boss::is_default")]
@@ -1308,8 +1314,8 @@ fn default_card_rarity_factor() -> i32 {
     5
 }
 
-fn default_note_card_content_id() -> ContentId {
-    crate::content::cards::IRON_WAVE_ID
+fn default_note_card_content_id() -> Option<ContentId> {
+    Some(crate::content::cards::IRON_WAVE_ID)
 }
 
 /// Target `EventHelper.BASE_MONSTER_CHANCE` / `RESET_MONSTER_CHANCE` (`0.1f`).
@@ -1810,13 +1816,19 @@ impl RunState {
                 "pending obtain Omamori metadata does not match pending cards",
             ));
         }
-        if get_card_definition(self.note_card_content_id).is_none() {
-            return Err(SimError::UnknownContent(self.note_card_content_id));
+        if let Some(note_card_content_id) = self.note_card_content_id {
+            if get_card_definition(note_card_content_id).is_none() {
+                return Err(SimError::UnknownContent(note_card_content_id));
+            }
+            card_instance_after_upgrades(
+                CardInstance::new(CardId::new(1), note_card_content_id),
+                self.note_card_upgrades,
+            )?;
+        } else if self.note_card_upgrades != 0 {
+            return Err(SimError::InvalidState(
+                "missing Note card cannot retain upgrades",
+            ));
         }
-        card_instance_after_upgrades(
-            CardInstance::new(CardId::new(1), self.note_card_content_id),
-            self.note_card_upgrades,
-        )?;
         let mut owned_relics = Vec::with_capacity(self.relics.len());
         for relic in &self.relics {
             if *relic != Relic::Circlet && owned_relics.contains(relic) {
@@ -2781,6 +2793,7 @@ impl RunState {
             playtime_seconds: 0,
             note_card_content_id: default_note_card_content_id(),
             note_card_upgrades: 0,
+            final_act_available: None,
             act1_boss: Act1Boss::default(),
             act3_boss: Act3Boss::default(),
             shop_remove_count: 0,
@@ -2892,6 +2905,7 @@ impl RunState {
             playtime_seconds: 0,
             note_card_content_id: default_note_card_content_id(),
             note_card_upgrades: 0,
+            final_act_available: None,
             act1_boss: Act1Boss::default(),
             act3_boss: Act3Boss::default(),
             shop_remove_count: 0,

@@ -91,6 +91,31 @@ pub(crate) fn send_guarded_command(
     stale_after: Duration,
     timeout: Duration,
 ) -> LiveResult<LiveState> {
+    let state = send_observation_command(control, command, files, stale_after, timeout)?;
+    if state_is_newer_than_command_source(&state, files) {
+        return Ok(state);
+    }
+    wait_for_newer_state(control, files, timeout)
+}
+
+/// PROFILE returns an authoritative observation without advancing the normal
+/// game-state sequence, so it must not wait for a newer gameplay state.
+pub(crate) fn send_profile_command(
+    control: &ControlAddress,
+    files: &BridgeFiles,
+    stale_after: Duration,
+    timeout: Duration,
+) -> LiveResult<LiveState> {
+    send_observation_command(control, "PROFILE", files, stale_after, timeout)
+}
+
+fn send_observation_command(
+    control: &ControlAddress,
+    command: &str,
+    files: &BridgeFiles,
+    stale_after: Duration,
+    timeout: Duration,
+) -> LiveResult<LiveState> {
     let owner_token = acquire_control(control, stale_after, timeout)?;
     let response = control_request(
         control,
@@ -108,12 +133,7 @@ pub(crate) fn send_guarded_command(
         timeout,
     );
     let _ = release_control(control, &owner_token, timeout);
-    let response = response?;
-    let state = observed_response(response, "bridge control command rejected", files)?;
-    if state_is_newer_than_command_source(&state, files) {
-        return Ok(state);
-    }
-    wait_for_newer_state(control, files, timeout)
+    observed_response(response?, "bridge control command rejected", files)
 }
 
 pub(crate) fn send_abandon_run(

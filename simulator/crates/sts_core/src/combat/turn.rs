@@ -1122,26 +1122,6 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 {
                     if let Some(monster) = state.monsters.iter_mut().find(|m| m.id == actor_id) {
                         monster.intent = *intent;
-                        // Book.takeTurn uses live `stabCount`. The first
-                        // multi-stab of a fight sees the increment on the
-                        // second queue item (step 852: 2+3).
-                        if false && monster.content_id == BOOK_OF_STABBING_ID {
-                            let executed_stabs = monster
-                                .move_history
-                                .iter()
-                                .filter(|move_byte| **move_byte == 1)
-                                .count();
-                            if executed_stabs < 2 {
-                                if let crate::MonsterIntent::AttackMultiple { damage, hits } =
-                                    monster.intent
-                                {
-                                    monster.intent = crate::MonsterIntent::AttackMultiple {
-                                        damage,
-                                        hits: hits.saturating_add(1),
-                                    };
-                                }
-                            }
-                        }
                     }
                 }
             }

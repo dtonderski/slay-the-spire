@@ -302,13 +302,16 @@ function chooseRandomAction(summary, random) {
 }
 
 const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
+const REQUIRED_BOUNDARY_SCHEMA = 2;
 
 function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
   const message =
     protocolState?.state?.message ?? protocolState?.message ?? protocolState?.summary ?? protocolState;
   const schema = message?.boundary_schema;
-  if (schema !== 1) {
-    throw new Error(`CommunicationMod boundary_schema=1 is required, received ${message?.boundary_schema ?? "missing"}`);
+  if (schema !== REQUIRED_BOUNDARY_SCHEMA) {
+    throw new Error(
+      `CommunicationMod boundary_schema=${REQUIRED_BOUNDARY_SCHEMA} is required, received ${schema ?? "missing"}`,
+    );
   }
   const kind = String(message?.boundary_kind ?? "");
   const allowedKinds = [...GAMEPLAY_BOUNDARY_KINDS, "poll"];
@@ -355,8 +358,16 @@ function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
   ) {
     throw new Error("interaction_ready CommunicationMod boundary has no active or queued work");
   }
-  if (GAMEPLAY_BOUNDARY_KINDS.has(kind) && message?.ready_for_command !== true) {
-    throw new Error(`${kind} CommunicationMod boundary is not ready for input`);
+  if (typeof message?.end_turn_queued !== "boolean") {
+    throw new Error("CommunicationMod schema 2 requires boolean end_turn_queued");
+  }
+  if (GAMEPLAY_BOUNDARY_KINDS.has(kind)) {
+    if (message?.ready_for_command !== true) {
+      throw new Error(`${kind} CommunicationMod boundary is not ready for input`);
+    }
+    if (message.end_turn_queued) {
+      throw new Error(`${kind} CommunicationMod boundary cannot have an end turn queued`);
+    }
   }
   return { kind, message };
 }
@@ -512,6 +523,24 @@ function loadBossUnlocks(environment = process.env) {
   return parseBossUnlocks();
 }
 
+function validateProfileSnapshot(profile) {
+  const noteCardIsValid = profile?.note_card === undefined
+    || (typeof profile.note_card === "string" && profile.note_card.trim() !== "");
+  if (
+    !noteCardIsValid ||
+    !Number.isSafeInteger(profile?.note_upgrades) ||
+    profile.note_upgrades < 0 ||
+    profile.note_upgrades > 255 ||
+    (profile.note_card === undefined && profile.note_upgrades !== 0) ||
+    typeof profile.final_act_available !== "boolean"
+  ) {
+    throw new Error(
+      "PROFILE returned invalid note_card, note_upgrades, or final_act_available",
+    );
+  }
+  return profile;
+}
+
 function addCollectionMetadata(
   records,
   bossUnlocks,
@@ -520,11 +549,24 @@ function addCollectionMetadata(
   startingHp,
   profile,
   sourceVersion = "working-tree",
+  boundarySchema,
 ) {
+  if (boundarySchema !== REQUIRED_BOUNDARY_SCHEMA) {
+    throw new Error(
+      `CommunicationMod boundary_schema=${REQUIRED_BOUNDARY_SCHEMA} is required, received ${boundarySchema ?? "missing"}`,
+    );
+  }
+  for (const state of records.filter((record) => record.type === "state")) {
+    if (state.message?.boundary_schema !== boundarySchema) {
+      throw new Error(
+        `trace boundary_schema changed from ${boundarySchema} to ${state.message?.boundary_schema ?? "missing"}`,
+      );
+    }
+  }
   const metadata = {
     type: "metadata",
     schema: 1,
-    boundary_schema: 1,
+    boundary_schema: boundarySchema,
     source: "communication_mod",
     client: "tools/communication/random_fidelity_collector.js",
     source_version: sourceVersion,
@@ -859,21 +901,26 @@ async function main() {
       if (protocolState.summary?.in_game) throw new Error("game did not return to menu after abandon");
     }
     const startupReady = !protocolState.summary && protocolState.status?.status === "ready";
-    if (!startupReady) {
-      for (let attempt = 0; attempt < 50; attempt += 1) {
-        const available = availableSet(protocolState.summary);
-        if (available.has("start") || available.has("start_verify")) break;
-        await send(status.control, acquired.owner_token, protocolState, "STATE", {
-          source: "random_fidelity_collector",
-          reason: "settle_main_menu",
-          operator_control: "settle_poll",
-        });
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        protocolState = await controlRequest(status.control, { type: "state" });
-      }
+    if (startupReady) {
+      await send(status.control, acquired.owner_token, protocolState, "STATE", {
+        source: "random_fidelity_collector",
+        reason: "observe_startup_menu",
+        operator_control: "startup_state",
+      });
+      protocolState = await controlRequest(status.control, { type: "state" });
     }
-    if (!startupReady &&
-        !availableSet(protocolState.summary).has("start") &&
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      const available = availableSet(protocolState.summary);
+      if (available.has("start") || available.has("start_verify")) break;
+      await send(status.control, acquired.owner_token, protocolState, "STATE", {
+        source: "random_fidelity_collector",
+        reason: "settle_main_menu",
+        operator_control: "settle_poll",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      protocolState = await controlRequest(status.control, { type: "state" });
+    }
+    if (!availableSet(protocolState.summary).has("start") &&
         !availableSet(protocolState.summary).has("start_verify")) {
       throw new Error("START_VERIFY did not become available at the main menu");
     }
@@ -884,16 +931,7 @@ async function main() {
       "PROFILE",
       { source: "random_fidelity_collector", reason: "capture_pre_run_profile" },
     );
-    const profile = profileState.summary?.profile;
-    if (
-      typeof profile?.note_card !== "string" ||
-      profile.note_card.trim() === "" ||
-      !Number.isSafeInteger(profile.note_upgrades) ||
-      profile.note_upgrades < 0 ||
-      profile.note_upgrades > 255
-    ) {
-      throw new Error("PROFILE returned invalid note_card or note_upgrades");
-    }
+    const profile = validateProfileSnapshot(profileState.summary?.profile);
     protocolState = await controlRequest(status.control, { type: "state" });
     if (!protocolState.ok || !availableSet(protocolState.summary).has("start_verify")) {
       throw new Error("bridge did not restore the command boundary after PROFILE");
@@ -987,6 +1025,7 @@ async function main() {
           startingHp,
           profile,
           sourceVersion,
+          communicationBoundary(protocolState).message.boundary_schema,
         );
         const records = normalizeSettledGameplayRecords(rawRecords);
         writeTrace(activeTrace, records, { exclusive: true });
@@ -1138,5 +1177,6 @@ module.exports = {
   playerCombatStrength,
   seededRandom,
   totalLivingEnemyHp,
+  validateProfileSnapshot,
   writeTrace,
 };

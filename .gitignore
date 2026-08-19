@@ -85,7 +85,9 @@ simulator/python/sts_sim/__pycache__/
 # Local mod build symlinks / launcher
 mods/lib/
 ModTheSpire.json
+!mods/CommunicationMod/src/main/resources/ModTheSpire.json
 sts
 
 .ipynb_checkpoints/
 **/Untitled.ipynb
+.muxel/

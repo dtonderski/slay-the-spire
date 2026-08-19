@@ -347,9 +347,15 @@ where
     pub fn start_run(
         &mut self,
         bridge_id: BridgeId,
-        config: RunConfig,
+        mut config: RunConfig,
     ) -> LiveResult<SessionSnapshot> {
+        let captured_profile = self.bridge.profile_snapshot(&bridge_id)?;
         let state = self.bridge.start_run(&bridge_id, &config)?;
+        if let Some(profile) = captured_profile {
+            config.profile = Some(profile);
+        } else if let Some(profile) = profile_from_initial_state(&state)? {
+            config.profile = Some(profile);
+        }
         self.record_started_run(
             bridge_id,
             config,
@@ -363,7 +369,7 @@ where
     pub fn start_verification_run(
         &mut self,
         bridge_id: BridgeId,
-        config: RunConfig,
+        mut config: RunConfig,
         starting_hp: i32,
     ) -> LiveResult<SessionSnapshot> {
         if !(1..=1_000_000).contains(&starting_hp) {
@@ -371,9 +377,15 @@ where
                 "START_VERIFY starting HP must be between 1 and 1000000, got {starting_hp}"
             )));
         }
+        let captured_profile = self.bridge.profile_snapshot(&bridge_id)?;
         let state = self
             .bridge
             .start_verification_run(&bridge_id, &config, starting_hp)?;
+        if let Some(profile) = captured_profile {
+            config.profile = Some(profile);
+        } else if let Some(profile) = profile_from_initial_state(&state)? {
+            config.profile = Some(profile);
+        }
         self.record_started_run(
             bridge_id,
             config,
@@ -387,15 +399,12 @@ where
     fn record_started_run(
         &mut self,
         bridge_id: BridgeId,
-        mut config: RunConfig,
+        config: RunConfig,
         state: LiveState,
         start_action: impl FnOnce(&RunConfig) -> LegalAction,
         source: &str,
         response_command: &str,
     ) -> LiveResult<SessionSnapshot> {
-        if let Some(profile) = profile_from_initial_state(&state)? {
-            config.profile = Some(profile);
-        }
         let id = self.next_session_id();
         let start_action = start_action(&config);
         let mut session = self.new_session(id.clone(), bridge_id, Some(config))?;

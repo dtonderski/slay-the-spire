@@ -40,7 +40,8 @@ pub struct RunConfig {
     pub character: Character,
     pub ascension: u8,
     pub seed: RunSeed,
-    /// Persistent profile input captured from the first state of the run.
+    /// Persistent profile input captured before START when supported, with a
+    /// first-state fallback for legacy bridges.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<TraceProfile>,
 }

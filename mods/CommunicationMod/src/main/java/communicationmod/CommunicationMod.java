@@ -135,6 +135,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
         JsonObject profile = new JsonObject();
         profile.addProperty("type", "profile");
         JsonObject values = new JsonObject();
+        boolean finalActAvailable = false;
         if (CardCrawlGame.playerPref != null) {
             String noteCard = CardCrawlGame.playerPref.getString("NOTE_CARD");
             if (noteCard != null && !noteCard.trim().isEmpty()) {
@@ -143,7 +144,12 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
             values.addProperty(
                     "note_upgrades",
                     CardCrawlGame.playerPref.getInteger("NOTE_UPGRADE", 0));
+            finalActAvailable =
+                    CardCrawlGame.playerPref.getBoolean("IRONCLAD_WIN", false)
+                            && CardCrawlGame.playerPref.getBoolean("THE_SILENT_WIN", false)
+                            && CardCrawlGame.playerPref.getBoolean("DEFECT_WIN", false);
         }
+        values.addProperty("final_act_available", finalActAvailable);
         profile.add("profile", values);
         sendMessage(profile.toString());
     }

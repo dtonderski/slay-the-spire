@@ -15,7 +15,7 @@ pub(crate) use actions::live_state_from_files;
 use control::{
     control_address, control_is_reachable, request_control_files,
     send_abandon_run as send_abandon_control, send_guarded_command as send_control_command,
-    ControlAddress,
+    send_profile_command as send_profile_control, ControlAddress,
 };
 pub(crate) use files::BridgeFiles;
 use files::{file_age_ms, read_bridge_files};
@@ -441,6 +441,71 @@ impl BridgeManager for CommunicationModBridgeManager {
             });
         }
         Ok(bridges)
+    }
+
+    fn profile_snapshot(
+        &mut self,
+        bridge_id: &BridgeId,
+    ) -> LiveResult<Option<sts_verify::TraceProfile>> {
+        let files = self.require_bridge(bridge_id)?;
+        let Some(control) = control_address(&files.status) else {
+            // Legacy file-command bridges have no reliable way to distinguish
+            // the one-time PROFILE response from the repeated state file.
+            return Ok(None);
+        };
+        let summary_missing = files.summary.is_null()
+            || files.summary.get("missing").and_then(Value::as_bool) == Some(true);
+        let control_files = if summary_missing {
+            // PROFILE is auxiliary but still needs a real semantic menu
+            // observation to guard it. STATE is the only blind command used
+            // here; gameplay commands remain subject to normal guards.
+            let startup_files =
+                request_control_files(&control, &files.status, self.config.command_timeout)?;
+            send_control_command(
+                &control,
+                "STATE",
+                &startup_files,
+                self.config.stale_after,
+                self.config.command_timeout,
+            )?;
+            request_control_files(&control, &files.status, self.config.command_timeout)?
+        } else {
+            match guard::validate_ready_for_operator_control(&files, self.config.stale_after) {
+                Ok(()) => files,
+                Err(_) => {
+                    request_control_files(&control, &files.status, self.config.command_timeout)?
+                }
+            }
+        };
+        guard::validate_ready_for_operator_control(&control_files, self.config.stale_after)?;
+        let state = send_profile_control(
+            &control,
+            &control_files,
+            self.config.stale_after,
+            self.config.command_timeout,
+        )?;
+        let profile = state.raw.pointer("/summary/profile").ok_or_else(|| {
+            LiveError::Bridge(
+                "CommunicationMod PROFILE response did not contain a profile snapshot".to_owned(),
+            )
+        })?;
+        if profile
+            .get("final_act_available")
+            .and_then(Value::as_bool)
+            .is_none()
+        {
+            return Err(LiveError::Bridge(
+                "CommunicationMod PROFILE response did not contain boolean final_act_available"
+                    .to_owned(),
+            ));
+        }
+        serde_json::from_value(profile.clone())
+            .map(Some)
+            .map_err(|error| {
+                LiveError::Bridge(format!(
+                    "CommunicationMod returned an invalid profile snapshot: {error}"
+                ))
+            })
     }
 
     fn start_run(&mut self, bridge_id: &BridgeId, config: &RunConfig) -> LiveResult<LiveState> {

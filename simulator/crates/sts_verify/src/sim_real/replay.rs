@@ -61,9 +61,15 @@ fn initialize_run(
         run.player_hp = starting_hp;
         run.player_max_hp = starting_hp;
     }
-    run.note_card_content_id = content_id_from_key(&profile.note_card)
-        .ok_or_else(|| format!("unknown Note card {:?}", profile.note_card))?;
+    run.note_card_content_id = profile
+        .note_card
+        .as_deref()
+        .map(|note_card| {
+            content_id_from_key(note_card).ok_or_else(|| format!("unknown Note card {note_card:?}"))
+        })
+        .transpose()?;
     run.note_card_upgrades = profile.note_upgrades;
+    run.final_act_available = profile.final_act_available;
     run.validate().map_err(|error| error.to_string())?;
     Ok(run)
 }
@@ -543,6 +549,29 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn initialize_run_preserves_optional_profile_inputs() {
+        let start = StartRunCommand {
+            action_step: 1,
+            character: "IRONCLAD".to_owned(),
+            ascension: 0,
+            external_seed: "1".to_owned(),
+            numeric_seed: 1,
+            verification_starting_hp: None,
+        };
+        let profile = TraceProfile {
+            note_card: None,
+            note_upgrades: 0,
+            final_act_available: Some(true),
+        };
+
+        let run = initialize_run(&start, BossUnlockState::default(), &profile)
+            .expect("optional profile inputs initialize the run");
+
+        assert_eq!(run.note_card_content_id, None);
+        assert_eq!(run.final_act_available, Some(true));
+    }
+
+    #[test]
     fn completed_spire_heart_proceed_is_terminal_and_accounted() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.current_act = 3;
@@ -569,8 +598,9 @@ mod tests {
             verification_starting_hp: None,
         };
         let profile = TraceProfile {
-            note_card: "Strike".to_owned(),
+            note_card: Some("Strike".to_owned()),
             note_upgrades: 0,
+            final_act_available: Some(false),
         };
         let action = TraceAction {
             step: 2,

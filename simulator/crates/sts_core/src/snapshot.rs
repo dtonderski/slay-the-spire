@@ -801,6 +801,48 @@ mod tests {
     }
 
     #[test]
+    fn run_snapshot_round_trip_preserves_missing_note_card() {
+        let mut run = RunState::map_fixture();
+        run.note_card_content_id = None;
+        run.note_card_upgrades = 0;
+        let snapshot = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        };
+        let json = snapshot
+            .canonical_json()
+            .expect("missing Note card snapshot serializes");
+
+        assert!(json.contains(r#""note_card_content_id":null"#));
+        let restored =
+            restore_run_snapshot_json(&json).expect("missing Note card snapshot restores");
+        assert_eq!(restored.state.note_card_content_id, None);
+        assert_eq!(restored, snapshot);
+    }
+
+    #[test]
+    fn legacy_snapshot_without_note_card_field_keeps_historical_default() {
+        let snapshot = Snapshot {
+            schema_version: LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION,
+            state: RunState::map_fixture(),
+        };
+        let mut value = serde_json::to_value(snapshot).expect("legacy snapshot serializes");
+        value["state"]
+            .as_object_mut()
+            .expect("run state is an object")
+            .remove("note_card_content_id");
+        let json = serde_json::to_string(&value).expect("legacy snapshot value serializes");
+
+        let restored =
+            restore_run_snapshot_json(&json).expect("legacy snapshot without Note field restores");
+
+        assert_eq!(
+            restored.state.note_card_content_id,
+            Some(crate::content::cards::IRON_WAVE_ID)
+        );
+    }
+
+    #[test]
     fn run_snapshot_round_trip_preserves_pending_external_rng() {
         let mut run = RunState::map_fixture();
         run.pending_external_rng.push(crate::ExternalRngInput {

@@ -23,6 +23,7 @@ const {
   playerCombatStrength,
   seededRandom,
   totalLivingEnemyHp,
+  validateProfileSnapshot,
   writeTrace,
 } = require("./random_fidelity_collector");
 
@@ -62,7 +63,7 @@ assert.strictEqual(
 );
 
 const boundaryMessage = {
-  boundary_schema: 1,
+  boundary_schema: 2,
   boundary_kind: "interaction_ready",
   ready_for_command: true,
   game_update_seq: 100,
@@ -73,11 +74,16 @@ const boundaryMessage = {
   actions_queued: 1,
   card_queue_size: 0,
   pre_turn_actions_size: 0,
+  end_turn_queued: false,
 };
 const interactionBoundary = { state: { message: boundaryMessage } };
 assert.strictEqual(
   communicationBoundary(interactionBoundary).kind,
   "interaction_ready",
+);
+assert.throws(
+  () => communicationBoundary({ message: { ...boundaryMessage, boundary_schema: 1 } }),
+  /boundary_schema=2 is required/,
 );
 assert.throws(
   () => communicationBoundary({ message: { ...boundaryMessage, boundary_kind: "quiescent" } }),
@@ -90,9 +96,17 @@ assert.throws(
 for (const invalid of ["1", null, false, 1.5]) {
   assert.throws(
     () => communicationBoundary({ message: { ...boundaryMessage, boundary_schema: invalid } }),
-    /boundary_schema=1 is required/,
+    /boundary_schema=2 is required/,
   );
 }
+assert.throws(
+  () => communicationBoundary({ message: { ...boundaryMessage, end_turn_queued: undefined } }),
+  /requires boolean end_turn_queued/,
+);
+assert.throws(
+  () => communicationBoundary({ message: { ...boundaryMessage, end_turn_queued: true } }),
+  /cannot have an end turn queued/,
+);
 for (const invalid of ["100", null, false, 1.5]) {
   assert.throws(
     () => communicationBoundary({ message: { ...boundaryMessage, game_update_seq: invalid } }),
@@ -285,18 +299,61 @@ const enriched = addCollectionMetadata(
   7,
   "SEED7",
   10000,
-  { note_card: "Strike_R", note_upgrades: 1 },
+  { note_card: "Strike_R", note_upgrades: 1, final_act_available: true },
   "test-source-v1",
+  2,
 );
 assert.strictEqual(enriched.length, 2);
 assert.deepStrictEqual(enriched[0].boss_unlocks, bossUnlocks);
 assert.strictEqual(enriched[0].schema, 1);
-assert.strictEqual(enriched[0].boundary_schema, 1);
+assert.strictEqual(enriched[0].boundary_schema, 2);
 assert.strictEqual(enriched[0].source_version, "test-source-v1");
+assert.throws(
+  () => addCollectionMetadata(
+    [{ type: "state", step: 1, message: { boundary_schema: 1 } }],
+    bossUnlocks,
+    7,
+    "SEED7",
+    10000,
+    { note_card: "Strike_R", note_upgrades: 1, final_act_available: true },
+    "test-source-v1",
+    2,
+  ),
+  /trace boundary_schema changed from 2 to 1/,
+);
 assert.deepStrictEqual(enriched[0].run_config.profile, {
   note_card: "Strike_R",
   note_upgrades: 1,
+  final_act_available: true,
 });
+assert.deepStrictEqual(
+  validateProfileSnapshot({
+    note_card: "Strike_R",
+    note_upgrades: 1,
+    final_act_available: false,
+  }),
+  { note_card: "Strike_R", note_upgrades: 1, final_act_available: false },
+);
+assert.deepStrictEqual(
+  validateProfileSnapshot({ note_upgrades: 0, final_act_available: true }),
+  { note_upgrades: 0, final_act_available: true },
+);
+assert.throws(
+  () => validateProfileSnapshot({ note_upgrades: 1, final_act_available: true }),
+  /note_card/,
+);
+assert.throws(
+  () => validateProfileSnapshot({ note_card: "Strike_R", note_upgrades: 1 }),
+  /final_act_available/,
+);
+assert.throws(
+  () => validateProfileSnapshot({
+    note_card: "Strike_R",
+    note_upgrades: 1,
+    final_act_available: "false",
+  }),
+  /final_act_available/,
+);
 assert.deepStrictEqual(enriched[0].collection, {
   policy_seed: 7,
   game_seed: "SEED7",
@@ -321,7 +378,7 @@ assert.throws(
     { type: "action", step: 20, command: "CHOOSE 1" },
     { type: "state", step: 20, message: { game_state: { choice_list: ["leave"] } } },
   ]),
-  /boundary_schema=1 is required/,
+  /boundary_schema=2 is required/,
 );
 
 const quiescentBoundaryMessage = {
@@ -332,20 +389,20 @@ const quiescentBoundaryMessage = {
   current_action_update_count: null,
   actions_queued: 0,
 };
-const schemaOneRecords = [
+const schemaTwoRecords = [
   { type: "action", step: 30, command: "END" },
   { type: "metadata", event: "command_sent", step: 30 },
   { type: "state", step: 30, message: quiescentBoundaryMessage },
 ];
-assert.deepStrictEqual(normalizeSettledGameplayRecords(schemaOneRecords), schemaOneRecords);
+assert.deepStrictEqual(normalizeSettledGameplayRecords(schemaTwoRecords), schemaTwoRecords);
 assert.deepStrictEqual(
-  normalizeSettledGameplayRecords(normalizeSettledGameplayRecords(schemaOneRecords)),
-  schemaOneRecords,
+  normalizeSettledGameplayRecords(normalizeSettledGameplayRecords(schemaTwoRecords)),
+  schemaTwoRecords,
 );
 const externalRng = { type: "external_rng", step: 30, draws: [{ stream: "misc", value: 2 }] };
 assert.deepStrictEqual(
-  normalizeSettledGameplayRecords([schemaOneRecords[0], externalRng, schemaOneRecords[2]]),
-  [schemaOneRecords[0], externalRng, schemaOneRecords[2]],
+  normalizeSettledGameplayRecords([schemaTwoRecords[0], externalRng, schemaTwoRecords[2]]),
+  [schemaTwoRecords[0], externalRng, schemaTwoRecords[2]],
 );
 const rejectedRecords = [
   { type: "action", step: 33, command: "CHOOSE 99" },
@@ -379,13 +436,13 @@ assert.throws(
 );
 assert.throws(
   () => normalizeSettledGameplayRecords([
-    ...schemaOneRecords,
+    ...schemaTwoRecords,
     { type: "action", step: 31, command: "END" },
     { type: "state", step: 31, message: { game_state: {} } },
   ]),
-  /boundary_schema=1 is required/,
+  /boundary_schema=2 is required/,
 );
-const schemaOneStateRecords = [
+const schemaTwoStateRecords = [
   { type: "action", step: 31, command: "STATE" },
   { type: "state", step: 31, message: quiescentBoundaryMessage },
   {
@@ -395,10 +452,10 @@ const schemaOneStateRecords = [
   },
 ];
 assert.deepStrictEqual(
-  normalizeSettledGameplayRecords(schemaOneStateRecords),
-  [schemaOneStateRecords[0], schemaOneStateRecords[2]],
+  normalizeSettledGameplayRecords(schemaTwoStateRecords),
+  [schemaTwoStateRecords[0], schemaTwoStateRecords[2]],
 );
-const schemaOneOvertakenGameplayRecords = [
+const schemaTwoOvertakenGameplayRecords = [
   { type: "action", step: 32, command: "CHOOSE 0" },
   {
     type: "state",
@@ -413,8 +470,8 @@ const schemaOneOvertakenGameplayRecords = [
   { type: "state", step: 32, message: quiescentBoundaryMessage },
 ];
 assert.deepStrictEqual(
-  normalizeSettledGameplayRecords(schemaOneOvertakenGameplayRecords),
-  [schemaOneOvertakenGameplayRecords[0], schemaOneOvertakenGameplayRecords[3]],
+  normalizeSettledGameplayRecords(schemaTwoOvertakenGameplayRecords),
+  [schemaTwoOvertakenGameplayRecords[0], schemaTwoOvertakenGameplayRecords[3]],
 );
 assert.throws(
   () =>

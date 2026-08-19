@@ -3515,7 +3515,7 @@ mod tests {
     }
 
     #[test]
-    fn discovery_retrieve_early_magnetism_source_with_another_generated_card_burns_two_generations()
+    fn discovery_retrieve_early_magnetism_source_with_another_generated_card_burns_one_generation()
     {
         use crate::content::cards::{DISCOVERY_ID, FLASH_OF_STEEL_ID, STRIKE_R_ID};
 
@@ -3557,8 +3557,8 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            22,
-            "early-turn Magnetism-generated Discovery that leaves another generated card burns two discarded generations"
+            19,
+            "early-turn Magnetism-generated Discovery that leaves another generated card burns one discarded generation"
         );
     }
 

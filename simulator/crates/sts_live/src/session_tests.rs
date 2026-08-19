@@ -55,10 +55,16 @@ fn start_run_creates_recording_session_and_trace() {
 }
 
 #[test]
-fn start_run_records_communication_mod_profile_in_initial_metadata() {
+fn start_run_prefers_pre_run_profile_snapshot_in_initial_metadata() {
     let root = temp_dir("profile-metadata");
     fs::create_dir_all(&root).unwrap();
-    let mut store = SessionStore::new(ProfileStartBridge, AlwaysOkFidelity, &root);
+    let mut store = SessionStore::new(
+        AuthoritativeProfileStartBridge {
+            profile_captured: false,
+        },
+        AlwaysOkFidelity,
+        &root,
+    );
     let snapshot = store
         .start_run(
             BridgeId("profile-bridge".to_owned()),
@@ -76,8 +82,16 @@ fn start_run_records_communication_mod_profile_in_initial_metadata() {
         .as_ref()
         .and_then(|config| config.profile.as_ref())
         .expect("profile is attached to the recorded run config");
-    assert_eq!(profile.note_card, "Twin Strike");
+    assert_eq!(profile.note_card.as_deref(), Some("Twin Strike"));
     assert_eq!(profile.note_upgrades, 1);
+    assert_eq!(profile.final_act_available, Some(true));
+    assert_eq!(
+        snapshot.latest_state.as_ref().and_then(|state| state
+            .raw
+            .pointer("/current_state/message/game_state/profile/final_act_available")),
+        None,
+        "the repeated post-START game state intentionally omits final_act_available"
+    );
 
     let content = fs::read_to_string(&snapshot.trace_path).unwrap();
     let metadata: serde_json::Value =
@@ -90,11 +104,15 @@ fn start_run_records_communication_mod_profile_in_initial_metadata() {
         metadata.pointer("/run_config/profile/note_upgrades"),
         Some(&json!(1))
     );
+    assert_eq!(
+        metadata.pointer("/run_config/profile/final_act_available"),
+        Some(&json!(true))
+    );
     fs::remove_dir_all(root).ok();
 }
 
 #[test]
-fn start_verification_run_records_exact_start_and_profile_metadata() {
+fn start_verification_run_falls_back_to_post_start_profile_metadata() {
     let root = temp_dir("verification-profile-metadata");
     fs::create_dir_all(&root).unwrap();
     let mut store = SessionStore::new(ProfileStartBridge, AlwaysOkFidelity, &root);
@@ -116,8 +134,9 @@ fn start_verification_run_records_exact_start_and_profile_metadata() {
         .as_ref()
         .and_then(|config| config.profile.as_ref())
         .expect("profile is attached to the recorded run config");
-    assert_eq!(profile.note_card, "Twin Strike");
+    assert_eq!(profile.note_card.as_deref(), Some("Twin Strike"));
     assert_eq!(profile.note_upgrades, 1);
+    assert_eq!(profile.final_act_available, None);
 
     let content = fs::read_to_string(&snapshot.trace_path).unwrap();
     let mut lines = content.lines();
@@ -126,6 +145,10 @@ fn start_verification_run_records_exact_start_and_profile_metadata() {
     assert_eq!(
         metadata.pointer("/run_config/profile/note_card"),
         Some(&json!("Twin Strike"))
+    );
+    assert_eq!(
+        metadata.pointer("/run_config/profile/final_act_available"),
+        None
     );
     assert_eq!(
         start.pointer("/action/command/command"),
@@ -2624,30 +2647,34 @@ impl FidelityChecker for AlwaysOkFidelity {
 
 struct ProfileStartBridge;
 
+fn post_start_profile_state() -> LiveState {
+    LiveState {
+        sequence: 1,
+        phase: LivePhase::Neow,
+        legal_actions: vec![request_state_action()],
+        raw: json!({
+            "current_state": {
+                "message": {
+                    "game_state": {
+                        "seed": 123,
+                        "profile": {
+                            "note_card": "Twin Strike",
+                            "note_upgrades": 1
+                        }
+                    }
+                }
+            }
+        }),
+    }
+}
+
 impl BridgeManager for ProfileStartBridge {
     fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>> {
         Ok(Vec::new())
     }
 
     fn start_run(&mut self, _bridge_id: &BridgeId, _config: &RunConfig) -> LiveResult<LiveState> {
-        Ok(LiveState {
-            sequence: 1,
-            phase: LivePhase::Neow,
-            legal_actions: vec![request_state_action()],
-            raw: json!({
-                "current_state": {
-                    "message": {
-                        "game_state": {
-                            "seed": 123,
-                            "profile": {
-                                "note_card": "Twin Strike",
-                                "note_upgrades": 1
-                            }
-                        }
-                    }
-                }
-            }),
-        })
+        Ok(post_start_profile_state())
     }
 
     fn start_verification_run(
@@ -2657,6 +2684,60 @@ impl BridgeManager for ProfileStartBridge {
         _starting_hp: i32,
     ) -> LiveResult<LiveState> {
         self.start_run(bridge_id, config)
+    }
+
+    fn abandon_run(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Err(LiveError::Bridge("not used by profile test".to_owned()))
+    }
+
+    fn request_state(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {
+        Err(LiveError::Bridge("not used by profile test".to_owned()))
+    }
+
+    fn send_action(
+        &mut self,
+        _bridge_id: &BridgeId,
+        _action: &LegalAction,
+    ) -> LiveResult<LiveState> {
+        Err(LiveError::Bridge("not used by profile test".to_owned()))
+    }
+
+    fn kill_bridge(&mut self, _bridge_id: &BridgeId) -> LiveResult<()> {
+        Ok(())
+    }
+
+    fn kill_all(&mut self) -> LiveResult<usize> {
+        Ok(0)
+    }
+}
+
+struct AuthoritativeProfileStartBridge {
+    profile_captured: bool,
+}
+
+impl BridgeManager for AuthoritativeProfileStartBridge {
+    fn list_bridges(&self) -> LiveResult<Vec<BridgeStatus>> {
+        Ok(Vec::new())
+    }
+
+    fn profile_snapshot(
+        &mut self,
+        _bridge_id: &BridgeId,
+    ) -> LiveResult<Option<sts_verify::TraceProfile>> {
+        self.profile_captured = true;
+        Ok(Some(sts_verify::TraceProfile {
+            note_card: Some("Twin Strike".to_owned()),
+            note_upgrades: 1,
+            final_act_available: Some(true),
+        }))
+    }
+
+    fn start_run(&mut self, _bridge_id: &BridgeId, _config: &RunConfig) -> LiveResult<LiveState> {
+        assert!(
+            self.profile_captured,
+            "profile must be captured before START"
+        );
+        Ok(post_start_profile_state())
     }
 
     fn abandon_run(&mut self, _bridge_id: &BridgeId) -> LiveResult<LiveState> {

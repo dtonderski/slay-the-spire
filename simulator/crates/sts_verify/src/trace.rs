@@ -112,9 +112,12 @@ pub struct TraceRunConfig {
 /// Persistent profile values required to replay profile-backed mechanics.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraceProfile {
-    pub note_card: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_card: Option<String>,
     #[serde(default)]
     pub note_upgrades: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_act_available: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -197,9 +200,18 @@ fn parse_metadata_line(value: Value) -> Result<TraceMetadata, serde_json::Error>
         .as_ref()
         .and_then(|run_config| run_config.profile.as_ref())
     {
-        if profile.note_card.trim().is_empty() {
+        if profile
+            .note_card
+            .as_deref()
+            .is_some_and(|note_card| note_card.trim().is_empty())
+        {
             return Err(serde_json::Error::custom(
                 "trace profile note_card must be a non-empty card key",
+            ));
+        }
+        if profile.note_card.is_none() && profile.note_upgrades != 0 {
+            return Err(serde_json::Error::custom(
+                "trace profile without note_card must have note_upgrades=0",
             ));
         }
     }
@@ -1786,7 +1798,7 @@ mod tests {
     #[test]
     fn parse_trace_preserves_typed_profile_run_input() {
         let lines = parse_trace_jsonl(
-            r#"{"type":"metadata","schema":2,"source":"live_trace","run_config":{"character":"ironclad","ascension":0,"seed":{"numeric":123},"profile":{"note_card":"Twin Strike","note_upgrades":1}}}"#,
+            r#"{"type":"metadata","schema":2,"source":"live_trace","run_config":{"character":"ironclad","ascension":0,"seed":{"numeric":123},"profile":{"note_card":"Twin Strike","note_upgrades":1,"final_act_available":true}}}"#,
         )
         .expect("profile metadata parses");
         let TraceLine::Metadata(metadata) = &lines[0] else {
@@ -1794,10 +1806,56 @@ mod tests {
         };
         let run_config = metadata.run_config.as_ref().expect("run config");
         let profile = run_config.profile.as_ref().expect("profile");
-        assert_eq!(profile.note_card, "Twin Strike");
+        assert_eq!(profile.note_card.as_deref(), Some("Twin Strike"));
         assert_eq!(profile.note_upgrades, 1);
+        assert_eq!(profile.final_act_available, Some(true));
         assert_eq!(run_config.extra["character"], "ironclad");
         assert_eq!(run_config.extra["seed"]["numeric"], 123);
+    }
+
+    #[test]
+    fn parse_legacy_trace_preserves_unknown_final_act_availability() {
+        let lines = parse_trace_jsonl(
+            r#"{"type":"metadata","schema":1,"source":"communication_mod","run_config":{"profile":{"note_card":"Twin Strike","note_upgrades":1}}}"#,
+        )
+        .expect("legacy profile metadata parses");
+        let TraceLine::Metadata(metadata) = &lines[0] else {
+            panic!("expected metadata line");
+        };
+        let profile = metadata
+            .run_config
+            .as_ref()
+            .and_then(|run_config| run_config.profile.as_ref())
+            .expect("profile");
+        assert_eq!(profile.final_act_available, None);
+    }
+
+    #[test]
+    fn parse_trace_accepts_profile_without_saved_note_card() {
+        let lines = parse_trace_jsonl(
+            r#"{"type":"metadata","schema":1,"source":"communication_mod","run_config":{"profile":{"note_upgrades":0,"final_act_available":true}}}"#,
+        )
+        .expect("missing saved Note card is valid profile input");
+        let TraceLine::Metadata(metadata) = &lines[0] else {
+            panic!("expected metadata line");
+        };
+        let profile = metadata
+            .run_config
+            .as_ref()
+            .and_then(|run_config| run_config.profile.as_ref())
+            .expect("profile");
+        assert_eq!(profile.note_card, None);
+        assert_eq!(profile.note_upgrades, 0);
+        assert_eq!(profile.final_act_available, Some(true));
+    }
+
+    #[test]
+    fn parse_trace_rejects_missing_note_card_with_upgrades() {
+        let error = parse_trace_jsonl(
+            r#"{"type":"metadata","schema":1,"source":"communication_mod","run_config":{"profile":{"note_upgrades":1}}}"#,
+        )
+        .expect_err("missing Note card cannot carry upgrades");
+        assert!(error.to_string().contains("note_upgrades=0"));
     }
 
     #[test]

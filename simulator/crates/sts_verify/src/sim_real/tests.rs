@@ -204,6 +204,53 @@ fn metadata_v1_cannot_fall_back_to_state_without_boundary_schema() {
 }
 
 #[test]
+fn state_boundary_schema_must_match_metadata() {
+    let content = trace(vec![
+        metadata(Some(2), true),
+        json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
+        json!({"type":"state","step":1,"message":boundary_message("quiescent")}),
+    ]);
+    let error = verify_communication_mod_trace(&content)
+        .expect_err("schema-1 state under schema-2 metadata must fail");
+    assert!(matches!(
+        error,
+        SimRealError::InvalidBoundaryContract { step: 1, .. }
+    ));
+    assert!(error.to_string().contains("must match metadata"));
+}
+
+#[test]
+fn schema_two_state_requires_end_turn_queued() {
+    let mut message = boundary_message("quiescent");
+    message["boundary_schema"] = json!(2);
+    let content = trace(vec![
+        metadata(Some(2), true),
+        json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
+        json!({"type":"state","step":1,"message":message}),
+    ]);
+    let error = verify_communication_mod_trace(&content)
+        .expect_err("schema-2 state without end_turn_queued must fail");
+    assert!(error
+        .to_string()
+        .contains("requires boolean end_turn_queued"));
+}
+
+#[test]
+fn schema_two_ready_state_rejects_queued_end_turn() {
+    let mut message = boundary_message("quiescent");
+    message["boundary_schema"] = json!(2);
+    message["end_turn_queued"] = json!(true);
+    let content = trace(vec![
+        metadata(Some(2), true),
+        json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
+        json!({"type":"state","step":1,"message":message}),
+    ]);
+    let error = verify_communication_mod_trace(&content)
+        .expect_err("ready schema-2 state with queued end turn must fail");
+    assert!(error.to_string().contains("cannot have an end turn queued"));
+}
+
+#[test]
 fn profile_must_be_explicit_typed_metadata() {
     let content = trace(vec![
         metadata(Some(1), false),

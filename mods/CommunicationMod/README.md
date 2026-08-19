@@ -77,8 +77,9 @@ CommunicationMod launches a specified process and communicates with this process
     - Causes CommunicationMod to immediately send a JSON representation of the current state to the external process, whether or not the game state is stable.
     - Always available.
   - PROFILE
-    - Sends persistent profile inputs without changing the game: `{"type":"profile","profile":{"note_card":"...","note_upgrades":0}}`.
-    - Run-state messages also include this object at `game_state.profile`, alongside seed and ascension. Collectors should copy the first post-`START` value into trace metadata at `run_config.profile`.
+    - Sends persistent profile inputs without changing the game: `{"type":"profile","profile":{"note_card":"...","note_upgrades":0,"final_act_available":false}}`.
+    - `final_act_available` is true only when the persistent player profile has `IRONCLAD_WIN`, `THE_SILENT_WIN`, and `DEFECT_WIN` all set to true.
+    - `final_act_available` is emitted only by this one-time profile response, not by repeated `game_state` payloads. Collectors should copy the `PROFILE` response into trace metadata at `run_config.profile` before `START`.
     - If `note_card` is absent, the profile has no saved Note card; consumers must treat that as missing input rather than infer it from a later event.
 - Upon receiving a command, CommunicationMod will execute it, and reply again with a JSON representation of the state of the game, when it is next stable.
 - If there was an error in executing the command, CommunicationMod will instead send an error message of the form:

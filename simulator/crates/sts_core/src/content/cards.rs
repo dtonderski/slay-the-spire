@@ -5988,8 +5988,8 @@ mod tests {
             assert_eq!(upgrade_content_id(definition.id), Some(upgraded_id));
         }
 
-        assert_eq!((common, uncommon, rare, unrated), (46, 114, 69, 20));
-        assert_eq!(upgrades, 115);
+        assert_eq!((common, uncommon, rare, unrated), (46, 116, 69, 20));
+        assert_eq!(upgrades, 116);
     }
 
     #[test]
