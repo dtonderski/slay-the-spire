@@ -196,6 +196,7 @@ fn validate_run_action(run: &RunState, action: RunAction) -> SimResult<()> {
         | RunAction::SkipCombatCardReward
         | RunAction::ChooseHandSelect { .. }
         | RunAction::ConfirmHandSelect
+        | RunAction::ConfirmHandSelectWithoutRetrieval
         | RunAction::ChooseDrawSelect { .. }
         | RunAction::ConfirmDrawSelect
         | RunAction::ChooseDiscardSelect { .. }
@@ -302,6 +303,8 @@ fn legal_reward_actions(run: &RunState) -> SimResult<Vec<RunAction>> {
         RunAction::TakeGoldReward,
         RunAction::TakeStolenGoldReward,
         RunAction::TakeRelicReward,
+        RunAction::TakeSapphireKey,
+        RunAction::TakeEmeraldKey,
         RunAction::Proceed,
         RunAction::OpenCardReward,
         RunAction::SkipPotionReward,

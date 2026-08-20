@@ -69,9 +69,44 @@ fn initialize_run(
         })
         .transpose()?;
     run.note_card_upgrades = profile.note_upgrades;
-    run.final_act_available = profile.final_act_available;
+    run.set_final_act_available(profile.final_act_available)
+        .map_err(|error| error.to_string())?;
     run.validate().map_err(|error| error.to_string())?;
     Ok(run)
+}
+
+fn settle_schema_two_obtain_boundary(
+    source: &RunState,
+    post: &TraceState,
+    next: &mut RunState,
+) -> Result<(), String> {
+    let schema_two = post.message.get("boundary_schema").and_then(Value::as_u64) == Some(2);
+    let living_wall_change = source.card_grid.as_ref().is_some_and(|grid| {
+        matches!(
+            grid.purpose,
+            GridPurpose::EventTransformReturnToEvent {
+                event: Event::LivingWall,
+                ..
+            }
+        )
+    });
+    let deferred_transform = (next.pending_event_transform.is_some() && !living_wall_change)
+        || next.pending_astrolabe_transform.is_some();
+    if schema_two
+        && (source.card_grid.is_none() || next.card_grid.is_none())
+        && !deferred_transform
+        && !next.pending_obtain_cards.is_empty()
+    {
+        // Schema 2 is published only after the target action/effect queues are
+        // quiescent. Visual obtains have therefore committed before this state
+        // (FIDL00112/FIDL00117/FIDL00145), unlike older schema-1 captures
+        // (FIDL01317). Multi-select grids remain deferred while open. Target
+        // transform effects stay queued after close except Living Wall Change,
+        // whose replacement is already committed on its schema-2 CONFIRM.
+        next.flush_pending_obtain_cards()
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn compare_direct_run(
@@ -103,7 +138,7 @@ fn compare_direct_run(
         );
         return Ok(());
     }
-    let (observed, simulated) = if run.card_grid.is_some() {
+    let (mut observed, mut simulated) = if run.card_grid.is_some() {
         (
             seed_start_grid_observed_subset(&post.message),
             seed_start_grid_simulated_subset(run),
@@ -179,6 +214,25 @@ fn compare_direct_run(
             ),
         }
     };
+    if let Some(observed_keys) = post
+        .message
+        .get("game_state")
+        .and_then(|game| game.get("keys"))
+    {
+        if let (Some(observed), Some(simulated)) =
+            (observed.as_object_mut(), simulated.as_object_mut())
+        {
+            observed.insert("keys".to_owned(), observed_keys.clone());
+            simulated.insert(
+                "keys".to_owned(),
+                json!({
+                    "emerald": run.has_emerald_key,
+                    "ruby": run.has_ruby_key,
+                    "sapphire": run.has_sapphire_key,
+                }),
+            );
+        }
+    }
     compare_subset(report, action, label, observed, simulated);
     Ok(())
 }
@@ -423,11 +477,12 @@ pub(super) fn verify_seed_start_transition(
             ));
         };
         if current.phase == RunPhase::Complete
-            && current.event.as_ref().is_some_and(|event| {
-                event.event == sts_core::Event::SpireHeart
-                    && event.stage == 4
-                    && event.choices.is_empty()
-            })
+            && (current.current_act == 4
+                || current.event.as_ref().is_some_and(|event| {
+                    event.event == sts_core::Event::SpireHeart
+                        && event.stage == 4
+                        && event.choices.is_empty()
+                }))
             && action.command.trim().eq_ignore_ascii_case("PROCEED")
         {
             if !external_rng.is_empty() {
@@ -511,8 +566,12 @@ pub(super) fn verify_seed_start_transition(
                                 next.pending_external_rng.len()
                             ),
                         )),
-                        Ok(next) => {
+                        Ok(mut next) => {
                             if let Err(reason) =
+                                settle_schema_two_obtain_boundary(&source, post, &mut next)
+                            {
+                                Some(boundary(action, "invalid_direct_transition", reason))
+                            } else if let Err(reason) =
                                 compare_direct_run(report, action, post, &label, &next)
                             {
                                 Some(boundary(action, "invalid_direct_projection", reason))

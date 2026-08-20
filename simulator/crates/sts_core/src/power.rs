@@ -135,8 +135,10 @@ pub struct MonsterPowers {
     pub curl_up: i32,
     /// Gremlin Nob enrage stacks (Anger); each stack adds +1 attack damage.
     pub anger: i32,
-    /// Lagavulin sleep stance block gain per turn.
+    /// Lagavulin sleep stance and burning-elite block gain per turn.
     pub metallicize: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub regeneration: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub malleable: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
@@ -152,6 +154,14 @@ pub struct MonsterPowers {
     /// Cards played toward Time Eater's twelve-card Time Warp threshold.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub time_warp: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub beat_of_death: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub invincible: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub invincible_max: i32,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub heart_buff_count: i32,
 }
 
 fn is_false(value: &bool) -> bool {

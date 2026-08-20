@@ -1654,6 +1654,7 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Rest(RestAction::RemoveCard { .. }) => "rest_remove_card",
         ExactRunActionKind::Rest(RestAction::Lift) => "rest_lift",
         ExactRunActionKind::Rest(RestAction::Dig) => "rest_dig",
+        ExactRunActionKind::Rest(RestAction::Recall) => "rest_recall",
         ExactRunActionKind::Rest(RestAction::Proceed) => "rest_proceed",
         ExactRunActionKind::Run(RunAction::SkipReward) => "skip_reward",
         ExactRunActionKind::Run(RunAction::CloseCardReward) => "close_card_reward",
@@ -1664,6 +1665,8 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Run(RunAction::TakePotionReward { .. }) => "take_potion_reward",
         ExactRunActionKind::Run(RunAction::TakeRelicReward) => "take_relic_reward",
         ExactRunActionKind::Run(RunAction::TakeRelicRewardAt { .. }) => "take_relic_reward_at",
+        ExactRunActionKind::Run(RunAction::TakeSapphireKey) => "take_sapphire_key",
+        ExactRunActionKind::Run(RunAction::TakeEmeraldKey) => "take_emerald_key",
         ExactRunActionKind::Run(RunAction::ChooseBossRelicReward { .. }) => {
             "choose_boss_relic_reward"
         }
@@ -1685,6 +1688,9 @@ fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
         ExactRunActionKind::Run(RunAction::SkipCombatCardReward) => "skip_combat_card_reward",
         ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. }) => "choose_hand_select",
         ExactRunActionKind::Run(RunAction::ConfirmHandSelect) => "confirm_hand_select",
+        ExactRunActionKind::Run(RunAction::ConfirmHandSelectWithoutRetrieval) => {
+            "confirm_hand_select_without_retrieval"
+        }
         ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. }) => "choose_draw_select",
         ExactRunActionKind::Run(RunAction::ConfirmDrawSelect) => "confirm_draw_select",
         ExactRunActionKind::Run(RunAction::ChooseDiscardSelect { .. }) => "choose_discard_select",

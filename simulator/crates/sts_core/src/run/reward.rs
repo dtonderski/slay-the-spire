@@ -21,7 +21,7 @@ use crate::{
         ironclad_combat_discovery_pool, random_colorless_from_pool, shop_card_content_id,
     },
     ids::{CardId, ContentId},
-    map::{generate_target_fixed_map, RoomKind, TargetMapAct},
+    map::{RoomKind, TargetMapAct},
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
     relic::{
         Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, CAULDRON_POTIONS,
@@ -33,7 +33,8 @@ use crate::{
         apply_combat_card_reward_choice, apply_combat_card_reward_skip,
         apply_discard_select_choice, apply_discard_select_confirm, apply_draw_select_choice,
         apply_draw_select_confirm, apply_exhaust_select_choice, apply_exhaust_select_confirm,
-        apply_hand_select_choice, apply_hand_select_confirm, apply_potion_action,
+        apply_hand_select_choice, apply_hand_select_confirm,
+        apply_hand_select_confirm_without_retrieval, apply_potion_action,
         settle_pending_potion_card_reward_rng,
     },
     run::shop::apply_shop_action,
@@ -88,6 +89,9 @@ pub struct TreasureRoomState {
     /// instead of falling back to the ordinary `[gold, relic]` layout.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub relic_before_gold: bool,
+    /// Chest relic linked to the appended Sapphire Key reward.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sapphire_key_relic_offer: Option<Relic>,
 }
 
 fn target_chest_size(rng: &mut StsRng) -> ChestSize {
@@ -143,6 +147,7 @@ pub fn setup_treasure_room(run: &mut RunState) {
         relic_tier,
         have_gold,
         relic_before_gold: false,
+        sapphire_key_relic_offer: None,
     });
 }
 
@@ -1344,8 +1349,8 @@ fn card_upgraded_chance(run: &RunState) -> f32 {
     match run.current_act {
         2 if run.ascension >= 12 => 0.125,
         2 => 0.25,
-        3 if run.ascension >= 12 => 0.25,
-        3 => 0.5,
+        3 | 4 if run.ascension >= 12 => 0.25,
+        3 | 4 => 0.5,
         _ => 0.0,
     }
 }
@@ -1618,6 +1623,10 @@ fn enter_elite_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     validate_combat_reward_entry(run)?;
     run.reserve_card_instance_ids(reward_card_choice_count(run))?;
     let continuation = combat_reward_continuation(run);
+    run.emerald_key_reward_available = run
+        .map
+        .as_ref()
+        .is_some_and(|map| run.emerald_key_node == Some(map.current_node));
     let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
     let gold_offer =
         combat_gold_offer_with_relics(run, target_elite_combat_gold(&mut treasure_rng));
@@ -1772,23 +1781,23 @@ fn enter_next_act_map(run: &mut RunState) -> SimResult<()> {
     run.event_room_treasure_chance =
         crate::run::state::EventRoomChance::new(DEFAULT_EVENT_ROOM_TREASURE_CHANCE);
     if next_act == 2 {
-        run.map = Some(generate_target_fixed_map(
+        let (mut map, map_rng) = crate::map::target::generate_target_fixed_map_with_rng(
             run.reward_rng_seed as i64,
             TargetMapAct::City,
-        ));
-        if let Some(map) = run.map.as_mut() {
-            map.floor = run.current_floor as u32;
-        }
+        );
+        map.floor = run.current_floor as u32;
+        run.map = Some(map);
+        run.map_rng = Some(map_rng);
         generate_city_encounters_for_next_act(run)?;
         run.current_act = 2;
     } else if next_act == 3 {
-        run.map = Some(generate_target_fixed_map(
+        let (mut map, map_rng) = crate::map::target::generate_target_fixed_map_with_rng(
             run.reward_rng_seed as i64,
             TargetMapAct::Beyond,
-        ));
-        if let Some(map) = run.map.as_mut() {
-            map.floor = run.current_floor as u32;
-        }
+        );
+        map.floor = run.current_floor as u32;
+        run.map = Some(map);
+        run.map_rng = Some(map_rng);
         generate_beyond_encounters_for_next_act(run)?;
         run.current_act = 3;
     }
@@ -1810,6 +1819,8 @@ fn enter_next_act_map(run: &mut RunState) -> SimResult<()> {
     if !run.has_mark_of_bloom() {
         run.player_hp = run.player_max_hp;
     }
+    let final_act_available = run.final_act_available;
+    run.set_final_act_available(final_act_available)?;
     Ok(())
 }
 
@@ -1837,7 +1848,7 @@ fn generate_beyond_encounters_for_next_act(run: &mut RunState) -> SimResult<()> 
     Ok(())
 }
 
-fn advance_card_rng_for_dungeon_transition(run: &mut RunState) {
+pub(crate) fn advance_card_rng_for_dungeon_transition(run: &mut RunState) {
     match run.card_rng_counter {
         1..=249 => run.card_rng_counter = 250,
         251..=499 => run.card_rng_counter = 500,
@@ -1888,6 +1899,12 @@ fn enter_chest_relic_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     // chest's own relic reward. Matryoshka therefore consumes relic RNG and
     // removes its relic from the pool before the normal chest relic is rolled.
     let chest_relic_offer = Some(roll_relic_reward(run, tier));
+    if run.final_act_available == Some(true) && !run.has_sapphire_key {
+        run.treasure_room
+            .as_mut()
+            .expect("treasure room exists while opening chest")
+            .sapphire_key_relic_offer = chest_relic_offer;
+    }
     // Matryoshka's extra reward is inserted before the chest's normal relic
     // in the target reward list (CombatRewardScreen insertion order). Do not
     // reorder when the chest relic is bottled: CM still lists Matryoshka first
@@ -1998,6 +2015,9 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
     apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat)?;
+    // AddCardToDeckAction is published one combat-owned transition after the
+    // Writhing Mass debuff that queued it. Settle the previous transition's
+    // pending card before recording a newly triggered Parasite.
     settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
     queue_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &mut next_combat)?;
     sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
@@ -2069,7 +2089,7 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
             && next_combat.monsters[1].content_id == GREMLIN_NOB_ID
         {
             enter_colosseum_combat_reward_screen(&mut next)?;
-        } else if next.current_act == 3
+        } else if next.current_act >= 3
             && next.current_room_kind() == Some(crate::map::RoomKind::Boss)
         {
             enter_final_boss_victory(&mut next)?;
@@ -2093,9 +2113,8 @@ fn settle_pending_combat_obtain_cards(
         return Ok(());
     }
 
-    // AddCardToDeckAction effects are queued by the combat action and become
-    // visible on the next combat-owned boundary. Settle the prior queue before
-    // recording any new effect from this transition.
+    // AddCardToDeckAction effects queued by the preceding combat action drain
+    // during this transition, before its command-ready boundary.
     run.player_hp = after.player.hp;
     run.player_max_hp = after.player.max_hp;
     run.flush_pending_combat_obtain_cards()?;
@@ -2113,8 +2132,8 @@ fn queue_writhing_mass_mega_debuff_to_run(
     after.writhing_mass_mega_debuff_triggered = false;
     if triggered {
         // Writhing Mass's Mega Debuff queues AddCardToDeckAction(new Parasite)
-        // after applying its player debuffs. Preserve that action-queue timing
-        // in the run state rather than mutating the deck during this boundary.
+        // after applying its player debuffs. The next combat-owned transition
+        // drains that queued card before publication.
         run.queue_pending_combat_obtain_card(PARASITE_ID)?;
     }
     Ok(())
@@ -2315,7 +2334,7 @@ fn apply_combat_loss_proceed(run: &RunState) -> SimResult<RunState> {
 
 pub(crate) fn enter_final_boss_victory(run: &mut RunState) -> SimResult<()> {
     if run.phase != RunPhase::Combat
-        || run.current_act != 3
+        || !matches!(run.current_act, 3 | 4)
         || run.current_room_kind() != Some(crate::map::RoomKind::Boss)
         || !run
             .combat
@@ -2361,6 +2380,9 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
         RunAction::SkipCombatCardReward => apply_combat_card_reward_skip(run),
         RunAction::ChooseHandSelect { index } => apply_hand_select_choice(run, index),
         RunAction::ConfirmHandSelect => apply_hand_select_confirm(run),
+        RunAction::ConfirmHandSelectWithoutRetrieval => {
+            apply_hand_select_confirm_without_retrieval(run)
+        }
         RunAction::ChooseDrawSelect { index } => apply_draw_select_choice(run, index),
         RunAction::ConfirmDrawSelect => apply_draw_select_confirm(run),
         RunAction::ChooseDiscardSelect { index } => apply_discard_select_choice(run, index),
@@ -2444,9 +2466,31 @@ pub fn apply_treasure_action(run: &RunState, action: RunAction) -> SimResult<Run
 fn apply_final_boss_victory_proceed(run: &RunState) -> SimResult<RunState> {
     run.validate_final_boss_victory_action(RunAction::Proceed)?;
     let mut next = run.clone();
-    enter_spire_heart_event(&mut next)?;
+    if next.current_act == 4 {
+        next.advance_floor()?;
+        next.phase = RunPhase::Complete;
+        next.combat = None;
+        next.reward = None;
+        next.event = None;
+        next.card_grid = None;
+    } else {
+        enter_spire_heart_event(&mut next)?;
+    }
     next.validate()?;
     Ok(next)
+}
+
+fn clear_sapphire_key_offer_if_linked(run: &mut RunState, relic: Relic) {
+    if run
+        .treasure_room
+        .as_ref()
+        .is_some_and(|treasure| treasure.sapphire_key_relic_offer == Some(relic))
+    {
+        run.treasure_room
+            .as_mut()
+            .expect("linked sapphire reward has a treasure room")
+            .sapphire_key_relic_offer = None;
+    }
 }
 
 fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
@@ -2571,6 +2615,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 .relic_offer
                 .take();
             if let Some(relic) = relic_offer {
+                clear_sapphire_key_offer_if_linked(&mut next, relic);
                 next.gain_relic(relic)?;
             }
             if map_chest_relic_before_gold {
@@ -2627,6 +2672,35 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                     treasure_room.relic_before_gold = true;
                 }
             }
+        }
+        RunAction::TakeSapphireKey => {
+            let linked_relic = next
+                .treasure_room
+                .as_ref()
+                .and_then(|treasure| treasure.sapphire_key_relic_offer)
+                .expect("validated sapphire key reward");
+            let reward = next.reward.as_mut().expect("validated reward screen");
+            if reward.relic_offer == Some(linked_relic) {
+                reward.relic_offer = None;
+            } else if reward.pending_relic_offer == Some(linked_relic) {
+                reward.pending_relic_offer = None;
+            } else if let Some(index) = reward
+                .queued_relic_offers
+                .iter()
+                .position(|relic| *relic == linked_relic)
+            {
+                reward.queued_relic_offers.remove(index);
+            }
+            next.treasure_room
+                .as_mut()
+                .expect("validated sapphire key treasure room")
+                .sapphire_key_relic_offer = None;
+            next.has_sapphire_key = true;
+        }
+        RunAction::TakeEmeraldKey => {
+            next.has_emerald_key = true;
+            next.emerald_key_reward_available = false;
+            next.emerald_key_node = None;
         }
         RunAction::ChooseBossRelicReward { index } => {
             let key = {
@@ -2722,7 +2796,9 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
         RunAction::ChooseCombatCardReward { .. } | RunAction::SkipCombatCardReward => {
             unreachable!("validated reward action")
         }
-        RunAction::ChooseHandSelect { .. } | RunAction::ConfirmHandSelect => {
+        RunAction::ChooseHandSelect { .. }
+        | RunAction::ConfirmHandSelect
+        | RunAction::ConfirmHandSelectWithoutRetrieval => {
             unreachable!("validated reward action")
         }
         RunAction::ChooseDrawSelect { .. } | RunAction::ConfirmDrawSelect => {
@@ -2825,6 +2901,7 @@ fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) -> SimRes
         RewardContinuation::Neow => RunPhase::Idle,
     };
     run.reward = None;
+    run.emerald_key_reward_available = false;
     if continuation == RewardContinuation::Map {
         run.treasure_room = None;
     }
@@ -3205,6 +3282,25 @@ mod tests {
             next.event.as_ref().map(|event| event.event),
             Some(Event::SpireHeart)
         );
+    }
+
+    #[test]
+    fn corrupt_heart_victory_proceeds_to_true_victory_floor() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.current_act = 4;
+        run.current_floor = 55;
+        prepare_won_combat_reward_fixture(&mut run);
+        run.current_room_override = Some(RoomKind::Boss);
+
+        enter_final_boss_victory(&mut run).expect("won Heart enters COMPLETE boundary");
+        assert_eq!(run.phase, RunPhase::Victory);
+
+        let complete = apply_run_action(&run, RunAction::Proceed)
+            .expect("Heart victory proceeds to TrueVictory");
+        assert_eq!(complete.phase, RunPhase::Complete);
+        assert_eq!(complete.current_floor, 56);
+        assert!(complete.combat.is_none());
+        assert!(complete.reward.is_none());
     }
 
     #[test]
@@ -3653,7 +3749,7 @@ mod tests {
     }
 
     #[test]
-    fn writhing_mass_mega_debuff_settles_queued_parasite_on_next_boundary() {
+    fn writhing_mass_mega_debuff_settles_queued_parasite_on_next_combat_boundary() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Combat;
         run.current_room_override = Some(RoomKind::Combat);
@@ -3671,8 +3767,9 @@ mod tests {
         let next = apply_combat_action_on_run(&run, CombatAction::EndTurn)
             .expect("Writhing Mass Mega Debuff resolves");
 
-        // The combat transition is real, but AddCardToDeckAction's obtain is
-        // still queued for the next combat-owned boundary.
+        // Mega Debuff queues AddCardToDeckAction after the debuffs. The first
+        // published boundary still has no Parasite; the following combat-owned
+        // transition settles it and Ceramic Fish.
         assert_eq!(next.deck.len(), starting_deck_len);
         assert_eq!(next.gold, starting_gold);
         assert_eq!(next.pending_combat_obtain_cards, vec![PARASITE_ID]);
@@ -3685,6 +3782,15 @@ mod tests {
             .powers;
         assert_eq!(player_powers.frail, 0);
         assert_eq!(player_powers.weak, 0);
+
+        let settled = apply_combat_action_on_run(&next, CombatAction::EndTurn)
+            .expect("the next combat boundary settles Parasite");
+        assert_eq!(settled.deck.len(), starting_deck_len + 1);
+        assert_eq!(
+            settled.gold,
+            starting_gold + crate::relic::CERAMIC_FISH_GOLD
+        );
+        assert!(settled.pending_combat_obtain_cards.is_empty());
     }
 
     #[test]
@@ -3970,6 +4076,43 @@ mod tests {
     }
 
     #[test]
+    fn sapphire_key_claim_consumes_only_its_linked_chest_relic() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.set_final_act_available(Some(true))
+            .expect("final act profile selects a burning elite");
+        run.phase = RunPhase::Treasure;
+        run.event = None;
+        run.current_room_override = Some(RoomKind::Treasure);
+        setup_treasure_room(&mut run);
+
+        let opened = apply_run_action(&run, RunAction::OpenChest).expect("map chest opens");
+        let linked = opened
+            .treasure_room
+            .as_ref()
+            .and_then(|treasure| treasure.sapphire_key_relic_offer)
+            .expect("final-act chest links a relic to the sapphire key");
+        assert!(opened.reward.as_ref().is_some_and(|reward| {
+            reward.relic_offer == Some(linked)
+                || reward.pending_relic_offer == Some(linked)
+                || reward.queued_relic_offers.contains(&linked)
+        }));
+
+        let keyed = apply_run_action(&opened, RunAction::TakeSapphireKey)
+            .expect("sapphire key can be claimed");
+        assert!(keyed.has_sapphire_key);
+        assert!(!keyed.relics.contains(&linked));
+        assert!(keyed
+            .treasure_room
+            .as_ref()
+            .is_some_and(|treasure| treasure.sapphire_key_relic_offer.is_none()));
+        assert!(keyed.reward.as_ref().is_some_and(|reward| {
+            reward.relic_offer != Some(linked)
+                && reward.pending_relic_offer != Some(linked)
+                && !reward.queued_relic_offers.contains(&linked)
+        }));
+    }
+
+    #[test]
     fn closing_map_chest_reward_clears_retained_treasure_room() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Treasure;
@@ -3999,6 +4142,7 @@ mod tests {
             relic_tier: RelicTier::Uncommon,
             have_gold: true,
             relic_before_gold: true,
+            sapphire_key_relic_offer: None,
         };
         let restored: TreasureRoomState = serde_json::from_value(
             serde_json::to_value(original).expect("treasure room serializes"),

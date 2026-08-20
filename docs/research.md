@@ -670,3 +670,64 @@ Source inspected: target 12-18-2022 `desktop-1.0.jar` bytecode for
   this source-backed gameplay call site. Future vanilla or modded call sites
   that affect observable gameplay must be audited and added as distinct,
   call-time external inputs rather than inferred from post-state.
+
+## Act 4 key acquisition evidence
+
+Source inspected: target 12-18-2022 `desktop-1.0.jar` bytecode for
+`CampfireUI`, `RecallOption`, `CampfireRecallEffect`, `AbstractChest`,
+`AbstractRoom`, `RewardItem`, `AbstractDungeon.setEmeraldElite`, and
+`MonsterRoomElite`.
+
+- `CampfireUI` appends Recall after relic-provided campfire options only when
+  `Settings.isFinalActAvailable` is true and the Ruby Key is not owned.
+  `CampfireRecallEffect` obtains the red key and completes the rest room.
+- A normal chest appends the Sapphire Key after linking it to the last reward
+  item, which is the chest's own relic (after Matryoshka's earlier bonus and
+  any gold). Claiming either linked item marks the other unavailable; taking
+  the key never grants that relic.
+- After map room assignment, `setEmeraldElite` gathers elite nodes in row-major
+  order and consumes one inclusive `mapRng.random(0, count - 1)` draw to mark
+  exactly one node. Entering it consumes `mapRng.random(0, 3)`: Strength
+  `act + 1`, max HP `+round(25%)`, Metallicize `act * 2 + 2`, or Regenerate
+  `act * 2 + 1`, applied to every monster before player pre-battle relics.
+  This ordering is observable when Preserved Insect reduces current HP from
+  the already-increased maximum.
+- The burning elite appends an Emerald Key reward after its relic reward.
+  Claiming it does not consume the relic.
+
+The permanent traces also prove a separate collection limitation: hand-select
+retrieval and visual card-obtain publication can differ for the same raw action
+and simulator pre-state because target action-manager updates are not captured
+as typed inputs. `CONFIRM` does not encode `wereCardsRetrieved`, and the recorded
+pre-confirm states can have identical `current_action`, queue counts, and update
+counts while one continuation retrieves cards and another has already finished.
+Strict replay must not choose between those outcomes from the observed post-state;
+future collection needs an explicit action-lifecycle/timing input if both are to
+remain authoritative regression cases.
+
+## Act 4 progression and encounter evidence
+
+Target `desktop-1.0.jar` bytecode for `SpireHeart`, `DoorUnlockScreen`,
+`TheEnding`, `MonsterHelper`, `SpireShield`, `SpireSpear`, and `CorruptHeart`
+pins the final-act flow. All three keys route the fourth Heart choice through
+the door, fully heal the player, advance the card RNG dungeon-transition window,
+and enter the fixed Rest → Shop → Shield/Spear → Corrupt Heart map.
+
+Shield and Spear each consume the common `aiRng.random(99)` roll before their
+three-move cycle; the cycle's documented boolean branches consume the following
+AI draws. Shield opens with Bash or Fortify, grants Fortify block to both
+monsters, and uses adjusted Smash damage as its block below A18. Spear opens
+with the two-hit Burn Strike, alternates through Skewer/Piercer, and adds its two
+Burns after damage. Their A0/A3/A8/A18 damage, HP, hit-count, and Artifact
+thresholds come directly from those classes.
+
+The Heart opens with Debilitate after consuming the common AI roll. Debilitate
+queues Vulnerable, Weak, Frail, then Dazed/Slimed/Wound/Burn/Void random draw-pile
+insertions. Later cycles alternate Blood Shots/Echo Attack with the five-stage
+buff sequence. Beat of Death is non-attack damage after each resolved card,
+Invincible caps per-turn HP damage and resets for the next player turn, and
+Painful Stabs queues Wounds only after positive attack HP damage. The unchanged
+schema-2 `FIDL00188` payload contains direct evidence across the key door, Act 4
+map/shop, Shield/Spear combat, Heart combat, and combat-loss terminal path. Its
+strict full replay still stops earlier at an under-specified hand-selection
+retrieval boundary; the payload was not edited or used to restore state.

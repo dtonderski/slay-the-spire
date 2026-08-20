@@ -39,8 +39,16 @@ pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32
 /// HP_LOSS-style damage (e.g. Charon's Ashes): ignores Block, does not trigger Malleable.
 pub fn deal_hp_loss_damage_to_monster(monster: &mut MonsterState, amount: i32) -> i32 {
     let amount = cap_monster_damage_with_intangible(monster, amount);
+    let amount = if monster.powers.invincible_max > 0 {
+        amount.min(monster.powers.invincible.max(0))
+    } else {
+        amount
+    };
     let hp_damage = monster.hp.max(0).min(amount);
     monster.hp -= hp_damage;
+    if monster.powers.invincible_max > 0 {
+        monster.powers.invincible = monster.powers.invincible.saturating_sub(hp_damage);
+    }
     if monster.hp <= 0 {
         monster.hp = 0;
         monster.alive = false;
@@ -127,10 +135,18 @@ fn deal_unmodified_damage_to_monster_inner(
     resolve_guardian_mode_shift: bool,
 ) -> i32 {
     let amount = cap_monster_damage_with_intangible(monster, amount);
+    let amount = if monster.powers.invincible_max > 0 {
+        amount.min(monster.powers.invincible.max(0))
+    } else {
+        amount
+    };
     let blocked = monster.block.min(amount);
     monster.block -= blocked;
     let hp_damage = monster.hp.max(0).min(amount - blocked);
     monster.hp -= hp_damage;
+    if monster.powers.invincible_max > 0 {
+        monster.powers.invincible = monster.powers.invincible.saturating_sub(hp_damage);
+    }
 
     if monster.hp <= 0 {
         monster.hp = 0;
@@ -182,8 +198,16 @@ fn deal_attack_damage_to_monster(
     monster.block -= blocked;
     let unblocked =
         crate::relic::apply_attack_damage_relics_to_unblocked_damage(relics, amount - blocked);
+    let unblocked = if monster.powers.invincible_max > 0 {
+        unblocked.min(monster.powers.invincible.max(0))
+    } else {
+        unblocked
+    };
     let hp_damage = monster.hp.max(0).min(unblocked);
     monster.hp -= hp_damage;
+    if monster.powers.invincible_max > 0 {
+        monster.powers.invincible = monster.powers.invincible.saturating_sub(hp_damage);
+    }
 
     if monster.hp <= 0 {
         monster.hp = 0;

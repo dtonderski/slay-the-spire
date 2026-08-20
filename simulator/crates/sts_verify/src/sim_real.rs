@@ -867,7 +867,10 @@ fn validate_trace_profile(profile: &TraceProfile) -> Result<(), SimRealError> {
     let mut run = RunState::seeded_ironclad(0, 0);
     run.note_card_content_id = content_id;
     run.note_card_upgrades = profile.note_upgrades;
-    run.final_act_available = profile.final_act_available;
+    run.set_final_act_available(profile.final_act_available)
+        .map_err(|error| {
+            SimRealError::InvalidProfileInput(format!("invalid final-act profile input: {error}"))
+        })?;
     run.validate().map_err(|error| {
         SimRealError::InvalidProfileInput(format!(
             "Note card {:?} with {} upgrade(s) is invalid: {error}",
@@ -1215,6 +1218,8 @@ fn seed_start_monsters_from_value(value: Option<&Value>, intents_visible: bool) 
                 "strength": power_amount(monster.get("powers"), "Strength"),
                 "ritual": power_amount(monster.get("powers"), "Ritual"),
                 "vulnerable": power_amount(monster.get("powers"), "Vulnerable"),
+                "metallicize": power_amount(monster.get("powers"), "Metallicize"),
+                "regeneration": power_amount(monster.get("powers"), "Regenerate"),
             });
             // CommunicationMod exports corpse powers inconsistently while the
             // target death animation settles. They are not gameplay state once
@@ -1228,6 +1233,8 @@ fn seed_start_monsters_from_value(value: Option<&Value>, intents_visible: bool) 
                 fields.remove("strength");
                 fields.remove("ritual");
                 fields.remove("vulnerable");
+                fields.remove("metallicize");
+                fields.remove("regeneration");
             }
             if monster.get("move_id").and_then(Value::as_i64).is_none() {
                 projected
@@ -1442,6 +1449,7 @@ fn seed_start_rest_simulated_subset(run: &RunState) -> Value {
                 RestAction::OpenRemove => Some("toke".to_owned()),
                 RestAction::Lift => Some("lift".to_owned()),
                 RestAction::Dig => Some("dig".to_owned()),
+                RestAction::Recall => Some("recall".to_owned()),
                 RestAction::Smith { .. } | RestAction::RemoveCard { .. } | RestAction::Proceed => {
                     None
                 }
@@ -1478,6 +1486,7 @@ fn seed_start_rest_screen_actions(run: &RunState) -> sts_core::SimResult<Vec<Res
                     | RestAction::OpenRemove
                     | RestAction::Lift
                     | RestAction::Dig
+                    | RestAction::Recall
             )
         })
         .collect())
@@ -2729,6 +2738,9 @@ fn sim_reward_combat_choices(run: &RunState, reward: &RewardScreen) -> Vec<Strin
             ));
         }
     }
+    if run.emerald_key_reward_available {
+        choices.push("emerald_key".to_owned());
+    }
     if !reward.potion_offers.is_empty() {
         choices.extend(std::iter::repeat_n(
             "potion".to_owned(),
@@ -2749,6 +2761,13 @@ fn sim_reward_combat_choices(run: &RunState, reward: &RewardScreen) -> Vec<Strin
         ));
     } else if !reward.choices.is_empty() && !reward.card_reward_is_active() {
         choices.push("card".to_owned());
+    }
+    if run
+        .treasure_room
+        .as_ref()
+        .is_some_and(|treasure| treasure.sapphire_key_relic_offer.is_some())
+    {
+        choices.push("sapphire_key".to_owned());
     }
     choices
 }
@@ -2843,6 +2862,8 @@ fn seed_start_bind_reward_choose_action(run: &RunState, index: usize) -> Result<
         "potion" => Ok(RunAction::TakePotionReward {
             index: prior("potion"),
         }),
+        "sapphire_key" => Ok(RunAction::TakeSapphireKey),
+        "emerald_key" => Ok(RunAction::TakeEmeraldKey),
         other => Err(format!(
             "unsupported combat-reward choice label {other:?} at CHOOSE {index}"
         )),
@@ -2914,6 +2935,8 @@ fn seed_start_reward_simulated_subset(run: &RunState) -> Value {
             "potion" => "POTION",
             "card" => "CARD",
             "relic" => "RELIC",
+            "sapphire_key" => "SAPPHIRE_KEY",
+            "emerald_key" => "EMERALD_KEY",
             _ => "UNKNOWN",
         })
         .map(str::to_owned)
@@ -2996,6 +3019,8 @@ fn seed_start_monsters_from_sim(combat: &CombatState, intents_visible: bool) -> 
                 "strength": monster.powers.strength,
                 "ritual": monster.powers.ritual,
                 "vulnerable": monster.powers.vulnerable,
+                "metallicize": monster.powers.metallicize,
+                "regeneration": monster.powers.regeneration,
             });
             // Keep the same explicit visibility boundary as the observed
             // projector. Dead powers are animation residue, not authoritative
@@ -3007,6 +3032,8 @@ fn seed_start_monsters_from_sim(combat: &CombatState, intents_visible: bool) -> 
                 fields.remove("strength");
                 fields.remove("ritual");
                 fields.remove("vulnerable");
+                fields.remove("metallicize");
+                fields.remove("regeneration");
             }
             if !intents_visible {
                 let fields = projected

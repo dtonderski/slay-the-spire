@@ -40,9 +40,12 @@ pub(super) fn apply_lifecycle_event_action(
                 let stage = screen.stage + 1;
                 next.event = Some(make_event_screen(
                     Event::SpireHeart,
-                    spire_heart_choices(stage),
+                    spire_heart_choices(stage, all_act4_keys(next)),
                     stage,
                 ));
+            }
+            3 if choice_index == 0 && all_act4_keys(next) => {
+                enter_act4_map(next)?;
             }
             3 if choice_index == 0 => {
                 next.phase = RunPhase::Complete;

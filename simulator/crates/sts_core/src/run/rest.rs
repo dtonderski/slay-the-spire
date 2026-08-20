@@ -35,6 +35,11 @@ pub fn can_dig(run: &RunState) -> bool {
     run.relics.contains(&Relic::Shovel)
 }
 
+#[must_use]
+pub fn can_recall(run: &RunState) -> bool {
+    run.final_act_available == Some(true) && !run.has_ruby_key
+}
+
 pub fn legal_rest_actions(run: &RunState) -> SimResult<Vec<RestAction>> {
     run.validate()?;
     if run.phase != RunPhase::Rest {
@@ -70,6 +75,10 @@ pub fn legal_rest_actions(run: &RunState) -> SimResult<Vec<RestAction>> {
             }
             _ => {}
         }
+    }
+    // CampfireUI appends Recall after every relic-provided option.
+    if can_recall(run) {
+        actions.push(RestAction::Recall);
     }
     for card in &run.deck {
         if can_remove_at_rest(run) && !card.bottled {
@@ -117,6 +126,8 @@ pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()>
         RestAction::Lift => Err(SimError::IllegalAction("lift is not available")),
         RestAction::Dig if can_dig(run) => Ok(()),
         RestAction::Dig => Err(SimError::IllegalAction("dig is not available")),
+        RestAction::Recall if can_recall(run) => Ok(()),
+        RestAction::Recall => Err(SimError::IllegalAction("recall is not available")),
         RestAction::Smith { card_id } => {
             if !can_smith(run) {
                 return Err(SimError::IllegalAction("smith is not available"));
@@ -211,6 +222,10 @@ pub fn apply_rest_action(run: &RunState, action: RestAction) -> SimResult<RunSta
                 boss_relic_choices: Vec::new(),
                 card_reward_flow: crate::run::CardRewardFlow::None,
             });
+        }
+        RestAction::Recall => {
+            next.has_ruby_key = true;
+            next.rest_room_complete = true;
         }
         RestAction::Smith { card_id } => {
             let card = next
@@ -335,6 +350,41 @@ mod tests {
         assert_eq!(settled.phase, RunPhase::Rest);
         assert!(settled.rest_room_complete);
         assert!(settled.reward.is_none());
+    }
+
+    #[test]
+    fn recall_is_last_campfire_option_and_claims_the_ruby_key_once() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.set_final_act_available(Some(true))
+            .expect("final act profile selects a burning elite");
+        run.phase = RunPhase::Rest;
+        run.current_room_override = Some(RoomKind::Rest);
+        run.event = None;
+        run.relics.push(Relic::Shovel);
+
+        let actions = legal_rest_actions(&run).expect("rest actions");
+        let screen = actions
+            .into_iter()
+            .filter(|action| {
+                matches!(
+                    action,
+                    RestAction::Heal
+                        | RestAction::OpenSmith
+                        | RestAction::OpenRemove
+                        | RestAction::Lift
+                        | RestAction::Dig
+                        | RestAction::Recall
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(screen.last(), Some(&RestAction::Recall));
+
+        let recalled = apply_rest_action(&run, RestAction::Recall).expect("recall succeeds");
+        assert!(recalled.has_ruby_key);
+        assert!(recalled.rest_room_complete);
+        assert!(!legal_rest_actions(&recalled)
+            .expect("completed rest actions")
+            .contains(&RestAction::Recall));
     }
 
     #[test]
