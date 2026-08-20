@@ -695,15 +695,39 @@ Source inspected: target 12-18-2022 `desktop-1.0.jar` bytecode for
 - The burning elite appends an Emerald Key reward after its relic reward.
   Claiming it does not consume the relic.
 
-The permanent traces also prove a separate collection limitation: hand-select
-retrieval and visual card-obtain publication can differ for the same raw action
-and simulator pre-state because target action-manager updates are not captured
-as typed inputs. `CONFIRM` does not encode `wereCardsRetrieved`, and the recorded
-pre-confirm states can have identical `current_action`, queue counts, and update
-counts while one continuation retrieves cards and another has already finished.
-Strict replay must not choose between those outcomes from the observed post-state;
-future collection needs an explicit action-lifecycle/timing input if both are to
-remain authoritative regression cases.
+## SuperFastMode gameplay-delta corruption evidence
+
+Source inspected: target 12-18-2022 `ExhaustAction`, `AbstractGameAction`, and
+`Settings` bytecode, plus the local SuperFastMode collection fork.
+
+`ExhaustAction` initializes `duration` and `startDuration` to
+`Settings.ACTION_DUR_FAST`, which is 0.25 seconds in the target jar. Its first
+non-random update opens `HandCardSelectScreen`, calls `tickDuration`, and
+returns. Only a later update enters the `!wereCardsRetrieved` loop that moves
+selected cards to exhaust. `AbstractGameAction.tickDuration` subtracts
+`Gdx.graphics.getDeltaTime()` and sets `isDone` when the result is negative.
+
+Collection fork `.1` globally multiplied that delta by 100. An opening frame
+over 2.5 ms therefore removed `ExhaustAction` before retrieval; a faster frame
+left it alive for the later update. The collection display config disables
+VSync and caps at 600 FPS, making the 400 FPS threshold sensitive to ordinary
+host load. This explains why identical recorded action/queue inputs had mixed
+outcomes rather than the skip being a vanilla or CommunicationMod branch.
+`TickDurationPatches` protected only `DiscardAction`, leaving `ExhaustAction`
+and every other inherited gameplay tick exposed.
+
+`tools/communication/audit_hand_select_retrieval.py` compares the exact selected
+multiset with post-confirm visible piles, plus the specific exhaust/Strange
+Spoon destination for `ExhaustAction`. It finds 2,222 skipped retrievals among
+8,288 confirms across 328 traces: ExhaustAction 968, PutOnDeckAction 921,
+GamblingChipAction 215, ForethoughtAction 84, ArmamentsAction 23,
+DualWieldAction 10, and RecycleAction 1. Those immutable payloads are
+quarantined. Collection fork `.2` patches `AbstractGameAction.tickDuration` to
+a synthetic 1/60 delta and patches all nine target action classes that directly
+call `getDeltaTime`, based on a complete constant-pool audit under
+`com.megacrit.cardcrawl.actions`. Uncapped frames retain collection throughput
+while gameplay action update counts no longer depend on host frame time or the
+visual multiplier.
 
 ## Act 4 progression and encounter evidence
 

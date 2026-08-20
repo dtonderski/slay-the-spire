@@ -1,0 +1,10 @@
+{
+  "modid": "superfastmode",
+  "name": "SuperFastMode (collection fork)",
+  "author_list": ["Skrelpoid", "davton"],
+  "description": "Collection fork: accelerated visuals with deterministic 60 Hz gameplay-action ticks for reproducible CommunicationMod traces.",
+  "version": "1.0.9-collection.2",
+  "sts_version": "12-18-2022",
+  "mts_version": "3.30.0",
+  "dependencies": ["basemod"]
+}

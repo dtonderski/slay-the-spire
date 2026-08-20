@@ -150,6 +150,19 @@ window without inference. The two schemas are not comparable — a v1 trace can
 contain commands the game should never have accepted — so the version is a
 corpus generation marker, not a payload revision.
 
+A larger apparent lifecycle ambiguity was ultimately a collection-speed defect,
+not a missing trace input. The SuperFastMode collection fork multiplied the
+delta used by gameplay `tickDuration`. `ExhaustAction` opens its hand screen on
+one update and retrieves selected cards on a later update; at 100×, an opening
+frame over 2.5 ms expired its 0.25-second duration immediately. The same
+failure shape affected PutOnDeck, Gambling Chip, Forethought, Armaments, Dual
+Wield, and Recycle. Across the expanded 602-file corpus, 2,222 of 8,288 audited
+selected-card confirms skipped retrieval, contaminating 328 traces. Those
+payloads were quarantined unchanged. Collection fork `.2` instead gives all
+gameplay action state machines a fixed 60 Hz delta while leaving visual
+transitions accelerated, so uncapped frames preserve canonical update ordering
+without paying wall-clock 60 Hz speed.
+
 Sources: the July 2026 SlayTheData and fidelity history;
 [`research.md`](research.md);
 [`phase3a_statistical_fidelity_gate.md`](../simulator/docs/phase3a_statistical_fidelity_gate.md).
@@ -249,14 +262,10 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   a hybrid?
 - What compute and decision-time budget should constrain the final claim of
   being the strongest player?
-- Accelerated collection does not currently capture enough action-lifecycle
-  input to replay every publication boundary. Identical raw `CONFIRM` commands
-  and pre-confirm queue metadata can lead to either normal hand-selection
-  retrieval or `wereCardsRetrieved == false`; visual obtains likewise appear
-  before or after otherwise equivalent ready frames. Post-state candidate
-  selection was rejected because it makes observations authoritative. These
-  cases require a new explicit lifecycle/timing input or certified recollection,
-  not simulator guesses.
+- The mixed `ExhaustAction` retrieval outcome was traced to multiplied gameplay
+  delta and removed from future collection without adding lifecycle inputs.
+  Remaining visual-obtain publication differences still need a source-backed
+  collector audit; post-state candidate selection remains prohibited.
 - Should the pre-schema-2 corpus be recollected wholesale rather than repaired
   trace by trace? Traces are cheap to collect and simulator simplicity is not,
   which argues for recollection once a collector is certified.

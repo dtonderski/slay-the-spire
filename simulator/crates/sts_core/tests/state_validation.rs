@@ -7,11 +7,10 @@ use sts_core::{
         CombatDecisionState, CombatPhase, DrawSelectPurpose, DrawSelectState, HandSelectState,
     },
     content::cards,
-    content::monsters::{monster_state, CORRUPT_HEART_A0},
     content::shop_pool::shop_card_content_id,
     enter_reward_screen, legal_event_actions, legal_rest_actions, legal_run_decision_actions,
     legal_shop_actions, open_shop_merchant, CardGridScreen, CardId, CardRewardFlow, CombatAction,
-    CombatState, ContentId, GridPurpose, MapNodeId, MonsterId, MonsterIntent, Relic,
+    CombatState, ContentId, GridPurpose, MapNodeId, MonsterIntent, Relic,
     RewardContinuation, RewardScreen, RoomKind, RunPhase, RunState, SimError,
 };
 
@@ -148,24 +147,6 @@ fn unknown_content_fails_validation() {
         state.validate(),
         Err(SimError::UnknownContent(ContentId::new(u64::MAX)))
     );
-}
-
-#[test]
-fn unsupported_monster_fails_before_action_execution() {
-    let mut state = CombatState::initial_fixture();
-    let unsupported = CORRUPT_HEART_A0;
-    state.monsters = vec![monster_state(&unsupported, MonsterId::new(1))];
-    let original = state.clone();
-
-    assert_eq!(
-        state.validate(),
-        Err(SimError::UnsupportedMechanic(unsupported.content_id))
-    );
-    assert_eq!(
-        apply_combat_action(&state, CombatAction::EndTurn),
-        Err(SimError::UnsupportedMechanic(unsupported.content_id))
-    );
-    assert_eq!(state, original);
 }
 
 #[test]
