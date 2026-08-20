@@ -14,15 +14,12 @@ use crate::{
     },
     combat::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
-        ExhaustSelectPurpose, HandSelectPurpose, PendingPotionCardRewardSettlement,
-        PotionCardRewardKind,
+        ExhaustSelectPurpose, HandSelectPurpose, PotionCardRewardKind,
     },
     content::cards::{get_card_definition, upgrade_card_instance},
     content::monsters::wake_lagavulin_on_damage,
     content::shop_pool::{
-        burn_all_discovery_card_choice_generations, burn_colorless_discovery_card_choice_draws,
-        burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_draws,
-        burn_discovery_card_choice_generations, colorless_discovery_card_choices,
+        burn_all_discovery_card_choice_generations, colorless_discovery_card_choices,
         discovery_card_choices,
     },
     ids::{CardId, MonsterId},
@@ -47,18 +44,9 @@ use crate::{
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
-// DiscoveryAction generates choices at the top of every update while its
-// fast-duration action settles. Real CommunicationMod traces prove that the
-// target burn differs when the reward is picked versus skipped, and that the
-// colorless generation branch settles two updates later than typed cards in
-// this verifier environment.
-const DISCOVERY_ACTION_PICKED_HIDDEN_GENERATIONS: usize = 9;
-const COLORLESS_DISCOVERY_ACTION_PICKED_HIDDEN_GENERATIONS: usize = 11;
-const DISCOVERY_ACTION_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
-const DISCOVERY_ACTION_SKIPPED_HIDDEN_GENERATIONS: usize = 6;
-const DISCOVERY_ACTION_SKIPPED_SCREEN_SETTLE_DRAWS: usize = 3;
-const POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS: usize = 12;
-const POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS: usize = 1;
+// One ordinary DiscoveryAction update remains after selection under the fixed
+// 1/60-second gameplay lifecycle. Potion-specific picked/skipped pulse tables
+// were legacy pre-collection.2 trace fits and are intentionally not modeled.
 const DISCOVERY_POST_SELECT_GENERATIONS: usize = 1;
 
 pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()> {
@@ -619,16 +607,9 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
     match decision {
         CombatDecisionState::PotionCardReward {
             choices,
-            reward_kind,
+            reward_kind: _,
         } => {
             let card_id = CardId::new(combat.next_card_instance_id()?);
-            settle_potion_card_reward_rng(combat, reward_kind, true);
-            combat.pending_potion_card_reward_settlement =
-                Some(PendingPotionCardRewardSettlement {
-                    reward_kind,
-                    generations_remaining: POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS as u32,
-                    end_turns_remaining: 2,
-                });
             let choice = choices[index];
             let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
             card.temp_cost_turn_only = true;
@@ -667,7 +648,6 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
             card.temp_cost_turn_only = true;
             // DiscoveryAction adds the generated card after the cards already in hand.
             combat.piles.hand.push(card);
-            combat.discovery_retrieved_this_combat = true;
             // card.use() follow-ups queued behind DiscoveryAction (for example
             // Hex's Dazed insertion) resolve after the selected card is
             // retrieved but before UseCardAction settles the Discovery source.
@@ -725,14 +705,7 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
     let mut next = run.clone();
     let combat = next.combat.as_mut().expect("validated combat");
     match combat.decision.take() {
-        Some(CombatDecisionState::PotionCardReward { reward_kind, .. }) => {
-            settle_potion_card_reward_rng(combat, reward_kind, false);
-            combat.pending_potion_card_reward_settlement =
-                Some(PendingPotionCardRewardSettlement {
-                    reward_kind,
-                    generations_remaining: POTION_DISCOVERY_POST_PICKED_HIDDEN_GENERATIONS as u32,
-                    end_turns_remaining: 2,
-                });
+        Some(CombatDecisionState::PotionCardReward { .. }) => {
             crate::relic::apply_potion_use_relics_to_combat(combat)?;
             next.player_hp = combat.player.hp;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
@@ -759,107 +732,6 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
             ))
         }
     }
-}
-
-fn settle_potion_card_reward_rng(
-    combat: &mut CombatState,
-    kind: PotionCardRewardKind,
-    picked: bool,
-) {
-    let rng = &mut combat.rng.card_random_rng;
-    let (mut hidden_generations, settle_draws) = if picked {
-        (
-            DISCOVERY_ACTION_PICKED_HIDDEN_GENERATIONS,
-            DISCOVERY_ACTION_PICKED_SCREEN_SETTLE_DRAWS,
-        )
-    } else {
-        (
-            DISCOVERY_ACTION_SKIPPED_HIDDEN_GENERATIONS,
-            DISCOVERY_ACTION_SKIPPED_SCREEN_SETTLE_DRAWS,
-        )
-    };
-    if picked && kind == PotionCardRewardKind::Colorless {
-        hidden_generations = COLORLESS_DISCOVERY_ACTION_PICKED_HIDDEN_GENERATIONS;
-    }
-    match kind {
-        PotionCardRewardKind::Attack => {
-            burn_discovery_card_choice_generations(rng, CardType::Attack, 3, hidden_generations);
-            burn_discovery_card_choice_draws(rng, CardType::Attack, settle_draws);
-        }
-        PotionCardRewardKind::Skill => {
-            burn_discovery_card_choice_generations(rng, CardType::Skill, 3, hidden_generations);
-            burn_discovery_card_choice_draws(rng, CardType::Skill, settle_draws);
-        }
-        PotionCardRewardKind::Power => {
-            burn_discovery_card_choice_generations(rng, CardType::Power, 3, hidden_generations);
-            burn_discovery_card_choice_draws(rng, CardType::Power, settle_draws);
-        }
-        PotionCardRewardKind::Colorless => {
-            burn_colorless_discovery_card_choice_generations(rng, 3, hidden_generations);
-            burn_colorless_discovery_card_choice_draws(rng, settle_draws);
-        }
-    }
-}
-
-pub(crate) fn settle_pending_potion_card_reward_rng(combat: &mut CombatState) -> SimResult<()> {
-    let Some(mut pending) = combat.pending_potion_card_reward_settlement.take() else {
-        return Ok(());
-    };
-    if pending.end_turns_remaining > 1 {
-        pending.end_turns_remaining -= 1;
-        combat.pending_potion_card_reward_settlement = Some(pending);
-        return Ok(());
-    }
-    let generations = usize::try_from(pending.generations_remaining).map_err(|_| {
-        SimError::InvalidState("pending potion card reward generations exceed usize")
-    })?;
-    match pending.reward_kind {
-        PotionCardRewardKind::Attack => burn_discovery_card_choice_generations(
-            &mut combat.rng.card_random_rng,
-            CardType::Attack,
-            3,
-            generations,
-        ),
-        PotionCardRewardKind::Skill => burn_discovery_card_choice_generations(
-            &mut combat.rng.card_random_rng,
-            CardType::Skill,
-            3,
-            generations,
-        ),
-        PotionCardRewardKind::Power => burn_discovery_card_choice_generations(
-            &mut combat.rng.card_random_rng,
-            CardType::Power,
-            3,
-            generations,
-        ),
-        PotionCardRewardKind::Colorless => burn_colorless_discovery_card_choice_generations(
-            &mut combat.rng.card_random_rng,
-            3,
-            generations,
-        ),
-    }
-    match pending.reward_kind {
-        PotionCardRewardKind::Attack => burn_discovery_card_choice_draws(
-            &mut combat.rng.card_random_rng,
-            CardType::Attack,
-            POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS,
-        ),
-        PotionCardRewardKind::Skill => burn_discovery_card_choice_draws(
-            &mut combat.rng.card_random_rng,
-            CardType::Skill,
-            POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS,
-        ),
-        PotionCardRewardKind::Power => burn_discovery_card_choice_draws(
-            &mut combat.rng.card_random_rng,
-            CardType::Power,
-            POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS,
-        ),
-        PotionCardRewardKind::Colorless => burn_colorless_discovery_card_choice_draws(
-            &mut combat.rng.card_random_rng,
-            POTION_DISCOVERY_POST_PICKED_SCREEN_SETTLE_DRAWS,
-        ),
-    }
-    Ok(())
 }
 
 fn distilled_chaos_target(
@@ -2348,8 +2220,8 @@ mod tests {
         assert_eq!(hand.last().map(|card| card.id), Some(chosen_id));
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            rng_counter_before + 35,
-            "captured colorless Discovery settlement must advance cardRandomRng"
+            rng_counter_before,
+            "selecting an already-generated potion reward consumes no cardRandomRng"
         );
     }
 
@@ -2418,54 +2290,6 @@ mod tests {
         assert_eq!(combat.piles.hand[0].temp_cost, None);
         assert_eq!(combat.piles.hand[1].temp_cost, Some(0));
         assert_eq!(rng.counter(), 1);
-    }
-
-    #[test]
-    fn colorless_potion_pick_matches_session_1203_card_random_rng() {
-        use crate::content::cards::{FORETHOUGHT_ID, PANIC_BUTTON_ID, SADISTIC_NATURE_ID};
-
-        let mut run = RunState::combat_fixture();
-        run.potions = vec![Potion::Colorless];
-        run.empty_potion_slots = vec![1, 2];
-        run.combat
-            .as_mut()
-            .expect("combat fixture")
-            .rng
-            .card_random_rng = StsRng::with_counter(-571_295_464_674_976_220, 4);
-
-        let reward = apply_potion_action(
-            &run,
-            RunAction::UsePotion {
-                slot: 0,
-                target: None,
-            },
-        )
-        .expect("Colorless Potion opens its reward");
-        assert_eq!(
-            reward
-                .combat
-                .as_ref()
-                .and_then(CombatState::potion_card_reward_choices)
-                .expect("potion reward")
-                .iter()
-                .map(|card| card.content_id)
-                .collect::<Vec<_>>(),
-            vec![FORETHOUGHT_ID, SADISTIC_NATURE_ID, PANIC_BUTTON_ID]
-        );
-
-        let next = apply_combat_card_reward_choice(&reward, 1).expect("pick Sadistic Nature");
-        let combat = next.combat.expect("combat remains open");
-        assert_eq!(
-            combat.piles.hand.last().map(|card| card.content_id),
-            Some(SADISTIC_NATURE_ID)
-        );
-        let mut card_random_rng = combat.rng.card_random_rng;
-        assert_eq!(card_random_rng.counter(), 41);
-        assert_eq!(
-            card_random_rng.random_int(1),
-            1,
-            "session-1203 Havoc must target the second living slime"
-        );
     }
 
     #[test]
@@ -2622,7 +2446,6 @@ mod tests {
             )],
             source_card: Some(CardInstance {
                 combat_only: true,
-                magnetism_generated: true,
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
@@ -2653,7 +2476,6 @@ mod tests {
         combat.piles.hand = vec![
             CardInstance {
                 combat_only: true,
-                magnetism_generated: true,
                 ..CardInstance::new(CardId::new(1), ENLIGHTENMENT_ID)
             },
             CardInstance::new(CardId::new(2), STRIKE_R_ID),
@@ -2673,7 +2495,6 @@ mod tests {
             )],
             source_card: Some(CardInstance {
                 combat_only: true,
-                magnetism_generated: true,
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
@@ -2705,7 +2526,6 @@ mod tests {
             .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
             .chain(std::iter::once(CardInstance {
                 combat_only: true,
-                magnetism_generated: true,
                 ..CardInstance::new(CardId::new(50), FLASH_OF_STEEL_ID)
             }))
             .collect();
@@ -2721,7 +2541,6 @@ mod tests {
             )],
             source_card: Some(CardInstance {
                 combat_only: true,
-                magnetism_generated: true,
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
@@ -2753,7 +2572,6 @@ mod tests {
             .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
             .chain(std::iter::once(CardInstance {
                 combat_only: true,
-                magnetism_generated: true,
                 ..CardInstance::new(CardId::new(50), FLASH_OF_STEEL_ID)
             }))
             .collect();
@@ -2769,7 +2587,6 @@ mod tests {
             )],
             source_card: Some(CardInstance {
                 combat_only: true,
-                magnetism_generated: true,
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
@@ -2906,10 +2723,6 @@ mod tests {
             19,
             "four remaining cards versus Time Eater burn one discarded generateCardChoices generation"
         );
-        assert!(
-            combat.discovery_retrieved_this_combat,
-            "Discovery retrieve marks leftover MakeTempCard occupancy for later Reckless Charge"
-        );
     }
 
     #[test]
@@ -2936,7 +2749,6 @@ mod tests {
             )],
             source_card: Some(CardInstance {
                 combat_only: true,
-                magnetism_generated: true,
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,
@@ -3018,7 +2830,6 @@ mod tests {
             )],
             source_card: Some(CardInstance {
                 combat_only: true,
-                magnetism_generated: true,
                 ..CardInstance::new(CardId::new(99), DISCOVERY_ID)
             }),
             source_card_force_exhaust: false,

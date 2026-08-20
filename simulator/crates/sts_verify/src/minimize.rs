@@ -196,6 +196,7 @@ mod tests {
                 step: 1,
                 command: "START".to_owned(),
                 sent_at: None,
+                command_meta: None,
                 playtime_seconds: None,
             }),
             TraceLine::State(TraceState {
@@ -207,6 +208,7 @@ mod tests {
                 step: 2,
                 command: "CHOOSE 0".to_owned(),
                 sent_at: None,
+                command_meta: None,
                 playtime_seconds: None,
             }),
             TraceLine::State(TraceState {

@@ -35,7 +35,6 @@ use crate::{
         apply_draw_select_confirm, apply_exhaust_select_choice, apply_exhaust_select_confirm,
         apply_hand_select_choice, apply_hand_select_confirm,
         apply_hand_select_confirm_without_retrieval, apply_potion_action,
-        settle_pending_potion_card_reward_rng,
     },
     run::shop::apply_shop_action,
     run::state::{
@@ -1995,9 +1994,6 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
 
     let transition = apply_combat_action_with_events(&combat_for_action, action)?;
     let mut next_combat = transition.state;
-    if matches!(action, CombatAction::EndTurn) {
-        settle_pending_potion_card_reward_rng(&mut next_combat)?;
-    }
     let mut next = run.clone();
     if next_combat.relic_counters.fairy_consumed {
         if let Some((slot, _)) = next

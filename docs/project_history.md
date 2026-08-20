@@ -151,7 +151,31 @@ the player boolean after a lethal end turn has already opened combat rewards,
 and treating that stale value as unresolved deadlocks an otherwise ready
 bridge. The two schemas are not comparable — a v1 trace can contain commands
 the game should never have accepted — so the version is a corpus generation
-marker, not a payload revision.
+marker, not a payload revision. Schema 3 withheld quiescent combat readiness
+while any active monster still had `DEBUG` intent, closing the normal-speed
+battle-start window before its first move was initialized. Its pilot exposed a
+second lifecycle hole: an out-of-combat deferred-update flag could survive the
+combat transition and publish the first card command before that queued card
+resolved. Schema 4 clears that flag on entry to combat. Its replacement pilot
+then exposed a transport-ordering hole at Knowing Skull: an additional state
+from the preceding choice overtook execution of the next queued command, so the
+bridge cleared its in-flight guard and built a new command from a state the game
+had already superseded. Schema 5 carries a process-monotonic command-execution
+sequence and does not complete gameplay commands until that sequence advances.
+This is a protocol fence, not observed-state correction. Schema 5 then exposed
+that quiescent action queues were still insufficient: `ObtainKeyEffect` and
+`ShowCardAndObtainEffect` mutate keys and the master deck from dungeon effect
+queues. Their duration-dependent completion varied across otherwise equivalent
+reward choices. Schema 6 waits for pending `ObtainKeyEffect` and
+`ShowCardAndObtainEffect` instances across the dungeon effect queues and
+publishes their zero counts for audit. Its pilot also clarified that the
+no-queued-end-turn rule belongs to quiescent and terminal boundaries: Nilry's
+Codex legitimately exposes an `interaction_ready` card reward while its source
+`END` remains queued, and the command fence still proves which command reached
+that decision. An independently audited exact-20 schema-6 pilot had valid
+strict pairs, zero retrieval failures, zero pending gameplay effects, stable
+repeated verifier output, and zero raw unexpected diffs; those immutable
+payloads became the first post-legacy authoritative cohort.
 
 A larger apparent lifecycle ambiguity was ultimately a collection-speed defect,
 not a missing trace input. The SuperFastMode collection fork multiplied the
@@ -165,6 +189,19 @@ payloads were quarantined unchanged. Collection fork `.2` instead gives all
 gameplay action state machines a fixed 60 Hz delta while leaving visual
 transitions accelerated, so uncapped frames preserve canonical update ordering
 without paying wall-clock 60 Hz speed.
+
+The hand-selection audit was subsequently shown to be only a narrow detector:
+an unquarantined Discovery reward had the same skipped-retrieval artifact, and
+other timing-sensitive paths could not be certified trace by trace. The entire
+602-trace pre-`.2` cohort was therefore archived unchanged as legacy evidence
+and removed from the authoritative gate. A paired `.2`/unmodded run disproved a
+trace-fitted claim that generated draw-pile cards could be randomly inserted
+four or seven times; target bytecode and three matched Wild Strike insertions
+show exactly one insertion draw. That workaround was deleted. The same paired
+run exposed a separate bridge defect at normal speed: CommunicationMod could
+publish combat while a living monster still had `DEBUG` intent, allowing a
+command before its first move was initialized. Current collection blocks that
+boundary before beginning a small replacement pilot.
 
 Sources: the July 2026 SlayTheData and fidelity history;
 [`research.md`](research.md);
@@ -241,9 +278,13 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   observational: `STATE` closes only on `poll`, gameplay closes only on an
   explicit ready/quiescent/terminal boundary, and steps and timing metadata fail
   closed. Schema-v0 compatibility ended on 2026-08-07; schema 2 (2026-08-18)
-  added the queued-end-turn guard. Replay accepts explicit metadata/state schema
-  1 or 2 with typed profile/RNG input. Old passes are evidence, not supported
-  inputs.
+  added the queued-end-turn guard. Schema 3 (2026-08-20) added the
+  uninitialized-monster-intent guard; schema 4 prevents deferred out-of-combat
+  stabilization from completing a combat command; schema 5 requires a monotonic
+  command-execution fence before a gameplay boundary can close; schema 6 also
+  waits for gameplay-affecting dungeon effect queues. Replay accepts explicit
+  metadata/state schemas 1 through 6 with typed profile/RNG input. Old passes
+  are evidence, not supported inputs.
 - A verifier that may inspect the expected output will eventually select its
   transition to match it, and no amount of care in the individual cases
   prevents that. Replay advances from state and action alone; the observation
@@ -252,9 +293,10 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   rather than be inferred.
 - A green suite measures the verifier before it measures the simulator. Prefer
   a small honest number to a large one whose provenance nobody can state.
-- Unreproducible captures are quarantined, never deleted or edited. Retaining
-  them as evidence while excluding them from the gate is what later makes it
-  possible to prove which simulator behaviour was modelling a collection
+- Unreproducible captures are quarantined, never deleted or edited. An entire
+  uncertified collection epoch may instead be archived as legacy evidence.
+  Retaining both while excluding them from the active gate is what later makes
+  it possible to prove which simulator behaviour was modelling a collection
   artifact.
 
 ## Open Strategic Questions
@@ -267,8 +309,7 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   being the strongest player?
 - The mixed `ExhaustAction` retrieval outcome was traced to multiplied gameplay
   delta and removed from future collection without adding lifecycle inputs.
-  Remaining visual-obtain publication differences still need a source-backed
-  collector audit; post-state candidate selection remains prohibited.
-- Should the pre-schema-2 corpus be recollected wholesale rather than repaired
-  trace by trace? Traces are cheap to collect and simulator simplicity is not,
-  which argues for recollection once a collector is certified.
+  The pre-collection.2 corpus is legacy and replacement evidence is being
+  recollected. Remaining visual-obtain publication differences still need a
+  source-backed collector audit; post-state candidate selection remains
+  prohibited.

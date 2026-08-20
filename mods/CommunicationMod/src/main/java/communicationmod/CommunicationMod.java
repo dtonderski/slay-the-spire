@@ -102,6 +102,8 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
                 HashMap<String, Object> jsonError = new HashMap<>();
                 jsonError.put("error", e.getMessage());
                 jsonError.put("ready_for_command", GameStateListener.isWaitingForCommand());
+                jsonError.put("boundary_schema", GameStateListener.getBoundarySchema());
+                jsonError.put("command_execution_seq", GameStateListener.getCommandExecutionSeq());
                 Gson gson = new Gson();
                 sendMessage(gson.toJson(jsonError));
             }

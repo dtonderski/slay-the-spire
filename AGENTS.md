@@ -73,26 +73,22 @@ The inner loop is the Rust verifier, not the UI:
   active CommunicationMod `tools/communication/session`. Not PowerShell, not
   handcrafted TCP. A sandboxed port check cannot prove the Windows game is
   stopped; use `live-trace bridges list`.
-- `simulator/verification/corpus/permanent_traces/` is ~15 GB and gitignored.
-  Never commit it. Details in `simulator/docs/verification.md`.
+- `simulator/verification/corpus/permanent_traces/` is the gitignored active
+  authoritative corpus. The 602 pre-collection.2 payloads are preserved as a
+  local/remote legacy archive and must not be copied back into the active gate.
+  Details are in `simulator/docs/verification.md`.
 - Keep searches targeted. `tmp/decompiled-sts/`, when extracted, is a huge
   uncommitted decompiled-source corpus: search one package path such as
   `com/megacrit/cardcrawl/monsters/`, never the whole tree.
 
 ### Cursor Cloud
 
-- Cloud agents download the complete permanent corpus from the private
-  `dtonderski/sts-permanent-traces` Hugging Face dataset. `HF_TOKEN` must be a
-  read token supplied through Cursor's Cloud Agent secrets, never committed to
-  the repo.
-- `.cursor/start.sh` runs `tools/hf_corpus.sh download` at **boot** (not during
-  the Build), because `HF_TOKEN` is a runtime-only secret. The download is
-  incremental; traces land at the gitignored
-  `simulator/verification/corpus/permanent_traces/` path. If Builds are enabled
-  and `HF_TOKEN` is also available at build time, you could move the download to
-  the `install` step to bake it into the snapshot instead.
-- Cloud agents may read and replay these traces but must never edit them or
-  upload corpus changes. Corpus uploads are an explicit local operation.
+- The private `dtonderski/sts-permanent-traces` Hugging Face dataset is the
+  immutable pre-collection.2 legacy archive. `.cursor/start.sh` intentionally
+  does not download it into the active corpus.
+- Cloud agents may download legacy traces explicitly for investigation, but
+  must never edit them, treat them as authoritative, or upload corpus changes.
+  Corpus uploads are an explicit local operation.
 
 ## Trace Collection
 
@@ -124,20 +120,13 @@ map/reward/shop generation.
 Environment setup lives in `.cursor/`: `install.sh` (via `environment.json`
 `install`) installs newest stable Rust plus `uv`/`libpython3.12-dev` and builds
 `py_sts` on Cursor's default image — no custom Dockerfile, so it works for
-just-in-time agents too — and `start.sh` downloads the corpus at boot. Edit those
-files, not a dashboard snapshot. Supported Cloud scope is `sts_verify` and
-`py_sts`; the `sts_live` live UI needs a real game/CommunicationMod bridge that
-cannot run here. The notes below are non-obvious caveats not captured by those
-files:
-
-- The trace corpus is downloaded at **boot** by `.cursor/start.sh`, not during
-  the Build, because `HF_TOKEN` is a runtime-only secret (unavailable to the
-  build `install` step). First boot pulls the full corpus (several GB, and
-  growing as traces are added) before the agent is ready; the download is
-  incremental and skips existing traces. If `HF_TOKEN` is unset the
-  boot still succeeds without the corpus — exercise the verifier with the
-  committed fixture instead: `cargo run -p sts_verify --bin sts_verify -- corpus
-  manual/milestone1.jsonl` plus the `milestone*` tests.
+just-in-time agents too. `start.sh` creates the active corpus directory but does
+not restore the legacy archive. Edit those files, not a dashboard snapshot.
+Supported Cloud scope is `sts_verify` and `py_sts`; the `sts_live` live UI needs
+a real game/CommunicationMod bridge that cannot run here. Exercise the verifier
+without active traces using the committed fixture:
+`cargo run -p sts_verify --bin sts_verify -- corpus manual/milestone1.jsonl`
+plus the `milestone*` tests.
 - `cargo test --workspace` has one parallelism-sensitive test,
   `rng::tests::rng_trace_capture_restores_disabled_fast_path_after_panic` (it
   asserts on the process-global `RNG_TRACE_ACTIVE` counter). Run it in isolation

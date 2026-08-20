@@ -1,5 +1,5 @@
 {
-  "name": "Slay the Spire simulator with permanent traces",
+  "name": "Slay the Spire simulator with authoritative traces",
   "install": "bash .cursor/install.sh",
   "start": "bash .cursor/start.sh"
 }

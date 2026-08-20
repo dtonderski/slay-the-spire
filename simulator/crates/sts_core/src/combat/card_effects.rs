@@ -1979,7 +1979,7 @@ pub(crate) fn open_discovery_card_reward_for_play(
     _source_card_id: CardId,
 ) -> SimResult<()> {
     let next_card_id = state.reserve_card_instance_ids(3)?;
-    let pool = discovery_modeled_card_pool();
+    let pool = discovery_card_pool();
     let content_choices = discovery_choices_from_pool(&mut state.rng.card_random_rng, &pool);
     // DiscoveryAction generates this visible offer during its opening update.
     // Any discarded post-selection update belongs to CHOOSE, after the reward
@@ -2012,12 +2012,12 @@ fn discovery_choices_from_pool(rng: &mut crate::rng::StsRng, pool: &[ContentId])
     choices
 }
 
-pub(crate) fn discovery_modeled_card_pool() -> Vec<ContentId> {
-    ironclad_combat_discovery_pool()
-        .iter()
-        .copied()
-        .filter(|content_id| get_card_definition(*content_id).is_some())
-        .collect()
+pub(crate) fn discovery_card_pool() -> Vec<ContentId> {
+    // Discovery samples the complete target source pool. Unsupported card
+    // mechanics may stop replay when the generated card is later used, but
+    // filtering the offer changes the RNG bound and can select a different
+    // supported card.
+    ironclad_combat_discovery_pool().to_vec()
 }
 
 pub(crate) fn infernal_blade_modeled_attack_pool() -> Vec<ContentId> {

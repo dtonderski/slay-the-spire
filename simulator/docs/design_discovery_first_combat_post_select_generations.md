@@ -53,9 +53,10 @@ one pulse (FIDL01787 Writhing Mass: next Magnetism is Flash of Steel, not
 Good Instincts). The same Magnetism-generated source later in the turn
 stays one pulse (FIDL01255 colorless hand; FIDL01623 Jack of All Trades
 turn). Skipped retrieval still burns nothing. Four remaining versus Time
-Eater stay one leftover pulse; leftover Reckless Charge `addToRandomSpot`
-versus Time Eater after that retrieve last-wins four same-bound rolls on
-the first two plays of the turn (FIDL01680).
+Eater stay one leftover pulse. The former claim that later Reckless Charge
+inserts consume four same-bound `addToRandomSpot` rolls was removed: target
+bytecode performs exactly one insertion and one card RNG draw in the effect
+constructor.
 
 A global or remaining-hand-only two-generation retrieve regresses those
 already-green traces. A CHOOSE-time candidate cannot distinguish 1 vs 2
@@ -78,21 +79,12 @@ insert needs two discarded generations (FIDL01614 Cultist+Chosen: Dazed at
 draw index 3). Solo Chosen stays one generation; two would desync later Hex
 inserts (FIDL01561).
 
-## Decision
+## Current decision
 
-Burn six discarded generations when the Discovery source was force-exhausted
-by PlayTop (Havoc / Distilled Chaos). Burn two when another Discovery is still
-in hand, when Hex is up and two or more enemies are alive, when Awakened One
-is present and `hand.len() >= 6` at retrieve, when Awakened One is the sole
-living enemy and `hand.len() >= 5`, when Donu or Deca is present and
-`hand.len() >= 6`, when two or fewer remaining cards include a
-status except against Donu/Deca, or when a hand-played Magnetism source is Magnetism-generated,
-`cards_played_this_turn <= 2`, and either fewer than 5 cards remain or another
-Magnetism-generated card is still in hand with remaining hand size other than 5.
-Remaining 5 with another Magnetism card stays one pulse. Three remaining cards
-versus a single non-AO/Donu/Snecko enemy burn zero leftover pulses (FIDL01680).
-Snecko still burns one pulse (FIDL01622 Confusion costs). Four remaining cards
-versus Time Eater burn zero leftover pulses (FIDL01680 Reckless Charge Dazed at
-draw index 7). Mayhem
-PlayTop skips that Magnetism two-pulse branch. Otherwise burn one.
-Do not hydrate the Void insert index from the observed leftover pile.
+The encounter- and hand-shape pulse table above came from the legacy
+pre-collection.2 cohort and is not an authoritative target rule. Production
+replay now models one resumed post-select `generateCardChoices` call for an
+ordinary retrieved Discovery and none for a skipped retrieval. Any different
+count in a clean trace must remain a visible RNG divergence until source-backed
+action-queue settlement explains it. Do not restore the historical table or
+hydrate an insertion index from an observed pile.

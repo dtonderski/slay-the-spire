@@ -57,12 +57,16 @@ public class GameStateConverter {
         response.put("boundary_kind", GameStateListener.consumeBoundaryKind());
         response.put("game_update_seq", GameStateListener.getGameUpdateSeq());
         response.put("dungeon_update_seq", GameStateListener.getDungeonUpdateSeq());
+        response.put("command_execution_seq", GameStateListener.getCommandExecutionSeq());
         response.put("current_action", GameStateListener.getCurrentActionName());
         response.put("current_action_instance", GameStateListener.getCurrentActionInstance());
         response.put("current_action_update_count", GameStateListener.getCurrentActionUpdateCount());
         response.put("actions_queued", GameStateListener.getActionQueueSize());
         response.put("card_queue_size", GameStateListener.getCardQueueSize());
         response.put("pre_turn_actions_size", GameStateListener.getPreTurnActionQueueSize());
+        response.put("effects_size", GameStateListener.getEffectQueueSize());
+        response.put("top_level_effects_size", GameStateListener.getTopLevelEffectQueueSize());
+        response.put("queued_top_level_effects_size", GameStateListener.getQueuedTopLevelEffectQueueSize());
         response.put("end_turn_queued", GameStateListener.isEndTurnQueued());
         boolean isInGame = CommandExecutor.isInDungeon();
         response.put("in_game", isInGame);

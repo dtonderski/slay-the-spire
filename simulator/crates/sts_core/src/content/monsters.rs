@@ -3814,6 +3814,7 @@ pub fn monster_state_for_ascension(
             0
         },
         alive: true,
+        back_attack: definition.content_id == SPIRE_SHIELD_ID,
         escaped: false,
         vulnerable_just_applied: false,
         powers: MonsterPowers {
@@ -10321,15 +10322,7 @@ fn apply_monster_intent_with_card_rng_inner(
                 .and_then(|damage| damage.checked_add(config.deadly_enemies_damage_bonus()))
                 .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))?
         };
-        if monster.content_id == SPIRE_SHIELD_ID {
-            damage
-                .checked_mul(3)
-                .map(|damage| damage / 2)
-                .and_then(|damage| damage.checked_add(monster.powers.strength / 2))
-                .ok_or(SimError::InvalidState("Back Attack damage overflows i32"))
-        } else {
-            Ok(damage)
-        }
+        Ok(damage)
     };
     let mut block_after_thorns = 0;
     let total_thorns = checked_monster_intent_add(player.powers.thorns, player.temp_thorns)?;
@@ -10338,7 +10331,19 @@ fn apply_monster_intent_with_card_rng_inner(
         monster.content_id == GUARDIAN_ID && monster.in_defensive_mode;
     let monster_damage_to_player =
         |player: &crate::PlayerState, monster: &MonsterState, base: i32| {
-            monster_damage_to_player_with_relics(player, monster, base, relics)
+            let damage = monster_damage_to_player_with_relics(player, monster, base, relics)?;
+            if monster.back_attack {
+                // AbstractMonster.applyPowers first floors DamageInfo.output
+                // after Weak/Vulnerable, then applies Back Attack's 1.5x to
+                // that integer. Spire Shield's Attack+Block snapshots this
+                // same output for its queued GainBlockAction.
+                damage
+                    .checked_mul(3)
+                    .map(|damage| damage / 2)
+                    .ok_or(SimError::InvalidState("Back Attack damage overflows i32"))
+            } else {
+                Ok(damage)
+            }
         };
     let (damage, thorns_hits) = match monster.intent {
         MonsterIntent::PendingAiRoll => {
@@ -10370,6 +10375,7 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
         MonsterIntent::AttackAndBlock { damage, block } => {
+            let damage = monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             if monster.content_id == SPHERIC_GUARDIAN_ID {
                 // Target SphericGuardian move 3 queues GainBlockAction before
                 // DamageAction, so reactive thorns damage lands into the newly
@@ -10378,13 +10384,16 @@ fn apply_monster_intent_with_card_rng_inner(
                 // modeled AttackAndBlock users retain their source
                 // attack-then-block ordering.
                 checked_add_monster_block_value(&mut monster.block, block)?;
+            } else if monster.content_id == SPIRE_SHIELD_ID && ascension < 18 {
+                // SpireShield.takeTurn constructs GainBlockAction from
+                // damage[1].output, not the base move damage. That output has
+                // already incorporated Weak, player Vulnerable, and Back
+                // Attack with the source's intermediate integer rounding.
+                block_after_thorns = damage;
             } else {
                 block_after_thorns = block;
             }
-            (
-                monster_damage_to_player(player_before, monster, scale_damage(damage)?)?,
-                1,
-            )
+            (damage, 1)
         }
         MonsterIntent::StrengthAndBlock { strength, block } => {
             if monster.content_id == SPIKER_ID {
@@ -10935,6 +10944,51 @@ mod tests {
         JAX_PLUS_ID, RITUAL_DAGGER_ID, WOUND_ID,
     };
     use crate::ids::CardId;
+
+    fn resolve_shield_attack_and_block(ascension: u8, back_attack: bool, weak: i32) -> (i32, i32) {
+        let mut combat = crate::CombatState::initial_fixture();
+        combat.player.hp = 100;
+        combat.player.max_hp = 100;
+        combat.player.block = 0;
+        let mut player = combat.player.clone();
+        let player_before = player.clone();
+        let mut piles = combat.piles.clone();
+        let allocated = piles.max_card_instance_id();
+        let mut rng = StsRng::new(1);
+        let mut shield =
+            monster_state_for_ascension(&SPIRE_SHIELD_A0, crate::MonsterId::new(1), ascension);
+        shield.back_attack = back_attack;
+        shield.powers.weak = weak;
+        shield.intent = MonsterIntent::AttackAndBlock {
+            damage: if ascension >= 3 { 38 } else { 34 },
+            block: if ascension >= 18 { 99 } else { 51 },
+        };
+        let damage = apply_monster_intent_with_card_rng(
+            &mut shield,
+            &mut player,
+            &mut piles,
+            allocated,
+            ascension,
+            &player_before,
+            &[],
+            &mut rng,
+        )
+        .expect("Spire Shield attack+block resolves");
+        (damage, shield.block)
+    }
+
+    #[test]
+    fn spire_shield_back_attack_rounds_after_weak_and_snapshots_block() {
+        // DamageInfo.applyPowers floors 34 * 0.75 to 25 before
+        // AbstractMonster.applyPowers multiplies Back Attack to 37.
+        assert_eq!(resolve_shield_attack_and_block(0, true, 1), (37, 37));
+        assert_eq!(resolve_shield_attack_and_block(0, false, 1), (25, 25));
+    }
+
+    #[test]
+    fn spire_shield_a18_attack_and_block_keeps_fixed_ninety_nine_block() {
+        assert_eq!(resolve_shield_attack_and_block(18, true, 0), (57, 99));
+    }
 
     #[test]
     fn stasis_uses_target_card_rarity() {

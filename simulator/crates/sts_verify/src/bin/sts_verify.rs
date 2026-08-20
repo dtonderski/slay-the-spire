@@ -1069,9 +1069,10 @@ fn trace_error_entry(trace: String, error: String) -> TraceStatusEntry {
 /// or block a green corpus.
 fn trace_status_exit_code(entries: &[TraceStatusEntry]) -> i32 {
     let mut authoritative = entries.iter().filter(|entry| !entry.quarantined);
-    if authoritative
-        .clone()
-        .any(|entry| entry.status == "invalid_input")
+    if authoritative.clone().next().is_none()
+        || authoritative
+            .clone()
+            .any(|entry| entry.status == "invalid_input")
     {
         1
     } else if authoritative.any(|entry| entry.status == "failed") {
@@ -1275,6 +1276,15 @@ mod tests {
         let mut with_real_failure = clean;
         with_real_failure.push(status_entry("FIDL00002.jsonl", "failed", false));
         assert_eq!(trace_status_exit_code(&with_real_failure), 2);
+    }
+
+    #[test]
+    fn status_fails_without_authoritative_evidence() {
+        assert_eq!(trace_status_exit_code(&[]), 1);
+        assert_eq!(
+            trace_status_exit_code(&[status_entry("legacy.jsonl", "complete_pass", true)]),
+            1
+        );
     }
 
     #[test]

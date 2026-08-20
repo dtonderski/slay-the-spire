@@ -75,40 +75,6 @@ fn initialize_run(
     Ok(run)
 }
 
-fn settle_schema_two_obtain_boundary(
-    source: &RunState,
-    post: &TraceState,
-    next: &mut RunState,
-) -> Result<(), String> {
-    let schema_two = post.message.get("boundary_schema").and_then(Value::as_u64) == Some(2);
-    let living_wall_change = source.card_grid.as_ref().is_some_and(|grid| {
-        matches!(
-            grid.purpose,
-            GridPurpose::EventTransformReturnToEvent {
-                event: Event::LivingWall,
-                ..
-            }
-        )
-    });
-    let deferred_transform = (next.pending_event_transform.is_some() && !living_wall_change)
-        || next.pending_astrolabe_transform.is_some();
-    if schema_two
-        && (source.card_grid.is_none() || next.card_grid.is_none())
-        && !deferred_transform
-        && !next.pending_obtain_cards.is_empty()
-    {
-        // Schema 2 is published only after the target action/effect queues are
-        // quiescent. Visual obtains have therefore committed before this state
-        // (FIDL00112/FIDL00117/FIDL00145), unlike older schema-1 captures
-        // (FIDL01317). Multi-select grids remain deferred while open. Target
-        // transform effects stay queued after close except Living Wall Change,
-        // whose replacement is already committed on its schema-2 CONFIRM.
-        next.flush_pending_obtain_cards()
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(())
-}
-
 fn compare_direct_run(
     report: &mut SimRealReport,
     action: &TraceAction,
@@ -566,12 +532,8 @@ pub(super) fn verify_seed_start_transition(
                                 next.pending_external_rng.len()
                             ),
                         )),
-                        Ok(mut next) => {
+                        Ok(next) => {
                             if let Err(reason) =
-                                settle_schema_two_obtain_boundary(&source, post, &mut next)
-                            {
-                                Some(boundary(action, "invalid_direct_transition", reason))
-                            } else if let Err(reason) =
                                 compare_direct_run(report, action, post, &label, &next)
                             {
                                 Some(boundary(action, "invalid_direct_projection", reason))
@@ -665,6 +627,7 @@ mod tests {
             step: 2,
             command: "PROCEED".to_owned(),
             sent_at: None,
+            command_meta: None,
             playtime_seconds: None,
         };
         let post = TraceState {

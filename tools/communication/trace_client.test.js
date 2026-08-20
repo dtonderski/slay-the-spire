@@ -247,10 +247,14 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
       in_game: true,
       ready_for_command: true,
       available_commands: ["choose", "state"],
-      boundary_schema: 2,
+      boundary_schema: 6,
       end_turn_queued: false,
       boundary_kind: "interaction_ready",
       game_update_seq: 101,
+      command_execution_seq: 20,
+      effects_size: 0,
+      top_level_effects_size: 0,
+      queued_top_level_effects_size: 0,
       dungeon_update_seq: 99,
       current_action: "DiscoveryAction",
       current_action_instance: 4,
@@ -279,8 +283,9 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.strictEqual(liveState.ok, true);
     assert.ok(liveState.state_id);
     assert.ok(liveState.state_seq);
-    assert.strictEqual(liveState.summary.boundary_schema, 2);
+    assert.strictEqual(liveState.summary.boundary_schema, 6);
     assert.strictEqual(liveState.summary.end_turn_queued, false);
+    assert.strictEqual(liveState.summary.command_execution_seq, 20);
     assert.strictEqual(liveState.summary.boundary_kind, "interaction_ready");
     assert.strictEqual(liveState.summary.current_action, "DiscoveryAction");
     assert.strictEqual(liveState.summary.current_action_instance, 4);
@@ -357,10 +362,15 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
       in_game: true,
       ready_for_command: true,
       available_commands: ["state"],
-      boundary_schema: 1,
-      boundary_kind: "poll",
+      boundary_schema: 6,
+      boundary_kind: "quiescent",
+      end_turn_queued: false,
       game_update_seq: 102,
       dungeon_update_seq: 100,
+      command_execution_seq: 21,
+      effects_size: 1,
+      top_level_effects_size: 0,
+      queued_top_level_effects_size: 0,
       actions_queued: 0,
       card_queue_size: 0,
       pre_turn_actions_size: 0,
@@ -373,21 +383,34 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     await waitFor(() => {
       const summaryPath = path.join(sessionDir, "summary.json");
       if (!fs.existsSync(summaryPath)) return false;
-      return JSON.parse(fs.readFileSync(summaryPath, "utf8")).boundary_kind === "poll";
+      return JSON.parse(fs.readFileSync(summaryPath, "utf8")).game_update_seq === 102;
     });
-    const pendingAfterPoll = await controlRequest(port, { type: "state" });
-    assert.strictEqual(pendingAfterPoll.pending_command, true);
-    assert.strictEqual(pendingAfterPoll.command_in_flight.command, "CHOOSE 0");
+    const pendingAfterStaleBoundary = await controlRequest(port, { type: "state" });
+    assert.strictEqual(pendingAfterStaleBoundary.pending_command, true);
+    assert.strictEqual(pendingAfterStaleBoundary.command_in_flight.command, "CHOOSE 0");
+    assert.strictEqual(
+      pendingAfterStaleBoundary.command_in_flight.accepted_command_execution_seq,
+      20,
+    );
     child.stdin.write(`${JSON.stringify({
       in_game: true,
       ready_for_command: true,
       available_commands: ["state"],
-      boundary_schema: 2,
-      end_turn_queued: false,
-      boundary_kind: "quiescent",
+      boundary_schema: 6,
+      // Nilry's Codex is a legitimate interaction-ready pause inside an END:
+      // the queued end turn resumes only after this card-reward decision.
+      end_turn_queued: true,
+      boundary_kind: "interaction_ready",
       game_update_seq: 103,
       dungeon_update_seq: 101,
-      actions_queued: 0,
+      command_execution_seq: 21,
+      effects_size: 0,
+      top_level_effects_size: 0,
+      queued_top_level_effects_size: 0,
+      current_action: "CodexAction",
+      current_action_instance: 5,
+      current_action_update_count: 1,
+      actions_queued: 1,
       card_queue_size: 0,
       pre_turn_actions_size: 0,
       game_state: {
@@ -429,12 +452,14 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
     assert.strictEqual(accept.command_meta.protocol, "tcp-jsonl");
     assert.strictEqual(accept.accepted_state_id, liveState.state_id);
     assert.strictEqual(accept.accepted_state_seq, liveState.state_seq);
+    assert.strictEqual(accept.accepted_command_execution_seq, 20);
     const action = records.find((record) => record.type === "action");
     assert.ok(action, `missing action record; stderr=${stderr}`);
     assert.strictEqual(action.command, "CHOOSE 0");
     assert.strictEqual(action.command_meta.protocol, "tcp-jsonl");
     assert.strictEqual(action.command_meta.source_state_id, liveState.state_id);
     assert.strictEqual(action.command_meta.source_state_seq, liveState.state_seq);
+    assert.strictEqual(action.command_meta.source_command_execution_seq, 20);
     assert.strictEqual(action.command_meta.owner_id, "test-controller");
     assert.deepStrictEqual(action.command_meta.metadata, { source: "tcp-test" });
   } finally {

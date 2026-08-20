@@ -181,9 +181,6 @@ pub struct CombatState {
     /// stay behind the bulk hand discard in the source action queue.
     #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
     pub pending_hp_loss_draw_follow_ups: VecDeque<InternalAction>,
-    /// Deferred DiscoveryAction generations after a potion reward selection.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_potion_card_reward_settlement: Option<PendingPotionCardRewardSettlement>,
     /// Leftover HandCardSelectScreen.selectedCards held off every serialized
     /// pile until a non-empty-hand end-turn DiscardAction (skipped retrieval).
     /// Covers Cultist-potion interleaving, Dual Wield / Armaments / Burning Pact
@@ -262,11 +259,6 @@ pub struct CombatState {
     /// DrawCardAction, then the EndTurnAction appended by Time Warp.
     #[serde(default, skip_serializing_if = "is_false")]
     pub defer_time_warp_end_turn: bool,
-    /// DiscoveryAction retrieved a card this combat. SuperFastMode leftover
-    /// MakeTempCardInDrawPile occupancy after that retrieve lasts into later
-    /// Reckless Charge Dazed inserts versus Time Eater (FIDL01680).
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub discovery_retrieved_this_combat: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -281,16 +273,6 @@ pub enum PotionCardRewardKind {
     Skill,
     Power,
     Colorless,
-}
-
-/// DiscoveryAction choice generations that remain after a potion reward is
-/// selected. CommunicationMod can accept combat commands while that action is
-/// still settling, so its lifecycle is authoritative simulator state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PendingPotionCardRewardSettlement {
-    pub reward_kind: PotionCardRewardKind,
-    pub generations_remaining: u32,
-    pub end_turns_remaining: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -550,6 +532,11 @@ pub struct MonsterState {
     pub max_hp: i32,
     pub block: i32,
     pub alive: bool,
+    /// Whether this monster currently receives Surrounded's 1.5x back-attack
+    /// multiplier. The Spire Shield starts behind the player; the power is
+    /// removed from the survivor as soon as either Act 4 elite dies.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub back_attack: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub escaped: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -1154,7 +1141,6 @@ impl CombatState {
             combat_gold_gained: 0,
             pending_hp_loss_draw_follow_ups: VecDeque::new(),
             writhing_mass_mega_debuff_triggered: false,
-            pending_potion_card_reward_settlement: None,
             pending_hidden_hand_card_until_end_turn: Vec::new(),
             pending_hidden_hand_card_exhausts_with_fiend_fire: false,
             pending_beat_of_death_triggers: 0,
@@ -1173,7 +1159,6 @@ impl CombatState {
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
-            discovery_retrieved_this_combat: false,
         }
     }
 
@@ -1420,17 +1405,6 @@ impl CombatState {
         {
             return Err(SimError::InvalidState("combat bomb timer is invalid"));
         }
-        if let Some(pending) = self.pending_potion_card_reward_settlement {
-            if pending.generations_remaining == 0 || pending.end_turns_remaining == 0 {
-                return Err(SimError::InvalidState(
-                    "pending potion card reward settlement is empty",
-                ));
-            }
-            // DiscoveryAction remains on the action queue while CommunicationMod
-            // can expose a later card decision; the decision overlay is therefore
-            // allowed to coexist with this deferred internal lifecycle.
-        }
-
         Ok(())
     }
 

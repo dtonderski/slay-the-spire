@@ -29,7 +29,7 @@ fn external_corpus_traces() -> Vec<PathBuf> {
     paths
 }
 
-fn assert_explicit_v1(path: &Path, content: &str) {
+fn assert_current_boundary_schema(path: &Path, content: &str) {
     let trace = import_communication_mod_trace(content)
         .unwrap_or_else(|error| panic!("{} imports: {error}", path.display()));
     let metadata = trace
@@ -39,7 +39,7 @@ fn assert_explicit_v1(path: &Path, content: &str) {
     assert_eq!(metadata.schema, 1, "{} record schema", path.display());
     assert_eq!(
         metadata.boundary_schema,
-        Some(1),
+        Some(6),
         "{} metadata boundary schema",
         path.display()
     );
@@ -67,7 +67,7 @@ fn assert_explicit_v1(path: &Path, content: &str) {
                 .message
                 .get("boundary_schema")
                 .and_then(serde_json::Value::as_u64),
-            Some(1),
+            Some(6),
             "{} step {} state boundary schema",
             path.display(),
             state.step
@@ -80,7 +80,7 @@ fn assert_explicit_v1(path: &Path, content: &str) {
 fn external_permanent_traces_are_structurally_replayable() {
     for path in external_corpus_traces() {
         let content = fs::read_to_string(&path).expect("external trace is readable");
-        assert_explicit_v1(&path, &content);
+        assert_current_boundary_schema(&path, &content);
         let report = verify_communication_mod_trace(&content).unwrap_or_else(|error| {
             panic!("{} must not crash the verifier: {error}", path.display())
         });
@@ -103,7 +103,7 @@ fn external_permanent_traces_are_structurally_replayable() {
 fn external_permanent_traces_are_complete_passes() {
     for path in external_corpus_traces() {
         let content = fs::read_to_string(&path).expect("external trace is readable");
-        assert_explicit_v1(&path, &content);
+        assert_current_boundary_schema(&path, &content);
         let report = verify_communication_mod_trace(&content)
             .unwrap_or_else(|error| panic!("{} verifies: {error}", path.display()));
         assert_eq!(

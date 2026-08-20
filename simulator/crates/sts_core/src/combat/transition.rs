@@ -23,14 +23,13 @@ use crate::{
         upgrade_card_instance, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID, CLASH_ID,
         CLASH_PLUS_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID, DAZED_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, NECRONOMICURSE_ID, NORMALITY_ID, PAIN_ID,
-        PURITY_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
+        PURITY_PLUS_ID, SENTINEL_ID, SENTINEL_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
     },
     content::monsters::{
         apply_collector_death_escape, apply_gremlin_leader_death_escape,
         apply_reptomancer_death_escape, awakened_one_is_half_dead, check_slime_boss_split,
         get_monster_definition, guardian_accumulate_hp_damage, release_stasis_card_on_death,
-        wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID, GUARDIAN_ID, TIME_EATER_ID,
+        wake_lagavulin_on_damage, AWAKENED_ONE_ID, GIANT_HEAD_ID, GUARDIAN_ID,
     },
     content::shop_pool::{colorless_discovery_pool, ironclad_combat_discovery_pool},
     ids::{CardId, ContentId, MonsterId},
@@ -585,47 +584,6 @@ pub(crate) fn process_internal_queue(
         state: next,
         event_log,
     })
-}
-
-fn leftover_make_temp_card_add_to_random_spot_rolls(state: &CombatState) -> usize {
-    if state.player.powers.constricted > 0
-        && state.player.powers.dark_embrace > 0
-        && state.relic_counters.cards_played_this_turn <= 1
-        && card_in_use_is_reckless_charge(state)
-    {
-        return 7;
-    }
-    let fighting_time_eater = state
-        .monsters
-        .iter()
-        .any(|monster| monster.alive && monster.content_id == TIME_EATER_ID);
-    if fighting_time_eater
-        && state.discovery_retrieved_this_combat
-        && state.relic_counters.cards_played_this_turn <= 2
-        && card_in_use_is_reckless_charge(state)
-    {
-        return 4;
-    }
-    1
-}
-
-fn card_in_use_is_reckless_charge(state: &CombatState) -> bool {
-    let Some(card_id) = state.card_in_use else {
-        return false;
-    };
-    state
-        .piles
-        .hand
-        .iter()
-        .chain(state.piles.limbo.iter())
-        .chain(state.piles.discard_pile.iter())
-        .any(|card| {
-            card.id == card_id
-                && matches!(
-                    card.content_id,
-                    RECKLESS_CHARGE_ID | RECKLESS_CHARGE_PLUS_ID
-                )
-        })
 }
 
 fn card_in_use_is_whirlwind(state: &CombatState) -> bool {
@@ -1913,6 +1871,24 @@ fn apply_monster_death_non_stasis_hooks(
     state: &mut CombatState,
     monster_id: MonsterId,
 ) -> SimResult<()> {
+    let ended_surrounded = state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == monster_id)
+        .is_some_and(|monster| {
+            matches!(
+                monster.content_id,
+                crate::content::monsters::SPIRE_SHIELD_ID
+                    | crate::content::monsters::SPIRE_SPEAR_ID
+            )
+        });
+    if ended_surrounded {
+        // AbstractMonster.die removes Surrounded from the player and
+        // BackAttackPower from the surviving Act 4 elite.
+        for monster in &mut state.monsters {
+            monster.back_attack = false;
+        }
+    }
     apply_gremlin_leader_death_escape(&mut state.monsters, monster_id);
     apply_reptomancer_death_escape(&mut state.monsters, monster_id);
     apply_collector_death_escape(&mut state.monsters, monster_id);
@@ -2639,31 +2615,10 @@ fn add_generated_card_to_draw_pile_random_spot(
         return Ok(());
     }
     // CardGroup.addToRandomSpot selects an existing position; it does not
-    // append the generated card after the current last entry.
+    // append the generated card after the current last entry. The target
+    // effect constructor performs exactly one insertion and one card RNG draw.
     let bound = (state.piles.draw_pile.len() - 1) as i32;
-    // SuperFastMode leftover MakeTempCardInDrawPile / ShowCardAndAddToDrawPile
-    // settlement can call addToRandomSpot more than once against the same
-    // bound (remove+reinsert last-wins, one card). DamageAction.DURATION is
-    // 0.1F; collection-fork tickDuration uses raw ~0.016 delta, so leftover
-    // occupancy is seven same-bound rolls. Constricted queues a THORNS
-    // DamageAction and Dark Embrace occupies extra power/VFX settlement;
-    // together they keep that leftover window open through the first
-    // MakeTempCard insert of the turn (FIDL01680 Reckless Charge Dazed at
-    // draw index 1, not 14). The same Reckless Charge without Dark Embrace
-    // uses a single roll (step 926). Do not hydrate the index from the
-    // observed pile.
-    //
-    // After a Discovery retrieve in the same combat, Time Eater Reckless Charge
-    // Dazed inserts keep leftover occupancy for the first two plays of the
-    // turn: four same-bound rolls (FIDL01680 step 1224 index 7, not 25; step
-    // 1229). Later-turn Reckless Charge stays one roll (step 1247 index 15).
-    // Reckless Charge versus Time Eater without Discovery this combat stays
-    // one roll (FIDL01666 step 1155).
-    let leftover_same_bound_rolls = leftover_make_temp_card_add_to_random_spot_rolls(state);
-    let mut index = 0usize;
-    for _ in 0..leftover_same_bound_rolls {
-        index = state.rng.card_random_rng.random_int(bound) as usize;
-    }
+    let index = state.rng.card_random_rng.random_int(bound) as usize;
     state.piles.draw_pile.insert(index, card);
     Ok(())
 }
@@ -6096,11 +6051,30 @@ mod tests {
     use crate::content::monsters::{
         mark_awakened_one_half_dead, monster_state, AWAKENED_ONE_A0, BRONZE_ORB_A0, DAGGER_A0,
         DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, REPTOMANCER_A0, SNAKE_PLANT_A0,
+        SPIRE_SHIELD_A0, SPIRE_SPEAR_A0,
     };
     use crate::relic::INK_BOTTLE_THRESHOLD;
     use crate::rng::StsRng;
     use crate::run::potion::apply_exhaust_select_choice;
     use crate::{apply_combat_action_on_run, RunState};
+
+    #[test]
+    fn surrounded_back_attack_starts_on_shield_and_clears_after_elite_death() {
+        let shield_id = MonsterId::new(1);
+        let spear_id = MonsterId::new(2);
+        let shield = monster_state(&SPIRE_SHIELD_A0, shield_id);
+        let spear = monster_state(&SPIRE_SPEAR_A0, spear_id);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![shield, spear];
+
+        assert!(state.monsters[0].back_attack);
+        assert!(!state.monsters[1].back_attack);
+
+        state.monsters[1].hp = 0;
+        state.monsters[1].alive = false;
+        apply_monster_death_hooks(&mut state, spear_id).expect("Spear death hooks resolve");
+        assert!(state.monsters.iter().all(|monster| !monster.back_attack));
+    }
 
     #[test]
     fn captains_wheel_block_triggers_juggernaut() {

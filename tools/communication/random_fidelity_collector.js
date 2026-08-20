@@ -302,11 +302,14 @@ function chooseRandomAction(summary, random) {
 }
 
 const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
-const REQUIRED_BOUNDARY_SCHEMA = 2;
+const REQUIRED_BOUNDARY_SCHEMA = 6;
 
 function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
   const message =
     protocolState?.state?.message ?? protocolState?.message ?? protocolState?.summary ?? protocolState;
+  if (message?.error) {
+    throw new Error(`CommunicationMod rejected command: ${message.error}`);
+  }
   const schema = message?.boundary_schema;
   if (schema !== REQUIRED_BOUNDARY_SCHEMA) {
     throw new Error(
@@ -359,13 +362,31 @@ function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
     throw new Error("interaction_ready CommunicationMod boundary has no active or queued work");
   }
   if (typeof message?.end_turn_queued !== "boolean") {
-    throw new Error("CommunicationMod schema 2 requires boolean end_turn_queued");
+    throw new Error(
+      `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires boolean end_turn_queued`,
+    );
+  }
+  if (!Number.isInteger(message?.command_execution_seq) || message.command_execution_seq < 0) {
+    throw new Error(
+      `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires a non-negative integer command_execution_seq`,
+    );
+  }
+  for (const field of [
+    "effects_size",
+    "top_level_effects_size",
+    "queued_top_level_effects_size",
+  ]) {
+    if (!Number.isInteger(message?.[field]) || message[field] !== 0) {
+      throw new Error(
+        `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires ${field}=0`,
+      );
+    }
   }
   if (GAMEPLAY_BOUNDARY_KINDS.has(kind)) {
     if (message?.ready_for_command !== true) {
       throw new Error(`${kind} CommunicationMod boundary is not ready for input`);
     }
-    if (message.end_turn_queued) {
+    if (message.end_turn_queued && kind !== "interaction_ready") {
       throw new Error(`${kind} CommunicationMod boundary cannot have an end turn queued`);
     }
   }
@@ -601,6 +622,7 @@ function normalizeSettledGameplayRecords(records) {
     normalized.push(record);
 
     const stateCommand = String(record.command).trim().split(/\s+/)[0].toUpperCase() === "STATE";
+    const sourceCommandExecutionSeq = record.command_meta?.source_command_execution_seq;
     let responseIndex = index + 1;
     let lastBoundaryKind = "missing";
     let completed = false;
@@ -634,10 +656,31 @@ function normalizeSettledGameplayRecords(records) {
       }
       const boundary = communicationBoundary(response, { allowUnsettled: true });
       lastBoundaryKind = boundary.kind;
+      if (
+        !stateCommand
+        && (!Number.isInteger(sourceCommandExecutionSeq) || sourceCommandExecutionSeq < 0)
+      ) {
+        throw new Error(
+          `schema-5 gameplay action at step ${record.step} requires source_command_execution_seq`,
+        );
+      }
+      const commandFenceAdvanced = stateCommand
+        || response.message.command_execution_seq > sourceCommandExecutionSeq;
       const completesCommand = stateCommand
         ? boundary.kind === "poll"
-        : GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind);
+        : GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind) && commandFenceAdvanced;
       if (!completesCommand) {
+        if (
+          !stateCommand
+          && GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind)
+          && !commandFenceAdvanced
+        ) {
+          // The game had not executed this command yet. Preserve the evidence
+          // in the raw bridge trace, but omit the overtaking state from the
+          // strict one-action/one-completion corpus payload.
+          responseIndex += 1;
+          continue;
+        }
         // Under SuperFastMode, a STATE poll can be followed by a same-step
         // gameplay settlement frame before the poll marker is observed. Keep
         // scanning for the authoritative completing boundary; do not keep the

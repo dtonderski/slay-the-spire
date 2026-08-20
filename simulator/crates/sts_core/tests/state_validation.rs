@@ -10,8 +10,8 @@ use sts_core::{
     content::shop_pool::shop_card_content_id,
     enter_reward_screen, legal_event_actions, legal_rest_actions, legal_run_decision_actions,
     legal_shop_actions, open_shop_merchant, CardGridScreen, CardId, CardRewardFlow, CombatAction,
-    CombatState, ContentId, GridPurpose, MapNodeId, MonsterIntent, Relic,
-    RewardContinuation, RewardScreen, RoomKind, RunPhase, RunState, SimError,
+    CombatState, ContentId, GridPurpose, MapNodeId, MonsterIntent, Relic, RewardContinuation,
+    RewardScreen, RoomKind, RunPhase, RunState, SimError,
 };
 
 fn empty_reward_screen(continuation: RewardContinuation) -> RewardScreen {

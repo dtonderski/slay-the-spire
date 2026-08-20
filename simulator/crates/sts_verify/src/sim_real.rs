@@ -216,8 +216,8 @@ impl std::fmt::Display for SimRealError {
             ),
             Self::InvalidProfileInput(reason) => write!(f, "invalid pre-run profile input: {reason}"),
             Self::UnsupportedSchema { boundary_schema } => match boundary_schema {
-                Some(schema) => write!(f, "unsupported CommunicationMod boundary schema {schema}; supported schemas are 1 and 2"),
-                None => write!(f, "unsupported CommunicationMod boundary schema: explicit metadata boundary_schema of 1 or 2 is required"),
+                Some(schema) => write!(f, "unsupported CommunicationMod boundary schema {schema}; supported schemas are 1, 2, 3, 4, 5, and 6"),
+                None => write!(f, "unsupported CommunicationMod boundary schema: explicit metadata boundary_schema of 1, 2, 3, 4, 5, or 6 is required"),
             },
             Self::InvalidBoundaryContract { step, reason } => {
                 write!(f, "invalid boundary contract at step {step}: {reason}")
@@ -363,6 +363,7 @@ fn verify_seed_start_reader<R: BufRead>(
     let mut terminal_state_observed = false;
     let mut rejected_actions = 0usize;
     let mut first_boundary = None;
+    let mut last_command_execution_seq = None;
     let mut diagnostic_stopped = false;
     let mut record_count = 0usize;
 
@@ -381,7 +382,7 @@ fn verify_seed_start_reader<R: BufRead>(
                 });
             }
             metadata_seen = true;
-            if !matches!(metadata.boundary_schema, Some(1 | 2)) {
+            if !matches!(metadata.boundary_schema, Some(1..=6)) {
                 return Err(SimRealError::UnsupportedSchema {
                     boundary_schema: metadata.boundary_schema,
                 });
@@ -511,6 +512,58 @@ fn verify_seed_start_reader<R: BufRead>(
                     });
                 }
                 let state_command = command_head_eq(&pending_action.action.command, "STATE");
+                if metadata_boundary_schema.is_some_and(|schema| schema >= 5) {
+                    let execution_seq = state
+                        .message
+                        .get("command_execution_seq")
+                        .and_then(Value::as_u64)
+                        .expect("schema-5 sequence validated");
+                    let source_execution_seq =
+                        action_source_command_execution_seq(&pending_action.action);
+                    if !state_command && source_execution_seq.is_none() {
+                        return Err(SimRealError::InvalidBoundaryContract {
+                            step: state.step,
+                            reason: format!(
+                                "schema-5+ gameplay action {} requires command_meta.source_command_execution_seq",
+                                pending_action.action.command
+                            ),
+                        });
+                    }
+                    if let (Some(source), Some(previous)) =
+                        (source_execution_seq, last_command_execution_seq)
+                    {
+                        if source != previous {
+                            return Err(SimRealError::InvalidBoundaryContract {
+                                step: state.step,
+                                reason: format!(
+                                    "source_command_execution_seq {source} does not match preceding completion sequence {previous}"
+                                ),
+                            });
+                        }
+                    }
+                    let fence_advanced = if state_command {
+                        source_execution_seq.map_or_else(
+                            || {
+                                last_command_execution_seq
+                                    .is_none_or(|previous| execution_seq >= previous)
+                            },
+                            |source| execution_seq >= source,
+                        )
+                    } else {
+                        execution_seq
+                            > source_execution_seq.expect("schema-5 gameplay source validated")
+                    };
+                    if !fence_advanced {
+                        return Err(SimRealError::InvalidBoundaryContract {
+                            step: state.step,
+                            reason: format!(
+                                "command_execution_seq {execution_seq} did not advance beyond the action source fence for {}",
+                                pending_action.action.command
+                            ),
+                        });
+                    }
+                    last_command_execution_seq = Some(execution_seq);
+                }
                 let valid = if state_command {
                     kind == "poll"
                 } else {
@@ -621,6 +674,44 @@ fn verify_seed_start_reader<R: BufRead>(
                         reason: "error does not match the pending action".to_owned(),
                     });
                 }
+                if metadata_boundary_schema.is_some_and(|schema| schema >= 5) {
+                    let source_execution_seq = action_source_command_execution_seq(
+                        &pending_action.action,
+                    )
+                    .ok_or_else(|| SimRealError::InvalidBoundaryContract {
+                        step: error.step,
+                        reason: "schema-5+ command error requires command_meta.source_command_execution_seq"
+                            .to_owned(),
+                    })?;
+                    if let Some(previous) = last_command_execution_seq {
+                        if source_execution_seq != previous {
+                            return Err(SimRealError::InvalidBoundaryContract {
+                                step: error.step,
+                                reason: format!(
+                                    "source_command_execution_seq {source_execution_seq} does not match preceding completion sequence {previous}"
+                                ),
+                            });
+                        }
+                    }
+                    let execution_seq = error
+                        .message
+                        .get("command_execution_seq")
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| SimRealError::InvalidBoundaryContract {
+                            step: error.step,
+                            reason: "schema-5+ command error requires command_execution_seq"
+                                .to_owned(),
+                        })?;
+                    if execution_seq <= source_execution_seq {
+                        return Err(SimRealError::InvalidBoundaryContract {
+                            step: error.step,
+                            reason: format!(
+                                "error command_execution_seq {execution_seq} did not advance beyond source fence {source_execution_seq}"
+                            ),
+                        });
+                    }
+                    last_command_execution_seq = Some(execution_seq);
+                }
                 // A rejected command can still let the game's queued Time Warp
                 // EndTurnAction drain between the command error and the next
                 // observed state. Preserve that source-backed asynchronous
@@ -728,7 +819,7 @@ fn validate_boundary_state(
             ),
         });
     }
-    if metadata_boundary_schema == 2
+    if metadata_boundary_schema >= 2
         && message
             .get("end_turn_queued")
             .and_then(Value::as_bool)
@@ -736,8 +827,37 @@ fn validate_boundary_state(
     {
         return Err(SimRealError::InvalidBoundaryContract {
             step: state.step,
-            reason: "boundary schema 2 requires boolean end_turn_queued".to_owned(),
+            reason: format!(
+                "boundary schema {metadata_boundary_schema} requires boolean end_turn_queued"
+            ),
         });
+    }
+    if metadata_boundary_schema >= 5
+        && message
+            .get("command_execution_seq")
+            .and_then(Value::as_u64)
+            .is_none()
+    {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: state.step,
+            reason: format!(
+                "boundary schema {metadata_boundary_schema} requires non-negative integer command_execution_seq"
+            ),
+        });
+    }
+    if metadata_boundary_schema >= 6 {
+        for field in [
+            "effects_size",
+            "top_level_effects_size",
+            "queued_top_level_effects_size",
+        ] {
+            if message.get(field).and_then(Value::as_u64) != Some(0) {
+                return Err(SimRealError::InvalidBoundaryContract {
+                    step: state.step,
+                    reason: format!("boundary schema 6 requires {field}=0"),
+                });
+            }
+        }
     }
     let kind = message
         .get("boundary_kind")
@@ -817,12 +937,15 @@ fn validate_boundary_state(
                 reason: format!("{kind} boundary is not ready for input"),
             });
         }
-        if metadata_boundary_schema == 2
+        if metadata_boundary_schema >= 2
+            && kind != "interaction_ready"
             && message.get("end_turn_queued").and_then(Value::as_bool) != Some(false)
         {
             return Err(SimRealError::InvalidBoundaryContract {
                 step: state.step,
-                reason: format!("{kind} schema-2 boundary cannot have an end turn queued"),
+                reason: format!(
+                    "{kind} schema-{metadata_boundary_schema} boundary cannot have an end turn queued"
+                ),
             });
         }
     }
@@ -3725,6 +3848,14 @@ fn choose_index(command: &str) -> Option<usize> {
         [cmd, index] if cmd.eq_ignore_ascii_case("CHOOSE") => index.parse().ok(),
         _ => None,
     }
+}
+
+fn action_source_command_execution_seq(action: &TraceAction) -> Option<u64> {
+    action
+        .command_meta
+        .as_ref()?
+        .get("source_command_execution_seq")?
+        .as_u64()
 }
 
 fn command_head_eq(command: &str, expected: &str) -> bool {

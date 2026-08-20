@@ -25,6 +25,10 @@ fn boundary_message(kind: &str) -> Value {
         "boundary_kind": kind,
         "game_update_seq": 1,
         "dungeon_update_seq": 1,
+        "command_execution_seq": 1,
+        "effects_size": 0,
+        "top_level_effects_size": 0,
+        "queued_top_level_effects_size": 0,
         "actions_queued": 0,
         "card_queue_size": 0,
         "pre_turn_actions_size": 0,
@@ -220,34 +224,151 @@ fn state_boundary_schema_must_match_metadata() {
 }
 
 #[test]
-fn schema_two_state_requires_end_turn_queued() {
-    let mut message = boundary_message("quiescent");
-    message["boundary_schema"] = json!(2);
-    let content = trace(vec![
-        metadata(Some(2), true),
-        json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
-        json!({"type":"state","step":1,"message":message}),
-    ]);
-    let error = verify_communication_mod_trace(&content)
-        .expect_err("schema-2 state without end_turn_queued must fail");
-    assert!(error
-        .to_string()
-        .contains("requires boolean end_turn_queued"));
+fn quiescent_schemas_require_end_turn_queued() {
+    for schema in [2, 3, 4, 5, 6] {
+        let mut message = boundary_message("quiescent");
+        message["boundary_schema"] = json!(schema);
+        let content = trace(vec![
+            metadata(Some(schema), true),
+            json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
+            json!({"type":"state","step":1,"message":message}),
+        ]);
+        let error = verify_communication_mod_trace(&content)
+            .expect_err("quiescent schema without end_turn_queued must fail");
+        assert!(error
+            .to_string()
+            .contains("requires boolean end_turn_queued"));
+    }
 }
 
 #[test]
-fn schema_two_ready_state_rejects_queued_end_turn() {
+fn schema_five_requires_command_execution_sequence() {
     let mut message = boundary_message("quiescent");
-    message["boundary_schema"] = json!(2);
-    message["end_turn_queued"] = json!(true);
+    message["boundary_schema"] = json!(5);
+    message["end_turn_queued"] = json!(false);
+    message
+        .as_object_mut()
+        .expect("boundary object")
+        .remove("command_execution_seq");
     let content = trace(vec![
-        metadata(Some(2), true),
+        metadata(Some(5), true),
         json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
         json!({"type":"state","step":1,"message":message}),
     ]);
     let error = verify_communication_mod_trace(&content)
-        .expect_err("ready schema-2 state with queued end turn must fail");
-    assert!(error.to_string().contains("cannot have an end turn queued"));
+        .expect_err("schema 5 without command_execution_seq must fail");
+    assert!(error.to_string().contains("command_execution_seq"));
+}
+
+#[test]
+fn schema_six_requires_empty_effect_queues() {
+    let mut message = boundary_message("quiescent");
+    message["boundary_schema"] = json!(6);
+    message["end_turn_queued"] = json!(false);
+    message["effects_size"] = json!(1);
+    let content = trace(vec![
+        metadata(Some(6), true),
+        json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
+        json!({"type":"state","step":1,"message":message}),
+    ]);
+    let error = verify_communication_mod_trace(&content)
+        .expect_err("schema 6 with an active effect must fail");
+    assert!(error.to_string().contains("effects_size=0"));
+}
+
+#[test]
+fn schema_five_rejects_nonadvancing_gameplay_fence() {
+    let mut first = boundary_message("quiescent");
+    first["boundary_schema"] = json!(5);
+    first["end_turn_queued"] = json!(false);
+    first["command_execution_seq"] = json!(7);
+    let mut stale = first.clone();
+    stale["command_execution_seq"] = json!(7);
+    let content = trace(vec![
+        metadata(Some(5), true),
+        json!({"type":"action","step":1,"command":"START IRONCLAD 0 1","command_meta":{"source_command_execution_seq":6}}),
+        json!({"type":"state","step":1,"message":first}),
+        json!({"type":"action","step":2,"command":"CHOOSE 0","command_meta":{"source_command_execution_seq":7}}),
+        json!({"type":"state","step":2,"message":stale}),
+    ]);
+    let error = verify_communication_mod_trace(&content)
+        .expect_err("schema 5 gameplay sequence must advance");
+    assert!(error.to_string().contains("did not advance"));
+}
+
+#[test]
+fn schema_six_rejects_stale_completion_after_rejected_command_fence() {
+    let mut first = boundary_message("quiescent");
+    first["boundary_schema"] = json!(6);
+    first["end_turn_queued"] = json!(false);
+    first["command_execution_seq"] = json!(8);
+    let mut stale = first.clone();
+    stale["command_execution_seq"] = json!(9);
+    let content = trace(vec![
+        metadata(Some(6), true),
+        json!({"type":"action","step":1,"command":"START IRONCLAD 0 1","command_meta":{"source_command_execution_seq":7}}),
+        json!({"type":"state","step":1,"message":first}),
+        json!({"type":"action","step":2,"command":"CHOOSE 99","command_meta":{"source_command_execution_seq":8}}),
+        json!({"type":"error","step":2,"message":{"error":"rejected","command_execution_seq":9}}),
+        json!({"type":"action","step":3,"command":"CHOOSE 0","command_meta":{"source_command_execution_seq":9}}),
+        json!({"type":"state","step":3,"message":stale}),
+    ]);
+    let error = verify_communication_mod_trace(&content)
+        .expect_err("completion equal to its action source fence must fail");
+    assert!(error.to_string().contains("did not advance beyond"));
+}
+
+#[test]
+fn schema_five_gameplay_action_requires_source_fence() {
+    let mut message = boundary_message("quiescent");
+    message["boundary_schema"] = json!(5);
+    message["end_turn_queued"] = json!(false);
+    message["command_execution_seq"] = json!(1);
+    let content = trace(vec![
+        metadata(Some(5), true),
+        json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
+        json!({"type":"state","step":1,"message":message}),
+    ]);
+    let error = verify_communication_mod_trace(&content)
+        .expect_err("schema-5 gameplay without an action source fence must fail");
+    assert!(error
+        .to_string()
+        .contains("command_meta.source_command_execution_seq"));
+}
+
+#[test]
+fn quiescent_ready_state_rejects_queued_end_turn() {
+    for schema in [2, 3, 4, 5, 6] {
+        let mut message = boundary_message("quiescent");
+        message["boundary_schema"] = json!(schema);
+        message["end_turn_queued"] = json!(true);
+        let content = trace(vec![
+            metadata(Some(schema), true),
+            json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
+            json!({"type":"state","step":1,"message":message}),
+        ]);
+        let error = verify_communication_mod_trace(&content)
+            .expect_err("ready quiescent state with queued end turn must fail");
+        assert!(error.to_string().contains("cannot have an end turn queued"));
+    }
+}
+
+#[test]
+fn interaction_ready_state_allows_queued_end_turn() {
+    let mut message = boundary_message("interaction_ready");
+    message["boundary_schema"] = json!(6);
+    message["end_turn_queued"] = json!(true);
+    message["current_action"] = json!("CodexAction");
+    message["current_action_instance"] = json!(5);
+    message["current_action_update_count"] = json!(1);
+    message["actions_queued"] = json!(1);
+    let content = trace(vec![
+        metadata(Some(6), true),
+        json!({"type":"action","step":1,"command":"START IRONCLAD 0 1","command_meta":{"source_command_execution_seq":0}}),
+        json!({"type":"state","step":1,"message":message}),
+    ]);
+    verify_communication_mod_trace(&content)
+        .expect("a Codex decision may pause a queued end turn at an interaction boundary");
 }
 
 #[test]

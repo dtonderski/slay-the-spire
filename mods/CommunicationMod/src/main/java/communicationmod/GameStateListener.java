@@ -4,10 +4,14 @@ import com.megacrit.cardcrawl.actions.AbstractGameAction;
 import com.megacrit.cardcrawl.actions.GameActionManager;
 import com.megacrit.cardcrawl.core.CardCrawlGame;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
+import com.megacrit.cardcrawl.monsters.AbstractMonster;
 import com.megacrit.cardcrawl.neow.NeowRoom;
 import com.megacrit.cardcrawl.rooms.AbstractRoom;
 import com.megacrit.cardcrawl.rooms.EventRoom;
 import com.megacrit.cardcrawl.rooms.VictoryRoom;
+import com.megacrit.cardcrawl.vfx.AbstractGameEffect;
+import com.megacrit.cardcrawl.vfx.ObtainKeyEffect;
+import com.megacrit.cardcrawl.vfx.cardManip.ShowCardAndObtainEffect;
 
 public class GameStateListener {
     private static AbstractDungeon.CurrentScreen previousScreen = null;
@@ -24,13 +28,24 @@ public class GameStateListener {
     private static int timeout = 0;
     // 1: original readiness behaviour.
     // 2: readiness no longer publishes during a queued end turn, and the
-    //    payload carries end_turn_queued. Traces are not comparable across
-    //    this boundary: a v1 trace can contain commands accepted mid-turn.
-    private static final int BOUNDARY_SCHEMA = 2;
+    //    payload carries end_turn_queued.
+    // 3: quiescent combat readiness waits for every active monster's target
+    //    lifecycle to initialize its public intent.
+    // 4: a deferred out-of-combat stabilization update cannot survive into
+    //    combat and complete a command before its queued card resolves.
+    // 5: every gameplay boundary carries a monotonic command-execution fence,
+    //    so a late state from the preceding command cannot complete the next.
+    // 6: readiness also waits for gameplay-mutating dungeon effects.
+    //    ObtainKeyEffect and ShowCardAndObtainEffect mutate gameplay state
+    //    after action queues are otherwise quiescent.
+    private static final int BOUNDARY_SCHEMA = 6;
     private static String boundaryKind = "unknown";
     private static boolean pollPending = false;
     private static long gameUpdateSeq = 0L;
     private static long dungeonUpdateSeq = 0L;
+    // Process-lifetime monotonic counter. Do not reset it between runs: the
+    // external bridge also persists, and uses this value as a command fence.
+    private static long commandExecutionSeq = 0L;
     private static AbstractGameAction trackedAction = null;
     private static long currentActionInstance = 0L;
     private static long currentActionUpdateCount = 0L;
@@ -56,6 +71,7 @@ public class GameStateListener {
      * Used to indicate that an external command has been executed
      */
     public static void registerCommandExecution() {
+        commandExecutionSeq += 1L;
         waitingForCommand = false;
         boundaryKind = "unknown";
         pollPending = false;
@@ -162,8 +178,16 @@ public class GameStateListener {
         boolean newScreenUp = AbstractDungeon.isScreenUp;
         AbstractRoom.RoomPhase newPhase = AbstractDungeon.getCurrRoom().phase;
         boolean inCombat = (newPhase == AbstractRoom.RoomPhase.COMBAT);
+        waitOneUpdate = retainDeferredOutOfCombatUpdate(waitOneUpdate, inCombat);
         // Lots of stuff can happen while the dungeon is fading out, but nothing that requires input from the user.
         if (AbstractDungeon.isFadingOut || AbstractDungeon.isFadingIn) {
+            return false;
+        }
+        // Several effects that look visual own delayed gameplay mutations.
+        // ObtainKeyEffect grants keys only when its duration expires, and
+        // ShowCardAndObtainEffect commits cards to the master deck. Decorative
+        // effects may coexist with input; these two must finish first.
+        if (!dungeonEffectQueuesAreSettled()) {
             return false;
         }
         // This check happens before the rest since dying can happen in combat and messes with the other cases.
@@ -207,10 +231,7 @@ public class GameStateListener {
                 // actually ends, so it distinguishes that window from a settled
                 // boundary. The same guard exists below at the externalChange
                 // case; this branch returns before reaching it.
-                else if (!AbstractDungeon.player.endTurnQueued
-                        && AbstractDungeon.actionManager.phase.equals(GameActionManager.Phase.WAITING_ON_USER)
-                        && AbstractDungeon.actionManager.cardQueue.isEmpty()
-                        && AbstractDungeon.actionManager.actions.isEmpty()) {
+                else if (quiescentCombatBoundaryIsReady()) {
                     return true;
                 }
 
@@ -237,7 +258,9 @@ public class GameStateListener {
         // change through the gold amount changing, we still need to wait until all actions are finished
         // resolving to claim a stable state and ask for a new command.
         if ((externalChange || previousGold != AbstractDungeon.player.gold)
+                && (!inCombat || quiescentCombatBoundaryIsReady())
                 && AbstractDungeon.actionManager.phase.equals(GameActionManager.Phase.WAITING_ON_USER)
+                && AbstractDungeon.actionManager.currentAction == null
                 && AbstractDungeon.actionManager.preTurnActions.isEmpty()
                 && AbstractDungeon.actionManager.actions.isEmpty()
                 && AbstractDungeon.actionManager.cardQueue.isEmpty()) {
@@ -324,6 +347,68 @@ public class GameStateListener {
                 && manager.cardQueue.isEmpty();
     }
 
+    private static boolean monsterIntentsAreInitialized() {
+        for (AbstractMonster monster : AbstractDungeon.getMonsters().monsters) {
+            if (!monster.isDeadOrEscaped()
+                    && monster.intent == AbstractMonster.Intent.DEBUG) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    static boolean retainDeferredOutOfCombatUpdate(boolean pending, boolean inCombat) {
+        return pending && !inCombat;
+    }
+
+    static boolean effectQueuesAreSettled(
+            int effects,
+            int topLevelEffects,
+            int queuedTopLevelEffects
+    ) {
+        return effects == 0 && topLevelEffects == 0 && queuedTopLevelEffects == 0;
+    }
+
+    private static boolean isPendingGameplayEffect(AbstractGameEffect effect) {
+        return !effect.isDone
+                && (effect instanceof ObtainKeyEffect
+                || effect instanceof ShowCardAndObtainEffect);
+    }
+
+    private static int pendingGameplayEffectCount(Iterable<AbstractGameEffect> effects) {
+        int count = 0;
+        for (AbstractGameEffect effect : effects) {
+            if (isPendingGameplayEffect(effect)) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    private static boolean dungeonEffectQueuesAreSettled() {
+        return effectQueuesAreSettled(
+                pendingGameplayEffectCount(AbstractDungeon.effectList),
+                pendingGameplayEffectCount(AbstractDungeon.topLevelEffects),
+                pendingGameplayEffectCount(AbstractDungeon.topLevelEffectsQueue)
+        );
+    }
+
+    static boolean isQuiescentCombatBoundaryReady(
+            boolean endTurnQueued,
+            boolean actionManagerQuiescent,
+            boolean monsterIntentsInitialized
+    ) {
+        return !endTurnQueued && actionManagerQuiescent && monsterIntentsInitialized;
+    }
+
+    private static boolean quiescentCombatBoundaryIsReady() {
+        return isQuiescentCombatBoundaryReady(
+                AbstractDungeon.player.endTurnQueued,
+                actionManagerIsQuiescent(),
+                monsterIntentsAreInitialized()
+        );
+    }
+
     private static String classifyDungeonBoundary() {
         if (!CommandExecutor.isInDungeon()
                 || AbstractDungeon.screen == AbstractDungeon.CurrentScreen.DEATH) {
@@ -368,6 +453,10 @@ public class GameStateListener {
         return dungeonUpdateSeq;
     }
 
+    public static long getCommandExecutionSeq() {
+        return commandExecutionSeq;
+    }
+
     public static String getCurrentActionName() {
         if (!CommandExecutor.isInDungeon() || AbstractDungeon.actionManager == null) {
             return null;
@@ -398,6 +487,21 @@ public class GameStateListener {
     public static int getPreTurnActionQueueSize() {
         return CommandExecutor.isInDungeon() && AbstractDungeon.actionManager != null
                 ? AbstractDungeon.actionManager.preTurnActions.size() : 0;
+    }
+
+    public static int getEffectQueueSize() {
+        return CommandExecutor.isInDungeon()
+                ? pendingGameplayEffectCount(AbstractDungeon.effectList) : 0;
+    }
+
+    public static int getTopLevelEffectQueueSize() {
+        return CommandExecutor.isInDungeon()
+                ? pendingGameplayEffectCount(AbstractDungeon.topLevelEffects) : 0;
+    }
+
+    public static int getQueuedTopLevelEffectQueueSize() {
+        return CommandExecutor.isInDungeon()
+                ? pendingGameplayEffectCount(AbstractDungeon.topLevelEffectsQueue) : 0;
     }
 
     /**

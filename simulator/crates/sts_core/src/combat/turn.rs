@@ -922,7 +922,6 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) -> SimResult<()> {
         let next_id = crate::CardId::new(first_id + offset as u64);
         let generated = crate::CardInstance {
             combat_only: true,
-            magnetism_generated: true,
             ..crate::CardInstance::new(next_id, content_id)
         };
         if state.piles.hand.len() >= 10 {

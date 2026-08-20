@@ -148,7 +148,7 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
 /// Applies one top-level run decision and validates both sides of the boundary.
 pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> SimResult<RunState> {
     validate_run_decision_action(run, action)?;
-    let next = match action {
+    let mut next = match action {
         RunDecisionAction::Combat(action) => apply_combat_action_on_run(run, action),
         RunDecisionAction::Event(action) => apply_event_action(run, action),
         RunDecisionAction::GridSelect { index } => select_grid_card(run, index),
@@ -158,6 +158,15 @@ pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> S
         RunDecisionAction::Rest(action) => apply_rest_action(run, action),
         RunDecisionAction::Run(action) => apply_run_action(run, action),
     }?;
+    // Boundary schema 6 waits for gameplay-mutating dungeon effects before
+    // publishing. Settle ShowCardAndObtainEffect once no grid decision owns it;
+    // this is simulator queue processing, not observation-driven correction.
+    if next.card_grid.is_none() && !next.pending_obtain_provenance.is_empty() {
+        next.flush_pending_obtain_cards()?;
+    }
+    if !next.pending_combat_obtain_cards.is_empty() {
+        next.flush_pending_combat_obtain_cards()?;
+    }
     next.validate()?;
     Ok(next)
 }

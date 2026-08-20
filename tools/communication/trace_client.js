@@ -224,6 +224,7 @@ function summarize(message) {
     boundary_kind: message.boundary_kind ?? null,
     game_update_seq: message.game_update_seq ?? null,
     dungeon_update_seq: message.dungeon_update_seq ?? null,
+    command_execution_seq: message.command_execution_seq ?? null,
     current_action: message.current_action ?? gs.current_action ?? null,
     current_action_instance: message.current_action_instance ?? null,
     current_action_update_count: message.current_action_update_count ?? null,
@@ -231,6 +232,9 @@ function summarize(message) {
     card_queue_size: message.card_queue_size ?? null,
     end_turn_queued: message.end_turn_queued ?? null,
     pre_turn_actions_size: message.pre_turn_actions_size ?? null,
+    effects_size: message.effects_size ?? null,
+    top_level_effects_size: message.top_level_effects_size ?? null,
+    queued_top_level_effects_size: message.queued_top_level_effects_size ?? null,
     screen_type: gs.screen_type ?? null,
     screen_name: gs.screen_name ?? null,
     room_phase: gs.room_phase ?? null,
@@ -306,15 +310,37 @@ function summarize(message) {
 }
 
 const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
-const SUPPORTED_BOUNDARY_SCHEMAS = new Set([1, 2]);
+const SUPPORTED_BOUNDARY_SCHEMAS = new Set([1, 2, 3, 4, 5, 6]);
 
-function stateCompletesCommand(command, summary) {
+function stateCompletesCommand(command, summary, acceptedCommandExecutionSeq = null) {
   if (summary?.error) return true;
   const verb = String(command ?? "").trim().split(/\s+/)[0].toLowerCase();
   if (verb === "profile") return summary?.type === "profile";
   if (!SUPPORTED_BOUNDARY_SCHEMAS.has(summary?.boundary_schema)) return false;
-  if (summary.boundary_schema === 2 && summary.end_turn_queued !== false) return false;
+  if (
+    summary.boundary_schema >= 2
+    && summary.end_turn_queued !== false
+    && summary.boundary_kind !== "interaction_ready"
+  ) {
+    return false;
+  }
+  if (
+    summary.boundary_schema >= 6
+    && (summary.effects_size !== 0
+      || summary.top_level_effects_size !== 0
+      || summary.queued_top_level_effects_size !== 0)
+  ) {
+    return false;
+  }
   if (verb === "state") return summary.boundary_kind === "poll";
+  if (
+    summary.boundary_schema >= 5
+    && (!Number.isInteger(summary.command_execution_seq)
+      || !Number.isInteger(acceptedCommandExecutionSeq)
+      || summary.command_execution_seq <= acceptedCommandExecutionSeq)
+  ) {
+    return false;
+  }
   return GAMEPLAY_BOUNDARY_KINDS.has(summary?.boundary_kind);
 }
 
@@ -327,7 +353,11 @@ function publishState(message) {
   if (
     commandInFlight
     && stateSeq > commandInFlight.accepted_state_seq
-    && stateCompletesCommand(commandInFlight.command, summary)
+    && stateCompletesCommand(
+      commandInFlight.command,
+      summary,
+      commandInFlight.accepted_command_execution_seq,
+    )
   ) {
     commandInFlight = null;
   }
@@ -637,6 +667,7 @@ async function enqueueAbandonRun(payload) {
     command: "ABANDON",
     source_state_id: latestSummary?.state_id ?? null,
     source_state_seq: stateSeq,
+    source_command_execution_seq: Number(latestSummary?.command_execution_seq ?? 0),
     submitted_at: Date.now() / 1000,
     protocol: "tcp-jsonl",
     owner_id: controlOwner?.owner_id ?? null,
@@ -647,11 +678,13 @@ async function enqueueAbandonRun(payload) {
   }
   const acceptedStateSeq = stateSeq;
   const acceptedStateId = latestSummary?.state_id ?? null;
+  const acceptedCommandExecutionSeq = Number(latestSummary?.command_execution_seq ?? 0);
   commandInFlight = {
     command_id: commandId,
     command: commandMeta.command,
     accepted_state_id: acceptedStateId,
     accepted_state_seq: acceptedStateSeq,
+    accepted_command_execution_seq: acceptedCommandExecutionSeq,
     accepted_at: new Date().toISOString(),
     operator_control: "abandon_run",
   };
@@ -672,6 +705,7 @@ async function enqueueAbandonRun(payload) {
     command_meta: commandMeta,
     accepted_state_id: acceptedStateId,
     accepted_state_seq: acceptedStateSeq,
+    accepted_command_execution_seq: acceptedCommandExecutionSeq,
   });
   enqueueCommand(commandMeta.command, commandMeta);
   const response = {
@@ -688,7 +722,11 @@ async function enqueueAbandonRun(payload) {
     const observed = await waitForStateAfterSeq(
       acceptedStateSeq,
       timeoutMs,
-      (state) => stateCompletesCommand(commandMeta.command, state.summary),
+      (state) => stateCompletesCommand(
+        commandMeta.command,
+        state.summary,
+        acceptedCommandExecutionSeq,
+      ),
     );
     const observedChanged = observed ? observed.state_id !== acceptedStateId : false;
     response.observed_update = observed
@@ -847,6 +885,7 @@ async function handleControlMessage(payload) {
       command,
       source_state_id: startupStart ? null : payload.expected_state_id ?? latestSummary?.state_id ?? null,
       source_state_seq: startupStart ? stateSeq : payload.expected_state_seq ?? stateSeq,
+      source_command_execution_seq: Number(latestSummary?.command_execution_seq ?? 0),
       submitted_at: Date.now() / 1000,
       protocol: "tcp-jsonl",
       owner_id: controlOwner?.owner_id ?? null,
@@ -856,11 +895,13 @@ async function handleControlMessage(payload) {
     }
     const acceptedStateSeq = stateSeq;
     const acceptedStateId = latestSummary?.state_id ?? null;
+    const acceptedCommandExecutionSeq = Number(latestSummary?.command_execution_seq ?? 0);
     commandInFlight = {
       command_id: commandId,
       command: commandMeta.command,
       accepted_state_id: acceptedStateId,
       accepted_state_seq: acceptedStateSeq,
+      accepted_command_execution_seq: acceptedCommandExecutionSeq,
       accepted_at: new Date().toISOString(),
     };
     writeRecord({
@@ -871,6 +912,7 @@ async function handleControlMessage(payload) {
       command_meta: commandMeta,
       accepted_state_id: acceptedStateId,
       accepted_state_seq: acceptedStateSeq,
+      accepted_command_execution_seq: acceptedCommandExecutionSeq,
     });
     if (startupStart || startupState) {
       writeAction(commandMeta.command, commandMeta);
@@ -891,7 +933,11 @@ async function handleControlMessage(payload) {
       const observed = await waitForStateAfterSeq(
         acceptedStateSeq,
         timeoutMs,
-        (state) => stateCompletesCommand(commandMeta.command, state.summary),
+        (state) => stateCompletesCommand(
+          commandMeta.command,
+          state.summary,
+          acceptedCommandExecutionSeq,
+        ),
       );
       const observedChanged = observed ? observed.state_id !== acceptedStateId : false;
       response.observed_update = observed

@@ -66,11 +66,21 @@ is expected output and cannot select content, repair RNG, reconstruct a screen,
 or otherwise mutate authoritative simulation state. Every action must complete
 immediately with its same-step authoritative state or error. `STATE` completes
 only on `poll`; gameplay completes only on `interaction_ready`, `quiescent`, or
-`terminal`. Intermediate, transient, delayed, or later-frame completion is
-invalid input rather than deferred verification.
+`terminal`. Quiescent and terminal boundaries cannot retain a queued end turn.
+An `interaction_ready` boundary may retain one while a source-backed decision
+pauses that turn—for example, Nilry's Codex opens its card reward inside
+`END`; the command-execution fence must still advance before that state can
+complete the command. Schema 6 also requires all published gameplay-affecting
+effect counts to be zero. Intermediate, transient, delayed, or later-frame
+completion is invalid input rather than deferred verification.
 
-Full CommunicationMod payloads are external to Git. Set
-`STS_PERMANENT_CORPUS_DIR` and pass the desired file explicitly:
+Full CommunicationMod payloads are external to Git. The active authoritative
+corpus contains only the current collection epoch: fixed gameplay delta
+(`collection.2`) plus boundary schema 6. A later schema starts a new explicitly
+validated epoch; it is not accepted forward-compatibly. The 602 pre-collection.2
+payloads and the failed schema-3/schema-4/schema-5 pilots are non-authoritative
+evidence. Set
+`STS_PERMANENT_CORPUS_DIR` and pass the desired active file explicitly:
 
 ```bash
 cd simulator
@@ -106,43 +116,26 @@ uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown \
   "$STS_PERMANENT_CORPUS_DIR"
 ```
 
-### Hugging Face corpus storage
+### Legacy Hugging Face archive
 
-The private Hugging Face dataset is the remote source for Cloud Agents. It
-stores each immutable payload independently as deterministic `<trace>.jsonl.gz`;
-the checked-out repository and Git history still contain no full captures.
+The private `dtonderski/sts-permanent-traces` Hugging Face dataset preserves the
+pre-collection.2 cohort. It stores each immutable payload independently as a
+deterministic `<trace>.jsonl.gz`; it is legacy investigation evidence, not the
+active parity corpus. `.cursor/start.sh` intentionally does not download it.
 
-Initial local upload, after authenticating with a Hugging Face write token:
+To inspect the archive locally, download it into the legacy directory explicitly:
 
 ```bash
-export HF_CORPUS_REPO=dtonderski/sts-permanent-traces
-uvx --from huggingface_hub hf auth login
-tools/hf_corpus.sh upload
+export HF_TOKEN=<read-token>
+export STS_PERMANENT_CORPUS_DIR="$PWD/simulator/verification/corpus/legacy_pre_collection_2/permanent_traces"
+tools/hf_corpus.sh download dtonderski/sts-permanent-traces
 ```
 
-The upload command creates the dataset as private if necessary, compresses only
-the external payloads, and is resumable. It never deletes remote objects.
-Rerun it explicitly after adding immutable local traces.
-
-Cloud Agent configuration lives in `.cursor/environment.json` and pins the
-dataset ID. Add `HF_TOKEN`, using a read-only token that can access the private
-dataset, to the Cloud Agent environment's Secrets tab.
-
-`.cursor/start.sh` downloads the compressed objects at boot (because `HF_TOKEN`
-is a runtime-only secret, unavailable during the build `install` step), extracts
-them atomically into `verification/corpus/permanent_traces/`, and keeps a
-compressed download cache so later boots re-fetch only new traces. The download
-is incremental and resumable: it skips traces already on disk and picks up
-newly added ones. If you enable Builds and also make `HF_TOKEN` available at
-build time, move the download into the `install` step to bake the corpus into
-the Build snapshot instead of fetching it on each boot.
-
-The repository intentionally carries no manifest, inventory, outcome ledger,
-or generated status document. Status is a function of the immutable external
-payloads and the verifier revision being evaluated. Parallel jobs render
-deterministically in input order and default to at most four workers;
-`STS_VERIFY_JOBS` remains bounded by trace count, available CPUs, and a hard cap
-of eight.
+Never point that download at `verification/corpus/permanent_traces/`. The active
+corpus starts empty and receives only reviewed traces from the current
+collection epoch. The repository intentionally carries no generated inventory,
+outcome ledger, or status snapshot; status is computed from the immutable active
+payloads and the verifier revision being evaluated.
 
 The external corpus is a **regression lock**, not a residual-rate proof. For the
 combined Phase 3A fidelity confidence gate and its statistical limits, see

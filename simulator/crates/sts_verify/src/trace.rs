@@ -134,6 +134,10 @@ pub struct TraceAction {
     pub command: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sent_at: Option<String>,
+    /// Bridge-owned command acceptance metadata. Schema 5+ uses the source
+    /// execution sequence as the per-command causal fence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_meta: Option<Value>,
     /// Explicit non-seeded run timer input used by time-gated target logic.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub playtime_seconds: Option<u32>,
