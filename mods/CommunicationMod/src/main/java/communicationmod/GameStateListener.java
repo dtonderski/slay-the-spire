@@ -405,9 +405,26 @@ public class GameStateListener {
      * is true is mid-turn, even when the action queue looks empty, so traces
      * can be audited for the transient-empty-queue window.
      */
+    static boolean isEndTurnUnresolved(
+            boolean inDungeon,
+            boolean hasPlayer,
+            AbstractRoom.RoomPhase roomPhase,
+            boolean endTurnQueued
+    ) {
+        return inDungeon
+                && hasPlayer
+                && roomPhase == AbstractRoom.RoomPhase.COMBAT
+                && endTurnQueued;
+    }
+
     public static boolean isEndTurnQueued() {
-        return CommandExecutor.isInDungeon()
-                && AbstractDungeon.player != null
-                && AbstractDungeon.player.endTurnQueued;
+        boolean inDungeon = CommandExecutor.isInDungeon();
+        AbstractRoom currentRoom = inDungeon ? AbstractDungeon.getCurrRoom() : null;
+        return isEndTurnUnresolved(
+                inDungeon,
+                AbstractDungeon.player != null,
+                currentRoom == null ? null : currentRoom.phase,
+                AbstractDungeon.player != null && AbstractDungeon.player.endTurnQueued
+        );
     }
 }

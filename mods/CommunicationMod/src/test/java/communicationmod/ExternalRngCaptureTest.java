@@ -2,6 +2,7 @@ package communicationmod;
 
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.RandomXS128;
+import com.megacrit.cardcrawl.rooms.AbstractRoom;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -39,6 +40,25 @@ public class ExternalRngCaptureTest {
             assert GameStateListener.hasCompletingBoundary();
             assert GameStateListener.consumeBoundaryKind().equals("poll");
             assert !GameStateListener.hasCompletingBoundary();
+
+            assert GameStateListener.isEndTurnUnresolved(
+                    true,
+                    true,
+                    AbstractRoom.RoomPhase.COMBAT,
+                    true
+            );
+            assert !GameStateListener.isEndTurnUnresolved(
+                    true,
+                    true,
+                    AbstractRoom.RoomPhase.COMPLETE,
+                    true
+            );
+            assert !GameStateListener.isEndTurnUnresolved(
+                    true,
+                    true,
+                    AbstractRoom.RoomPhase.COMBAT,
+                    false
+            );
         } finally {
             MathUtils.random = original;
             ExternalRngCapture.clearPending();

@@ -146,9 +146,12 @@ this contract before continuous random collection resumed.
 Schema 1 turned out to under-specify quiescence: an empty action queue does not
 mean the turn finished. Schema 2 withholds readiness while an end turn is still
 resolving and publishes `end_turn_queued` so traces can be audited for that
-window without inference. The two schemas are not comparable — a v1 trace can
-contain commands the game should never have accepted — so the version is a
-corpus generation marker, not a payload revision.
+window without inference. That flag is scoped to combat: the target can retain
+the player boolean after a lethal end turn has already opened combat rewards,
+and treating that stale value as unresolved deadlocks an otherwise ready
+bridge. The two schemas are not comparable — a v1 trace can contain commands
+the game should never have accepted — so the version is a corpus generation
+marker, not a payload revision.
 
 A larger apparent lifecycle ambiguity was ultimately a collection-speed defect,
 not a missing trace input. The SuperFastMode collection fork multiplied the
