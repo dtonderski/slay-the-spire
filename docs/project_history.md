@@ -249,10 +249,14 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   a hybrid?
 - What compute and decision-time budget should constrain the final claim of
   being the strongest player?
-- Can accelerated collection be shown to advance the same sequence of vanilla
-  logical ticks, or must authoritative traces be collected unaccelerated? The
-  throughput cost is real, but an unproven accelerator makes every residual
-  divergence ambiguous between simulator defect and collection artifact.
+- Accelerated collection does not currently capture enough action-lifecycle
+  input to replay every publication boundary. Identical raw `CONFIRM` commands
+  and pre-confirm queue metadata can lead to either normal hand-selection
+  retrieval or `wereCardsRetrieved == false`; visual obtains likewise appear
+  before or after otherwise equivalent ready frames. Post-state candidate
+  selection was rejected because it makes observations authoritative. These
+  cases require a new explicit lifecycle/timing input or certified recollection,
+  not simulator guesses.
 - Should the pre-schema-2 corpus be recollected wholesale rather than repaired
   trace by trace? Traces are cheap to collect and simulator simplicity is not,
   which argues for recollection once a collector is certified.

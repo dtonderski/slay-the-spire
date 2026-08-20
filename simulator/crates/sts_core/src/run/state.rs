@@ -14,9 +14,10 @@ use crate::{
         shop_card_type,
     },
     ids::{
-        card_instance_id_is_supported, reserve_card_instance_id_range, CardId, ContentId, MonsterId,
+        card_instance_id_is_supported, reserve_card_instance_id_range, CardId, ContentId,
+        MapNodeId, MonsterId,
     },
-    map::{generate_target_fixed_map, milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
+    map::{milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
@@ -1040,6 +1041,12 @@ pub struct RunState {
     #[serde(default = "default_energy_per_turn")]
     pub energy_per_turn: i32,
     pub map: Option<MapRunState>,
+    /// Persistent target map RNG state after topology and room assignment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_rng: Option<StsRng>,
+    /// Elite node selected by `AbstractDungeon.setEmeraldElite` for this act.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emerald_key_node: Option<MapNodeId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_room_override: Option<RoomKind>,
     pub combat: Option<CombatState>,
@@ -1221,11 +1228,18 @@ pub struct RunState {
     pub note_card_content_id: Option<ContentId>,
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub note_card_upgrades: u8,
-    /// Pre-run profile capability retained for future Act 4 transitions.
-    /// Act 4 keys are not modeled yet, so this is authoritative state without
-    /// changing the current keyless Spire Heart terminal path.
+    /// Pre-run profile capability controlling whether Act 4 keys are available.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub final_act_available: Option<bool>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub has_emerald_key: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub has_ruby_key: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub has_sapphire_key: bool,
+    /// Emerald Key reward appended after a completed burning-elite fight.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub emerald_key_reward_available: bool,
     #[serde(default, skip_serializing_if = "Act1Boss::is_default")]
     pub act1_boss: Act1Boss,
     #[serde(default, skip_serializing_if = "Act3Boss::is_default")]
@@ -1642,6 +1656,8 @@ pub enum RunAction {
     TakeRelicRewardAt {
         index: usize,
     },
+    TakeSapphireKey,
+    TakeEmeraldKey,
     ChooseBossRelicReward {
         index: usize,
     },
@@ -1676,6 +1692,7 @@ pub enum RunAction {
         index: usize,
     },
     ConfirmHandSelect,
+    ConfirmHandSelectWithoutRetrieval,
     ChooseDrawSelect {
         index: usize,
     },
@@ -1769,11 +1786,46 @@ impl RunState {
         if self.current_floor < 0 || !(1..=4).contains(&self.current_act) {
             return Err(SimError::InvalidState("run floor or act is out of bounds"));
         }
+        if (self.has_emerald_key || self.has_ruby_key || self.has_sapphire_key)
+            && self.final_act_available != Some(true)
+        {
+            return Err(SimError::InvalidState(
+                "Act 4 key is owned when the final act is unavailable",
+            ));
+        }
         if let Some(map) = self.map.as_ref() {
             map.validate()?;
             if i32::try_from(map.floor).is_err() {
                 return Err(SimError::InvalidState(
                     "map floor exceeds supported run range",
+                ));
+            }
+        }
+        if let Some(node_id) = self.emerald_key_node {
+            let valid_elite = self.map.as_ref().is_some_and(|map| {
+                map.map
+                    .node(node_id)
+                    .is_some_and(|node| node.room_kind == RoomKind::Elite)
+            });
+            if self.final_act_available != Some(true)
+                || self.has_emerald_key
+                || self.map_rng.is_none()
+                || !valid_elite
+            {
+                return Err(SimError::InvalidState(
+                    "emerald key marker has no valid elite map node",
+                ));
+            }
+        }
+        if self.emerald_key_reward_available {
+            let current_node = self.map.as_ref().map(|map| map.current_node);
+            if self.phase != RunPhase::Reward
+                || self.has_emerald_key
+                || self.emerald_key_node != current_node
+                || self.reward.is_none()
+            {
+                return Err(SimError::InvalidState(
+                    "emerald key reward has no completed burning elite owner",
                 ));
             }
         }
@@ -1895,7 +1947,7 @@ impl RunState {
                 ));
             }
             RunPhase::Victory
-                if self.current_act != 3
+                if !matches!(self.current_act, 3 | 4)
                     || self.current_room_kind() != Some(RoomKind::Boss)
                     || self.player_hp <= 0 =>
             {
@@ -1944,6 +1996,26 @@ impl RunState {
             return Err(SimError::InvalidState(
                 "treasure room exists outside treasure or reward phase",
             ));
+        }
+        if let Some(linked_relic) = self
+            .treasure_room
+            .as_ref()
+            .and_then(|treasure| treasure.sapphire_key_relic_offer)
+        {
+            let linked_reward_present = self.reward.as_ref().is_some_and(|reward| {
+                reward.relic_offer == Some(linked_relic)
+                    || reward.pending_relic_offer == Some(linked_relic)
+                    || reward.queued_relic_offers.contains(&linked_relic)
+            });
+            if self.phase != RunPhase::Reward
+                || self.final_act_available != Some(true)
+                || self.has_sapphire_key
+                || !linked_reward_present
+            {
+                return Err(SimError::InvalidState(
+                    "sapphire key reward has no valid linked chest relic",
+                ));
+            }
         }
         if self.rest_room_complete {
             if !matches!(self.phase, RunPhase::Rest | RunPhase::Reward) {
@@ -2705,6 +2777,8 @@ impl RunState {
             gold: STARTING_GOLD,
             energy_per_turn: BASE_PLAYER_ENERGY,
             map: None,
+            map_rng: None,
+            emerald_key_node: None,
             current_room_override: None,
             combat: None,
             reward: None,
@@ -2779,6 +2853,10 @@ impl RunState {
             note_card_content_id: default_note_card_content_id(),
             note_card_upgrades: 0,
             final_act_available: None,
+            has_emerald_key: false,
+            has_ruby_key: false,
+            has_sapphire_key: false,
+            emerald_key_reward_available: false,
             act1_boss: Act1Boss::default(),
             act3_boss: Act3Boss::default(),
             shop_remove_count: 0,
@@ -2814,6 +2892,8 @@ impl RunState {
             gold: STARTING_GOLD,
             energy_per_turn: BASE_PLAYER_ENERGY,
             map: None,
+            map_rng: None,
+            emerald_key_node: None,
             current_room_override: None,
             combat: None,
             reward: None,
@@ -2888,6 +2968,10 @@ impl RunState {
             note_card_content_id: default_note_card_content_id(),
             note_card_upgrades: 0,
             final_act_available: None,
+            has_emerald_key: false,
+            has_ruby_key: false,
+            has_sapphire_key: false,
+            emerald_key_reward_available: false,
             act1_boss: Act1Boss::default(),
             act3_boss: Act3Boss::default(),
             shop_remove_count: 0,
@@ -2930,6 +3014,38 @@ impl RunState {
         )
     }
 
+    /// Configure the profile-backed final act and select this act's burning elite.
+    /// Selection advances only simulator-owned map RNG, matching
+    /// `AbstractDungeon.setEmeraldElite` after map generation.
+    pub fn set_final_act_available(&mut self, available: Option<bool>) -> SimResult<()> {
+        self.final_act_available = available;
+        self.emerald_key_node = None;
+        if available == Some(true) && !self.has_emerald_key {
+            let elite_nodes = self
+                .map
+                .as_ref()
+                .ok_or(SimError::InvalidState("final act run has no map"))?
+                .map
+                .nodes
+                .iter()
+                .filter(|node| node.room_kind == RoomKind::Elite)
+                .map(|node| node.id)
+                .collect::<Vec<_>>();
+            if elite_nodes.is_empty() {
+                return Err(SimError::InvalidState(
+                    "final act map has no elite node for the emerald key",
+                ));
+            }
+            let map_rng = self
+                .map_rng
+                .as_mut()
+                .ok_or(SimError::InvalidState("final act run has no map RNG"))?;
+            let index = map_rng.random_int((elite_nodes.len() - 1) as i32) as usize;
+            self.emerald_key_node = Some(elite_nodes[index]);
+        }
+        self.validate()
+    }
+
     /// Start a deterministic seeded Ironclad run with explicit profile boss history.
     #[must_use]
     pub fn seeded_ironclad_with_boss_unlocks(
@@ -2948,10 +3064,12 @@ impl RunState {
         boss_unlocks: crate::content::encounters::BossUnlockState,
     ) -> SimResult<Self> {
         let mut run = Self::ironclad_run_base(ascension);
-        run.map = Some(generate_target_fixed_map(
+        let (map, map_rng) = crate::map::target::generate_target_fixed_map_with_rng(
             seed as i64,
             TargetMapAct::Exordium,
-        ));
+        );
+        run.map = Some(map);
+        run.map_rng = Some(map_rng);
         run.act1_boss = crate::content::encounters::target_exordium_act_one_boss_kind_with_unlocks(
             seed as i64,
             boss_unlocks,
@@ -3919,7 +4037,7 @@ impl RunState {
                 "final boss victory actions require victory phase",
             ));
         }
-        if self.current_act != 3 || self.current_room_kind() != Some(RoomKind::Boss) {
+        if !matches!(self.current_act, 3 | 4) || self.current_room_kind() != Some(RoomKind::Boss) {
             return Err(SimError::InvalidState(
                 "victory phase requires a final boss room",
             ));
@@ -4013,6 +4131,24 @@ impl RunState {
                     return Err(SimError::IllegalAction("relic already owned"));
                 }
                 Ok(())
+            }
+            RunAction::TakeSapphireKey => {
+                let offered = self
+                    .treasure_room
+                    .as_ref()
+                    .and_then(|treasure| treasure.sapphire_key_relic_offer);
+                if offered.is_some() && !self.has_sapphire_key {
+                    Ok(())
+                } else {
+                    Err(SimError::IllegalAction("no sapphire key reward offered"))
+                }
+            }
+            RunAction::TakeEmeraldKey => {
+                if self.emerald_key_reward_available && !self.has_emerald_key {
+                    Ok(())
+                } else {
+                    Err(SimError::IllegalAction("no emerald key reward offered"))
+                }
             }
             RunAction::ChooseBossRelicReward { index } => {
                 if index < reward.boss_relic_choices.len() {
@@ -4145,7 +4281,9 @@ impl RunState {
             RunAction::ChooseCombatCardReward { .. } | RunAction::SkipCombatCardReward => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
-            RunAction::ChooseHandSelect { .. } | RunAction::ConfirmHandSelect => {
+            RunAction::ChooseHandSelect { .. }
+            | RunAction::ConfirmHandSelect
+            | RunAction::ConfirmHandSelectWithoutRetrieval => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
             RunAction::ChooseDrawSelect { .. } | RunAction::ConfirmDrawSelect => {

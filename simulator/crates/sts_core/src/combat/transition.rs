@@ -71,10 +71,47 @@ pub fn apply_combat_action_with_events(
 ) -> SimResult<CombatTransition> {
     validate_combat_action(state, action)?;
 
+    let cards_played_before = state.relic_counters.cards_played_this_turn;
     let mut transition = match action {
         CombatAction::PlayCard { card_id, target } => apply_play_card(state, card_id, target),
         CombatAction::EndTurn => apply_end_turn(state),
     }?;
+    if matches!(action, CombatAction::PlayCard { .. })
+        && transition.state.monsters.iter().any(|monster| {
+            monster.alive && monster.content_id == crate::content::monsters::CORRUPT_HEART_ID
+        })
+    {
+        let beat_of_death = transition
+            .state
+            .monsters
+            .iter()
+            .find(|monster| {
+                monster.alive && monster.content_id == crate::content::monsters::CORRUPT_HEART_ID
+            })
+            .map(|monster| monster.powers.beat_of_death)
+            .unwrap_or(0);
+        let cards_played = transition
+            .state
+            .relic_counters
+            .cards_played_this_turn
+            .saturating_sub(cards_played_before);
+        if transition.state.decision.is_some() {
+            transition.state.pending_beat_of_death_triggers = transition
+                .state
+                .pending_beat_of_death_triggers
+                .checked_add(cards_played)
+                .ok_or(SimError::InvalidState(
+                    "pending Beat of Death overflows u32",
+                ))?;
+        } else {
+            for _ in 0..cards_played {
+                crate::combat::turn::deal_non_attack_damage_to_player(
+                    &mut transition.state,
+                    beat_of_death,
+                )?;
+            }
+        }
+    }
     if matches!(action, CombatAction::PlayCard { .. })
         && transition.state.opening_end_turn_pending
         && transition.state.decision.is_none()
@@ -3456,6 +3493,81 @@ pub(crate) fn settle_time_warp_end_turn_if_ready(state: &mut CombatState) -> Sim
 /// Confirm force-exhausted Armaments without retrieving the selected card as an
 /// upgrade in hand.
 ///
+/// Resolve a CommunicationMod hand-selection boundary after the target action
+/// has completed with `HandCardSelectScreen.wereCardsRetrieved == false`.
+/// Selected cards remain authoritative but hidden until end-turn settlement;
+/// effects that require retrieval (upgrade/copy/put-on-draw) do not occur.
+pub fn confirm_hand_select_without_retrieval(state: &mut CombatState) -> SimResult<usize> {
+    let purpose = state
+        .hand_select()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?
+        .purpose;
+    match purpose {
+        HandSelectPurpose::ArmamentsUpgrade => {
+            confirm_hand_select_skipped_armaments_retrieval(state)?;
+            Ok(0)
+        }
+        HandSelectPurpose::DualWieldCopy => {
+            confirm_dual_wield_select_skipped_retrieval_with_restore(state, false)?;
+            Ok(0)
+        }
+        HandSelectPurpose::WarcryPutOnDraw
+        | HandSelectPurpose::ThinkingAheadPutOnDraw
+        | HandSelectPurpose::ForethoughtPutOnDraw
+        | HandSelectPurpose::ForethoughtPutAnyOnDraw => {
+            let (hand_select, pending_actions) = state
+                .take_hand_select()
+                .ok_or(SimError::IllegalAction("no hand select is open"))?;
+            if !state.pending_hidden_hand_card_until_end_turn.is_empty() {
+                return Err(SimError::IllegalAction(
+                    "pending hidden hand card already occupied",
+                ));
+            }
+            let selected_indices =
+                if hand_select.purpose == HandSelectPurpose::ForethoughtPutAnyOnDraw {
+                    unique_selected_indices_in_choice_order(hand_select.selected_hand_indices)
+                } else {
+                    vec![required_hand_select_index(&hand_select)?]
+                };
+            let mut selected = selected_indices
+                .iter()
+                .map(|index| {
+                    state
+                        .piles
+                        .hand
+                        .get(*index)
+                        .copied()
+                        .ok_or(SimError::IllegalAction("hand select index out of range"))
+                })
+                .collect::<SimResult<Vec<_>>>()?;
+            let mut removal_order = selected_indices;
+            removal_order.sort_unstable();
+            removal_order.dedup();
+            for index in removal_order.into_iter().rev() {
+                state.piles.hand.remove(index);
+            }
+            state
+                .pending_hidden_hand_card_until_end_turn
+                .append(&mut selected);
+
+            let (pending_before_source, pending_after_source) =
+                partition_put_on_deck_source_pending(pending_actions);
+            resume_actions_after_hand_select(state, pending_before_source)?;
+            let previous_defer_time_warp = state.defer_time_warp_end_turn;
+            state.defer_time_warp_end_turn = true;
+            let handled_dead_branch_count = move_delayed_played_source_with_bot_exhaust_queue(
+                state,
+                hand_select.source_card_id,
+            )?;
+            state.defer_time_warp_end_turn = previous_defer_time_warp;
+            resume_actions_after_hand_select(state, pending_after_source)?;
+            state.activate_next_queued_decision_if_idle();
+            settle_time_warp_end_turn_if_ready(state)?;
+            Ok(handled_dead_branch_count)
+        }
+    }
+}
+
 /// Models `HandCardSelectScreen.wereCardsRetrieved == false`: ArmamentsAction
 /// can complete before CONFIRM under CommunicationMod load, so the upgrade never
 /// lands. The selected card stays owned by the closed selection screen (absent
@@ -3473,7 +3585,6 @@ pub(crate) fn settle_time_warp_end_turn_if_ready(state: &mut CombatState) -> Sim
 /// Eligible only when Armaments is already in exhaust/discard (Havoc / Mayhem /
 /// Distilled Chaos). Ordinary hand Armaments keeps
 /// [`confirm_hand_select`] / [`confirm_armaments_select`] authoritative.
-#[cfg(test)]
 fn confirm_hand_select_skipped_armaments_retrieval(state: &mut CombatState) -> SimResult<()> {
     let (hand_select, pending_actions) = state
         .take_hand_select()
@@ -4344,7 +4455,6 @@ fn confirm_dual_wield_select_skipped_retrieval_without_restore(
     confirm_dual_wield_select_skipped_retrieval_with_restore(state, false)
 }
 
-#[cfg(test)]
 fn confirm_dual_wield_select_skipped_retrieval_with_restore(
     state: &mut CombatState,
     restore_dropped: bool,

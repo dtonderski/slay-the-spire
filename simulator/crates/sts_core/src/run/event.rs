@@ -569,7 +569,7 @@ pub(super) fn validate_event_screen_authority(
             let expected_choices = if screen.stage == 4 {
                 Vec::new()
             } else {
-                spire_heart_choices(screen.stage)
+                spire_heart_choices(screen.stage, all_act4_keys(run))
             };
             if screen.choices != expected_choices {
                 return Err(SimError::InvalidState(
@@ -1691,11 +1691,13 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                 let omamori_blocked_result_is_reachable = run.relics.contains(&Relic::Omamori)
                     && run.omamori_charges_used == crate::relic::OMAMORI_CHARGES;
                 pending_obtain_source_matches(run, &[INJURY_ID])
+                    || pending_obtain_source_is_empty(run)
                     || ((zero_hp_result_is_reachable || omamori_blocked_result_is_reachable)
                         && pending_obtain_source_is_empty(run))
             }
             (Event::HypnotizingColoredMushrooms, 2) => {
-                pending_obtain_source_matches(run, &[PARASITE_ID])
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[PARASITE_ID])
             }
             (Event::MindBloom, 1) => {
                 pending_obtain_source_is_empty(run)
@@ -1703,8 +1705,8 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                     || pending_obtain_source_matches(run, &[DOUBT_ID])
             }
             (Event::BigFish, 1) if screen.event_data == 0 => {
-                pending_obtain_source_matches(run, &[REGRET_ID])
-                    || (run.player_max_hp / 3 == 0 && pending_obtain_source_is_empty(run))
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[REGRET_ID])
             }
             (Event::TheSsssserpent, 2) => {
                 pending_obtain_source_is_empty(run)
@@ -1718,10 +1720,13 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                 pending_obtain_source_is_empty(run)
                     || pending_obtain_source_matches(run, &[RITUAL_DAGGER_ID])
             }
-            (Event::Ghosts, 1) => pending_obtain_source_matches(
-                run,
-                &vec![APPARITION_ID; ghosts_apparition_count(run.ascension)],
-            ),
+            (Event::Ghosts, 1) => {
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(
+                        run,
+                        &vec![APPARITION_ID; ghosts_apparition_count(run.ascension)],
+                    )
+            }
             (Event::WindingHalls, 2) => {
                 pending_obtain_source_is_empty(run)
                     || pending_obtain_source_matches(run, &[WRITHE_ID])
@@ -1759,7 +1764,8 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                 pending_event_transform_is_authoritative(run, Event::Designer, 2, 2)
             }
             (Event::DrugDealer, 1) => {
-                pending_obtain_source_matches(run, &[JAX_ID])
+                pending_obtain_source_is_empty(run)
+                    || pending_obtain_source_matches(run, &[JAX_ID])
                     || pending_event_transform_is_authoritative(run, Event::DrugDealer, 1, 2)
             }
             (Event::Addict, 1) => {
@@ -2454,10 +2460,18 @@ pub enum Event {
     WindingHalls,
 }
 
-fn spire_heart_choices(stage: u32) -> Vec<EventChoice> {
+fn all_act4_keys(run: &RunState) -> bool {
+    run.final_act_available == Some(true)
+        && run.has_emerald_key
+        && run.has_ruby_key
+        && run.has_sapphire_key
+}
+
+fn spire_heart_choices(stage: u32, all_keys: bool) -> Vec<EventChoice> {
     let label = match stage {
         0 | 2 => "Continue",
         1 => "Attack",
+        3 if all_keys => "Approach Door",
         _ => "Sleep",
     };
     labeled_choices(&[label])
@@ -3977,7 +3991,7 @@ pub fn enter_event_screen(run: &mut RunState) -> SimResult<()> {
 pub fn event_screen(event: Event) -> EventScreen {
     match event {
         Event::Neow => make_event_screen(event, neow_talk_choices(), 0),
-        Event::SpireHeart => make_event_screen(event, spire_heart_choices(0), 0),
+        Event::SpireHeart => make_event_screen(event, spire_heart_choices(0, false), 0),
         Event::AccursedBlacksmith => {
             make_event_screen(event, labeled_choices(&["Forge", "Rummage", "Leave"]), 0)
         }
@@ -4178,6 +4192,82 @@ pub(crate) fn enter_spire_heart_event(run: &mut RunState) -> SimResult<()> {
     run.reward = None;
     run.event = Some(event_screen(Event::SpireHeart));
     Ok(())
+}
+
+pub(crate) fn enter_act4_map(run: &mut RunState) -> SimResult<()> {
+    if !all_act4_keys(run) || run.current_act != 3 || run.current_floor != 51 {
+        return Err(SimError::InvalidState(
+            "Act 4 entry requires all keys after the Act 3 heart event",
+        ));
+    }
+    use crate::ids::MapNodeId;
+    use crate::map::{FixedMap, MapNode, MapRunState, RoomKind};
+
+    // TheEnding is a new dungeon constructor: it advances the card reward RNG
+    // to the next transition window and rebuilds the colorless pool just like
+    // the City/Beyond constructors.
+    crate::run::reward::advance_card_rng_for_dungeon_transition(run);
+    run.colorless_card_pool.clear();
+    run.potion_chance = 0;
+    run.normal_combat_count = 0;
+    run.elite_combat_count = 0;
+
+    let root = MapNodeId::new(0);
+    let rest = MapNodeId::new(4);
+    let shop = MapNodeId::new(11);
+    let elite = MapNodeId::new(18);
+    let boss = MapNodeId::new(25);
+    run.map = Some(MapRunState {
+        act: 4,
+        floor: run.current_floor as u32,
+        current_node: root,
+        map: FixedMap {
+            nodes: vec![
+                MapNode {
+                    id: root,
+                    act: 4,
+                    room_kind: RoomKind::Victory,
+                    children: vec![rest],
+                },
+                MapNode {
+                    id: rest,
+                    act: 4,
+                    room_kind: RoomKind::Rest,
+                    children: vec![shop],
+                },
+                MapNode {
+                    id: shop,
+                    act: 4,
+                    room_kind: RoomKind::Shop,
+                    children: vec![elite],
+                },
+                MapNode {
+                    id: elite,
+                    act: 4,
+                    room_kind: RoomKind::Elite,
+                    children: vec![boss],
+                },
+                MapNode {
+                    id: boss,
+                    act: 4,
+                    room_kind: RoomKind::Boss,
+                    children: Vec::new(),
+                },
+            ],
+        },
+    });
+    run.map_rng = None;
+    run.emerald_key_node = None;
+    // Entering The Ending heals the player to full before the fixed Act 4 map
+    // is published. Mark of the Bloom still blocks this through heal_player.
+    run.heal_player(run.player_max_hp)?;
+    run.current_act = 4;
+    run.current_room_override = None;
+    run.phase = RunPhase::Idle;
+    run.event = None;
+    run.combat = None;
+    run.reward = None;
+    run.validate()
 }
 
 fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> SimResult<EventScreen> {
@@ -5102,6 +5192,44 @@ mod tests {
         heart
             .validate()
             .expect("terminal Spire Heart screen is authoritative");
+    }
+
+    #[test]
+    fn all_three_keys_route_spire_heart_door_into_the_act_four_map() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.set_final_act_available(Some(true))
+            .expect("final act profile selects a burning elite");
+        run.has_emerald_key = true;
+        run.has_ruby_key = true;
+        run.has_sapphire_key = true;
+        run.emerald_key_node = None;
+        run.current_act = 3;
+        run.current_floor = 51;
+        run.player_hp = 1;
+        run.current_room_override = Some(crate::RoomKind::Victory);
+        run.phase = RunPhase::Event;
+        run.event = Some(make_event_screen(
+            Event::SpireHeart,
+            spire_heart_choices(3, true),
+            3,
+        ));
+
+        let act_four = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("approaching the door enters Act 4");
+        assert_eq!(act_four.current_act, 4);
+        assert_eq!(act_four.current_floor, 51);
+        assert_eq!(act_four.player_hp, act_four.player_max_hp);
+        assert_eq!(act_four.phase, RunPhase::Idle);
+        let map = act_four.map.as_ref().expect("Act 4 map");
+        assert_eq!(map.act, 4);
+        assert_eq!(
+            map.map.children_of(map.current_node).unwrap(),
+            &[crate::MapNodeId::new(4)]
+        );
+        assert_eq!(
+            map.map.node(crate::MapNodeId::new(4)).unwrap().room_kind,
+            crate::RoomKind::Rest
+        );
     }
 
     #[test]

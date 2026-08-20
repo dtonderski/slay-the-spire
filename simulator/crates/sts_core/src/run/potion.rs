@@ -6,11 +6,11 @@ use crate::{
         choose_draw_select, choose_exhaust_select, choose_hand_select,
         close_discovery_source_card_with_force_exhaust, confirm_discard_select,
         confirm_draw_select, confirm_exhaust_select_with_dead_branch_count, confirm_hand_select,
-        discard_select_ui_to_discard_index, draw_select_ui_to_draw_index,
-        exhaust_select_ui_to_hand_index, flush_pending_player_spikes_damage_if_ready,
-        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
-        open_gambling_chip_select, player_draw_cards, player_shuffle_discard_into_draw,
-        top_draw_card_definition,
+        confirm_hand_select_without_retrieval, discard_select_ui_to_discard_index,
+        draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
+        flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
+        open_discard_select_with_max_choices, open_exhaust_select, open_gambling_chip_select,
+        player_draw_cards, player_shuffle_discard_into_draw, top_draw_card_definition,
     },
     combat::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
@@ -130,7 +130,9 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
         }
         RunAction::SkipCombatCardReward => validate_combat_card_reward_skip(run),
         RunAction::ChooseHandSelect { index } => validate_hand_select_choice(run, index),
-        RunAction::ConfirmHandSelect => validate_hand_select_confirm(run),
+        RunAction::ConfirmHandSelect | RunAction::ConfirmHandSelectWithoutRetrieval => {
+            validate_hand_select_confirm(run)
+        }
         RunAction::ChooseDrawSelect { index } => validate_draw_select_choice(run, index),
         RunAction::ConfirmDrawSelect => validate_draw_select_confirm(run),
         RunAction::ChooseDiscardSelect { index } => validate_discard_select_choice(run, index),
@@ -330,6 +332,25 @@ pub fn apply_hand_select_confirm(run: &RunState) -> SimResult<RunState> {
     settle_run_after_select_confirm(next, combat)
 }
 
+pub fn apply_hand_select_confirm_without_retrieval(run: &RunState) -> SimResult<RunState> {
+    validate_hand_select_confirm(run)?;
+    let mut next = run.clone();
+    let mut combat = next.combat.take().expect("validated combat");
+    let exhaust_before = combat.piles.exhaust_pile.len();
+    let handled_dead_branch_count = confirm_hand_select_without_retrieval(&mut combat)?;
+    let exhaust_count = combat
+        .piles
+        .exhaust_pile
+        .len()
+        .saturating_sub(exhaust_before);
+    apply_dead_branch_for_exhaust_count(
+        &mut next,
+        &mut combat,
+        exhaust_count.saturating_sub(handled_dead_branch_count),
+    )?;
+    settle_run_after_select_confirm(next, combat)
+}
+
 pub fn apply_draw_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_draw_select_choice(run, index)?;
     let mut next = run.clone();
@@ -485,7 +506,28 @@ pub fn apply_exhaust_select_confirm(run: &RunState) -> SimResult<RunState> {
 }
 
 /// Attach post-select combat and open rewards when CONFIRM left combat Won.
-fn settle_run_after_select_confirm(mut next: RunState, combat: CombatState) -> SimResult<RunState> {
+fn settle_run_after_select_confirm(
+    mut next: RunState,
+    mut combat: CombatState,
+) -> SimResult<RunState> {
+    if combat.decision.is_none()
+        && combat.monsters.iter().any(|monster| {
+            monster.alive && monster.content_id == crate::content::monsters::CORRUPT_HEART_ID
+        })
+    {
+        let triggers = std::mem::take(&mut combat.pending_beat_of_death_triggers);
+        let amount = combat
+            .monsters
+            .iter()
+            .find(|monster| {
+                monster.alive && monster.content_id == crate::content::monsters::CORRUPT_HEART_ID
+            })
+            .map(|monster| monster.powers.beat_of_death)
+            .unwrap_or(0);
+        for _ in 0..triggers {
+            crate::combat::turn::deal_non_attack_damage_to_player(&mut combat, amount)?;
+        }
+    }
     next.store_rng_counter(RunRngStream::CardRandom, &combat.rng.card_random_rng);
     next.player_hp = combat.player.hp;
     next.player_max_hp = combat.player.max_hp;

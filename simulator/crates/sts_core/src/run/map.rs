@@ -27,13 +27,14 @@ use crate::{
         target_spiker_next_intent_from_roll, target_spire_growth_next_intent_from_roll,
         target_writhing_mass_next_intent_from_roll, TargetEncounterSpawn, TargetSpawnIntent,
         ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE, ACID_SLIME_S_A7_HP_RANGE, AWAKENED_ONE_ID,
-        BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID, CULTIST_A0,
-        CULTIST_ID, DAGGER_ID, DARKLING_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID,
-        GREEN_LOUSE_ID, GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GUARDIAN_ID, HEALER_ID, HEXAGHOST_ID,
-        JAW_WORM_ID, LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID,
-        SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID,
-        SNAKE_PLANT_ID, SNECKO_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, TASKMASTER_ID,
-        WRITHING_MASS_ID,
+        BOOK_OF_STABBING_ID, BRONZE_ORB_ID, BYRD_ID, CENTURION_ID, CHAMP_ID, CHOSEN_ID,
+        CORRUPT_HEART_A0, CORRUPT_HEART_ID, CULTIST_A0, CULTIST_ID, DAGGER_ID, DARKLING_ID,
+        EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
+        GREMLIN_LEADER_ID, GUARDIAN_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID,
+        LOUSE_CURL_STRENGTH, ORB_WALKER_ID, RED_LOUSE_ID, REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID,
+        SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID, SLIME_BOSS_ID, SNAKE_PLANT_ID,
+        SNECKO_ID, SPIKER_ID, SPIKE_SLIME_ID, SPIRE_GROWTH_ID, SPIRE_SHIELD_A0, SPIRE_SHIELD_ID,
+        SPIRE_SPEAR_A0, SPIRE_SPEAR_ID, TASKMASTER_ID, WRITHING_MASS_ID,
     },
     map::{
         apply_map_action, legal_map_actions, reachable_nodes, validate_map_action,
@@ -183,9 +184,75 @@ fn enter_elite_combat(run: &mut RunState) -> SimResult<()> {
         .elite_combat_count
         .checked_add(1)
         .ok_or(SimError::InvalidState("elite combat count overflows u32"))?;
-    let monsters = elite_combat_monsters_for_run(run)?;
+    let mut monsters = elite_combat_monsters_for_run(run)?;
+    apply_emerald_elite_buff(run, &mut monsters)?;
     enter_combat_with_monsters(run, monsters)?;
     run.elite_combat_count = next_combat_count;
+    Ok(())
+}
+
+fn apply_emerald_elite_buff(
+    run: &mut RunState,
+    monsters: &mut [crate::MonsterState],
+) -> SimResult<()> {
+    let current_node = run
+        .map
+        .as_ref()
+        .map(|map| map.current_node)
+        .ok_or(SimError::InvalidState("elite combat has no map"))?;
+    if run.emerald_key_node != Some(current_node) {
+        return Ok(());
+    }
+
+    let roll = run
+        .map_rng
+        .as_mut()
+        .ok_or(SimError::InvalidState("burning elite has no map RNG"))?
+        .random_int(3);
+    let act = run.current_act;
+    // Emerald-elite effects are queued before player pre-battle relic effects.
+    // In particular, max HP must increase before Preserved Insect lowers
+    // current HP from that new maximum.
+    for monster in monsters {
+        match roll {
+            0 => {
+                monster.powers.strength =
+                    monster
+                        .powers
+                        .strength
+                        .checked_add(act + 1)
+                        .ok_or(SimError::InvalidState(
+                            "burning elite strength overflows i32",
+                        ))?;
+            }
+            1 => {
+                let increase = ((monster.max_hp as f32) * 0.25).round() as i32;
+                monster.max_hp = monster
+                    .max_hp
+                    .checked_add(increase)
+                    .ok_or(SimError::InvalidState("burning elite max HP overflows i32"))?;
+                monster.hp = monster
+                    .hp
+                    .checked_add(increase)
+                    .ok_or(SimError::InvalidState(
+                        "burning elite current HP overflows i32",
+                    ))?;
+            }
+            2 => {
+                monster.powers.metallicize =
+                    monster.powers.metallicize.checked_add(act * 2 + 2).ok_or(
+                        SimError::InvalidState("burning elite metallicize overflows i32"),
+                    )?;
+            }
+            3 => {
+                monster.powers.regeneration =
+                    monster.powers.regeneration.checked_add(act * 2 + 1).ok_or(
+                        SimError::InvalidState("burning elite regeneration overflows i32"),
+                    )?;
+            }
+            _ => unreachable!("map RNG roll is bounded to 0..=3"),
+        }
+    }
     Ok(())
 }
 
@@ -536,6 +603,27 @@ pub fn apply_initial_monster_ai_rolls(combat: &mut CombatState, rng: &mut StsRng
                 roll,
                 combat.ascension,
             );
+        } else if monster.content_id == CORRUPT_HEART_ID {
+            monster.intent = crate::MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+                frail: 2,
+                weak: 2,
+                vulnerable: 2,
+            };
+        } else if monster.content_id == SPIRE_SHIELD_ID {
+            monster.intent = if rng.random_bool() {
+                crate::MonsterIntent::Block { block: 30 }
+            } else {
+                crate::MonsterIntent::AttackApplyPlayerWeak {
+                    damage: if combat.ascension >= 3 { 14 } else { 12 },
+                    weak: 0,
+                }
+            };
+        } else if monster.content_id == SPIRE_SPEAR_ID {
+            monster.intent = crate::MonsterIntent::AttackMultipleApplyPlayerWeak {
+                damage: if combat.ascension >= 3 { 6 } else { 5 },
+                hits: 2,
+                weak: 0,
+            };
         } else if monster.content_id == WRITHING_MASS_ID {
             monster.intent = target_writhing_mass_next_intent_from_roll(
                 true,
@@ -678,6 +766,17 @@ fn normal_combat_monsters_for_run(run: &mut RunState) -> SimResult<Vec<MonsterSt
 }
 
 fn elite_combat_monsters_for_run(run: &mut RunState) -> SimResult<Vec<MonsterState>> {
+    if run.current_act == 4 {
+        let mut shield =
+            monster_state_for_ascension(&SPIRE_SHIELD_A0, crate::MonsterId::new(1), run.ascension);
+        shield.max_hp = if run.ascension >= 8 { 125 } else { 110 };
+        shield.hp = shield.max_hp;
+        let mut spear =
+            monster_state_for_ascension(&SPIRE_SPEAR_A0, crate::MonsterId::new(2), run.ascension);
+        spear.max_hp = if run.ascension >= 8 { 180 } else { 160 };
+        spear.hp = spear.max_hp;
+        return Ok(vec![shield, spear]);
+    }
     let combat_index = run.elite_combat_count as usize;
     let floor = encounter_floor(run)?;
     let neow_lament = run.neow_lament_combats_remaining > 0;
@@ -816,6 +915,13 @@ fn target_beyond_encounter_spawn_for_run(
 }
 
 fn boss_combat_monsters_for_run(run: &RunState) -> SimResult<Vec<MonsterState>> {
+    if run.current_act == 4 {
+        let mut heart =
+            monster_state_for_ascension(&CORRUPT_HEART_A0, crate::MonsterId::new(1), run.ascension);
+        heart.max_hp = if run.ascension >= 9 { 800 } else { 750 };
+        heart.hp = heart.max_hp;
+        return Ok(vec![heart]);
+    }
     if run.current_act == 3 && run.act3_boss == crate::run::Act3Boss::AwakenedOne {
         return Ok(vec![
             monster_state_for_ascension(&CULTIST_A0, crate::MonsterId::new(1), run.ascension),
@@ -950,6 +1056,7 @@ fn spawn_monster_powers(
             "Strength" => powers.strength = power.amount,
             "Ritual" => powers.ritual = power.amount,
             "Metallicize" => powers.metallicize = power.amount,
+            "Regenerate" => powers.regeneration = power.amount,
             "Artifact" => powers.artifact = power.amount,
             "Flight" => powers.flight = power.amount,
             "Plated Armor" => powers.plated_armor = power.amount,
@@ -969,6 +1076,9 @@ fn spawn_monster_powers(
             "Thievery" => {}
             _ => return Err(SimError::UnsupportedMechanic(content_id)),
         }
+    }
+    if content_id == LAGAVULIN_ID && spawn.block == 8 {
+        powers.metallicize = 8;
     }
     Ok(powers)
 }
@@ -1167,6 +1277,29 @@ mod tests {
         relic::MARK_OF_PAIN_WOUNDS,
         ContentId, MonsterIntent,
     };
+
+    #[test]
+    fn final_act_profile_selects_and_buffs_one_emerald_elite_from_map_rng() {
+        let mut run = RunState::seeded_ironclad(34_961_238_616_858, 0);
+        run.set_final_act_available(Some(true))
+            .expect("final act profile selects a burning elite");
+        let elite_node = run.emerald_key_node.expect("emerald elite node");
+        assert!(run.map.as_ref().is_some_and(|map| {
+            map.map
+                .node(elite_node)
+                .is_some_and(|node| node.room_kind == RoomKind::Elite)
+        }));
+        run.map.as_mut().expect("map").current_node = elite_node;
+
+        let definition = get_monster_definition(SENTRY_ID).expect("Sentry definition");
+        let mut monsters = (1..=3)
+            .map(|id| {
+                monster_state_for_ascension(definition, crate::MonsterId::new(id), run.ascension)
+            })
+            .collect::<Vec<_>>();
+        apply_emerald_elite_buff(&mut run, &mut monsters).expect("emerald buff applies");
+        assert!(monsters.iter().all(|monster| monster.powers.strength == 2));
+    }
 
     #[test]
     fn mark_of_pain_wounds_consume_card_random_rng_after_snecko_opening_costs() {
@@ -1531,12 +1664,10 @@ mod tests {
         );
 
         run.current_act = 4;
-        assert_eq!(
-            boss_combat_monsters_for_run(&run),
-            Err(SimError::InvalidState(
-                "boss combat requires a supported act"
-            ))
-        );
+        let heart = boss_combat_monsters_for_run(&run).expect("Act 4 boss is supported");
+        assert_eq!(heart.len(), 1);
+        assert_eq!(heart[0].content_id, CORRUPT_HEART_ID);
+        assert_eq!(heart[0].max_hp, 750);
     }
 
     #[test]

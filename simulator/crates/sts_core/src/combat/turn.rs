@@ -18,7 +18,7 @@ use crate::{
     combat::{CombatPhase, CombatState, SlimeSize},
     content::cards::{
         get_card_definition, BURN_ID, DAZED_ID, DECAY_ID, DOUBT_ID, REGRET_ID, SHAME_ID, SLIMED_ID,
-        WOUND_ID,
+        VOID_ID, WOUND_ID,
     },
     content::monsters::{
         apply_bronze_automaton_orb_spawn, apply_collector_spawn_torch_heads,
@@ -57,15 +57,15 @@ use crate::{
         target_spire_growth_next_intent_from_roll, target_taskmaster_wound_count,
         target_writhing_mass_next_intent_from_roll, ACID_SLIME_ID, ACID_SLIME_M_A7_HP_RANGE,
         ACID_SLIME_S_A7_HP_RANGE, BOOK_OF_STABBING_ID, BRONZE_AUTOMATON_ID, BRONZE_ORB_ID, BYRD_ID,
-        CENTURION_ID, CHAMP_ID, CHOSEN_ID, DAGGER_EXPLODE_DAMAGE, DAGGER_ID, DARKLING_ID, DECA_ID,
-        EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID, GREEN_LOUSE_ID, GREEN_LOUSE_WEAK,
-        GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_THIEF_ID, GREMLIN_TSUNDERE_ID,
+        CENTURION_ID, CHAMP_ID, CHOSEN_ID, CORRUPT_HEART_ID, DAGGER_EXPLODE_DAMAGE, DAGGER_ID,
+        DARKLING_ID, DECA_ID, EXPLODER_ID, FUNGI_BEAST_ID, GIANT_HEAD_ID, GREEN_LOUSE_ID,
+        GREEN_LOUSE_WEAK, GREMLIN_LEADER_ID, GREMLIN_NOB_ID, GREMLIN_THIEF_ID, GREMLIN_TSUNDERE_ID,
         GREMLIN_WARRIOR_ID, GREMLIN_WIZARD_ID, HEALER_ID, HEXAGHOST_ID, JAW_WORM_ID, LAGAVULIN_ID,
         LOOTER_ID, LOUSE_CURL_STRENGTH, MAW_ID, MUGGER_ID, NEMESIS_ID, ORB_WALKER_ID, RED_LOUSE_ID,
         REPTOMANCER_ID, REPULSOR_ID, SENTRY_ID, SHELLED_PARASITE_ID, SLAVER_BLUE_ID, SLAVER_RED_ID,
         SLIME_BOSS_ID, SNAKE_PLANT_ID, SNECKO_ID, SPHERIC_GUARDIAN_ID, SPIKER_ID, SPIKE_SLIME_ID,
-        SPIKE_SLIME_L_SPIT_DAMAGE, SPIKE_SLIME_S_A7_HP_RANGE, SPIRE_GROWTH_ID, THE_COLLECTOR_ID,
-        TORCH_HEAD_ID, TRANSIENT_ID, WRITHING_MASS_ID,
+        SPIKE_SLIME_L_SPIT_DAMAGE, SPIKE_SLIME_S_A7_HP_RANGE, SPIRE_GROWTH_ID, SPIRE_SHIELD_ID,
+        SPIRE_SPEAR_ID, THE_COLLECTOR_ID, TORCH_HEAD_ID, TRANSIENT_ID, WRITHING_MASS_ID,
     },
     ids::MonsterId,
     relic::HpLossDrawPolicy,
@@ -655,6 +655,11 @@ fn start_player_turn_in_place(
         return Ok(());
     }
     state.time_warp_end_powers_applied = false;
+    for monster in &mut state.monsters {
+        if monster.alive && monster.powers.invincible_max > 0 {
+            monster.powers.invincible = monster.powers.invincible_max;
+        }
+    }
     crate::relic::reset_turn_relic_counters(state);
     state.player.powers.divinity = 0;
     reset_turn_only_temp_costs(state);
@@ -1219,6 +1224,11 @@ fn execute_generic_monster_intent(
         && state.monsters[index].powers.intangible > 0;
     let deferred_burn_to_discard = match intent {
         crate::MonsterIntent::AddBurnToDiscard { count, .. } => count,
+        crate::MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
+            if state.monsters[index].content_id == SPIRE_SPEAR_ID =>
+        {
+            2
+        }
         _ => 0,
     };
     let deferred_burn_is_upgraded = deferred_burn_to_discard > 0
@@ -1356,6 +1366,42 @@ fn execute_generic_monster_intent(
         )?;
         if matches!(intent, crate::MonsterIntent::Stun) {
             state.player.powers.plated_armor = plated_armor_before_thorns_damage;
+        }
+        if state.monsters[index].content_id == SPIRE_SHIELD_ID
+            && matches!(
+                intent,
+                crate::MonsterIntent::AttackApplyPlayerWeak { weak: 0, .. }
+            )
+        {
+            crate::power::reduce_player_strength(&mut state.player.powers, 1)?;
+        }
+    }
+    if state.monsters[index].content_id == CORRUPT_HEART_ID
+        && matches!(
+            intent,
+            crate::MonsterIntent::ApplyPlayerFrailWeakVulnerable { .. }
+        )
+    {
+        for content_id in [DAZED_ID, SLIMED_ID, WOUND_ID, BURN_ID, VOID_ID] {
+            let allocated = state.max_authoritative_card_instance_id();
+            add_cards_to_draw_random_spot(
+                &mut state.piles,
+                content_id,
+                1,
+                &mut state.rng.card_random_rng,
+                allocated,
+            )?;
+        }
+    }
+    if state.monsters[index].content_id == SPIRE_SHIELD_ID
+        && matches!(intent, crate::MonsterIntent::Block { block: 30 })
+    {
+        for (other_index, monster) in state.monsters.iter_mut().enumerate() {
+            if other_index != index && monster.alive {
+                monster.block = monster.block.checked_add(30).ok_or(SimError::InvalidState(
+                    "Spire Shield Fortify block overflows i32",
+                ))?;
+            }
         }
     }
     // SnakeDagger EXPLODE queues DamageAction then LoseHPAction(self).
@@ -2217,8 +2263,32 @@ fn apply_transient_fading_after_turn(monsters: &mut [crate::MonsterState], actor
     monster.intent = crate::MonsterIntent::Attack { damage: 0 };
 }
 
-fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> SimResult<i32> {
+pub(crate) fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> SimResult<i32> {
     deal_damage_to_player_with_draw_policy(state, amount, HpLossDrawPolicy::Immediate)
+}
+
+pub(crate) fn deal_non_attack_damage_to_player(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<i32> {
+    let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
+    let blocked = state.player.block.min(incoming);
+    state.player.block -= blocked;
+    let hp_damage = crate::relic::apply_buffer_to_hp_loss(
+        &mut state.player.powers,
+        incoming.saturating_sub(blocked),
+    );
+    state.player.hp = (state.player.hp - hp_damage).max(0);
+    crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
+        state,
+        hp_damage,
+        HpLossDrawPolicy::Immediate,
+    )?;
+    revive_player_if_available(state)?;
+    if hp_damage > 0 && state.player.powers.plated_armor > 0 {
+        state.player.powers.plated_armor -= 1;
+    }
+    Ok(hp_damage)
 }
 
 fn deal_damage_to_player_with_draw_policy(
@@ -2497,7 +2567,27 @@ fn prepare_rolled_next_intent(
         collector_minion_dead,
         missing_hp,
     } = context;
-    monster.intent = if monster.content_id == HEXAGHOST_ID && monster.moves_executed == 1 {
+    monster.intent = if monster.content_id == CORRUPT_HEART_ID {
+        let echo = || crate::MonsterIntent::Attack {
+            damage: if ascension >= 4 { 45 } else { 40 },
+        };
+        let blood = || crate::MonsterIntent::AttackMultiple {
+            damage: 2,
+            hits: if ascension >= 4 { 15 } else { 12 },
+        };
+        match monster.moves_executed.saturating_sub(1) % 3 {
+            0 => {
+                if monster_rng.random_bool() {
+                    blood()
+                } else {
+                    echo()
+                }
+            }
+            1 if monster.move_history.last() == Some(&2) => blood(),
+            1 => echo(),
+            _ => crate::MonsterIntent::StrengthSelf { amount: 2 },
+        }
+    } else if monster.content_id == HEXAGHOST_ID && monster.moves_executed == 1 {
         crate::MonsterIntent::AttackMultiple {
             damage: (player_hp / 12) + 1,
             hits: 6,
@@ -2554,6 +2644,55 @@ fn prepare_rolled_next_intent(
             roll,
             ascension,
         )
+    } else if monster.content_id == SPIRE_SHIELD_ID {
+        match monster.moves_executed % 3 {
+            0 => {
+                if monster_rng.random_bool() {
+                    crate::MonsterIntent::Block { block: 30 }
+                } else {
+                    crate::MonsterIntent::AttackApplyPlayerWeak {
+                        damage: if ascension >= 3 { 14 } else { 12 },
+                        weak: 0,
+                    }
+                }
+            }
+            1 if monster.move_history.last() == Some(&1) => {
+                crate::MonsterIntent::Block { block: 30 }
+            }
+            1 => crate::MonsterIntent::AttackApplyPlayerWeak {
+                damage: if ascension >= 3 { 14 } else { 12 },
+                weak: 0,
+            },
+            _ => crate::MonsterIntent::AttackAndBlock {
+                damage: if ascension >= 3 { 38 } else { 34 },
+                block: if ascension >= 18 {
+                    99
+                } else {
+                    let base = if ascension >= 3 { 38 } else { 34 };
+                    (base + monster.powers.strength) * 3 / 2
+                },
+            },
+        }
+    } else if monster.content_id == SPIRE_SPEAR_ID {
+        let burn_strike = || crate::MonsterIntent::AttackMultipleApplyPlayerWeak {
+            damage: if ascension >= 3 { 6 } else { 5 },
+            hits: 2,
+            weak: 0,
+        };
+        match monster.moves_executed % 3 {
+            0 if monster.move_history.last() == Some(&1) => {
+                crate::MonsterIntent::StrengthAllMonsters { amount: 2 }
+            }
+            0 => burn_strike(),
+            1 => crate::MonsterIntent::AttackMultiple {
+                damage: 10,
+                hits: if ascension >= 3 { 4 } else { 3 },
+            },
+            _ if monster_rng.random_bool() => {
+                crate::MonsterIntent::StrengthAllMonsters { amount: 2 }
+            }
+            _ => burn_strike(),
+        }
     } else if monster.content_id == WRITHING_MASS_ID {
         target_writhing_mass_next_intent_from_roll(
             false,

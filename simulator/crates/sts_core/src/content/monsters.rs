@@ -3826,6 +3826,13 @@ pub fn monster_state_for_ascension(
                 SENTRY_ID => SENTRY_ARTIFACT,
                 SPHERIC_GUARDIAN_ID => SPHERIC_GUARDIAN_ARTIFACT,
                 BRONZE_AUTOMATON_ID => BRONZE_AUTOMATON_ARTIFACT,
+                SPIRE_SHIELD_ID | SPIRE_SPEAR_ID => {
+                    if ascension >= 18 {
+                        2
+                    } else {
+                        1
+                    }
+                }
                 _ => 0,
             },
             flight: if definition.content_id == BYRD_ID {
@@ -3873,6 +3880,33 @@ pub fn monster_state_for_ascension(
             } else {
                 0
             },
+            beat_of_death: if definition.content_id == CORRUPT_HEART_ID {
+                if ascension >= 19 {
+                    2
+                } else {
+                    1
+                }
+            } else {
+                0
+            },
+            invincible: if definition.content_id == CORRUPT_HEART_ID {
+                if ascension >= 19 {
+                    200
+                } else {
+                    300
+                }
+            } else {
+                0
+            },
+            invincible_max: if definition.content_id == CORRUPT_HEART_ID {
+                if ascension >= 19 {
+                    200
+                } else {
+                    300
+                }
+            } else {
+                0
+            },
             minion: if is_gremlin_leader_minion_content_id(definition.content_id) {
                 1
             } else {
@@ -3880,6 +3914,18 @@ pub fn monster_state_for_ascension(
             },
             anger: if definition.content_id == GREMLIN_WARRIOR_ID {
                 gremlin_warrior_anger(ascension)
+            } else {
+                0
+            },
+            metallicize: if definition.content_id == LAGAVULIN_ID
+                && definition.starting_sleep_turns > 0
+            {
+                8
+            } else {
+                0
+            },
+            regeneration: if definition.content_id == AWAKENED_ONE_ID {
+                10
             } else {
                 0
             },
@@ -6148,6 +6194,31 @@ pub fn target_move_byte(content_id: ContentId, intent: MonsterIntent) -> Option<
             _ => None,
         };
     }
+    if content_id == CORRUPT_HEART_ID {
+        return match intent {
+            MonsterIntent::AttackMultiple { .. } => Some(1),
+            MonsterIntent::Attack { .. } => Some(2),
+            MonsterIntent::ApplyPlayerFrailWeakVulnerable { .. } => Some(3),
+            MonsterIntent::StrengthSelf { .. } => Some(4),
+            _ => None,
+        };
+    }
+    if content_id == SPIRE_SHIELD_ID {
+        return match intent {
+            MonsterIntent::AttackApplyPlayerWeak { weak: 0, .. } => Some(1),
+            MonsterIntent::Block { .. } => Some(2),
+            MonsterIntent::AttackAndBlock { .. } => Some(3),
+            _ => None,
+        };
+    }
+    if content_id == SPIRE_SPEAR_ID {
+        return match intent {
+            MonsterIntent::AttackMultipleApplyPlayerWeak { .. } => Some(1),
+            MonsterIntent::StrengthAllMonsters { .. } => Some(2),
+            MonsterIntent::AttackMultiple { .. } => Some(3),
+            _ => None,
+        };
+    }
     if content_id == CULTIST_ID {
         return match intent {
             MonsterIntent::Attack { .. } => Some(1),
@@ -7200,11 +7271,8 @@ pub fn target_gremlin_wizard_direct_next_intent_after_turn(
     }
 }
 
-pub(crate) fn is_unsupported_monster_intent(content_id: ContentId) -> bool {
-    matches!(
-        content_id,
-        CORRUPT_HEART_ID | SPIRE_SHIELD_ID | SPIRE_SPEAR_ID
-    )
+pub(crate) fn is_unsupported_monster_intent(_content_id: ContentId) -> bool {
+    false
 }
 
 fn asc_damage(ascension: u8, base: i32, upgraded: i32, threshold: u8) -> i32 {
@@ -10241,15 +10309,26 @@ fn apply_monster_intent_with_card_rng_inner(
             | GIANT_HEAD_ID
             | NEMESIS_ID
             | TIME_EATER_ID
+            | SPIRE_SHIELD_ID
+            | SPIRE_SPEAR_ID
     );
     let scale_damage = |damage: i32| -> SimResult<i32> {
-        if source_scaled_damage {
-            Ok(damage)
+        let damage = if source_scaled_damage {
+            damage
         } else {
             damage
                 .checked_add(config.normal_enemy_damage_bonus())
                 .and_then(|damage| damage.checked_add(config.deadly_enemies_damage_bonus()))
-                .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))
+                .ok_or(SimError::InvalidState("monster intent arithmetic overflow"))?
+        };
+        if monster.content_id == SPIRE_SHIELD_ID {
+            damage
+                .checked_mul(3)
+                .map(|damage| damage / 2)
+                .and_then(|damage| damage.checked_add(monster.powers.strength / 2))
+                .ok_or(SimError::InvalidState("Back Attack damage overflows i32"))
+        } else {
+            Ok(damage)
         }
     };
     let mut block_after_thorns = 0;
@@ -10321,7 +10400,21 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
         MonsterIntent::StrengthSelf { amount } => {
-            if monster.content_id == BYRD_ID && amount == 0 {
+            if monster.content_id == CORRUPT_HEART_ID {
+                checked_add_monster_intent_value(&mut monster.powers.strength, amount)?;
+                match monster.powers.heart_buff_count {
+                    0 => checked_add_monster_intent_value(&mut monster.powers.artifact, 2)?,
+                    1 => checked_add_monster_intent_value(&mut monster.powers.beat_of_death, 1)?,
+                    2 => monster.powers.painful_stabs = 1,
+                    3 => checked_add_monster_intent_value(&mut monster.powers.strength, 10)?,
+                    _ => checked_add_monster_intent_value(&mut monster.powers.strength, 50)?,
+                }
+                monster.powers.heart_buff_count = monster
+                    .powers
+                    .heart_buff_count
+                    .checked_add(1)
+                    .ok_or(SimError::InvalidState("Heart buff count overflows i32"))?;
+            } else if monster.content_id == BYRD_ID && amount == 0 {
                 monster.powers.flight = target_byrd_flight_amount(ascension);
             } else if monster.content_id == GREMLIN_NOB_ID {
                 checked_add_monster_intent_value(&mut monster.powers.anger, amount)?;
@@ -10462,8 +10555,13 @@ fn apply_monster_intent_with_card_rng_inner(
             if monster.sleep_turns_remaining > 0 {
                 monster.sleep_turns_remaining -= 1;
             }
-            if monster.content_id == LAGAVULIN_ID && monster.sleep_turns_remaining > 0 {
-                monster.block = 8;
+            // Lagavulin's Metallicize power supplies the sleep block during
+            // end-of-turn power processing; the Sleep move itself adds none.
+            // Natural wake removes both the stance power and its accumulated
+            // block before the attack intent is published.
+            if monster.content_id == LAGAVULIN_ID && monster.sleep_turns_remaining == 0 {
+                monster.block = 0;
+                monster.powers.metallicize = 0;
             }
             (0, 0)
         }

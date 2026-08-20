@@ -449,6 +449,7 @@ pub enum RestAction {
     RemoveCard { card_id: CardId },
     Lift,
     Dig,
+    Recall,
     Proceed,
 }
 

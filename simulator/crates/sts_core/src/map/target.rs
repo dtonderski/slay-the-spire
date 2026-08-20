@@ -101,6 +101,7 @@ pub struct TargetMapTopology {
     pub shuffled_room_list: Vec<RoomKind>,
     pub assigned_rooms: Vec<TargetAssignedRoom>,
     pub map_rng_counter: u32,
+    pub(crate) map_rng: StsRng,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -198,8 +199,16 @@ pub fn generate_city_fixed_map(seed: i64) -> MapRunState {
 
 #[must_use]
 pub fn generate_target_fixed_map(seed: i64, act: TargetMapAct) -> MapRunState {
+    generate_target_fixed_map_with_rng(seed, act).0
+}
+
+pub(crate) fn generate_target_fixed_map_with_rng(
+    seed: i64,
+    act: TargetMapAct,
+) -> (MapRunState, StsRng) {
     let config = act.config();
     let topology = generate_target_map_topology(seed, act);
+    let map_rng = topology.map_rng.clone();
     let boss_id = target_boss_node_id(config);
     let mut nodes = Vec::with_capacity(topology.assigned_rooms.len() + 2);
     nodes.push(MapNode {
@@ -240,12 +249,15 @@ pub fn generate_target_fixed_map(seed: i64, act: TargetMapAct) -> MapRunState {
         children: Vec::new(),
     });
 
-    MapRunState {
-        act: config.act,
-        floor: 0,
-        current_node: target_root_node_id(),
-        map: FixedMap { nodes },
-    }
+    (
+        MapRunState {
+            act: config.act,
+            floor: 0,
+            current_node: target_root_node_id(),
+            map: FixedMap { nodes },
+        },
+        map_rng,
+    )
 }
 
 #[must_use]
@@ -571,6 +583,7 @@ impl TargetMapGenerator {
             shuffled_room_list: shuffled_room_list_report,
             assigned_rooms,
             map_rng_counter: self.rng.counter(),
+            map_rng: self.rng,
         }
     }
 

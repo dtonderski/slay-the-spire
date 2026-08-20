@@ -194,6 +194,10 @@ pub struct CombatState {
     /// through END and is reclaimed by Fiend Fire's exhaust-all action.
     #[serde(default, skip_serializing_if = "is_false")]
     pub pending_hidden_hand_card_exhausts_with_fiend_fire: bool,
+    /// Beat of Death callbacks held while a played card's selection screen is
+    /// still open. They settle when CONFIRM retrieves or closes that source.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub pending_beat_of_death_triggers: u32,
     /// Set when Nilry's Codex paused end-of-turn; resume discards + monster turn
     /// after the card-reward decision closes.
     ///
@@ -1153,6 +1157,7 @@ impl CombatState {
             pending_potion_card_reward_settlement: None,
             pending_hidden_hand_card_until_end_turn: Vec::new(),
             pending_hidden_hand_card_exhausts_with_fiend_fire: false,
+            pending_beat_of_death_triggers: 0,
             resume_end_turn_after_nilrys_codex: false,
             nilrys_end_powers_pending: false,
             pending_nilrys_codex_draw_inserts: Vec::new(),
