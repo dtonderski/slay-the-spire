@@ -29,6 +29,12 @@ public class SuperFastMode {
 	public static final Logger logger = LogManager.getLogger(SuperFastMode.class.getName());
 
 	public static float deltaMultiplier = 2;
+	/**
+	 * Canonical 60 Hz delta for gameplay action state machines. Collection runs
+	 * execute frames uncapped, but action update counts must remain independent
+	 * of host frame time and the visual delta multiplier.
+	 */
+	public static final float GAMEPLAY_DELTA = 1.0F / 60.0F;
 	public static Field deltaField;
 	public static boolean isDeltaMultiplied = true;
 	public static boolean isInstantLerp = true;
@@ -123,13 +129,18 @@ public class SuperFastMode {
 		return getDelta(Gdx.graphics);
 	}
 	
-	public static void tickDuration(AbstractGameAction a) {
+	public static float getGameplayDelta() {
+		return GAMEPLAY_DELTA;
+	}
+
+	/** Mirrors AbstractGameAction.tickDuration with a deterministic 60 Hz tick. */
+	public static void tickGameplayDuration(AbstractGameAction a) {
 		float duration = (float) ReflectionHacks.getPrivate(a, AbstractGameAction.class, "duration");
-		duration -= getDelta();
+		duration -= GAMEPLAY_DELTA;
 		ReflectionHacks.setPrivate(a, AbstractGameAction.class, "duration", duration);
-        if (duration < 0.0f) {
-            a.isDone = true;
-        }
+		if (duration < 0.0F) {
+			a.isDone = true;
+		}
 	}
 
 	public static void instantLerp(float[] start, float target) {
