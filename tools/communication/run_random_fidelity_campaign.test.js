@@ -36,6 +36,20 @@ assert.strictEqual(
   }),
   true,
 );
+assert.strictEqual(
+  isInfrastructureFailure({
+    elapsed_ms: 60_000,
+    stderr: "Error: bridge is not ready for a command",
+  }),
+  true,
+);
+assert.strictEqual(
+  isInfrastructureFailure({
+    elapsed_ms: 60_000,
+    stderr: "Error: START_VERIFY did not become available at the main menu",
+  }),
+  true,
+);
 
 const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "sts-campaign-resume-"));
 try {

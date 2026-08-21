@@ -175,7 +175,11 @@ Codex legitimately exposes an `interaction_ready` card reward while its source
 that decision. An independently audited exact-20 schema-6 pilot had valid
 strict pairs, zero retrieval failures, zero pending gameplay effects, stable
 repeated verifier output, and zero raw unexpected diffs; those immutable
-payloads became the first post-legacy authoritative cohort.
+payloads became the first post-legacy authoritative cohort. A later 208-trace
+schema-6 campaign repeated those integrity checks across 309,676 transitions,
+including zero failures in 2,880 audited hand retrievals and 5,491 card-reward
+selections. It replaced the initial pilot as the active local and Hugging Face
+cohort; 123 traces pass completely and 85 retain honest unsupported frontiers.
 
 A larger apparent lifecycle ambiguity was ultimately a collection-speed defect,
 not a missing trace input. The SuperFastMode collection fork multiplied the
@@ -309,7 +313,7 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   being the strongest player?
 - The mixed `ExhaustAction` retrieval outcome was traced to multiplied gameplay
   delta and removed from future collection without adding lifecycle inputs.
-  The pre-collection.2 corpus is legacy and replacement evidence is being
-  recollected. Remaining visual-obtain publication differences still need a
-  source-backed collector audit; post-state candidate selection remains
+  The pre-collection.2 corpus is legacy. The reviewed 208-trace schema-6
+  replacement is now the active external cohort; its unsupported frontiers
+  remain future simulator work. Post-state candidate selection remains
   prohibited.

@@ -116,26 +116,31 @@ uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown \
   "$STS_PERMANENT_CORPUS_DIR"
 ```
 
-### Legacy Hugging Face archive
+### Authoritative Hugging Face corpus
 
-The private `dtonderski/sts-permanent-traces` Hugging Face dataset preserves the
-pre-collection.2 cohort. It stores each immutable payload independently as a
-deterministic `<trace>.jsonl.gz`; it is legacy investigation evidence, not the
-active parity corpus. `.cursor/start.sh` intentionally does not download it.
+The private `dtonderski/sts-permanent-traces` Hugging Face dataset mirrors the
+current reviewed corpus. It contains 208 immutable `collection.2-schema6`
+payloads, each stored as a deterministic `<trace>.jsonl.gz`. The cohort passed
+independent structure, command-fence, zero-effect, hand/card retrieval,
+terminal, repeatability, raw-diff, and hash audits before replacement of the
+remote legacy payloads. Current verifier status is 123 complete passes and 85
+explicit unsupported frontiers, with zero trace errors and zero raw unexpected
+diffs.
 
-To inspect the archive locally, download it into the legacy directory explicitly:
+Download the external corpus into the active directory:
 
 ```bash
 export HF_TOKEN=<read-token>
-export STS_PERMANENT_CORPUS_DIR="$PWD/simulator/verification/corpus/legacy_pre_collection_2/permanent_traces"
+export STS_PERMANENT_CORPUS_DIR="$PWD/simulator/verification/corpus/permanent_traces"
 tools/hf_corpus.sh download dtonderski/sts-permanent-traces
 ```
 
-Never point that download at `verification/corpus/permanent_traces/`. The active
-corpus starts empty and receives only reviewed traces from the current
-collection epoch. The repository intentionally carries no generated inventory,
-outcome ledger, or status snapshot; status is computed from the immutable active
-payloads and the verifier revision being evaluated.
+`.cursor/start.sh` performs this download at boot when `HF_TOKEN` is available.
+The 602 pre-collection.2 payloads remain only in the local
+`legacy_pre_collection_2/permanent_traces/` archive. The repository
+intentionally carries no generated inventory, outcome ledger, or status
+snapshot; status is computed from immutable payloads and the verifier revision
+being evaluated.
 
 The external corpus is a **regression lock**, not a residual-rate proof. For the
 combined Phase 3A fidelity confidence gate and its statistical limits, see

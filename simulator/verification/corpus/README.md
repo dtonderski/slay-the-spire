@@ -8,10 +8,13 @@ are gitignored and must not be committed.
 `permanent_traces/` contains only traces captured under the current collection
 epoch: fixed gameplay delta (`collection.2`) and boundary schema 6 exactly.
 A later boundary schema requires an explicit verifier/corpus epoch update.
-The first authoritative cohort is the independently audited 20-trace
-`collection.2-schema6-pilot`; promotion copied the immutable payloads from the
-pilot only after its structural, fence, effect-queue, retrieval, terminal,
-repeatability, and raw-diff checks passed.
+The current authoritative cohort is the independently audited 208-trace
+`collection.2-schema6` campaign. Promotion copied the immutable payloads only
+after structural, fence, effect-queue, hand/card retrieval, terminal,
+repeatability, raw-diff, and hash checks passed. The current verifier completely
+passes 123 traces and stops 85 at explicit unsupported mechanics, with zero raw
+unexpected diffs. The earlier independently audited exact-20 schema-6 pilot is
+retained unchanged under `legacy_schema6_initial_pilot/permanent_traces/`.
 The schema-3 pilot is non-authoritative because a deferred out-of-combat update
 could complete the first combat card command before the queued card resolved.
 The schema-4 pilot is non-authoritative because a late state from a preceding
@@ -40,9 +43,15 @@ The original 602 payloads predate the fixed-gameplay-delta collection fork.
 They remain immutable investigation evidence but are not authoritative parity
 inputs. Local payloads are stored under
 `legacy_pre_collection_2/permanent_traces/`; their original quarantine metadata
-is `legacy_pre_collection_2/quarantine.txt`. The private
-`dtonderski/sts-permanent-traces` Hugging Face dataset is the remote archive.
-Do not copy this cohort back into `permanent_traces/`.
+is `legacy_pre_collection_2/quarantine.txt`. They no longer occupy the private
+Hugging Face dataset. Do not copy this cohort back into `permanent_traces/`.
+
+## External authoritative mirror
+
+The private `dtonderski/sts-permanent-traces` Hugging Face dataset contains the
+208 active schema-6 traces as deterministic `<trace>.jsonl.gz` files. It is the
+external mirror used by Cursor Cloud and clean local checkouts; uploads remain
+an explicit audited local operation.
 
 ## Repository fixtures
 

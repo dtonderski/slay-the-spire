@@ -74,21 +74,22 @@ The inner loop is the Rust verifier, not the UI:
   handcrafted TCP. A sandboxed port check cannot prove the Windows game is
   stopped; use `live-trace bridges list`.
 - `simulator/verification/corpus/permanent_traces/` is the gitignored active
-  authoritative corpus. The 602 pre-collection.2 payloads are preserved as a
-  local/remote legacy archive and must not be copied back into the active gate.
-  Details are in `simulator/docs/verification.md`.
+  authoritative corpus. The private `dtonderski/sts-permanent-traces` Hugging
+  Face dataset mirrors the current reviewed cohort. The 602 pre-collection.2
+  payloads remain a local legacy archive and must not be copied back into the
+  active gate. Details are in `simulator/docs/verification.md`.
 - Keep searches targeted. `tmp/decompiled-sts/`, when extracted, is a huge
   uncommitted decompiled-source corpus: search one package path such as
   `com/megacrit/cardcrawl/monsters/`, never the whole tree.
 
 ### Cursor Cloud
 
-- The private `dtonderski/sts-permanent-traces` Hugging Face dataset is the
-  immutable pre-collection.2 legacy archive. `.cursor/start.sh` intentionally
-  does not download it into the active corpus.
-- Cloud agents may download legacy traces explicitly for investigation, but
-  must never edit them, treat them as authoritative, or upload corpus changes.
-  Corpus uploads are an explicit local operation.
+- Cloud agents download the current reviewed permanent corpus from the private
+  `dtonderski/sts-permanent-traces` Hugging Face dataset at boot. `HF_TOKEN`
+  must be a read token supplied through Cursor secrets, never committed.
+- Cloud agents may read and replay the downloaded traces but must never edit
+  them or upload corpus changes. Corpus replacement is an explicit audited
+  local operation.
 
 ## Trace Collection
 

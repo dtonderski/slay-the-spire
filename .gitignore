@@ -72,6 +72,7 @@ simulator/verification/corpus/permanent_traces/
 simulator/verification/corpus/legacy_pre_collection_2/*
 !simulator/verification/corpus/legacy_pre_collection_2/quarantine.txt
 simulator/verification/corpus/legacy_schema5_pilot/
+simulator/verification/corpus/legacy_schema6_initial_pilot/
 simulator/verification/corpus/.hf_download_cache/
 simulator/verification/corpus/open_failures/
 simulator/verification/corpus/quarantined_traces/

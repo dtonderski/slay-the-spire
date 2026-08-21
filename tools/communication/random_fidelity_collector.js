@@ -24,6 +24,13 @@ function availableSet(summary) {
   return new Set((summary?.available_commands || []).map((item) => String(item).toLowerCase()));
 }
 
+function menuStartReady(summary) {
+  const available = availableSet(summary);
+  return summary?.in_game === false
+    && summary?.ready_for_command === true
+    && (available.has("start") || available.has("start_verify"));
+}
+
 function livingMonsters(summary) {
   return (summary?.combat?.monsters || []).filter(
     (monster) => !monster.gone && !monster.half_dead && Number(monster.hp) > 0,
@@ -952,19 +959,19 @@ async function main() {
       });
       protocolState = await controlRequest(status.control, { type: "state" });
     }
-    for (let attempt = 0; attempt < 50; attempt += 1) {
-      const available = availableSet(protocolState.summary);
-      if (available.has("start") || available.has("start_verify")) break;
-      await send(status.control, acquired.owner_token, protocolState, "STATE", {
-        source: "random_fidelity_collector",
-        reason: "settle_main_menu",
-        operator_control: "settle_poll",
-      });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+    for (let attempt = 0; attempt < 240; attempt += 1) {
+      if (menuStartReady(protocolState.summary)) break;
+      if (protocolState.summary || protocolState.status?.status === "ready") {
+        await send(status.control, acquired.owner_token, protocolState, "STATE", {
+          source: "random_fidelity_collector",
+          reason: "settle_main_menu",
+          operator_control: "settle_poll",
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
       protocolState = await controlRequest(status.control, { type: "state" });
     }
-    if (!availableSet(protocolState.summary).has("start") &&
-        !availableSet(protocolState.summary).has("start_verify")) {
+    if (!menuStartReady(protocolState.summary)) {
       throw new Error("START_VERIFY did not become available at the main menu");
     }
     const profileState = await send(
@@ -1212,6 +1219,7 @@ module.exports = {
   localBridgeTracePath,
   isSoleEventLeaveScreen,
   communicationBoundary,
+  menuStartReady,
   needsMapChoiceSettle,
   normalizeSettledGameplayRecords,
   observeCombatStall,

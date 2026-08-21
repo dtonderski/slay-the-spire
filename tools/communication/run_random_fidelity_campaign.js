@@ -84,6 +84,8 @@ function isInfrastructureFailure(child) {
   const detail = String(child.stderr || child.error || "");
   if (/a command is already (?:queued|in flight)/i.test(detail)) return true;
   if (/bridge ownership rejected|controller owner_token/i.test(detail)) return true;
+  if (/bridge is not ready for a command/i.test(detail)) return true;
+  if (/START_VERIFY did not become available at the main menu/i.test(detail)) return true;
   return Number(child.elapsed_ms || 0) < 10_000 &&
     /ECONNREFUSED|timed out waiting for bridge control response|bridge is already in a run/i
       .test(detail);

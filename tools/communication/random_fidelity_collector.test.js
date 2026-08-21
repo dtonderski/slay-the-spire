@@ -15,6 +15,7 @@ const {
   isSoleEventLeaveScreen,
   loadBossUnlocks,
   localBridgeTracePath,
+  menuStartReady,
   needsMapChoiceSettle,
   normalizeSettledGameplayRecords,
   observeCombatStall,
@@ -59,6 +60,30 @@ assert.strictEqual(
 );
 assert.strictEqual(
   needsMapChoiceSettle({ screen_type: "MAP", available_commands: ["choose", "return"], choices: ["x=0"] }),
+  false,
+);
+assert.strictEqual(
+  menuStartReady({
+    in_game: false,
+    ready_for_command: false,
+    available_commands: ["start", "start_verify", "state", "profile"],
+  }),
+  false,
+);
+assert.strictEqual(
+  menuStartReady({
+    in_game: false,
+    ready_for_command: true,
+    available_commands: ["start", "start_verify", "state", "profile"],
+  }),
+  true,
+);
+assert.strictEqual(
+  menuStartReady({
+    in_game: true,
+    ready_for_command: true,
+    available_commands: ["start_verify", "state"],
+  }),
   false,
 );
 
