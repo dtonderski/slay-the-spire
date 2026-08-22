@@ -2554,7 +2554,12 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<(
 
     match state.relic_counters.player_turns_started {
         HORN_CLEAT_TURN if state.relics.contains(&Relic::HornCleat) => {
-            checked_add_relic_value(&mut state.player.block, HORN_CLEAT_BLOCK)?;
+            // HornCleat.atTurnStart queues GainBlockAction(14), which triggers
+            // Juggernaut (FIDL02412).
+            crate::combat::transition::apply_player_end_turn_automatic_block_gain(
+                state,
+                HORN_CLEAT_BLOCK,
+            )?;
         }
         CAPTAINS_WHEEL_TURN if state.relics.contains(&Relic::CaptainsWheel) => {
             // Captain's Wheel's start-of-turn callback bypasses No Block just
