@@ -4119,16 +4119,13 @@ pub fn prepare_monster_intent_for_ascension(
         let MonsterIntent::Attack { .. } = intent else {
             unreachable!("matches! above guarantees Attack intent")
         };
-        let damage = if monster.max_hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
+        let large = spike_slime_is_large(monster);
+        let damage = if large {
             SPIKE_SLIME_L_SPIT_DAMAGE
         } else {
             SPIKE_SLIME_M_SPIT_DAMAGE
         };
-        let count = if monster.max_hp > SPIKE_SLIME_M_A7_HP_RANGE.max {
-            2
-        } else {
-            1
-        };
+        let count = if large { 2 } else { 1 };
         intent = MonsterIntent::AttackAddSlimedToDiscard { damage, count };
     }
     if monster.content_id == SPIKE_SLIME_ID
@@ -4136,7 +4133,7 @@ pub fn prepare_monster_intent_for_ascension(
         && matches!(intent, MonsterIntent::ApplyPlayerWeak { .. })
     {
         intent = MonsterIntent::ApplyPlayerFrailAndWeak {
-            frail: spike_slime_frail_amount(monster.max_hp, ascension),
+            frail: spike_slime_frail_amount_for_monster(monster, ascension),
             weak: 0,
         };
     }
@@ -9246,8 +9243,25 @@ pub(crate) fn target_medium_or_large_spike_slime_next_intent_from_roll_with_prof
     }
 }
 
+fn spike_slime_is_large(monster: &MonsterState) -> bool {
+    match monster.slime_size {
+        Some(SlimeSize::Large) => true,
+        Some(SlimeSize::Small | SlimeSize::Medium) => false,
+        None => {
+            monster.max_hp > SPIKE_SLIME_M_A7_HP_RANGE.max
+                || monster
+                    .rolled_attack_damage
+                    .is_some_and(|damage| damage >= SPIKE_SLIME_L_SPIT_DAMAGE)
+        }
+    }
+}
+
 fn spike_slime_frail_amount(hp: i32, ascension: u8) -> i32 {
     spike_slime_frail_amount_for_profile(hp > SPIKE_SLIME_M_A7_HP_RANGE.max, ascension)
+}
+
+fn spike_slime_frail_amount_for_monster(monster: &MonsterState, ascension: u8) -> i32 {
+    spike_slime_frail_amount_for_profile(spike_slime_is_large(monster), ascension)
 }
 
 fn spike_slime_frail_amount_for_profile(large: bool, ascension: u8) -> i32 {
@@ -9534,18 +9548,20 @@ pub fn large_acid_slime_on_hp_damage(monster: &mut MonsterState, hp_damage: i32)
 }
 
 fn slime_can_split_at_current_hp(monster: &MonsterState) -> bool {
-    let large_or_split_child = if monster.content_id == ACID_SLIME_ID {
-        monster.max_hp > ACID_SLIME_M_A7_HP_RANGE.max
-            || monster
-                .rolled_attack_damage
-                .is_some_and(|damage| damage >= 11)
-    } else {
-        monster.max_hp > SPIKE_SLIME_M_A7_HP_RANGE.max
-            || monster
-                .rolled_attack_damage
-                .is_some_and(|damage| damage >= SPIKE_SLIME_L_SPIT_DAMAGE)
+    // Split children inherit the parent's leftover HP, which can sit above the
+    // natural Medium roll range. Class/size, not current max HP, decides Split.
+    let large = match monster.slime_size {
+        Some(SlimeSize::Large) => true,
+        Some(SlimeSize::Small | SlimeSize::Medium) => false,
+        None if monster.content_id == ACID_SLIME_ID => {
+            monster.max_hp > ACID_SLIME_M_A7_HP_RANGE.max
+                || monster
+                    .rolled_attack_damage
+                    .is_some_and(|damage| damage >= 11)
+        }
+        None => spike_slime_is_large(monster),
     };
-    large_or_split_child && monster.hp <= monster.max_hp / 2
+    large && monster.hp <= monster.max_hp / 2
 }
 
 fn finish_guardian_defensive_turn(monster: &mut MonsterState) {
@@ -10472,10 +10488,8 @@ fn apply_monster_intent_with_card_rng_inner(
                 // does not publish Parasite before the queued debuff runs.
                 monster.has_siphoned = true;
             } else {
-                let applied_frail = if monster.content_id == SPIKE_SLIME_ID
-                    && monster.max_hp > SPIKE_SLIME_M_A7_HP_RANGE.max
-                {
-                    spike_slime_frail_amount(monster.max_hp, ascension)
+                let applied_frail = if monster.content_id == SPIKE_SLIME_ID {
+                    spike_slime_frail_amount_for_monster(monster, ascension)
                 } else {
                     frail
                 };
