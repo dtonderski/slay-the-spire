@@ -212,11 +212,10 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
             &mut deferred_monster_deaths,
             !defer_combust_until_after_autoplay,
         )?;
-        // The Bomb's end-turn explosion can end combat before hand cleanup;
-        // target skips Regret in that terminal queue (FIDL00244) but still
-        // plays Burn/Decay from callEndOfTurnActions (FIDL01533). Keep this
-        // limited to Bomb-triggered victory; other end-turn powers retain the
-        // ordinary hand-before-victory ordering used by the corpus.
+        // The Bomb's end-turn explosion can end combat before hand cleanup.
+        // callEndOfTurnActions still plays Burn/Decay/Regret first (FIDL01533,
+        // FIDL02376). Keep this limited to Bomb-triggered victory; other
+        // end-turn powers retain the ordinary hand-before-victory ordering.
         // Constricted still resolves in that pre-hand bomb-lethal window as
         // blockable THORNS loss before Burning Blood (FIDL00403: 3876 block 5
         // / Constricted 10 → 3877 after BB +6). Combust-only lethals continue
