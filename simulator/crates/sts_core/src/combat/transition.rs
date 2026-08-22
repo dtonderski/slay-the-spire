@@ -1397,6 +1397,11 @@ fn apply_internal_action_with_defer(
             Ok(Vec::new())
         }
         InternalAction::SettleForcedEndTurn => {
+            // GremlinHorn.onMonsterDeath addToBots GainEnergy + Draw during
+            // DamageAll, before the action manager empties and runs the flagged
+            // end turn. Flushing after SettleForcedEndTurn leaves an extra card
+            // and energy on the next turn (FIDL02294 Conclude + minion kill).
+            flush_pending_monster_death_relics_if_ready(state)?;
             settle_time_warp_end_turn_if_ready(state)?;
             Ok(Vec::new())
         }
@@ -12065,6 +12070,49 @@ mod tests {
         assert_ne!(
             transition.state.monsters[0].block, 20,
             "pre-hit smash block must not apply after Reactive reroll"
+        );
+    }
+
+    #[test]
+    fn conclude_horn_draw_settles_before_forced_end_turn() {
+        // GremlinHorn addToBots Draw+Energy during DamageAll. Those must run
+        // before the flagged end turn so the extra card is discarded and
+        // energy is overwritten by the refill (FIDL02294).
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::GremlinHorn);
+        state.player.energy = 1;
+        state.player.max_energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), CONCLUDE_ANY_COLOR_ID)];
+        state.piles.draw_pile = (10..=20)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        let mut minion = state.monsters[0].clone();
+        minion.id = MonsterId::new(2);
+        minion.hp = 1;
+        minion.max_hp = 20;
+        minion.powers.minion = 1;
+        state.monsters[0].hp = 40;
+        state.monsters[0].max_hp = 40;
+        state.monsters.push(minion);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Conclude kills the minion and ends the turn");
+
+        assert_eq!(
+            next.player.energy, 3,
+            "Horn energy must not survive the end-turn refill"
+        );
+        assert_eq!(
+            next.piles.hand.len(),
+            5,
+            "Horn draw must be discarded with the rest of the old hand"
         );
     }
 
