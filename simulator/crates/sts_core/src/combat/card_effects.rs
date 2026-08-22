@@ -428,6 +428,12 @@ pub(super) fn play_card_queue(
             *card,
             definition,
         ),
+        id if id == crate::content::cards::EVALUATE_ANY_COLOR_ID => {
+            evaluate_queue(state, card_id, definition)
+        }
+        id if id == crate::content::cards::EMPTY_BODY_ANY_COLOR_ID => {
+            empty_body_queue(state, card_id, definition)
+        }
         id if id == crate::content::cards::CRUSH_JOINTS_ANY_COLOR_ID => crush_joints_queue(
             state,
             card_id,
@@ -3352,6 +3358,69 @@ fn crescendo_queue(
     ]))
 }
 
+fn empty_body_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // EmptyBody.baseBlock is 7; upgradeBlock(3). ChangeStance(Neutral).
+    let block = required_block(definition)? + if upgrades > 0 { 3 } else { 0 };
+    let exit_calm = state.player.powers.calm > 0;
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainBlock { amount: block },
+    ]);
+    if exit_calm {
+        queue.push_back(InternalAction::ExitCalm);
+        queue.push_back(InternalAction::GainEnergy { amount: 2 });
+    }
+    queue.push_back(InternalAction::EnterCalm);
+    queue.push_back(InternalAction::ExitCalm);
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+    Ok(queue)
+}
+
+fn evaluate_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Evaluate.baseBlock is 6; upgradeBlock(4). Always shuffles Insight.
+    let block = required_block(definition)? + if upgrades > 0 { 4 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainBlock { amount: block },
+        InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+            content_id: crate::content::cards::INSIGHT_ID,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
 fn pray_queue(
     state: &CombatState,
     card_id: CardId,
@@ -3844,7 +3913,14 @@ fn anger_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: required_damage(definition)?,
+                amount: required_damage(definition)?
+                    + if card.upgrades > 0 && definition.id == ANGER_ID {
+                        // Anger.upgradeDamage(2) when the instance is upgraded
+                        // but still carries the base content id.
+                        2
+                    } else {
+                        0
+                    },
             },
         },
         InternalAction::AddStatEquivalentCopyToPile {
