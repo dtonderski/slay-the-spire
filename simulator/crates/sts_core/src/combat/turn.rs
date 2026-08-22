@@ -2355,6 +2355,7 @@ fn deal_damage_to_player_with_draw_policy(
         hp_damage,
         draw_policy,
     )?;
+    crate::combat::transition::apply_static_discharge_on_attacked(state, hp_damage)?;
     revive_player_if_available(state)?;
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
