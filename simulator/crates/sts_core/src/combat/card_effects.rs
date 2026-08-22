@@ -760,6 +760,15 @@ pub(super) fn play_top_draw_card_queue(
         && !burning_pact_opens_deferred_source_select
         && !discovery_reward_defers_source_settlement
     {
+        // UseCardAction.empower removes a played Power; it does not
+        // moveToDiscardPile (FIDL02303 Mayhem Juggernaut).
+        if definition.card_type == CardType::Power {
+            queue.push_back(InternalAction::RemoveCard {
+                card_id: card.id,
+                from: CardPile::Hand,
+            });
+            return Ok((queued_state, queue));
+        }
         // Hand-play builders place MoveCard at the UseCardAction slot among *that*
         // card's bot actions (after damage, before nothing, etc.). Nested Havoc /
         // Mayhem are special: card.use() queues PlayTop before UseCardAction, so a
