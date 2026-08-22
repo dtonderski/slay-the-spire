@@ -485,10 +485,25 @@ public class ChoiceScreenUtils {
     private static void clickGridScreenConfirmButton() {
         GridCardSelectScreen screen = AbstractDungeon.gridSelectScreen;
         screen.confirmButton.hb.clicked = true;
-        if (AbstractDungeon.previousScreen == AbstractDungeon.CurrentScreen.SHOP) {
-            // The rest of the associated shop purge logic will not run in this update, so we need to block until it does.
+        if (shouldBlockAfterShopPurgeGridConfirm(
+                AbstractDungeon.previousScreen, screen.forPurge)) {
+            // Confirm only marks the grid button clicked. ShopRoom.updatePurge
+            // applies gold/deck changes on a later room update, so block until
+            // that method actually processes a purge selection.
             GameStateListener.blockStateUpdate();
         }
+    }
+
+    /**
+     * Shop-purge GRID CONFIRM must not publish a boundary until
+     * {@code ShopRoom.updatePurge} spends gold and removes the card.
+     * Campfire smith/toke grids do not use {@code previousScreen == SHOP}.
+     */
+    public static boolean shouldBlockAfterShopPurgeGridConfirm(
+            AbstractDungeon.CurrentScreen previousScreen,
+            boolean forPurge
+    ) {
+        return previousScreen == AbstractDungeon.CurrentScreen.SHOP && forPurge;
     }
 
     private static boolean isGridScreenCancelAvailable() {
