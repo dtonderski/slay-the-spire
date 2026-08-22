@@ -1422,6 +1422,10 @@ pub fn any_color_reward_card_key_from_identity(identity: &str) -> Option<&'stati
     if normalized == "fasting2" {
         normalized = "fasting".to_owned();
     }
+    // CommunicationMod exports Silent Sneaky Strike as id `Underhanded Strike`.
+    if normalized == "underhandedstrike" {
+        normalized = "sneakystrike".to_owned();
+    }
     ANY_COLOR_COMMON_CARDS
         .iter()
         .chain(ANY_COLOR_UNCOMMON_CARDS.iter())
