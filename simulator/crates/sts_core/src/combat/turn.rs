@@ -952,13 +952,17 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) -> SimResult<()> {
     for offset in 0..count {
         let content_id = crate::combat::card_effects::magnetism_generated_colorless_card(state);
         let next_id = crate::CardId::new(first_id + offset as u64);
-        let generated = crate::CardInstance {
+        let mut generated = crate::CardInstance {
             combat_only: true,
             ..crate::CardInstance::new(next_id, content_id)
         };
         if state.piles.hand.len() >= 10 {
             state.piles.discard_pile.push(generated);
         } else {
+            crate::combat::transition::apply_corruption_cost_to_generated_hand_card(
+                state,
+                &mut generated,
+            );
             state.piles.hand.push(generated);
         }
     }

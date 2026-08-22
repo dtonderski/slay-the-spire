@@ -1245,7 +1245,11 @@ fn apply_internal_action_with_defer(
             pile_actions::draw_cards_if_no_attacks_in_hand(state, count)
         }
         InternalAction::DrawThenScrapeDiscard { count } => {
-            pile_actions::draw_then_scrape_discard(state, count)
+            // Scrape's DrawCardAction runs while UseCardAction still holds the
+            // source in cardInUse, same as Violence (FIDL01255).
+            with_card_in_use_out_of_hand(state, |next| {
+                pile_actions::draw_then_scrape_discard(next, count)
+            })
         }
         InternalAction::DrawRandomAttacksFromDrawPile { count } => {
             // ViolenceAction runs while UseCardAction still holds the source in
@@ -2696,6 +2700,9 @@ fn add_generated_card_to_pile(
     } else {
         to
     };
+    if destination == CardPile::Hand {
+        apply_corruption_cost_to_generated_hand_card(state, &mut card);
+    }
     push_card_to_pile(state, card, destination);
     Ok(())
 }
@@ -2808,6 +2815,23 @@ fn apply_play_top_with_mid_hex(
 fn apply_generated_card_metadata(state: &CombatState, card: &mut CardInstance) {
     if card.content_id == BLOOD_FOR_BLOOD_ID || card.content_id == BLOOD_FOR_BLOOD_PLUS_ID {
         card.blood_for_blood_cost_reduction = state.player.damage_events_this_combat;
+    }
+}
+
+/// ShowCardAndAddToHandEffect setCostForTurn(-9) when Corruption is active.
+pub(crate) fn apply_corruption_cost_to_generated_hand_card(
+    state: &CombatState,
+    card: &mut CardInstance,
+) {
+    if state.player.powers.corruption <= 0 {
+        return;
+    }
+    let Some(definition) = get_card_definition(card.content_id) else {
+        return;
+    };
+    if definition.card_type == CardType::Skill && definition.cost >= 0 {
+        card.temp_cost = Some(0);
+        card.temp_cost_turn_only = true;
     }
 }
 
