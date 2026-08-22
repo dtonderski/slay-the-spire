@@ -16,6 +16,12 @@ pub(super) fn gain_energy(state: &mut CombatState, amount: i32) -> SimResult<Vec
     Ok(Vec::new())
 }
 
+/// EnergyPanel.useEnergy floors at zero after subtracting `amount`.
+pub(super) fn lose_energy(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    state.player.energy = (state.player.energy - amount).max(0);
+    Ok(Vec::new())
+}
+
 pub(super) fn lose_hp(
     state: &mut CombatState,
     amount: i32,
