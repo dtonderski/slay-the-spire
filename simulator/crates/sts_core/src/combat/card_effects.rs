@@ -887,10 +887,15 @@ fn apply_strange_spoon_to_played_card_move(
     // cardRandomRng) runs before UseCardAction calls moveToExhaustPile.
     // Rolling Spoon at queue-build time steals the first cardRandomRng
     // call from addToRandomSpot (FIDL01427 Bash/Rampage/Cleave+).
-    if queue
-        .iter()
-        .any(|action| matches!(action, InternalAction::DrawRandomAttacksFromDrawPile { .. }))
-    {
+    // MadnessAction also rolls cardRandomRng before UseCardAction/Spoon
+    // (FIDL02356).
+    if queue.iter().any(|action| {
+        matches!(
+            action,
+            InternalAction::DrawRandomAttacksFromDrawPile { .. }
+                | InternalAction::SetRandomHandCardCostForCombat { .. }
+        )
+    }) {
         state.defer_strange_spoon_until_source_move = Some(card_id);
         return;
     }
