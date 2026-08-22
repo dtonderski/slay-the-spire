@@ -432,6 +432,10 @@ pub fn monster_damage_to_player_with_relics(
             denominator *= 2;
         }
     }
+    // WrathStance.atDamageReceive doubles NORMAL incoming attack damage.
+    if player.powers.wrath > 0 {
+        numerator *= 2;
+    }
     i32::try_from(numerator / denominator)
         .map_err(|_| SimError::InvalidState("monster attack damage arithmetic overflow"))
 }

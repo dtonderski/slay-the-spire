@@ -20,7 +20,7 @@ pub struct PlayerPowers {
     pub mantra: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub calm: i32,
-    /// Watcher Wrath stance: double attack damage.
+    /// Watcher Wrath stance: double outgoing and incoming NORMAL attack damage.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub wrath: i32,
     pub weak: i32,
