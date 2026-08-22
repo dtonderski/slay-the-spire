@@ -20,19 +20,20 @@ use crate::{
     map::{milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
     potion::{Potion, MAX_POTIONS},
     relic::{
-        apply_start_of_combat_relics, initialize_ironclad_relic_pools, Relic, RelicKey,
-        RelicPoolState, RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BLOODY_IDOL_HEAL,
-        BUSTED_CROWN_ENERGY, CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
-        DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY, ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS,
-        FUSION_HAMMER_ENERGY, GIRYA_MAX_LIFTS, HAPPY_FLOWER_THRESHOLD, INCENSE_BURNER_THRESHOLD,
-        INK_BOTTLE_THRESHOLD, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY,
-        MATRYOSHKA_MAX_CHESTS, MAW_BANK_GOLD, NUNCHAKU_THRESHOLD, OLD_COIN_GOLD, OMAMORI_CHARGES,
-        ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP, PEN_NIB_THRESHOLD,
-        PHILOSOPHERS_STONE_ENERGY, PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS,
-        PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY,
-        SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, SSSERPENT_HEAD_GOLD,
-        STRAWBERRY_MAX_HP, TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP,
-        VELVET_CHOKER_ENERGY, WING_BOOTS_CHARGES,
+        apply_start_of_combat_relics, combat_healing_amount_with_relics,
+        initialize_ironclad_relic_pools, Relic, RelicKey, RelicPoolState, RelicSpawnContext,
+        ANCIENT_TEA_SET_ENERGY, BLOODY_IDOL_HEAL, BUSTED_CROWN_ENERGY, CERAMIC_FISH_GOLD,
+        COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE,
+        ECTOPLASM_ENERGY, ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, FUSION_HAMMER_ENERGY,
+        GIRYA_MAX_LIFTS, HAPPY_FLOWER_THRESHOLD, INCENSE_BURNER_THRESHOLD, INK_BOTTLE_THRESHOLD,
+        LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MATRYOSHKA_MAX_CHESTS,
+        MAW_BANK_GOLD, NUNCHAKU_THRESHOLD, OLD_COIN_GOLD, OMAMORI_CHARGES, ORRERY_CARD_REWARDS,
+        PANTOGRAPH_HEAL, PEAR_MAX_HP, PEN_NIB_THRESHOLD, PHILOSOPHERS_STONE_ENERGY,
+        PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
+        PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
+        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, SSSERPENT_HEAD_GOLD, STRAWBERRY_MAX_HP,
+        TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
+        WING_BOOTS_CHARGES,
     },
     rng::{rng_counter_is_supported, ExternalRngInput, JavaRng, RngTraceStream, StsRng},
     SimError, SimResult,
@@ -3442,8 +3443,16 @@ impl RunState {
             self.gain_gold(CERAMIC_FISH_GOLD)?;
         }
         if self.relics.contains(&Relic::DarkstonePeriapt) && is_curse_content_id(content_id) {
+            // AbstractCreature.increaseMaxHp heals the same amount through
+            // heal(amount, true). MagicFlower.onPlayerHeal applies only while
+            // the current room is COMBAT (6 * 1.5 → 9).
             self.player_max_hp = checked_run_add(self.player_max_hp, DARKSTONE_PERIAPT_MAX_HP)?;
-            self.player_hp = checked_run_add(self.player_hp, DARKSTONE_PERIAPT_MAX_HP)?;
+            let heal = if self.phase == RunPhase::Combat {
+                combat_healing_amount_with_relics(DARKSTONE_PERIAPT_MAX_HP, &self.relics)
+            } else {
+                DARKSTONE_PERIAPT_MAX_HP
+            };
+            self.player_hp = checked_run_add(self.player_hp, heal)?.min(self.player_max_hp);
         }
         Ok(())
     }
