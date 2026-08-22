@@ -2166,8 +2166,10 @@ fn execute_judgement(
     if monster.hp > threshold {
         return Ok(Vec::new());
     }
+    // InstantKillAction: currentHealth = 0, then damage(HP_LOSS, 0).
+    // Darkling.damage still enters the first-death COUNT / Life Link pose.
     monster.hp = 0;
-    monster.alive = false;
+    crate::combat::damage::deal_hp_loss_damage_to_monster(monster, 0);
     apply_monster_death_hooks(state, target)?;
     Ok(Vec::new())
 }
@@ -11924,6 +11926,77 @@ mod tests {
                 .iter()
                 .any(|card| card.content_id == EVOLVE_ID),
             "nonzero-cost Evolve must not remain in hand",
+        );
+    }
+
+    #[test]
+    fn bane_plus_deals_ten_into_block() {
+        // Bane.baseDamage is 7; upgradeDamage(3). A + card into 12 block must
+        // leave 2, not 3 (FIDL02294 step 855).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        let mut bane = CardInstance::new(CardId::new(1), BANE_ANY_COLOR_ID);
+        bane.upgrades = 1;
+        state.piles.hand = vec![bane];
+        state.piles.discard_pile.clear();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
+        state.monsters[0].block = 12;
+        state.monsters[0].hp = 26;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(state.monsters[0].id),
+            },
+        )
+        .expect("Bane+ hits block");
+
+        assert_eq!(
+            next.monsters[0].block, 2,
+            "Bane+ is 10 damage; leftover block={}",
+            next.monsters[0].block
+        );
+        assert_eq!(next.monsters[0].hp, 26);
+    }
+
+    #[test]
+    fn judgement_instant_kill_puts_darkling_in_count_pose() {
+        // InstantKillAction goes through AbstractMonster.damage, so a Darkling
+        // first death is COUNT / Life Link, not a full die() (FIDL02294).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), JUDGEMENT_ANY_COLOR_ID)];
+        state.piles.discard_pile.clear();
+        state.monsters = vec![
+            monster_state(&DARKLING_A0, MonsterId::new(1)),
+            monster_state(&DARKLING_A0, MonsterId::new(2)),
+            monster_state(&DARKLING_A0, MonsterId::new(3)),
+        ];
+        for monster in &mut state.monsters {
+            monster.rolled_attack_damage = Some(9);
+            monster.intent = crate::MonsterIntent::Attack { damage: 9 };
+        }
+        state.monsters[1].hp = 26;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(MonsterId::new(2)),
+            },
+        )
+        .expect("Judgement instant-kills the mid Darkling");
+
+        assert!(!next.monsters[1].alive);
+        assert!(
+            next.monsters[1].escaped,
+            "first death is Life Link half-dead"
+        );
+        assert_eq!(next.monsters[1].intent, crate::MonsterIntent::DarklingCount);
+        assert_eq!(
+            crate::content::monsters::target_move_byte_for_monster(&next.monsters[1]),
+            Some(4)
         );
     }
 
