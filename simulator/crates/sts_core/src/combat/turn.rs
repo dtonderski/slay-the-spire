@@ -6696,6 +6696,49 @@ mod tests {
     }
 
     #[test]
+    fn mayhem_play_top_power_is_empowered_not_discarded() {
+        // UseCardAction.empower removes a Power; it does not moveToDiscardPile.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.piles.hand.clear();
+        state.piles.discard_pile.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), INFLAME_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+            CardInstance::new(CardId::new(23), STRIKE_R_ID),
+            CardInstance::new(CardId::new(24), STRIKE_R_ID),
+            CardInstance::new(CardId::new(25), STRIKE_R_ID),
+        ];
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+
+        start_player_turn(&mut state).expect("Mayhem plays Inflame");
+
+        assert!(
+            !state
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == INFLAME_ID),
+            "played Power must not enter discard, discard={:?}",
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            state.player.powers.strength > 0,
+            "Inflame must apply Strength"
+        );
+    }
+
+    #[test]
     fn mayhem_play_top_settles_after_evolve_residual_draw() {
         // UseCardAction is behind Evolve's addToBot Draw from the base refill,
         // so the forced card is not in the shuffle Evolve consumes.
