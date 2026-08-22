@@ -339,7 +339,10 @@ fn calculate_player_attack_damage(
     if target_slow > 0 {
         amount *= 1.0 + f64::from(target_slow) * 0.1;
     }
-    // Divinity stance (Blasphemy): triple attack damage.
+    // Wrath stance: double attack damage. Divinity triples (Blasphemy).
+    if player.wrath > 0 {
+        amount *= 2.0;
+    }
     if player.divinity > 0 {
         amount *= 3.0;
     }

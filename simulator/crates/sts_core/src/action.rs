@@ -359,6 +359,9 @@ pub enum InternalAction {
     GainStorm {
         amount: i32,
     },
+    GainAfterImage {
+        amount: i32,
+    },
     GainThorns {
         amount: i32,
     },
@@ -394,6 +397,7 @@ pub enum InternalAction {
         amount: i32,
     },
     EnterCalm,
+    EnterWrath,
     ExitCalm,
     GainDexterity {
         amount: i32,

@@ -62,6 +62,14 @@ pub const CALTROPS_ANY_COLOR_ID: ContentId = ContentId::new(1_903_288_797_886);
 pub const CAPACITOR_ANY_COLOR_ID: ContentId = ContentId::new(59_004_944_749_562);
 /// Prismatic/Defect Recursion (`Redo`) — id matches `shop_card_content_id("RECURSION")`.
 pub const RECURSION_ANY_COLOR_ID: ContentId = ContentId::new(71_897_409_942_938);
+/// Prismatic/Silent After Image — id matches `shop_card_content_id("AFTER_IMAGE")`.
+pub const AFTER_IMAGE_ANY_COLOR_ID: ContentId = ContentId::new(55_200_228_987_365_200);
+/// Prismatic/Watcher Pray — id matches `shop_card_content_id("PRAY")`.
+pub const PRAY_ANY_COLOR_ID: ContentId = ContentId::new(2_464_786);
+/// Watcher Insight token created by Pray.
+pub const INSIGHT_ID: ContentId = ContentId::new(67_099_740_624);
+/// Prismatic/Watcher Crescendo — id matches `shop_card_content_id("CRESCENDO")`.
+pub const CRESCENDO_ANY_COLOR_ID: ContentId = ContentId::new(59_463_411_848_402);
 pub const PROSTRATE_ANY_COLOR_ID: ContentId = ContentId::new(70_559_886_447_078);
 pub const CLOAK_AND_DAGGER_ANY_COLOR_ID: ContentId = ContentId::new(12_608_504_500_537_169_241);
 pub const SHIV_ANY_COLOR_ID: ContentId = ContentId::new(2_544_794);
@@ -5198,6 +5206,9 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | CALTROPS_ANY_COLOR_ID
             | CAPACITOR_ANY_COLOR_ID
             | RECURSION_ANY_COLOR_ID
+            | AFTER_IMAGE_ANY_COLOR_ID
+            | PRAY_ANY_COLOR_ID
+            | CRESCENDO_ANY_COLOR_ID
             | PROSTRATE_ANY_COLOR_ID
             | CLOAK_AND_DAGGER_ANY_COLOR_ID
             | SHIV_ANY_COLOR_ID
@@ -5731,6 +5742,86 @@ pub static RECURSION_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static AFTER_IMAGE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: AFTER_IMAGE_ANY_COLOR_ID,
+    key: "AFTER_IMAGE",
+    name: "After Image",
+    cost: 1,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static PRAY_ANY_COLOR: CardDefinition = CardDefinition {
+    id: PRAY_ANY_COLOR_ID,
+    key: "PRAY",
+    name: "Pray",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static INSIGHT: CardDefinition = CardDefinition {
+    id: INSIGHT_ID,
+    key: "INSIGHT",
+    name: "Insight",
+    cost: 0,
+    card_type: CardType::Skill,
+    rarity: None,
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: true,
+        unplayable: false,
+    },
+};
+
+pub static CRESCENDO_ANY_COLOR: CardDefinition = CardDefinition {
+    id: CRESCENDO_ANY_COLOR_ID,
+    key: "CRESCENDO",
+    name: "Crescendo",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: true,
+        unplayable: false,
+    },
+};
+
 pub static EQUILIBRIUM_ANY_COLOR: CardDefinition = CardDefinition {
     id: EQUILIBRIUM_ANY_COLOR_ID,
     key: "EQUILIBRIUM",
@@ -5854,6 +5945,10 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == CALTROPS_ANY_COLOR_ID).then_some(&CALTROPS_ANY_COLOR))
         .or_else(|| (id == CAPACITOR_ANY_COLOR_ID).then_some(&CAPACITOR_ANY_COLOR))
         .or_else(|| (id == RECURSION_ANY_COLOR_ID).then_some(&RECURSION_ANY_COLOR))
+        .or_else(|| (id == AFTER_IMAGE_ANY_COLOR_ID).then_some(&AFTER_IMAGE_ANY_COLOR))
+        .or_else(|| (id == PRAY_ANY_COLOR_ID).then_some(&PRAY_ANY_COLOR))
+        .or_else(|| (id == INSIGHT_ID).then_some(&INSIGHT))
+        .or_else(|| (id == CRESCENDO_ANY_COLOR_ID).then_some(&CRESCENDO_ANY_COLOR))
         .or_else(|| (id == PROSTRATE_ANY_COLOR_ID).then_some(&PROSTRATE_ANY_COLOR))
         .or_else(|| (id == CLOAK_AND_DAGGER_ANY_COLOR_ID).then_some(&CLOAK_AND_DAGGER_ANY_COLOR))
         .or_else(|| (id == SHIV_ANY_COLOR_ID).then_some(&SHIV_ANY_COLOR))

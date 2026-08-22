@@ -1285,6 +1285,9 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::GainMagnetism { amount } => player_actions::gain_magnetism(state, amount),
         InternalAction::GainStorm { amount } => player_actions::gain_storm(state, amount),
+        InternalAction::GainAfterImage { amount } => {
+            player_actions::gain_after_image(state, amount)
+        }
         InternalAction::GainThorns { amount } => player_actions::gain_thorns(state, amount),
         InternalAction::IncreaseMaxOrbs { amount } => {
             player_actions::increase_max_orbs(state, amount)
@@ -1314,8 +1317,10 @@ fn apply_internal_action_with_defer(
         InternalAction::GainMantra { amount } => player_actions::gain_mantra(state, amount),
         InternalAction::EnterCalm => {
             state.player.powers.calm = 1;
+            state.player.powers.wrath = 0;
             Ok(Vec::new())
         }
+        InternalAction::EnterWrath => player_actions::enter_wrath(state),
         InternalAction::ExitCalm => {
             state.player.powers.calm = 0;
             Ok(Vec::new())
@@ -1561,6 +1566,13 @@ fn apply_on_card_play_powers(
     if beat_of_death > 0 {
         follow_ups.push(InternalAction::DealThornsDamageToPlayer {
             amount: beat_of_death,
+        });
+    }
+
+    if state.player.powers.after_image > 0 {
+        // AfterImagePower.onUseCard addToBot GainBlockAction(amount).
+        follow_ups.push(InternalAction::GainBlockDirect {
+            amount: state.player.powers.after_image,
         });
     }
 
@@ -2950,6 +2962,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainSadisticNature { .. }
             | InternalAction::GainMagnetism { .. }
             | InternalAction::GainStorm { .. }
+            | InternalAction::GainAfterImage { .. }
             | InternalAction::GainThorns { .. }
             | InternalAction::IncreaseMaxOrbs { .. }
             | InternalAction::GainMetallicize { .. }
