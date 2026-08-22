@@ -1,8 +1,7 @@
 use crate::{
+    action::InternalAction,
     combat::{
-        transition::{
-            apply_on_exhaust_effects_for_end_turn, dead_branch_card_for_end_turn, player_draw_cards,
-        },
+        transition::{apply_on_exhaust_effects_for_end_turn, dead_branch_card_for_end_turn},
         CombatState,
     },
     content::cards::{
@@ -47,11 +46,26 @@ pub(crate) fn resolve_end_of_turn_hand_with_queued_autoplay(
 pub(crate) fn resolve_deferred_dark_embrace_draws(
     state: &mut CombatState,
     count: usize,
-) -> SimResult<()> {
+) -> SimResult<Vec<InternalAction>> {
+    // DarkEmbracePower.onExhaust addToBots DrawCardAction during DiscardAtEndOfTurn.
+    // FireBreathingPower.onCardDraw addToBots DamageAllEnemiesAction, which lands
+    // after AbstractRoom$1's MonsterStartTurnAction loseBlock (FIDL02421).
+    use crate::combat::transition::{
+        player_draw_cards_with_deferred_evolve, resolve_deferred_draw_follow_ups,
+    };
+    let mut fire_breathing = Vec::new();
     for _ in 0..count {
-        player_draw_cards(state, 1)?;
+        let follow_ups = player_draw_cards_with_deferred_evolve(state, 1)?;
+        let mut immediate = Vec::new();
+        for follow_up in follow_ups {
+            match follow_up {
+                InternalAction::FireBreathingDamage { .. } => fire_breathing.push(follow_up),
+                other => immediate.push(other),
+            }
+        }
+        resolve_deferred_draw_follow_ups(state, immediate)?;
     }
-    Ok(())
+    Ok(fire_breathing)
 }
 
 fn resolve_end_of_turn_hand_inner(
