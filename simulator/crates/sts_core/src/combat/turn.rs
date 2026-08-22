@@ -215,6 +215,13 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         // GameActionManager.callEndOfTurnActions queues TriggerEndOfTurnOrbsAction
         // after pre-card powers and before triggerOnEndOfTurnForPlayingCard.
         apply_end_of_turn_orb_passives(&mut next)?;
+        // Metallicize.atEndOfTurnPreEndTurnCards addToBots GainBlock before
+        // Regret is queued. Juggernaut can empty the field there and cancel
+        // the card queue (FIDL02289 Giant Head 2 HP).
+        // The Bomb still explodes after Burn/Decay/Regret (FIDL01533).
+        if !had_bomb_timer && finish_combat_if_over(&mut next, started_with_living_monster)? {
+            return Ok(next);
+        }
         // The Bomb's end-turn explosion can end combat before hand cleanup.
         // callEndOfTurnActions still plays Burn/Decay/Regret first (FIDL01533,
         // FIDL02376). Keep this limited to Bomb-triggered victory; other
