@@ -10767,7 +10767,10 @@ fn apply_monster_intent_with_card_rng_inner(
             checked_monster_intent_mul(total_thorns, thorns_hits)?,
         );
     }
-    if monster.alive && block_after_thorns > 0 {
+    // Attack-then-block moves queue GainBlockAction after DamageAction.
+    // A lethal hit opens the death screen and cancels that later block
+    // (FIDL02375 Spire Shield smash).
+    if monster.alive && block_after_thorns > 0 && player_survives_single_hit {
         checked_add_monster_intent_value(&mut monster.block, block_after_thorns)?;
     }
     // strength_up (Orb Walker) applies at end of turn via turn_powers, not mid-attack.
