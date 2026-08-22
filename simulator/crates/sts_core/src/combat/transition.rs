@@ -740,6 +740,16 @@ fn push_follow_up(
             queue.push_front(follow_up);
             return;
         }
+        // Pain.triggerOnOtherCardPlayed is addToTop on the action queue.
+        // Double Tap's copy is a later card-queue item, so Pain/Rupture from
+        // the original settle before the copy hits (FIDL02397 Pummel+).
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
     }
 
     if matches!(
