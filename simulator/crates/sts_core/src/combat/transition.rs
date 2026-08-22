@@ -750,6 +750,16 @@ fn push_follow_up(
             queue.insert(index, follow_up);
             return;
         }
+        // UseCardAction applies Pain before it settles the played card.
+        // Runic Cube's wasHPLost DrawCardAction therefore shuffles/draws
+        // before the source card enters discard (FIDL02215 Bash).
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::MoveCard { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
     }
 
     if matches!(
