@@ -1296,8 +1296,16 @@ fn generic_attack_queue(
         .find(|card| card.id == card_id)
         .map(|card| card.upgrades)
         .unwrap_or(0);
+    let retain_bonus = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.windmill_retain_damage)
+        .unwrap_or(0);
     let amount = attack_damage_with_strike_dummy(state, definition)?
-        + synthetic_any_color_upgrade_damage(definition, upgrades);
+        + synthetic_any_color_upgrade_damage(definition, upgrades)
+        + retain_bonus;
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
